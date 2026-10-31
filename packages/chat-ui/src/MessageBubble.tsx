@@ -4,7 +4,7 @@ import type {
   NormalizedChatMessage as ChatMessage,
   TimelineItem,
 } from "@codeterm/chat-core";
-import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, toolCommand, userMessageAttachments } from "@codeterm/chat-core";
+import { isTabMarkerPlaceholderLabel, materializeToolEvent, readableSystemReminder, shortTabRef, systemOriginLabel, userMessageAttachments } from "@codeterm/chat-core";
 import {
   Send,            // generic chat (telegram / service)
   Network,         // mesh
@@ -15,7 +15,6 @@ import {
 } from "lucide-react";
 import { ToolCallBubble } from "./ToolCallBubble";
 import { retainStreamedCommandShell, toolPresentationKey } from "./toolPresentationState";
-import { toolCommandShape } from "./codeterm/commandShape";
 import { AttachmentStrip } from "./AttachmentStrip";
 import { OrderedAttachmentContent } from "./OrderedAttachmentContent";
 import { EnvelopeContent } from "./EnvelopeContent";
@@ -52,8 +51,6 @@ import { WatcherVerdictCard } from "./WatcherVerdictCard";
 import { hasCanonicalMentions } from "./codeterm/canonicalMentions";
 import { LinkedText, PlanRefCards, type ResolvedChatPlanRef } from "./codeterm/LinkedText";
 import { hasPlanRefs } from "./codeterm/planRefs";
-import { recognize } from "./codeterm/recognize";
-import { isSend } from "./codeterm/templates";
 import { parseCoordinationReport } from "./codeterm/coordinationReport";
 import { useDsSegments } from "./blocks/useDsSegments";
 import { DsRenderContext } from "./blocks/DsRenderContext";
@@ -108,19 +105,6 @@ interface MessageBubbleProps {
 
 const TOOL_EXPANDED_BY_ID = new Map<string, boolean>();
 
-function hasVisibleEdit(item: TimelineItem | undefined): boolean {
-  return item?.kind === "tool"
-    && item.event.kind === "edit"
-    && Boolean(item.event.edits?.length);
-}
-
-function isOutboundMessage(item: TimelineItem | undefined): boolean {
-  if (item?.kind !== "tool") return false;
-  const { command, argv } = toolCommand(item.event);
-  const invocation = recognize(command, argv);
-  return invocation != null && isSend(invocation);
-}
-
 function tabOriginTitle(origin: Extract<ChatOrigin, { kind: "tab" }>, resolveTabName?: TabNameResolver): string {
   const tabRef = shortTabRef(origin.tabIdShort);
   const resolved = tabRef ? resolveTabName?.(tabRef) : undefined;
@@ -149,14 +133,12 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
   const isInboundCommunication = origin?.kind === "tab" || origin?.kind === "pebble" || origin?.kind === "plugin" || message.inboundKind === "tab" || message.inboundKind === "report" || message.inboundKind === "mesh" || message.inboundKind === "pebble" || message.inboundKind === "plugin";
   const isCoordinationReport = message.inboundKind === "report" && parseCoordinationReport(message.content) != null;
   const isCompactStatusReport = message.inboundKind === "report" && /^(?:partial|in[ _-]?review)$/i.test(parseInboundReport(message.content).status ?? "");
-  const isCommandGroup = item?.kind === "tool" && !item.event.stream
-    && (item.event.kind === "command" || item.event.kind === "codeterm")
-    && toolCommandShape(item.event)?.kind === "group";
   const [startedPendingCommand] = useState(() => {
     const event = item?.kind === "tool" ? item.event : materializeToolEvent(message);
     return event ? retainStreamedCommandShell(event) : false;
   });
-  const shouldAutoExpand = !startedPendingCommand && (isCommandGroup || hasVisibleEdit(item) || (isInboundCommunication && !isCoordinationReport && !isCompactStatusReport) || isOutboundMessage(item));
+  const isToolOperation = item?.kind === "tool" || message.type === "tool_call" || message.type === "tool_result";
+  const shouldAutoExpand = !isToolOperation && !startedPendingCommand && isInboundCommunication && !isCoordinationReport && !isCompactStatusReport;
   const persistKey = toolPresentationKey(message, item);
   const [expanded, setExpanded] = useState(() => {
     const persisted = TOOL_EXPANDED_BY_ID.get(persistKey);
