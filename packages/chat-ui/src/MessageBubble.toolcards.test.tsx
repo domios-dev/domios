@@ -575,6 +575,9 @@ test("structured report uses compact typed card instead of a nested message bubb
     assert(host.querySelector('[data-testid="chat-inbound-report"]'), "expected typed inbound report card");
     assertIncludes(host, "Report from Hugo", "report sender");
     assertIncludes(host, "task_2iw42e", "report task summary");
+    const disclosure = host.querySelector<HTMLButtonElement>('[data-testid="chat-inbound-report"] button[aria-controls]');
+    assert(disclosure, "report body has an explicit disclosure");
+    await act(async () => disclosure.click());
     assertIncludes(host, "Added provider matrix.", "report Markdown content");
     assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "report must not use nested cross-tab bubble");
   } finally {
