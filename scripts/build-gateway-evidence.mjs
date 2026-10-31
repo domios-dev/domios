@@ -1,4 +1,4 @@
-// Caller: scripts/build-gateway-state.mjs; scripts/build-gateway-evidence.test.mjs
+// Caller: scripts/build-gateway-state.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 import readline from 'node:readline';

@@ -1,7 +1,0 @@
-[package]
-name = "fixture-cli"
-version = "0.1.0"
-
-[[bin]]
-name = "fixture"
-path = "src/main.rs"

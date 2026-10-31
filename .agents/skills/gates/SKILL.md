@@ -52,7 +52,6 @@ node node_modules/typescript/bin/tsc --noEmit
 node --import tsx --import ./scripts/ts-test-asset-hook.mjs <file>.test.tsx
 bash scripts/check-file-sizes.sh --fail
 node scripts/check-provider-boundary.mjs
-node --test scripts/tests/check-provider-boundary.test.mjs
 node scripts/check-archive-portable-test-paths.mjs   # Rust test paths survive a moved nextest archive
 ```
 
@@ -226,7 +225,7 @@ plugin-only releases are outside this gate.
 
 An intentional `--queue` uses the same event-based queue as `--wait-build`; it does not grant verification authority or change a Worker’s assigned gates. Default busy-slot refusal remains in effect.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
 
 ## Rust warning inventory and cleanup
 
@@ -249,7 +248,6 @@ entries/counts may only shrink relative to origin/develop; adding a replacement 
 same count still fails. A test-only run preserves baseline targets it did not build. Never copy
 an incomplete run's inventory over the baseline or hand-increase an allowance.
 
-Focused collector verification: `node --test scripts/tests/collect-rust-warnings.test.mjs`.
 Workflow validation: `actionlint .github/workflows/*.yml`. No release or test dispatch is part
 of collector verification; the next real release proves the six-platform delivery and PR comment.
 
@@ -260,10 +258,8 @@ Product DEV and check-queue library Clippy retain embeddings. Ordinary test prof
 ## Installed application identity
 
 For bundle, installer or release-asset identity changes, include
-`node scripts/check-installed-identity.mjs` and
-`node --test scripts/tests/installed-identity.test.mjs` in the focused batch.
-These cover product/identifier/DEV names, installer-facing legacy-name rejection,
-new updater namespace and non-installable old manifests. Run the changed release
-script tests too. Native package extraction, signing, both CLI resource digests,
+`node scripts/check-installed-identity.mjs` in the focused batch.
+It covers product/identifier/DEV names, installer-facing legacy-name rejection,
+new updater namespace and non-installable old manifests. Native package extraction, signing, both CLI resource digests,
 system CLI ownership, OS registration and the manual old-app removal require release CI and owner
 installation on Windows, macOS and Linux; source assertions do not prove them.

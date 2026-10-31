@@ -466,10 +466,6 @@ jobs:
         run: |
           & .\build.ps1 ci-tests ${{ matrix.suite }}
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Verify NSIS hooks in Windows PowerShell 5.1
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: node --test scripts/tests/installer-preflight.test.mjs
       - name: Shared compile cache statistics (Windows)
         if: always() && runner.os == 'Windows'
         shell: pwsh

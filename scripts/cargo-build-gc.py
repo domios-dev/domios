@@ -1,4 +1,4 @@
-# Caller: scripts/cargo-build-gc.mjs, scripts/cargo-build-gc.test.mjs
+# Caller: scripts/cargo-build-gc.mjs
 import contextlib
 import ctypes
 import json

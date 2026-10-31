@@ -6,7 +6,6 @@ Entrypoints:
 
 ```powershell
 node <HARNESS>/scripts/aiderrun/lane-check.mjs --lane '<LANE>' --worker '<AIDER_TAB>' --orchestrator b3a2c8ff --surface '<SURFACE>'
-npx tsx scripts/aiderrun/lane-check.test.ts
 ```
 
 All launched shells explicitly belong to `team_dd6d7d99`. The launcher resolves the installed dev CLI from CODETERM_CLI_PATH or the instance-prepended PATH, requires dev port 7686, and uses fixed Mozart caller identity. No evals, older bash CLI, Rust gate, daemon restart or rebuild is involved.

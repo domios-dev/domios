@@ -1,4 +1,4 @@
-// Caller: build.sh dev/check-queue; scripts/dev-build-configuration.test.mjs
+// Caller: build.sh dev/check-queue
 import fs from 'node:fs';
 import { pathToFileURL } from 'node:url';
 

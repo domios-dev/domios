@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: build.sh lane-check; scripts/tests/lane-check.test.mjs
+# Caller: build.sh lane-check
 
 configure_lane_build_dir() {
   local directory

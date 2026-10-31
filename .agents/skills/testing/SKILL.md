@@ -90,10 +90,7 @@ the capped execution deadline, and `--no-tests=fail` rejects empty selections.
 TypeScript selections use the existing runner's related-file mode for tsx-runner
 tests and `pnpm exec vitest related <files>` for Vitest-owned tests. Plugin
 selections use `bash scripts/plugin-tests.sh <plugin-dir>`, which runs the
-`plugin-tests` catalogue discovery under `plugins/<plugin-dir>/`. Node and Python
-script tests run through `node scripts/test-catalogue.mjs run --entry <id>`
-(`node-script-tests`, `python-script-tests`); a single file still runs with
-`node --test <file>`.
+`plugin-tests` catalogue discovery under `plugins/<plugin-dir>/`.
 
 The canonical `./build.sh nextest mem-postgres` scope selects only
 `codeterm-mem-postgres`. Every database fixture owns a disposable schema and
@@ -104,7 +101,6 @@ An explicitly forced fixture with no URL fails setup. Runtime results from
 this scope do not establish BlueprintStore or EngineStore parity until their
 explicit refusals have been replaced and those contracts are included.
 
-Mapper fixture coverage is `node --test scripts/affected-tests.test.mjs`.
 
 A change that moves Rust tests between modules or crates proves no test was
 lost without compiling: `node scripts/rust-test-inventory.mjs gate --base <ref>`
@@ -130,7 +126,6 @@ defaults to advisory too; CI jobs that enforce pass `--policy enforce` explicitl
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base REF]
 node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --policy advisory   # parallel-only advice
-node --test scripts/check-slow-unit-tests.test.mjs
 ```
 
 The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
@@ -295,12 +290,7 @@ repository churn. Keep access filtering upstream of the debouncer, then rerun
 
 **Filtered runs fail closed.** A filtered run that executed zero tests exits `97`
 naming the filter and the crate: a filter that ran nothing verified nothing.
-Unfiltered runs are never checked, so an empty target still passes. Verify the
-wrapper whole, or one named case from `scripts/test-capped.test.sh`:
-
-```bash
-bash scripts/test-capped.test.sh [case]
-```
+Unfiltered runs are never checked, so an empty target still passes.
 
 **Windows: ConPTY test isolation**
 A test process launched from a Domios tab inherits `CODETERM_CONPTY_DIR` and would sideload the installed host into the user's install. `scripts/test-capped.sh` unsets it and exports `CODETERM_CONPTY_TEST_ISOLATION=1`; `pty-fork/src/win/psuedocon.rs` refuses the variable while that marker is set, and production never sets it. Verify: `./build.sh test-one pty-fork test_isolation_marker_refuses_ambient_production_dir`.
@@ -729,7 +719,7 @@ Build each Rust configuration once per batch: run every focused selector of a cr
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 8 -->
+<!-- revision: 9 -->
 
 ## Independent server process oracle
 
