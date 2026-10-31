@@ -1,9 +1,9 @@
 import { attachmentPathName as fileName } from "@codeterm/chat-core";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FileText, RefreshCw, Maximize2, FolderOpen, X } from "lucide-react";
+import { FileText, RefreshCw, Maximize2, FolderOpen } from "lucide-react";
 import { LocalImageGallery } from "./LocalImageGallery";
-import { FullscreenOverlay } from "./FullscreenOverlay";
+import { FullscreenOverlay, useFullscreenViewer } from "./FullscreenOverlay";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
 import {
   loadLocalArtifact,
@@ -60,6 +60,7 @@ function LoadedLocalArtifact({
   bare = false,
   onLoaded,
 }: LocalArtifactProps) {
+  const outerFullscreen = useFullscreenViewer();
   const tabId = useLocalArtifactTabId();
   const canReveal = localArtifactOpeningAvailable();
   const [state, setState] = useState<LoadState>({ status: "loading", file: null, error: "" });
@@ -100,12 +101,12 @@ function LoadedLocalArtifact({
 
   const icon = <FileText size={14} aria-hidden />;
 
-  const content = <>
+  const content = useMemo(() => <>
     {state.status === "loading" && <p>Loading…</p>}
     {state.status === "error" && (renderError ? renderError(state.error) : <p role="alert">{state.error}</p>)}
     {state.status === "ready" && (state.file.media_type === "text/markdown" ? renderMarkdown(state.file.data)
         : renderText ? renderText(state.file.data) : <pre className="whitespace-pre-wrap break-words">{state.file.data}</pre>)}
-  </>;
+  </>, [state, renderError, renderMarkdown, renderText]);
   const reveal = () => void openLocalArtifact(directive.path).catch((error: unknown) => setState({ status: "error", file: null, error: String(error) }));
   return (
     <section ref={sectionRef}
@@ -121,7 +122,7 @@ function LoadedLocalArtifact({
         {icon}
         <span className="font-medium" style={{ color: "var(--ct-fg)" }}>{name}</span>
         <span className="min-w-0 flex-1 truncate opacity-60" title={directive.path}>{directive.path}</span>
-        <button type="button" onClick={() => setFullscreen(true)} aria-label={`Fullscreen ${name}`} title="Fullscreen"><Maximize2 size={13} aria-hidden /></button>
+        <button type="button" hidden={Boolean(outerFullscreen)} onClick={() => setFullscreen(true)} aria-label={`Fullscreen ${name}`} title="Fullscreen"><Maximize2 size={13} aria-hidden /></button>
         <button type="button" onClick={reveal} disabled={!canReveal} aria-label={`Reveal ${name}`} title={canReveal ? "Reveal in file manager" : "Revealing files is available only in the desktop app"}><FolderOpen size={13} aria-hidden /></button>
         <button
           type="button"
@@ -133,14 +134,14 @@ function LoadedLocalArtifact({
           <RefreshCw size={13} aria-hidden />
         </button>
       </div>}
-      {bare ? <div className="text-sm">{content}</div> : <BoundedMessageContent collapsedHeight="720px" className="px-3 py-2 text-sm">{content}</BoundedMessageContent>}
-      {fullscreen && <FullscreenOverlay panelRef={fullscreenRef} label={`Fullscreen ${name}`} onClose={close}>
-        <header className="flex items-center gap-2 p-2 text-sm"><span className="min-w-0 flex-1 break-words" title={directive.path}>{directive.path}</span>
-          <button type="button" onClick={reveal} aria-label={`Reveal ${name}`}><FolderOpen size={15} /></button>
-          <button type="button" onClick={close} aria-label="Close fullscreen"><X size={15} /></button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-auto p-4 text-sm">{content}</div>
-      </FullscreenOverlay>}
+      <FullscreenOverlay panelRef={fullscreenRef} open={fullscreen} label={`Fullscreen ${name}`} onClose={close} returnFocusRef={sectionRef}
+        header={fullscreen && <header className="flex items-center gap-2 p-2 text-sm"><span className="min-w-0 flex-1 break-words" title={directive.path}>{directive.path}</span>
+          <button type="button" onClick={reveal} disabled={!canReveal} aria-label={`Reveal ${name}`}><FolderOpen size={15} /></button>
+        </header>}>
+        <div className={fullscreen ? "min-h-0 flex-1 overflow-auto p-4 text-sm" : "text-sm"}>
+          <BoundedMessageContent unbounded={bare} collapsedHeight={fullscreen ? "none" : "720px"} className={bare || fullscreen ? "" : "px-3 py-2 text-sm"}>{content}</BoundedMessageContent>
+        </div>
+      </FullscreenOverlay>
     </section>
   );
 }

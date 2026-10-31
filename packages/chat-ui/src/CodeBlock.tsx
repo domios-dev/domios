@@ -1,6 +1,6 @@
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { FullscreenOverlay } from "./FullscreenOverlay";
+import { FullscreenOverlay, useFullscreenViewer } from "./FullscreenOverlay";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { copyCodeText } from "./copyCodeText";
 import { SyntaxHighlighter } from "./syntaxHighlighter";
@@ -210,6 +210,7 @@ export function CodeBlock({
   /** Describes the code beside the fullscreen reading view (outline, ports, limits); shown when there is room. */
   fullscreenAside?: React.ReactNode;
 }) {
+  const outerFullscreen = useFullscreenViewer();
   const language = languageFromInfoString(infoString);
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
@@ -434,8 +435,9 @@ export function CodeBlock({
           <button
             type="button"
             onClick={openFullscreen}
+            hidden={Boolean(outerFullscreen)}
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-            style={{ color: "var(--ct-muted-fg)" }}
+            style={{ color: "var(--ct-muted-fg)", display: outerFullscreen ? "none" : undefined }}
             title="Open in fullscreen"
           >
             <Maximize2 size={12} />

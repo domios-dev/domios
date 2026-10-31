@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { CodeBlock, knownLanguageFromPath, LocalArtifactBlock, LocalArtifactScope, RichMarkdown } from "@codeterm/chat-ui";
 import { changePreviewKind } from "./changePreviewModel";
 
@@ -11,16 +11,18 @@ function ChangeCodeView({ text, path }: { text: string; path: string }) {
   </>;
 }
 
-export function ChangeFileView({ tabId, target, deleted, onDiff }: { tabId: string; target: string | null; deleted: boolean; onDiff: () => void }) {
+const renderMarkdown = (text: string) => <RichMarkdown text={text} />;
+const renderError = (error: string) => <InlineErrorNotice error={error} operation="previewing this file" />;
+
+export function ChangeFileView({ tabId, target, deleted, onDiff, fullscreenRequest = 0 }: { tabId: string; target: string | null; deleted: boolean; onDiff: () => void; fullscreenRequest?: number }) {
+  const renderText = useCallback((text: string) => <ChangeCodeView text={text} path={target ?? ""} />, [target]);
   return <div className="tab-panel__reader">
     {deleted ? <p role="status" className="tab-panel__note">This file was deleted. Read its last recorded diff.</p>
       : !target ? <p role="status" className="tab-panel__note">The current file location is unknown.</p>
         : <LocalArtifactScope tabId={tabId}>
           <p className="tab-panel__note">Current file on disk</p>
-          <LocalArtifactBlock key={target} bare directive={{ path: target, kind: changePreviewKind(target) }}
-            renderError={(error) => <InlineErrorNotice error={error} operation="previewing this file" />}
-            renderMarkdown={(text) => <RichMarkdown text={text} />}
-            renderText={(text) => <ChangeCodeView text={text} path={target} />} />
+          <LocalArtifactBlock key={target} bare directive={{ path: target, kind: changePreviewKind(target) }} fullscreenRequest={fullscreenRequest}
+            renderError={renderError} renderMarkdown={renderMarkdown} renderText={renderText} />
         </LocalArtifactScope>}
     <button type="button" className="ct-small-pill" onClick={onDiff}>Show recorded diff</button>
   </div>;
