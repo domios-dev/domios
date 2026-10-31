@@ -68,13 +68,13 @@
 .ct-expanded-composer__actions > .ct-composer-card {
   grid-column: 1 / -1;
   grid-row: 1;
-  border: 0;
-  border-radius: 0;
+  border: 1px solid var(--ct-border);
+  border-radius: 12px;
   background: transparent;
   box-shadow: none;
   --tw-ring-shadow: 0 0 transparent;
 }
-.ct-expanded-composer .ct-composer-row { padding-inline: 4px; }
+.ct-expanded-composer .ct-composer-row { padding-inline: 12px; }
 .ct-expanded-composer__actions > button { grid-row: 2; }
 .ct-expanded-composer__actions > button:first-child { grid-column: 1; justify-self: start; }
 .ct-expanded-composer__actions > button:last-child { grid-column: 3; }
