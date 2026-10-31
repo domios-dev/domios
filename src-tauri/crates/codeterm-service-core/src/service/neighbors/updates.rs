@@ -211,9 +211,10 @@ impl Session {
         if !same_session(self.account.session().await.as_ref(), &self.expected) {
             return Err(Error::Revoked);
         }
-        self.service.ui.emit(
-            "neighbors-changed",
-            json!({"uid":self.transport.uid,"list":list}),
+        self.service.publish_neighbor_projection_list(
+            &self.transport.uid,
+            self.expected.login_generation,
+            list,
         );
         for notice in notices {
             self.service.create_in_app_notice_record(
@@ -456,6 +457,12 @@ impl Session {
             return;
         }
         if self.current().is_ok() && self.service.begin_neighbor_fallback() {
+            let Ok(epoch) = self.service.neighbor_projection_read_epoch(
+                &self.transport.uid,
+                self.expected.login_generation,
+            ) else {
+                return;
+            };
             match self.transport.calls.invoke("friendsList", json!({})).await {
                 Ok(mut list) => {
                     let publish = async {
@@ -468,9 +475,11 @@ impl Session {
                         if !same_session(self.account.session().await.as_ref(), &self.expected) {
                             return Err(Error::Revoked);
                         }
-                        self.service.ui.emit(
-                            "neighbors-changed",
-                            json!({"uid":self.transport.uid,"list":list}),
+                        self.service.publish_neighbor_fallback(
+                            &self.transport.uid,
+                            self.expected.login_generation,
+                            &epoch,
+                            list,
                         );
                         Ok::<(), Error>(())
                     }

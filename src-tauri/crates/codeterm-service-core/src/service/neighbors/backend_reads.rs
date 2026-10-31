@@ -2,38 +2,81 @@ use crate::service::ServiceContext;
 use codeterm_neighbors::{Error, Result};
 use serde_json::Value;
 use std::future::Future;
+use std::sync::Arc;
+
+#[derive(Clone, Default)]
+pub(super) struct ListEpoch(Arc<tokio::sync::Mutex<()>>);
+
+impl ListEpoch {
+    fn matches(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
 
 #[derive(Default)]
 struct State {
     key: Option<(String, u64)>,
     result: Option<Result<Value>>,
+    epoch: ListEpoch,
 }
 
 #[derive(Default)]
 struct ReadGate {
-    state: tokio::sync::Mutex<State>,
+    state: parking_lot::Mutex<State>,
 }
 
 impl ReadGate {
+    fn select(&self, key: (String, u64)) -> ListEpoch {
+        let mut state = self.state.lock();
+        if state.key.as_ref() != Some(&key) {
+            *state = State {
+                key: Some(key),
+                ..State::default()
+            };
+        }
+        state.epoch.clone()
+    }
+
+    fn invalidate(&self) {
+        let mut state = self.state.lock();
+        state.result = None;
+        state.epoch = ListEpoch::default();
+    }
+
+    #[cfg(test)]
     async fn read(
         &self,
         key: (String, u64),
         locked: bool,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
+        self.read_epoch(self.select(key), locked, load).await
+    }
+
+    async fn read_epoch(
+        &self,
+        epoch: ListEpoch,
+        locked: bool,
+        load: impl Future<Output = Result<Value>>,
+    ) -> Result<Value> {
         if locked {
             return Err(Error::Locked);
         }
-        let mut state = self.state.lock().await;
-        if state.key.as_ref() != Some(&key) {
-            *state = State {
-                key: Some(key),
-                ..State::default()
-            };
-        } else if let Some(result) = &state.result {
-            return result.clone();
+        let _load = epoch.0.lock().await;
+        {
+            let state = self.state.lock();
+            if !state.epoch.matches(&epoch) {
+                return Err(Error::Revoked);
+            }
+            if let Some(result) = &state.result {
+                return result.clone();
+            }
         }
         let result = load.await;
+        let mut state = self.state.lock();
+        if !state.epoch.matches(&epoch) {
+            return Err(Error::Revoked);
+        }
         state.result = Some(result.clone());
         result
     }
@@ -101,6 +144,12 @@ impl ServiceContext {
         generation: u64,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
+        self.require_neighbor_projection_account(uid, generation)?;
+        let epoch = if route == "friendsList" {
+            Some(self.neighbor_projection_read_epoch(uid, generation)?)
+        } else {
+            None
+        };
         if let Some(value) = self
             .neighbor_projection_read(uid, generation, route)
             .await?
@@ -122,11 +171,37 @@ impl ServiceContext {
                 }
             }
         };
-        gate.read((uid.to_owned(), generation), locked, load).await
+        let result = match epoch {
+            Some(epoch) => gate.read_epoch(epoch, locked, load).await,
+            None => return Err(Error::Transport),
+        };
+        self.require_neighbor_projection_account(uid, generation)?;
+        if let Some(value) = self.peek_neighbor_projection(uid, generation, route, "") {
+            return Ok(value);
+        }
+        result
     }
 
     pub(in crate::service::neighbors) fn invalidate_neighbor_list(&self) {
+        self.invalidate_neighbor_projection_list();
         self.forget_neighbor_registry();
+    }
+
+    pub(super) fn retire_neighbor_list_reads(&self) {
+        self.extensions.get_or_init(Reads::default).list.invalidate();
+    }
+
+    pub(super) fn neighbor_list_epoch(&self, uid: &str, generation: u64) -> ListEpoch {
+        self.extensions.get_or_init(Reads::default).list.select((uid.to_owned(), generation))
+    }
+
+    pub(super) fn neighbor_list_epoch_current(&self, epoch: &ListEpoch) -> bool {
+        self.extensions.get_or_init(Reads::default).list.state.lock().epoch.matches(epoch)
+    }
+
+    pub(super) fn refresh_neighbor_list(&self) {
+        self.invalidate_neighbor_list();
+        self.rearm_neighbor_reads();
     }
 
     pub(crate) fn rearm_neighbor_reads(&self) {

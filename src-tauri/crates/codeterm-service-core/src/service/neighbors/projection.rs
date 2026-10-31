@@ -13,6 +13,7 @@ struct State {
     fallback_started: bool,
     reconciled: Option<u64>,
     authoritative: bool,
+    list_dirty: bool,
 }
 #[derive(Default)]
 struct Cell {
@@ -31,6 +32,73 @@ impl ServiceContext {
             };
         }
         state.snapshots.select(uid, generation);
+        self.neighbor_list_epoch(uid, generation);
+        drop(state);
+        cell.changed.notify_waiters();
+    }
+    pub(super) fn invalidate_neighbor_projection_list(&self) {
+        let cell = self.extensions.get_or_init(Cell::default);
+        let mut state = cell.state.lock();
+        state.list_dirty = true;
+        state.fallback_started = false;
+        self.retire_neighbor_list_reads();
+        drop(state);
+        cell.changed.notify_waiters();
+    }
+
+    pub(super) fn publish_neighbor_fallback(
+        &self,
+        uid: &str,
+        generation: u64,
+        epoch: &super::backend_reads::ListEpoch,
+        list: Value,
+    ) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        if state.selected.as_ref() != Some(&(uid.to_owned(), generation))
+            || (state.authoritative && !state.list_dirty)
+            || !self.neighbor_list_epoch_current(epoch)
+        {
+            return false;
+        }
+        self.ui.emit("neighbors-changed", serde_json::json!({"uid":uid,"list":list}));
+        true
+    }
+
+    pub(super) fn require_neighbor_projection_account(&self, uid: &str, generation: u64) -> Result<()> {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        if state.selected.as_ref().is_some_and(|selected| selected != &(uid.to_owned(), generation)) {
+            return Err(Error::Revoked);
+        }
+        Ok(())
+    }
+
+    pub(super) fn neighbor_projection_read_epoch(
+        &self,
+        uid: &str,
+        generation: u64,
+    ) -> Result<super::backend_reads::ListEpoch> {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        if state.selected.as_ref().is_some_and(|selected| selected != &(uid.to_owned(), generation)) {
+            return Err(Error::Revoked);
+        }
+        Ok(self.neighbor_list_epoch(uid, generation))
+    }
+
+    pub(super) fn publish_neighbor_projection_list(
+        &self,
+        uid: &str,
+        generation: u64,
+        list: Value,
+    ) -> bool {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        if !state.authoritative || state.list_dirty
+            || state.snapshots.version(uid, generation) != list["version"].as_u64()
+            || state.selected.as_ref() != Some(&(uid.to_owned(), generation))
+        {
+            return false;
+        }
+        self.ui.emit("neighbors-changed", serde_json::json!({"uid":uid,"list":list}));
+        true
     }
     pub(super) fn begin_neighbor_fallback(&self) -> bool {
         let mut state = self.extensions.get_or_init(Cell::default).state.lock();
@@ -42,7 +110,10 @@ impl ServiceContext {
     }
     pub(super) fn reset_neighbor_projection(&self) {
         let cell = self.extensions.get_or_init(Cell::default);
-        *cell.state.lock() = State::default();
+        let mut state = cell.state.lock();
+        *state = State::default();
+        self.retire_neighbor_list_reads();
+        drop(state);
         cell.changed.notify_waiters();
     }
     pub(super) fn neighbor_projection_unavailable(&self) {
@@ -72,6 +143,7 @@ impl ServiceContext {
             if applied {
                 state.unavailable = false;
                 state.authoritative = true;
+                state.list_dirty = false;
             }
             applied
         };
@@ -96,6 +168,7 @@ impl ServiceContext {
         if !self.apply_neighbor_projection(uid, generation, snapshot) {
             let state = self.extensions.get_or_init(Cell::default).state.lock();
             if !state.authoritative
+                || state.list_dirty
                 || state.snapshots.version(uid, generation) != Some(version)
                 || state.reconciled == Some(version)
             {
@@ -108,7 +181,10 @@ impl ServiceContext {
         }
         reconcile(list).await?;
         let mut state = self.extensions.get_or_init(Cell::default).state.lock();
-        if state.selected.as_ref() == Some(&(uid.to_owned(), generation)) {
+        if state.selected.as_ref() == Some(&(uid.to_owned(), generation))
+            && state.snapshots.version(uid, generation) == Some(version)
+            && !state.list_dirty
+        {
             state.reconciled = Some(version);
         }
         Ok(true)
@@ -121,7 +197,7 @@ impl ServiceContext {
         installation: &str,
     ) -> Option<Value> {
         let state = self.extensions.get_or_init(Cell::default).state.lock();
-        if !state.authoritative {
+        if !state.authoritative || (route == "friendsList" && state.list_dirty) {
             return None;
         }
         state
@@ -175,7 +251,10 @@ impl ServiceContext {
                 changed.as_mut().enable();
                 {
                     let state = cell.state.lock();
-                    if state.authoritative {
+                    if state.selected.as_ref().is_some_and(|selected| selected != &(uid.to_owned(), generation)) {
+                        return None;
+                    }
+                    if state.authoritative && !(route == "friendsList" && state.list_dirty) {
                         if let Some(value) = state.snapshots.read(
                             uid,
                             generation,
@@ -186,7 +265,7 @@ impl ServiceContext {
                             return Some(value);
                         }
                     }
-                    if state.unavailable {
+                    if state.unavailable || (route == "friendsList" && state.list_dirty) {
                         return None;
                     }
                 }

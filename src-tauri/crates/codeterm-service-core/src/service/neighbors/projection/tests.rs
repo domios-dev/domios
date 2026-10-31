@@ -156,3 +156,139 @@ fn fallback_is_bounded_per_account_generation_and_does_not_reset_on_reconnect() 
     service.select_neighbor_projection("owner", 2);
     assert!(service.begin_neighbor_fallback());
 }
+
+#[tokio::test]
+async fn mutation_and_refresh_bypass_old_list_projection_until_a_newer_snapshot() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+    service.select_neighbor_projection("owner", 1);
+    let calls = AtomicUsize::new(0);
+    assert!(service.apply_neighbor_projection("owner", 1, snapshot(1, None)));
+    for version in 2..=3 {
+        if version == 2 {
+            service.invalidate_neighbor_list();
+        } else {
+            service.refresh_neighbor_list();
+        }
+        assert!(!service.apply_neighbor_projection("owner", 1, snapshot(version - 1, None)));
+        for _activity in 0..19 {
+            assert_eq!(service.neighbor_backend_read("friendsList", "owner", 1, async {
+                calls.fetch_add(1, Ordering::SeqCst);
+                Ok(json!({"incoming":[{"request_id":"pending"}]}))
+            }).await.unwrap()["incoming"][0]["request_id"], "pending");
+        }
+        assert_eq!(calls.load(Ordering::SeqCst), version as usize - 1);
+        assert!(service.peek_neighbor_projection("owner", 1, "friendsOwnKeys", "").is_some());
+        assert!(service.apply_neighbor_projection("owner", 1, snapshot(version, None)));
+        assert_eq!(service.neighbor_backend_read("friendsList", "owner", 1, async {
+            panic!("An authoritative newer snapshot supersedes cached fallback")
+        }).await.unwrap()["version"], version);
+    }
+}
+
+#[tokio::test]
+async fn projection_arriving_during_fallback_wins_the_returned_list() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+    service.select_neighbor_projection("owner", 1);
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (release, held) = tokio::sync::oneshot::channel();
+    let read = service.neighbor_backend_read("friendsList", "owner", 1, async {
+        started.send(()).unwrap();
+        held.await.unwrap();
+        Ok(json!({"friends":[],"incoming":[],"outgoing":[]}))
+    });
+    let project = async {
+        running.await.unwrap();
+        assert!(service.apply_neighbor_projection("owner", 1, snapshot(2, None)));
+        release.send(()).unwrap();
+    };
+    let (result, _) = tokio::join!(read, project);
+    let list = result.unwrap();
+    assert_eq!(list["version"], 2);
+    assert_eq!(list["friends"][0]["uid"], "peer");
+}
+
+#[tokio::test]
+async fn fallback_publication_cannot_overwrite_a_projection_or_cross_account_or_epoch() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    service.select_neighbor_projection("owner", 1);
+    let initial = service.neighbor_list_epoch("owner", 1);
+    assert!(service.publish_neighbor_fallback("owner", 1, &initial, json!("initial")));
+    assert!(service.apply_neighbor_projection("owner", 1, snapshot(1, None)));
+    assert!(!service.publish_neighbor_fallback("owner", 1, &initial, json!("late")));
+    service.invalidate_neighbor_list();
+    assert!(!service.publish_neighbor_fallback("owner", 1, &initial, json!("expired")));
+    let fresh = service.neighbor_list_epoch("owner", 1);
+    assert!(service.publish_neighbor_fallback("owner", 1, &fresh, json!("fresh")));
+    service.select_neighbor_projection("other", 1);
+    assert!(!service.publish_neighbor_fallback("owner", 1, &fresh, json!("foreign")));
+    assert!(!service.apply_neighbor_projection("owner", 1, snapshot(50, None)));
+    assert!(service.peek_neighbor_projection("other", 1, "friendsList", "").is_none());
+    assert!(service.apply_neighbor_projection("other", 1, snapshot(1, None)));
+    service.select_neighbor_projection("other", 2);
+    assert!(!service.apply_neighbor_projection("other", 1, snapshot(50, None)));
+    assert!(service.peek_neighbor_projection("other", 2, "friendsList", "").is_none());
+    let events = fixture.ui.0.lock();
+    let lists: Vec<_> = events.iter().filter(|(name, _)| name == "neighbors-changed")
+        .map(|(_, body)| body["list"].clone()).collect();
+    assert_eq!(lists, vec![json!("initial"), json!("fresh")]);
+}
+
+#[test]
+fn explicit_invalidation_rearms_one_fallback_but_reconnect_does_not() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    service.select_neighbor_projection("owner", 1);
+    assert!(service.begin_neighbor_fallback());
+    service.invalidate_neighbor_list();
+    assert!(service.begin_neighbor_fallback());
+    for _reconnect in 0..19 {
+        service.select_neighbor_projection("owner", 1);
+        assert!(!service.begin_neighbor_fallback());
+    }
+}
+
+#[tokio::test]
+async fn expired_projection_reconciliation_cannot_publish_after_refresh_or_account_switch() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    service.select_neighbor_projection("owner", 1);
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (release, held) = tokio::sync::oneshot::channel();
+    let reconcile = service.consume_neighbor_projection("owner", 1, snapshot(1, None), |list| async move {
+        started.send(()).unwrap();
+        held.await.unwrap();
+        assert!(!service.publish_neighbor_projection_list("owner", 1, list));
+        Ok(())
+    });
+    let refresh = async {
+        running.await.unwrap();
+        service.invalidate_neighbor_list();
+        release.send(()).unwrap();
+    };
+    let (result, _) = tokio::join!(reconcile, refresh);
+    assert_eq!(result, Ok(true));
+    assert!(fixture.ui.0.lock().is_empty());
+    assert!(service.apply_neighbor_projection("owner", 1, snapshot(2, None)));
+    let old = service.peek_neighbor_projection("owner", 1, "friendsList", "").unwrap();
+    service.select_neighbor_projection("other", 1);
+    assert!(!service.publish_neighbor_projection_list("owner", 1, old));
+    assert_eq!(service.neighbor_backend_read("friendsList", "owner", 1, async {
+        panic!("A retired account cannot load or evict the selected account cache")
+    }).await, Err(Error::Revoked));
+    assert!(fixture.ui.0.lock().is_empty());
+}

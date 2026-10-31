@@ -393,3 +393,64 @@ async fn sustained_new_projection_progress_can_clear_reconnect_history() {
     assert_eq!(session.listen().await, Err(Error::Transport));
     assert_eq!(session.progress(), 1);
 }
+
+struct HeldCalls {
+    service: ServiceContext,
+    uid: String,
+    generation: u64,
+    started: parking_lot::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+    release: parking_lot::Mutex<Option<tokio::sync::oneshot::Receiver<()>>>,
+    calls: AtomicUsize,
+}
+
+#[async_trait::async_trait]
+impl AuthenticatedCall for HeldCalls {
+    async fn invoke(&self, route: &str, _: Value) -> Result<Value> {
+        self.service.neighbor_backend_read(route, &self.uid, self.generation, async {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let started = self.started.lock().take().unwrap();
+            let release = self.release.lock().take().unwrap();
+            started.send(()).unwrap();
+            release.await.unwrap();
+            Ok(json!({"schema_version":1,"access":"locked","can_invite":false,"friends":[],"incoming":[],"outgoing":[]}))
+        }).await
+    }
+
+    async fn id_token(&self) -> Result<zeroize::Zeroizing<String>> {
+        panic!("No real authentication port")
+    }
+}
+
+#[tokio::test]
+async fn late_callable_fallback_does_not_publish_over_a_live_projection() {
+    let (fixture, mut session, _, _, _) = fixture(Mode::Controlled).await;
+    let (started, running) = tokio::sync::oneshot::channel();
+    let (release, held) = tokio::sync::oneshot::channel();
+    let calls = Arc::new(HeldCalls {
+        service: fixture.service.clone(),
+        uid: session.transport.uid.clone(),
+        generation: session.expected.login_generation,
+        started: parking_lot::Mutex::new(Some(started)),
+        release: parking_lot::Mutex::new(Some(held)),
+        calls: AtomicUsize::new(0),
+    });
+    session.transport = Arc::new(FirebaseTransport {
+        calls: calls.clone(),
+        uid: session.transport.uid.clone(),
+        project: "unused-project".into(),
+        installation_id: "fixture-machine".into(),
+    });
+    let fallback = session.fallback();
+    let project = async {
+        running.await.unwrap();
+        assert!(fixture.service.apply_neighbor_projection(
+            &session.transport.uid, session.expected.login_generation, snapshot(1, None),
+        ));
+        release.send(()).unwrap();
+    };
+    tokio::join!(fallback, project);
+    assert_eq!(calls.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(calls.invoke("friendsList", json!({})).await.unwrap()["access"], "paid");
+    assert_eq!(calls.calls.load(Ordering::SeqCst), 1);
+    assert!(!fixture.ui.0.lock().iter().any(|(name, _)| name == "neighbors-changed"));
+}

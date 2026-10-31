@@ -73,7 +73,7 @@ impl NeighborCommand {
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
         if matches!(&command, NeighborCommand::Refresh {}) {
-            self.rearm_neighbor_reads();
+            self.refresh_neighbor_list();
         }
         self.neighbor_registry_owned(command).await
     }
@@ -106,6 +106,12 @@ impl ServiceContext {
         let base = codeterm_account::firebase_endpoints::current().functions;
         let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
         let (name, data) = command.callable();
+        let list_epoch = if name == "friendsList" {
+            Some(self.neighbor_projection_read_epoch(&session.identity.uid, session.login_generation)
+                .map_err(|error| error.to_string())?)
+        } else {
+            None
+        };
         let removed = if name == "friendsRemove" {
             data["friendship_id"].as_str().map(str::to_owned)
         } else {
@@ -183,6 +189,9 @@ impl ServiceContext {
                 return Err("Account changed while listing Neighbors".into());
             }
             self.require_neighbor_generation(history_generation)?;
+            if list_epoch.as_ref().is_some_and(|epoch| !self.neighbor_list_epoch_current(epoch)) {
+                return Err(codeterm_neighbors::Error::Revoked.to_string());
+            }
             self.remember_neighbor_registry(&result);
         } else {
             self.invalidate_neighbor_list();
