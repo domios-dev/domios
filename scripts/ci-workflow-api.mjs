@@ -1,4 +1,4 @@
-import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence} from './ci-qualification.mjs';
+import {verifyQualification, selectQualificationArtifact, retainQualificationEvidence, qualificationAttemptNumbers} from './ci-qualification.mjs';
 import {readQualificationArchive} from './ci-qualification-archive.mjs';
 export {readQualificationArchive} from './ci-qualification-archive.mjs';
 
@@ -31,7 +31,11 @@ export async function requireQualificationWithGithub(github, context, sha, readA
     jobs.push(...batch.jobs);if(jobs.length>=batch.total_count)break;
     if(!batch.jobs.length)throw new Error('Incomplete qualification job inventory');
   }
+  const attempts=[];
+  for(const number of qualificationAttemptNumbers(run)){
+    attempts.push((await github.rest.actions.getWorkflowRunAttempt({...context.repo,run_id:run.id,attempt_number:number})).data);
+  }
   const archive=(await github.rest.actions.downloadArtifact({...context.repo,artifact_id:artifact.id,archive_format:'zip'})).data;
-  return retain({...verifyQualification(readArchive(archive),run,jobs,sha,context.repo.owner+'/'+context.repo.repo),
+  return retain({...verifyQualification(readArchive(archive),run,jobs,sha,context.repo.owner+'/'+context.repo.repo,attempts),
     verification_artifact:{id:artifact.id,expires_at:artifact.expires_at}});
 }
