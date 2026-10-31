@@ -355,6 +355,9 @@ pub fn create_window(
         .local_webview_diagnostics
     {
         let preflight = crate::host_ports::webview_diagnostics::port_preflight(port);
+        #[cfg(debug_assertions)]
+        let preflight =
+            preflight.with_starting_view_present(app.get_webview_window("starting").is_some());
         if let Some(slot) =
             app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
         {
