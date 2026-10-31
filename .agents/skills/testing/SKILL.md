@@ -405,22 +405,22 @@ CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 
 ### E2E test files
 
-| File | Tests | What |
-|------|-------|------|
-| `test_health.py` | 2 | API health, identify |
-| `test_workspaces.py` | 4 | Workspace CRUD |
-| `test_tabs.py` | 6 | Tab create, split, close, rename |
-| `test_pty_io.py` | 13 | PTY read/write, exec, streaming |
-| `test_env.py` | 4 | CODETERM_TAB_ID env injection |
-| `test_notifications.py` | 3 | Notification create, list |
-| `test_cron.py` | 5 | Cron CRUD |
-| `test_agents.py` | 5 | Agent hierarchy |
-| `test_hooks.py` | 10 | Hook endpoints, prompt parsing accuracy, full approval flow |
-| `test_multi_tab.py` | 5 | Multi-tab prompt isolation |
-| `test_attachments.py` | 3 | File attachment via API |
-| `test_logging.py` | 4 | Log file, levels |
-| `test_claude_spawn.py` | 8 | Real Claude spawn (**slow**, 30-90s each) |
-| `test_hierarchy_scenarios.py` | 15 | Multi-level hierarchies (**slow**) |
+| File | What |
+|------|------|
+| `test_health.py` | API health, identify |
+| `test_workspaces.py` | Workspace CRUD |
+| `test_tabs.py` | Tab create, split, close, rename |
+| `test_pty_io.py` | PTY read/write, exec, streaming |
+| `test_env.py` | CODETERM_TAB_ID env injection |
+| `test_notifications.py` | Notification create, list |
+| `test_cron.py` | Cron CRUD |
+| `test_agents.py` | Agent hierarchy |
+| `test_hooks.py` | Hook endpoints, prompt parsing accuracy, full approval flow |
+| `test_multi_tab.py` | Multi-tab prompt isolation |
+| `test_attachments.py` | File attachment via API |
+| `test_logging.py` | Log file, levels |
+| `test_claude_spawn.py` | Real Claude spawn (**slow**, 30-90s each) |
+| `test_hierarchy_scenarios.py` | Multi-level hierarchies (**slow**) |
 
 ### E2E dependencies
 ```bash

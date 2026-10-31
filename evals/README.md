@@ -15,7 +15,7 @@ Start with the test family, not this folder name.
 |--------|---------------|--------|
 | `cli-agent/` | real-daemon LLM benchmark: drives claude/codex/opencode in the dev console through every CLI command; model-judged (see its `SKILL.md`). Replaces the old headless `-p` general-agent / mem-protocol prompt evals. | `bash cli-agent/run-suite.sh` + model judge |
 | `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run -p codeterm-devtools --features dev-tools --bin mem-bench` |
-| `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging (5 cases) | `prompt-evaluator` skill |
+| `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging | `prompt-evaluator` skill |
 | `browser-discovery/` | a fresh agent with a plain web task picks the built-in browser plugin, not a provider browser extension | `bash browser-discovery/run.sh [provider[:model]...]` |
 | `session-restore/` | kill+restart preserves workspaces / tabs / agent_type / titles | `bash session-restore/run.sh` |
 | `core-journeys/` | release blocker: per-provider spawn/send/reply/stop, Team start from the dialog with agent tabs selected, chat_backend dispatch/ACK/report/review, DEV restart restore | `bash core-journeys/run.sh all` |
@@ -36,7 +36,7 @@ mem-recall behavior, and keep both diff and intent explicit in the PR.
 
 ### session-restore baseline protocol
 
-`evals/session-restore/` keeps a committed `baseline.json` for the six `WS-*`
+`evals/session-restore/` keeps a committed `baseline.json` for the `WS-*`
 restore scenarios. Dynamic tab ids and agent session ids are excluded.
 
 - Normal update: `bash evals/session-restore/run.sh` → inspect
@@ -119,8 +119,7 @@ Three notes for new benches:
 
 ## Running from a Claude session
 
-Each helper is one tool call with clean output. A full restore drill
-is six tool calls instead of thirty:
+Helpers keep connection handling in the shared library. Run the maintained restore drill with its required grant:
 
 ```bash
 bash evals/session-restore/run.sh
