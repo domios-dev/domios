@@ -271,13 +271,11 @@ impl AgentProvider for ArtifactProvider {
         Some(self.root.join(format!("{session_id}.jsonl")))
     }
     fn parse_session_delta(&self, path: &std::path::Path, from_offset: u64) -> SessionDelta {
-        use std::io::{Read, Seek, SeekFrom};
-        let mut file = std::fs::File::open(path).unwrap();
-        file.seek(SeekFrom::Start(from_offset)).unwrap();
-        let mut window = Vec::new();
-        file.read_to_end(&mut window).unwrap();
+        use codeterm_plugin::jsonl_window::{read_records_from, DELTA_CHUNK_BYTES};
+        let window = read_records_from(path, from_offset, DELTA_CHUNK_BYTES).unwrap();
         let mut record_start = from_offset;
         let messages = window
+            .bytes
             .split_inclusive(|byte| *byte == b'\n')
             .filter_map(|line| {
                 let start = record_start;
@@ -300,7 +298,7 @@ impl AgentProvider for ArtifactProvider {
             })
             .collect();
         SessionDelta {
-            new_offset: from_offset + window.len() as u64,
+            new_offset: window.new_offset,
             messages,
         }
     }
