@@ -58,11 +58,11 @@ function segmentBranch(row: CommandRow, resolvePlugin?: PluginNameResolver): Bra
   };
 }
 
-const LINE_CLASS = "flex w-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded px-1 text-left leading-[18px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]";
+const LINE_CLASS = "flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap rounded px-1 text-left leading-[18px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]";
 const QUIET = "var(--ct-muted-fg)";
 
 /** Compact inline branches under a call, capped with "+N more"; at most one detail opens inline. */
-export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, label, quiet = false }: {
+export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, label, quiet = false, onExpand }: {
   branches: Branch[];
   cap?: number;
   openIndex: number | null;
@@ -70,6 +70,7 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
   renderDetail?: (index: number) => ReactNode;
   label: string;
   quiet?: boolean;
+  onExpand?: () => void;
 }) {
   const [showAll, setShowAll] = useState(false);
   const limit = showAll ? undefined : cap;
@@ -118,7 +119,7 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
             type="button"
             data-testid="chat-command-tree-more"
             aria-label={`Show all ${hidden} remaining ${hidden === 1 ? "step" : "steps"}`}
-            onClick={() => setShowAll(true)}
+            onClick={() => onExpand ? onExpand() : setShowAll(true)}
             className={LINE_CLASS}
             style={{ color: QUIET }}
           >
@@ -132,7 +133,7 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
 }
 
 /** One compact tree line per shell segment of a chained call. */
-export function CommandTree({ rows, cap, openIndex, onLine, renderDetail, label = "Commands", quiet = false }: {
+export function CommandTree({ rows, cap, openIndex, onLine, renderDetail, label = "Commands", quiet = false, onExpand }: {
   rows: CommandRow[];
   cap?: number;
   openIndex: number | null;
@@ -140,8 +141,9 @@ export function CommandTree({ rows, cap, openIndex, onLine, renderDetail, label 
   renderDetail?: (index: number) => ReactNode;
   label?: string;
   quiet?: boolean;
+  onExpand?: () => void;
 }) {
   const resolvePlugin = usePluginNameResolver();
   const branches = useMemo(() => rows.map((row) => segmentBranch(row, resolvePlugin)), [rows, resolvePlugin]);
-  return <BranchList branches={branches} cap={cap} openIndex={openIndex} onBranch={onLine} renderDetail={renderDetail} label={label} quiet={quiet} />;
+  return <BranchList branches={branches} cap={cap} openIndex={openIndex} onBranch={onLine} renderDetail={renderDetail} label={label} quiet={quiet} onExpand={onExpand} />;
 }

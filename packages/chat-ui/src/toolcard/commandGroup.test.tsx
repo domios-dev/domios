@@ -234,6 +234,11 @@ describe("compact command tree", () => {
     expect(host.querySelector('[data-testid="chat-command-tree-more"]')).toBeNull();
     expect(leads(host)).toEqual(["plan doctor", "plan decision list", "task show", "task show"]);
     expect(operators(host)).toEqual([]);
+    await click(host.querySelector('[data-testid="chat-command-group-toggle"]'));
+    expect(leads(host)).toEqual(["plan doctor", "plan decision list", "task show"]);
+    expect(host.querySelector('[data-testid="chat-command-tree-more"]')).not.toBeNull();
+    await click(host.querySelector('[data-testid="chat-command-tree-more"]'));
+    expect(leads(host)).toHaveLength(4);
     for (const line of lines(host)) {
       const lead = line.querySelector('[data-testid="chat-command-tree-lead"]')?.textContent ?? "";
       expect(line.textContent?.split(lead).length).toBe(2);

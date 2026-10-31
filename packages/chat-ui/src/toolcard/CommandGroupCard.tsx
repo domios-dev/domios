@@ -112,7 +112,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
       <div className="pb-1 pr-2">
-        <CommandGroupDetail event={event} rows={rows} expanded={expanded} {...navigation} />
+        <CommandGroupDetail event={event} rows={rows} expanded={expanded} onExpand={() => onToggle(true)} {...navigation} />
       </div>
       <div id={regionId} role="region" aria-label="Command output" hidden={!technicalOpen} className="px-3 pb-2">
         {technicalOpen && event.result && <ToolOutputContent text={event.result} maxHeight="12rem" />}
@@ -121,10 +121,11 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
   );
 }
 
-export function CommandGroupDetail({ event, rows, expanded = true, ...navigation }: CodetermNavigationProps & {
+export function CommandGroupDetail({ event, rows, expanded = true, onExpand, ...navigation }: CodetermNavigationProps & {
   event: ToolEvent;
   rows: CommandRow[];
   expanded?: boolean;
+  onExpand?: () => void;
 }) {
   const callKey = commandCallKey(event);
   const [openRow, setOpenRowState] = useState<number | null>(() => openSegmentOf(callKey));
@@ -133,11 +134,12 @@ export function CommandGroupDetail({ event, rows, expanded = true, ...navigation
     rememberOpenSegment(callKey, next);
     setOpenRowState(next);
   };
-  const capped = !expanded && (openRow ?? -1) < COMMAND_TREE_CAP;
+  const capped = !expanded;
   return <div role="group" aria-label={`${rows.length} commands`}>
     <CommandTree
       rows={rows}
       quiet
+      onExpand={onExpand}
       cap={capped ? COMMAND_TREE_CAP : undefined}
       openIndex={openRow}
       onLine={toggleRow}
