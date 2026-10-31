@@ -186,10 +186,16 @@ impl ServiceContext {
 
     pub(in crate::service::neighbors) async fn invalidate_neighbor_list(&self) -> Result<()> {
         let service = self.clone();
-        self.neighbor_reconciliation().submit(super::reconciliation::Kind::Retirement, move || async move {
-            service.invalidate_neighbor_projection_list();
-            Ok(())
-        })?.wait().await
+        self.neighbor_reconciliation()
+            .submit(
+                super::reconciliation::Kind::Retirement,
+                move || async move {
+                    service.invalidate_neighbor_projection_list();
+                    Ok(())
+                },
+            )?
+            .wait()
+            .await
     }
 
     pub(super) fn commit_neighbor_list_epoch<T>(
@@ -197,7 +203,12 @@ impl ServiceContext {
         epoch: &ListEpoch,
         commit: impl FnOnce() -> T,
     ) -> Result<T> {
-        let state = self.extensions.get_or_init(Reads::default).list.state.lock();
+        let state = self
+            .extensions
+            .get_or_init(Reads::default)
+            .list
+            .state
+            .lock();
         if !state.epoch.matches(epoch) {
             return Err(Error::Revoked);
         }
@@ -205,15 +216,27 @@ impl ServiceContext {
     }
 
     pub(super) fn retire_neighbor_list_reads(&self) {
-        self.extensions.get_or_init(Reads::default).list.invalidate();
+        self.extensions
+            .get_or_init(Reads::default)
+            .list
+            .invalidate();
     }
 
     pub(super) fn neighbor_list_epoch(&self, uid: &str, generation: u64) -> ListEpoch {
-        self.extensions.get_or_init(Reads::default).list.select((uid.to_owned(), generation))
+        self.extensions
+            .get_or_init(Reads::default)
+            .list
+            .select((uid.to_owned(), generation))
     }
 
     pub(super) fn neighbor_list_epoch_current(&self, epoch: &ListEpoch) -> bool {
-        self.extensions.get_or_init(Reads::default).list.state.lock().epoch.matches(epoch)
+        self.extensions
+            .get_or_init(Reads::default)
+            .list
+            .state
+            .lock()
+            .epoch
+            .matches(epoch)
     }
 
     pub(super) async fn refresh_neighbor_list(&self) -> Result<()> {

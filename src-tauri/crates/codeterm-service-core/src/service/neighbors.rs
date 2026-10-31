@@ -9,8 +9,8 @@ mod confinement;
 mod delivery;
 mod flags;
 mod handling;
-mod recovery;
 mod reconciliation;
+mod recovery;
 pub use flags::FlagCategory;
 pub(crate) mod history;
 mod launch_fence;
@@ -74,7 +74,9 @@ impl NeighborCommand {
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
         if matches!(&command, NeighborCommand::Refresh {}) {
-            self.refresh_neighbor_list().await.map_err(|error| error.to_string())?;
+            self.refresh_neighbor_list()
+                .await
+                .map_err(|error| error.to_string())?;
         }
         self.neighbor_registry_owned(command).await
     }
@@ -107,8 +109,13 @@ impl ServiceContext {
         let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
         let (name, data) = command.callable();
         let list_epoch = if name == "friendsList" {
-            Some(self.neighbor_projection_read_epoch(&session.identity.uid, session.login_generation)
-                .map_err(|error| error.to_string())?)
+            Some(
+                self.neighbor_projection_read_epoch(
+                    &session.identity.uid,
+                    session.login_generation,
+                )
+                .map_err(|error| error.to_string())?,
+            )
         } else {
             None
         };
@@ -165,12 +172,14 @@ impl ServiceContext {
             .ok_or_else(|| "Invalid Neighbors response".to_owned())?;
         if let Some(friendship) = removed.filter(|_| self.require_neighbors_enabled().is_ok()) {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
-            self.complete_confirmed_neighbor_removal(metadata, friendship, history_generation).await
+            self.complete_confirmed_neighbor_removal(metadata, friendship, history_generation)
+                .await
                 .map_err(|error| error.to_string())?;
         }
         if name == "friendsList" {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
-            self.prepare_neighbor_list_observation(&metadata, &mut result).await?;
+            self.prepare_neighbor_list_observation(&metadata, &mut result)
+                .await?;
             if !same_session(account.session().await.as_ref(), &session) {
                 return Err("Account changed while listing Neighbors".into());
             }
@@ -180,26 +189,54 @@ impl ServiceContext {
                 session.login_generation,
                 list_epoch.as_ref().ok_or("Missing Neighbor list epoch")?,
                 &result,
-            ).map_err(|error| error.to_string())?;
+            )
+            .map_err(|error| error.to_string())?;
         } else {
-            self.invalidate_neighbor_list().await.map_err(|error| error.to_string())?;
+            self.invalidate_neighbor_list()
+                .await
+                .map_err(|error| error.to_string())?;
         }
         Ok(result)
     }
 
-    async fn prepare_neighbor_list_observation(&self, metadata: &storage::Metadata, result: &mut Value) -> Result<(), String> {
-        let settings = metadata.settings().await.map_err(|error| error.to_string())?;
+    async fn prepare_neighbor_list_observation(
+        &self,
+        metadata: &storage::Metadata,
+        result: &mut Value,
+    ) -> Result<(), String> {
+        let settings = metadata
+            .settings()
+            .await
+            .map_err(|error| error.to_string())?;
         annotate_list(result, &settings)?;
         self.project_neighbor_pauses(result, &settings);
-        self.project_neighbor_send_counts(metadata, result).await.map_err(|error| error.to_string())
+        self.project_neighbor_send_counts(metadata, result)
+            .await
+            .map_err(|error| error.to_string())
     }
 
-    async fn complete_confirmed_neighbor_removal(&self, metadata: storage::Metadata, friendship: String, generation: u64) -> codeterm_neighbors::Result<()> {
+    async fn complete_confirmed_neighbor_removal(
+        &self,
+        metadata: storage::Metadata,
+        friendship: String,
+        generation: u64,
+    ) -> codeterm_neighbors::Result<()> {
         let service = self.clone();
-        self.neighbor_reconciliation().submit(reconciliation::Kind::Removal { friendship: friendship.clone(), generation }, move || async move {
-            service.invalidate_neighbor_projection_list();
-            service.end_neighbor_friendship(&metadata, &friendship, generation).await
-        })?.wait().await
+        self.neighbor_reconciliation()
+            .submit(
+                reconciliation::Kind::Removal {
+                    friendship: friendship.clone(),
+                    generation,
+                },
+                move || async move {
+                    service.invalidate_neighbor_projection_list();
+                    service
+                        .end_neighbor_friendship(&metadata, &friendship, generation)
+                        .await
+                },
+            )?
+            .wait()
+            .await
     }
 }
 

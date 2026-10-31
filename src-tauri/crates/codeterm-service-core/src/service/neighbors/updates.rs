@@ -158,39 +158,76 @@ impl Session {
             "friendsList",
             &self.transport.installation_id,
         );
-        self.service.select_neighbor_projection(&self.transport.uid, self.expected.login_generation).await?;
+        self.service
+            .select_neighbor_projection(&self.transport.uid, self.expected.login_generation)
+            .await?;
         let version = snapshot.version;
         let owner = self.reconciliation_owner();
-        let applied = self.service
+        let applied = self
+            .service
             .consume_neighbor_projection(
                 &self.transport.uid,
                 self.expected.login_generation,
                 snapshot,
                 move |list| async move {
-                    let mut seen = owner.metadata.read("registry-notifications.json".into()).await?.unwrap_or_default();
-                    owner.ports.reconcile(&owner, list, previous, &mut seen).await
+                    let mut seen = owner
+                        .metadata
+                        .read("registry-notifications.json".into())
+                        .await?
+                        .unwrap_or_default();
+                    owner
+                        .ports
+                        .reconcile(&owner, list, previous, &mut seen)
+                        .await
                 },
             )
             .await?;
-        if !applied && self.service.neighbor_projection_version(&self.transport.uid, self.expected.login_generation) != Some(version) {
+        if !applied
+            && self
+                .service
+                .neighbor_projection_version(&self.transport.uid, self.expected.login_generation)
+                != Some(version)
+        {
             return Ok(());
         }
-        if applied || !self.service.neighbor_projection_activated(&self.transport.uid, self.expected.login_generation, version) {
+        if applied
+            || !self.service.neighbor_projection_activated(
+                &self.transport.uid,
+                self.expected.login_generation,
+                version,
+            )
+        {
             self.require_activation(version).await?;
-            let list = self.service.peek_neighbor_projection(&self.transport.uid, self.expected.login_generation, "friendsList", &self.transport.installation_id)
+            let list = self
+                .service
+                .peek_neighbor_projection(
+                    &self.transport.uid,
+                    self.expected.login_generation,
+                    "friendsList",
+                    &self.transport.installation_id,
+                )
                 .ok_or(Error::Revoked)?;
             self.ports.activate(self, &list).await?;
-            self.service.remember_neighbor_projection_activation(&self.transport.uid, self.expected.login_generation, version)?;
+            self.service.remember_neighbor_projection_activation(
+                &self.transport.uid,
+                self.expected.login_generation,
+                version,
+            )?;
         }
         Ok(())
     }
 
     fn reconciliation_owner(&self) -> Self {
         Self {
-            service: self.service.clone(), account: self.account.clone(),
-            expected: self.expected.clone(), generation: self.generation,
-            transport: self.transport.clone(), ports: self.ports.clone(), clock: self.clock.clone(),
-            metadata: self.metadata.clone(), progress: AtomicU64::new(0),
+            service: self.service.clone(),
+            account: self.account.clone(),
+            expected: self.expected.clone(),
+            generation: self.generation,
+            transport: self.transport.clone(),
+            ports: self.ports.clone(),
+            clock: self.clock.clone(),
+            metadata: self.metadata.clone(),
+            progress: AtomicU64::new(0),
         }
     }
 
@@ -198,12 +235,19 @@ impl Session {
         self.current()?;
         self.service.neighbor_reconciliation().require_readable()?;
         if !same_session(self.account.session().await.as_ref(), &self.expected)
-            || self.service.neighbor_projection_version(&self.transport.uid, self.expected.login_generation) != Some(version)
+            || self
+                .service
+                .neighbor_projection_version(&self.transport.uid, self.expected.login_generation)
+                != Some(version)
         {
             return Err(Error::Revoked);
         }
-        let (_, list) = self.service.neighbor_activation_ticket(&self.transport.uid, self.expected.login_generation)?;
-        if list["version"] != version { return Err(Error::Revoked); }
+        let (_, list) = self
+            .service
+            .neighbor_activation_ticket(&self.transport.uid, self.expected.login_generation)?;
+        if list["version"] != version {
+            return Err(Error::Revoked);
+        }
         self.current()?;
         self.service.require_neighbors_enabled()
     }
@@ -215,7 +259,9 @@ impl Session {
         seen: &mut notifications::Seen,
     ) -> Result<()> {
         self.current()?;
-        if !same_session(self.account.session().await.as_ref(), &self.expected) { return Err(Error::Revoked); }
+        if !same_session(self.account.session().await.as_ref(), &self.expected) {
+            return Err(Error::Revoked);
+        }
         let history_generation = self.service.neighbor_history_generation();
         let pause_versions = self.service.neighbor_cell().pauses.snapshot();
         self.service
@@ -315,7 +361,9 @@ async fn run(
             generation: expected.login_generation,
         }),
     });
-    service.select_neighbor_projection(&expected.identity.uid, expected.login_generation).await?;
+    service
+        .select_neighbor_projection(&expected.identity.uid, expected.login_generation)
+        .await?;
     let session = Session {
         ports: Arc::new(ports::LivePorts(transport.clone())),
         clock: Arc::new(codeterm_neighbors::supervisor::RuntimeClock),

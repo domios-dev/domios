@@ -156,9 +156,13 @@ async fn invalidation_fences_active_and_queued_readers_without_blocking_the_fres
     assert_eq!(old, Err(Error::Revoked));
     assert_eq!(queued, Err(Error::Revoked));
     assert_eq!(calls.load(Ordering::SeqCst), 2);
-    assert_eq!(gate.read(("owner".into(), 1), false, async {
-        panic!("The expired completion cannot overwrite the fresh cache")
-    }).await, Ok(json!("fresh")));
+    assert_eq!(
+        gate.read(("owner".into(), 1), false, async {
+            panic!("The expired completion cannot overwrite the fresh cache")
+        })
+        .await,
+        Ok(json!("fresh"))
+    );
 }
 
 #[tokio::test]
@@ -174,16 +178,22 @@ async fn account_and_login_switch_fence_in_flight_completions() {
         });
         let control = async {
             running.await.unwrap();
-            assert_eq!(gate.read(next.clone(), false, async {
+            assert_eq!(
+                gate.read(next.clone(), false, async { Ok(json!("current-account")) })
+                    .await,
                 Ok(json!("current-account"))
-            }).await, Ok(json!("current-account")));
+            );
             release.send(()).unwrap();
         };
         let (old, _) = tokio::join!(old, control);
         assert_eq!(old, Err(Error::Revoked));
-        assert_eq!(gate.read(next, false, async {
-            panic!("The previous account cannot replace the current cache")
-        }).await, Ok(json!("current-account")));
+        assert_eq!(
+            gate.read(next, false, async {
+                panic!("The previous account cannot replace the current cache")
+            })
+            .await,
+            Ok(json!("current-account"))
+        );
     }
 }
 
@@ -193,7 +203,11 @@ async fn mutation_and_refresh_recover_cached_failures_once_per_explicit_epoch() 
         crate::multiplexer::state::MultiplexerState::new().0,
     );
     let service = &fixture.service;
-    service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .neighbors
+        .enabled = true;
     let calls = AtomicUsize::new(0);
     for epoch in 0..3 {
         match epoch {
@@ -202,11 +216,24 @@ async fn mutation_and_refresh_recover_cached_failures_once_per_explicit_epoch() 
             _ => (),
         }
         for _activity in 0..19 {
-            let result = service.neighbor_backend_read("friendsList", "owner", 1, async {
-                calls.fetch_add(1, Ordering::SeqCst);
-                if epoch == 0 { Err(Error::Transport) } else { Ok(json!(epoch)) }
-            }).await;
-            assert_eq!(result, if epoch == 0 { Err(Error::Transport) } else { Ok(json!(epoch)) });
+            let result = service
+                .neighbor_backend_read("friendsList", "owner", 1, async {
+                    calls.fetch_add(1, Ordering::SeqCst);
+                    if epoch == 0 {
+                        Err(Error::Transport)
+                    } else {
+                        Ok(json!(epoch))
+                    }
+                })
+                .await;
+            assert_eq!(
+                result,
+                if epoch == 0 {
+                    Err(Error::Transport)
+                } else {
+                    Ok(json!(epoch))
+                }
+            );
         }
         assert_eq!(calls.load(Ordering::SeqCst), epoch + 1);
     }
@@ -219,7 +246,11 @@ async fn mutation_and_refresh_retire_an_active_service_list_read() {
             crate::multiplexer::state::MultiplexerState::new().0,
         );
         let service = &fixture.service;
-        service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+        service
+            .ext::<crate::config::ConfigState>()
+            .lock()
+            .neighbors
+            .enabled = true;
         let (started, running) = tokio::sync::oneshot::channel();
         let (release, held) = tokio::sync::oneshot::channel();
         let old = service.neighbor_backend_read("friendsList", "owner", 1, async {
@@ -229,17 +260,29 @@ async fn mutation_and_refresh_retire_an_active_service_list_read() {
         });
         let control = async {
             running.await.unwrap();
-            if refresh { service.refresh_neighbor_list().await.unwrap(); } else { service.invalidate_neighbor_list().await.unwrap(); }
-            assert_eq!(service.neighbor_backend_read("friendsList", "owner", 1, async {
+            if refresh {
+                service.refresh_neighbor_list().await.unwrap();
+            } else {
+                service.invalidate_neighbor_list().await.unwrap();
+            }
+            assert_eq!(
+                service
+                    .neighbor_backend_read("friendsList", "owner", 1, async { Ok(json!("fresh")) })
+                    .await,
                 Ok(json!("fresh"))
-            }).await, Ok(json!("fresh")));
+            );
             release.send(()).unwrap();
         };
         let (old, _) = tokio::join!(old, control);
         assert_eq!(old, Err(Error::Revoked));
-        assert_eq!(service.neighbor_backend_read("friendsList", "owner", 1, async {
-            panic!("An expired service read cannot replace the refreshed value")
-        }).await, Ok(json!("fresh")));
+        assert_eq!(
+            service
+                .neighbor_backend_read("friendsList", "owner", 1, async {
+                    panic!("An expired service read cannot replace the refreshed value")
+                })
+                .await,
+            Ok(json!("fresh"))
+        );
     }
 }
 
@@ -251,13 +294,24 @@ fn registry_commit_keeps_the_epoch_locked_through_the_injected_publication() {
     let service = &fixture.service;
     let epoch = service.neighbor_list_epoch("owner", 1);
     let mut published = false;
-    service.commit_neighbor_list_epoch(&epoch, || {
-        assert!(service.extensions.get_or_init(Reads::default).list.state.try_lock().is_none());
-        published = true;
-    }).unwrap();
+    service
+        .commit_neighbor_list_epoch(&epoch, || {
+            assert!(service
+                .extensions
+                .get_or_init(Reads::default)
+                .list
+                .state
+                .try_lock()
+                .is_none());
+            published = true;
+        })
+        .unwrap();
     assert!(published);
     service.retire_neighbor_list_reads();
-    assert_eq!(service.commit_neighbor_list_epoch(&epoch, || {
-        panic!("An expired epoch cannot enter its publication closure")
-    }), Err::<(), _>(Error::Revoked));
+    assert_eq!(
+        service.commit_neighbor_list_epoch(&epoch, || {
+            panic!("An expired epoch cannot enter its publication closure")
+        }),
+        Err::<(), _>(Error::Revoked)
+    );
 }

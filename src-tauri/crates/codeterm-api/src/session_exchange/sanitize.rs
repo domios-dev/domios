@@ -156,7 +156,9 @@ impl SchemaLocation {
     }
 
     fn preserves_enum(self, key: &str, value: &Value) -> bool {
-        use codeterm_types::plan::{CuratorAsked, CuratorFailure, CuratorOutcome, CuratorSuspension};
+        use codeterm_types::plan::{
+            CuratorAsked, CuratorFailure, CuratorOutcome, CuratorSuspension,
+        };
 
         match (self, key) {
             (Self::CuratorRound, "asked") => {

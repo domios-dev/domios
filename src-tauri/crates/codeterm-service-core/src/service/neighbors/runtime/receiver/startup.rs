@@ -105,38 +105,71 @@ impl ServiceContext {
         generation: u64,
         recover_keys: bool,
     ) -> Result<(), String> {
-        if self.neighbor_access_locked().await { return Err(Error::Locked.to_string()); }
-        self.require_neighbors_enabled().map_err(|error| error.to_string())?;
+        if self.neighbor_access_locked().await {
+            return Err(Error::Locked.to_string());
+        }
+        self.require_neighbors_enabled()
+            .map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;
         if self.neighbor_stop_local_pending(generation) {
             self.drain_neighbor_stop_local(generation).await?;
         }
-        let account = self.ext::<crate::service::account::AccountCell>().0.get()
+        let account = self
+            .ext::<crate::service::account::AccountCell>()
+            .0
+            .get()
             .ok_or("Neighbor account unavailable")?;
-        let session = account.session().await.ok_or("Neighbor account signed out")?;
-        if session.identity.uid != transport.uid { return Err(Error::Revoked.to_string()); }
-        let (ticket, list) = self.neighbor_activation_ticket(&session.identity.uid, session.login_generation)
+        let session = account
+            .session()
+            .await
+            .ok_or("Neighbor account signed out")?;
+        if session.identity.uid != transport.uid {
+            return Err(Error::Revoked.to_string());
+        }
+        let (ticket, list) = self
+            .neighbor_activation_ticket(&session.identity.uid, session.login_generation)
             .map_err(|error| error.to_string())?;
         let prepare_service = self.clone();
         let apply_service = self.clone();
         let prepare_transport = transport.clone();
         let prepare_registry = registry.clone();
         let prepare_scope = scope.clone();
-        let receiving = super::super::super::updates::receives_friends(&list, &registry.installation_id);
-        self.activate_prepared_neighbor(ticket, generation, async move {
-            if !receiving { return Ok(None); }
-            let store = prepare_service.neighbor_key_store().map_err(|error| error.to_string())?;
-            let lifecycle = InstallationKeys {
-                store: &store, registry: prepare_registry.as_ref(), scope: prepare_scope,
-                uid: &prepare_transport.uid,
-            };
-            let local = if recover_keys { lifecycle.reconcile().await } else { lifecycle.load().await }
+        let receiving =
+            super::super::super::updates::receives_friends(&list, &registry.installation_id);
+        self.activate_prepared_neighbor(
+            ticket,
+            generation,
+            async move {
+                if !receiving {
+                    return Ok(None);
+                }
+                let store = prepare_service
+                    .neighbor_key_store()
+                    .map_err(|error| error.to_string())?;
+                let lifecycle = InstallationKeys {
+                    store: &store,
+                    registry: prepare_registry.as_ref(),
+                    scope: prepare_scope,
+                    uid: &prepare_transport.uid,
+                };
+                let local = if recover_keys {
+                    lifecycle.reconcile().await
+                } else {
+                    lifecycle.load().await
+                }
                 .map_err(|error| error.to_string())?;
-            prepare_service.require_neighbor_generation(generation)?;
-            Ok(local.as_ref().map(|keys| keys.encryption_key_id()))
-        }, move |local_id| async move {
-            apply_service.apply_neighbor_friend_listeners(transport, registry, scope, metadata, generation, list, local_id).await
-        }).await
+                prepare_service.require_neighbor_generation(generation)?;
+                Ok(local.as_ref().map(|keys| keys.encryption_key_id()))
+            },
+            move |local_id| async move {
+                apply_service
+                    .apply_neighbor_friend_listeners(
+                        transport, registry, scope, metadata, generation, list, local_id,
+                    )
+                    .await
+            },
+        )
+        .await
     }
 
     async fn activate_prepared_neighbor<P, Prep, Apply, Applied>(

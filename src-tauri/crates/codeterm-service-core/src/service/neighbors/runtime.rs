@@ -784,7 +784,10 @@ impl ServiceContext {
     }
 
     pub(crate) fn neighbor_identity_changed(&self) {
-        self.extensions.get_or_init(IdentityPending::default).0.store(true, Ordering::Release);
+        self.extensions
+            .get_or_init(IdentityPending::default)
+            .0
+            .store(true, Ordering::Release);
         self.neighbor_reconciliation().close();
         self.forget_neighbor_friend_receivers();
         self.forget_neighbor_registry();
@@ -804,21 +807,31 @@ impl ServiceContext {
             .bootstrapped
             .store(false, std::sync::atomic::Ordering::Release);
         let service = self.clone();
-        match self.neighbor_reconciliation().submit(super::reconciliation::Kind::Retirement, move || async move {
-            service.finish_neighbor_identity_change();
-            Ok(())
-        }) {
-            Ok(receipt) => { crate::async_runtime::spawn(async move {
-                if let Err(error) = receipt.wait().await {
-                    log::debug!("[neighbors] identity reconciliation drain failed: {error}");
-                }
-            }); }
+        match self.neighbor_reconciliation().submit(
+            super::reconciliation::Kind::Retirement,
+            move || async move {
+                service.finish_neighbor_identity_change();
+                Ok(())
+            },
+        ) {
+            Ok(receipt) => {
+                crate::async_runtime::spawn(async move {
+                    if let Err(error) = receipt.wait().await {
+                        log::debug!("[neighbors] identity reconciliation drain failed: {error}");
+                    }
+                });
+            }
             Err(error) => log::debug!("[neighbors] identity reconciliation drain pending: {error}"),
         }
     }
 
     pub(super) fn finish_neighbor_identity_change(&self) {
-        if !self.extensions.get_or_init(IdentityPending::default).0.swap(false, Ordering::AcqRel) {
+        if !self
+            .extensions
+            .get_or_init(IdentityPending::default)
+            .0
+            .swap(false, Ordering::AcqRel)
+        {
             return;
         }
         self.reset_neighbor_projection_owned();

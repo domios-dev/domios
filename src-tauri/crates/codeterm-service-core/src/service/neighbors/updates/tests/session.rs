@@ -135,7 +135,9 @@ struct Ports {
 #[async_trait::async_trait]
 impl ports::SessionPorts for Ports {
     async fn activate(&self, session: &Session, list: &Value) -> Result<()> {
-        session.require_activation(list["version"].as_u64().unwrap()).await?;
+        session
+            .require_activation(list["version"].as_u64().unwrap())
+            .await?;
         self.activations.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -244,7 +246,9 @@ async fn fixture(
     });
     fixture
         .service
-        .select_neighbor_projection(&expected.identity.uid, expected.login_generation).await.unwrap();
+        .select_neighbor_projection(&expected.identity.uid, expected.login_generation)
+        .await
+        .unwrap();
     let session = Session {
         metadata: Metadata::new(fixture.temp.path().to_owned(), &expected.identity.uid),
         service: fixture.service.clone(),
@@ -450,16 +454,31 @@ async fn late_callable_fallback_does_not_publish_over_a_live_projection() {
     let fallback = session.fallback();
     let project = async {
         running.await.unwrap();
-        assert!(fixture.service.apply_neighbor_projection(
-            &session.transport.uid, session.expected.login_generation, snapshot(1, None),
-        ).await);
+        assert!(
+            fixture
+                .service
+                .apply_neighbor_projection(
+                    &session.transport.uid,
+                    session.expected.login_generation,
+                    snapshot(1, None),
+                )
+                .await
+        );
         release.send(()).unwrap();
     };
     tokio::join!(fallback, project);
     assert_eq!(calls.calls.load(Ordering::SeqCst), 1);
-    assert_eq!(calls.invoke("friendsList", json!({})).await.unwrap()["access"], "paid");
+    assert_eq!(
+        calls.invoke("friendsList", json!({})).await.unwrap()["access"],
+        "paid"
+    );
     assert_eq!(calls.calls.load(Ordering::SeqCst), 1);
-    assert!(!fixture.ui.0.lock().iter().any(|(name, _)| name == "neighbors-changed"));
+    assert!(!fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .any(|(name, _)| name == "neighbors-changed"));
 }
 
 #[tokio::test]
@@ -470,15 +489,34 @@ async fn activation_port_runs_after_owned_commit_and_refuses_superseded_or_off_v
     assert_eq!(ports.activations.load(Ordering::SeqCst), 1);
     session.project(snapshot(1, None), &mut seen).await.unwrap();
     assert_eq!(ports.activations.load(Ordering::SeqCst), 1);
-    let old = fixture.service.peek_neighbor_projection(&session.transport.uid, session.expected.login_generation, "friendsList", "").unwrap();
+    let old = fixture
+        .service
+        .peek_neighbor_projection(
+            &session.transport.uid,
+            session.expected.login_generation,
+            "friendsList",
+            "",
+        )
+        .unwrap();
     session.project(snapshot(2, None), &mut seen).await.unwrap();
     assert!(ports.activate(&session, &old).await.is_err());
     assert_eq!(ports.activations.load(Ordering::SeqCst), 2);
-    fixture.service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = false;
+    fixture
+        .service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .neighbors
+        .enabled = false;
     fixture.service.pause_neighbor_reception();
     assert!(ports.activate(&session, &old).await.is_err());
     assert_eq!(ports.activations.load(Ordering::SeqCst), 2);
-    assert!(fixture.service.neighbor_cell().listeners.lock().active.is_empty());
+    assert!(fixture
+        .service
+        .neighbor_cell()
+        .listeners
+        .lock()
+        .active
+        .is_empty());
 }
 
 struct ReconcileBarrier {
@@ -489,9 +527,21 @@ struct ReconcileBarrier {
 }
 #[async_trait::async_trait]
 impl ports::SessionPorts for ReconcileBarrier {
-    async fn listen_state(&self) -> Result<Box<dyn StateListener>> { panic!("No live listener") }
-    async fn listen_signals(&self) -> Result<Box<dyn codeterm_neighbors::registry::RegistryListener>> { panic!("No live signals") }
-    async fn reconcile(&self, _: &Session, _: Value, _: Option<Value>, _: &mut notifications::Seen) -> Result<()> {
+    async fn listen_state(&self) -> Result<Box<dyn StateListener>> {
+        panic!("No live listener")
+    }
+    async fn listen_signals(
+        &self,
+    ) -> Result<Box<dyn codeterm_neighbors::registry::RegistryListener>> {
+        panic!("No live signals")
+    }
+    async fn reconcile(
+        &self,
+        _: &Session,
+        _: Value,
+        _: Option<Value>,
+        _: &mut notifications::Seen,
+    ) -> Result<()> {
         let start = self.started.lock().take().unwrap();
         let release = self.release.lock().take().unwrap();
         start.send(()).unwrap();
@@ -500,25 +550,32 @@ impl ports::SessionPorts for ReconcileBarrier {
         Ok(())
     }
     async fn activate(&self, session: &Session, list: &Value) -> Result<()> {
-        session.require_activation(list["version"].as_u64().unwrap()).await?;
+        session
+            .require_activation(list["version"].as_u64().unwrap())
+            .await?;
         self.activations.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 }
 
 #[tokio::test]
-async fn listener_cancellation_cannot_abort_owned_write_and_equal_snapshot_recovers_unstarted_activation() {
+async fn listener_cancellation_cannot_abort_owned_write_and_equal_snapshot_recovers_unstarted_activation(
+) {
     let (fixture, mut session, _, _, _) = fixture(Mode::Controlled).await;
     let (started, running) = tokio::sync::oneshot::channel();
     let (release, held) = tokio::sync::oneshot::channel();
     let barrier = Arc::new(ReconcileBarrier {
-        started: parking_lot::Mutex::new(Some(started)), release: parking_lot::Mutex::new(Some(held)),
-        writes: AtomicUsize::new(0), activations: AtomicUsize::new(0),
+        started: parking_lot::Mutex::new(Some(started)),
+        release: parking_lot::Mutex::new(Some(held)),
+        writes: AtomicUsize::new(0),
+        activations: AtomicUsize::new(0),
     });
     session.ports = barrier.clone();
     let recovery = session.reconciliation_owner();
     let waiter = tokio::spawn(async move {
-        session.project(snapshot(1, None), &mut notifications::Seen::default()).await
+        session
+            .project(snapshot(1, None), &mut notifications::Seen::default())
+            .await
     });
     running.await.unwrap();
     waiter.abort();
@@ -527,7 +584,10 @@ async fn listener_cancellation_cannot_abort_owned_write_and_equal_snapshot_recov
     fixture.service.neighbor_reconciliation().idle().await;
     assert_eq!(barrier.writes.load(Ordering::SeqCst), 1);
     assert_eq!(barrier.activations.load(Ordering::SeqCst), 0);
-    recovery.project(snapshot(1, None), &mut notifications::Seen::default()).await.unwrap();
+    recovery
+        .project(snapshot(1, None), &mut notifications::Seen::default())
+        .await
+        .unwrap();
     assert_eq!(barrier.writes.load(Ordering::SeqCst), 1);
     assert_eq!(barrier.activations.load(Ordering::SeqCst), 1);
 }
@@ -537,24 +597,48 @@ struct RealEffects {
 }
 #[async_trait::async_trait]
 impl ports::SessionPorts for RealEffects {
-    async fn listen_state(&self) -> Result<Box<dyn StateListener>> { panic!("No live listener") }
-    async fn listen_signals(&self) -> Result<Box<dyn codeterm_neighbors::registry::RegistryListener>> { panic!("No live signals") }
-    async fn activate(&self, session: &Session, list: &Value) -> Result<()> {
-        session.require_activation(list["version"].as_u64().unwrap()).await
+    async fn listen_state(&self) -> Result<Box<dyn StateListener>> {
+        panic!("No live listener")
     }
-    async fn persist_notifications(&self, session: &Session, seen: &notifications::Seen) -> Result<()> {
-        if self.fail_notification_write.swap(false, Ordering::SeqCst) { return Err(Error::CursorStore); }
-        session.metadata.write("registry-notifications.json".into(), serde_json::to_value(seen).unwrap()).await
+    async fn listen_signals(
+        &self,
+    ) -> Result<Box<dyn codeterm_neighbors::registry::RegistryListener>> {
+        panic!("No live signals")
+    }
+    async fn activate(&self, session: &Session, list: &Value) -> Result<()> {
+        session
+            .require_activation(list["version"].as_u64().unwrap())
+            .await
+    }
+    async fn persist_notifications(
+        &self,
+        session: &Session,
+        seen: &notifications::Seen,
+    ) -> Result<()> {
+        if self.fail_notification_write.swap(false, Ordering::SeqCst) {
+            return Err(Error::CursorStore);
+        }
+        session
+            .metadata
+            .write(
+                "registry-notifications.json".into(),
+                serde_json::to_value(seen).unwrap(),
+            )
+            .await
     }
 }
 
 #[tokio::test]
 async fn real_authoritative_cleanup_and_notice_recovery_preserve_durable_dedupe() {
     let (fixture, mut session, _, _, _) = fixture(Mode::Controlled).await;
-    session.ports = Arc::new(RealEffects { fail_notification_write: std::sync::atomic::AtomicBool::new(true) });
+    session.ports = Arc::new(RealEffects {
+        fail_notification_write: std::sync::atomic::AtomicBool::new(true),
+    });
     let friendship = "a".repeat(64);
     let mut settings = session.metadata.settings().await.unwrap();
-    settings.bindings.insert(friendship.clone(), "absent-local-tab".into());
+    settings
+        .bindings
+        .insert(friendship.clone(), "absent-local-tab".into());
     settings.paused.insert(friendship.clone());
     session.metadata.save_settings(settings).await.unwrap();
     let mut value = snapshot(1, None).list(1);
@@ -562,15 +646,69 @@ async fn real_authoritative_cleanup_and_notice_recovery_preserve_durable_dedupe(
     value["own_keys"] = json!([]);
     value["incoming"] = json!([{"request_id":"b".repeat(64),"uid":"peer","displayName":"Peer","email":null,"photoURL":null,"created_at":1}]);
     let projected = Snapshot::parse(value).unwrap();
-    assert_eq!(session.project(projected.clone(), &mut notifications::Seen::default()).await, Err(Error::CursorStore));
+    assert_eq!(
+        session
+            .project(projected.clone(), &mut notifications::Seen::default())
+            .await,
+        Err(Error::CursorStore)
+    );
     assert!(session.metadata.history(&friendship).await.unwrap().ended);
-    assert!(!session.metadata.settings().await.unwrap().bindings.contains_key(&friendship));
-    assert!(session.metadata.read::<Value>("registry-notifications.json".into()).await.unwrap().is_none());
-    assert_eq!(fixture.ui.0.lock().iter().filter(|(name, _)| name == "notification-created").count(), 0);
-    session.project(projected.clone(), &mut notifications::Seen::default()).await.unwrap();
-    assert_eq!(fixture.ui.0.lock().iter().filter(|(name, _)| name == "notification-created").count(), 1);
-    let persisted = session.metadata.read::<Value>("registry-notifications.json".into()).await.unwrap().unwrap();
+    assert!(!session
+        .metadata
+        .settings()
+        .await
+        .unwrap()
+        .bindings
+        .contains_key(&friendship));
+    assert!(session
+        .metadata
+        .read::<Value>("registry-notifications.json".into())
+        .await
+        .unwrap()
+        .is_none());
+    assert_eq!(
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "notification-created")
+            .count(),
+        0
+    );
+    session
+        .project(projected.clone(), &mut notifications::Seen::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "notification-created")
+            .count(),
+        1
+    );
+    let persisted = session
+        .metadata
+        .read::<Value>("registry-notifications.json".into())
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(persisted["incoming"][0], "b".repeat(64));
-    session.project(projected, &mut notifications::Seen::default()).await.unwrap();
-    assert_eq!(fixture.ui.0.lock().iter().filter(|(name, _)| name == "notification-created").count(), 1);
+    session
+        .project(projected, &mut notifications::Seen::default())
+        .await
+        .unwrap();
+    assert_eq!(
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "notification-created")
+            .count(),
+        1
+    );
 }

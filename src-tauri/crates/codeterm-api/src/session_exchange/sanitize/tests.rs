@@ -228,7 +228,13 @@ fn curator_enum_preservation_requires_structural_path_and_valid_variant() {
 
 #[test]
 fn opaque_curator_lookalikes_keep_masked_inventory_and_size() {
-    for key in ["toolInput", "toolResult", "data", "context_files", "ownership"] {
+    for key in [
+        "toolInput",
+        "toolResult",
+        "data",
+        "context_files",
+        "ownership",
+    ] {
         let payload = json!({"asked":"answered","outcome":"quiet","id":"private-id",
             "control_loop":{"last_round":{"asked":"none","outcome":"fallback"},
                 "rounds":[{"asked":"timeout"}],"fallback_reason":"mirror_unavailable"}});
@@ -238,8 +244,16 @@ fn opaque_curator_lookalikes_keep_masked_inventory_and_size() {
             let object = safe[key].as_object().unwrap();
             assert_eq!(object.len(), 4);
             for text in [
-                "asked", "outcome", "answered", "quiet", "private", "control_loop", "none",
-                "fallback", "timeout", "mirror_unavailable",
+                "asked",
+                "outcome",
+                "answered",
+                "quiet",
+                "private",
+                "control_loop",
+                "none",
+                "fallback",
+                "timeout",
+                "mirror_unavailable",
             ] {
                 assert!(!safe[key].to_string().contains(text));
             }

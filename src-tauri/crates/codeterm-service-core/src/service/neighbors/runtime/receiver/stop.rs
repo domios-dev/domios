@@ -49,11 +49,14 @@ impl ServiceContext {
         &self,
         generation: u64,
     ) -> Result<(), String> {
-        if !self.neighbor_stop_local_pending(generation) { return Ok(()); }
+        if !self.neighbor_stop_local_pending(generation) {
+            return Ok(());
+        }
         let service = self.clone();
         self.own_neighbor_stop_local(move || async move {
             service.drain_neighbor_stop_local_owned(generation).await
-        }).await
+        })
+        .await
     }
 
     async fn own_neighbor_stop_local<F, R>(&self, cleanup: F) -> Result<(), String>
@@ -61,12 +64,20 @@ impl ServiceContext {
         F: FnOnce() -> R + Send + 'static,
         R: std::future::Future<Output = Result<(), String>> + Send + 'static,
     {
-        self.neighbor_reconciliation().submit(crate::service::neighbors::reconciliation::Kind::StopLocal, move || async move {
-            cleanup().await.map_err(|error| {
-                log::debug!("[neighbors] owned OFF cleanup failed: {error}");
-                Error::Gateway
-            })
-        }).map_err(|error| error.to_string())?.wait().await.map_err(|error| error.to_string())
+        self.neighbor_reconciliation()
+            .submit(
+                crate::service::neighbors::reconciliation::Kind::StopLocal,
+                move || async move {
+                    cleanup().await.map_err(|error| {
+                        log::debug!("[neighbors] owned OFF cleanup failed: {error}");
+                        Error::Gateway
+                    })
+                },
+            )
+            .map_err(|error| error.to_string())?
+            .wait()
+            .await
+            .map_err(|error| error.to_string())
     }
 
     async fn drain_neighbor_stop_local_owned(&self, generation: u64) -> Result<(), String> {
