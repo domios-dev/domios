@@ -167,6 +167,7 @@ impl ServiceContext {
         cell.version.fetch_add(1, Ordering::AcqRel) + 1
     }
 
+    #[cfg(test)]
     pub(in crate::service::neighbors) fn forget_neighbor_friend_receiver(
         &self,
         friendship: &str,
