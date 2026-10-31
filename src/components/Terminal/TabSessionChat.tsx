@@ -62,7 +62,6 @@ import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { BusyState } from "../shared/BusyState";
-import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
@@ -102,7 +101,7 @@ import { BlueprintChatCards } from "./BlueprintChatCards";
 import { useTabChatBlockHost } from "./pinnedBlocks";
 import { interruptAgentArgs } from "../../lib/agentInterrupt";
 import { useTabChoiceHost } from "./useTabChoiceHost";
-import { ChatMessageRow } from "./ChatMessageRow";
+import { ChatTranscriptViewport } from "./ChatTranscriptViewport";
 import { HoldWhileHidden } from "./HoldWhileHidden";
 import { awaitsTranscriptEcho, deliveryPresentation, sendForRow } from "./chatDeliveryModel";
 import { beginChatSendRetry, failChatSendRequest, useChatSendSnapshot } from "./chatSendStore";
@@ -924,7 +923,8 @@ function TabSessionChatBody({
           <span className="text-sm font-mono">Drop files to attach</span>
         </div>
       )}
-      <div className="relative flex-1 min-h-0">
+      <ChatTranscriptViewport prompt={isActive ? promptPart : null} bottomInset={floatingBottomInset}
+        onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }}>
       {showEmptyState && (
         <div
           className="chat-empty-state pointer-events-none absolute inset-0 flex items-center justify-center select-none"
@@ -1026,19 +1026,6 @@ function TabSessionChatBody({
         </div>
         <div aria-hidden="true" style={{ height: mountedWindow.range.bottom }} />
         {runtime.questions.map((item) => <RuntimeQuestionCard key={JSON.stringify([tab?.session_binding_nonce, item.threadId, item.itemId])} tabId={tabId} item={item} onReceipt={observeChatSendStatus} />)}
-        {promptPart && <ChatMessageRow
-          msg={{ id: promptPart.id, type: "assistant" }}
-          ariaLabel={chatMessageAccessibleName("assistant", promptPart.prompt.question)}
-          selected={false}
-          joinNext={false}
-          selecting={false}
-          cursor={false}
-          handlers={messageSelection.rowHandlers}
-        >
-          <div data-message-part={promptPart.id}>
-            <PendingPromptCard key={promptPart.id} pendingPrompt={promptPart.prompt} onRespond={(value) => { void handleRespondPrompt(value).catch(() => {}); }} />
-          </div>
-        </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         <AutoConfirmedPromptRows records={autoConfirmations} />
@@ -1081,7 +1068,7 @@ function TabSessionChatBody({
         />
         </div>
       )}
-      </div>
+      </ChatTranscriptViewport>
       <ComposerBackgroundWorkProvider tabId={tabId} messages={allMessages}>
       <ChatComposerSurface tab={tab} lock={tabLock} view={setupView} providerId={tabProvider ?? undefined} tabId={tabId}>
       {isWatcherTab && watcherSpec ? (
