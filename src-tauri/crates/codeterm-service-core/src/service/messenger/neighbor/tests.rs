@@ -1,6 +1,30 @@
 use super::*;
 
 #[test]
+fn reply_hint_quotes_numeric_leading_hex_arguments_after_validation() {
+    let friendship = "1a".repeat(32);
+    let message_id = "9b".repeat(16);
+    let mut envelope = MessageEnvelope {
+        from_neighbor: Some(friendship.clone()),
+        neighbor_message: Some(NeighborMessage {
+            message_id: message_id.clone(),
+            kind: Kind::Question,
+            in_reply_to: None,
+        }),
+        ..Default::default()
+    };
+    let hint = reply_hint(&envelope).unwrap();
+    assert!(hint.contains(&format!(
+        "domios account neighbors send '{friendship}' --kind answer --in-reply-to '{message_id}' --from-pad -"
+    )));
+    envelope.from_neighbor = Some(format!("{friendship}'"));
+    assert!(reply_hint(&envelope).is_none());
+    envelope.from_neighbor = Some(friendship);
+    envelope.neighbor_message.as_mut().unwrap().message_id = format!("{message_id}'");
+    assert!(reply_hint(&envelope).is_none());
+}
+
+#[test]
 fn incoming_neighbor_frame_uses_shared_attribute_escaping_and_one_host_tip() {
     let friend = "opaque & \"friend\" <forged>";
     let envelope = MessageEnvelope {

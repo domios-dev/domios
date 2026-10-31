@@ -130,8 +130,8 @@ fn only_the_authenticated_general_session_can_author_permissions() {
 #[test]
 fn neighbor_frames_preserve_provenance_without_a_local_reply_route() {
     use crate::service::messenger::{MessageEnvelope, Messenger, NeighborMessage};
-    let friendship = "a".repeat(64);
-    let message_id = "b".repeat(32);
+    let friendship = "1a".repeat(32);
+    let message_id = "9b".repeat(16);
     let envelope = MessageEnvelope {
         from_neighbor: Some(friendship.clone()),
         neighbor_friend: Some("opaque-friend".into()),
@@ -152,7 +152,7 @@ fn neighbor_frames_preserve_provenance_without_a_local_reply_route() {
     assert_eq!(message.attr("kind"), Some("question"));
     assert_eq!(message.body, "opaque-body");
     assert!(frame.suffix.contains(&format!(
-        "domios account neighbors send {friendship} --kind answer --in-reply-to {message_id}"
+        "domios account neighbors send '{friendship}' --kind answer --in-reply-to '{message_id}'"
     )));
     assert!(!frame.suffix.contains("--tab"));
     assert!(message.attr("mesh").is_none());
