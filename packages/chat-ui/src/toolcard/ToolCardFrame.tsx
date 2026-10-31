@@ -137,7 +137,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
       {primaryContent && <div className="px-3 pb-2">{primaryContent}</div>}
-      <BoundedMessageContent collapsedHeight={communication ? "250px" : "600px"}
+      <BoundedMessageContent collapsedHeight={communication ? "190px" : "600px"}
         id={detailsId}
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
