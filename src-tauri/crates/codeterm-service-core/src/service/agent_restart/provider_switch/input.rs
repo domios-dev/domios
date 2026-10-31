@@ -33,7 +33,7 @@ impl ServiceContext {
             .map_err(|error| format!("provider history is not a transcript: {error}"))
     }
 
-    pub(super) fn provider_switch_input(
+    pub(in crate::service::agent_restart) fn provider_switch_input(
         &self,
         tab: &Tab,
         messages: &[crate::agent::chat_types::ChatMsg],
