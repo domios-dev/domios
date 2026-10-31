@@ -167,17 +167,17 @@ module.exports = {
                 "mutating":{"launchArgs":[],"runtimeMode":"workspace-write"}}},
             "permissions":{"subprocess":{"allow":["fixture-cli"]}}
         }).to_string()).unwrap();
-        svc.agent_registry.register_provider(Box::new(JsProvider::new(
-            manifest,
-            Arc::new(PluginVm::from_source(&provider, SOURCE.into()).unwrap()),
-        )));
+        svc.agent_registry
+            .register_provider(Box::new(JsProvider::new(
+                manifest,
+                Arc::new(PluginVm::from_source(&provider, SOURCE.into()).unwrap()),
+            )));
         *session.adapter.lock() = svc.agent_registry.provider_arc(&provider);
         let directory = tempfile::tempdir().unwrap();
         let folder = directory.path().join("friend");
         std::fs::create_dir(&folder).unwrap();
-        let cwd = codeterm_paths::strip_verbatim_prefix(
-            folder.canonicalize().unwrap().to_str().unwrap(),
-        );
+        let cwd =
+            codeterm_paths::strip_verbatim_prefix(folder.canonicalize().unwrap().to_str().unwrap());
         let authority = NeighborAuthority {
             uid: "owner".into(),
             friendship_id: "a".repeat(64),
@@ -192,7 +192,9 @@ module.exports = {
             tab.agent_session_id = None;
             tab.reported_session_binding_nonce = None;
             tab.agent_booting = true;
-            if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } = &mut tab.backing {
+            if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } =
+                &mut tab.backing
+            {
                 session_id.clear();
             }
         }
@@ -203,24 +205,39 @@ module.exports = {
             neighbor_authority: Some(authority.clone()),
             ..Default::default()
         };
-        svc.configure_neighbor_launch_access(&provider, MachineAccess::Folder, &mut params).unwrap();
-        svc.prepare_agent_runtime_launch_options(&tab_id, &params).unwrap();
+        svc.configure_neighbor_launch_access(&provider, MachineAccess::Folder, &mut params)
+            .unwrap();
+        svc.prepare_agent_runtime_launch_options(&tab_id, &params)
+            .unwrap();
         let saved = svc.mux.read().get_tab(&tab_id).unwrap().clone();
         let policy = saved.restorable_launch.execution_sandbox.clone().unwrap();
-        let options = saved.restorable_launch.runtime_launch_options.clone().unwrap();
+        let options = saved
+            .restorable_launch
+            .runtime_launch_options
+            .clone()
+            .unwrap();
         let pad = svc.ensure_agent_pad(&tab_id).unwrap();
         assert_eq!(policy.cwd, cwd);
         assert_eq!(policy.runtime_mode.as_deref(), Some("workspace-write"));
-        assert_eq!(policy.writable_roots, vec![codeterm_paths::strip_verbatim_prefix(
-            pad.path().canonicalize().unwrap().to_str().unwrap(),
-        )]);
+        assert_eq!(
+            policy.writable_roots,
+            vec![codeterm_paths::strip_verbatim_prefix(
+                pad.path().canonicalize().unwrap().to_str().unwrap(),
+            )]
+        );
         assert_eq!(options.additional_directories, policy.writable_roots);
         assert_eq!(options.network_access, Some(false));
-        assert_eq!(options.binding_nonce, saved.session_binding_nonce.clone().unwrap());
+        assert_eq!(
+            options.binding_nonce,
+            saved.session_binding_nonce.clone().unwrap()
+        );
         let restored = super::super::launch_options::restore(svc, &tab_id).unwrap();
-        crate::service::execution_sandbox::validate_runtime_settings(&policy, &restored, &cwd).unwrap();
+        crate::service::execution_sandbox::validate_runtime_settings(&policy, &restored, &cwd)
+            .unwrap();
         let generation = svc.neighbor_history_generation();
-        session.thread_loaded.store(false, std::sync::atomic::Ordering::Release);
+        session
+            .thread_loaded
+            .store(false, std::sync::atomic::Ordering::Release);
         session.state.lock().phase = RuntimePhase::Loading;
         session.context.lock().thread_id = None;
         let epoch = session.context.lock().epoch;
@@ -234,35 +251,66 @@ module.exports = {
             };
             for method in methods {
                 let mut line = String::new();
-                tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line)).await.unwrap().unwrap();
+                tokio::time::timeout(Duration::from_secs(2), peer.read_line(&mut line))
+                    .await
+                    .unwrap()
+                    .unwrap();
                 let request: Value = serde_json::from_str(&line).unwrap();
                 assert_eq!(request["method"], *method);
                 let value = if *method == "fixture/open" {
-                    let requested: RuntimeSettings = serde_json::from_value(request["params"]["settings"].clone()).unwrap();
+                    let requested: RuntimeSettings =
+                        serde_json::from_value(request["params"]["settings"].clone()).unwrap();
                     assert_eq!(requested, expected);
                     serde_json::json!({"settings":RuntimeSettings { mode:Some(reported_mode.into()), ..requested }})
                 } else {
                     serde_json::json!({})
                 };
-                peer.get_mut().write_all(format!("{}\n", serde_json::json!({"jsonrpc":"2.0","id":request["id"],"result":value})).as_bytes()).await.unwrap();
+                peer.get_mut()
+                    .write_all(
+                        format!(
+                            "{}\n",
+                            serde_json::json!({"jsonrpc":"2.0","id":request["id"],"result":value})
+                        )
+                        .as_bytes(),
+                    )
+                    .await
+                    .unwrap();
             }
             peer
         });
         let result = crate::async_runtime::block_on(async {
-            let result = ensure_locked(svc, &tab_id, &provider, &serde_json::json!({}), &session, None).await;
+            let result = ensure_locked(
+                svc,
+                &tab_id,
+                &provider,
+                &serde_json::json!({}),
+                &session,
+                None,
+            )
+            .await;
             let _peer = transport.await.unwrap();
             result
         });
         if reported_mode == "workspace-write" {
             result.unwrap();
-            assert!(session.thread_loaded.load(std::sync::atomic::Ordering::Acquire));
+            assert!(session
+                .thread_loaded
+                .load(std::sync::atomic::Ordering::Acquire));
         } else {
-            assert_eq!(result.unwrap_err().to_string(), "Provider refused: Runtime settings would override the immutable execution sandbox");
-            assert!(!session.thread_loaded.load(std::sync::atomic::Ordering::Acquire));
+            assert_eq!(
+                result.unwrap_err().to_string(),
+                "Provider refused: Runtime settings would override the immutable execution sandbox"
+            );
+            assert!(!session
+                .thread_loaded
+                .load(std::sync::atomic::Ordering::Acquire));
         }
         let context = session.context.lock().clone();
         assert_eq!(context.settings.mode.as_deref(), Some(reported_mode));
-        assert_eq!(context.settings.additional_directories, policy.writable_roots);
+        assert_eq!(
+            context.settings.additional_directories,
+            policy.writable_roots
+        );
         assert_eq!(context.settings.network_access, Some(false));
         assert_eq!(context.cwd, cwd);
         assert_eq!(context.binding_nonce, options.binding_nonce);
@@ -272,12 +320,26 @@ module.exports = {
         let after = svc.mux.read().get_tab(&tab_id).unwrap().clone();
         assert_eq!(after.restorable_launch.execution_sandbox, Some(policy));
         assert_eq!(after.neighbor_authority, Some(authority));
-        assert_eq!(after.agent_runtime_config.as_ref().unwrap()["mode"], "workspace-write");
-        assert_eq!(after.structured_runtime_mode.as_deref(), Some(reported_mode));
+        assert_eq!(
+            after.agent_runtime_config.as_ref().unwrap()["mode"],
+            "workspace-write"
+        );
+        assert_eq!(
+            after.structured_runtime_mode.as_deref(),
+            Some(reported_mode)
+        );
         assert!(svc.require_neighbor_restore_grant(&tab_id, false).is_ok());
-        svc.mux.write().get_tab_mut(&tab_id).unwrap().session_binding_nonce = Some("foreign-nonce".into());
+        svc.mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .session_binding_nonce = Some("foreign-nonce".into());
         assert!(svc.require_neighbor_restore_grant(&tab_id, false).is_err());
-        svc.mux.write().get_tab_mut(&tab_id).unwrap().session_binding_nonce = after.session_binding_nonce;
+        svc.mux
+            .write()
+            .get_tab_mut(&tab_id)
+            .unwrap()
+            .session_binding_nonce = after.session_binding_nonce;
         assert!(svc.require_neighbor_restore_grant(&tab_id, false).is_ok());
         svc.neighbor_identity_changed();
         assert!(svc.require_neighbor_restore_grant(&tab_id, false).is_err());

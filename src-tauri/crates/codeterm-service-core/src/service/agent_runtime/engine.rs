@@ -659,9 +659,12 @@ async fn ensure_locked(
             },
         ) => {
             #[cfg(debug_assertions)]
-            if let Some(policy) = svc.mux.read().get_tab(tab).and_then(|tab| {
-                tab.restorable_launch.execution_sandbox.clone()
-            }) {
+            if let Some(policy) = svc
+                .mux
+                .read()
+                .get_tab(tab)
+                .and_then(|tab| tab.restorable_launch.execution_sandbox.clone())
+            {
                 log::debug!(
                     "[runtime-policy] phase=thread_loaded tab={} epoch={} requested=({}) returned=({})",
                     context.tab_id,

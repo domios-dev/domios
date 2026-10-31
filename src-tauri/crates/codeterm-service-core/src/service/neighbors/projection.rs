@@ -504,7 +504,10 @@ impl ServiceContext {
             state.reconciled = Some(version);
         }
         drop(state);
-        self.extensions.get_or_init(Cell::default).changed.notify_waiters();
+        self.extensions
+            .get_or_init(Cell::default)
+            .changed
+            .notify_waiters();
         Ok(true)
     }
     pub(super) fn peek_neighbor_projection(
@@ -630,23 +633,18 @@ impl ServiceContext {
                     }
                     let list = state
                         .snapshots
-                        .read(
-                            uid,
-                            login_generation,
-                            "friendsList",
-                            "",
-                            now_seconds(),
-                        )
+                        .read(uid, login_generation, "friendsList", "", now_seconds())
                         .ok_or(Error::Revoked)?;
                     if state.reconciled == state.snapshots.version(uid, login_generation)
                         && list["friends"].as_array().is_some_and(|rows| {
-                        rows.iter().any(|row| {
-                            row["friendship_id"] == friendship
-                                && row["my_receiver"]["revision"]
-                                    .as_u64()
-                                    .is_some_and(|current| current >= revision)
+                            rows.iter().any(|row| {
+                                row["friendship_id"] == friendship
+                                    && row["my_receiver"]["revision"]
+                                        .as_u64()
+                                        .is_some_and(|current| current >= revision)
+                            })
                         })
-                    }) {
+                    {
                         return Ok(ReceiverConfirmation::Observed);
                     }
                 }

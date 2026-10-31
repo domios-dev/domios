@@ -59,21 +59,34 @@ pub(super) struct Request {
 }
 
 impl ServiceContext {
-    pub(super) async fn confirm_neighbor_receiver(&self, phase: Box<ReceiverCommit>) -> Result<Value, String> {
+    pub(super) async fn confirm_neighbor_receiver(
+        &self,
+        phase: Box<ReceiverCommit>,
+    ) -> Result<Value, String> {
         use super::super::projection::ReceiverConfirmation;
         #[cfg(test)]
         self.observe_neighbor_operation("confirmation_waiting");
-        let observed = self.wait_neighbor_projection_receiver(
-            &phase.committed.registry.uid, phase.committed.login_generation,
-            &phase.committed.friendship, phase.committed.revision,
-        ).await;
+        let observed = self
+            .wait_neighbor_projection_receiver(
+                &phase.committed.registry.uid,
+                phase.committed.login_generation,
+                &phase.committed.friendship,
+                phase.committed.revision,
+            )
+            .await;
         let explicit = phase.continuation.is_none();
         let result = phase.committed.result.clone();
         if observed != Ok(ReceiverConfirmation::Observed) {
             log::debug!("[neighbors] receiver assignment committed; projection confirmation pending: {observed:?}");
-            return if explicit { Ok(result) } else { Err(receiver_preparation_pending()) };
+            return if explicit {
+                Ok(result)
+            } else {
+                Err(receiver_preparation_pending())
+            };
         }
-        let confirmation = self.neighbor_operation(Operation::ConfirmReceiver(phase)).await;
+        let confirmation = self
+            .neighbor_operation(Operation::ConfirmReceiver(phase))
+            .await;
         match confirmation {
             Ok(Outcome::Value(value)) => Ok(value),
             Ok(Outcome::ReceiverCommitted(_)) => Err("Invalid Neighbor confirmation phase".into()),
@@ -149,9 +162,19 @@ impl ServiceContext {
         match operation {
             Operation::ConfirmReceiver(phase) => {
                 if let Some(next) = &phase.continuation {
-                    self.authorize_neighbor_runtime(&next.command, next.caller.as_deref(), next.nonce.as_deref()).await?;
+                    self.authorize_neighbor_runtime(
+                        &next.command,
+                        next.caller.as_deref(),
+                        next.nonce.as_deref(),
+                    )
+                    .await?;
                 }
-                let observed = self.reconcile_committed_neighbor_receiver(&phase.committed, phase.continuation.is_some()).await;
+                let observed = self
+                    .reconcile_committed_neighbor_receiver(
+                        &phase.committed,
+                        phase.continuation.is_some(),
+                    )
+                    .await;
                 if observed != Ok(super::super::projection::ReceiverConfirmation::Observed) {
                     log::debug!("[neighbors] receiver assignment committed; owned confirmation pending: {observed:?}");
                     return if phase.continuation.is_none() {
@@ -163,7 +186,14 @@ impl ServiceContext {
                 if let Some(next) = phase.continuation {
                     self.require_neighbor_friend_receiver(&phase.committed.friendship, Some(phase.committed.revision))
                         .map_err(|error| format!("Neighbor receiver assignment committed; local preparation unavailable: {error}"))?;
-                    self.neighbor_runtime_owned(next.command, next.caller.as_deref(), next.nonce.as_deref(), phase.committed.generation, Some(&phase.committed)).await
+                    self.neighbor_runtime_owned(
+                        next.command,
+                        next.caller.as_deref(),
+                        next.nonce.as_deref(),
+                        phase.committed.generation,
+                        Some(&phase.committed),
+                    )
+                    .await
                 } else {
                     Ok(Outcome::Value(phase.committed.result))
                 }
@@ -211,9 +241,16 @@ impl ServiceContext {
                 command,
                 caller,
                 nonce,
-            } => self
-                .neighbor_runtime_owned(command, caller.as_deref(), nonce.as_deref(), generation, None)
-                .await,
+            } => {
+                self.neighbor_runtime_owned(
+                    command,
+                    caller.as_deref(),
+                    nonce.as_deref(),
+                    generation,
+                    None,
+                )
+                .await
+            }
             Operation::Refuse {
                 friendship,
                 message_id,

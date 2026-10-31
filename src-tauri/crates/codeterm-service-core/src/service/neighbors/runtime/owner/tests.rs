@@ -14,11 +14,21 @@ impl codeterm_neighbors::adapter::AuthenticatedCall for NoConfirmationCalls {
     }
 }
 
-fn committed_receiver(fixture: &crate::service::test_fixture::ServiceFixture) -> receiver::selection::Committed {
+fn committed_receiver(
+    fixture: &crate::service::test_fixture::ServiceFixture,
+) -> receiver::selection::Committed {
     receiver::selection::Committed {
         result: json!({"schema_version":1,"receiver":{"friendship_id":"a".repeat(64),"revision":1,"is_me":true,"receiving":true,"machine_label":null}}),
-        friendship: "a".repeat(64), revision: 1, generation: 0, login_generation: 1,
-        registry: Arc::new(FirebaseRegistry { calls: Arc::new(NoConfirmationCalls), uid: "owner".into(), installation_id: "fixture".into(), machine_label: "Fixture".into() }),
+        friendship: "a".repeat(64),
+        revision: 1,
+        generation: 0,
+        login_generation: 1,
+        registry: Arc::new(FirebaseRegistry {
+            calls: Arc::new(NoConfirmationCalls),
+            uid: "owner".into(),
+            installation_id: "fixture".into(),
+            machine_label: "Fixture".into(),
+        }),
         scope: KeyScope::installation("fixture", "owner").unwrap(),
         metadata: Metadata::new(fixture.temp.path().to_owned(), "owner"),
     }
@@ -26,14 +36,41 @@ fn committed_receiver(fixture: &crate::service::test_fixture::ServiceFixture) ->
 
 #[tokio::test]
 async fn retired_committed_confirmation_returns_assignment_without_late_local_effects() {
-    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
     let committed = committed_receiver(&fixture);
     let expected = committed.result.clone();
-    fixture.service.neighbor_cell().generation.store(1, Ordering::Release);
-    assert_eq!(fixture.service.reconcile_committed_neighbor_receiver(&committed, false).await, Err(Error::Revoked));
-    let outcome = fixture.service.run_neighbor_operation(1, Operation::ConfirmReceiver(Box::new(ReceiverCommit { committed, continuation: None }))).await.unwrap();
+    fixture
+        .service
+        .neighbor_cell()
+        .generation
+        .store(1, Ordering::Release);
+    assert_eq!(
+        fixture
+            .service
+            .reconcile_committed_neighbor_receiver(&committed, false)
+            .await,
+        Err(Error::Revoked)
+    );
+    let outcome = fixture
+        .service
+        .run_neighbor_operation(
+            1,
+            Operation::ConfirmReceiver(Box::new(ReceiverCommit {
+                committed,
+                continuation: None,
+            })),
+        )
+        .await
+        .unwrap();
     assert!(matches!(outcome, Outcome::Value(value) if value == expected));
-    assert!(fixture.service.neighbor_friend_receiver_views().as_object().unwrap().is_empty());
+    assert!(fixture
+        .service
+        .neighbor_friend_receiver_views()
+        .as_object()
+        .unwrap()
+        .is_empty());
     assert!(fixture.ui.0.lock().is_empty());
 }
 
@@ -51,13 +88,25 @@ async fn resumed_owner_action_rechecks_original_caller_nonce_before_local_reconc
     let phase = ReceiverCommit {
         committed: committed_receiver(&fixture),
         continuation: Some(Continuation {
-            command: NeighborRuntimeCommand::SetPermission { friendship_id: "a".repeat(64), permission: json!({}) },
-            caller: Some(general), nonce: Some("old-nonce".into()),
+            command: NeighborRuntimeCommand::SetPermission {
+                friendship_id: "a".repeat(64),
+                permission: json!({}),
+            },
+            caller: Some(general),
+            nonce: Some("old-nonce".into()),
         }),
     };
-    let result = fixture.service.run_neighbor_operation(0, Operation::ConfirmReceiver(Box::new(phase))).await;
+    let result = fixture
+        .service
+        .run_neighbor_operation(0, Operation::ConfirmReceiver(Box::new(phase)))
+        .await;
     assert!(result.err().unwrap().contains("neighbor_forbidden"));
-    assert!(fixture.service.neighbor_friend_receiver_views().as_object().unwrap().is_empty());
+    assert!(fixture
+        .service
+        .neighbor_friend_receiver_views()
+        .as_object()
+        .unwrap()
+        .is_empty());
 }
 
 #[tokio::test]

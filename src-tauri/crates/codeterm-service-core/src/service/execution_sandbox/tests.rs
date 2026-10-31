@@ -88,18 +88,21 @@ fn runtime_policy_diagnostics_bound_modes_and_report_only_finite_comparisons() {
         ..Default::default()
     };
     let comparison = runtime_policy_comparison(&policy, &settings, "private-foreign-cwd");
-    assert_eq!(comparison, RuntimePolicyComparison {
-        expected_mode: "workspace-write",
-        actual_mode: "read-only",
-        mode_matches: false,
-        expected_root_count: 1,
-        actual_root_count: 1,
-        roots_match: false,
-        expected_network_access: Some(false),
-        actual_network_access: None,
-        network_matches: false,
-        cwd_matches: false,
-    });
+    assert_eq!(
+        comparison,
+        RuntimePolicyComparison {
+            expected_mode: "workspace-write",
+            actual_mode: "read-only",
+            mode_matches: false,
+            expected_root_count: 1,
+            actual_root_count: 1,
+            roots_match: false,
+            expected_network_access: Some(false),
+            actual_network_access: None,
+            network_matches: false,
+            cwd_matches: false,
+        }
+    );
     policy.runtime_mode = Some("private-expected-mode".into());
     let settings = RuntimeSettings {
         mode: Some("private-returned-mode".into()),
@@ -117,7 +120,10 @@ fn runtime_policy_diagnostics_bound_modes_and_report_only_finite_comparisons() {
     assert_eq!(comparison.to_string(), "expected_mode=other actual_mode=other mode_matches=false expected_root_count=1 actual_root_count=1 roots_match=true expected_network_access=Some(false) actual_network_access=Some(false) network_matches=true cwd_matches=true");
     assert_eq!(runtime_mode_label(None), "missing");
     for access in [None, Some(false), Some(true)] {
-        let settings = RuntimeSettings { network_access: access, ..settings.clone() };
+        let settings = RuntimeSettings {
+            network_access: access,
+            ..settings.clone()
+        };
         let comparison = runtime_policy_comparison(&policy, &settings, &policy.cwd);
         assert_eq!(comparison.actual_network_access, access);
         assert_eq!(comparison.network_matches, access == Some(false));

@@ -82,18 +82,19 @@ impl ServiceContext {
         let friend = friend_status(&list, friendship, &registry.installation_id)
             .map_err(|e| e.to_string())?;
         if friend.receiver_installation_id.is_none() {
-            let committed = self.set_neighbor_friend_receiver(
-                registry,
-                scope,
-                metadata,
-                friendship,
-                receiver::selection::Selection::Set,
-                false,
-                friend.receiver_revision,
-                generation,
-            )
-            .await
-            .map_err(|e| e.to_string())?;
+            let committed = self
+                .set_neighbor_friend_receiver(
+                    registry,
+                    scope,
+                    metadata,
+                    friendship,
+                    receiver::selection::Selection::Set,
+                    false,
+                    friend.receiver_revision,
+                    generation,
+                )
+                .await
+                .map_err(|e| e.to_string())?;
             return Ok(Some(committed));
         }
         if !friend.receiving_here() {

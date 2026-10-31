@@ -236,13 +236,19 @@ impl ServiceContext {
         if !super::super::super::same_session(account.session().await.as_ref(), &session) {
             return Err(Error::SessionRevoked);
         }
-        self.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
+        self.require_neighbor_generation(generation)
+            .map_err(|_| Error::Revoked)?;
         self.rearm_neighbor_updates();
         self.forget_neighbor_registry();
         Ok(Committed {
-            result, friendship: friendship.into(), revision: row.revision, generation,
-            login_generation: session.login_generation, registry: Arc::new(registry.clone()),
-            scope: scope.clone(), metadata: metadata.clone(),
+            result,
+            friendship: friendship.into(),
+            revision: row.revision,
+            generation,
+            login_generation: session.login_generation,
+            registry: Arc::new(registry.clone()),
+            scope: scope.clone(),
+            metadata: metadata.clone(),
         })
     }
 
@@ -252,31 +258,53 @@ impl ServiceContext {
         resume: bool,
     ) -> codeterm_neighbors::Result<super::super::super::projection::ReceiverConfirmation> {
         use super::super::super::projection::ReceiverConfirmation;
-        self.require_neighbor_generation(committed.generation).map_err(|_| Error::Revoked)?;
+        self.require_neighbor_generation(committed.generation)
+            .map_err(|_| Error::Revoked)?;
         self.require_neighbors_enabled()?;
         let account = self.account().await.map_err(|_| Error::Transport)?;
         let session = account.session().await.ok_or(Error::SessionRevoked)?;
-        if session.identity.uid != committed.registry.uid || session.login_generation != committed.login_generation {
+        if session.identity.uid != committed.registry.uid
+            || session.login_generation != committed.login_generation
+        {
             return Err(Error::SessionRevoked);
         }
         self.neighbor_reconciliation().require_readable()?;
-        let list = committed.registry.calls.invoke("friendsList", json!({})).await?;
-        let status = super::super::first_action::friend_status(&list, &committed.friendship, &committed.registry.installation_id)?;
+        let list = committed
+            .registry
+            .calls
+            .invoke("friendsList", json!({}))
+            .await?;
+        let status = super::super::first_action::friend_status(
+            &list,
+            &committed.friendship,
+            &committed.registry.installation_id,
+        )?;
         if status.receiver_revision < committed.revision
-            || resume && (status.receiver_revision != committed.revision || !status.receiving_here())
+            || resume
+                && (status.receiver_revision != committed.revision || !status.receiving_here())
         {
             return Ok(ReceiverConfirmation::Pending);
         }
-        self.require_neighbor_generation(committed.generation).map_err(|_| Error::Revoked)?;
+        self.require_neighbor_generation(committed.generation)
+            .map_err(|_| Error::Revoked)?;
         if !super::super::super::same_session(account.session().await.as_ref(), &session) {
             return Err(Error::SessionRevoked);
         }
-        let transport = self.neighbor_transport(&committed.registry).map_err(|_| Error::Transport)?;
-        self.start_neighbor_listeners(transport, committed.registry.clone(), committed.scope.clone(), committed.metadata.clone(), committed.generation)
-            .await.map_err(|error| {
-                log::debug!("[neighbors] committed receiver activation unavailable: {error}");
-                Error::Gateway
-            })?;
+        let transport = self
+            .neighbor_transport(&committed.registry)
+            .map_err(|_| Error::Transport)?;
+        self.start_neighbor_listeners(
+            transport,
+            committed.registry.clone(),
+            committed.scope.clone(),
+            committed.metadata.clone(),
+            committed.generation,
+        )
+        .await
+        .map_err(|error| {
+            log::debug!("[neighbors] committed receiver activation unavailable: {error}");
+            Error::Gateway
+        })?;
         Ok(ReceiverConfirmation::Observed)
     }
 }

@@ -469,9 +469,7 @@ pub(crate) fn validate_runtime_operation(
     match operation {
         RuntimeOperation::OpenThread { settings, .. }
         | RuntimeOperation::ResumeThread { settings, .. }
-        | RuntimeOperation::SubmitTurn { settings, .. } => {
-            validate(settings, "operation")
-        }
+        | RuntimeOperation::SubmitTurn { settings, .. } => validate(settings, "operation"),
         RuntimeOperation::Control { action, value, .. } if action == "settings" => {
             let settings = serde_json::from_value(value.clone())
                 .map_err(|reason| format!("Invalid sandbox runtime settings: {reason}"))?;

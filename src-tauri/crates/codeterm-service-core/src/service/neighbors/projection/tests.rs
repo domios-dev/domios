@@ -6,33 +6,79 @@ use std::{
 };
 
 #[tokio::test(start_paused = true)]
-async fn confirmation_timeout_and_unavailable_projection_are_pending_and_retired_account_is_revoked() {
-    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+async fn confirmation_timeout_and_unavailable_projection_are_pending_and_retired_account_is_revoked(
+) {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
     let service = &fixture.service;
-    service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
-    service.select_neighbor_projection("owner", 1).await.unwrap();
-    assert!(service.apply_neighbor_projection("owner", 1, snapshot(1, None)).await);
-    assert_eq!(service.wait_neighbor_projection_receiver("owner", 1, &"a".repeat(64), 2).await, Ok(ReceiverConfirmation::Pending));
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .neighbors
+        .enabled = true;
+    service
+        .select_neighbor_projection("owner", 1)
+        .await
+        .unwrap();
+    assert!(
+        service
+            .apply_neighbor_projection("owner", 1, snapshot(1, None))
+            .await
+    );
+    assert_eq!(
+        service
+            .wait_neighbor_projection_receiver("owner", 1, &"a".repeat(64), 2)
+            .await,
+        Ok(ReceiverConfirmation::Pending)
+    );
     service.neighbor_projection_unavailable();
-    assert_eq!(service.wait_neighbor_projection_receiver("owner", 1, &"a".repeat(64), 2).await, Ok(ReceiverConfirmation::Pending));
-    service.select_neighbor_projection("replacement", 2).await.unwrap();
-    assert_eq!(service.wait_neighbor_projection_receiver("owner", 1, &"a".repeat(64), 2).await, Err(Error::Revoked));
+    assert_eq!(
+        service
+            .wait_neighbor_projection_receiver("owner", 1, &"a".repeat(64), 2)
+            .await,
+        Ok(ReceiverConfirmation::Pending)
+    );
+    service
+        .select_neighbor_projection("replacement", 2)
+        .await
+        .unwrap();
+    assert_eq!(
+        service
+            .wait_neighbor_projection_receiver("owner", 1, &"a".repeat(64), 2)
+            .await,
+        Err(Error::Revoked)
+    );
 }
 
 #[tokio::test]
 async fn receiver_confirmation_observes_completed_reconciliation_and_is_woken_by_its_commit() {
-    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
     let service = &fixture.service;
-    service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
-    service.select_neighbor_projection("owner", 1).await.unwrap();
-    assert!(service.apply_neighbor_projection("owner", 1, snapshot(2, None)).await);
+    service
+        .ext::<crate::config::ConfigState>()
+        .lock()
+        .neighbors
+        .enabled = true;
+    service
+        .select_neighbor_projection("owner", 1)
+        .await
+        .unwrap();
+    assert!(
+        service
+            .apply_neighbor_projection("owner", 1, snapshot(2, None))
+            .await
+    );
     let (started, running) = tokio::sync::oneshot::channel();
     let (release, held) = tokio::sync::oneshot::channel();
-    let consume = service.consume_neighbor_projection("owner", 1, snapshot(2, None), move |_| async move {
-        started.send(()).unwrap();
-        held.await.unwrap();
-        Ok(())
-    });
+    let consume =
+        service.consume_neighbor_projection("owner", 1, snapshot(2, None), move |_| async move {
+            started.send(()).unwrap();
+            held.await.unwrap();
+            Ok(())
+        });
     let friendship = "a".repeat(64);
     let wait = service.wait_neighbor_projection_receiver("owner", 1, &friendship, 2);
     tokio::pin!(wait);
@@ -46,7 +92,11 @@ async fn receiver_confirmation_observes_completed_reconciliation_and_is_woken_by
         release.send(()).unwrap();
         assert_eq!(wait.await, Ok(ReceiverConfirmation::Observed));
     };
-    let (applied, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async { tokio::join!(consume, control) }).await.unwrap();
+    let (applied, ()) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        tokio::join!(consume, control)
+    })
+    .await
+    .unwrap();
     assert_eq!(applied, Ok(true));
 }
 
