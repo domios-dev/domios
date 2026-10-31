@@ -19,6 +19,7 @@ fn policy_label(value: Option<&Value>) -> &'static str {
             "never" => "never",
             "on-request" => "on-request",
             "untrusted" => "untrusted",
+            "trusted" => "trusted",
             "user" => "user",
             "auto_review" => "auto_review",
             "readOnly" => "readOnly",
@@ -48,6 +49,9 @@ fn policy_fields(value: &Value) -> Value {
         "profile":policy_label(value.get("activePermissionProfile").and_then(|profile| profile.get("id"))),
         "permissions":policy_label(value.get("permissions")),
         "configSandbox":policy_label(value.get("config").and_then(|config| config.get("sandbox_mode"))),
+        "projectTrust":policy_label(value.get("config").and_then(|config| config.get("projects"))
+            .and_then(|projects| value.get("cwd").and_then(Value::as_str).and_then(|cwd| projects.get(cwd)))
+            .and_then(|project| project.get("trust_level"))),
     })
 }
 
@@ -139,6 +143,7 @@ async fn run_inner(
     handed_off: &AtomicBool,
 ) -> Result<RuntimeResult, RuntimeFailure> {
     let mut context = session.context.lock().clone();
+    super::super::cli_exception::validate_before_operation(svc, &context).await?;
     crate::service::execution_sandbox::validate_runtime_operation(svc, &context, &operation)
         .map_err(RuntimeFailure::Refused)?;
     super::model::validate_operation_thread(&context, &operation)?;
@@ -232,6 +237,9 @@ async fn run_inner(
                         return Err(RuntimeFailure::Superseded);
                     }
                     validate_binding(&owner, &runtime)?;
+                    let cli_context = runtime.context.lock().clone();
+                    super::super::cli_exception::validate_binding(&owner, &cli_context)
+                        .map_err(RuntimeFailure::Refused)?;
                     if let Some(read) = &captured_read {
                         super::model::validate_operation_thread(&runtime.context.lock(), read)?;
                     }

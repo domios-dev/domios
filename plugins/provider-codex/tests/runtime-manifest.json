@@ -1,5 +1,6 @@
 {
   "agentRuntime": {
+    "restrictedCli": "execpolicy-identify",
     "storedHistory": true,
     "runtime": "stdio-jsonrpc",
     "runtimeModes": [

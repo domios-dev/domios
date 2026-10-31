@@ -73,7 +73,7 @@ fn generic_provider_with_history(dir: &Path, stored_history: bool) -> JsProvider
             ((*kind).into(), methods)
         })
         .collect();
-    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest=PluginManifest::from_json_str(&json!({"id":"echo-runtime","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":"execpolicy-identify","storedHistory":stored_history,"serviceTiers":[{"id":"priority","name":"Fast","description":""}],"backgroundProcesses":true,"usage":true,"threadHistory":{"actions":["fork","revert"]},"resetCreditsMinVersion":"0.162.1","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":methods,"notificationMethods":["item"],"login":{"methods":["browser","device","apiKey"],"terminalCommand":"fixture-engine login"}}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     let source = std::fs::read_to_string(dir.join("plugin.js"))
         .expect("generic runtime plugin path must exist");
     JsProvider::new(
@@ -130,6 +130,7 @@ async fn capacity_retry_signal_native_quickjs_parity() {
     let js = generic_provider(&generic_paths());
     let native = native::NativeRuntime(js.agent_runtime().unwrap());
     let ctx = RuntimeContext {
+        restricted_cli: None,
         epoch: 1,
         tab_id: "tab".into(),
         binding_nonce: "nonce".into(),
@@ -653,5 +654,31 @@ async fn runtime_native_quickjs_optional_evidence_identity_parity() {
         assert!(
             matches!(&b.events[1], AgentRuntimeEvent::SendEvidence { item_id: actual, .. } if actual.as_deref() == item_id)
         );
+    }
+}
+
+#[tokio::test]
+async fn restricted_cli_context_native_quickjs_authority_parity() {
+    let js = generic_provider(&generic_paths());
+    let native = native::NativeRuntime(js.agent_runtime().unwrap());
+    let mut ctx = RuntimeContext {
+        epoch:1,tab_id:"own".into(),binding_nonce:"binding".into(),cwd:"/project".into(),host_version:"1.18.0".into(),
+        settings:RuntimeSettings {mode:Some("workspace-write".into()),network_access:Some(false),..Default::default()},
+        ..Default::default()
+    };
+    ctx.restricted_cli=Some(RestrictedCliPolicy {
+        tab_id:ctx.tab_id.clone(),binding_nonce:ctx.binding_nonce.clone(),epoch:ctx.epoch,cwd:ctx.cwd.clone(),
+        executable:std::env::current_exe().unwrap().to_str().unwrap().into(),executable_sha256:"a".repeat(64),config_sha256:"b".repeat(64),rule_sha256:"c".repeat(64),argv:vec!["identify".into(),"--json".into()],
+    });
+    assert_eq!(native.runtime_plan(&ctx,&RuntimeOperation::Initialize).await.unwrap(),js.runtime_plan(&ctx,&RuntimeOperation::Initialize).await.unwrap());
+    for field in ["tab","nonce","epoch","cwd","argv"] {
+        let mut changed=ctx.clone();
+        let policy=changed.restricted_cli.as_mut().unwrap();
+        match field {
+            "tab"=>policy.tab_id="foreign".into(),"nonce"=>policy.binding_nonce="foreign".into(),
+            "epoch"=>policy.epoch+=1,"cwd"=>policy.cwd="foreign".into(),_=>policy.argv.push("--mesh=foreign".into()),
+        }
+        assert!(native.runtime_plan(&changed,&RuntimeOperation::Initialize).await.is_err());
+        assert!(js.runtime_plan(&changed,&RuntimeOperation::Initialize).await.is_err());
     }
 }

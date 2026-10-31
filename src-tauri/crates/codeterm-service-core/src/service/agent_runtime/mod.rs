@@ -8,6 +8,7 @@ pub(crate) mod capacity_retry;
 pub(crate) mod capture;
 pub mod children;
 mod completions;
+mod cli_exception;
 pub(crate) mod controls;
 pub mod engine;
 mod envelope_delivery;

@@ -229,6 +229,9 @@ async fn stop_session(
     super::authority::revoke(tab);
     super::environment::revoke(tab);
     super::capture::revoke(tab);
+    let cli_tab = tab.to_string();
+    tokio::task::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
+        .await.map_err(|error| error.to_string())?;
     super::login::forget(&session);
     session.state.lock().phase = RuntimePhase::Unloaded {
         reason: Some("Runtime stopped".into()),
@@ -312,12 +315,14 @@ async fn ensure_with_fork(
     if !super::requested_for_tab(svc, tab) {
         return Err(RuntimeFailure::Refused("Runtime capability absent".into()));
     }
+    let mut retired_cli = false;
     let session = {
         let mut sessions = SESSIONS.lock();
         if sessions.get(tab).is_some_and(|session| {
             session.context.lock().binding_nonce != nonce || session.provider != provider
         }) {
             if let Some(old) = sessions.remove(tab) {
+                retired_cli = true;
                 if let Some(process) = old.process.close() {
                     process.stop();
                 }
@@ -339,6 +344,7 @@ async fn ensure_with_fork(
                     reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
+                        restricted_cli: None,
                         epoch: 0,
                         tab_id: tab.into(),
                         binding_nonce: nonce.clone(),
@@ -374,6 +380,11 @@ async fn ensure_with_fork(
             })
             .clone()
     };
+    if retired_cli {
+        let cli_tab = tab.to_string();
+        tokio::task::spawn_blocking(move || super::cli_exception::revoke(&cli_tab))
+            .await.map_err(|_| RuntimeFailure::Superseded)?;
+    }
     let attempted = std::sync::atomic::AtomicBool::new(false);
     let result = tokio::time::timeout(Duration::from_secs(60), async {
         let _permit = session
@@ -495,7 +506,15 @@ async fn ensure_locked(
             .ok_or(RuntimeFailure::Superseded)?;
         let capability = adapter.agent_runtime().ok_or(RuntimeFailure::Superseded)?;
         *session.adapter.lock() = Some(adapter.clone());
+        let owner = svc.clone();
+        let provider_id = provider.to_string();
+        let cli_context = session.context.lock().clone();
+        let restricted_cli = tokio::task::spawn_blocking(move || {
+            super::cli_exception::prepare(&owner, &provider_id, &cli_context)
+        }).await.map_err(|_| RuntimeFailure::Superseded)?.map_err(RuntimeFailure::Refused)?;
+        session.context.lock().restricted_cli = restricted_cli;
         let context = session.context.lock().clone();
+        let restricted_cli = context.restricted_cli.is_some();
         plan(session, &context, &RuntimeOperation::Initialize).await?;
         let owner = svc.clone();
         let target = tab.to_string();
@@ -538,6 +557,10 @@ async fn ensure_locked(
             env.extend(crate::service::execution_sandbox::environment(
                 &owner, &target,
             ));
+            env.remove(super::cli_exception::SCOPE_ENV);
+            if restricted_cli {
+                env.insert(super::cli_exception::SCOPE_ENV.into(), super::cli_exception::SCOPE.into());
+            }
             if !super::authority::verifies(&owner, &target, &provider_id, &nonce) {
                 return Err(RuntimeFailure::Superseded);
             }

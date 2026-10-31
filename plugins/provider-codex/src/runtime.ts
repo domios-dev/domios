@@ -20,7 +20,7 @@ import { descendantThread, historyThread } from "./runtimeBinding";
 import { questionAnswerInput, reconcileHistoryQuestions } from "./runtimeQuestions";
 import { runtimeAnswer } from "./runtimePrompts";
 import { restoreContextItems } from "./runtimeContext";
-import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride } from "./runtimeSettings";
+import { codexServiceTier, codexRuntimePolicy, codexThreadConfig, codexEffectiveSettings, codexWorkspaceWriteConfirmed, codexWritableRootsConfirmed, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexRestrictedCliConfig, codexValidateCliTrust } from "./runtimeSettings";
 import { modelServiceTiers, serviceTierSelection, tierAvailable } from "./runtimeServiceTiers";
 export { runtimeReduce } from "./runtimeReduce";
 
@@ -34,7 +34,7 @@ function request(method: string, params: unknown, state: unknown = {stage:method
 function settingsParams(ctx: RuntimeContext, settings: RuntimeSettings, instructions?: string, windowsSandbox?: "mxc"): Record<string,unknown> {
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
-  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:{...codexThreadConfig(settings,ctx.hostOwned),...(windowsSandbox ? {"windows.sandbox":windowsSandbox} : {})},
+  return {cwd:ctx.cwd,model:settings.model,...codexServiceTier(settings),threadSource:"user",config:{...codexThreadConfig(settings,ctx.hostOwned),...codexRestrictedCliConfig(ctx),...(windowsSandbox ? {"windows.sandbox":windowsSandbox} : {})},
     ...(policies.runtimeWorkspaceRoots ? {runtimeWorkspaceRoots:policies.runtimeWorkspaceRoots} : {}),
     approvalPolicy:policies.approvalPolicy,approvalsReviewer:policies.approvalsReviewer,
     sandbox:({readOnly:"read-only",workspaceWrite:"workspace-write",dangerFullAccess:"danger-full-access"} as Record<string,string>)[String(sandbox)],
@@ -240,8 +240,11 @@ function respondOperation(ctx: RuntimeContext, op: Operation, raw: JsonValue, re
   }
   const value = object(reply.value);
   if (op.kind === "openThread" || op.kind === "resumeThread") {
-    if (state.stage === "windowsSandboxConfig") return continuation(codexNeedsWindowsSandboxSelection(value)
-      ? request("configRequirements/read",null,{stage:"windowsSandboxRequirements"}) : threadPlan(ctx,op));
+    if (state.stage === "windowsSandboxConfig") {
+      codexValidateCliTrust(ctx,value);
+      return continuation(codexNeedsWindowsSandboxSelection(value)
+        ? request("configRequirements/read",null,{stage:"windowsSandboxRequirements"}) : threadPlan(ctx,op));
+    }
     if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx,op,codexWindowsSandboxOverride(value)));
   }
   switch (op.kind) {

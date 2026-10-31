@@ -122,10 +122,28 @@ pub use args::usage::UsageAction;
 mod plugin_bundle;
 
 fn main() {
+    let raw_args: Vec<_> = std::env::args_os().collect();
+    if let Err(reason) = restricted_cli_args(std::env::var_os("CODETERM_CLI_SCOPE").as_deref(), &raw_args) {
+        eprintln!("{reason}");
+        std::process::exit(7);
+    }
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
     plugin_bundle::install();
     stdout::run(main_impl);
 }
+
+fn restricted_cli_args(scope: Option<&std::ffi::OsStr>, args: &[std::ffi::OsString]) -> Result<(), &'static str> {
+    let Some(scope) = scope else { return Ok(()); };
+    if scope == "identify-only" && matches!(args, [_, command, flag] if command == "identify" && flag == "--json") {
+        Ok(())
+    } else {
+        Err("Restricted CLI scope permits only identify --json on the inherited local connection")
+    }
+}
+
+#[cfg(test)]
+#[path = "main/tests.rs"]
+mod restricted_cli_tests;
 
 fn main_impl() {
     let args: Vec<String> = normalize_agent_spawn_label_args(std::env::args().collect());

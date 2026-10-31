@@ -43,6 +43,7 @@ export type RuntimeFailureCode =
   | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeContext {
+  restrictedCli?:RestrictedCliPolicy;
   epoch:number;
   cwd:string;
   hostVersion:string;
@@ -57,6 +58,11 @@ export interface RuntimeContext {
   settings:RuntimeSettings;
   providerSettings:JsonValue;
   pendingRequest?: {requestId:RpcId; method:string; params:JsonValue};
+}
+export interface RestrictedCliPolicy {
+  tabId:string; bindingNonce:string; epoch:number; cwd:string;
+  executable:string; executableSha256:string; configSha256:string; ruleSha256:string;
+  argv:readonly string[];
 }
 export type HistoryOrder = "asc" | "desc";
 export interface RuntimeBackgroundProcess {processId:string; itemId:string; command:string; cwd:string; osPid:number|null}
@@ -123,6 +129,7 @@ export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRed
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
 export interface StdioAgentRuntimeCapability {
+  restrictedCli?:"execpolicy-identify";
   runtimeModes?:readonly {id:string; displayName:string}[];
   serviceTiers?:readonly RuntimeServiceTier[];
   backgroundProcesses?:boolean;

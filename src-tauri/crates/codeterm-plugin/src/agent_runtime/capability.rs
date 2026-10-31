@@ -19,6 +19,8 @@ pub struct AgentRuntimeCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restricted_cli: Option<RestrictedCliCapability>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub runtime_modes: Vec<RuntimeModeDescriptor>,
     #[serde(default)]
@@ -43,6 +45,12 @@ pub struct AgentRuntimeCapability {
     pub login: Option<RuntimeLoginCapability>,
     pub request_methods: BTreeMap<String, Vec<String>>,
     pub notification_methods: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RestrictedCliCapability {
+    ExecpolicyIdentify,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

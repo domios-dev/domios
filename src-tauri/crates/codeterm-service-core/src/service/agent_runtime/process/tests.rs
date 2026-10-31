@@ -33,6 +33,7 @@ fn init_process_boundary_test_logger() {
 
 fn capability() -> AgentRuntimeCapability {
     AgentRuntimeCapability {
+        restricted_cli: None,
         runtime_modes: Vec::new(),
         service_tiers: Vec::new(),
         background_processes: false,
