@@ -345,7 +345,7 @@ impl PortPreflight {
             "requested_port": requested_port,
             "compiled_debug": self.debug,
             "compiled_windows": self.windows,
-            "phase": "after_builder_before_build",
+            "phase": "before_starting_webview",
             "bind_outcome": outcome,
             "bind_error_kind": kind,
             "raw_os_error": raw_os_error,
@@ -382,7 +382,7 @@ pub(crate) fn port_preflight(port: u16) -> PortPreflight {
         }
     });
     log::debug!(
-        "[webview-diagnostics] preflight requested_port={port} phase=after_builder_before_build {preflight:?}"
+        "[webview-diagnostics] preflight requested_port={port} phase=before_starting_webview {preflight:?}"
     );
     preflight
 }

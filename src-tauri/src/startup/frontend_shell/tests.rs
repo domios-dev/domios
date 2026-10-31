@@ -451,3 +451,80 @@ fn completed_root_acknowledgement_cannot_reveal_a_newer_navigation_or_view() {
         }
     ));
 }
+
+#[test]
+fn startup_diagnostics_binds_once_before_starting_view_and_reuses_outcome() {
+    use crate::host_ports::webview_diagnostics::initial_status;
+    use codeterm_types::native_host::{NativeWebviewDiagnosticsStatus, NativeWebviewDiagnosticsUnavailableReason};
+    use std::cell::Cell;
+
+    for kind in [None, Some(std::io::ErrorKind::AddrInUse), Some(std::io::ErrorKind::PermissionDenied)] {
+        let binds = Cell::new(0);
+        let starting_created = Cell::new(false);
+        let startup = StartupDiagnosticsPreflight::capture(
+            crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+            |port| {
+                assert_eq!(port, 9417);
+                assert!(!starting_created.get());
+                PortPreflight::evaluate(true, true, || {
+                    assert_eq!(binds.replace(binds.get() + 1), 0, "second bind");
+                    match kind { None => Ok(()), Some(kind) => Err(kind.into()) }
+                })
+            },
+        );
+        starting_created.set(true);
+        let starting_decision = startup.for_port(9417).unwrap();
+        let expected_reason = match kind {
+            None => NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
+            Some(std::io::ErrorKind::AddrInUse) => NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
+            Some(_) => NativeWebviewDiagnosticsUnavailableReason::WebviewInitializationFailed,
+        };
+        for _view in ["main", "recovery", "reopen"] {
+            let preflight = startup.for_port(9417).unwrap();
+            assert_eq!(preflight, starting_decision);
+            assert_eq!(preflight.available(), kind.is_none());
+            assert_eq!(initial_status(Some(9417), preflight), NativeWebviewDiagnosticsStatus::Unavailable {
+                reason: expected_reason,
+            });
+        }
+        assert_eq!(binds.get(), 1);
+    }
+}
+
+#[test]
+fn startup_diagnostics_missing_or_mismatched_port_refuses_without_probe() {
+    let absent = StartupDiagnosticsPreflight::capture(
+        crate::LocalWebviewDiagnosticsMode::Disabled,
+        |_| panic!("disabled diagnostics probed"),
+    );
+    assert_eq!(absent.for_port(9417), Err("Native diagnostics startup preflight is missing"));
+    let requested = StartupDiagnosticsPreflight::capture(
+        crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+        |_| PortPreflight::evaluate(true, true, || Ok(())),
+    );
+    assert_eq!(requested.for_port(9418), Err("Native diagnostics port does not match startup preflight"));
+    assert!(requested.for_port(9417).unwrap().available());
+}
+
+#[test]
+fn shell_initialization_captures_diagnostics_before_any_view_and_refuses_recapture() {
+    use std::cell::Cell;
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    crate::install_client_startup_options(app.handle(), crate::ClientStartupOptions {
+        local_webview_diagnostics: crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+    }).unwrap();
+    let evaluations = Cell::new(0);
+    initialize_with_preflight(app.handle(), |port| {
+        assert_eq!(port, 9417);
+        assert!(app.webview_windows().is_empty());
+        evaluations.set(evaluations.get() + 1);
+        PortPreflight::evaluate(true, true, || Ok(()))
+    }).unwrap();
+    assert_eq!(evaluations.get(), 1);
+    let supervisor = app.state::<ShellSupervisor>();
+    assert!(supervisor.diagnostics_preflight.for_port(9417).unwrap().available());
+    assert!(initialize_with_preflight(app.handle(), |_| panic!("second evaluation")).is_err());
+    assert_eq!(evaluations.get(), 1);
+}
