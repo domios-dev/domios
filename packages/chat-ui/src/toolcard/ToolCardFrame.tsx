@@ -73,6 +73,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     ? "var(--ct-red)"
     : event.status === "pending" ? "var(--ct-accent)" : event.status === "unresolved" || event.status === "interrupted" ? "var(--ct-muted-fg)" : "var(--ct-green)";
   const error = event.status === "error";
+  const inlineCommand = event.kind === "command";
   const quiet = !error && !expanded && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -83,10 +84,11 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     <div
       data-testid={testId}
       data-tool-status={event.status}
-      className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
+      data-expanded={expanded}
+      className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${inlineCommand ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
       style={{ minHeight, "--ct-card-tone": error ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
-      <div className="flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs">
+      <div className={`flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineCommand ? " ct-command-inline__head" : ""}`}>
         <button
           type="button"
           aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
@@ -99,7 +101,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             <Glyph aria-hidden="true" size={14} strokeWidth={2} />
           </span>
           <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]">
-            {label && <span className="max-w-[60%] shrink-0 truncate font-semibold" style={{ color: visual.color }}>{label}</span>}
+            {label && <span className={inlineCommand ? "sr-only" : "max-w-[60%] shrink-0 truncate font-semibold"} style={{ color: visual.color }}>{label}</span>}
             <span className="min-w-0 truncate" data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{(summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />

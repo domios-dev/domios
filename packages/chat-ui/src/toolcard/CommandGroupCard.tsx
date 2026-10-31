@@ -80,11 +80,9 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
     <section
       data-testid="chat-command-group"
       data-tool-status={event.status}
+      data-expanded={expanded}
       aria-label={`Command, ${countLabel}`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
-      style={{
-        background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
-      }}
+      className="ct-command-inline mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
     >
       <button
         type="button"
@@ -93,7 +91,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         aria-controls={regionId}
         aria-label={`${expanded ? "Hide" : "Show"} output of ${title}`}
         onClick={() => onToggle(!expanded)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs"
+        className="ct-command-inline__head flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs"
       >
         <span data-testid="chat-command-group-status" aria-label={statusName(event.status)} className="flex shrink-0">
           <StatusGlyph status={event.status} />
@@ -105,7 +103,9 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
         <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </button>
-      <CommandGroupDetail event={event} rows={rows} expanded={expanded} {...navigation} />
+      <div hidden={!expanded}>
+        <CommandGroupDetail event={event} rows={rows} expanded={expanded} {...navigation} />
+      </div>
       <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
         {expanded && event.result && <ToolOutputContent text={event.result} maxHeight="12rem" />}
       </div>
