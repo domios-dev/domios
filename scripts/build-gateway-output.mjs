@@ -1,4 +1,4 @@
-// Caller: build.sh; scripts/build-gateway-output.test.mjs
+// Caller: build.sh
 import fs from 'node:fs';
 import readline from 'node:readline';
 import { once } from 'node:events';

@@ -553,7 +553,10 @@ async fn ensure_locked(
         let cli_context = session.context.lock().clone();
         let restricted_cli = tokio::task::spawn_blocking(move || {
             super::cli_exception::prepare(&owner, &provider_id, &cli_context)
-        }).await.map_err(|_| RuntimeFailure::Superseded)?.map_err(RuntimeFailure::Refused)?;
+        })
+        .await
+        .map_err(|_| RuntimeFailure::Superseded)?
+        .map_err(RuntimeFailure::Refused)?;
         session.context.lock().restricted_cli = restricted_cli;
         let context = session.context.lock().clone();
         let restricted_cli = context.restricted_cli.is_some();
@@ -601,7 +604,10 @@ async fn ensure_locked(
             ));
             env.remove(super::cli_exception::SCOPE_ENV);
             if restricted_cli {
-                env.insert(super::cli_exception::SCOPE_ENV.into(), super::cli_exception::SCOPE.into());
+                env.insert(
+                    super::cli_exception::SCOPE_ENV.into(),
+                    super::cli_exception::SCOPE.into(),
+                );
             }
             if !super::authority::verifies(&owner, &target, &provider_id, &nonce) {
                 return Err(RuntimeFailure::Superseded);

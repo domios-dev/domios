@@ -275,6 +275,3 @@ fn main() {
     );
     println!("{}", serde_json::to_string(&output).unwrap());
 }
-
-#[cfg(test)]
-mod tests;

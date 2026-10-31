@@ -64,7 +64,7 @@ utility shell. Do not wrap them in `qa-batch`: that verb prepends a canonical
 that utility shell and restart with the authorized direct `lane-check` verb.
 
 ```bash
-scripts/qa-report.sh smoke 'true' 'node --test scripts/tests/dev-wait.test.mjs'
+scripts/qa-report.sh smoke 'true' 'node scripts/check-provider-boundary.mjs'
 QA_NOTIFY_TAB=<agent-tab-id> scripts/qa-report.sh smoke 'true' 'false | tail -1'
 ```
 
@@ -83,7 +83,7 @@ PowerShell `$env:CODETERM_TAB_ID`, inside double quotes).
 | check-queue | `... --purpose qa --cmd ".\\build.ps1 check-queue <sha>"` | `... --purpose qa --cmd "./build.sh check-queue <sha>"` |
 | test-one | `... --cmd ".\\build.ps1 test-one app NAME"` | `... --cmd "./build.sh test-one app NAME"` |
 | release-preflight | `... --cmd ".\\build.ps1 release-preflight"` | `... --cmd "./build.sh release-preflight"` |
-| QA batch | `... --purpose qa --cmd ".\\build.ps1 qa-batch smoke -NotifyTab $env:CODETERM_TAB_ID 'true' 'node --test scripts/tests/dev-wait.test.mjs'"` | `... --purpose qa --cmd "./build.sh qa-batch smoke --notify-tab $CODETERM_TAB_ID 'true' 'node --test scripts/tests/dev-wait.test.mjs'"` |
+| QA batch | `... --purpose qa --cmd ".\\build.ps1 qa-batch smoke -NotifyTab $env:CODETERM_TAB_ID 'true' 'node scripts/check-provider-boundary.mjs'"` | `... --purpose qa --cmd "./build.sh qa-batch smoke --notify-tab $CODETERM_TAB_ID 'true' 'node scripts/check-provider-boundary.mjs'"` |
 | dev | `... --purpose dev --cmd ".\\build.ps1 dev"` | `... --purpose dev --cmd "./build.sh dev"` |
 | dev-prebuilt | `... --purpose dev --cmd ".\\build.ps1 dev-prebuilt"` | `... --purpose dev --cmd "./build.sh dev-prebuilt"` |
 
@@ -172,9 +172,7 @@ macOS before formatting, so it cannot prove cross-platform failure routing.
 A focused CLI test can execute in one target while Cargo prints `running 0 tests`
 for unrelated integration targets. Count actual passed/failed tests across Cargo
 result lines before declaring the command empty. Keep genuinely empty or
-ignored-only runs and independent empty test runners as failures. Verify the
-counter with `node --test --test-name-pattern=qa_report scripts/tests/utility-shell-reports.test.mjs`;
-retain the original receipt instead of rerunning successful Rust tests.
+ignored-only runs and independent empty test runners as failures; retain the original receipt instead of rerunning successful Rust tests.
 
 Zero-test detection reads libtest `test result:`, nextest `Summary [...] N tests run:`,
 and Node `# pass N` / `# fail N` summaries. Inventory rows containing `0 tests`
@@ -187,7 +185,7 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->
 
 DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regular
 files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks

@@ -2,9 +2,8 @@
 
 Run `node scripts/check-public-privacy.mjs` after all release edits, on the exact
 committed tree being integrated. Both repository-guard jobs run that command.
-The focused oracle is `node --test scripts/tests/check-public-privacy.test.mjs`.
-It seeds private IPv4/IPv6 Tailnet addresses, MagicDNS, store endpoints, home
-paths, email, hardware addresses, Windows hostnames and captured report text.
+The guard detects private IPv4/IPv6 Tailnet addresses, MagicDNS, store endpoints,
+home paths, email, hardware addresses, Windows hostnames and captured report text.
 
 The guard inventories `git ls-files --cached -z` and reads current tracked bytes,
 including newly staged files. It does not walk history or untracked output.

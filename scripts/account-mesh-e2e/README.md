@@ -1,11 +1,10 @@
 # Account Mesh real-machine rollout harness
 
-`scripts/account-mesh-e2e.mjs` checks the Account Mesh rollout against real installations: two existing paired machines (`paired_a`, `paired_b`), a separate unlinked Add fixture (`add_a`, `add_b`) and a third Free machine (`third`). The expected outcomes come from the targets themselves: their real pair records, mesh put/get round trips, server machine counts and Browser text. The harness keeps no record of its own that it compares against. A source pass, a contract-test pass or a pass from the simulated fleet is never real-machine evidence. Only Turner accepts runtime evidence and runs the release gate.
+`scripts/account-mesh-e2e.mjs` checks the Account Mesh rollout against real installations: two existing paired machines (`paired_a`, `paired_b`), a separate unlinked Add fixture (`add_a`, `add_b`) and a third Free machine (`third`). The expected outcomes come from the targets themselves: their real pair records, mesh put/get round trips, server machine counts and Browser text. The harness keeps no record of its own that it compares against. A source pass is never real-machine evidence. Only Turner accepts runtime evidence and runs the release gate.
 
 ## Commands
 
 ```sh
-node --test scripts/test/account-mesh-e2e.test.mjs
 node scripts/account-mesh-e2e.mjs --manifest ABS_MANIFEST.json --out ABS_EVIDENCE_DIR --preflight-only
 node scripts/account-mesh-e2e.mjs --manifest ABS_MANIFEST.json --out ABS_EVIDENCE_DIR
 node scripts/account-mesh-e2e.mjs --manifest ABS_MANIFEST.json --out ABS_EVIDENCE_DIR --phase PHASE_ID
@@ -34,7 +33,7 @@ node scripts/account-mesh-e2e.mjs --manifest ABS_MANIFEST.json --out ABS_EVIDENC
 
 ## Manifest
 
-Schema `domios.account-mesh-e2e.manifest/1`. See the `fixture()` builder in `scripts/test/account-mesh-e2e.test.mjs` for a complete example.
+Schema `domios.account-mesh-e2e.manifest/1`. The fields below define the accepted manifest.
 
 - `release`: `client_sha`/`client_version`, `old_client_sha`/`old_client_version`, and the exact `backend_sha`/`backend_project`. The deployed backend SHA readback must equal `backend_sha`.
 - `accounts.{primary,foreign,add}`: `ref` (a local-store reference, never a secret), `uid_sha256` and `plan: "free"`.

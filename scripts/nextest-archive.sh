@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: build.sh nextest-archive|nextest|test-one; scripts/nextest-archive.test.mjs
+# Caller: build.sh nextest-archive|nextest|test-one
 
 app_test_archive_path() {
   printf '%s/test-archives/%s/app-no-embeddings.tar.zst\n' "$(ct_gateway_dir)" "$1"

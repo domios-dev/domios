@@ -14,7 +14,10 @@ fn restricted_cli_refuses_global_overrides_and_extra_arguments() {
     ] {
         let expected = args == ["cli", "identify", "--json"];
         let args = args.into_iter().map(OsString::from).collect::<Vec<_>>();
-        assert_eq!(restricted_cli_args(Some(OsStr::new("identify-only")), &args).is_ok(), expected);
+        assert_eq!(
+            restricted_cli_args(Some(OsStr::new("identify-only")), &args).is_ok(),
+            expected
+        );
         assert!(restricted_cli_args(Some(OsStr::new("unknown")), &args).is_err());
         assert!(restricted_cli_args(None, &args).is_ok());
     }

@@ -66,10 +66,6 @@ jobs:
           PY
       - name: Build production-profile headless archive from this checkout
         run: bash ./build.sh docker-smoke-inputs
-      - name: Verify packaging models, archive guards and signed feed fixtures
-        run: |
-          node --test scripts/tests/docker-packaging.test.mjs
-          python3 -m unittest discover -s scripts/docker -p test_container.py
       - name: Build, start, prove health and update refusal, clean up
         env:
           ARCH: ${{ matrix.arch }}

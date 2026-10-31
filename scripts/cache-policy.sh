@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI release-linux-arm64.yml; scripts check-sccache-basedir-isolation.sh, check-shared-sccache.sh, dev-prep.mjs; skill build, github-release
+# Caller: build.sh dev|dev-prebuilt|kill|e2e|e2e:llm; CI release-linux-arm64.yml; scripts dev-prep.mjs; skill build, github-release
 
 CT_CACHE_POLICY_SCRIPT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
 CT_SCCACHE_LOCK_OWNER=""
@@ -87,7 +87,7 @@ ct_reject_basedir_rewriting() {
 
 # Cache-key-relevant path scope once basedir rewriting is disabled: sccache
 # hashes the real absolute worktree path, so this is what makes two worktrees'
-# cache keys diverge. Used by scripts/check-sccache-basedir-isolation.sh.
+# cache keys diverge.
 ct_effective_cache_key_scope() {
   ct_abs_path "$(ct_repo_root)"
 }

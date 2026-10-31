@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Caller: crate-split QA (static vs nextest test-count oracle); scripts tests/rust-test-inventory.test.mjs
+// Caller: crate-split QA (static vs nextest test-count oracle)
 // Static Rust test inventory, resolved the way rustc resolves modules; never runs cargo.
 //
 // Scan: node scripts/rust-test-inventory.mjs [--root <repo>] [--out <file>]

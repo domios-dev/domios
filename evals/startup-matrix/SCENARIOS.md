@@ -100,7 +100,6 @@ and a narrowly scoped diagnostic verdict; phase origins return `captured`.
 node evals/startup-matrix/evidence-contract.mjs OUT/browser.json
 node evals/startup-matrix/evidence-contract.mjs OUT/recovery.json
 node evals/startup-matrix/evidence-contract.mjs OUT_JSON
-node --test scripts/tests/startup-evidence.test.mjs scripts/tests/startup-phase-collector.test.mjs
 ```
 
 Contract exits: 0 validated/captured/passing recovery; 1 incomplete; 3 observed

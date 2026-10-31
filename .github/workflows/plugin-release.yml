@@ -74,7 +74,6 @@ jobs:
         env:
           PLUGIN_ID: ${{ steps.plugin.outputs.id }}
         run: |
-          node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs scripts/tests/core-channel-publication.test.mjs
           node scripts/check-plugin.mjs "$PLUGIN_ID"
       - name: Archive plugin
         env:

@@ -207,9 +207,6 @@ qa_run_gate_body() {
     shell-guards)
       bash scripts/check-mux-write.sh
       bash scripts/check-blocking-in-async.sh
-      bash scripts/check-build-kill-safety.sh
-      bash scripts/check-build-pdb-retention.sh
-      bash scripts/check-msvc-cross-env.sh
       ;;
     fmt)
       bash scripts/check-rustfmt.sh

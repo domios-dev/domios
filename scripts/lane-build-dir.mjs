@@ -1,4 +1,4 @@
-// Caller: scripts/lane-check.sh, scripts/cargo-build-gc.mjs; tests scripts/tests/lane-check.test.mjs
+// Caller: scripts/lane-check.sh, scripts/cargo-build-gc.mjs
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

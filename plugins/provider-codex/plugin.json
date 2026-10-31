@@ -1,6 +1,6 @@
 {
   "id": "codex",
-  "version": "1.14.62",
+  "version": "1.14.64",
   "minCodeterm": "1.18.0",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
@@ -16,6 +16,7 @@
     "agentProvider": true,
     "subagentVisibility": true,
     "agentRuntime": {
+      "restrictedCli": "execpolicy-identify",
       "storedHistory": true,
       "runtime": "stdio-jsonrpc",
       "command": {
@@ -36,10 +37,14 @@
           "account/rateLimits/read"
         ],
         "openThread": [
+          "config/read",
+          "configRequirements/read",
           "thread/start",
           "thread/inject_items"
         ],
         "resumeThread": [
+          "config/read",
+          "configRequirements/read",
           "thread/resume",
           "thread/read",
           "thread/unarchive"

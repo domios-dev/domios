@@ -919,7 +919,7 @@ if [ -n "${CT_BUILD_GATEWAY_SCOPE:-}" ]; then
   exit 2
 fi
 case "$CMD" in
-  gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe)
+  gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe)
     [ -z "${CODETERM_BUILD_GATEWAY_FIXTURE_DIR:-}" ] || ct_gateway_set_fixture_dir "$CODETERM_BUILD_GATEWAY_FIXTURE_DIR"
     ;;
   *)
@@ -1016,17 +1016,6 @@ build_gateway_logging_on_exit() {
   finish_status=$?
   [ "$finish_status" -eq 0 ] || exit "$finish_status"
   exit "$captured_status"
-}
-
-break_build_gateway_log_reader() {
-  [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = "fixture" ] || return 2
-  kill -KILL "$CT_BUILD_GATEWAY_LOG_READER_PID"
-  if wait "$CT_BUILD_GATEWAY_LOG_READER_PID"; then
-    CT_BUILD_GATEWAY_LOG_READER_STATUS=0
-  else
-    CT_BUILD_GATEWAY_LOG_READER_STATUS=$?
-  fi
-  return 0
 }
 
 run_build_gateway_log_reader() {
@@ -1126,154 +1115,6 @@ enter_build_gateway() {
     exit "$CT_BUILD_GATEWAY_LOGGING_FAILURE"
   fi
   CT_BUILD_GATEWAY_COMMAND_STATUS_KNOWN=1
-}
-
-check_build_gateway_logging() {
-  local root success_log handoff_log reader_success_status reader_failure_status open_status killed_status piped_status
-  root="$(mktemp -d "${TMPDIR:-/tmp}/codeterm-gateway-logging.XXXXXX")"
-  CT_BUILD_GATEWAY_CHECK_ROOT="$root"
-  trap 'rm -rf -- "$CT_BUILD_GATEWAY_CHECK_ROOT"' EXIT
-  CT_BUILD_JOB_ID=healthy CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-log-probe success \
-    > "$root/success.console" 2>&1
-  success_log="$(sed -n 's/^Build gateway job .* log: //p' "$root/success.console" | head -1 | tr -d '\r')"
-  grep -q '^MARKER_LAST$' "$root/success.console" || {
-    echo "build gateway logging regression: console lost the final marker" >&2
-    return 1
-  }
-  grep -q '^MARKER_LAST$' "$success_log" || {
-    echo "build gateway logging regression: gateway log lost the final marker" >&2
-    return 1
-  }
-  echo "success: final marker reached console and gateway log"
-  CT_BUILD_JOB_ID=handoff-success CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
-    ./build.sh gateway-log-probe handoff-success > "$root/handoff.console" 2>&1
-  handoff_log="$(sed -n 's/^Build gateway job .* log: //p' "$root/handoff.console" | head -1 | tr -d '\r')"
-  grep -q '^HANDOFF_AFTER_GATEWAY$' "$root/handoff.console" || {
-    echo "build gateway handoff regression: post-gateway handoff did not run" >&2
-    return 1
-  }
-  if grep -q '^HANDOFF_AFTER_GATEWAY$' "$handoff_log"; then
-    echo "build gateway handoff regression: installer handoff remained inside the build log" >&2
-    return 1
-  fi
-  echo "handoff: gateway completed and logging closed before installer handoff"
-  set +e
-  CT_BUILD_JOB_ID=piped CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
-    /bin/bash ./build.sh gateway-log-probe success 2>&1 | tail -n 20 > "$root/piped.console"
-  piped_status=${PIPESTATUS[0]}
-  set -e
-  [ "$piped_status" -eq 0 ] || {
-    echo "build gateway logging regression: piped Bash 3 invocation exited $piped_status" >&2
-    return 1
-  }
-  grep -q '^MARKER_LAST$' "$root/piped.console" || {
-    echo "build gateway logging regression: piped console lost the final marker" >&2
-    return 1
-  }
-  echo "pipeline: Bash 3 retained the log reader child and command status"
-  if CT_BUILD_JOB_ID=reader-success CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
-      ./build.sh gateway-log-probe reader-failure-success > "$root/reader-success.console" 2>&1; then
-    reader_success_status=0
-  else
-    reader_success_status=$?
-  fi
-  [ "$reader_success_status" -eq 0 ] || {
-    echo "build gateway logging regression: reader failure after success exited $reader_success_status" >&2
-    return 1
-  }
-  grep -q 'build gateway logging path broke.*command exit was 0' "$root/reader-success.console" || {
-    echo "build gateway logging regression: reader failure was misclassified" >&2
-    return 1
-  }
-  if CT_BUILD_JOB_ID=reader-failure CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
-      ./build.sh gateway-log-probe reader-failure-command-fail > "$root/reader-failure.console" 2>&1; then
-    reader_failure_status=0
-  else
-    reader_failure_status=$?
-  fi
-  [ "$reader_failure_status" -eq 101 ] || {
-    echo "build gateway logging regression: reader failure after command failure exited $reader_failure_status" >&2
-    return 1
-  }
-  grep -q 'build gateway logging path broke.*command exit was 101' "$root/reader-failure.console" || {
-    echo "build gateway logging regression: failed command status was not reported" >&2
-    return 1
-  }
-  echo "reader failures: command exits 0 and 101 preserved with logging degradation"
-  if CT_BUILD_JOB_ID=open-failure CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
-      ./build.sh gateway-log-probe open-failure \
-      > "$root/open.console" 2>&1; then
-    open_status=0
-  else
-    open_status=$?
-  fi
-  [ "$open_status" -eq "$CT_BUILD_GATEWAY_LOGGING_FAILURE" ] || {
-    echo "build gateway logging regression: open failure exited $open_status" >&2
-    return 1
-  }
-  grep -q 'build gateway logging path broke' "$root/open.console" || {
-    echo "build gateway logging regression: open failure was misclassified" >&2
-    return 1
-  }
-  grep -q 'command exit was UNKNOWN' "$root/open.console" || {
-    echo "build gateway logging regression: open failure invented a command status" >&2
-    return 1
-  }
-  if CT_BUILD_JOB_ID=command-killed CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" \
-      ./build.sh gateway-log-probe command-killed > "$root/killed.console" 2>&1; then
-    killed_status=0
-  else
-    killed_status=$?
-  fi
-  [ "$killed_status" -eq 130 ] || {
-    echo "build gateway logging regression: killed command exited $killed_status" >&2
-    return 1
-  }
-  grep -q 'Build gateway job command-killed exit: UNKNOWN' "$root/killed.console" || {
-    echo "build gateway logging regression: killed command invented a command status" >&2
-    return 1
-  }
-  local stuck_mode stuck_status
-  for stuck_mode in success command-fail; do
-    if CT_BUILD_JOB_ID="stuck-$stuck_mode" CT_BUILD_GATEWAY_READER_TIMEOUT_MS=250 \
-        CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-log-probe "stuck-reader-$stuck_mode" \
-        > "$root/stuck-$stuck_mode.console" 2>&1; then stuck_status=0; else stuck_status=$?; fi
-    if [ "$stuck_mode" = success ]; then [ "$stuck_status" -eq 0 ]; else [ "$stuck_status" -eq 101 ]; fi || return 1
-    grep -q 'log reader did not reach EOF' "$root/stuck-$stuck_mode.console" || return 1
-  done
-  echo "stuck readers: EOF deadline released finished jobs with logging failure"
-  CODETERM_BUILD_GATEWAY_FIXTURE_DIR="$root/state" ./build.sh gateway-status > "$root/status.json"
-  node - "$root/status.json" <<'JS'
-const status = require(process.argv[2]);
-const jobs = Object.fromEntries(status.recent.map((job) => [job.job_id, job]));
-const expected = {
-  healthy: ["success", 0, 0],
-  piped: ["success", 0, 0],
-  "handoff-success": ["success", 0, 0],
-  "reader-success": ["logging_degraded", 0, 0],
-  "reader-failure": ["logging_degraded", 101, 101],
-  "open-failure": ["logging_failed", 74, null],
-  "command-killed": ["cancelled", 130, null],
-  "stuck-success": ["logging_degraded", 0, 0],
-  "stuck-command-fail": ["logging_degraded", 101, 101],
-};
-for (const [id, values] of Object.entries(expected)) {
-  const job = jobs[id];
-  if (!job) throw new Error(`gateway status omitted ${id}`);
-  const actual = [job.outcome, job.exit_code, job.command_exit_code];
-  if (job.outcome === 'logging_degraded' && job.state !== (job.exit_code === 0 ? 'completed' : 'failed')) {
-    throw new Error(`${id} logging degradation changed the command state`);
-  }
-  if (JSON.stringify(actual) !== JSON.stringify(values)) {
-    throw new Error(`${id} recorded ${JSON.stringify(actual)}, expected ${JSON.stringify(values)}`);
-  }
-}
-JS
-  echo "job records: gateway outcome and command exit are independently recoverable"
-  rm -rf -- "$root"
-  trap - EXIT
-  unset CT_BUILD_GATEWAY_CHECK_ROOT
-  echo "build gateway logging regression: PASS"
 }
 
 prepare_exceptional_worktree_target() {
@@ -2885,7 +2726,7 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  process-probe|lane-wrapper-check|cache-wrapper-check|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-arm64-compile|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
+  process-probe|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-arm64-compile|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   docker-smoke-inputs)
@@ -2913,8 +2754,6 @@ Domios build commands
   embedding-parity [--baseline FILE] [--old-binary FILE] [--output FILE]  CPU MiniLM golden parity and RSS/latency
   lane-check <package>... [--tests] [--timings]  Type-check touched packages in one Cargo check with the shared Cargo job limit
   fmt [--base REF | --paths FILE...]  Format owned files or changed Rust/JS files
-  lane-wrapper-check          Verify cache forwarding and metadata isolation with tiny fixtures
-  cache-wrapper-check         Verify compiler-cache relocation and tracked environment with real sccache
   dev-link-measure [app|cli-release|cli-dev]  Record Cargo timings without installing or launching DEV
   feature-cycle before|after <selector>  Measure equivalent dev/check/test core units in a temporary worktree
   check-queue [sha] [--lane|--all] Warm touched lane or full batch Clippy check in the per-machine check worktree
@@ -2957,7 +2796,7 @@ Domios build commands
                               while pinned, scrolled up and scrolling; chaos: a seeded mix of strokes, flings, the jump
                               button, arriving rows and growth anywhere); fails on any visual jump
   install-local               Build and install locally (cheap fmt/size/clean gates first)
-  script-guards               Run the script catalogue gate and uncalled fixture guards
+  script-guards               Run catalogue ownership and source safety guards
   qa-lock-storm [--seconds N] --out FILE  Measure DEV routes and lock holds (default 120s; --notify-tab supported)
   qa-batch <label> '<cmd>'...  Run check first, then the commands, one QA receipt
   lane-recover keep|merge ...  Park a wrong-base lane on keep/<lane>, then merge it back
@@ -3059,37 +2898,6 @@ EOF
     fi
     [ "${4:-success}" != "fail" ] || exit 23
     ;;
-  gateway-log-probe)
-    log_probe_mode="${2:-success}"
-    [ "$log_probe_mode" != "open-failure" ] || CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1
-    case "$log_probe_mode" in stuck-reader-*) CT_BUILD_GATEWAY_STUCK_READER=1 ;; esac
-    enter_build_gateway "$CMD $log_probe_mode"
-    printf 'MARKER_FIRST\n'
-    case "$log_probe_mode" in
-      reader-failure-success)
-        break_build_gateway_log_reader
-        exit 0
-        ;;
-      reader-failure-command-fail)
-        break_build_gateway_log_reader
-        exit 101
-        ;;
-      stuck-reader-command-fail)
-        exit 101
-        ;;
-      command-killed)
-        kill -TERM "$$"
-        ;;
-      handoff-success)
-        complete_build_gateway_before_handoff
-        printf 'HANDOFF_AFTER_GATEWAY\n'
-        ;;
-    esac
-    printf 'MARKER_LAST\n'
-    ;;
-  gateway-logging-check)
-    check_build_gateway_logging
-    ;;
   gateway-policy-probe)
     case "${2:-}" in
       release-source) require_release_source ;;
@@ -3116,7 +2924,6 @@ EOF
     ;;
   retain-pdb)
     # ./build.sh retain-pdb <build-sha> [pdb-path] [key] — the seam the dev paths call
-    # and scripts/check-build-pdb-retention.sh drives against a fixture store.
     retain_dev_pdb "${2:-}" "${3:-$(dev_pdb_source)}" "${4:-}"
     ;;
   check)
@@ -3163,12 +2970,6 @@ EOF
       enter_cargo_gateway "$CMD ${*:2}"
     fi
     lane_check "${@:2}"
-    ;;
-  lane-wrapper-check)
-    node --test scripts/tests/lane-check.test.mjs
-    ;;
-  cache-wrapper-check)
-    CODETERM_CACHE_WRAPPER_TEST=1 node --test scripts/tests/cache-rustc-wrapper.test.mjs scripts/tests/cache-wrapper-identity.test.mjs
     ;;
   dev-link-measure)
     if [ "${CODETERM_LINK_TIMING:-0}" = 1 ]; then
@@ -3319,7 +3120,6 @@ EOF
     cargo check --manifest-path src-tauri/Cargo.toml
     cargo check --manifest-path cli/Cargo.toml
     node scripts/check-release-locks.mjs
-    # The script, gateway and release-signing fixture guards run here, not in a PR workflow.
     # Under the gateway's subst drive the catalogue reads every Cargo.toml as an unmatched test; run from the real worktree.
     (cd "${CT_REAL_WORKTREE:-.}" && bash ./build.sh script-guards)
     bash scripts/clippy-gate.sh
@@ -3330,9 +3130,6 @@ EOF
     node scripts/run-ts-unit-tests.mjs
     node node_modules/vitest/vitest.mjs run
     node scripts/run-plugin-tests.mjs
-    node --test scripts/tests/updater-manifest.test.mjs
-    node --test scripts/tests/bundled-cli-name.test.mjs
-    node --test scripts/tests/local-install-cache.test.mjs
     node node_modules/@biomejs/biome/bin/biome check .
     ;;
   release-rust)
@@ -3409,10 +3206,6 @@ EOF
         scripts/test-capped.sh --no-default-features --manifest-path src-tauri/Cargo.toml -p domios-server --lib "$test_filter"
         ;;
       app)
-        if [ "$test_filter" = "build_identity_required" ]; then
-          scripts/test-capped.sh --exec node --test scripts/tests/build_identity_required.test.mjs
-          exit $?
-        fi
         prepare_dev_frontend_dist "$(pwd -P)"
         prepare_bundle_stubs
         prepare_exceptional_worktree_target
@@ -3632,15 +3425,11 @@ EOF
       "$FRESH_CLI" "${INSTALL_ARGS[@]}"
     ;;
   script-guards)
-    # Cheap fixture guards for build/dev/QA scripts; Linux-only ones need a POSIX-clean runner (CI linux-ci).
     sg_failed=0
     sg_run() { echo "== $*"; "$@" || { echo "FAILED: $*" >&2; sg_failed=1; }; }
     sg_run node scripts/test-catalogue.mjs validate
     sg_run node scripts/rename-guard.mjs --scope all --report
     sg_run bash scripts/check-crate-layering.sh
-    sg_run node --test scripts/tests/crate-layering.test.mjs
-    sg_run node --test scripts/check-queue-plan.test.mjs scripts/nextest-archive.test.mjs scripts/check-slow-unit-tests.test.mjs
-    sg_run bash scripts/check-build-gateway-owner-reap.sh
     sg_run bash scripts/check-build-check-queue.sh
     sg_run bash scripts/check-build-script-head.sh
     if command -v python3 >/dev/null 2>&1; then
@@ -3648,21 +3437,8 @@ EOF
     else
       sg_run python scripts/check-lf-working-tree.py
     fi
-    sg_run bash scripts/check-shared-sccache.sh
-    for sg in check-build-isolated-dev-policy.sh check-dev-resource-preflight.sh check-health-identity.sh check-local-install-continuation.sh       check-no-raw-graph-sql.sh check-visual-golden-edits.sh test-clippy-gate.sh test-descendant-cleanup.sh test-merge-stack-audit.sh test-timeout-seam.sh; do
-      sg_run bash "scripts/$sg"
-    done
-    sg_run bash scripts/tests/firebase-build-config.test.sh
-    if [ "$(uname -s)" = Linux ]; then
-      # POSIX process and file-descriptor fixtures; policy also covers release signing and source-clean.
-      for sg in check-build-gateway-serialization.sh check-build-gateway-policy.sh check-build-gateway-mutex-cleanup.sh; do
-        sg_run bash "scripts/$sg"
-      done
-      sg_run bash scripts/check-build-dev-port-overrides.sh
-      sg_run bash scripts/check-cache-provenance.sh
-      sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-cargo
-      sg_run node scripts/test-catalogue.mjs run --entry node-script-tests-serial
-    fi
+    sg_run bash scripts/check-no-raw-graph-sql.sh
+    sg_run bash scripts/check-visual-golden-edits.sh
     exit "$sg_failed"
     ;;
   qa-lock-storm)

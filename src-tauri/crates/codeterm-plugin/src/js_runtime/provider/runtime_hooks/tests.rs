@@ -13,30 +13,52 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
     ctx.settings.mode = Some("workspace-write".into());
     ctx.settings.network_access = Some(false);
     ctx.restricted_cli = Some(RestrictedCliPolicy {
-        tab_id:ctx.tab_id.clone(),binding_nonce:ctx.binding_nonce.clone(),epoch:ctx.epoch,cwd:ctx.cwd.clone(),
-        executable:std::env::current_exe().unwrap().to_str().unwrap().into(),
-        executable_sha256:"a".repeat(64),config_sha256:"b".repeat(64),rule_sha256:"c".repeat(64),argv:vec!["identify".into(),"--json".into()],
+        tab_id: ctx.tab_id.clone(),
+        binding_nonce: ctx.binding_nonce.clone(),
+        epoch: ctx.epoch,
+        cwd: ctx.cwd.clone(),
+        executable: std::env::current_exe().unwrap().to_str().unwrap().into(),
+        executable_sha256: "a".repeat(64),
+        config_sha256: "b".repeat(64),
+        rule_sha256: "c".repeat(64),
+        argv: vec!["identify".into(), "--json".into()],
     });
     let js = provider("module.exports={runtimePlan(ctx){return {action:{kind:'request',call:{method:'handshake',params:ctx.restrictedCli}},state:null}}}");
-    assert_eq!(js.agent_runtime().unwrap().restricted_cli,Some(RestrictedCliCapability::ExecpolicyIdentify));
-    let plan = js.runtime_plan(&ctx,&RuntimeOperation::Initialize).await.unwrap();
-    let RuntimeAction::Request {call} = plan.action else {panic!("expected request")};
-    assert_eq!(call.params,serde_json::to_value(ctx.restricted_cli.as_ref().unwrap()).unwrap());
-    for field in ["tab","nonce","epoch","cwd","argv","hash"] {
+    assert_eq!(
+        js.agent_runtime().unwrap().restricted_cli,
+        Some(RestrictedCliCapability::ExecpolicyIdentify)
+    );
+    let plan = js
+        .runtime_plan(&ctx, &RuntimeOperation::Initialize)
+        .await
+        .unwrap();
+    let RuntimeAction::Request { call } = plan.action else {
+        panic!("expected request")
+    };
+    assert_eq!(
+        call.params,
+        serde_json::to_value(ctx.restricted_cli.as_ref().unwrap()).unwrap()
+    );
+    for field in ["tab", "nonce", "epoch", "cwd", "argv", "hash"] {
         let mut changed = ctx.clone();
         let policy = changed.restricted_cli.as_mut().unwrap();
         match field {
-            "tab"=>policy.tab_id="foreign".into(),
-            "nonce"=>policy.binding_nonce="foreign".into(),
-            "epoch"=>policy.epoch+=1,
-            "cwd"=>policy.cwd="foreign".into(),
-            "argv"=>policy.argv.push("--mesh=foreign".into()),
-            _=>policy.rule_sha256="invalid".into(),
+            "tab" => policy.tab_id = "foreign".into(),
+            "nonce" => policy.binding_nonce = "foreign".into(),
+            "epoch" => policy.epoch += 1,
+            "cwd" => policy.cwd = "foreign".into(),
+            "argv" => policy.argv.push("--mesh=foreign".into()),
+            _ => policy.rule_sha256 = "invalid".into(),
         }
-        assert!(js.runtime_plan(&changed,&RuntimeOperation::Initialize).await.is_err(),"{field}");
+        assert!(
+            js.runtime_plan(&changed, &RuntimeOperation::Initialize)
+                .await
+                .is_err(),
+            "{field}"
+        );
     }
-    ctx.restricted_cli=None;
-    ctx.provider_settings=json!({"restrictedCli":{"tabId":"forged"}});
+    ctx.restricted_cli = None;
+    ctx.provider_settings = json!({"restrictedCli":{"tabId":"forged"}});
     assert!(validate_runtime_context(&ctx).is_ok());
 }
 

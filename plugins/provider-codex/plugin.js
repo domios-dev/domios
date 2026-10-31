@@ -2601,6 +2601,86 @@ function restoreContextItems(raw) {
 }
 
 // plugins/provider-codex/src/runtimeSettings.ts
+var windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+function codexRestrictedCliConfig(ctx) {
+  const policy = ctx.restrictedCli;
+  if (!policy) return {};
+  const hash = (value) => /^[0-9a-f]{64}$/.test(value);
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash) || JSON.stringify(policy.argv) !== JSON.stringify(["identify", "--json"]))
+    throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
+  return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
+}
+function codexValidateCliTrust(ctx, raw) {
+  if (!ctx.restrictedCli) return;
+  codexRestrictedCliConfig(ctx);
+  const root = object(raw);
+  if (!root.config || typeof root.config !== "object" || Array.isArray(root.config))
+    throw { code: "invalid_schema", message: "Restricted CLI project trust was not reported" };
+  const config = object(root.config);
+  if (config.projects === void 0 || config.projects === null) return;
+  if (typeof config.projects !== "object" || Array.isArray(config.projects))
+    throw { code: "invalid_schema", message: "Invalid configured project trust" };
+  const normalize = (path) => path.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
+  const cwd = normalize(ctx.cwd);
+  for (const [path, value] of Object.entries(object(config.projects))) {
+    if (cwd !== normalize(path) && !cwd.startsWith(normalize(path) + "/")) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw { code: "invalid_schema", message: "Invalid configured project trust" };
+    const project = object(value);
+    const trust = project.trust_level ?? project.trustLevel;
+    if (trust !== void 0 && trust !== null && trust !== "trusted")
+      throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
+  }
+}
+function codexNeedsWindowsSandboxSelection(raw) {
+  const root = object(raw);
+  if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
+    throw { code: "invalid_schema", message: "Windows sandbox configuration was not reported" };
+  const config = object(root.config);
+  const windows = object(config.windows);
+  if (config.windows != null && (typeof config.windows !== "object" || Array.isArray(config.windows)))
+    throw { code: "invalid_schema", message: "Invalid Windows sandbox configuration" };
+  if (windows.sandbox != null) {
+    if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
+      throw { code: "invalid_schema", message: "Unknown configured Windows sandbox" };
+    return false;
+  }
+  if (windows.allow_mxc !== void 0) {
+    if (typeof windows.allow_mxc !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows MXC policy" };
+    if (!windows.allow_mxc) return false;
+  }
+  if (config.features != null && (typeof config.features !== "object" || Array.isArray(config.features)))
+    throw { code: "invalid_schema", message: "Invalid Windows sandbox features" };
+  const features = object(config.features);
+  for (const key of windowsSandboxFeatures) {
+    if (features[key] !== void 0) {
+      if (typeof features[key] !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows sandbox feature selection" };
+      return false;
+    }
+  }
+  return true;
+}
+function codexWindowsSandboxOverride(raw) {
+  const root = object(raw);
+  if (root.requirements === null) return "mxc";
+  if (typeof root.requirements !== "object" || Array.isArray(root.requirements))
+    throw { code: "invalid_schema", message: "Windows sandbox requirements were not reported" };
+  const requirements = object(root.requirements);
+  const allowed = requirements.allowedWindowsSandboxImplementations;
+  if (allowed !== null && (!Array.isArray(allowed) || allowed.some((mode) => !["mxc", "elevated", "unelevated"].includes(String(mode)))))
+    throw { code: "invalid_schema", message: "Windows sandbox implementation requirements are unknown" };
+  if (Array.isArray(allowed) && !allowed.includes("mxc")) return void 0;
+  const modes = requirements.allowedSandboxModes;
+  if (modes !== null && (!Array.isArray(modes) || modes.some((mode) => !["read-only", "workspace-write", "danger-full-access"].includes(String(mode)))))
+    throw { code: "invalid_schema", message: "Sandbox mode requirements are unknown" };
+  if (Array.isArray(modes) && !modes.includes("workspace-write")) return void 0;
+  if (requirements.defaultPermissions != null || requirements.allowedPermissionProfiles != null) return void 0;
+  if (requirements.featureRequirements != null && (typeof requirements.featureRequirements !== "object" || Array.isArray(requirements.featureRequirements)))
+    throw { code: "invalid_schema", message: "Windows sandbox feature requirements are unknown" };
+  const features = object(requirements.featureRequirements);
+  if (windowsSandboxFeatures.some((key) => features[key] !== void 0)) return void 0;
+  return "mxc";
+}
 function codexServiceTier(settings) {
   return settings.serviceTier === void 0 ? {} : { serviceTier: settings.serviceTier.id };
 }
@@ -2660,6 +2740,13 @@ function codexReportedSettings(raw, requested) {
 function codexEffectiveSettings(requested, reply) {
   const { serviceTier: _requestedTier, ...other } = requested;
   return { ...other, ...codexReportedSettings(reply, requested) };
+}
+function codexWorkspaceWriteConfirmed(raw) {
+  const root = object(raw);
+  const settings = root.threadSettings ? object(root.threadSettings) : root;
+  const thread = object(settings.thread);
+  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox);
+  return codexReportedSettings(raw).mode === "workspace-write" && sandbox.type === "workspaceWrite" && (settings.approvalPolicy ?? thread.approvalPolicy) === "never" && sandbox.networkAccess === false;
 }
 function codexWritableRootsConfirmed(settings, reply) {
   if (settings.mode !== "read-only-with-writable-roots") return true;
@@ -3404,7 +3491,7 @@ function request(method, params, state = { stage: method }) {
   const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
   return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
 }
-function settingsParams(ctx, settings, instructions) {
+function settingsParams(ctx, settings, instructions, windowsSandbox) {
   const policies = codexRuntimePolicy(settings);
   const sandbox = object(policies.sandboxPolicy).type;
   return {
@@ -3412,13 +3499,17 @@ function settingsParams(ctx, settings, instructions) {
     model: settings.model,
     ...codexServiceTier(settings),
     threadSource: "user",
-    config: codexThreadConfig(settings, ctx.hostOwned),
+    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
     ...policies.runtimeWorkspaceRoots ? { runtimeWorkspaceRoots: policies.runtimeWorkspaceRoots } : {},
     approvalPolicy: policies.approvalPolicy,
     approvalsReviewer: policies.approvalsReviewer,
     sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
     ...instructions !== void 0 ? { developerInstructions: instructions } : {}
   };
+}
+function threadPlan(ctx, op, windowsSandbox) {
+  const params = settingsParams(ctx, op.settings, op.instructions, windowsSandbox);
+  return op.kind === "openThread" ? request("thread/start", params) : request("thread/resume", { ...params, threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", ...windowsSandbox ? { windowsSandbox } : {} });
 }
 function turnParams(ctx, op) {
   const input = [{ type: "text", text: op.input.text }];
@@ -3515,11 +3606,10 @@ function planOperation(ctx, op) {
     case "initialize":
       return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
     case "openThread":
-      return request("thread/start", settingsParams(ctx, op.settings, op.instructions));
+    case "resumeThread":
+      return op.settings.mode === "workspace-write" ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
     case "forkThread":
       return forkThreadPlan(ctx, op);
-    case "resumeThread":
-      return request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true });
     case "readHistory":
       if (op.order === "desc") return pagedHistoryPlan(op);
       return request(
@@ -3625,10 +3715,17 @@ function respondOperation(ctx, op, raw, reply) {
     if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
       return continuation(request("turn/start", turnParams(ctx, op)), true);
     if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
-      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive" }));
+      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive", ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
     return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
   }
   const value = object(reply.value);
+  if (op.kind === "openThread" || op.kind === "resumeThread") {
+    if (state.stage === "windowsSandboxConfig") {
+      codexValidateCliTrust(ctx, value);
+      return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
+    }
+    if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
+  }
   switch (op.kind) {
     case "initialize":
       if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: json({ stage: "initializedNotification", binaryVersion: runtimeBinaryVersion(value.userAgent) }) });
@@ -3642,12 +3739,14 @@ function respondOperation(ctx, op, raw, reply) {
     case "openThread": {
       const threadId = userThread(value);
       if (!threadId) return refused("New thread identity unverified");
+      if (op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (!codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
       return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
     }
     case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true }));
+      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions, state.windowsSandbox === "mxc" ? "mxc" : void 0), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true, ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
       if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
+      if (state.stage !== "verify" && op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
       if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
       if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
       const idle = threadStatus(object(value.thread).status)?.state === "idle";

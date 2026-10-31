@@ -1,4 +1,4 @@
-// Caller: scripts/cache-policy.sh; scripts/tests/cache-rustc-wrapper.test.mjs
+// Caller: scripts/cache-policy.sh
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
