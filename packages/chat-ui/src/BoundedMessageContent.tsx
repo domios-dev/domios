@@ -48,7 +48,7 @@ export function BoundedMessageContent({ collapsedHeight, as: Tag = "div", unboun
       {content}
       {(clipped || expanded) && (
         <button type="button" aria-expanded={expanded} aria-controls={contentId}
-          className="px-2 py-1 text-xs text-[var(--ct-accent)]" onClick={() => {
+          className="ct-message-expand px-2 py-1 text-xs text-[var(--ct-accent)]" onClick={() => {
             if (expanded && contentRef.current) contentRef.current.scrollTop = 0;
             setExpanded((value) => !value);
           }}>

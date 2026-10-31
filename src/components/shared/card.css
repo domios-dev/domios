@@ -313,3 +313,13 @@ button.ct-card__head {
   padding-right: 6px;
   column-gap: 8px;
 }
+
+.ct-communication-card .ct-card__icon {
+  width: 16px;
+  min-width: 16px;
+  flex: none;
+}
+.ct-communication-card .ct-message-expand {
+  padding-inline: 12px;
+  padding-bottom: 10px;
+}
