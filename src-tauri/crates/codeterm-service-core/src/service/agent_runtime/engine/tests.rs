@@ -2,6 +2,59 @@ use super::*;
 use crate::multiplexer::types::RestorableLaunchParameters;
 
 #[test]
+fn runtime_policy_wire_projection_preserves_precedence_without_private_values() {
+    let raw = serde_json::json!({
+        "mode":"read-only",
+        "approvalPolicy":"never",
+        "sandbox":{"type":"readOnly","writableRoots":["private-root"]},
+        "activePermissionProfile":{"id":"private-profile"},
+        "thread":{"mode":"private-thread-mode"},
+        "threadSettings":{
+            "mode":"workspace-write",
+            "approvalPolicy":"never",
+            "approvalsReviewer":"user",
+            "sandbox":{"type":"readOnly"},
+            "sandboxPolicy":{"type":"workspaceWrite"},
+            "activePermissionProfile":{"id":":workspace"},
+            "thread":{"mode":"read-only","sandbox":{"type":"dangerFullAccess"}},
+            "config":{"sandbox_mode":"private-config"},
+            "developerInstructions":"private-body"
+        }
+    });
+    let projected = operation::policy_projection(&raw);
+    assert_eq!(projected["threadSettingsSelected"], true);
+    assert_eq!(projected["top"]["mode"], "read-only");
+    assert_eq!(projected["top"]["sandbox"], "readOnly");
+    assert_eq!(projected["top"]["profile"], "other");
+    assert_eq!(projected["topThread"]["mode"], "other");
+    assert_eq!(projected["selected"]["mode"], "workspace-write");
+    assert_eq!(projected["selected"]["sandbox"], "readOnly");
+    assert_eq!(projected["selected"]["sandboxPolicy"], "workspaceWrite");
+    assert_eq!(projected["selected"]["approval"], "never");
+    assert_eq!(projected["selected"]["profile"], ":workspace");
+    assert_eq!(projected["selected"]["configSandbox"], "other");
+    assert_eq!(projected["selectedThread"]["mode"], "read-only");
+    assert_eq!(projected["selectedThread"]["sandbox"], "dangerFullAccess");
+    assert!(!projected.to_string().contains("private"));
+    let request = operation::policy_projection(&serde_json::json!({
+        "sandbox":"workspace-write","approvalPolicy":"never",
+        "config":{"sandbox_mode":"read-only"},"permissions":"private-permissions"
+    }));
+    assert_eq!(request["top"]["sandbox"], "workspace-write");
+    assert_eq!(request["top"]["configSandbox"], "read-only");
+    assert_eq!(request["top"]["permissions"], "other");
+    for nested in [Value::Null, Value::Bool(false), serde_json::json!(0), serde_json::json!("")] {
+        let projected = operation::policy_projection(&serde_json::json!({"mode":"workspace-write","threadSettings":nested}));
+        assert_eq!(projected["threadSettingsSelected"], false);
+        assert_eq!(projected["selected"]["mode"], "workspace-write");
+    }
+    let malformed = operation::policy_projection(&serde_json::json!({"mode":"workspace-write","threadSettings":"private-truthy"}));
+    assert_eq!(malformed["threadSettingsSelected"], true);
+    assert_eq!(malformed["selected"]["mode"], "missing");
+    assert!(!malformed.to_string().contains("private"));
+}
+
+#[test]
 fn saved_opaque_arguments_refuse_runtime_use_with_a_visible_reason_without_leaking_arguments() {
     let launch = RestorableLaunchParameters {
         args: Some(vec!["opaque-private-value".into()]),
