@@ -179,7 +179,6 @@ impl ServiceContext {
             self.project_neighbor_send_counts(&metadata, &mut result)
                 .await
                 .map_err(|error| error.to_string())?;
-            self.remember_neighbor_names(&result);
             if self.require_neighbors_enabled().is_ok() {
                 self.end_missing_neighbor_friendships(&metadata, &result, history_generation)
                     .await
@@ -189,13 +188,14 @@ impl ServiceContext {
                 return Err("Account changed while listing Neighbors".into());
             }
             self.require_neighbor_generation(history_generation)?;
-            if list_epoch.as_ref().is_some_and(|epoch| !self.neighbor_list_epoch_current(epoch)) {
-                return Err(codeterm_neighbors::Error::Revoked.to_string());
-            }
-            self.remember_neighbor_registry(&result);
+            self.remember_neighbor_list_read(
+                &session.identity.uid,
+                session.login_generation,
+                list_epoch.as_ref().ok_or("Missing Neighbor list epoch")?,
+                &result,
+            ).map_err(|error| error.to_string())?;
         } else {
             self.invalidate_neighbor_list();
-            self.forget_neighbor_registry();
         }
         Ok(result)
     }

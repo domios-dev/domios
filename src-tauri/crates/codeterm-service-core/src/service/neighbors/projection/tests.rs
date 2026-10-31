@@ -292,3 +292,92 @@ async fn expired_projection_reconciliation_cannot_publish_after_refresh_or_accou
     }).await, Err(Error::Revoked));
     assert!(fixture.ui.0.lock().is_empty());
 }
+
+#[tokio::test]
+async fn prepared_registry_completion_cannot_reinstall_after_invalidation_or_account_selection() {
+    for transition in 0..3 {
+        let fixture = crate::service::test_fixture::ServiceFixture::new(
+            crate::multiplexer::state::MultiplexerState::new().0,
+        );
+        let service = &fixture.service;
+        service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+        service.select_neighbor_projection("owner", 1);
+        let old_epoch = service.neighbor_projection_read_epoch("owner", 1).unwrap();
+        let old_list = json!({"access":"paid","friends":[{"friendship_id":"a".repeat(64),"displayName":"Old"}]});
+        service.remember_neighbor_list_read("owner", 1, &old_epoch, &old_list).unwrap();
+        assert!(service.neighbor_registry_receiving(&"a".repeat(64)));
+        let (prepared, ready) = tokio::sync::oneshot::channel();
+        let (publish, released) = tokio::sync::oneshot::channel();
+        let old = async {
+            prepared.send(()).unwrap();
+            released.await.unwrap();
+            service.remember_neighbor_list_read("owner", 1, &old_epoch, &old_list)
+        };
+        let retire = async {
+            ready.await.unwrap();
+            let (uid, generation) = match transition {
+                0 => { service.invalidate_neighbor_list(); ("owner", 1) }
+                1 => { service.select_neighbor_projection("other", 1); ("other", 1) }
+                _ => { service.select_neighbor_projection("owner", 2); ("owner", 2) }
+            };
+            assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+            let fresh = service.neighbor_projection_read_epoch(uid, generation).unwrap();
+            service.remember_neighbor_list_read(uid, generation, &fresh,
+                &json!({"access":"paid","friends":[{"friendship_id":"b".repeat(64),"displayName":"Fresh"}]}),
+            ).unwrap();
+            publish.send(()).unwrap();
+        };
+        let (old, _) = tokio::join!(old, retire);
+        assert_eq!(old, Err(Error::Revoked));
+        assert!(!service.neighbor_registry_receiving(&"a".repeat(64)));
+        assert!(service.neighbor_registry_receiving(&"b".repeat(64)));
+        assert_eq!(service.neighbor_cell().registry_snapshot.lock().as_ref().unwrap()["friends"][0]["displayName"], "Fresh");
+    }
+}
+
+#[test]
+fn registry_publication_before_invalidation_is_cleared_and_old_projection_cannot_reinstall() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+    service.select_neighbor_projection("owner", 1);
+    assert!(service.apply_neighbor_projection("owner", 1, snapshot(1, None)));
+    let old = service.peek_neighbor_projection("owner", 1, "friendsList", "").unwrap();
+    service.remember_neighbor_projection_registry("owner", 1, &old).unwrap();
+    assert!(service.neighbor_registry_receiving(&"a".repeat(64)));
+    service.invalidate_neighbor_list();
+    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+    assert_eq!(service.remember_neighbor_projection_registry("owner", 1, &old), Err(Error::Revoked));
+    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+    assert!(service.apply_neighbor_projection("owner", 1, snapshot(2, None)));
+    let fresh = service.peek_neighbor_projection("owner", 1, "friendsList", "").unwrap();
+    service.remember_neighbor_projection_registry("owner", 1, &fresh).unwrap();
+    assert_eq!(service.remember_neighbor_projection_registry("owner", 1, &old), Err(Error::Revoked));
+    assert!(service.neighbor_registry_receiving(&"a".repeat(64)));
+    service.select_neighbor_projection("other", 1);
+    assert_eq!(service.remember_neighbor_projection_registry("owner", 1, &fresh), Err(Error::Revoked));
+    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+}
+
+#[test]
+fn registry_commit_keeps_account_selection_locked_through_the_injected_publication() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+    service.select_neighbor_projection("owner", 1);
+    let epoch = service.neighbor_projection_read_epoch("owner", 1).unwrap();
+    service.commit_neighbor_list_read("owner", 1, &epoch, || {
+        assert!(service.extensions.get_or_init(Cell::default).state.try_lock().is_none());
+        service.remember_neighbor_registry(&json!({"access":"paid","friends":[{"friendship_id":"a".repeat(64)}]}));
+    }).unwrap();
+    assert!(service.neighbor_registry_receiving(&"a".repeat(64)));
+    service.invalidate_neighbor_list();
+    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+    assert_eq!(service.commit_neighbor_list_read("owner", 1, &epoch, || {
+        panic!("A retired preparation cannot enter its publication closure")
+    }), Err::<(), _>(Error::Revoked));
+}

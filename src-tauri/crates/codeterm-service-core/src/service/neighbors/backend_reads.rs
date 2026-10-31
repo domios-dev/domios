@@ -184,7 +184,18 @@ impl ServiceContext {
 
     pub(in crate::service::neighbors) fn invalidate_neighbor_list(&self) {
         self.invalidate_neighbor_projection_list();
-        self.forget_neighbor_registry();
+    }
+
+    pub(super) fn commit_neighbor_list_epoch<T>(
+        &self,
+        epoch: &ListEpoch,
+        commit: impl FnOnce() -> T,
+    ) -> Result<T> {
+        let state = self.extensions.get_or_init(Reads::default).list.state.lock();
+        if !state.epoch.matches(epoch) {
+            return Err(Error::Revoked);
+        }
+        Ok(commit())
     }
 
     pub(super) fn retire_neighbor_list_reads(&self) {

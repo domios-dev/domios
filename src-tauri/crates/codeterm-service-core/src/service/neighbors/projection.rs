@@ -26,6 +26,7 @@ impl ServiceContext {
         let cell = self.extensions.get_or_init(Cell::default);
         let mut state = cell.state.lock();
         if state.selected.as_ref() != Some(&(uid.to_owned(), generation)) {
+            self.forget_neighbor_registry();
             *state = State {
                 selected: Some((uid.to_owned(), generation)),
                 ..State::default()
@@ -42,6 +43,7 @@ impl ServiceContext {
         state.list_dirty = true;
         state.fallback_started = false;
         self.retire_neighbor_list_reads();
+        self.forget_neighbor_registry();
         drop(state);
         cell.changed.notify_waiters();
     }
@@ -62,6 +64,51 @@ impl ServiceContext {
         }
         self.ui.emit("neighbors-changed", serde_json::json!({"uid":uid,"list":list}));
         true
+    }
+
+    pub(super) fn remember_neighbor_list_read(
+        &self,
+        uid: &str,
+        generation: u64,
+        epoch: &super::backend_reads::ListEpoch,
+        list: &Value,
+    ) -> Result<()> {
+        self.commit_neighbor_list_read(uid, generation, epoch, || {
+            self.remember_neighbor_names(list);
+            self.remember_neighbor_registry(list);
+        })
+    }
+
+    fn commit_neighbor_list_read<T>(
+        &self,
+        uid: &str,
+        generation: u64,
+        epoch: &super::backend_reads::ListEpoch,
+        commit: impl FnOnce() -> T,
+    ) -> Result<T> {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        if state.selected.as_ref().is_some_and(|selected| selected != &(uid.to_owned(), generation)) {
+            return Err(Error::Revoked);
+        }
+        self.commit_neighbor_list_epoch(epoch, commit)
+    }
+
+    pub(super) fn remember_neighbor_projection_registry(
+        &self,
+        uid: &str,
+        generation: u64,
+        list: &Value,
+    ) -> Result<()> {
+        let state = self.extensions.get_or_init(Cell::default).state.lock();
+        if state.selected.as_ref() != Some(&(uid.to_owned(), generation))
+            || !state.authoritative || state.list_dirty
+            || state.snapshots.version(uid, generation) != list["version"].as_u64()
+        {
+            return Err(Error::Revoked);
+        }
+        self.remember_neighbor_names(list);
+        self.remember_neighbor_registry(list);
+        Ok(())
     }
 
     pub(super) fn require_neighbor_projection_account(&self, uid: &str, generation: u64) -> Result<()> {
@@ -113,6 +160,7 @@ impl ServiceContext {
         let mut state = cell.state.lock();
         *state = State::default();
         self.retire_neighbor_list_reads();
+        self.forget_neighbor_registry();
         drop(state);
         cell.changed.notify_waiters();
     }

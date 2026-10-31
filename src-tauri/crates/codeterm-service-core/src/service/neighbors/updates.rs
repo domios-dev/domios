@@ -188,7 +188,6 @@ impl Session {
         self.service
             .project_neighbor_send_counts(&self.metadata, &mut list)
             .await?;
-        self.service.remember_neighbor_names(&list);
         let accepted = accepted_connections(previous.as_ref(), &list);
         let notices = notifications::changes(seen, &list, &accepted)?;
         self.metadata
@@ -198,7 +197,11 @@ impl Session {
             )
             .await?;
         self.current()?;
-        self.service.remember_neighbor_registry(&list);
+        self.service.remember_neighbor_projection_registry(
+            &self.transport.uid,
+            self.expected.login_generation,
+            &list,
+        )?;
         if list["access"] != "paid" || self.service.neighbor_access_locked().await {
             self.service.pause_neighbor_reception();
         } else {

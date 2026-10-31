@@ -242,3 +242,22 @@ async fn mutation_and_refresh_retire_an_active_service_list_read() {
         }).await, Ok(json!("fresh")));
     }
 }
+
+#[test]
+fn registry_commit_keeps_the_epoch_locked_through_the_injected_publication() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    let service = &fixture.service;
+    let epoch = service.neighbor_list_epoch("owner", 1);
+    let mut published = false;
+    service.commit_neighbor_list_epoch(&epoch, || {
+        assert!(service.extensions.get_or_init(Reads::default).list.state.try_lock().is_none());
+        published = true;
+    }).unwrap();
+    assert!(published);
+    service.retire_neighbor_list_reads();
+    assert_eq!(service.commit_neighbor_list_epoch(&epoch, || {
+        panic!("An expired epoch cannot enter its publication closure")
+    }), Err::<(), _>(Error::Revoked));
+}
