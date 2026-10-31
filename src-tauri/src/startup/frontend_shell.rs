@@ -149,7 +149,9 @@ pub(super) fn configure_window_browser_arguments(
     app: &codeterm_client_shell::app_runtime::AppHandle,
     config: &mut tauri::utils::config::WindowConfig,
 ) -> Result<(), &'static str> {
-    let mode = app.state::<crate::ClientStartupOptions>().local_webview_diagnostics;
+    let mode = app
+        .state::<crate::ClientStartupOptions>()
+        .local_webview_diagnostics;
     config.additional_browser_args = window_browser_arguments(
         config.additional_browser_args.as_deref(),
         mode,

@@ -2,38 +2,81 @@ use super::*;
 
 #[test]
 fn starting_and_main_webviews_share_browser_options_for_the_same_profile() {
-    let configured = "--disable-features=opaque-feature --remote-debugging-port=9441 --opaque-option=value";
+    let configured =
+        "--disable-features=opaque-feature --remote-debugging-port=9441 --opaque-option=value";
     let config: tauri::utils::config::Config = serde_json::from_value(serde_json::json!({
         "identifier":"opaque.app",
         "app":{"windows":[{"label":"main","additionalBrowserArgs":configured}]}
-    })).unwrap();
+    }))
+    .unwrap();
     let mode = crate::LocalWebviewDiagnosticsMode::RequestedPort(9441);
-    let startup = StartupDiagnosticsPreflight::capture(mode, |_| PortPreflight::evaluate(true, true, || Ok(())));
+    let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+        PortPreflight::evaluate(true, true, || Ok(()))
+    });
     let mut starting = initial_document::starting_window_config(&config).unwrap();
     let mut main = initial_document::window_config(&config).unwrap();
     for window in [&mut starting, &mut main] {
-        window.additional_browser_args = window_browser_arguments(window.additional_browser_args.as_deref(), mode, &startup).unwrap();
+        window.additional_browser_args =
+            window_browser_arguments(window.additional_browser_args.as_deref(), mode, &startup)
+                .unwrap();
     }
     assert_eq!(starting.label, "starting");
     assert_eq!(main.label, "main");
-    assert_eq!(starting.additional_browser_args, main.additional_browser_args);
-    assert_eq!(main.additional_browser_args.unwrap(), format!("{configured} --remote-debugging-address=127.0.0.1 --remote-debugging-port=9441"));
+    assert_eq!(
+        starting.additional_browser_args,
+        main.additional_browser_args
+    );
+    assert_eq!(
+        main.additional_browser_args.unwrap(),
+        format!("{configured} --remote-debugging-address=127.0.0.1 --remote-debugging-port=9441")
+    );
 }
 
 #[test]
 fn browser_options_preserve_disabled_unavailable_and_unrequested_diagnostics() {
     let configured = "--opaque-option=value";
-    let disabled = StartupDiagnosticsPreflight::capture(crate::LocalWebviewDiagnosticsMode::Disabled, |_| panic!("unexpected probe"));
-    assert_eq!(window_browser_arguments(Some(configured), crate::LocalWebviewDiagnosticsMode::Disabled, &disabled), Ok(Some(configured.into())));
-    assert_eq!(window_browser_arguments(None, crate::LocalWebviewDiagnosticsMode::Disabled, &disabled), Ok(None));
+    let disabled =
+        StartupDiagnosticsPreflight::capture(crate::LocalWebviewDiagnosticsMode::Disabled, |_| {
+            panic!("unexpected probe")
+        });
+    assert_eq!(
+        window_browser_arguments(
+            Some(configured),
+            crate::LocalWebviewDiagnosticsMode::Disabled,
+            &disabled
+        ),
+        Ok(Some(configured.into()))
+    );
+    assert_eq!(
+        window_browser_arguments(
+            None,
+            crate::LocalWebviewDiagnosticsMode::Disabled,
+            &disabled
+        ),
+        Ok(None)
+    );
     let mode = crate::LocalWebviewDiagnosticsMode::RequestedPort(9441);
     for (debug, windows) in [(false, true), (true, false), (true, true)] {
-        let startup = StartupDiagnosticsPreflight::capture(mode, |_| PortPreflight::evaluate(debug, windows, || Err(std::io::Error::from(std::io::ErrorKind::AddrInUse))));
-        assert_eq!(window_browser_arguments(Some(configured), mode, &startup), Ok(Some(configured.into())));
+        let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+            PortPreflight::evaluate(debug, windows, || {
+                Err(std::io::Error::from(std::io::ErrorKind::AddrInUse))
+            })
+        });
+        assert_eq!(
+            window_browser_arguments(Some(configured), mode, &startup),
+            Ok(Some(configured.into()))
+        );
     }
     assert!(window_browser_arguments(Some(configured), mode, &disabled).is_err());
-    let startup = StartupDiagnosticsPreflight::capture(mode, |_| PortPreflight::evaluate(true, true, || Ok(())));
-    assert!(window_browser_arguments(Some(configured), crate::LocalWebviewDiagnosticsMode::RequestedPort(9442), &startup).is_err());
+    let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+        PortPreflight::evaluate(true, true, || Ok(()))
+    });
+    assert!(window_browser_arguments(
+        Some(configured),
+        crate::LocalWebviewDiagnosticsMode::RequestedPort(9442),
+        &startup
+    )
+    .is_err());
 }
 
 #[test]
