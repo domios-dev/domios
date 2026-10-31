@@ -5,6 +5,8 @@ description: "Choose, author, and run Domios unit, integration, REST, and cross-
 
 Workers run lightweight deterministic tests and scoped QA autonomously within their assignment, in a Team QA utility shell. Compilation stays centralized under the current owner's decision: do not run Cargo, builds, `tsc` or provider bundles without an explicit dispatch grant. Report exact commands, nonzero discovered/executed counts and raw exits with the task SHA; defer ungranted compilation selectors to the Orchestrator. Batch related edits before focused verification; recheck only failed or newly affected proof. Full and reverse-dependency regressions remain with the Orchestrator. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
 
+Test product behavior directly. Do not add self-tests for QA helpers, test catalogues, discovery inventories or test runners; their successful execution is not product verification. Use the actual selected application scenario and its observable result.
+
 ## Domios — Testing Guide
 
 ## Test-layer taxonomy
