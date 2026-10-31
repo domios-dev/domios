@@ -350,19 +350,18 @@ pub fn create_window(
     );
     let shell_app = app.clone();
     let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
-    #[cfg(windows)]
     if let crate::LocalWebviewDiagnosticsMode::RequestedPort(port) = app
         .state::<crate::ClientStartupOptions>()
         .local_webview_diagnostics
     {
-        let available = cfg!(debug_assertions)
-            && crate::host_ports::webview_diagnostics::port_is_available(port);
+        let preflight = crate::host_ports::webview_diagnostics::port_preflight(port);
         if let Some(slot) =
             app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
         {
-            slot.set_diagnostics_port_preflight(port, available);
+            slot.set_diagnostics_port_preflight(port, preflight);
         }
-        if available {
+        #[cfg(windows)]
+        if preflight.available() {
             builder = builder.additional_browser_args(&format!(
                 "--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}"
             ));
