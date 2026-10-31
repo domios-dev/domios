@@ -554,11 +554,12 @@ test("chatBackend structured inbound renders an expanded typed message card", as
 });
 
 test("structured report uses compact typed card instead of a nested message bubble", async () => {
-  const content = "task: pl_d17yp2/task_2iw42e\nstatus: In Review\nbranch: lane/tool-cards\nsha: 1e096cba6\ntests: 11/11 green\nSTATUS: in_review | CHANGES: Added provider matrix";
+  const body = "## Changes\n\nAdded provider matrix.";
+  const content = `task: pl_d17yp2/task_2iw42e\nstatus: In Review\nbranch: lane/tool-cards\nsha: 1e096cba6\n\n${body}`;
   const descriptor = parseInboundReport(content);
   assert(descriptor.task === "pl_d17yp2/task_2iw42e", "report task parse regression");
-  assert(descriptor.status === "in_review", "latest report status should win");
-  assert(descriptor.fields.some((field) => field.label === "changes" && field.value === "Added provider matrix"), "compound report fields parse regression");
+  assert(descriptor.status === "In Review", "report status comes from host metadata");
+  assert(descriptor.body === body, "report Markdown body is preserved");
 
   const { host, root } = await renderMessages([{
     id: "inbound-report-1",
@@ -574,7 +575,7 @@ test("structured report uses compact typed card instead of a nested message bubb
     assert(host.querySelector('[data-testid="chat-inbound-report"]'), "expected typed inbound report card");
     assertIncludes(host, "Report from Hugo", "report sender");
     assertIncludes(host, "task_2iw42e", "report task summary");
-    assertIncludes(host, "1e096cba6", "report sha chip");
+    assertIncludes(host, "Added provider matrix.", "report Markdown content");
     assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "report must not use nested cross-tab bubble");
   } finally {
     await act(async () => root.unmount());
