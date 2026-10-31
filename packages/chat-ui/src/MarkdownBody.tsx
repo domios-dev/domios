@@ -348,6 +348,7 @@ function MarkdownProse({
         },
         a: ({ node: _node, ...props }) => (
           <MarkdownLink
+            allowLocalFiles={localArtifacts}
             target="_blank"
             rel="noopener noreferrer"
             className="underline decoration-[color-mix(in_srgb,var(--ct-accent)_40%,transparent)] underline-offset-2 hover:decoration-[var(--ct-accent)]"
@@ -380,7 +381,7 @@ function MarkdownProse({
     cachedKeyRef.current = cacheKey;
     if (previousKey !== null && previousKey !== cacheKey) forgetMarkdownRender(previousKey);
     return cachedMarkdownRender(cacheKey, renderedText.length, () => ReactMarkdown({
-      urlTransform: markdownUrlTransform,
+      urlTransform: (url, key) => markdownUrlTransform(url, key, localArtifacts),
       remarkPlugins: REMARK_PLUGINS,
       rehypePlugins: [...(rehypePlugins ?? []), ...(interactivePreviews ? [rehypePlanRefs] : []), ...(splitParts ? [rehypeMessageParts(splitParts)] : [])],
       components,
