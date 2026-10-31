@@ -1,9 +1,6 @@
-import { BoundedMessageContent } from "../BoundedMessageContent";
 import { ChevronRight } from "lucide-react";
-import { useId, useState } from "react";
+import { useId, useLayoutEffect, useRef, useState } from "react";
 import { thoughtPresentation } from "./thoughtModel";
-
-export const THOUGHT_MAX_HEIGHT = "200px";
 
 export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", testId = "chat-thought", defaultExpanded = false }: {
   text: string;
@@ -14,54 +11,33 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
   defaultExpanded?: boolean;
 }) {
   const [localExpanded, setLocalExpanded] = useState(defaultExpanded);
+  const [clipped, setClipped] = useState(false);
+  const body = useRef<HTMLParagraphElement>(null);
   const regionId = useId();
   const open = expanded ?? localExpanded;
   const toggle = onToggle ?? setLocalExpanded;
   const { headline, expandable } = thoughtPresentation(text);
+  useLayoutEffect(() => {
+    const element = body.current;
+    if (!element || open) return;
+    const measure = () => setClipped(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
+    observer?.observe(element);
+    return () => observer?.disconnect();
+  }, [text, open]);
   if (!headline) return null;
-
-  if (!expandable) {
-    return (
-      <div data-testid={testId} className="flex min-w-0 items-start gap-1.5 px-2 py-0.5 text-[11px] opacity-70" style={{ color: "var(--ct-muted-fg)" }}>
-        <span className="shrink-0">{label}</span>
-        <span data-testid="chat-thought-line" className="min-w-0 whitespace-pre-wrap break-words italic">{text}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div data-testid={testId} className="min-w-0">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={regionId}
-        onClick={() => toggle(!open)}
-        className="flex w-full min-w-0 items-center gap-1.5 rounded px-2 py-0.5 text-left text-[11px] opacity-70 hover:opacity-100 focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)] motion-safe:transition-opacity motion-reduce:transition-none"
-        style={{ color: "var(--ct-muted-fg)" }}
-      >
-        <span className="shrink-0">{label}</span>
-        <span data-testid="chat-thought-line" className="min-w-0 flex-1 truncate italic">{open ? "" : headline}</span>
-        <ChevronRight
-          aria-hidden="true"
-          size={12}
-          className={`shrink-0 motion-safe:transition-transform motion-reduce:transition-none ${open ? "rotate-90" : ""}`}
-        />
-      </button>
-      <div id={regionId} role="region" aria-label={label} hidden={!open} className="px-2 pb-1">
-        {open && (
-          <BoundedMessageContent collapsedHeight={THOUGHT_MAX_HEIGHT}
-            data-testid="chat-thought-body"
-          >
-            <p
-              data-testid="chat-thought-text"
-              className="m-0 whitespace-pre-wrap break-words text-xs"
-              style={{ color: "var(--ct-muted-fg)" }}
-            >
-              {text}
-            </p>
-          </BoundedMessageContent>
-        )}
-      </div>
-    </div>
-  );
+  const canExpand = expandable || clipped || open;
+  const caption = <span className="text-[10.5px] leading-[16px]" style={{ color: "var(--ct-muted-fg)", opacity: 0.7 }}>{label}</span>;
+  return <div data-testid={testId} className="min-w-0 py-1">
+    {canExpand ? <button type="button" aria-expanded={open} aria-controls={regionId}
+      onClick={() => toggle(!open)} className="flex w-fit items-center gap-1 rounded text-left hover:brightness-125">
+      {caption}<ChevronRight aria-hidden size={11} className={open ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
+    </button> : caption}
+    <p ref={body} id={regionId} role="region" aria-label={label} data-testid="chat-thought-line"
+      className="m-0 whitespace-pre-wrap break-words text-xs leading-[18px]"
+      style={{ color: "var(--ct-muted-fg)", ...(!open ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 3, overflow: "hidden" } as const : { maxHeight: 400, overflowY: "auto", overscrollBehavior: "contain", scrollbarGutter: "stable" }) }}>
+      <span data-testid="chat-thought-text">{text}</span>
+    </p>
+  </div>;
 }

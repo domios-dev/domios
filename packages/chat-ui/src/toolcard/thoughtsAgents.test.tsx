@@ -120,7 +120,7 @@ describe("concise thoughts", () => {
     expect(rows.map((row) => row.dataset.testid)).toEqual([
       "chat-tool-stream-member", "chat-tool-stream-thought", "chat-tool-stream-member", "chat-tool-stream-thought", "chat-tool-stream-member",
     ]);
-    expect(all(stream, "chat-thought-line").map((line) => line.textContent)).toEqual(["Inspect sources", "Compare output"]);
+    expect(all(stream, "chat-thought-line").map((line) => line.textContent)).toEqual(["**Inspect sources**\n\nReading files", "Compare output"]);
     expect(all(stream, "chat-tool-stream-action").map((row) => row.textContent?.trim())).toEqual(["npm test", "git status", "npm run lint"]);
     expect(stream.textContent).not.toContain("Foreign thought");
 
@@ -148,16 +148,16 @@ describe("concise thoughts", () => {
     expect(view.textContent).toBe("");
   });
 
-  it("shows Claude thinking collapsed to its headline and expands on demand", async () => {
+  it("shows Claude thinking below its caption and expands the shared preview on demand", async () => {
     const full = `Plan the edit carefully\n${"then apply it ".repeat(40).trim()}`;
     const view = await render([thought("claude-think", full, { provider: "claude", sourceSessionId: CLAUDE })]);
     const [line] = all(view, "chat-thought");
     const toggle = line.querySelector("button");
     expect(all(view, "chat-thought")).toHaveLength(1);
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    expect(line.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe("Plan the edit carefully");
-    expect(line.querySelector('[data-testid="chat-thought-text"]')).toBeNull();
-    expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(true);
+    expect(line.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(full);
+    expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
+    expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(false);
 
     await click(toggle);
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
@@ -176,7 +176,7 @@ describe("concise thoughts", () => {
     const claude = await render([{ ...shared, provider: "claude", sourceSessionId: CLAUDE }]);
     const codex = await render([{ ...shared, provider: "codex", sourceSessionId: CODEX }]);
     expect(neutralMarkup(claude)).toBe(neutralMarkup(codex));
-    expect(claude.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe("Check the plan");
+    expect(claude.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(shared.content);
   });
 });
 

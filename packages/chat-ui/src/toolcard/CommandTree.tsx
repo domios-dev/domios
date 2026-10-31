@@ -1,8 +1,8 @@
 import type { ToolEvent } from "@codeterm/chat-core";
 import { FileCode, Terminal } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
-import { commandRowLabel, type CommandRow } from "../codeterm/commandShape";
-import { describeAction } from "../codeterm/templates";
+import { type CommandRow } from "../codeterm/commandShape";
+import { isSend, describeAction } from "../codeterm/templates";
 import { usePluginNameResolver } from "../codeterm/PluginNames";
 import type { PluginNameResolver } from "../codeterm/pluginAction";
 import { actionVisual } from "./CodetermActionCard";
@@ -19,6 +19,7 @@ export interface Branch {
   object?: string;
   glyph?: ToolKindVisual["glyph"];
   color?: string;
+  iconColor?: string;
   role?: CommandRow["role"];
   dim?: boolean;
   marker?: string;
@@ -45,16 +46,14 @@ function segmentBranch(row: CommandRow, resolvePlugin?: PluginNameResolver): Bra
   if (row.role === "codeterm") {
     const { lead, object } = describeAction(row.invocation, undefined, undefined, undefined, resolvePlugin);
     const visual = actionVisual(row.invocation);
-    return { kind: "segment", role: row.role, glyph: visual.glyph, color: visual.color, lead, object };
+    return { kind: "segment", role: row.role, glyph: visual.glyph, color: visual.color, iconColor: isSend(row.invocation) ? "var(--ct-bright-blue)" : undefined, lead, object };
   }
   if (row.role === "script") {
     const { language, lineCount } = row.script;
     return { kind: "segment", role: row.role, glyph: FileCode, color: "var(--ct-cyan)", lead: language, object: lineLabel(lineCount) };
   }
-  const { assignment } = row.segment;
   return {
-    kind: "segment", role: row.role, glyph: Terminal, color: toolKindVisual.command.color, lead: commandRowLabel(row),
-    object: assignment ? `→ ${assignment}` : undefined, dim: Boolean(assignment),
+    kind: "segment", role: row.role, glyph: Terminal, color: toolKindVisual.command.color, lead: row.segment.text,
   };
 }
 
@@ -94,7 +93,7 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
               className={LINE_CLASS}
             >
               <span aria-hidden="true" className="shrink-0" style={branchColor}>{index === branches.length - 1 ? "└" : "├"}</span>
-              {Glyph && <Glyph aria-hidden="true" size={12} className="shrink-0" style={{ color: quiet ? QUIET : branch.color }} />}
+              {Glyph && <Glyph aria-hidden="true" size={12} className="shrink-0" style={{ color: branch.iconColor ?? (quiet ? QUIET : branch.color) }} />}
               <span
                 data-testid="chat-command-tree-lead"
                 className="min-w-0 truncate"
