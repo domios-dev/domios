@@ -8,8 +8,8 @@ description: "Review Domios changes for evidence, tests, docs, code quality, and
 **Reviewer: verify the following before approval.**
 
 ## Evidence & Testing
-- [ ] Verification section contains real command output (not just claims)
-- [ ] New/changed tests use fail-first method: bug fixes show red→green, sabotage tests fail without fix, refactors show all-green three times
+- [ ] Verification identifies executed checks or concrete live observations, and states unverified limits
+- [ ] New tests protect an important uncovered failure mode; absence of a new test alone is not a defect. Use fail-first evidence when practical for a regression, without mandatory sabotage or repeated green runs
 - [ ] Tests assert the true user-journey end state, not just API/status responses
 - [ ] Test layer justified (unit / integration / E2E) per `.agents/skills/testing/SKILL.md` decision tree
 - [ ] Test shape follows `.agents/skills/testing/SKILL.md` honesty and harness rules

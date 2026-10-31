@@ -13,7 +13,7 @@ Before work, make sure your checklist names each review scope your parent assign
 
 ## Findings
 
-- Lead with correctness: wrong behavior, broken contracts, data loss, races, security, and missing tests for changed behavior. Raise style only when it hides a defect.
+- Lead with correctness: wrong behavior, broken contracts, data loss, races, security, and missing evidence for important changed behavior. A new test is not required for every change. Raise style only when it hides a defect.
 - Each finding names file and line, the concrete input or state that fails, the consequence, and a suggested fix. Separate what you ran from what you read in source and what you suspect.
 - Run only the commands your parent authorized; a refused or skipped check is reported as not run.
 - No findings is a valid result; state what you covered.

@@ -626,45 +626,6 @@ fn doctor_terminal_tasks_raise_no_errors() {
 }
 
 #[test]
-fn quality_accepts_test_author_report_with_red_green_demo() {
-    let plan = json!({
-        "id": "pl_1",
-        "title": "Plan",
-        "status": "active",
-        "mode": "approved",
-        "goal": {"vector": "ship"},
-        "primary_spec_id": "sp_1",
-        "sections": [{"id": "sec_1", "title": "Tests", "body": "section"}],
-        "tasks": [{
-            "id": "task_1",
-            "name": "Author drill",
-            "type": "test",
-            "status": "done",
-            "section_ids": ["sec_1"],
-            "body": "body",
-            "acceptance_criteria": ["criterion"],
-            "test_plan": "run cargo test drill_fixture",
-            "correctness": "matches spec",
-            "executor_role": "test-author",
-            "lane": {
-                "report": {
-                    "id": "report_1",
-                    "message": "STATUS: done\nRED-GREEN DEMO: red: sabotaged readiness gate failed on oracle; green: restored gate passed.\nTESTS RUN: cargo test drill_fixture"
-                }
-            }
-        }]
-    });
-    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-
-    assert!(
-        !findings
-            .iter()
-            .any(|f| f.kind == "test_author_report_missing_red_green_demo"),
-        "red-green evidence should satisfy test-author report gate: {findings:?}"
-    );
-}
-
-#[test]
 fn quality_exempts_planning_kind_from_executor_role_check() {
     let plan = json!({
         "id": "pl_1",
@@ -832,54 +793,17 @@ fn task_with_test_plan(kind: &str, test_plan: &str) -> Value {
 }
 
 #[test]
-fn quality_warns_on_under_length_test_plan() {
-    let plan = task_with_test_plan("implement", "component tests; manual check");
-    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-    assert!(findings
-        .iter()
-        .any(|f| f.kind == "test_plan_vague" && f.severity == "warning"));
-}
-
-#[test]
-fn quality_warns_on_commandless_test_plan() {
-    let wordy = "We will carefully verify the resulting behavior by inspecting the output and \
-confirming that every relevant surface looks correct across the whole flow before sign-off.";
-    let plan = task_with_test_plan("implement", wordy);
-    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
+fn quality_requires_a_plan_but_accepts_concrete_manual_proof() {
+    let empty = task_with_test_plan("implement", "  ");
+    let findings = inspect_plan(Path::new("pl_1.json"), &empty, "quality");
     assert!(findings.iter().any(|f| f.kind == "test_plan_vague"));
-}
 
-#[test]
-fn test_plan_vague_finding_names_failed_criterion_and_tokens() {
-    let plan = task_with_test_plan("implement", "`cargo test`");
-    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-    let finding = findings
-        .iter()
-        .find(|f| f.kind == "test_plan_vague")
-        .expect("vague finding present");
-    assert!(finding.detail.contains("too short"), "{}", finding.detail);
-    assert!(
-        !finding.detail.contains("no runnable command"),
-        "{}",
-        finding.detail
+    let manual = task_with_test_plan(
+        "implement",
+        "Open Changes File fullscreen; close it; the same file and scroll position remain.",
     );
-
-    let wordy = "We will carefully verify the resulting behavior by inspecting the output and \
-confirming that every relevant surface looks correct across the whole flow before sign-off.";
-    let plan = task_with_test_plan("implement", wordy);
-    let findings = inspect_plan(Path::new("pl_1.json"), &plan, "quality");
-    let finding = findings
-        .iter()
-        .find(|f| f.kind == "test_plan_vague")
-        .expect("vague finding present");
-    assert!(
-        finding.detail.contains("names no runnable command"),
-        "{}",
-        finding.detail
-    );
-    for token in crate::cmd::test_plan::TEST_PLAN_COMMAND_RUNNERS {
-        assert!(finding.detail.contains(token), "{}", finding.detail);
-    }
+    let findings = inspect_plan(Path::new("pl_1.json"), &manual, "quality");
+    assert!(!findings.iter().any(|f| f.kind == "test_plan_vague"));
 }
 
 #[test]
@@ -923,7 +847,7 @@ fn quality_seeded_plan_flags_exactly_one_vague_test_plan() {
                 "section_ids": ["sec_1"],
                 "body": "body",
                 "acceptance_criteria": ["criterion"],
-                "test_plan": "component tests; manual check",
+                "test_plan": " ",
                 "correctness": "matches spec",
                 "executor_role": "rust-backend-dev"
             },

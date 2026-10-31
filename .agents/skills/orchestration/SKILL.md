@@ -154,8 +154,9 @@ evidence; passing evidence is the observable far end, such as stable DOM,
 recipient landed on the right thread, or persisted visible state.
 
 Before an autonomous fix, ask whether it is small, well-understood, and
-low-risk. If yes, ship one logical fix with a regression test that fails before
-and passes after, then re-run the scenario and adjacent journeys. Otherwise
+low-risk. If yes, ship one logical fix with the cheapest adequate existing check
+or concrete live observation. Add a regression test only for an important
+uncovered failure mode; expand checks only for affected behavior. Otherwise
 escalate with what is broken, options plus trade-offs, and a recommendation.
 
 ## Worktrees And Branches
@@ -199,4 +200,4 @@ Moved out of the embedded `domios docs` pages because they describe Domios's own
 
 - [references/attempt-retirement.md](references/attempt-retirement.md) — the attempt retirement fence
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

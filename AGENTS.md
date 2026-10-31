@@ -55,6 +55,7 @@
 
 ## Testing
 
+- Verification does not require new tests. Reuse existing proof; add automation only for an important uncovered failure mode worth its maintenance cost. Cosmetic UI changes use concrete visual review. Preserve coverage for authority, data, state, races and resource bounds.
 - Test product behavior, not test infrastructure. Keep `scripts/` for helpers and runners; do not add self-test suites or dedicated self-test fixtures for catalogues, discovery tools, QA helpers or runners.
 - Extract decisions into pure models; test plain inputs/outputs with injected clocks and ports. Runtime/UI fixtures prove wiring only.
 - UI checks cover accessible controls, handlers, and behavior, not CSS classes, copy, layout internals, or component implementation.
@@ -159,4 +160,4 @@ Read `essences/begin_here.md` before editing docs. Keep one authoritative home:
 
 Do not hardcode changing totals of files, tests, cases or runners in documentation; use discovery tools. Keep decisions/evidence in plan strides and owner rules in memory.
 
-<!-- revision: 47 -->
+<!-- revision: 48 -->

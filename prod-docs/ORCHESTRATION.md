@@ -37,7 +37,7 @@ GOAL → Spec (WHAT/WHY) ⊥ Plan (HOW) → Tasks → Strides
 The Team owns and exposes its active Plan through Team membership; its bound Planner shapes it and keeps section/task authority after approval. The Orchestrator sets the GOAL first, judges structure, and owns approval, dispatch, review, integration, and cleanup.
 
 - Spec owns requirements, constraints, acceptance, and vocabulary; Plan owns phases, owners, sequence, and verification.
-- Tasks carry bounded scope/ownership, acceptance/correctness, and executable tests. Strides record evidence, decisions, reports, and working points.
+- Tasks carry bounded scope/ownership, acceptance/correctness, and proportionate verification. Strides record evidence, decisions, reports, and working points.
 - Never replace planner state with a standalone markdown implementation plan.
 
 Split oversized tasks with `domios plan task split <plan> <task> --child <name>`; dispatch children with disjoint edit declarations and keep the parent open until all are done or cancelled. Shared canonical is the default; overlap or a `build-breaking` tag selects isolation. Workers may propose splits but never spawn; see `ORCHESTRATION-TASKS`.
@@ -103,4 +103,4 @@ The default Curator control loop replaces the Orchestrator heartbeat. It mirrors
 
 A `[provider access lost]` notice means recover the login or respawn on another provider, never a completed task; routing is in `ORCHESTRATION-TASKS`.
 
-<!-- revision: 144 -->
+<!-- revision: 145 -->

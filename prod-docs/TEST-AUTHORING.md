@@ -10,11 +10,13 @@ This doc is the operating instruction for the **test-author** role. If your
 task's deliverable is primarily tests, this is your charter — read it fully
 before writing the first line.
 
-## The one law
+## Proportionate coverage
 
-**A test that has never failed is not a test.** You do not know what it
-proves until you have watched it catch the defect it exists for. Every rule
-below serves this law.
+Add automation for an important uncovered failure mode worth its maintenance
+cost. Reuse existing proof and avoid duplicate layers. Concrete visual review
+can establish cosmetic changes; this charter does not require a new test for
+every implementation task. Preserve authority, data, state, race and resource
+coverage.
 
 ## 1. Oracle first
 
@@ -28,15 +30,12 @@ Order-sensitive systems get **order oracles**: assert the sequence of
 transcript/log markers (`s1 < compact < reorient < resumed`), not just the
 final state. A correct end state reached in the wrong order is a latent bug.
 
-## 2. Red before green
+## 2. Demonstrate sensitivity
 
-Prove the test can fail. Run it against sabotaged code (comment out the fix,
-break the layout, skip the phase) and watch it go red for the *right reason*.
-Then restore and watch it go green. A red-green demo belongs in the report of
-every new test. Run it in your lane when the test is an isolated check; when it
-needs a full rebuild, report the sabotage and the exact selector for canonical QA. Case study: an ordered-transcript drill was written, never
-executed, and shipped with a CLI signature error on line one of its setup —
-it could not have run even once. The author believed it worked.
+For a regression, demonstrate that the test detects the defect when practical,
+preferably with the original reproducer or a controlled failing fixture.
+Do not sabotage production code or repeat passing runs as a universal ritual.
+Report actual results and limits; unexecuted tests are not passing evidence.
 
 ## 3. Never sleep — wait on conditions
 
@@ -94,8 +93,8 @@ finding to read, not a number to raise.
 A drill/harness that shells out to a CLI must be smoke-run against the real
 binary before it is committed — CLI signatures drift, hint lines pollute
 stdout, `--json` output gets wrapped. Parse defensively (extract the JSON,
-don't assume the stream is clean). The harness gets the same red-green
-treatment as the test.
+don't assume the stream is clean). Report any unexecuted boundary honestly;
+extra harness tests are warranted only by a distinct important failure mode.
 
 A TypeScript test file with no top-level `import` or `export` is a global
 *script*, not a module, so every helper it declares — `assert`, `passed`,
@@ -108,10 +107,9 @@ leave the one-line reason above it so it survives tidying.
 
 ## 8. Say what you test
 
-Every spec/drill opens with a 3–8 line header: **WHAT** is tested, **WHY**
-it exists (feature contract or regression root cause), and the **ORACLE** in
-one sentence. In-file codename taxonomies (RAIL-4, GRP-*) are defined in the
-header that uses them or not used at all. Headerless test files fail review.
+Use descriptive test names. Add a brief WHY only when the failure mode or
+oracle is not evident; no fixed header length is required. Avoid unexplained
+codename taxonomies.
 
 ## 9. Evidence, not claims
 
@@ -141,8 +139,8 @@ When a value must match, import the shared constant instead of quoting it.
 - **Interim dispatch rule**: until task dispatch is the only worker launch
   path in a deployment, the Planner pastes the canonical role_guidance
   template into any manual spawn brief for a test-author task.
-- **Acceptance shape**: every test-author task's criteria include the
-  red-green demo and the isolation-first run of each new test. A test-author
-  report without a red-green demo bounces.
+- **Acceptance shape**: judge the named failure mode, oracle and actual
+  evidence. Fail-first proof is useful when practical; missing red-green
+  wording alone is not a reason to bounce.
 
-<!-- revision: 12 -->
+<!-- revision: 13 -->

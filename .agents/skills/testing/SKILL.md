@@ -44,6 +44,11 @@ conversation; do not run or modify them during normal development.
 
 ### Which layer do I write?
 
+First decide whether a new automated test earns its maintenance cost. Reuse
+existing coverage; concrete visual review is sufficient for cosmetic changes.
+Add automation for important uncovered behavior, authority, data, state, race
+or resource failures. Then choose the lowest layer that proves that failure:
+
 ```
 Is it pure logic (parsing, formatting, state machine)?
 ├─ yes → unit test next to the code (Rust or TS). STOP — do not write a UI test
@@ -55,9 +60,9 @@ Is it pure logic (parsing, formatting, state machine)?
         use an eval bench, not a pass/fail UI test.
 ```
 
-Rule of thumb: every bug fix gets a test at the lowest layer that can reproduce
-it. A cross-tab rendering bug whose root cause is a marker-parsing function gets
-a unit test on the parser plus, at most, one golden test for the end-to-end path.
+Prefer one focused oracle over duplicate coverage across layers. A parser
+regression usually needs a pure-model test; add UI coverage only when wiring
+has a separate failure mode. No test is required merely because a file changed.
 
 ## Runbook
 
@@ -680,7 +685,7 @@ Example: `tests/playwright/suites/03-agents/agents.spec.ts`.
 ## Review checklist for new tests
 
 - Lowest viable layer chosen. WHY: faster tests fail closer to the bug.
-- Fail-first evidence captured. WHY: a test that never went red may be inert.
+- For a new regression test, demonstrate sensitivity to the defect when practical; report limits without mandatory production sabotage or repeated passing runs.
 - Marker cannot match typed echo. WHY: PTYs echo input before execution.
 - Payload length/hash is checked for large transfers. WHY: markers survive
   truncation.
@@ -719,7 +724,7 @@ Build each Rust configuration once per batch: run every focused selector of a cr
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 9 -->
+<!-- revision: 10 -->
 
 ## Independent server process oracle
 
