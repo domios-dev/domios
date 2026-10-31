@@ -28,7 +28,96 @@ export function latestQualificationJobs(jobs, run, sha) {
   return [...latest.values()];
 }
 
-export function verifyQualification(receipt, run, jobs, sha, repository = sourceRepository()) {
+export function qualificationAttemptNumbers(run) {
+  if (!Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1 || run.run_attempt > 20) {
+    throw new Error('Qualification attempt history exceeds bound or is invalid');
+  }
+  return Array.from({ length: run.run_attempt }, (_, index) => index + 1);
+}
+
+function executionTime(value) {
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) throw new Error('Missing qualification execution timestamp');
+  return Date.parse(value);
+}
+
+function executionTrace(job) {
+  const start = executionTime(job.started_at), end = executionTime(job.completed_at);
+  if (job.status !== 'completed' || job.conclusion !== 'success' || start > end
+    || typeof job.name !== 'string' || !job.name || !Number.isSafeInteger(job.runner_id) || job.runner_id < 1
+    || typeof job.runner_name !== 'string' || !job.runner_name || !Array.isArray(job.labels) || !job.labels.length
+    || job.labels.some(label => typeof label !== 'string' || !label)
+    || !Array.isArray(job.steps) || !job.steps.length) throw new Error('Incomplete qualification execution trace');
+  let previousNumber = 0;
+  const steps = job.steps.map(step => {
+    const stepStart = executionTime(step.started_at), stepEnd = executionTime(step.completed_at);
+    if (typeof step.name !== 'string' || !step.name || !Number.isSafeInteger(step.number) || step.number <= previousNumber
+      || step.status !== 'completed' || typeof step.conclusion !== 'string' || !step.conclusion
+      || stepStart < start || stepEnd > end || stepStart > stepEnd) throw new Error('Incomplete ordered qualification steps');
+    previousNumber = step.number;
+    return [step.name, step.number, step.status, step.conclusion, step.started_at, step.completed_at];
+  });
+  return JSON.stringify([job.name, job.runner_id, job.runner_name, job.labels,
+    job.started_at, job.completed_at, steps]);
+}
+
+export function resolveQualificationOrigins(required, jobs, run, attempts, sha, repository) {
+  const numbers = qualificationAttemptNumbers(run);
+  if (!Array.isArray(attempts) || attempts.length !== numbers.length
+    || !Number.isSafeInteger(run.workflow_id) || run.workflow_id < 1) throw new Error('Incomplete qualification attempt history');
+  if (!Array.isArray(jobs) || jobs.length > 2000) throw new Error('Qualification job inventory exceeds bound');
+  const starts = new Map();
+  let previousStart = -Infinity;
+  for (const number of numbers) {
+    const matching = attempts.filter(attempt => attempt.run_attempt === number);
+    if (matching.length !== 1) throw new Error('Ambiguous qualification attempt metadata');
+    const attempt = matching[0], start = executionTime(attempt.run_started_at);
+    if (String(attempt.id) !== String(run.id) || attempt.head_sha !== sha || attempt.path !== run.path
+      || attempt.repository?.full_name !== repository || attempt.head_repository?.full_name !== repository
+      || attempt.event !== run.event || attempt.head_branch !== run.head_branch || attempt.workflow_id !== run.workflow_id
+      || attempt.status !== 'completed' || typeof attempt.conclusion !== 'string' || !attempt.conclusion
+      || start <= previousStart) throw new Error('Foreign or conflicting qualification attempt metadata');
+    starts.set(number, start);
+    previousStart = start;
+  }
+  if (executionTime(run.run_started_at) !== starts.get(run.run_attempt)) throw new Error('Conflicting current qualification attempt');
+  const identities = new Set(), ids = new Set();
+  for (const job of jobs) {
+    const identity = JSON.stringify([job.run_attempt, job.name]);
+    if (String(job.run_id) !== String(run.id) || job.head_sha !== sha || !starts.has(job.run_attempt)
+      || !Number.isSafeInteger(job.id) || job.id < 1 || identities.has(identity) || ids.has(job.id)) {
+      throw new Error('Foreign or ambiguous qualification execution inventory');
+    }
+    identities.add(identity);
+    ids.add(job.id);
+  }
+  const origins = new Map(), traces = new Map();
+  const trace = job => {
+    if (!traces.has(job.id)) traces.set(job.id, executionTrace(job));
+    return traces.get(job.id);
+  };
+  const resolve = job => {
+    if (origins.has(job.id)) return origins.get(job.id);
+    const fingerprint = trace(job), attemptStart = starts.get(job.run_attempt);
+    let origin = job;
+    if (executionTime(job.started_at) < attemptStart) {
+      if (executionTime(job.completed_at) >= attemptStart) throw new Error('Conflicting retained qualification execution time');
+      const candidates = jobs.filter(candidate => candidate.name === job.name && candidate.run_attempt < job.run_attempt
+        && candidate.status === 'completed' && candidate.conclusion === 'success' && trace(candidate) === fingerprint);
+      const authoritative = new Map(candidates.map(candidate => {
+        const original = resolve(candidate);
+        return [original.id, original];
+      }));
+      if (authoritative.size !== 1) throw new Error('Missing or ambiguous retained qualification execution origin');
+      origin = [...authoritative.values()][0];
+    }
+    origins.set(job.id, origin);
+    return origin;
+  };
+  for (const job of required) resolve(job);
+  return origins;
+}
+
+export function verifyQualification(receipt, run, jobs, sha, repository = sourceRepository(), attempts = []) {
   if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid qualification SHA');
   if (run.path !== '.github/workflows/tests.yml' || run.status !== 'completed' || run.conclusion !== 'success') throw new Error('Qualification run is not green tests.yml');
   const trustedBranch = ['develop', 'rename/domios', 'master'].includes(run.head_branch) || /^release\/\d+\.\d+\.\d+$/.test(run.head_branch);
@@ -39,21 +128,25 @@ export function verifyQualification(receipt, run, jobs, sha, repository = source
     || !Number.isSafeInteger(receipt.run_attempt) || receipt.run_attempt < 1 || receipt.run_attempt > run.run_attempt) throw new Error('Foreign or stale qualification receipt');
   if (!Number.isSafeInteger(run.run_attempt) || run.run_attempt < 1) throw new Error('Invalid qualification run attempt');
   const effective = latestQualificationJobs(jobs, run, sha);
+  const required = new Set();
   for (const stage of ['fast', 'rust', 'warnings']) if (receipt.results?.[stage] !== 'success') throw new Error(`Missing green ${stage} receipt`);
   for (const prefix of QUALIFICATION_JOBS) {
     const matching = effective.filter(job => job.name === prefix || job.name.startsWith(prefix + ' ('));
     if (!matching.length || matching.some(job => job.status !== 'completed' || job.conclusion !== 'success')) throw new Error(`Missing green qualification job: ${prefix}`);
+    for (const job of matching) required.add(job);
   }
+  const origins = resolveQualificationOrigins(required, jobs, run, attempts, sha, repository);
   const producer = effective.find(job => job.name === 'qualification receipt');
-  if (producer.run_attempt !== receipt.run_attempt) throw new Error('Stale qualification receipt producer');
+  if (origins.get(producer.id).run_attempt !== receipt.run_attempt) throw new Error('Stale qualification receipt producer');
   const rustJobs = { full: 'Rust tests / rust tests (full suite)', embeddings: 'Rust tests / rust embeddings',
     macOS: 'Rust tests / rust platform (macOS)', Windows: 'Rust tests / rust platform (Windows)' };
   for (const row of receipt.rust) {
     const name = rustJobs[row.mode === 'platform' ? row.os : row.mode];
     const producers = effective.filter(job => job.name === name || job.name.startsWith(name + ' ('));
-    if (!name || producers.length !== 1 || row.run_attempt !== producers[0].run_attempt
+    const original = producers.length === 1 ? origins.get(producers[0].id) : undefined;
+    if (!name || !original || row.run_attempt !== original.run_attempt
       || row.run_attempt > receipt.run_attempt || String(row.run_id) !== String(run.id)
-      || row.repository !== repository || !row.runner || row.runner !== producers[0].runner_name
+      || row.repository !== repository || !row.runner || row.runner !== original.runner_name
       || row.producer !== (row.mode === 'full' ? 'rust-tests' : row.mode === 'platform' ? 'rust-platform' : 'rust-embeddings')) throw new Error('Foreign or stale Rust receipt provenance');
   }
   if (receipt.rust.some(row => row.sha !== sha)) throw new Error('Foreign Rust qualification SHA');
@@ -61,6 +154,7 @@ export function verifyQualification(receipt, run, jobs, sha, repository = source
   return { ...receipt, verified_run_attempt: run.run_attempt, verified_jobs: effective.map(job => ({
     id: job.id, name: job.name, run_id: job.run_id, run_attempt: job.run_attempt,
     head_sha: job.head_sha, conclusion: job.conclusion,
+    ...(origins.has(job.id) ? { execution_id: origins.get(job.id).id, execution_run_attempt: origins.get(job.id).run_attempt } : {}),
   })) };
 }
 
@@ -117,8 +211,9 @@ export function requireQualification(sha, { repository = sourceRepository(), req
   const run = request(`repos/${repository}/actions/runs/${artifact.workflow_run.id}`);
   if (String(run.id) !== String(artifact.workflow_run.id)) throw new Error('Foreign qualification artifact run');
   const jobs = qualificationJobs(run, repository, request);
+  const attempts = qualificationAttemptNumbers(run).map(number => request(`repos/${repository}/actions/runs/${run.id}/attempts/${number}`));
   const archive = download(['api', `repos/${repository}/actions/artifacts/${artifact.id}/zip`]);
-  return retain({ ...verifyQualification(readArchive(archive), run, jobs, sha, repository),
+  return retain({ ...verifyQualification(readArchive(archive), run, jobs, sha, repository, attempts),
     verification_artifact: { id: artifact.id, expires_at: artifact.expires_at } });
 }
 
