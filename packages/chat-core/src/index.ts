@@ -93,6 +93,7 @@ export {
   type VideoContainer,
 } from "./attachmentValidation";
 export { fileDiffText, hunkHeader } from "./fileDiffs";
+export { shellFileOperations, SHELL_FILE_LIMITS, type ShellFileAnalysis, type ShellFileOperation } from "./shellFileOperations";
 export {
   attachmentTagsAsLabels,
   clipMessage,
