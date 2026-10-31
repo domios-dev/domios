@@ -119,19 +119,14 @@ struct SelectionFixture {
     consumption: tokio::sync::mpsc::UnboundedReceiver<StateRead>,
     owner_events: tokio::sync::mpsc::UnboundedReceiver<&'static str>,
     _key_ports: Arc<crate::service::neighbors::runtime::FixtureKeyPorts>,
+    _key_store: Arc<dyn codeterm_neighbors::keys::KeyStore>,
 }
 
 async fn selection_fixture() -> SelectionFixture {
-    use codeterm_neighbors::keys::{
-        ConfiguredKeyStore, InstallationKeys, KeyScope, KeyStore, OsKeyStore, Slot,
-    };
+    use codeterm_neighbors::keys::{InstallationKeys, KeyScope, Slot};
     let (fixture, mut session, _, _, _) = fixture(Mode::Controlled).await;
     let service = &fixture.service;
-    service
-        .ext::<crate::config::ConfigState>()
-        .lock()
-        .neighbors
-        .key_store = Some(codeterm_types::config::neighbors::NeighborKeyStore::File);
+    let store = service.fixture_neighbor_key_store();
     let (enrolled, enrollment) = tokio::sync::mpsc::unbounded_channel();
     let calls = Arc::new(SelectionCalls {
         service: service.clone(),
@@ -152,13 +147,12 @@ async fn selection_fixture() -> SelectionFixture {
         machine_label: "Fixture".into(),
     });
     let scope = KeyScope::installation("fixture-machine", &registry.uid).unwrap();
-    let store = ConfiguredKeyStore::new(OsKeyStore, Some(service.account_data_root().unwrap()));
     store
         .save(&scope, Slot::Current, zeroize::Zeroizing::new(vec![7; 64]))
         .await
         .unwrap();
     let keys = InstallationKeys {
-        store: &store,
+        store: store.as_ref(),
         registry: registry.as_ref(),
         scope: scope.clone(),
         uid: &registry.uid,
@@ -206,6 +200,7 @@ async fn selection_fixture() -> SelectionFixture {
         consumption,
         owner_events,
         _key_ports: key_ports,
+        _key_store: store,
     }
 }
 
@@ -259,6 +254,7 @@ async fn committed_selection_releases_actual_serial_owner_for_default_session_ne
         mut consumption,
         mut owner_events,
         _key_ports,
+        _key_store,
     } = selection_fixture().await;
     let service = &fixture.service;
     let select = service.neighbor_runtime(selection_command(), None, None);
