@@ -17,7 +17,7 @@ export type CallerNotificationAction =
 
 export interface NotificationPromptIdentity {
   request_id?: string | null;
-  kind: "provider" | "directory_trust" | "structured" | "manual_update";
+  kind: "provider" | "directory_trust" | "structured" | "permission" | "automatic_permission" | "manual_update";
   options: Array<{ label: string; value: string }>;
 }
 
