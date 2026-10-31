@@ -229,11 +229,40 @@ enum BindOutcome {
     },
 }
 
+#[cfg(debug_assertions)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+struct FailureListenerObservation {
+    listener_pid_before: Option<u32>,
+    listener_pid_after: Option<u32>,
+    client_ancestry_verified: Option<bool>,
+}
+
+#[cfg(debug_assertions)]
+impl FailureListenerObservation {
+    fn capture(
+        mut listener_pid: impl FnMut() -> Option<u32>,
+        ancestry_matches: impl FnOnce(u32) -> bool,
+    ) -> Self {
+        let before = listener_pid();
+        let ancestry = before.map(ancestry_matches);
+        let after = listener_pid();
+        Self {
+            listener_pid_before: before,
+            listener_pid_after: after,
+            client_ancestry_verified: if before == after { ancestry } else { None },
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PortPreflight {
     debug: bool,
     windows: bool,
     bind: BindOutcome,
+    #[cfg(debug_assertions)]
+    failure_listener: Option<FailureListenerObservation>,
+    #[cfg(debug_assertions)]
+    starting_view_present: Option<bool>,
 }
 
 impl PortPreflight {
@@ -242,6 +271,10 @@ impl PortPreflight {
             debug,
             windows,
             bind: BindOutcome::NotAttempted,
+            #[cfg(debug_assertions)]
+            failure_listener: None,
+            #[cfg(debug_assertions)]
+            starting_view_present: None,
         }
     }
 
@@ -268,6 +301,28 @@ impl PortPreflight {
     }
 
     #[cfg(debug_assertions)]
+    fn observe_address_in_use(
+        mut self,
+        observe: impl FnOnce() -> FailureListenerObservation,
+    ) -> Self {
+        if self.debug
+            && self.windows
+            && matches!(self.bind, BindOutcome::Failed {
+                kind: io::ErrorKind::AddrInUse, ..
+            })
+        {
+            self.failure_listener = Some(observe());
+        }
+        self
+    }
+
+    #[cfg(debug_assertions)]
+    pub(crate) fn with_starting_view_present(mut self, present: bool) -> Self {
+        self.starting_view_present = Some(present);
+        self
+    }
+
+    #[cfg(debug_assertions)]
     fn receipt(self, requested_port: Option<u16>) -> serde_json::Value {
         let (outcome, kind, raw_os_error) = match self.bind {
             BindOutcome::NotAttempted => ("not_attempted", None, None),
@@ -290,6 +345,8 @@ impl PortPreflight {
             "bind_outcome": outcome,
             "bind_error_kind": kind,
             "raw_os_error": raw_os_error,
+            "failure_listener": self.failure_listener,
+            "starting_view_present": self.starting_view_present,
         })
     }
 }
@@ -304,6 +361,20 @@ pub(crate) fn port_preflight(port: u16) -> PortPreflight {
         #[cfg(not(windows))]
         {
             Ok(())
+        }
+    });
+    #[cfg(debug_assertions)]
+    let preflight = preflight.observe_address_in_use(|| {
+        #[cfg(windows)]
+        {
+            FailureListenerObservation::capture(
+                || windows_listener::listener_process_id(port),
+                |pid| windows_listener::listener_is_owned_by_client(pid, std::process::id()),
+            )
+        }
+        #[cfg(not(windows))]
+        {
+            FailureListenerObservation::capture(|| None, |_| false)
         }
     });
     log::debug!(

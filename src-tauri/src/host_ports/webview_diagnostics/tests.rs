@@ -304,6 +304,77 @@ fn preflight_receipt_is_bounded_and_records_compiled_eligibility_and_phase() {
             "bind_outcome": "bind_failed",
             "bind_error_kind": "PermissionDenied",
             "raw_os_error": null,
+            "failure_listener": null,
+            "starting_view_present": null,
         })
     );
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn failure_listener_observation_requires_stable_pid_for_ancestry() {
+    for (before, after, ancestry, expected) in [
+        (Some(11), Some(11), true, Some(true)),
+        (Some(11), Some(11), false, Some(false)),
+        (Some(11), Some(12), true, None),
+        (Some(11), None, true, None),
+        (None, Some(11), true, None),
+        (None, None, true, None),
+    ] {
+        let mut samples = [before, after].into_iter();
+        let observation = FailureListenerObservation::capture(
+            || samples.next().unwrap(),
+            |pid| {
+                assert_eq!(pid, 11);
+                ancestry
+            },
+        );
+        assert_eq!(observation, FailureListenerObservation {
+            listener_pid_before: before,
+            listener_pid_after: after,
+            client_ancestry_verified: expected,
+        });
+        assert_eq!(samples.next(), None);
+    }
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn failure_observer_only_runs_for_eligible_address_in_use() {
+    for preflight in [
+        PortPreflight::pending(true, true),
+        PortPreflight::pending(false, true),
+        PortPreflight::pending(true, false),
+        PortPreflight::evaluate(true, true, || Ok(())),
+        PortPreflight::evaluate(true, true, || Err(io::ErrorKind::PermissionDenied.into())),
+    ] {
+        assert_eq!(preflight.observe_address_in_use(|| panic!("unrelated failure observer")), preflight);
+    }
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn observed_client_ancestry_never_overrides_occupied_refusal() {
+    let preflight = test_preflight(true).observe_address_in_use(|| {
+        FailureListenerObservation::capture(|| Some(11), |_| true)
+    }).with_starting_view_present(true);
+    assert!(!preflight.available());
+    assert_eq!(initial_status(Some(9222), preflight), NativeWebviewDiagnosticsStatus::Unavailable {
+        reason: NativeWebviewDiagnosticsUnavailableReason::PortOccupied,
+    });
+    assert_eq!(preflight.receipt(Some(9222)), serde_json::json!({
+        "requested_port": 9222,
+        "compiled_debug": true,
+        "compiled_windows": true,
+        "phase": "after_builder_before_build",
+        "bind_outcome": "address_in_use",
+        "bind_error_kind": "AddrInUse",
+        "raw_os_error": null,
+        "starting_view_present": true,
+        "failure_listener": {
+            "listener_pid_before": 11,
+            "listener_pid_after": 11,
+            "client_ancestry_verified": true,
+        },
+    }));
 }
