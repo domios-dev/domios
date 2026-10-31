@@ -53,9 +53,10 @@ function waitTask(ctx, want, label, deadlineMs = ctx.deadlines.report) {
   }));
 }
 
-function review(ctx, verb, note) {
+export async function review(ctx, verb, note) {
   const { plan, task, orchestrator } = ctx.state.j3;
-  return dcJson(["plan", "review", verb, plan, task, "--note", note], { asTab: orchestrator });
+  const call = () => (ctx.command ?? dcJson)(["plan", "review", verb, plan, task, "--note", note], { asTab: orchestrator });
+  return verb === "bounce" ? ctx.policy.send(ctx.state.j3.worker, call) : call();
 }
 
 export async function journeyThree(ctx, provider) {
@@ -69,8 +70,7 @@ export async function journeyThree(ctx, provider) {
   const dispatched = await check("dispatch_chat_backend_worker", async () => {
     const { plan, task, orchestrator } = ctx.state.j3;
     const { workspace } = ctx.state;
-    const response = await dcJson(["plan", "task", "dispatch", plan, task, "--agent", provider.id,
-      "--workspace", workspace.id, "--cwd", workspace.cwd, "--execution-intent", "read_only"], { asTab: orchestrator });
+    const response = await dispatchWorker(ctx, provider.id, plan, task, orchestrator, workspace);
     const worker = response?.tab_id;
     if (!worker) throw new JourneyFailure(`dispatch returned no Worker tab: ${JSON.stringify(response).slice(0, 400)}`);
     ctx.state.j3.worker = worker;
@@ -132,4 +132,10 @@ export async function journeyThreeAfterRestart(ctx) {
     const { task } = await waitTask(ctx, { kind: "status", status: "done" }, "accept closes task", ctx.deadlines.ready);
     return { summary: `task ${task.id} done`, evidence: { accept: response } };
   });
+}
+
+export function dispatchWorker(ctx, provider, plan, task, orchestrator, workspace) {
+  return ctx.policy.launch(provider, "J3-dispatch", (model) => (ctx.command ?? dcJson)(["plan", "task", "dispatch", plan, task,
+    "--agent", provider, "--model", model, "--workspace", workspace.id, "--cwd", workspace.cwd,
+    "--execution-intent", "read_only"], { asTab: orchestrator }));
 }

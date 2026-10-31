@@ -28,7 +28,11 @@ It refuses an unset
 
 ```bash
 CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh all --plan   # dry: journeys, steps, evidence paths
-CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh all
+# Resolve these values from the named instance catalogue before this paid run.
+CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh all --out OWNED_OUT \
+  --model claude=EXACT_ADVERTISED_HAIKU_ID \
+  --model opencode=deepseek/deepseek-flash \
+  --model codex=EXACT_ADVERTISED_CODEX_ID
 node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 ```
 
@@ -50,15 +54,45 @@ provider execution on its disposable instance.
 Operator restart instead of the bench-owned one:
 
 ```bash
-bash evals/core-journeys/run.sh setup --out target-check/evals/cj-1
+bash evals/core-journeys/run.sh setup --out target-check/evals/cj-1 "${MODELS[@]}"
 # restart DEV through the dev-run skill, wait for real health
-bash evals/core-journeys/run.sh verify --out target-check/evals/cj-1
+bash evals/core-journeys/run.sh verify --out target-check/evals/cj-1 "${MODELS[@]}"
 bash evals/core-journeys/run.sh cleanup --out target-check/evals/cj-1
 ```
 
-Flags: `--providers claude,codex` replaces the provider set (default: every
-installed provider, and Claude, Codex and OpenCode are required; a missing one
-fails), `--history-kb N` sizes the runtime history probe (default 320),
+Repeat `--model PROVIDER=ADVERTISED_ID` for **every installed provider**, including
+providers beyond the three required harnesses. Uppercase IDs above are live
+preflight prerequisites, never literal IDs. The owner selects Claude Haiku only,
+OpenCode exactly `deepseek/deepseek-flash`, and an explicit normal Codex model.
+The selector is generic: exact provider-owned IDs are opaque, aliases and default
+substitution are refused. Discover with the bench-scoped `dc agent providers
+--json` and `dc agent models PROVIDER --json` after sourcing `evals/_lib/lib.sh`.
+Never invoke a raw CLI with inherited connection settings. For the operator
+commands, `MODELS` is a Bash array containing the same repeated `--model` pairs.
+
+Before first-run completion or any launch, the bench refreshes the catalogue,
+validates capability availability, persists instance-scoped provider defaults
+and the separate General model, and reads them back. A conflicting General
+override, missing selection, missing/unknown catalogue or unavailable model
+refuses before paid work. Static catalogues without live discovery are validated
+against their current advertised exact entries; a failed required live refresh
+never falls back to a cached entry. General, J1 spawn, both API/UI J2 pair roles
+and J3 dispatch receive explicit models. The UI checks both rendered selections
+before confirming. No global provider profile is changed.
+
+Prelaunch evidence proves what was requested and passed to the provider. It
+cannot attest third-party execution. Before later sends or review bounces, exact
+requested, catalogue-resolved and actual own-session model identities must be
+known and equal. Only J1's initial input may precede runtime identity evidence;
+unknown or mismatched identity then refuses every later paid operation. A
+policy refusal is persisted and `all` exits 8 without restarting. Verify requires
+the same explicit mapping, complete roster and persisted same-session identities;
+it refreshes catalogues again before restored sends. Historical partial Haiku
+or DeepSeek probes are not full-suite evidence.
+
+Flags: `--providers` may only repeat the complete installed roster; narrowing
+fails. Claude, Codex and OpenCode remain required. Other flags:
+`--history-kb N` sizes the runtime history probe (default 320),
 `--deadline-secs N` sets the ready and reply deadline (default 240), `--all-tabs`
 makes every agent tab on the instance part of the restart oracle, `--keep`
 skips cleanup.
@@ -75,6 +109,9 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
   and a start time; at least one check for SETUP, J1, J2, J3 and J4.
 - ids in `results.json` `state`: run id, workspace id, every tab id, a session id for each J1 tab
   that answered, and the pre-restart listener, build and tab ids.
+- `state.model_policy`: exact complete-roster selections, catalogue refresh/capability evidence,
+  scoped General/provider configuration, explicit launch records and requested/resolved/actual
+  own-session identities before and after restart. Missing policy evidence invalidates historical runs.
 - `results.md`: byte-equal to the rendering of `results.json`.
 - `restart.json`: `pass`, phase `verified`, listener
   pid and start time that prove a restart, same instance and port as `results.json`. An operator
@@ -131,4 +168,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 3 -->
+<!-- revision: 4 -->

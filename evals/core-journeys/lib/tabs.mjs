@@ -31,8 +31,8 @@ export function waitReady(ctx, id, { requireSession = false, allowFirstTurn = fa
   }));
 }
 
-export async function sendText(id, text) {
-  const result = await dc(["send", "--tab", id, "--require-agent", "--stdin", "--json"], { stdin: text });
+export async function sendText(ctx, id, text) {
+  const result = await ctx.policy.send(id, () => (ctx.sendCommand ?? dc)(["send", "--tab", id, "--require-agent", "--stdin", "--json"], { stdin: text }));
   if (result.code === 0 || retainedSendReceipt(result.code, result.stdout)) return result.stdout;
   throw new JourneyFailure(`send refused (exit ${result.code}): ${(result.stdout || result.stderr).slice(0, 600)}`);
 }
@@ -49,7 +49,7 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
       read: () => readTab(ctx.api, id, signal), judge: (record) => readiness(record, { allowFirstTurn: true }),
     });
     const baselineIds = new Set((await chat(ctx, id, signal)).map((message) => message.id));
-    await sendText(id, prompt ?? `Reply with exactly ${marker} and nothing else. Do not run tools.`);
+    await sendText(ctx, id, prompt ?? `Reply with exactly ${marker} and nothing else. Do not run tools.`);
     let boundSession = ready.agent_session_id ?? null;
     const outcome = await observe({
       events, filter: touchesTab(id), label: `tab ${id} reply ${marker}`,
@@ -59,13 +59,14 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
         return replyVerdict({ messages, baselineIds, marker, record, boundSession });
       },
     });
+    await ctx.policy.identity(id);
     return { ...outcome, session_before: ready.agent_session_id ?? null };
   });
 }
 
 export function stopLongTurn(ctx, id, { deadlineMs = ctx.deadlines.reply } = {}) {
   return withEvents(ctx, deadlineMs, async (events, signal) => {
-    await sendText(id, "Count from 1 to 400, one number per line, with no other text. Do not run tools.");
+    await sendText(ctx, id, "Count from 1 to 400, one number per line, with no other text. Do not run tools.");
     await observe({
       events, filter: touchesTab(id), label: `tab ${id} working`,
       read: () => readTab(ctx.api, id, signal),

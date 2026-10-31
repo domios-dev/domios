@@ -16,12 +16,12 @@ export async function chooseAgentAccess(api) {
   return { full_access: config.agent.full_access };
 }
 
-export async function completeFirstRun(api, providerId) {
+export async function completeFirstRun(api, providerId, policy) {
   let config = await api("/api/config");
   if (config.general_agent?.first_run_complete !== true) {
     if (!providerId) throw new Error("First run requires an installed provider");
-    await api("/api/agents/general/complete-first-run", { method: "POST",
-      body: { provider_id: providerId, full_access: config.agent.full_access } });
+    await policy.launch(providerId, "general-first-run", () => api("/api/agents/general/complete-first-run", { method: "POST",
+      body: { provider_id: providerId, full_access: config.agent.full_access } }));
     config = await api("/api/config");
   }
   if (config.general_agent?.first_run_complete !== true) throw new Error("General Agent first run was not persisted");

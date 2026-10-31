@@ -27,9 +27,7 @@ async function readyPair(ctx, team) {
 // Exactly the body the dialog's store sends when no tab is selected (no caller claim).
 export function apiNoContext(ctx, provider) {
   return ctx.check("J2", "api_no_context", provider, async () => {
-    const response = await ctx.api("/api/orchestration/new", { method: "POST", body: {
-      orchestrator_agent: provider, planner_agent: provider, workspace_id: ctx.state.workspace.id,
-    }, signal: AbortSignal.timeout(ctx.deadlines.ready) });
+    const response = await launchApiPair(ctx, provider);
     const pair = pairTabs(response);
     if (pair.fail) throw new JourneyFailure(pair.fail, response);
     const team = { leg: "api_no_context", provider, ...pair.done };
@@ -60,11 +58,13 @@ export function uiContext(ctx, { leg, contextTab, provider }) {
     let outcome;
     try {
       await page.evaluate(focusedPaneScript(contextTab, ctx.deadlines.ui), ctx.deadlines.ui);
+      const choice = await uiPairChoice(ctx.policy, provider);
       ({ previous } = await page.evaluate(openPickerScript({
         workspaceId: ctx.state.workspace.id, workspaceCwd: ctx.state.workspace.cwd,
-        choice: { mode: "pair", orchestratorProviderId: provider, plannerProviderId: provider },
+        choice,
       }, ctx.deadlines.ui), ctx.deadlines.ui));
-      outcome = await page.evaluate(startTeamScript(ctx.deadlines.ready), ctx.deadlines.ready);
+      outcome = await ctx.policy.launch(provider, "J2-ui-pair", () =>
+        page.evaluate(startTeamScript(ctx.deadlines.ready, choice), ctx.deadlines.ready));
     } finally {
       await page.evaluate(closePickerScript(previous), 5_000).catch(() => {});
       page.close();
@@ -84,4 +84,15 @@ export function uiContext(ctx, { leg, contextTab, provider }) {
     recordTeam(ctx, team);
     return { summary: `team ${teamId} from ${context.role ?? "?"} context`, evidence: { team, stages } };
   });
+}
+
+export function launchApiPair(ctx, provider) {
+  return ctx.policy.launch(provider, "J2-api-pair", (model) => ctx.api("/api/orchestration/new", { method: "POST", body: {
+      orchestrator_agent: provider, planner_agent: provider, orchestrator_model: model, planner_model: model, workspace_id: ctx.state.workspace.id,
+    }, signal: AbortSignal.timeout(ctx.deadlines.ready) }));
+}
+
+export function uiPairChoice(policy, provider) {
+  return policy.launch(provider, "J2-ui-choice", (model) => ({ mode: "pair",
+    orchestratorProviderId: provider, plannerProviderId: provider, orchestratorModelId: model, plannerModelId: model }));
 }

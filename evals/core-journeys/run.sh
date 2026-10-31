@@ -11,7 +11,7 @@ Usage: bash evals/core-journeys/run.sh MODE [--out DIR] [driver flags]
   setup     J1-J3 and the pre-restart snapshot; leaves fixtures for verify
   verify    J4 (+ J3 after restart) against the state in --out; run after an operator restart
   cleanup   remove the fixtures recorded in --out
-Driver flags: --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
+Driver flags: --model PROVIDER=ADVERTISED_ID (repeat for every installed provider)  --providers a,b  --history-kb N  --deadline-secs N  --all-tabs  --keep
 --plan prints the journeys, steps and evidence paths without contacting an instance.
 Needs a named instance and its own API port; ports 7685 and 7686 are refused.
 Check a finished run: node evals/core-journeys/lib/evidence-contract.mjs OUT
@@ -81,11 +81,17 @@ STARTED=$SECONDS
 driver() { dev_run node "$HERE/driver.mjs" "$1" --out "$2" ${PASS[@]+"${PASS[@]}"} "${@:3}"; }
 restart() { dev_run node "$HERE/restart.mjs" --out "$1" "${@:2}"; }
 
-# Every stage runs even after a failure so the verdict covers all journeys; the worst exit wins.
+# A model-policy refusal ends paid paths, including restart; other journey failures retain the full cycle.
 cycle() {
   local out="$1" status=0
   shift
-  driver setup "$out" || status=1
+  local setup_status=0
+  driver setup "$out" || setup_status=$?
+  if [ "$setup_status" != 0 ] && [ "$setup_status" != 1 ]; then
+    driver cleanup "$out" || return "$setup_status"
+    return "$setup_status"
+  fi
+  [ "$setup_status" = 0 ] || status=1
   dev_assert_restart_target 1 || return 7
   restart "$out" "$@" || status=1
   driver verify "$out" ${VERIFY_EXTRA[@]+"${VERIFY_EXTRA[@]}"} || status=1

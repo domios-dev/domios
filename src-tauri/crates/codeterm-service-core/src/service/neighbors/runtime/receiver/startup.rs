@@ -105,51 +105,90 @@ impl ServiceContext {
         generation: u64,
         recover_keys: bool,
     ) -> Result<(), String> {
-        let result = self
-            .start_neighbor_friend_listeners(
-                transport,
-                registry,
-                scope,
-                metadata,
-                generation,
-                recover_keys,
-            )
-            .await;
-        if result.is_err() && self.require_neighbor_generation(generation).is_ok() {
-            let version = self.forget_neighbor_friend_receivers();
-            self.stop_neighbor_listeners();
-            self.ui.emit(
-                "neighbor-runtime-status",
-                json!({"receiver_unavailable":true,"friend_receivers_version":version}),
-            );
+        if self.neighbor_access_locked().await { return Err(Error::Locked.to_string()); }
+        self.require_neighbors_enabled().map_err(|error| error.to_string())?;
+        self.require_neighbor_generation(generation)?;
+        if self.neighbor_stop_local_pending(generation) {
+            self.drain_neighbor_stop_local(generation).await?;
         }
-        result
+        let account = self.ext::<crate::service::account::AccountCell>().0.get()
+            .ok_or("Neighbor account unavailable")?;
+        let session = account.session().await.ok_or("Neighbor account signed out")?;
+        if session.identity.uid != transport.uid { return Err(Error::Revoked.to_string()); }
+        let (ticket, list) = self.neighbor_activation_ticket(&session.identity.uid, session.login_generation)
+            .map_err(|error| error.to_string())?;
+        let prepare_service = self.clone();
+        let apply_service = self.clone();
+        let prepare_transport = transport.clone();
+        let prepare_registry = registry.clone();
+        let prepare_scope = scope.clone();
+        let receiving = super::super::super::updates::receives_friends(&list, &registry.installation_id);
+        self.activate_prepared_neighbor(ticket, generation, async move {
+            if !receiving { return Ok(None); }
+            let store = prepare_service.neighbor_key_store().map_err(|error| error.to_string())?;
+            let lifecycle = InstallationKeys {
+                store: &store, registry: prepare_registry.as_ref(), scope: prepare_scope,
+                uid: &prepare_transport.uid,
+            };
+            let local = if recover_keys { lifecycle.reconcile().await } else { lifecycle.load().await }
+                .map_err(|error| error.to_string())?;
+            prepare_service.require_neighbor_generation(generation)?;
+            Ok(local.as_ref().map(|keys| keys.encryption_key_id()))
+        }, move |local_id| async move {
+            apply_service.apply_neighbor_friend_listeners(transport, registry, scope, metadata, generation, list, local_id).await
+        }).await
     }
 
-    async fn start_neighbor_friend_listeners(
+    async fn activate_prepared_neighbor<P, Prep, Apply, Applied>(
+        &self,
+        ticket: super::super::super::projection::ActivationTicket,
+        generation: u64,
+        preparation: Prep,
+        apply: Apply,
+    ) -> Result<(), String>
+    where
+        P: Send + 'static,
+        Prep: std::future::Future<Output = Result<P, String>>,
+        Apply: FnOnce(P) -> Applied + Send + 'static,
+        Applied: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    {
+        let prepared = preparation.await;
+        let service = self.clone();
+        self.neighbor_reconciliation().submit(super::super::super::reconciliation::Kind::Activation, move || async move {
+            service.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
+            service.require_neighbor_activation_account(&ticket).await?;
+            service.require_neighbor_activation_ticket(&ticket)?;
+            let outcome = match prepared { Ok(value) => apply(value).await, Err(error) => Err(error) };
+            if let Err(error) = outcome {
+                if service.require_neighbor_generation(generation).is_ok()
+                    && service.require_neighbor_activation_ticket(&ticket).is_ok()
+                {
+                    let version = service.forget_neighbor_friend_receivers();
+                    service.stop_neighbor_listeners();
+                    service.ui.emit("neighbor-runtime-status", json!({"receiver_unavailable":true,"friend_receivers_version":version}));
+                }
+                log::debug!("[neighbors] current activation failed: {error}");
+                return Err(Error::Gateway);
+            }
+            Ok(())
+        }).map_err(|error| error.to_string())?.wait().await.map_err(|error| error.to_string())
+    }
+
+    async fn apply_neighbor_friend_listeners(
         &self,
         transport: Arc<FirebaseTransport>,
         registry: Arc<FirebaseRegistry>,
         scope: KeyScope,
         metadata: Metadata,
         generation: u64,
-        recover_keys: bool,
+        list: Value,
+        local_id: Option<String>,
     ) -> Result<(), String> {
         if self.neighbor_access_locked().await {
+            self.pause_neighbor_reception();
             return Err(Error::Locked.to_string());
         }
-        self.require_neighbors_enabled()
-            .map_err(|error| error.to_string())?;
         self.require_neighbor_generation(generation)?;
-        self.drain_neighbor_stop_local(generation).await?;
-        let cached = self.neighbor_cell().registry_snapshot.lock().clone();
-        let list = match cached {
-            Some(list) => list,
-            None => {
-                self.neighbor_registry_owned(super::super::super::NeighborCommand::List {})
-                    .await?
-            }
-        };
         if !super::super::super::updates::receives_friends(&list, &registry.installation_id) {
             self.reconcile_neighbor_friend_receiver_rows(
                 &metadata, &registry, &list, None, generation,
@@ -158,24 +197,7 @@ impl ServiceContext {
             self.stop_neighbor_listeners();
             return Ok(());
         }
-        let lifecycle = InstallationKeys {
-            store: &self
-                .neighbor_key_store()
-                .map_err(|error| error.to_string())?,
-            registry: registry.as_ref(),
-            scope: scope.clone(),
-            uid: &transport.uid,
-        };
-        let local = if recover_keys {
-            lifecycle.reconcile().await
-        } else {
-            lifecycle.load().await
-        }
-        .map_err(|error| error.to_string())?;
-        self.require_neighbor_generation(generation)?;
         self.remember_neighbor_names(&list);
-        let local_id = local.as_ref().map(|keys| keys.encryption_key_id());
-        drop(local);
         self.reconcile_neighbor_friend_receiver_rows(
             &metadata,
             &registry,
@@ -315,3 +337,6 @@ impl ServiceContext {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests;
