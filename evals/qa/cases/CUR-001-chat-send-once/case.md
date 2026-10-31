@@ -35,6 +35,8 @@ Create an owned workspace, DEV Browser, Codex chat_backend, and Claude PTY. Reco
 
 ## Steps
 
+Follow the [own-session composer segment](../../REPEATABLE-QA.md#own-session-composer-and-linked-reply-segment) for once-only submission and structural completion evidence. An expected final answer means a completed own-session turn plus any required action's far-end evidence, without matching model prose. Intentional identical sends are two authored operations, never retries of uncertainty. The helper alone does not cover rendering, persistence or recipient isolation; automation stays manual.
+
 1. For the CLI surface, send one pad-authored marker with dc --as-tab OWNER send --tab TAB --from-pad marker.md --json. For web, type and submit once in the owned composer.
 2. For identical-send coverage, send the same marker twice intentionally. Require two different user IDs, one answer per user ID, and one DOM row for each ID before and after reload.
 3. As an extension, send different markers to two owned recipients and prove each own session receives only its intended marker.

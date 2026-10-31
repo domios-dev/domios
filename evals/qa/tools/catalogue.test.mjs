@@ -152,7 +152,7 @@ function resultRow(overrides = {}) {
 
 test("validates the pilot catalogue and its case folders", async () => {
   const result = await validateCatalogue(QA_ROOT);
-  assert.deepEqual(result, { total: 47, active: 47, retired: 0, areas: 12 });
+  assert.deepEqual(result, { total: 48, active: 48, retired: 0, areas: 12 });
 });
 
 test("area pages may show the indexed case title after its ID link", async t => {
