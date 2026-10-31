@@ -94,7 +94,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
             || !policy
                 .executable
                 .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"/\\:._-".contains(&byte))
+                .all(|byte| byte.is_ascii_alphanumeric() || b"/\\:._-~".contains(&byte))
             || !(policy.executable.starts_with('/')
                 || std::path::Path::new(&policy.executable).is_absolute())
             || !hash(&policy.executable_sha256)
