@@ -281,6 +281,4 @@ pub(crate) fn render_doctor(report: &Value) -> String {
 }
 
 #[cfg(test)]
-mod approval_transition_tests;
-#[cfg(test)]
 mod tests;

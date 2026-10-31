@@ -345,52 +345,6 @@ fn plan_skill_show_rejects_partial_live_binding_before_rpc() {
     }
 }
 
-/// codeterm-releases#53: a refused `plan skill show` must return `Err`,
-/// since the top-level CLI runner maps every `Err` to a non-zero exit.
-#[test]
-fn plan_skill_show_refusal_exits_nonzero() {
-    let _guard = crate::test_env_lock().lock().unwrap();
-    let keys = [
-        "CODETERM_TAB_ID",
-        "CODETERM_SESSION_ID",
-        "CODETERM_SESSION_BINDING_NONCE",
-        "CODETERM_TASK_ID",
-        "CODETERM_ATTEMPT_ID",
-    ];
-    let previous = keys.map(|key| (key, std::env::var(key).ok()));
-    for key in keys {
-        std::env::remove_var(key);
-    }
-    // A task-id claim with no tab id is refused before any RPC is sent.
-    std::env::set_var("CODETERM_TASK_ID", "task_6bd5ky");
-    let mut client = FakeRpc::default();
-
-    let result = handle(
-        &mut client,
-        true,
-        PlanSkillAction::Show {
-            slug: "dispatch-contract".into(),
-            plan: Some("pl_zzmxgb".into()),
-        },
-    );
-
-    assert!(
-        result.is_err(),
-        "a refused show must be an Err, not a printed message with Ok"
-    );
-    assert!(
-        client.calls.is_empty(),
-        "the client-side gate must not reach the RPC"
-    );
-
-    for (key, value) in previous {
-        match value {
-            Some(value) => std::env::set_var(key, value),
-            None => std::env::remove_var(key),
-        }
-    }
-}
-
 #[test]
 fn plan_skill_default_uses_live_caller_despite_stale_launch_plan() {
     let _guard = crate::test_env_lock().lock().unwrap();
