@@ -522,6 +522,9 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     if let Err(error) = session_persist::stop_worker(&running.service) {
         errors.push(error);
     }
+    if let Err(error) = codeterm_service_core::service::agent_runtime::engine::shutdown_blocking(&running.service) {
+        errors.push(format!("Agent runtime shutdown failed: {error}"));
+    }
     #[cfg(windows)]
     let owned_tree = codeterm_util::process_tree::OwnedProcessTree::capture_current_server()
         .map_err(|error| io::Error::other(format!("Owned process tree capture failed: {error}")));

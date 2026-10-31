@@ -738,3 +738,31 @@ fn isolated_debug_named_socket_accepts_owned_custom_port_without_default_fallbac
     assert!(resolve_socket_selection(Some("domios-dev.sock"), None, Some("7798")).is_err());
     assert!(resolve_socket_selection(None, None, Some("7798")).is_err());
 }
+
+#[test]
+fn selected_socket_failure_preserves_os_cause_without_fallback() {
+    let fields = io_failure_fields(&std::io::Error::from_raw_os_error(5));
+    assert!(fields.contains("os=5"));
+    let failure = selected_socket_failure(ResolutionSource::CodeTermSocketPath, &fields);
+    assert!(failure.contains("refusing to derive another socket"));
+    assert!(failure.ends_with(&fields));
+    let private = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "private error body");
+    assert_eq!(io_failure_fields(&private), "kind=PermissionDenied os=none");
+}
+
+#[test]
+fn http_failure_diagnostic_redacts_request_and_error_strings() {
+    let error = reqwest::blocking::Client::new()
+        .get("https://private-user:private-password@private.invalid:invalid-port/private-path?token=private-token")
+        .build().unwrap_err();
+    let message = http_failure_message("http_probe_send", &error);
+    assert_eq!(message, "loopback HTTP failure stage=http_probe_send class=builder kind=none os=none");
+    assert!(!message.contains("private"));
+}
+#[test]
+fn malformed_socket_connect_retains_finite_failure_fields() {
+    let failure = SocketClient::connect("invalid\0socket").err().unwrap();
+    assert!(failure.contains("stage=socket_connect"));
+    assert!(failure.contains("kind="));
+    assert!(failure.contains("os="));
+}
