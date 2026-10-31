@@ -7,7 +7,7 @@ import { spawnSync } from 'node:child_process';
 
 const source = fs.readFileSync(new URL('../../build.sh', import.meta.url), 'utf8').replaceAll('\r\n', '\n');
 const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
-const helpers = ['dev_build_phase', 'named_dev_target_dir', 'named_dev_isolated', 'configure_named_dev_cache', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
+const helpers = ['prepare_dev_replacement', 'dev_build_phase', 'named_dev_target_dir', 'named_dev_isolated', 'configure_named_dev_cache', 'prepare_named_dev_target', 'dev_cli_target_dir', 'build_dev_cli',
   'tauri_debug_dir', 'dev_built_app_path', 'dev_app_path', 'kill_dev', 'dev_provenance_record'].map(name => source.match(new RegExp(`^${name}\\(\\) \\{[\\s\\S]*?^\\}`, 'm'))[0]).join('\n');
 const dev = source.slice(source.indexOf('  dev)\n'), source.indexOf('  e2e)\n'));
 const kill = source.slice(source.indexOf('  kill)\n'), source.indexOf('  dev-server)\n'));
@@ -162,6 +162,7 @@ dev_health_fields() { :; }
 ct_verify_target_dir() { :; }
 kill_dev() { :; }
 stop_dev_before_replacement() { :; }
+dev_window_retainable() { return 1; }
 enter_cargo_gateway() { :; }
 adopt_named_dev_target() { printf '%s\\n' "$CMD:$CT_INSTANCE" >> "$PWD/adoptions"; }
 refuse_named_dev_rebuild_while_running() { printf '%s\\n' "$CT_INSTANCE" >> "$PWD/refusal-checks"; }
