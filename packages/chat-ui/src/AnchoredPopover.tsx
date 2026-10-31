@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { FloatingPlacement } from "./floatingPosition";
 import { useAnchoredPopoverPosition, type PopoverAnchor } from "./useAnchoredPopoverPosition";
 import { dismissOnEscape } from "./useEscapeDismissal";
+import { useFullscreenViewer } from "./FullscreenOverlay";
 
 export interface AnchoredPopoverProps {
   open: boolean;
@@ -45,6 +46,7 @@ export function AnchoredPopover({
   onPointerLeave,
   floatingRef,
 }: AnchoredPopoverProps) {
+  const viewer = useFullscreenViewer();
   const ownRef = useRef<HTMLDivElement>(null);
   const contentRef = floatingRef ?? ownRef;
   const position = useAnchoredPopoverPosition(open, positionAnchor ?? anchor, contentRef, placement, { gap, keepSide });
@@ -100,6 +102,6 @@ export function AnchoredPopover({
     >
       {children}
     </div>,
-    document.fullscreenElement ?? document.body,
+    viewer?.current ?? document.fullscreenElement ?? document.body,
   );
 }

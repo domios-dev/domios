@@ -1,9 +1,9 @@
 import { serializeDsBlock } from "@codeterm/chat-core";
 import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Code2, Copy, Check, Eye, Maximize2, Minimize2, RefreshCw } from "lucide-react";
+import { Code2, Copy, Check, Eye, Maximize2, RefreshCw } from "lucide-react";
 import { CodeBlock } from "./CodeBlock";
-import { FullscreenOverlay } from "./FullscreenOverlay";
+import { FullscreenOverlay, useFullscreenViewer } from "./FullscreenOverlay";
 import { loadHtmlFile } from "./htmlFileLoader";
 
 export const HTML_PREVIEW_MIN_HEIGHT = 80;
@@ -177,6 +177,7 @@ type HtmlPreviewProps = ({ text: string; filePath?: never } | { filePath: string
   renderError?: (error: string) => React.ReactNode;
 };
 export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, renderError }: HtmlPreviewProps) {
+  const outerFullscreen = useFullscreenViewer();
   const tabId = useLocalArtifactTabId();
   const normalizedText = useMemo(() => filePath ? serializeDsBlock({ kind: "page", src: filePath }) : text.replace(/\r/g, ""), [text, filePath]);
   const [fileSource, setFileSource] = useState<FileSourceState>({ status: "idle", source: "", error: "" });
@@ -247,11 +248,6 @@ export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, r
     if (event?.currentTarget instanceof HTMLElement) event.currentTarget.focus();
     setIsFullscreen(true);
   };
-  const closeFullscreen = (event?: React.MouseEvent) => {
-    event?.stopPropagation();
-    setIsFullscreen(false);
-  };
-
   const toolbar = (fullscreen: boolean) => (
     <div className="flex select-none items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
       <span className="font-medium" style={{ color: "var(--ct-fg)" }}>HTML</span>
@@ -302,13 +298,14 @@ export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, r
       </button>
       <button
         type="button"
-        onClick={fullscreen ? closeFullscreen : openFullscreen}
+        onClick={openFullscreen}
+        hidden={fullscreen || Boolean(outerFullscreen)}
         className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-        style={{ color: "var(--ct-muted-fg)" }}
-        title={fullscreen ? "Close fullscreen" : "Open in fullscreen"}
+        style={{ color: "var(--ct-muted-fg)", display: fullscreen || outerFullscreen ? "none" : undefined }}
+        title="Open in fullscreen"
       >
-        {fullscreen ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-        <span>{fullscreen ? "Close" : "Fullscreen"}</span>
+        <Maximize2 size={12} />
+        <span>Fullscreen</span>
       </button>
     </div>
   );
@@ -336,17 +333,14 @@ export function HtmlPreviewBlock({ text = "", filePath, fullscreenRequest = 0, r
 
   return (
     <div ref={blockRef} className="min-w-0 w-full max-w-full" data-testid="chat-html-block">
-      <div
-        className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]"
-        style={{ background: "var(--ct-bg)" }}
-      >
-        {toolbar(false)}
-        {body(false)}
-      </div>
-      {isFullscreen && <FullscreenOverlay panelRef={fullscreenRef} closeButton={false} label="Fullscreen HTML page" onClose={dismissFullscreen}>
-        {toolbar(true)}
-        <div className="min-h-0 flex-1 overflow-hidden">{body(true)}</div>
-      </FullscreenOverlay>}
+      <FullscreenOverlay panelRef={fullscreenRef} open={isFullscreen} header={toolbar(isFullscreen)} label="Fullscreen HTML page" onClose={dismissFullscreen} returnFocusRef={blockRef}>
+        <div
+          className={isFullscreen ? "min-h-0 flex-1 overflow-auto" : "min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]"}
+          style={{ background: "var(--ct-bg)" }}
+        >
+          {body(isFullscreen)}
+        </div>
+      </FullscreenOverlay>
     </div>
   );
 }

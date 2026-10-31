@@ -1,5 +1,5 @@
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { ClipboardCopy, ExternalLink, FolderOpen, Info, Maximize2 } from "lucide-react";
 import { FileDiffCards } from "@codeterm/chat-ui";
 import type { ChangesTurn, RecordedFileChange, ToolEvent } from "@codeterm/chat-core";
@@ -13,7 +13,7 @@ import { Segmented } from "../../shared/Segmented";
 import { ChangeFileView } from "./ChangeFileView";
 import { ChangeFullscreen } from "./ChangeFullscreen";
 import { useTabPanelNavigation } from "./tabPanelNavigation";
-import { BackBar, ChangeBar, ChatAction, CopyAction, CountPair, IconAction, PanelPage, StatusGlyph, copyText } from "./PanelParts";
+import { BackBar, ChangeBar, ChatAction, CountPair, FileActionsMenu, IconAction, PanelPage, StatusGlyph, copyText } from "./PanelParts";
 
 /** Adds one diff capsule holding the recorded change and the file's current location while it still exists. */
 export function askAboutChange(tabId: string, file: RecordedFileChange, path: string, cwd?: string | null, current = file) {
@@ -36,7 +36,12 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
   const [navigation, dispatch] = useTabPanelNavigation(tabId);
   const view = navigation.changes.view;
   const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenRequest, setFullscreenRequest] = useState(0);
   const closeFullscreen = useCallback(() => setFullscreen(false), []);
+  const changeView = (view: "diff" | "file") => {
+    setFullscreenRequest(0);
+    dispatch({ type: "change-view", view });
+  };
   const reveal = useChatReveal();
   const deleted = currentFile.kind === "delete";
   const target = changesFilePath(currentFile, cwd);
@@ -44,14 +49,16 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
     if (target) void invoke(command, { path: target }).then(() => setError(null), (failure: unknown) => setError(String(failure)));
   };
   const jump = (turnId: string) => { setClientTabUiMode(tabId, "chat"); requestChatMessageReveal(tabId, turnId); };
-  const diffs = file.diffs.map((diff) => ({ ...diff, path: display(diff.path), movePath: diff.movePath && display(diff.movePath) }));
-  const event: ToolEvent = { id: file.path, phase: "result", status: "success", kind: "edit", summary: file.path,
-    fileDiffs: diffs, message: { id: file.path, type: "tool_result", content: "" } };
+  const diffs = useMemo(() => file.diffs.map((diff) => ({ ...diff, path: display(diff.path), movePath: diff.movePath && display(diff.movePath) })), [file.diffs, display]);
+  const event = useMemo<ToolEvent>(() => ({ id: file.path, phase: "result", status: "success", kind: "edit", summary: file.path,
+    fileDiffs: diffs, message: { id: file.path, type: "tool_result", content: "" } }), [file.path, diffs]);
+  const recordedDiffs = useMemo(() => <FileDiffCards event={event} initiallyExpanded rawCommand={false} renderHunkActions={(_diff, hunk) => <ChatAction compact text="Add to chat"
+    label={`Add hunk ${hunkHeader(hunk)} to chat`} onClick={() => insertIntoComposer(tabId, { kind: "diff", label: diffCapsuleLabel(path, hunkCounts(hunk)), content: hunkReference(path, hunk) })} />} />, [event, tabId, path]);
   const hasHunks = file.diffs.some((diff) => diff.hunks.length > 0);
   const missingTurn = reveal?.tabId === tabId && file.turnIds.includes(reveal.messageId) && (reveal.outcome === "missing" || reveal.outcome === "no_chat");
   const content = view === "file"
-    ? <ChangeFileView tabId={tabId} target={target} deleted={deleted} onDiff={() => dispatch({ type: "change-view", view: "diff" })} />
-    : <section aria-label={`Recorded edits for ${file.path}`}>
+    ? <ChangeFileView tabId={tabId} target={target} deleted={deleted} fullscreenRequest={fullscreenRequest} onDiff={() => changeView("diff")} />
+    : <ChangeFullscreen path={path} open={fullscreen} onClose={closeFullscreen}><section aria-label={`Recorded edits for ${file.path}`}>
       <div className="tab-panel__summary">
         <StatusGlyph kind={file.kind} />
         <span>{CHANGE_STATUS[file.kind].label}</span>
@@ -74,20 +81,21 @@ export function ChangeDetail({ tabId, file, currentFile, turns, path, cwd, displ
       {error && <InlineErrorNotice error={error} operation="reading this change" blocking />}
       {missingTurn && <p role="status" className="tab-panel__note"><Info size={13} aria-hidden />This turn is outside the loaded chat history. Load older messages in chat to find it.</p>}
       {hasHunks && <div className="tab-panel__diffs">
-        <FileDiffCards event={event} initiallyExpanded rawCommand={false} renderHunkActions={(_diff, hunk) => <ChatAction compact text="Add to chat"
-          label={`Add hunk ${hunkHeader(hunk)} to chat`} onClick={() => insertIntoComposer(tabId, { kind: "diff", label: diffCapsuleLabel(path, hunkCounts(hunk)), content: hunkReference(path, hunk) })} />} />
+        {recordedDiffs}
       </div>}
-    </section>;
+    </section></ChangeFullscreen>;
   return <PanelPage onBack={onBack} bar={<BackBar path={path} onBack={onBack} actions={<>
     <Segmented aria-label="Change view" value={view} height={26} options={[{ value: "diff", label: "Diff" }, { value: "file", label: "File" }]}
-      onChange={(view) => dispatch({ type: "change-view", view })} />
-    <IconAction label="Fullscreen" icon={Maximize2} onClick={() => setFullscreen(true)} />
-    <IconAction label="Open file" icon={ExternalLink} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("open_folder")} />
-    <IconAction label="Show in Explorer/Finder" icon={FolderOpen} disabled={IS_WEB || !target || deleted} title={IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined} onClick={() => perform("reveal_file")} />
-    <CopyAction label="Copy diff" icon={ClipboardCopy} disabled={!hasHunks} copy={() => copyText(unifiedDiffText({ ...file, diffs }))} />
+      onChange={changeView} />
+    <IconAction label="Fullscreen" icon={Maximize2} disabled={view === "file" && (!target || deleted)} onClick={() => view === "file" ? setFullscreenRequest((value) => value + 1) : setFullscreen(true)} />
     <ChatAction label={`Ask about the change to ${path}`} text="Ask" onClick={() => askAboutChange(tabId, file, path, cwd, currentFile)} />
+    <FileActionsMenu items={[
+      { label: "Open file", icon: <ExternalLink size={14} />, disabled: IS_WEB || !target || deleted, title: IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined, onClick: () => perform("open_folder") },
+      { label: "Show in Explorer/Finder", icon: <FolderOpen size={14} />, disabled: IS_WEB || !target || deleted, title: IS_WEB ? "Opening files in the OS is available only in the desktop app" : undefined, onClick: () => perform("reveal_file") },
+      { label: "Copy diff", icon: <ClipboardCopy size={14} />, disabled: !hasHunks, onClick: () => void copyText(unifiedDiffText({ ...file, diffs })).catch(() => {}) },
+    ]} />
   </>} />}>
     {error && view === "file" && <InlineErrorNotice error={error} operation="reading this change" blocking />}
-    {fullscreen ? <ChangeFullscreen path={path} onClose={closeFullscreen}>{content}</ChangeFullscreen> : content}
+    {content}
   </PanelPage>;
 }

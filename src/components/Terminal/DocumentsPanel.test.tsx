@@ -27,6 +27,18 @@ function button(label: string) {
   expect(result, label).toBeTruthy();
   return result!;
 }
+async function fileAction(label: string) {
+  if (!document.querySelector('[role="menu"][aria-label="File actions"]:not([hidden])')) {
+    await act(async () => button("More file actions").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+  }
+  const item = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(element => element.textContent === label);
+  expect(item, label).toBeTruthy();
+  return item!;
+}
+async function runFileAction(label: string) {
+  const item = await fileAction(label);
+  await act(async () => item.click());
+}
 const key = async (code: string, target: Element | null = document.activeElement) => {
   await act(async () => target?.dispatchEvent(new KeyboardEvent("keydown", { code, bubbles: true, cancelable: true })));
 };
@@ -123,10 +135,10 @@ it("reader actions open fullscreen, reveal, copy the path and content, and add t
   await act(async () => button("Fullscreen report.md").click());
   expect(document.querySelector('[role="dialog"][aria-label="Fullscreen report.md"] h1')?.textContent).toBe("Report");
   await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
-  await act(async () => button("Reveal report.md").click());
+  await runFileAction("Reveal report.md");
   expect(revealed).toEqual(["/report.md"]);
-  await act(async () => button("Copy path").click());
-  await act(async () => button("Copy content").click());
+  await runFileAction("Copy path");
+  await runFileAction("Copy content");
   expect(writeText.mock.calls).toEqual([["/report.md"], ["# Report\n\nBody line"]]);
   await act(async () => button("Ask about report.md").click());
   expect(composerInsertionStore.take("actions")).toEqual([{ kind: "document", path: "/report.md" }]);
@@ -194,6 +206,33 @@ it("the embedded document fullscreen closes with Escape and restores its opener"
   expect(document.activeElement).toBe(opener);
 });
 
+it.each(["md", "html"])("document %s fullscreen keeps one content instance and returns to the selected reader", async (extension) => {
+  const loader = vi.fn(async () => ({ data: "# Retained reader", media_type: "text/markdown" }));
+  const htmlLoader = vi.fn(async () => "<main>Retained page</main>");
+  configureLocalArtifactLoader(loader);
+  configureHtmlFileLoader(htmlLoader);
+  chatDocumentsStore.set("retained", documentsFromTranscript([{ content: extension === "html" ? "<ds-page src='/reader.html' />" : "<ds-document src='/reader.md' />" }]));
+  const onClose = vi.fn();
+  await render(panel("retained", onClose));
+  await act(async () => button(`Open reader.${extension}`).click());
+  const content = host.querySelector(extension === "html" ? "iframe" : "h1");
+  expect(content).toBeTruthy();
+  const opener = button(`Fullscreen reader.${extension}`);
+  await act(async () => opener.click());
+  const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+  expect(dialogs).toHaveLength(1);
+  expect(dialogs[0].contains(content)).toBe(true);
+  expect(dialogs[0].querySelectorAll('[aria-label^="Close fullscreen"]')).toHaveLength(1);
+  await act(async () => dialogs[0].querySelector<HTMLButtonElement>('[aria-label="Close fullscreen viewer"]')!.click());
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+  expect(host.contains(content)).toBe(true);
+  expect(document.activeElement).toBe(opener);
+  expect(host.querySelector('nav[aria-label="Path"]')?.textContent).toContain(`reader.${extension}`);
+  expect(onClose).not.toHaveBeenCalled();
+  expect(loader).toHaveBeenCalledTimes(extension === "md" ? 1 : 0);
+  expect(htmlLoader).toHaveBeenCalledTimes(extension === "html" ? 1 : 0);
+});
+
 
 it("carries the reader's tab identity to its loader and disables unavailable OS reveal", async () => {
   const load = vi.fn(async () => ({ data: "# Tab owned document", media_type: "text/markdown" }));
@@ -204,7 +243,7 @@ it("carries the reader's tab identity to its loader and disables unavailable OS 
   await act(async () => button("Open owned.md").click());
   expect(load).toHaveBeenCalledWith("/work/owned.md", "document", "owner");
   expect(host.querySelector("h1")?.textContent).toBe("Tab owned document");
-  expect(button("Reveal owned.md").disabled).toBe(true);
+  expect((await fileAction("Reveal owned.md")).disabled).toBe(true);
   expect(invoke).toHaveBeenCalledWith("check_local_preview_files", { paths: ["/work/owned.md"], tabId: "owner" });
 });
 

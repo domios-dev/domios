@@ -1,6 +1,8 @@
-import { useState, type KeyboardEvent, type ReactNode } from "react";
-import { Check, MessageSquarePlus, type LucideIcon } from "lucide-react";
+import type { KeyboardEvent, ReactNode } from "react";
+import { MessageSquarePlus, type LucideIcon } from "lucide-react";
 import { BackPill } from "../../shared/BackPill";
+import { DropdownMenu, type DropdownMenuItem } from "../../shared/DropdownMenu";
+import { RowMenuButton } from "../../shared/RowMenuButton";
 import { formatCompact, formatExact } from "../../../lib/formatCompact";
 import { CHANGE_STATUS, changeBar } from "../changesViewModel";
 import type { RecordedFileChange } from "@codeterm/chat-core";
@@ -40,20 +42,13 @@ export function BackBar({ path, onBack, actions }: { path: string; onBack: () =>
 }
 
 export function IconAction({ label, icon: Icon, onClick, disabled, title }: { label: string; icon: LucideIcon; onClick: () => void; disabled?: boolean; title?: string }) {
-  return <button type="button" className="tab-panel__icon-action" aria-label={label} title={title ?? label} disabled={disabled} onClick={onClick}>
+  return <button type="button" className="tab-panel__icon-action" aria-label={label} title={title ?? label} disabled={disabled} onClick={(event) => { event.currentTarget.focus(); onClick(); }}>
     <Icon size={14} aria-hidden />
   </button>;
 }
 
-/** Shows a check after copying until the pointer or focus leaves; no timer decides when it resets. */
-export function CopyAction({ label, icon: Icon, copy, disabled }: { label: string; icon: LucideIcon; copy: () => Promise<void>; disabled?: boolean }) {
-  const [done, setDone] = useState(false);
-  const Shown = done ? Check : Icon;
-  return <button type="button" className="tab-panel__icon-action" aria-label={label} title={done ? "Copied" : label} disabled={disabled} data-done={done ? "" : undefined}
-    onClick={() => void copy().then(() => setDone(true), () => setDone(false))} onMouseLeave={() => setDone(false)} onBlur={() => setDone(false)}>
-    <Shown size={14} aria-hidden />
-    <span className="sr-only" role="status">{done ? "Copied" : ""}</span>
-  </button>;
+export function FileActionsMenu({ items }: { items: DropdownMenuItem[] }) {
+  return <DropdownMenu menuLabel="File actions" placement="bottom-end" items={items} trigger={<RowMenuButton label="More file actions" />} />;
 }
 
 export function ChatAction({ label, text, onClick, compact }: { label: string; text: string; onClick: () => void; compact?: boolean }) {
