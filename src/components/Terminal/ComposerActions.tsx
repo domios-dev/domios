@@ -11,6 +11,7 @@ import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 export { storeBrowserFiles, useWebFileDrop } from "./composerFiles";
 
 interface Props {
+  expanded?: boolean;
   tabId?: string;
   onAttach: (paths: string[]) => void;
   onSend: () => void;
@@ -35,6 +36,7 @@ export function ComposerActions(props: Props) {
 }
 
 function ComposerActionsBody({
+  expanded = false,
   tabId,
   onAttach,
   onSend,
@@ -83,12 +85,13 @@ function ComposerActionsBody({
       />}
       {uploads.status}
       {voiceUploads.status}
-      <div className="relative flex w-full items-end gap-1.5">
+      <div className={expanded ? "ct-expanded-composer__actions relative grid w-full items-end gap-2" : "relative flex w-full items-end gap-1.5"}>
         {attachButton}
         <ComposerInputShell voiceUi={voiceUi} header={cardHeader} footer={cardFooter}
-          actions={voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
+          actions={!expanded && voiceUi.mainIsSend && onSchedule && <ComposerScheduleButton onSchedule={onSchedule} />}>
           {children}
         </ComposerInputShell>
+        {expanded && voiceUi.mainIsSend && onSchedule && <div className="ct-expanded-composer__schedule"><ComposerScheduleButton onSchedule={onSchedule} /></div>}
         {!voiceUi.isPreview && (
           <ComposerActionButton
             voiceUi={voiceUi}

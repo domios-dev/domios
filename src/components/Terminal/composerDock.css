@@ -49,35 +49,45 @@
 .ct-composer-expand:focus-visible { outline: 1px solid var(--ct-accent); }
 
 .ct-expanded-composer {
-  width: 100%;
-  max-width: 64rem;
-  height: min(84dvh, 56rem);
-  max-height: calc(var(--ct-visual-height, 100dvh) - 2rem);
+  position: fixed;
+  max-width: none;
+  padding: 30px 16px 12px;
+  background: var(--ct-bg-elev, var(--ct-surface));
+  animation: ct-composer-rise 180ms var(--ct-ease-liquid-settle) both;
+  overflow: visible;
+  border-radius: var(--ct-composer-radius);
 }
-.ct-expanded-composer__input {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  resize: none;
-  padding: 14px;
-  border: 1px solid var(--ct-border);
-  border-radius: 10px;
-  outline: none;
-  background: var(--ct-bg);
-  color: var(--ct-fg);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.65;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+@keyframes ct-composer-rise {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-.ct-expanded-composer__input:focus { border-color: var(--ct-accent); }
+@media (prefers-reduced-motion: reduce) {
+  .ct-expanded-composer { animation: none; }
+}
+.ct-expanded-composer__actions { grid-template-columns: 1fr auto auto; }
+.ct-expanded-composer__actions > .ct-composer-card {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  --tw-ring-shadow: 0 0 transparent;
+}
+.ct-expanded-composer .ct-composer-row { padding-inline: 4px; }
+.ct-expanded-composer__actions > button { grid-row: 2; }
+.ct-expanded-composer__actions > button:first-child { grid-column: 1; justify-self: start; }
+.ct-expanded-composer__actions > button:last-child { grid-column: 3; }
+.ct-expanded-composer__schedule { grid-column: 2; grid-row: 2; }
 .ct-expanded-composer__close {
+  position: absolute;
+  top: 4px;
+  right: 12px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 6px;
   background: transparent;
@@ -85,21 +95,9 @@
   cursor: pointer;
 }
 .ct-expanded-composer__close:hover { background: var(--ct-bg); color: var(--ct-fg); }
-.ct-expanded-composer__send {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 16px;
-  border: 0;
-  border-radius: 999px;
-  background: var(--ct-accent);
-  color: var(--ct-bg);
-  cursor: pointer;
-}
-.ct-expanded-composer__send:disabled { opacity: 0.4; cursor: default; }
 @media (max-width: 640px) {
-  .ct-expanded-composer { height: calc(var(--ct-visual-height, 100dvh) - 2rem); padding: 12px; }
-  .ct-expanded-composer__input { font-size: 16px; }
+  .ct-expanded-composer { padding: 32px 8px 12px; }
+  .ct-expanded-composer textarea { font-size: 16px; }
   .ct-composer-expand span { opacity: 1; }
 }
 .ct-composer-card {

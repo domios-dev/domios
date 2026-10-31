@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { act, useState } from "react";
+import { act, useRef, useState } from "react";
 import { Window } from "happy-dom";
 
 const view = new Window({ url: "http://localhost/" });
@@ -8,6 +8,7 @@ define("IS_REACT_ACT_ENVIRONMENT", true);
 define("window", view);
 define("document", view.document);
 define("navigator", view.navigator);
+define("ResizeObserver", view.ResizeObserver);
 for (const name of ["HTMLElement", "Element", "Node", "Event", "KeyboardEvent", "MouseEvent", "HTMLTextAreaElement"]) {
   define(name, (view as unknown as Record<string, unknown>)[name]);
 }
@@ -19,12 +20,15 @@ const sent: string[] = [];
 function Harness() {
   const [value, setValue] = useState("opaque draft\nsecond line");
   const [open, setOpen] = useState(false);
-  return <>
-    <textarea aria-label="Inline draft" value={value} onChange={(event) => setValue(event.target.value)} />
-    <button onClick={() => setOpen(true)}>Expand</button>
-    {open && <ExpandedComposer value={value} onChange={setValue} onClose={() => setOpen(false)}
-      sendDisabled={!value.trim()} onSend={() => { sent.push(value); setValue(""); setOpen(false); }} />}
+  const anchor = useRef<HTMLDivElement>(null);
+  const editor = <>
+    <textarea aria-label={open ? "Expanded message" : "Inline draft"} value={value} onChange={(event) => setValue(event.target.value)} />
+    <button type="button" disabled={!value.trim()} onClick={() => { sent.push(value); setValue(""); setOpen(false); }}>Send</button>
   </>;
+  return <div ref={anchor}>
+    <button onClick={() => setOpen(true)}>Expand</button>
+    {open ? <ExpandedComposer anchorRef={anchor} onClose={() => setOpen(false)}>{editor}</ExpandedComposer> : editor}
+  </div>;
 }
 function field(label: string) {
   const element = document.querySelector<HTMLTextAreaElement>(`textarea[aria-label="${label}"]`);
@@ -57,9 +61,9 @@ try {
   await act(async () => root.render(<Harness />));
   await click("Expand");
   assert.equal(document.querySelector('[role="dialog"]')?.getAttribute("aria-modal"), "true");
-  assert.equal(document.activeElement, field("Expanded message"));
+  assert.ok(document.activeElement === field("Expanded message"), "expanded editor receives focus");
   await type("Expanded message", "edited in large editor\nkept on close");
-  assert.equal(field("Inline draft").value, "edited in large editor\nkept on close");
+  assert.equal(document.querySelectorAll("textarea").length, 1);
   await key("Enter");
   assert.deepEqual(sent, []);
   await key("Enter", { ctrlKey: true, isComposing: true });
@@ -82,7 +86,7 @@ try {
   await key("Enter", { ctrlKey: true });
   assert.equal(sent.length, 1);
   await click("Close expanded editor");
-  console.log("Expanded composer shared draft, close/back and once-only submit passed");
+  console.log("Expanded composer reused editor, shared draft, close/back and submit passed");
 } finally {
   await act(async () => root.unmount());
   host.remove();

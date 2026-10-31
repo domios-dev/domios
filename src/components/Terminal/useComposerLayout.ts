@@ -5,7 +5,7 @@ import { COMPOSER_MIN_HEIGHT, COMPOSER_MAX_HEIGHT, measureComposerAutosize } fro
 import { COMPOSER_PANEL_HEIGHT_SHARE, resolveComposerLayout, type ComposerLayout } from "./composerLayoutModel";
 import { useComposerHeight } from "./useComposerHeight";
 
-export function useComposerLayout(input: string, textareaRef: RefObject<HTMLTextAreaElement | null>, shellRef: RefObject<HTMLDivElement | null>, gate: CompositionGate, inputVisible = true) {
+export function useComposerLayout(input: string, textareaRef: RefObject<HTMLTextAreaElement | null>, shellRef: RefObject<HTMLDivElement | null>, gate: CompositionGate, inputVisible = true, expanded = false) {
   const { keyboardOpen } = useKeyboardInset();
   const [layout, setLayout] = useState<ComposerLayout>({ mode: "docked", editorPx: COMPOSER_MIN_HEIGHT, scrolls: false });
   const previous = useRef(layout);
@@ -14,6 +14,11 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
     const textarea = textareaRef.current;
     const shell = shellRef.current;
     if (!textarea || !shell || compositionDefersAutosize(gate)) return;
+    if (expanded) {
+      textarea.style.height = "min(56dvh, calc(var(--ct-visual-height, 100dvh) - 12rem), 32rem)";
+      textarea.style.overflowY = "auto";
+      return;
+    }
     const panel = shell.closest<HTMLElement>('[data-testid="terminal-tab"], [data-testid="tab-session-chat"]') ?? shell.ownerDocument.documentElement;
     if (!panel) return;
     const bounds = panel.getBoundingClientRect();
@@ -29,7 +34,7 @@ export function useComposerLayout(input: string, textareaRef: RefObject<HTMLText
       previous.current = next;
       setLayout(next);
     }
-  }, [gate, keyboardOpen, shellRef, textareaRef]);
+  }, [gate, keyboardOpen, shellRef, textareaRef, expanded]);
   useLayoutEffect(() => { measure(); }, [input, measure, inputVisible]);
   useLayoutEffect(() => {
     const shell = shellRef.current;

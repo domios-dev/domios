@@ -1,47 +1,43 @@
-import { useEffect, useId, useRef } from "react";
-import { ArrowUp, X } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { X } from "lucide-react";
 import { FormDialog } from "../shared/FormDialog";
 
-export function ExpandedComposer({ value, onChange, onClose, onSend, sendDisabled }: {
-  value: string;
-  onChange: (value: string) => void;
+export function ExpandedComposer({ anchorRef, onClose, children }: {
+  anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
-  onSend: () => void;
-  sendDisabled: boolean;
+  children: ReactNode;
 }) {
   const titleId = useId();
-  const editor = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => { editor.current?.focus(); }, []);
-
+  const [position, setPosition] = useState<CSSProperties>({});
+  useLayoutEffect(() => {
+    const anchor = anchorRef.current;
+    if (!anchor) return;
+    const update = () => {
+      const rect = anchor.getBoundingClientRect();
+      const width = Math.min(rect.width + 160, window.innerWidth - 24);
+      const next = { width, left: Math.max(12, Math.min(rect.left - 136, window.innerWidth - width - 12)),
+        bottom: Math.max(12, window.innerHeight - rect.bottom) };
+      setPosition(previous => previous.width === next.width && previous.left === next.left && previous.bottom === next.bottom ? previous : next);
+    };
+    update();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
+    observer?.observe(anchor);
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+    return () => { observer?.disconnect(); window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update); };
+  }, [anchorRef]);
+  useEffect(() => {
+    anchorRef.current?.ownerDocument.querySelector<HTMLTextAreaElement>('[role="dialog"] textarea')?.focus();
+  }, [anchorRef]);
   return <FormDialog titleId={titleId} onCancel={onClose}
-    className="ct-expanded-composer"
-    onSubmit={(event) => { event.preventDefault(); if (!sendDisabled) onSend(); }}>
-    <header className="flex shrink-0 items-center justify-between gap-3">
-      <h2 id={titleId} className="text-sm font-medium">Edit message</h2>
-      <button type="button" className="ct-expanded-composer__close" aria-label="Close expanded editor" onClick={onClose}>
-        <X size={18} aria-hidden />
-      </button>
-    </header>
-    <textarea ref={editor} aria-label="Expanded message" value={value}
-      placeholder="Write your message…" spellCheck={false}
-      className="ct-expanded-composer__input"
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={(event) => {
-        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) {
-          event.stopPropagation();
-          return;
-        }
-        if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-          event.preventDefault();
-          if (!sendDisabled) onSend();
-        }
-      }} />
-    <footer className="flex shrink-0 items-center justify-between gap-3">
-      <span className="text-xs" style={{ color: "var(--ct-muted-fg)" }}>Your draft stays in sync.</span>
-      <button type="submit" disabled={sendDisabled} className="ct-expanded-composer__send">
-        Send <ArrowUp size={15} aria-hidden />
-      </button>
-    </footer>
+    className="ct-expanded-composer" style={position}
+    onSubmit={(event) => event.preventDefault()}>
+    <h2 id={titleId} className="sr-only">Message editor</h2>
+    <button type="button" className="ct-expanded-composer__close" aria-label="Close expanded editor" onClick={onClose}>
+      <X size={18} aria-hidden />
+    </button>
+    {children}
   </FormDialog>;
 }
 
