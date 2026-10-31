@@ -37,7 +37,7 @@ export function BoundedMessageContent({ collapsedHeight, as: Tag = "div", unboun
   const content = (
     <Tag {...props} hidden={hidden} id={contentId} ref={(node: HTMLDivElement | HTMLPreElement | null) => { contentRef.current = node; }}
       data-bounded-message={!ownsBounds ? undefined : expanded ? "expanded" : "collapsed"}
-      style={{ ...style, ...(!ownsBounds ? {} : layout) }}>
+      style={{ ...style, ...(!ownsBounds ? {} : layout), ...(ownsBounds && clipped && !expanded ? { maskImage: "linear-gradient(to bottom, black calc(100% - 36px), transparent)", WebkitMaskImage: "linear-gradient(to bottom, black calc(100% - 36px), transparent)" } : {}) }}>
       {children}
     </Tag>
   );
