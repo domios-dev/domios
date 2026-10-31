@@ -303,6 +303,7 @@ fn trusted_cli_requires_literal_command_path_and_never_promotes_an_interpreter()
         "C:/trusted/cli.exe",
         "/trusted/cli",
         "C:/USERNA~1/bin/cli.exe",
+        "/trusted/ALIAS~1/cli",
     ] {
         assert!(literal_command_path(path));
     }
@@ -311,6 +312,9 @@ fn trusted_cli_requires_literal_command_path_and_never_promotes_an_interpreter()
         "& C:/trusted/cli.exe",
         "C:/trusted/cli.exe;pwsh",
         "C:/trusted/$env.exe",
+        "~/cli.exe",
+        "relative/ALIAS~1/cli",
+        "C:ALIAS~1/cli.exe",
         "",
     ] {
         assert!(!literal_command_path(path));

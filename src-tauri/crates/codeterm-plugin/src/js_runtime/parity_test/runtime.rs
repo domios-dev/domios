@@ -680,7 +680,7 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
         epoch: ctx.epoch,
         cwd: ctx.cwd.clone(),
         metadata_directory: ".runtime-policy".into(),
-        executable: "/trusted/cli".into(),
+        executable: "/trusted/ALIAS~1/cli".into(),
         executable_sha256: "a".repeat(64),
         config_sha256: "b".repeat(64),
         rule_sha256: "c".repeat(64),
@@ -701,6 +701,8 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
         "cwd",
         "metadata",
         "malformed-metadata",
+        "home-executable",
+        "relative-executable",
         "executable",
     ] {
         let mut changed = ctx.clone();
@@ -712,6 +714,8 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
             "cwd" => policy.cwd = "foreign".into(),
             "metadata" => policy.metadata_directory = ".foreign".into(),
             "malformed-metadata" => policy.metadata_directory = "../foreign".into(),
+            "home-executable" => policy.executable = "~/cli".into(),
+            "relative-executable" => policy.executable = "relative/ALIAS~1/cli".into(),
             _ => policy.executable = "C:/unsafe path/cli.exe".into(),
         }
         assert!(native

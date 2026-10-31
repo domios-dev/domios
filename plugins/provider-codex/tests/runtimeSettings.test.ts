@@ -15,12 +15,13 @@ const cliContext: RuntimeContext = {
     executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64)},
 };
 assert.deepEqual(codexRestrictedCliConfig(cliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
+assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,executable:"C:/USERNA~1/bin/cli.exe"}}),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined}),{});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined,settings:{mode:"full-access"},providerSettings:{restrictedCli:cliContext.restrictedCli as never}}),{});
 for (const changed of [
   {tabId:"foreign"},{bindingNonce:"foreign"},{epoch:3},{cwd:"C:/foreign"},{metadataDirectory:".other"},{metadataDirectory:"../escape"},{executable:"relative.exe"},
   {executableSha256:"unknown"},{ruleSha256:"unknown"},{configSha256:"unknown"},
-  {executable:"C:/unsafe path/cli.exe"},
+  {executable:"C:/unsafe path/cli.exe"},{executable:"~/cli.exe"},{executable:"relative/ALIAS~1/cli"},{executable:"C:ALIAS~1/cli.exe"},{executable:"& C:/trusted/cli.exe"},{executable:"C:/trusted/cli.exe;pwsh"},{executable:"C:/trusted/$env.exe"},
 ]) assert.throws(()=>codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,...changed}}));
 assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"full-access",networkAccess:false}}));
 assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"workspace-write",networkAccess:true}}));
