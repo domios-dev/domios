@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { codexEffectiveSettings, codexServiceTier, codexThreadConfig, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexRestrictedCliConfig, codexValidateCliTrust } from "../src/runtimeSettings";
+import { codexEffectiveSettings, codexServiceTier, codexThreadConfig, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexRestrictedCliConfig, codexValidateCliTrust, codexRestrictedCliInstructions } from "../src/runtimeSettings";
 import type {RuntimeContext} from "@codeterm/plugin-sdk";
 import {runtimePlan as sourcePlan, runtimeResponse as sourceResponse} from "../src/runtime";
 import type {Operation, RuntimePlan, RpcReply} from "@codeterm/plugin-sdk";
@@ -12,15 +12,15 @@ const cliContext: RuntimeContext = {
   tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",hostVersion:"1.18.0",
   settings:{mode:"workspace-write",networkAccess:false},providerSettings:{},activeTurns:[],threadParents:[],claimedSends:[],
   restrictedCli:{tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",executable:"C:/trusted/cli.exe",
-    executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),argv:["identify","--json"]},
+    executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64)},
 };
 assert.deepEqual(codexRestrictedCliConfig(cliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined}),{});
 assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined,settings:{mode:"full-access"},providerSettings:{restrictedCli:cliContext.restrictedCli as never}}),{});
 for (const changed of [
   {tabId:"foreign"},{bindingNonce:"foreign"},{epoch:3},{cwd:"C:/foreign"},{executable:"relative.exe"},
-  {executableSha256:"unknown"},{ruleSha256:"unknown"},{configSha256:"unknown"},{argv:["identify","--json","--mesh=foreign"]},
-  {argv:["pwsh","-Command"]},
+  {executableSha256:"unknown"},{ruleSha256:"unknown"},{configSha256:"unknown"},
+  {executable:"C:/unsafe path/cli.exe"},
 ]) assert.throws(()=>codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,...changed}}));
 assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"full-access",networkAccess:false}}));
 assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"workspace-write",networkAccess:true}}));
@@ -99,3 +99,8 @@ assert.equal(tierAvailable({},{id:null}),true);
 assert.equal(modelServiceTiers([{model:"model",serviceTiers:[]}],{requirements:{featureRequirements:{ultrafast_mode:false}}}).model.find(tier => tier.id === "ultrafast")?.unavailableReason,"Disabled by your administrator");
 assert.equal(tierAvailable({model:"model",serviceTierAvailability:modelServiceTiers(catalogue,{supportsIndependentSpeedModes:true,requirements:{featureRequirements:{fast_mode:false}}})},{id:"ultrafast"}),true);
 console.log("runtime tier mapping, confirmation and availability passed");
+
+assert.equal(codexRestrictedCliInstructions({...cliContext,restrictedCli:undefined},"opaque"),"opaque");
+assert.ok(codexRestrictedCliInstructions(cliContext,"opaque")!.startsWith("opaque\n\n"));
+assert.ok(codexRestrictedCliInstructions(cliContext,"opaque")!.includes(cliContext.restrictedCli!.executable));
+assert.throws(()=>codexRestrictedCliInstructions({...cliContext,restrictedCli:{...cliContext.restrictedCli!,executable:"C:/unsafe path/cli.exe"}}));

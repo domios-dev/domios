@@ -25,7 +25,7 @@ pub fn handle_paste(json: bool, action: PasteAction) {
             } else if from_stdin {
                 read_stdin_or_die("--from-stdin")
             } else if let Some(path) = from_file {
-                match std::fs::read_to_string(&path) {
+                match crate::local_admission::read_local_text(&path) {
                     Ok(s) => s,
                     Err(e) => {
                         crate::cmd::print::fail(

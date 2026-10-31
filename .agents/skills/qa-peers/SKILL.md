@@ -28,6 +28,12 @@ to bypass a provenance refusal.
 
 Use Team DEV utilities without timeouts and descriptions beginning `persistent: ...`. Reuse these deliberately for relaunches and close them at phase end. Timeout QA/build utilities are one-shot: one job, then close; never restart or reuse them.
 
+## Confined CLI invocation
+
+For a concierge with a restricted CLI context, take the executable token from its current host-authored policy and verify the rule/executable hashes against the same tab, epoch and candidate. Use the bare token in the native command tool, without `&`, executable quotes, another interpreter or environment changes. Do not substitute a hash-matching artifact at another path. The Windows host may supply a verified short-path alias; if no literal-safe alias exists, retain that refusal rather than widening to a shell rule.
+
+Prove actual command exit and selected instance identity, then verify service denials independently. Local administration and arbitrary host-file input must be refused before I/O for the same concierge credential. Use authenticated canonical `--from-pad` or stdin for staged input. An executable allow does not grant a service capability. Preserve once-only messages and record actual linked answer receipt; successful CLI discovery alone does not prove a Neighbor roundtrip.
+
 ## Candidate advance
 
 At a quiescent boundary, record both peers' SHA/boot, friendship, gateway tab/session/nonce, policies/limits, listener state and pending message IDs. Close owned Browser profiles. Preserve pending messages and failures; do not revoke, sign out, rotate keys or replay sends to simplify an advance.
@@ -130,4 +136,4 @@ Raw artifacts and ownership manifests go under `target-check/evals/qa/<stamp>/<C
 
 Restore owned temporary policies/limits; reconcile jobs, tabs, files and pending messages against the manifest. Close only owned Browser profiles via the Browser plugin and close completed timeout utilities immediately. When the owner ends the peers' phase, stop both through explicit named `build.sh kill`, confirm their selected processes/listeners absent, then close persistent DEV/controller utilities. Retain the shared candidate checkout/account state unless removal is explicitly requested. Never delete unrelated tabs or another worker's evidence.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

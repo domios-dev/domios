@@ -156,6 +156,11 @@ pub(crate) async fn dispatch(
             })),
         ));
     }
+    if request.method == "cli.local.authorize" {
+        return codeterm_service_core::service::cli_local_admission::authorize(&state.svc, token, request.params.as_ref()).await
+            .map(|value| Json(serde_json::json!({"result":value})))
+            .map_err(|message| (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":{"code":-32003,"message":message}}))));
+    }
     if request.method == "mem.neighbor_save" {
         let body = serde_json::from_value(request.params.unwrap_or_default()).map_err(|error| (
             StatusCode::BAD_REQUEST,

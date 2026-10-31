@@ -50,7 +50,7 @@ pub struct AgentRuntimeCapability {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum RestrictedCliCapability {
-    ExecpolicyIdentify,
+    ExecpolicyServiceOperations,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

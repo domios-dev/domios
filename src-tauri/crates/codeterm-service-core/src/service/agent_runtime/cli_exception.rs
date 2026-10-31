@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock};
 
 const CONFIG: &[u8] = b"# Host-managed restricted CLI exception.\n";
-const RULE: &str = "domios-identify.rules";
+const RULE: &str = "domios-cli.rules";
 pub(super) const SCOPE_ENV: &str = "CODETERM_CLI_SCOPE";
-pub(super) const SCOPE: &str = "identify-only";
+pub(super) const SCOPE: &str = "service-operations";
 const DENIED: &str = "Restricted CLI exception identity or protected policy changed";
 
 #[derive(Clone)]
@@ -30,7 +30,7 @@ static LEASES: LazyLock<Mutex<HashMap<String, Lease>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn record_policy(policy: &RestrictedCliPolicy) {
-    log::debug!("[runtime-policy] phase=cli_exception tab={} epoch={} scope=identify-only executable_pinned=true executable_sha256={} config_sha256={} rule_sha256={}",
+    log::debug!("[runtime-policy] phase=cli_exception tab={} epoch={} scope=service-operations executable_pinned=true executable_sha256={} config_sha256={} rule_sha256={}",
         policy.tab_id, policy.epoch, policy.executable_sha256, policy.config_sha256, policy.rule_sha256);
 }
 
@@ -72,6 +72,30 @@ fn plain_path(path: &Path) -> Result<String, String> {
         .ok_or_else(|| DENIED.into())
 }
 
+fn literal_command_path(path: &str) -> bool {
+    !path.is_empty() && path.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/\\:._-".contains(&byte))
+}
+
+fn command_path(path: &Path) -> Result<String, String> {
+    let plain = plain_path(path)?;
+    if literal_command_path(&plain) { return Ok(plain); }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let input: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut short = vec![0u16; 32768];
+        // SAFETY: input is NUL-terminated and output has the supplied UTF-16 capacity.
+        let size = unsafe { windows_sys::Win32::Storage::FileSystem::GetShortPathNameW(input.as_ptr(), short.as_mut_ptr(), short.len() as u32) } as usize;
+        if size == 0 || size >= short.len() { return Err("Trusted CLI path has no supported literal Windows invocation".into()); }
+        let short = PathBuf::from(String::from_utf16(&short[..size]).map_err(|_| DENIED)?);
+        if short.canonicalize().map_err(|_| DENIED)? != path.canonicalize().map_err(|_| DENIED)?
+            || file_digest(&short)? != file_digest(path)? { return Err(DENIED.into()); }
+        let literal = plain_path(&short)?;
+        if literal_command_path(&literal) { return Ok(literal); }
+    }
+    Err("Trusted CLI path has no supported literal invocation".into())
+}
+
 fn reject_links(path: &Path) -> Result<(), String> {
     for ancestor in path.ancestors() {
         let metadata = fs::symlink_metadata(ancestor).map_err(|_| DENIED)?;
@@ -93,7 +117,7 @@ fn rule_bytes(executable: &str) -> Result<Vec<u8>, String> {
     if executable.len() > 4096 || executable.contains('\0') {
         return Err(DENIED.into());
     }
-    let pattern = serde_json::to_string(&[executable, "identify", "--json"]).map_err(|_| DENIED)?;
+    let pattern = serde_json::to_string(&[executable]).map_err(|_| DENIED)?;
     Ok(format!("prefix_rule(pattern={pattern}, decision=\"allow\")\n").into_bytes())
 }
 
@@ -183,7 +207,7 @@ fn provision(
     if cwd != Path::new(&sandbox.cwd).canonicalize().map_err(|_| DENIED)? {
         return Err(DENIED.into());
     }
-    let executable = plain_path(&executable)?;
+    let executable = command_path(&executable)?;
     let rule_bytes = rule_bytes(&executable)?;
     let policy = RestrictedCliPolicy {
         tab_id: context.tab_id.clone(),
@@ -194,7 +218,6 @@ fn provision(
         executable,
         config_sha256: digest(CONFIG),
         rule_sha256: digest(&rule_bytes),
-        argv: vec!["identify".into(), "--json".into()],
     };
     let (directory, config, rule) = paths(&policy);
     fs::create_dir(&directory).map_err(|_| DENIED)?;
@@ -292,7 +315,7 @@ pub(super) fn prepare(
                 .and_then(|capability| capability.restricted_cli)
         })
         .flatten()
-        == Some(RestrictedCliCapability::ExecpolicyIdentify);
+        == Some(RestrictedCliCapability::ExecpolicyServiceOperations);
     if !supported {
         return Ok(None);
     }
@@ -305,7 +328,7 @@ pub(super) fn prepare(
         if lease.provider != provider
             || lease.sandbox != sandbox
             || lease.policy.binding_nonce != context.binding_nonce
-            || plain_path(&executable.canonicalize().map_err(|_| DENIED)?)?
+            || command_path(&executable.canonicalize().map_err(|_| DENIED)?)?
                 != lease.policy.executable
         {
             return Err(DENIED.into());
@@ -354,7 +377,7 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
         return Err(DENIED.into());
     }
     let executable = crate::service::instance_env::instance_cli_binary_path().ok_or(DENIED)?;
-    if plain_path(&executable.canonicalize().map_err(|_| DENIED)?)? != policy.executable {
+    if command_path(&executable.canonicalize().map_err(|_| DENIED)?)? != policy.executable {
         return Err(DENIED.into());
     }
     verify_files(policy)
@@ -365,7 +388,6 @@ fn binding_matches(policy: &RestrictedCliPolicy, context: &RuntimeContext) -> bo
         && policy.tab_id == context.tab_id
         && policy.binding_nonce == context.binding_nonce
         && policy.cwd == context.cwd
-        && policy.argv == ["identify", "--json"]
 }
 
 pub(super) fn validate_binding(

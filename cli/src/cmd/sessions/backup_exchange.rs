@@ -96,7 +96,7 @@ pub(super) fn import(
     token: Option<&str>,
     file: &Path,
 ) {
-    let bytes = std::fs::read(file)
+    let bytes = crate::local_admission::read_local_bytes(file)
         .unwrap_or_else(|error| print::fail(1, &format!("Read fixture: {error}")));
     let value: Value = serde_json::from_slice(&bytes)
         .unwrap_or_else(|error| print::fail(1, &format!("Invalid fixture: {error}")));

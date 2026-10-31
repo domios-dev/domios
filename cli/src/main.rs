@@ -1,6 +1,7 @@
 mod client;
 mod cmd;
 mod local_api;
+mod local_admission;
 mod mesh_cli;
 mod protocol;
 mod stdout;
@@ -122,32 +123,22 @@ pub use args::usage::UsageAction;
 mod plugin_bundle;
 
 fn main() {
-    let raw_args: Vec<_> = std::env::args_os().collect();
-    if let Err(reason) =
-        restricted_cli_args(std::env::var_os("CODETERM_CLI_SCOPE").as_deref(), &raw_args)
-    {
+    if let Err(reason) = restricted_cli_scope(
+        std::env::var_os("CODETERM_CLI_SCOPE").as_deref(),
+        crate::nonempty_env("CODETERM_API_TOKEN").is_some(),
+    ) {
         eprintln!("{reason}");
         std::process::exit(7);
     }
     codeterm_build_info::install_version(env!("CARGO_PKG_VERSION"));
-    plugin_bundle::install();
     stdout::run(main_impl);
 }
 
-fn restricted_cli_args(
-    scope: Option<&std::ffi::OsStr>,
-    args: &[std::ffi::OsString],
-) -> Result<(), &'static str> {
-    let Some(scope) = scope else {
-        return Ok(());
-    };
-    if scope == "identify-only"
-        && matches!(args, [_, command, flag] if command == "identify" && flag == "--json")
-    {
-        Ok(())
-    } else {
-        Err("Restricted CLI scope permits only identify --json on the inherited local connection")
-    }
+fn restricted_cli_scope(scope: Option<&std::ffi::OsStr>, inherited_credential: bool) -> Result<(), &'static str> {
+    let Some(scope) = scope else { return Ok(()); };
+    if scope != "service-operations" { return Err("Restricted CLI scope is unknown"); }
+    if !inherited_credential { return Err("Restricted CLI scope requires its inherited launch credential"); }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -180,6 +171,14 @@ fn main_impl() {
     cmd::error_contract::set_json_mode(cli.json);
     cmd::output::set_verbose(cli.verbose);
     cmd::output::configure(&args);
+    let scoped = std::env::var_os("CODETERM_CLI_SCOPE").is_some();
+    if let Some(operation) = local_admission::operation_for_cli(&cli, scoped) {
+        if local_admission::requires_admission(scoped) {
+            if let Err(reason) = local_admission::require(operation) { cmd::print::fail(7, reason); }
+        }
+        plugin_bundle::install();
+    }
+
     if let Commands::App { action } = &cli.command {
         cmd::app::handle(action, cli.json, cli.mesh.is_some());
     }

@@ -9,9 +9,9 @@ export function codexRestrictedCliConfig(ctx: RuntimeContext): Record<string, Js
   const hash = (value: string) => /^[0-9a-f]{64}$/.test(value);
   if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch
     || policy.cwd !== ctx.cwd || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false
+    || !/^[A-Za-z0-9/\\:._-]+$/.test(policy.executable)
     || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0")
-    || ![policy.executableSha256,policy.configSha256,policy.ruleSha256].every(hash)
-    || JSON.stringify(policy.argv) !== JSON.stringify(["identify","--json"]))
+    || ![policy.executableSha256,policy.configSha256,policy.ruleSha256].every(hash))
     throw {code:"binding_mismatch",message:"Restricted CLI policy differs from the bound launch"};
   return {projects:{[ctx.cwd]:{trust_level:"trusted"}}};
 }
@@ -172,4 +172,11 @@ export function codexWritableRootsConfirmed(settings: RuntimeSettings, reply: un
   const same = (value: unknown) => Array.isArray(value) && value.length === expected.length && value.every(path => typeof path === "string" && expected.includes(path));
   return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite"
     && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
+}
+
+export function codexRestrictedCliInstructions(ctx: RuntimeContext, instructions?: string): string | undefined {
+  if (!ctx.restrictedCli) return instructions;
+  codexRestrictedCliConfig(ctx);
+  const executable = ctx.restrictedCli.executable;
+  return [instructions, `Trusted Domios CLI executable: ${executable}. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox.`].filter(value=>value!==undefined).join("\n\n");
 }

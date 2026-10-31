@@ -210,7 +210,6 @@ pub struct RestrictedCliPolicy {
     pub executable_sha256: String,
     pub config_sha256: String,
     pub rule_sha256: String,
-    pub argv: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
