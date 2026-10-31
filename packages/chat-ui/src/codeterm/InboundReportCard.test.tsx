@@ -183,13 +183,13 @@ const detailsToggle = coordination.cardHost.querySelector('button[aria-label="Sh
 if (!detailsToggle) throw new Error("coordination Details disclosure is not accessible");
 if (detailsToggle.getAttribute("aria-expanded") !== "false") throw new Error("collapsed coordination disclosure state is missing");
 const detailsRegionId = detailsToggle.getAttribute("aria-controls");
-if (detailsRegionId !== "chat-details-coordination-ready") throw new Error("coordination Details target id is not stable");
+if (!detailsRegionId || [...document.querySelectorAll("[id]")].filter(element => element.id === detailsRegionId).length !== 1) throw new Error("coordination Details target must be unique");
 const collapsedRegion = coordination.cardHost.querySelector(`#${detailsRegionId}`) as HTMLElement | null;
 if (!collapsedRegion || !collapsedRegion.hidden) throw new Error("collapsed aria-controls does not resolve to a hidden Details region");
 await act(async () => detailsToggle.click());
 const details = coordination.cardHost.querySelector('[data-testid="chat-coordination-details"]');
 const controlledRegion = coordination.cardHost.querySelector(`#${detailsRegionId}`);
-if (!controlledRegion || controlledRegion !== collapsedRegion || collapsedRegion.hidden || detailsToggle.getAttribute("aria-expanded") !== "true" || !controlledRegion.contains(details)) throw new Error("expanded coordination disclosure relationship is broken");
+if (!controlledRegion || controlledRegion !== collapsedRegion || collapsedRegion.hidden || detailsToggle.getAttribute("aria-controls") !== detailsRegionId || detailsToggle.getAttribute("aria-expanded") !== "true" || !controlledRegion.contains(details)) throw new Error("expanded coordination disclosure relationship is broken");
 if (controlledRegion.getAttribute("role") !== "region") throw new Error("coordination Details target lacks region semantics");
 if (details?.textContent !== `DetailsCopy${DISPATCH_READY_REPORT}`) throw new Error("expanded coordination diagnostics are not exact");
 if (details.querySelector("script")) throw new Error("coordination diagnostics executed markup instead of escaping it");
