@@ -1,11 +1,23 @@
 import { unwrapShellLauncher } from "./shellComposition";
 import { lexShell, type LexedSegment, type ShellDialect } from "./shellLexer";
 
-export const SHELL_FILE_LIMITS = Object.freeze({ inputBytes: 16_384, argv: 128, tokens: 256, segments: 64, operations: 8, variables: 16, path: 512, cache: 64, cacheBytes: 262_144 });
+export const SHELL_FILE_LIMITS = Object.freeze({ inputBytes: 16_384, argv: 128, tokens: 256, segments: 64, operations: 8, variables: 16, path: 512, replacements: 8, fragmentBytes: 2_048, totalFragmentBytes: 8_192, cache: 64, cacheBytes: 262_144 });
+
+interface ReplacementFragment {
+  readonly before: string;
+  readonly after: string;
+}
+
+interface ReplacementChain {
+  readonly path: string;
+  readonly fragments: readonly ReplacementFragment[];
+  readonly unsupported: boolean;
+}
 
 export interface ShellFileOperation {
   readonly action: "write" | "append";
   readonly path: string | null;
+  readonly replacement?: ReplacementChain;
 }
 
 export interface ShellFileAnalysis {
@@ -20,6 +32,29 @@ let cacheBytes = 0;
 const WRITERS = new Set(["set-content", "add-content", "out-file"]);
 const VALUE_OPTIONS = new Set(["-value", "-encoding", "-width"]);
 const SWITCH_OPTIONS = new Set(["-append", "-force", "-noclobber", "-nonewline", "-whatif", "-confirm"]);
+const QUOTED_FRAGMENT = `(?:'(?:[^']|'')*'|"[^"$\x60]*")`;
+const REPLACE = new RegExp(`^\\$([A-Za-z_]\\w*)\\.Replace\\(\\s*(${QUOTED_FRAGMENT})\\s*,\\s*(${QUOTED_FRAGMENT})\\s*\\)$`, "i");
+const READ = new RegExp(`^Get-Content\\s+((?:-LiteralPath|-Path)\\s+)?(${QUOTED_FRAGMENT}|\\$[A-Za-z_]\\w*|[^\\s'"$;()]+)\\s+-Raw$`, "i");
+
+function syntaxText(source: string, segment: LexedSegment): string {
+  let text = "";
+  let at = segment.start;
+  for (const range of segment.literalRanges ?? []) {
+    text += source.slice(at, range.start) + " ".repeat(range.end - range.start);
+    at = range.end;
+  }
+  return text + source.slice(at, segment.end);
+}
+
+function writerVariable(segment: LexedSegment): string | null {
+  const args = segment.rawArgv ?? [];
+  let at = 1;
+  if (/^-(?:literalpath|path)$/i.test(args[at] ?? "")) at++;
+  if (!args[at] || args[at].startsWith("-")) return null;
+  at++;
+  if (args[at]?.toLowerCase() === "-value") at++;
+  return at === args.length - 1 && /^\$[A-Za-z_]\w*$/.test(args[at]) ? args[at].slice(1).toLowerCase() : null;
+}
 
 function byteLength(value: string): number {
   if (value.length > SHELL_FILE_LIMITS.inputBytes) return value.length * 3;
@@ -89,24 +124,57 @@ function analyze(command: string, argv?: readonly string[]): ShellFileAnalysis {
   if (segments.length > SHELL_FILE_LIMITS.segments) return LIMITED;
   const operations: ShellFileOperation[] = [];
   const variables = new Map<string, string>();
+  const chains = new Map<string, ReplacementChain>();
+  let replacementCount = 0;
+  let fragmentBytes = 0;
   let limited = false;
   let previous: LexedSegment | undefined;
-  const add = (action: ShellFileOperation["action"], path: string | null) => {
-    if (operations.length < SHELL_FILE_LIMITS.operations) operations.push(Object.freeze({ action, path }));
+  const clear = () => { variables.clear(); chains.clear(); };
+  const add = (action: ShellFileOperation["action"], path: string | null, chain?: ReplacementChain) => {
+    const replacement = chain && chain.path === path && chain.fragments.length > 0 ? chain : undefined;
+    if (operations.length < SHELL_FILE_LIMITS.operations) operations.push(Object.freeze({ action, path, ...(replacement ? { replacement } : {}) }));
     else limited = true;
   };
   for (const segment of segments) {
-    if (previous?.operator === "and" || previous?.operator === "or" || previous?.operator === "pipe") variables.clear();
+    if (previous?.operator === "and" || previous?.operator === "or" || previous?.operator === "pipe") clear();
     const text = unwrapped.command.slice(segment.start, segment.end);
-    if (/\$\(|[{}]/.test(text)) variables.clear();
+    const syntax = syntaxText(unwrapped.command, segment);
+    if (/\$\(|[{}]|\.Replace\([^)]*\(/i.test(syntax)) clear();
     const assignment = /^(\$?[A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)\s*([\s\S]*)$/.exec(text);
     if (assignment) {
-      if (/\$[A-Za-z_]\w*\s*=(?!=)/.test(assignment[2])) variables.clear();
+      if (/\$[A-Za-z_]\w*\s*=(?!=)/.test(syntax.slice(syntax.indexOf("=") + 1))) clear();
       const name = dialect === "powershell" ? assignment[1].replace(/^\$/, "").toLowerCase() : assignment[1];
+      const chain = chains.get(name);
       variables.delete(name);
+      chains.delete(name);
       const value = dialect === "powershell" && !/^["']/.test(assignment[2]) ? null : literal(assignment[2], dialect);
+      if (dialect === "powershell" && assignment[1].startsWith("$")) {
+        const read = READ.exec(assignment[2]);
+        const path = read ? target(read[2], dialect, variables, read[1]?.trim().toLowerCase() !== "-literalpath") : null;
+        const replace = REPLACE.exec(assignment[2]);
+        if (path) {
+          if (variables.size + chains.size < SHELL_FILE_LIMITS.variables) chains.set(name, Object.freeze({ path, fragments: Object.freeze([]), unsupported: false }));
+          else limited = true;
+        } else if (chain && new RegExp(`^\\$${name}\\.Replace\\([\\s,+$A-Za-z0-9_]*\\)$`, "i").test(syntax.slice(syntax.indexOf("=") + 1).trim())) {
+          let next = chain;
+          if (replace && replace[1].toLowerCase() === name && !chain.unsupported) {
+            const decode = (raw: string) => raw[0] === "'" ? raw.slice(1, -1).replace(/''/g, "'") : raw.slice(1, -1);
+            const before = decode(replace[2]);
+            const after = decode(replace[3]);
+            const bytes = byteLength(before) + byteLength(after);
+            if (!before) next = Object.freeze({ ...chain, unsupported: true });
+            else if (before === after) next = chain;
+            else if (replacementCount < SHELL_FILE_LIMITS.replacements && byteLength(before) <= SHELL_FILE_LIMITS.fragmentBytes && byteLength(after) <= SHELL_FILE_LIMITS.fragmentBytes && fragmentBytes + bytes <= SHELL_FILE_LIMITS.totalFragmentBytes) {
+              replacementCount++;
+              fragmentBytes += bytes;
+              next = Object.freeze({ ...chain, fragments: Object.freeze([...chain.fragments, Object.freeze({ before, after })]) });
+            } else { limited = true; next = Object.freeze({ ...chain, unsupported: true }); }
+          } else next = Object.freeze({ ...chain, unsupported: true });
+          chains.set(name, next);
+        } else if (!read && value === null && !/^\[Environment\]::NewLine$/i.test(assignment[2])) clear();
+      }
       if (value !== null && (dialect !== "powershell" || assignment[1].startsWith("$"))) {
-        if (variables.size < SHELL_FILE_LIMITS.variables) variables.set(name, value);
+        if (variables.size + chains.size < SHELL_FILE_LIMITS.variables) variables.set(name, value);
         else limited = true;
       }
     } else {
@@ -114,9 +182,10 @@ function analyze(command: string, argv?: readonly string[]): ShellFileAnalysis {
       if (WRITERS.has(name) && segment.rawArgv?.[0].toLowerCase() === name) {
         const destination = writeTarget(segment);
         const append = name === "add-content" || name === "out-file" && segment.rawArgv?.some(arg => arg.toLowerCase() === "-append");
-        add(append ? "append" : "write", target(destination.raw, dialect, variables, destination.wildcard));
+        const variable = writerVariable(segment);
+        add(append ? "append" : "write", target(destination.raw, dialect, variables, destination.wildcard), name === "set-content" && variable && segment.redirects.length === 0 ? chains.get(variable) : undefined);
       }
-      if (!WRITERS.has(name) && !/^(?:get-content|echo|printf|cat)$/.test(name)) variables.clear();
+      if (!WRITERS.has(name) && !/^(?:get-content|echo|printf|cat)$/.test(name)) clear();
     }
     for (const redirect of segment.redirectTargets ?? []) {
       if (/^(?:\d+|\*|&)?>>?$/.test(redirect.operator)) {
@@ -128,6 +197,11 @@ function analyze(command: string, argv?: readonly string[]): ShellFileAnalysis {
   }
   if (operations.length === 0) return limited ? LIMITED : EMPTY;
   return Object.freeze({ operations: Object.freeze(operations), limited });
+}
+
+function retainedStringBytes(key: string, result: ShellFileAnalysis): number {
+  return (key.length + result.operations.reduce((sum, operation) => sum + (operation.path?.length ?? 0) + (operation.replacement?.path.length ?? 0)
+    + (operation.replacement?.fragments.reduce((size, fragment) => size + fragment.before.length + fragment.after.length, 0) ?? 0), 0)) * 2;
 }
 
 export function shellFileOperations(command: string, argv?: readonly string[]): ShellFileAnalysis {
@@ -142,12 +216,12 @@ export function shellFileOperations(command: string, argv?: readonly string[]): 
   const cached = CACHE.get(key);
   if (cached) return cached;
   const result = analyze(command, argv);
-  const retainedBytes = (key.length + result.operations.reduce((sum, operation) => sum + (operation.path?.length ?? 0), 0)) * 2;
+  const retainedBytes = retainedStringBytes(key, result);
   while (CACHE.size >= SHELL_FILE_LIMITS.cache || cacheBytes + retainedBytes > SHELL_FILE_LIMITS.cacheBytes) {
     const oldest = CACHE.keys().next().value as string | undefined;
     if (oldest === undefined) return result;
     const value = CACHE.get(oldest) as ShellFileAnalysis;
-    cacheBytes -= (oldest.length + value.operations.reduce((sum, operation) => sum + (operation.path?.length ?? 0), 0)) * 2;
+    cacheBytes -= retainedStringBytes(oldest, value);
     CACHE.delete(oldest);
   }
   CACHE.set(key, result);
