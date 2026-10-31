@@ -520,6 +520,7 @@ run_nextest_scope() {
     billing|codeterm-billing) package="codeterm-billing"; targets+=(--lib) ;;
     usage|codeterm-usage) package="codeterm-usage"; targets+=(--lib) ;;
     account|codeterm-account) package="codeterm-account"; targets+=(--lib) ;;
+    neighbors|codeterm-neighbors) package="codeterm-neighbors"; targets+=(--lib --features runtime) ;;
     repowatch|codeterm-repowatch) package="codeterm-repowatch"; targets+=(--lib) ;;
     plan|codeterm-plan)
       package="codeterm-plan"; targets+=(--lib)

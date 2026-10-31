@@ -14,6 +14,26 @@ function runShell(script, directory, env) {
   return spawnSync(process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash', [file.replaceAll('\\', '/')], { encoding: 'utf8', env });
 }
 
+test('neighbors aliases explicitly enable runtime adapter tests', t => {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'neighbors-scope-'));
+  t.after(() => fs.rmSync(temp, { recursive: true, force: true }));
+  const source = fs.readFileSync('build.sh', 'utf8').match(/^run_nextest_scope\(\) \{[\s\S]*?^\}/m)[0];
+  for (const scope of ['neighbors', 'codeterm-neighbors']) {
+    const log = path.join(temp, `${scope}.args`);
+    const result = runShell(`${source}
+cargo() { printf '%s\\n' "$@" > "$SELECTION_LOG"; return 42; }
+run_nextest_scope ${scope} 'test(adapter::)'
+`, temp, { ...process.env, SELECTION_LOG: log });
+    assert.equal(result.status, 42, result.stderr);
+    const args = fs.readFileSync(log, 'utf8').trim().split('\n');
+    assert.deepEqual(args.slice(0, 2), ['nextest', 'list']);
+    assert.equal(args[args.indexOf('-p') + 1], 'codeterm-neighbors');
+    assert.equal(args[args.indexOf('--features') + 1], 'runtime');
+    assert.ok(args.includes('--lib'));
+    assert.equal(args.filter(arg => arg === '--no-default-features').length, 1);
+  }
+});
+
 test('nextest shell selection and full CI use the catalogue lane definitions', () => {
   const { runners } = loadReleaseRust();
   assert.equal(MODES.full[0], FULL_LANES[0]);

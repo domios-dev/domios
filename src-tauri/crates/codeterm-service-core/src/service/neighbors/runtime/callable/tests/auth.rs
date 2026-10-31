@@ -103,7 +103,11 @@ async fn unstructured_401_refreshes_same_generation_and_shared_read_succeeds_wit
 
 #[tokio::test]
 async fn auth_recovery_is_bounded_and_never_replays_a_mutation() {
-    for (route, count) in [("friendsList", 2), ("friendsSetFriendReceiver", 1), ("friendsEnrollVerifierKey", 1)] {
+    for (route, count) in [
+        ("friendsList", 2),
+        ("friendsSetFriendReceiver", 1),
+        ("friendsEnrollVerifierKey", 1),
+    ] {
         let (_fixture, account, calls) = fixture().await;
         let port = Transport::new(vec![
             Err(CallableFailure::Status {
@@ -202,13 +206,17 @@ async fn selected_native_transport_uses_only_its_own_current_account_token() {
             calls,
             codeterm_account::firebase_endpoints::PRODUCTION,
             || codeterm_account::firebase_endpoints::PRODUCTION,
-        ).unwrap();
+        )
+        .unwrap();
         let token = selected.id_token().await;
         if mismatch.is_some() {
             assert!(matches!(token, Err(Error::Revoked)));
         } else {
             assert_eq!(token.unwrap().as_str(), expected.id_token.expose());
         }
-        assert_eq!(account.session().await.unwrap().login_generation, expected.login_generation);
+        assert_eq!(
+            account.session().await.unwrap().login_generation,
+            expected.login_generation
+        );
     }
 }

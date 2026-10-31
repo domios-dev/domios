@@ -258,7 +258,8 @@ impl ServiceContext {
                 service: self.clone(),
                 uid: uid.clone(),
                 generation: session.login_generation,
-            }).map_err(|error| error.to_string())?,
+            })
+            .map_err(|error| error.to_string())?,
             uid: uid.clone(),
             installation_id: installation_id.clone(),
             machine_label,
@@ -295,7 +296,8 @@ impl ServiceContext {
             registry.calls.clone(),
             registry.uid.clone(),
             registry.installation_id.clone(),
-        ).map_err(|error| error.to_string())
+        )
+        .map_err(|error| error.to_string())
     }
 
     pub fn require_neighbor_general(

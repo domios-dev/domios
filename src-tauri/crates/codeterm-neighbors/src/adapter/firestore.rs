@@ -37,10 +37,16 @@ async fn connection(
             .connect()
             .await
             .map_err(|_| {
-                transport.calls.firestore_failure("connect", target.uri(), None, "transport_connect");
+                transport.calls.firestore_failure(
+                    "connect",
+                    target.uri(),
+                    None,
+                    "transport_connect",
+                );
                 Error::Transport
             })
-    }).await?;
+    })
+    .await?;
     Ok((
         FirestoreClient::new(channel).max_decoding_message_size(2 * 1024 * 1024),
         token,
@@ -58,7 +64,10 @@ where
 {
     if !crate::wire::uid(&transport.uid)
         || transport.project.is_empty()
-        || !transport.project.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        || !transport
+            .project
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
     {
         return Err(Error::InvalidEnvelope);
     }

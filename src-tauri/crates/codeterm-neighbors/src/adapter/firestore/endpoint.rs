@@ -20,13 +20,15 @@ impl FirestoreTarget {
 
     fn resolve(debug: bool, selected: bool, target: &str, project: &str) -> Result<Self> {
         let local = debug && selected && target == EMULATOR && project == "demo-domios";
-        let cloud = !selected
-            && target == GOOGLE
-            && matches!(project, "domios-d9357" | "domios-signin-qa");
+        let cloud =
+            !selected && target == GOOGLE && matches!(project, "domios-d9357" | "domios-signin-qa");
         if !local && !cloud {
             return Err(Error::Transport);
         }
-        Ok(Self { project: project.into(), local })
+        Ok(Self {
+            project: project.into(),
+            local,
+        })
     }
 
     pub fn project(&self) -> &str {
@@ -34,7 +36,11 @@ impl FirestoreTarget {
     }
 
     pub(super) fn uri(&self) -> &'static str {
-        if self.local { EMULATOR } else { GOOGLE }
+        if self.local {
+            EMULATOR
+        } else {
+            GOOGLE
+        }
     }
 
     pub(super) fn tls(&self) -> bool {

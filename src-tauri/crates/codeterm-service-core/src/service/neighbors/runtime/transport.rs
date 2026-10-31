@@ -15,12 +15,15 @@ struct Selection {
 impl Selection {
     fn resolve(debug: bool, endpoints: Endpoints) -> Result<Self> {
         let firestore = if endpoints.emulator {
-            if !debug || endpoints.qa
-                || endpoints.identity_toolkit != "http://127.0.0.1:19099/identitytoolkit.googleapis.com/v1/"
+            if !debug
+                || endpoints.qa
+                || endpoints.identity_toolkit
+                    != "http://127.0.0.1:19099/identitytoolkit.googleapis.com/v1/"
                 || endpoints.secure_token != "http://127.0.0.1:19099/securetoken.googleapis.com/v1/"
                 || endpoints.functions != "http://127.0.0.1:15001/demo-domios/us-central1/"
                 || endpoints.signin != "http://127.0.0.1:15000/signin/"
-                || endpoints.redeem != "http://127.0.0.1:15001/demo-domios/us-central1/redeemDesktopLoginCode"
+                || endpoints.redeem
+                    != "http://127.0.0.1:15001/demo-domios/us-central1/redeemDesktopLoginCode"
             {
                 return Err(Error::Transport);
             }
@@ -29,7 +32,8 @@ impl Selection {
             let qa = Endpoints {
                 functions: "https://us-central1-domios-signin-qa.cloudfunctions.net/",
                 signin: "https://domios-signin-qa.web.app/signin/",
-                redeem: "https://us-central1-domios-signin-qa.cloudfunctions.net/redeemDesktopLoginCode",
+                redeem:
+                    "https://us-central1-domios-signin-qa.cloudfunctions.net/redeemDesktopLoginCode",
                 qa: true,
                 ..PRODUCTION
             };
@@ -43,7 +47,10 @@ impl Selection {
             }
             FirestoreTarget::google("domios-d9357")?
         };
-        Ok(Self { endpoints, firestore })
+        Ok(Self {
+            endpoints,
+            firestore,
+        })
     }
 
     fn current() -> Result<Self> {
@@ -77,7 +84,11 @@ impl Selection {
 }
 
 pub(in crate::service::neighbors) fn calls(calls: Calls) -> Result<Arc<dyn AuthenticatedCall>> {
-    bind(calls, firebase_endpoints::current(), firebase_endpoints::current)
+    bind(
+        calls,
+        firebase_endpoints::current(),
+        firebase_endpoints::current,
+    )
 }
 
 pub(super) fn bind(
@@ -116,7 +127,13 @@ impl AuthenticatedCall for SelectedCalls {
         Ok(self.selection.firestore.clone())
     }
 
-    fn firestore_failure(&self, operation: &'static str, target: &str, code: Option<i32>, kind: &str) {
+    fn firestore_failure(
+        &self,
+        operation: &'static str,
+        target: &str,
+        code: Option<i32>,
+        kind: &str,
+    ) {
         self.calls.firestore_failure(operation, target, code, kind);
     }
 
@@ -129,7 +146,10 @@ impl AuthenticatedCall for SelectedCalls {
 
     async fn invoke(&self, route: &str, data: serde_json::Value) -> Result<serde_json::Value> {
         self.selection.validate((self.current)())?;
-        let result = self.calls.invoke_at(self.selection.endpoints.functions, route, data).await;
+        let result = self
+            .calls
+            .invoke_at(self.selection.endpoints.functions, route, data)
+            .await;
         self.selection.validate((self.current)())?;
         result
     }
