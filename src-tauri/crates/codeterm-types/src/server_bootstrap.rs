@@ -138,6 +138,8 @@ pub enum InstanceSelector {
         port: u16,
     },
     IsolatedVerification {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instance: Option<String>,
         data_dir: PathBuf,
         config_dir: PathBuf,
         bind: SocketAddr,
@@ -195,16 +197,30 @@ impl LaunchOptions {
                 }
             }
             InstanceSelector::IsolatedVerification {
+                instance,
                 data_dir,
                 config_dir,
                 bind,
-            } => validate_isolated_verification(
-                data_dir,
-                config_dir,
-                *bind,
-                &dirs::home_dir()
-                    .ok_or_else(|| std::io::Error::other("Cannot determine the user data root"))?,
-            ),
+            } => {
+                match (development_artifact, instance.as_deref()) {
+                    (true, Some(name)) if !name.is_empty() && name.len() <= 64
+                        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') => {}
+                    (true, _) => return Err(std::io::Error::other(
+                        "Debug isolated verification requires --instance with a lowercase instance slug",
+                    )),
+                    (false, Some(_)) => return Err(std::io::Error::other(
+                        "Release isolated verification does not support --instance",
+                    )),
+                    (false, None) => {}
+                }
+                validate_isolated_verification(
+                    data_dir,
+                    config_dir,
+                    *bind,
+                    &dirs::home_dir()
+                        .ok_or_else(|| std::io::Error::other("Cannot determine the user data root"))?,
+                )
+            }
             _ => Err(std::io::Error::other(
                 "Instance selector does not match server artifact",
             )),

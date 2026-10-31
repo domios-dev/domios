@@ -122,12 +122,26 @@ fn process_split_contract_release_isolated_verification_mode_parses_explicit_roo
     assert!(!start.json);
     assert!(matches!(
         start.options.instance,
-        InstanceSelector::IsolatedVerification { data_dir: ref selected_data, config_dir: ref selected_config, bind }
+        InstanceSelector::IsolatedVerification { instance: None, data_dir: ref selected_data, config_dir: ref selected_config, bind }
             if selected_data.as_path() == data.path()
                 && selected_config.as_path() == config.path()
                 && bind == expected_bind
     ));
-    assert!(human_start_options(&args, &executable, true).is_ok());
+    assert!(human_start_options(&args, &executable, true).is_err());
+    let mut debug_args = args.clone();
+    debug_args.extend(["--instance".into(), "verification-a".into()]);
+    let debug = human_start_options(&debug_args, &executable, true).unwrap();
+    assert!(matches!(debug.options.instance,
+        InstanceSelector::IsolatedVerification { instance: Some(ref name), ref data_dir, ref config_dir, bind }
+            if name == "verification-a" && data_dir == data.path() && config_dir == config.path() && bind == expected_bind));
+    assert!(human_start_options(&debug_args, &executable, false).is_err());
+    debug_args.extend(["--instance".into(), "verification-b".into()]);
+    assert!(human_start_options(&debug_args, &executable, true).is_err());
+    for invalid in ["", "Upper", "../foreign", "name_with_underscore", &"a".repeat(65)] {
+        let mut invalid_args = args.clone();
+        invalid_args.extend(["--instance".into(), invalid.into()]);
+        assert!(human_start_options(&invalid_args, &executable, true).is_err());
+    }
 
     let mut non_loopback = args.clone();
     non_loopback.extend(["--host".to_string(), "0.0.0.0".to_string()]);

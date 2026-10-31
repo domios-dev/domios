@@ -264,8 +264,18 @@ create distinct existing temporary data and config directories and choose a
 private port other than 7685 or 7686:
 
 ```text
-domios-server start --verify-isolated --data-dir <absolute-data-dir> --config-dir <absolute-config-dir> --port <private-port>
+Debug: domios-server start --verify-isolated --instance <explicit-lowercase-slug> --data-dir <absolute-data-dir> --config-dir <absolute-config-dir> --port <private-port>
+Release: domios-server start --verify-isolated --data-dir <absolute-data-dir> --config-dir <absolute-config-dir> --port <private-port>
 ```
+
+Debug verification requires an explicit valid instance slug; absent, invalid or
+repeated selection refuses. The host installs it before resolving IPC or child
+environments: the server and its General/PTY/chat-backend children use the same
+`domios-dev-<slug>.sock` and custom API port while retaining the exact private
+paths. Do not infer a slug from a directory or port. Choose an unused instance;
+a socket/port collision refuses rather than attaching elsewhere. Release
+verification rejects `--instance` and retains its existing PID socket behavior;
+this debug repair does not establish release General CLI verification.
 
 This mode binds `127.0.0.1`, and refuses relative paths and
 paths under the user's `.codeterm*` directories. It uses the private bootstrap
@@ -278,10 +288,14 @@ bootstrap pipe. Probe `http://127.0.0.1:<port>/api/health`. Capture the credenti
 with the packaged CLI's local-only `system api-token` command while setting
 `CODETERM_DATA_DIR=<data-dir>`, then set it with `CODETERM_API_TOKEN`;
 also set `CODETERM_DATA_DIR` to `<data-dir>` and `CODETERM_API_URL` to
-`http://127.0.0.1:<port>`. Add a fresh matching `CODETERM_INSTANCE` and
-`CODETERM_SOCKET_PATH` (for example `verify-smoke-<random>` and
-`domios-dev-verify-smoke-<random>.sock`). This forces a private HTTP fallback
-without scanning or connecting to another local server. Set
+`http://127.0.0.1:<port>`. For debug, use the exact launched `CODETERM_INSTANCE`
+and `CODETERM_SOCKET_PATH=domios-dev-<slug>.sock`; never replace a lifecycle-owned
+General child's selectors or credential with the external owner's values.
+For release external-only verification, a fresh matching `CODETERM_INSTANCE`
+and `CODETERM_SOCKET_PATH` (for example `verify-smoke-<random>` and
+`domios-dev-verify-smoke-<random>.sock`) selects a private HTTP fallback without
+scanning or connecting to another local server; it does not rename server IPC
+or repair inherited General tools. Set
 `CODETERM_API_PORT=<private-port>` explicitly, then run `domios identify --json` to verify
 authenticated CLI access. Do not put the token in argv, the URL, or test output.
 

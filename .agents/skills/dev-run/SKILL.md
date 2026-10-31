@@ -1034,3 +1034,21 @@ still prove process exit and session restoration on each platform.
 with an OS file lock through their supervisor lifetime. A second launcher refuses;
 use scoped `kill` or let the first launcher exit before launching again. A
 leftover lock file is harmless; do not delete a lock file held by a live launcher.
+
+### Debug isolated headless agents and CLI identity
+
+A debug `domios-server start --verify-isolated` now requires `--instance NAME`
+in addition to the explicit private data/config directories and custom port.
+Use an owner-selected unused lowercase slug, not a guessed socket or an inherited
+DEV selector. The host binds the corresponding named DEV socket before launching
+General, PTY or chat-backend children; their exact tab/nonce/credential remain
+lifecycle-owned. Default DEV socket plus custom port remains a CLI refusal.
+Private data/config and PostgreSQL ownership stay unchanged; ordinary named
+`start --development` is not a substitute for retained explicit private paths.
+
+Release isolated verification forbids this instance option and keeps its existing
+PID IPC behavior; debug child-tool proof does not qualify release General tools.
+The build skill owns the full isolated launch and shutdown recipe. Any real
+fixture launch, account operation or General tool request requires its separate
+authorization and exact matched artifact identity. Do not reroute a QA-compiled
+DEV to emulator endpoints or alter an existing running instance to test this seam.
