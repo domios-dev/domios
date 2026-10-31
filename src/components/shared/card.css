@@ -218,9 +218,35 @@ button.ct-card__head {
   opacity: 1;
 }
 
+.ct-tool-status-slot {
+  display: grid;
+  width: 24px;
+  flex: none;
+  align-items: center;
+  justify-items: center;
+}
+
+.ct-tool-status-slot > * {
+  grid-area: 1 / 1;
+}
+
+.ct-tool-status-slot > [data-testid="toolcard-status"] {
+  pointer-events: none;
+}
+
+.ct-card:hover .ct-tool-status-slot:has(.ct-card__menu) > [data-testid="toolcard-status"],
+.ct-card:focus-within .ct-tool-status-slot:has(.ct-card__menu) > [data-testid="toolcard-status"],
+.ct-tool-status-slot:has(.ct-card__menu.is-shown) > [data-testid="toolcard-status"] {
+  opacity: 0;
+}
+
 @media (hover: none) {
   .ct-card__menu {
     opacity: 1;
+  }
+
+  .ct-tool-status-slot:has(.ct-card__menu) > [data-testid="toolcard-status"] {
+    opacity: 0;
   }
 }
 

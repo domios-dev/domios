@@ -112,12 +112,14 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           <span data-testid="toolcard-no-result" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>no result</span>
         )}
         {action}
+        <span className="ct-tool-status-slot">
         <span data-testid="toolcard-status" className="flex w-4 shrink-0 items-center justify-center" aria-label={event.status === "unresolved" ? "no result" : event.status} style={{ color: statusColor }}>
           {event.status === "pending"
             ? <LoaderCircle className="animate-spin" size={14} />
             : event.status === "error" ? <CircleX size={14} /> : event.status === "unresolved" || event.status === "interrupted" ? <Minus size={14} /> : <Check size={14} />}
         </span>
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
+        </span>
         <ChevronRight aria-hidden="true" size={14} className={expanded ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
       </div>
       {primaryContent && <div className="px-3 pb-2">{primaryContent}</div>}
