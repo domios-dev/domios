@@ -353,7 +353,10 @@ async fn lifecycle_cli_pin_controls_bare_aliases_in_child_and_grandchild_shells(
                     .unwrap(),
                 "{surface}: {alias}"
             );
-            assert_eq!(probe["environment"], serde_json::to_value(&identity).unwrap());
+            assert_eq!(
+                probe["environment"],
+                serde_json::to_value(&identity).unwrap()
+            );
         }
     }
 }

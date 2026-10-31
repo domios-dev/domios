@@ -136,6 +136,9 @@ fn lifecycle_cli_and_exact_caller_identity_override_forged_launch_extras() {
     assert_eq!(composed, owned);
     assert_eq!(composed["CODETERM_CLI_PATH"], "private-worker/codeterm");
     assert_eq!(composed["CODETERM_TAB_ID"], "own-tab");
-    assert_eq!(composed["CODETERM_SESSION_BINDING_NONCE"], "own-session-nonce");
+    assert_eq!(
+        composed["CODETERM_SESSION_BINDING_NONCE"],
+        "own-session-nonce"
+    );
     assert_eq!(composed["CODETERM_API_TOKEN"], "own-token");
 }
