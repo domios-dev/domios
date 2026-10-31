@@ -58,7 +58,7 @@ function segmentBranch(row: CommandRow, resolvePlugin?: PluginNameResolver): Bra
   };
 }
 
-const LINE_CLASS = "flex w-full min-w-0 items-center gap-1.5 rounded px-1 text-left leading-[18px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]";
+const LINE_CLASS = "flex w-full min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap rounded px-1 text-left leading-[18px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]";
 const QUIET = "var(--ct-muted-fg)";
 
 /** Compact inline branches under a call, capped with "+N more"; at most one detail opens inline. */
@@ -82,7 +82,7 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
       {branches.slice(0, visible).map((branch, index) => {
         const open = renderDetail != null && openIndex === index;
         const Glyph = branch.glyph;
-        const name = branch.object ? `${branch.lead} ${branch.object}` : branch.lead;
+        const name = branch.object ? `${branch.lead.replace(/\s+/g, " ").trim()} ${branch.object}` : branch.lead;
         return (
           <li key={index} data-testid="chat-command-tree-line" data-branch-kind={branch.kind} data-row-role={branch.role} className="min-w-0">
             <button
@@ -96,10 +96,10 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
               {Glyph && <Glyph aria-hidden="true" size={12} className="shrink-0" style={{ color: quiet ? QUIET : branch.color }} />}
               <span
                 data-testid="chat-command-tree-lead"
-                className={branch.kind === "output" ? "min-w-0 truncate" : "shrink-0"}
+                className="min-w-0 truncate"
                 style={{ color: quiet ? QUIET : branch.color ?? QUIET }}
               >
-                {branch.lead}
+                {branch.lead.replace(/\s+/g, " ").trim()}
               </span>
               {branch.object && (
                 <span data-testid="chat-command-tree-object" className="min-w-0 truncate" style={{ color: quiet || branch.dim ? QUIET : "var(--ct-fg)" }}>{branch.object}</span>

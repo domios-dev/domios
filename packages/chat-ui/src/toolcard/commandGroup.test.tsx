@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage, type ToolEvent } from "@codeterm/chat-core";
 import { toolCommandShape } from "../codeterm/commandShape";
 import { ToolCallBubble } from "../ToolCallBubble";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 import { CommandGroupCard } from "./CommandGroupCard";
 import { act, render } from "./cardTestSetup";
 
@@ -102,7 +103,13 @@ describe("compound command group", () => {
     const closed = await render(<CommandGroupCard event={event} rows={shape.rows} expanded={false} onToggle={() => {}} />);
     expect(closed.querySelector('[aria-label="Command output"]')?.hasAttribute("hidden")).toBe(true);
     expect(closed.textContent).not.toContain(event.result);
-    const open = await render(<CommandGroupCard event={event} rows={shape.rows} expanded onToggle={() => {}} />);
+    const open = await render(<ChatBlockHostProvider value={{ renderMenu: ({items}) => <>{items.map(item =>
+      <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}>
+      <CommandGroupCard event={event} rows={shape.rows} expanded onToggle={() => {}} />
+    </ChatBlockHostProvider>);
+    expect(open.textContent).not.toContain(event.result);
+    const details = [...open.querySelectorAll("button")].find(button => button.textContent === "Technical details")!;
+    await act(async () => details.click());
     expect(open.querySelector('[aria-label="Command output"]')?.textContent).toContain(event.result);
     expect(open.textContent?.split(event.result)).toHaveLength(2);
     expect(open.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe("pending");

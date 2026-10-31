@@ -2,6 +2,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
+import { ChatBlockHostProvider } from "../../../packages/chat-ui/src/blocks/ChatBlockHost";
 import { ToolCallBubble } from "../../../packages/chat-ui/src/ToolCallBubble";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
@@ -25,7 +26,7 @@ let host: HTMLDivElement;
 let root: Root;
 beforeEach(() => { host = document.createElement("div"); document.body.append(host); root = createRoot(host); });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
-const show = async (node: ReactNode) => { await act(async () => root.render(node)); };
+const show = async (node: ReactNode) => { await act(async () => root.render(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}>{node}</ChatBlockHostProvider>)); };
 const click = async (node: Element | null) => {
   expect(node).not.toBeNull();
   await act(async () => { node!.dispatchEvent(new MouseEvent("click",{bubbles:true})); });
@@ -42,6 +43,8 @@ describe("live command presentation", () => {
     expect(host.querySelectorAll('[role="timer"]')).toHaveLength(1);
     await click(toggle);
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(host.querySelector('[aria-label="Command output"]')?.hasAttribute("hidden")).toBe(true);
+    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Technical details") ?? null);
     expect(host.querySelector('[aria-label="Command output"]')?.textContent).toContain("opaque-partial");
     expect(host.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe("pending");
     const lines = host.querySelectorAll('[data-testid="chat-command-tree-line"]');
@@ -58,6 +61,7 @@ describe("live command presentation", () => {
     expect(host.querySelector('[data-testid="chat-live-operation"]')).toBeNull();
     expect(host.querySelectorAll('[data-testid="chat-command-group"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe("success");
+    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Technical details") ?? null);
     expect(host.querySelector('[aria-label="Command output"]')?.textContent).toContain("opaque-final");
     expect(host.querySelectorAll('[data-testid="chat-command-tree-line"]')[1].querySelector('[data-testid="chat-command-tree-detail"]')?.textContent).toContain("echo opaque-second");
   });
@@ -70,6 +74,8 @@ describe("live command presentation", () => {
     expect(host.querySelector('[data-testid="chat-live-operation"]')).toBeNull();
     expect(host.querySelectorAll('[data-testid="chat-command-group"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe(status === "failed" ? "error" : "interrupted");
+    expect(host.textContent).not.toContain(`opaque-${status}-output`);
+    await click([...host.querySelectorAll("button")].find(button => button.textContent === "Technical details") ?? null);
     expect(host.textContent).toContain(`opaque-${status}-output`);
   });
 
