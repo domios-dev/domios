@@ -452,9 +452,10 @@ async fn loopback_local_admission_denies_concierge_before_dispatch() {
         assert_eq!(status, StatusCode::FORBIDDEN);
         assert_eq!(body.0["error"]["code"], -32003);
     }
-    assert!(call(state, &token, "system.identify", None)
+    let (status, body) = call(state, &token, "system.identify", None)
         .await
-        .unwrap()
-        .0["result"]
-        .is_object());
+        .unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert_eq!(body.0["error"]["code"], -32000);
+    assert_eq!(body.0["error"]["message"], "rpc bridge test stub");
 }

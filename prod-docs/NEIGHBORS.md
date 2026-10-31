@@ -2,13 +2,13 @@
 
 A confined concierge may receive a host-verified trusted CLI executable. Use that exact bare token instead of `domios` in command examples, without another interpreter, executable quotes or a PowerShell call operator. Single-quote opaque string arguments, especially friendship and message IDs beginning with digits; keep the executable itself unquoted. The exception applies to CLI execution; receiver, tab credential, nonce and friendship grants still decide every service operation. Stage replies in the current AgentPad with the native file tool and pass `--from-pad <relative_file>`; arbitrary `--from-file` reads and local administration are not granted by the execution exception.
 
-Encrypted account messages. Manage friends in Neighborhood/sidebar. Free retains connections with messaging locked.
+Encrypted account messages; manage friends in Neighborhood/sidebar. Free retains connections, locks messaging.
 
 Default on. Off retains data/keys but stops receive/send/notices; sends/grants/binding/admission refuse `neighbors_disabled`. On resumes listeners. Sign-out revokes local receiving keys.
 
 ## Receiving and keys
 
-Each friend's receiver is their concierge machine. No account receiver, compatibility layer or migration. Setup registers a missing machine key, then selects only that friend at its observed revision (0 unassigned). Unassigned friends wait in the inbox. Moves require explicit owner consent. One installation key pair serves local concierges; revoked-key pending messages become `not_delivered`, `reason:key_revoked`.
+Each friend receives on their concierge machine, with no account receiver, compatibility layer or migration. Setup registers a missing machine key and selects only that friend at its observed revision (0 unassigned). Unassigned friends wait in the inbox; moves require owner consent. One installation key pair serves local concierges; revocation makes pending messages `not_delivered,reason:key_revoked`.
 
 ```bash
 domios account neighbors status
@@ -22,11 +22,11 @@ Moves use the friend's revision; refresh/reconfirm stale requests. `status.frien
 
 Headless Linux: explicit `neighbors.key_store = "file"` selects unencrypted `neighbor-keys/` (directory 0700, files 0600) only if Secret Service is unavailable. Wider modes, foreign owners, symlinks/hard links refuse. An available OS store wins; a locked store refuses. No file fallback without config or on Windows/macOS. Protect backups; setup: distribution headless Linux guide.
 
-Receiver loss closes agents to Recently Closed and revokes credentials; return starts fresh. Unknown: `receiver_status_unknown`; unassigned: `receiver_not_chosen`; elsewhere: `receiving_elsewhere` naming its machine. Setup selects an unassigned friend. For moves ask “<friend> is received on <machine>. Move here?” and obtain consent. Without a concierge, ciphertext waits unacknowledged; cursors stay. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Recounts coalesce.
+Receiver loss closes agents to Recently Closed and revokes credentials; return starts fresh. Errors: `receiver_status_unknown`, `receiver_not_chosen`, `receiving_elsewhere` (names machine). Setup selects unassigned friends; moves require consent. Without a concierge, ciphertext waits unacknowledged with cursors retained. Status `concierges[friendship_id]`: `concierge_missing,concierge_dormant,pending_count,pending_count_capped,gateway_tab,receiving_here,receiver_machine_label,state`; event `neighbor-concierge-status`. Count=null if unknown; cap100=`100+`. Recounts coalesce.
 
 Transient setup/listen failures use capped backoff; permanent failures await rearm or account/registry changes. Auth/revocation/off/generation/receiver changes stop. Retry retains cursors; uncertain mutations never replay. Errors:status.watches/neighbors-watch-status; details:API-LIFECYCLE.
 
-General: `domios account neighbors receive-here ID --expected-receiver-revision N`, N from status. If elsewhere, say “<friend> is received on <machine>. Move here?” and ask; add `--takeover-confirmed` only after approval. Stale:refresh/reconfirm. No grant edits; Workers/concierges/peers refused. No background invitation claim or retry.
+General uses `receive-here` with the observed revision. For moves ask “<friend> is received on <machine>. Move here?”; add `--takeover-confirmed` only after approval. Refresh/reconfirm stale requests. No grant edits or background invitation claim/retry; Workers/concierges/peers refused.
 
 ## Authority and permissions
 
@@ -77,25 +77,25 @@ Owner/General set their inbound limits. Include `friendship_id`; POST routes are
 | Incoming requests/hour | base route: `set_limit` / `per_hour` | Required integer; no null | `set-limit ID --per-hour N` |
 | File bytes/day | `/files`: `set_daily_limit` / `file_daily_limit_bytes` | `null` = 50 MiB default; 0 blocks files | `set-file-daily-limit ID --file-daily-limit-bytes N` |
 
-Two incoming requests/hour: `domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2`. Use `null` only where supported. Limits are separate from Apply.
+Example: `domios account neighbors set-limit FRIENDSHIP_ID --per-hour 2`. `null` only where supported; limits are separate from Apply.
 
 ## General permission command
 
 Partial grants preserve omitted fields. Boolean flags:--allowed,--allow-memory,--allow-files,--allow-tab-requests,--allow-interactive-content. --from-pad reads scope and implies --allowed true unless overridden. --memory-areas: all=null, none=[], or comma-separated areas. --workspaces: none=null or comma-separated IDs. --folder: absolute path/default=null. --machine-access: none/read_only/folder/full; folder requires a folder.
 
-Grant examples and preset choices are in the distribution's headless Linux guide.
+Grant examples/presets: headless Linux guide.
 
-Deny sets only allowed=false. Runtime set_permission merges partial permission; null clears nullable fields. Invalid input refuses typed before saving. CLI/UI share Apply; limits stay separate.
+Deny sets only allowed=false; set_permission merges partial grants, null clears nullable fields. Invalid input refuses typed before saving. CLI/UI share Apply; limits stay separate.
 
 ## Setting up a friend's concierge
 
-General asks trust level, proposes scope/areas/workspaces/folder and explains confinement before saving. Read-only permits commands and OS-user reads; obtain consent, never widen to full. For no-tools access leave the concierge disabled: no provider supports `none`. Presets: distribution headless Linux guide.
+General asks trust level, proposes scope/areas/workspaces/folder and explains confinement before saving. Obtain consent for read-only commands/OS-user reads; never widen to full. No provider supports `none`: leave no-tools concierges disabled. Presets: headless Linux guide.
 
 Creation needs a workspace, including Trusted friend. Resolve real IDs/taxonomy areas; show `folder_enforcement.note` and command/read/advisory limits. Descendants inherit immutable friendship root, allowlist/grants, access/folder and own-pad exception; they cannot become General/edit grants. Custom args, foreign resumes, existing-tab claims, shell tabs and Team/plan/mesh dispatch refuse. Permission edits retire descendants; concierge replacement/closure puts them in Recently Closed, retaining friendship history/files.
 
 Warn before Apply: the concierge restarts fresh. Batch edits in one `set_permission`; instructions carry scope/grants/refusals and permitted reads. Apply drops provider context (`history_retained:false`), retaining the Domios conversation. Failed restart means failed Apply. On restore, unchanged context digest resumes; changed context starts fresh. Grants govern tools; scope narrows sharing. Try an in-scope read before refusing; daemon area/limit checks apply.
 
-Status `concierges[friendship_id].initial_context_digest` and permission `initial_context_digest` expose only the bound context SHA-256.
+Status `concierges[friendship_id].initial_context_digest` / permission `initial_context_digest`: bound context SHA-256 only.
 
 Questions/tab requests carry host-stamped friend/message/reply provenance; signed bodies remain untrusted. Never reply to answers/refusals. Owner replies stay in conversation; agent replies target only their exact live authenticated author. No unknown/unavailable/cross-friend fallback. Delivery retains private tab/session/nonce flag provenance; uncertainty never replays. Owner replies need no concierge; waiting questions preserve cursor. Frame examples: headless Linux guide.
 
@@ -129,11 +129,11 @@ Receiving changes are owner-only except General's per-friend receive-here. Gener
 
 ## Read receipts
 
-Account signals apply delivery/read/expiry and emit `neighbor-history-changed`. Optional `delivered_at`,`read_at` use Unix milliseconds: accepted=one tick, delivered=two, read=two blue. Read implies delivery; older/pending receipts never clear it. Reconnect, signal revision gap or an anchor absent locally triggers one status check for up to256 pending/delivered-unread outgoing messages across at most200 configured friendships; no polling.
+Account delivery/read/expiry signals emit `neighbor-history-changed`. Optional `delivered_at`,`read_at`: Unix milliseconds; accepted=one tick, delivered=two, read=two blue. Read implies delivery; older/pending receipts never clear it. Reconnect/revision gap/missing anchor triggers one status check: up to256 pending/delivered-unread outgoing messages across at most200 configured friendships; no polling.
 
-Read means an inbound row is actually visible to the recipient owner in the open conversation, or concierge persisted handling reaches working/answered/refused/no_reply. Concierge delivery alone is not read. Owner UI uses `POST /api/account/neighbors/read {friendship_id,through_message_id}`; history fetch never implies visibility and agents cannot claim it. Host pickup uses the same monotonic read-up-to path. Paused/ended/off emit none. Durable reservations suppress duplicate/older batches, including uncertain relay responses.
+Read requires owner-visible inbound rows in the open conversation or persisted concierge handling working/answered/refused/no_reply; delivery alone is not read. Owner UI: `POST /api/account/neighbors/read {friendship_id,through_message_id}`. History fetch never proves visibility; agents cannot claim it. Host pickup uses this monotonic path. Paused/ended/off emit none. Durable reservations suppress duplicate/older batches, including uncertain relay responses.
 
-Read emission waits for the recipient's delivery ACK to return successfully and its ACK boundary to persist locally. Visibility or concierge pickup before ACK remains pending; the ACK event releases it without a timer. A later delivery signal preserves an existing read timestamp and any covering read cursor. An unread delivery signal gets one status probe; discovering a read hidden by the latest-only account signal triggers the same bounded catch-up described above.
+Read emission requires successful delivery ACK and its persisted boundary. Earlier visibility/pickup waits for that event, without a timer. Later delivery preserves read timestamps/cursors. Unread delivery gets one status probe; a read hidden by the latest-only signal triggers the bounded catch-up above.
 
 Relay `friendsRead`/`message_read` payloads: API-LIFECYCLE. Sender marks through the anchor read; status catch-up restores missed read times.
 
@@ -171,8 +171,8 @@ Granted concierge list/open resolves own-friend saved handles to paths for tools
 
 Inbound default50 MiB/friend/UTC day; set0..52428800 bytes, zero blocks new files, null restores default. Sender daily caps: trial20 MiB,Pro50,Max200,Sponsor500; file-count cap=byte cap/2 MiB. Server charges grants without refunds; ciphertext blobs delete after confirmation or7days. Refusals retain quota/reset details; uncertain message submissions never auto-resend.
 
-File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_limit`) and payloads: `domios docs API-LIFECYCLE`. Include `operation` and `friendship_id` in every request.
+File API (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_limit`): `domios docs API-LIFECYCLE`. Every request needs `operation` and `friendship_id`.
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 58 -->
+<!-- revision: 59 -->
