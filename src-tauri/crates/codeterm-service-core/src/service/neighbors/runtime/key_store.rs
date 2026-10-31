@@ -97,7 +97,8 @@ impl ServiceContext {
         &self,
     ) -> Arc<dyn codeterm_neighbors::keys::KeyStore> {
         assert!(self.try_ext::<FixtureKeyStoreBinding>().is_none());
-        let store: Arc<dyn codeterm_neighbors::keys::KeyStore> = Arc::new(MemoryKeyStore::default());
+        let store: Arc<dyn codeterm_neighbors::keys::KeyStore> =
+            Arc::new(MemoryKeyStore::default());
         self.extensions
             .get_or_init(|| FixtureKeyStoreBinding(Arc::downgrade(&store)));
         store
