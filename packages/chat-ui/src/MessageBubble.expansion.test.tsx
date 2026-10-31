@@ -43,6 +43,8 @@ async function run() {
   const messages = [
     command("expanded-send", "codeterm send --tab worker-1 \"Please review the change\""),
     command("collapsed-tab-list", "codeterm tab list --workspace codeterm"),
+    {...command("collapsed-group", "echo opaque-first; echo opaque-second"),toolStatus:"completed" as const,toolResult:"opaque-group-result"},
+    {...command("collapsed-generic", "opaque-generic-detail"),toolKind:"generic" as const,toolStatus:"failed" as const,toolResult:"opaque-failure-result"},
   ];
   const completedRead = command("collapsed-read", "src/coordination.ts");
   const completedCommand = command("collapsed-command", "git status --short");
@@ -152,7 +154,24 @@ async function run() {
   assert(read?.querySelector('[aria-label="Expand tool details"]'), "completed read-only inspection should start collapsed");
   assert(!read?.textContent?.includes("private inspection output"), "collapsed read-only inspection should hide output");
   assert(completedCommandCard?.querySelector('[aria-label="Show full command"]'), "completed shell command should start collapsed");
-  assert(edit?.querySelector('[aria-label="Collapse tool details"]'), "completed code edit should stay visibly expanded");
+  const editToggle = edit?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+  assert(editToggle?.getAttribute("aria-expanded") === "false", "historical code edit starts collapsed");
+  await act(async () => editToggle.click());
+  assert(editToggle.getAttribute("aria-expanded") === "true", "historical code edit reveals its details on demand");
+  const group = host.querySelector('[data-testid="chat-command-group"]');
+  const groupToggle = group?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+  assert(groupToggle?.getAttribute("aria-expanded") === "false", "historical command group starts collapsed");
+  assert(!group?.textContent?.includes("opaque-group-result"), "historical command group output stays behind disclosure");
+  await act(async () => groupToggle.click());
+  assert(group?.textContent?.includes("opaque-group-result"), "historical command group reveals supplied output");
+  await act(async () => groupToggle.click());
+  const generic = cards.find(card => card.getAttribute("data-tool-status") === "error");
+  const genericToggle = generic?.querySelector<HTMLButtonElement>('button[aria-expanded]');
+  assert(genericToggle?.getAttribute("aria-expanded") === "false", "historical failed operation starts collapsed with its error status");
+  assert(!generic?.textContent?.includes("opaque-failure-result"), "failure output stays behind disclosure");
+  await act(async () => genericToggle.click());
+  assert(generic?.textContent?.includes("opaque-failure-result"), "failed operation reveals supplied failure details");
+  await act(async () => genericToggle.click());
   const tabPointer = host.querySelector<HTMLElement>('[data-testid="chat-inbound-message"]');
   const tabToggle = tabPointer?.querySelector<HTMLButtonElement>('button[aria-expanded]');
   assert(tabPointer?.textContent?.includes("Received from Auditor"), "parsed Tab sender appears in the inbound header");
