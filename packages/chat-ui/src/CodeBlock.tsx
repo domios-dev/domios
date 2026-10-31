@@ -397,11 +397,13 @@ export function CodeBlock({
   return (
     <div className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
       <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
-        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
-          <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
-          <span className="font-mono opacity-70">{language}</span>
-          <span className="opacity-70">·</span>
-          <span className="opacity-70">{lineCountValue} lines</span>
+        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-3 py-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
+          <span className="inline-flex min-w-0 items-baseline gap-1.5">
+            <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
+            <span className="opacity-70">{language}</span>
+            <span className="opacity-70">·</span>
+            <span className="opacity-70">{lineCountValue} {lineCountValue === 1 ? "line" : "lines"}</span>
+          </span>
           <span className="ml-auto" />
           {canCollapse && (
             <button
