@@ -251,16 +251,19 @@ mod tests {
     }
 
     #[test]
-    fn claim_prepends_banner_for_vague_test_plan() {
+    fn claim_preserves_manual_verification_without_warning() {
+        let plan =
+            "Open fullscreen, close it, and verify the selected file and view are preserved.";
         let value = json!({
             "claimed": {
                 "task_id": "task_x",
-                "task_name": "Vague one",
-                "test_plan": "component tests; manual check"
+                "task_name": "Manual verification",
+                "test_plan": plan
             }
         });
         let out = render_qa_claim(&value);
-        assert!(out.contains(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER));
+        assert!(!out.contains(crate::cmd::test_plan::TEST_PLAN_VAGUE_BANNER));
+        assert!(out.contains(plan));
     }
 
     #[test]

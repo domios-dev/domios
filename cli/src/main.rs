@@ -180,6 +180,17 @@ fn main_impl() {
     cmd::error_contract::set_json_mode(cli.json);
     cmd::output::set_verbose(cli.verbose);
     cmd::output::configure(&args);
+    if cli.mesh.is_some()
+        && matches!(
+            &cli.command,
+            Commands::System {
+                action: SystemAction::ApiToken
+            }
+        )
+    {
+        cmd::system::handle_api_token(true);
+        return;
+    }
     let scoped = std::env::var_os("CODETERM_CLI_SCOPE").is_some();
     if let Some(operation) = local_admission::operation_for_cli(&cli, scoped) {
         if local_admission::requires_admission(scoped) {
