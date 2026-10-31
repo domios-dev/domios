@@ -4,13 +4,14 @@ import { ChevronRight } from "lucide-react";
 
 interface Props {
   raw: string;
+  label?: string;
   children?: React.ReactNode;
   /** Shown with the raw command, and hidden with it. */
   details?: React.ReactNode;
   initiallyExpanded?: boolean;
 }
 
-export function RawCommandDisclosure({ raw, children, details, initiallyExpanded = false }: Props) {
+export function RawCommandDisclosure({ raw, children, details, initiallyExpanded = false, label = "Raw command" }: Props) {
   const [open, setOpen] = React.useState(initiallyExpanded);
   const detailsId = React.useId();
 
@@ -25,7 +26,7 @@ export function RawCommandDisclosure({ raw, children, details, initiallyExpanded
         style={{ color: "var(--ct-muted-fg)", background: "transparent" }}
       >
         <ChevronRight aria-hidden="true" size={12} strokeWidth={1.8} className={open ? "rotate-90" : ""} />
-        Raw command
+        {label}
       </button>
       <div id={detailsId} hidden={!open}>
         {open && (

@@ -230,13 +230,13 @@ button.ct-card__head {
   grid-area: 1 / 1;
 }
 
-.ct-tool-status-slot > [data-testid="toolcard-status"] {
+.ct-tool-status-slot > .ct-tool-status-icon {
   pointer-events: none;
 }
 
-.ct-card:hover .ct-tool-status-slot:has(.ct-card__menu) > [data-testid="toolcard-status"],
-.ct-card:focus-within .ct-tool-status-slot:has(.ct-card__menu) > [data-testid="toolcard-status"],
-.ct-tool-status-slot:has(.ct-card__menu.is-shown) > [data-testid="toolcard-status"] {
+.ct-card:hover .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
+.ct-card:focus-within .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
+.ct-tool-status-slot:has(.ct-card__menu.is-shown) > .ct-tool-status-icon {
   opacity: 0;
 }
 
@@ -245,7 +245,7 @@ button.ct-card__head {
     opacity: 1;
   }
 
-  .ct-tool-status-slot:has(.ct-card__menu) > [data-testid="toolcard-status"] {
+  .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon {
     opacity: 0;
   }
 }
@@ -307,4 +307,9 @@ button.ct-card__head {
   background: transparent;
   padding-inline: 2px;
   color: var(--ct-muted-fg);
+}
+
+.ct-card__header {
+  padding-right: 6px;
+  column-gap: 8px;
 }

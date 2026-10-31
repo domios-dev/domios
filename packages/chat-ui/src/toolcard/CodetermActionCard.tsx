@@ -199,6 +199,7 @@ export function CodetermSentContent({ event, invocation, technicalCommand, ...na
   const target = navigationTarget(invocation, event.result);
   return <>
     <SentMessageBubble
+      eventId={event.id}
       inv={invocation}
       result={event.result}
       resolveTabName={navigation.resolveTabName}
@@ -219,11 +220,7 @@ export function CodetermActionCard({ event, invocation, expanded, onToggle, ...n
   const { inv, descriptor, target, canNavigate, sendSucceeded, sendPending } = action;
   if (action.sent && inv) {
     const command = toolCommand(event).command;
-    return (
-      <div data-testid="chat-sent-to-card" data-tool-status={action.sent.status?.pending ? "pending" : action.sent.status?.ok ? "success" : action.sent.status ? "error" : event.status} className="ct-card ct-communication-card mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden px-3 py-2">
-        <CodetermSentContent event={event} invocation={inv} technicalCommand={command} {...navigation} />
-      </div>
-    );
+    return <CodetermSentContent event={event} invocation={inv} technicalCommand={command} {...navigation} />;
   }
   const collapsedChips = descriptor.chips.filter((chip) => !/\b(?:pl|task|sec|sp|spec|mem|src)_[a-z0-9][a-z0-9_-]*/i.test(chip));
   const displayEvent: ToolEvent = {

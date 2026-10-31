@@ -5,7 +5,6 @@ import { createRoot } from "react-dom/client";
 import { recognize } from "./recognize";
 import { SentMessageBubble } from "./SentMessageBubble";
 import { CodetermCard } from "./CodetermCard";
-import { CROSS_TAB_SHELL_TESTID } from "../crossTabBubble";
 import { MessageBubble } from "../MessageBubble";
 import type { ToolEvent } from "@codeterm/chat-core";
 import { CodetermActionCard } from "../toolcard/CodetermActionCard";
@@ -59,7 +58,7 @@ await (async () => {
     />,
   );
   const text = host.textContent ?? "";
-  const shell = host.querySelector(`[data-testid="${CROSS_TAB_SHELL_TESTID}"]`) as HTMLElement | null;
+  const shell = host.querySelector('[data-testid="chat-sent-to-card"]') as HTMLElement | null;
   const bubble = host.querySelector('[data-testid="chat-sent-message"]') as HTMLElement | null;
   assert(shell != null, "renders left-aligned cross-tab shell");
   assert(bubble != null, "renders sent-message body");
@@ -84,7 +83,7 @@ await (async () => {
   );
   const status = host.querySelector('[data-testid="chat-sent-status"]');
   assert(status?.getAttribute("aria-label") === "pending", "unconfirmed write renders pending status");
-  assert(status?.textContent === "…", "pending delivery does not show a delivered or failed mark");
+  assert(status?.getAttribute("aria-label") === "pending", "pending delivery does not show a delivered or failed mark");
   assert(host.textContent?.includes("hello"), "written payload echo stays visible while delivery is pending");
 })();
 
@@ -105,7 +104,7 @@ for (const [command, expectedBody] of [
   const text = host.textContent ?? "";
   const bubble = host.querySelector('[data-testid="chat-sent-message"]');
   assert(bubble != null && bubble.textContent!.trim().length > 0, `${command} renders a non-blank outgoing row`);
-  assert(text.includes("Recipient") && text.includes("✓"), `${command} retains recipient and delivered status`);
+  assert(text.includes("Recipient") && host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === "delivered", `${command} retains recipient and delivered status`);
   if (expectedBody) assert(text.includes(expectedBody), `${command} retains its body descriptor`);
 }
 
@@ -236,7 +235,7 @@ await (async () => {
   const host = await render(
     <SentMessageBubble inv={inv(`codeterm send --tab bda "x"`)} result="error: Tab not found" />,
   );
-  assert((host.textContent ?? "").includes("✗"), "failed send shows failure glyph");
+  assert(host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === "failed", "failed send shows failure state");
 })();
 
 // mesh send shows peer
@@ -281,7 +280,7 @@ await (async () => {
   const card = host.querySelector('[data-testid="chat-sent-to-card"]');
   const status = host.querySelector('[role="status"][aria-label="sent"]');
   const expand = host.querySelector('[data-testid="chat-sent-expand"]');
-  const technical = host.querySelector('summary');
+  const technical = host.querySelector('[data-testid="raw-command-disclosure"] button');
   assert(card != null && status != null, "narrow send card exposes recipient card and truthful sent status");
   assert(host.textContent?.includes("Courier · Launch") && host.textContent.includes("Deployment"), "narrow send card shows resolved recipient, Team context and body preview");
   assert(expand != null && technical?.textContent === "Technical details", "long body has an explicit expand control and collapsed technical details");

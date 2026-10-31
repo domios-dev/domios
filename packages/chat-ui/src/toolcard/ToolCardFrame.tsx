@@ -11,6 +11,10 @@ import { rawToolPayload } from "./toolParsing";
 
 interface ToolCardFrameProps {
   communication?: boolean;
+  showTechnicalDetails?: boolean;
+  headerTestId?: string;
+  statusTestId?: string;
+  statusLabel?: string;
   minHeight?: number;
   testId?: string;
   event: ToolEvent;
@@ -66,7 +70,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
@@ -89,7 +93,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineCommand ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
       style={{ minHeight, "--ct-card-tone": error ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
-      <div className={`flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineCommand ? " ct-command-inline__head" : ""}`}>
+      <div data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineCommand ? " ct-command-inline__head" : ""}`}>
         <button
           type="button"
           aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
@@ -102,8 +106,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             <Glyph aria-hidden="true" size={14} strokeWidth={2} />
           </span>
           <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]">
-            {label && <span className={inlineCommand ? "sr-only" : "max-w-[60%] shrink-0 truncate font-semibold"} style={{ color: visual.color }}>{label}</span>}
-            <span className="min-w-0 truncate" data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{(summary ?? event.description ?? event.summary) || "Tool activity"}</span>
+            {label && <span className={inlineCommand ? "sr-only" : "max-w-[60%] shrink-0 truncate font-semibold"} style={{ color: communication ? "var(--ct-fg)" : visual.color }}>{label}</span>}
+            <span className="min-w-0 truncate" data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />
             {!expanded && tail}
@@ -114,7 +118,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         )}
         {action}
         <span className="ct-tool-status-slot">
-        <span data-testid="toolcard-status" className="flex w-4 shrink-0 items-center justify-center" aria-label={event.status === "unresolved" ? "no result" : event.status} style={{ color: statusColor }}>
+        <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
           {event.status === "pending"
             ? <LoaderCircle className="animate-spin" size={14} />
             : event.status === "error" ? <CircleX size={14} /> : event.status === "unresolved" || event.status === "interrupted" ? <Minus size={14} /> : <Check size={14} />}
@@ -129,11 +133,14 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
         hidden={!expanded}
-        className="pb-2 pl-12 pr-3 pt-0.5"
+        className={communication ? "px-3 pb-3 pt-0.5" : "pb-2 pl-12 pr-3 pt-0.5"}
         style={{ boxSizing: "border-box" }}
       >
         {expanded ? (
-          <RawCommandDisclosure raw={event.detail || rawToolPayload(event)}>
+          communication ? <>
+            {children}
+            {showTechnicalDetails && <div className="mt-2"><RawCommandDisclosure raw={event.detail || rawToolPayload(event)} label="Technical details" /></div>}
+          </> : <RawCommandDisclosure raw={event.detail || rawToolPayload(event)}>
             {children}
           </RawCommandDisclosure>
         ) : null}

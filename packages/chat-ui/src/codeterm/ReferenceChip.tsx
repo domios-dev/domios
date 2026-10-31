@@ -30,11 +30,8 @@ export function ReferenceChip({ kind, label, fullRef, status, disabled, onOpen, 
   const task = kind === "task" ? splitTaskLabel(label) : null;
   const full = task ? [task.key, task.title].filter(Boolean).join(" ") : label;
   return <FloatingTooltip focusable={false} className="inline-flex max-w-full align-baseline"
-    content={<div className="grid gap-1">
-      <span className="font-medium">{full}</span>
-      {status && <span className="text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>{status}</span>}
-      <span className="break-all font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>{fullRef}</span>
-    </div>}>
+    tooltipStyle={{ width: "max-content", maxWidth: "min(22rem, calc(100vw - 24px))" }}
+    content={full}>
     <button type="button" data-testid={`chat-${kind}-link`} data-ref-kind={kind} data-ref-state={state ?? "resolved"}
     data-target-id={targetId} data-plan-id={planId} disabled={disabled}
     aria-label={`${kind[0].toUpperCase() + kind.slice(1)} ${full}${status ? ` (${status})` : ""}. ${fullRef}`}
