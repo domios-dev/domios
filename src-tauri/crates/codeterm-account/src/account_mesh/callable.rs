@@ -433,8 +433,8 @@ pub struct HttpCallable {
 
 impl HttpCallable {
     pub fn new(base: &str) -> crate::Result<Self> {
-        let base = crate::firebase_endpoints::callable_base(base)
-            .ok_or(crate::Error::Configuration)?;
+        let base =
+            crate::firebase_endpoints::callable_base(base).ok_or(crate::Error::Configuration)?;
         let client = reqwest::Client::builder()
             .timeout(Duration::from_secs(15))
             .redirect(reqwest::redirect::Policy::none())
@@ -451,7 +451,9 @@ pub(super) fn callable_url(base: &url::Url, route: &str) -> Result<url::Url, Cal
         body: None,
     };
     let mut bytes = route.bytes();
-    if !bytes.next().is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
+    if !bytes
+        .next()
+        .is_some_and(|byte| byte.is_ascii_alphabetic() || byte == b'_')
         || !bytes.all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
     {
         return Err(invalid());

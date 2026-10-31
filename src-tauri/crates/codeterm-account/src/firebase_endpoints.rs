@@ -117,8 +117,11 @@ fn callable_base_for(base: &str, dev_build: bool, endpoints: Endpoints) -> Optio
     {
         return None;
     }
-    let selected_emulator = dev_build && endpoints.emulator && !endpoints.qa
-        && base == endpoints.functions && url.as_str() == endpoints.functions;
+    let selected_emulator = dev_build
+        && endpoints.emulator
+        && !endpoints.qa
+        && base == endpoints.functions
+        && url.as_str() == endpoints.functions;
     (url.scheme() == "https" || (url.scheme() == "http" && selected_emulator)).then_some(url)
 }
 

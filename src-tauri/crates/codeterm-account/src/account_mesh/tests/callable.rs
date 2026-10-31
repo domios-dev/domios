@@ -361,13 +361,33 @@ fn callable_function_names_resolve_without_changing_admitted_base_or_spelling() 
     ] {
         let base = url::Url::parse(base).unwrap();
         for route in [
-            ROUTE_CHALLENGE, ROUTE_ENROLL_KEY, ROUTE_ADMISSION,
-            "revokePriorInstallationSessions", "issueInstallationChallenge", "redeemGiftKey",
-            "friendsList", "friendsRequest", "friendsRespond", "friendsRemove", "friendsSetLimit",
-            "friendsSend", "friendsAck", "friendsPeerKeys", "friendsDeliveryStatus", "friendsOwnKeys",
-            "friendsEnrollVerifierKey", "friendsRevokeVerifierKey", "friendsFileUsage", "friendsSetFileDailyLimit",
-            "friendsFileDownload", "friendsFileConfirm", "friendsFileGrant", "friendsRead", "friendsSetFriendReceiver",
-            "friendsSetPaused", "Function_1-with-hyphen",
+            ROUTE_CHALLENGE,
+            ROUTE_ENROLL_KEY,
+            ROUTE_ADMISSION,
+            "revokePriorInstallationSessions",
+            "issueInstallationChallenge",
+            "redeemGiftKey",
+            "friendsList",
+            "friendsRequest",
+            "friendsRespond",
+            "friendsRemove",
+            "friendsSetLimit",
+            "friendsSend",
+            "friendsAck",
+            "friendsPeerKeys",
+            "friendsDeliveryStatus",
+            "friendsOwnKeys",
+            "friendsEnrollVerifierKey",
+            "friendsRevokeVerifierKey",
+            "friendsFileUsage",
+            "friendsSetFileDailyLimit",
+            "friendsFileDownload",
+            "friendsFileConfirm",
+            "friendsFileGrant",
+            "friendsRead",
+            "friendsSetFriendReceiver",
+            "friendsSetPaused",
+            "Function_1-with-hyphen",
         ] {
             let target = callable_url(&base, route).unwrap();
             assert_eq!(target.as_str(), format!("{}{route}", base.as_str()));
@@ -387,16 +407,43 @@ fn malformed_callable_routes_are_refused_by_pure_pre_send_resolution() {
     for base in bases {
         let base = url::Url::parse(base).unwrap();
         for route in [
-            "", " ", " friendsList", "friendsList ", "friendsList\n", "friends\tList",
-            "https://evil.invalid/steal", "http://127.0.0.1:15002/steal", "//evil.invalid/steal",
-            "/friendsList", "./friendsList", "../friendsList", "nested/friendsList",
-            r"nested\friendsList", "friendsList?query=x", "friendsList#fragment", "user@host",
-            "friends:List", "%66riendsList", "friends%2fList", "friends%5cList", "%2e%2e",
-            "friends%00List", "frıendsList", "friends😀List", "?", "#",
+            "",
+            " ",
+            " friendsList",
+            "friendsList ",
+            "friendsList\n",
+            "friends\tList",
+            "https://evil.invalid/steal",
+            "http://127.0.0.1:15002/steal",
+            "//evil.invalid/steal",
+            "/friendsList",
+            "./friendsList",
+            "../friendsList",
+            "nested/friendsList",
+            r"nested\friendsList",
+            "friendsList?query=x",
+            "friendsList#fragment",
+            "user@host",
+            "friends:List",
+            "%66riendsList",
+            "friends%2fList",
+            "friends%5cList",
+            "%2e%2e",
+            "friends%00List",
+            "frıendsList",
+            "friends😀List",
+            "?",
+            "#",
         ] {
-            assert_eq!(callable_url(&base, route), Err(CallableFailure::Status {
-                status: 400, retry_after_seconds: None, body: None,
-            }), "{route:?}");
+            assert_eq!(
+                callable_url(&base, route),
+                Err(CallableFailure::Status {
+                    status: 400,
+                    retry_after_seconds: None,
+                    body: None,
+                }),
+                "{route:?}"
+            );
         }
     }
 }

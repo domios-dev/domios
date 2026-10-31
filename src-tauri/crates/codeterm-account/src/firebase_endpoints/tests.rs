@@ -239,33 +239,62 @@ fn compiled_release_ignores_account_config_and_refuses_http() {
 #[test]
 fn callable_base_preserves_https_shape_rules_for_production_qa_and_custom_functions() {
     let qa = Box::leak(Box::new(qa_fixture())).endpoints();
-    for base in [PRODUCTION.functions, qa.functions, "https://example.invalid:8443/custom/functions/"] {
-        for (dev, selected) in [(false, PRODUCTION), (true, PRODUCTION), (true, qa), (true, EMULATOR)] {
-            assert_eq!(callable_base_for(base, dev, selected).unwrap().as_str(), base);
+    for base in [
+        PRODUCTION.functions,
+        qa.functions,
+        "https://example.invalid:8443/custom/functions/",
+    ] {
+        for (dev, selected) in [
+            (false, PRODUCTION),
+            (true, PRODUCTION),
+            (true, qa),
+            (true, EMULATOR),
+        ] {
+            assert_eq!(
+                callable_base_for(base, dev, selected).unwrap().as_str(),
+                base
+            );
         }
     }
     for base in [
-        "https://user@example.invalid/", "https://user:password@example.invalid/",
-        "https://example.invalid/?query=x", "https://example.invalid/#fragment",
-        "https://example.invalid/functions", "ftp://example.invalid/functions/", "not a URL",
+        "https://user@example.invalid/",
+        "https://user:password@example.invalid/",
+        "https://example.invalid/?query=x",
+        "https://example.invalid/#fragment",
+        "https://example.invalid/functions",
+        "ftp://example.invalid/functions/",
+        "not a URL",
     ] {
-        assert!(callable_base_for(base, true, EMULATOR).is_none(), "{base:?}");
+        assert!(
+            callable_base_for(base, true, EMULATOR).is_none(),
+            "{base:?}"
+        );
     }
 }
 
 #[test]
 fn callable_http_requires_exact_explicit_debug_emulator_functions_base() {
     let qa = Box::leak(Box::new(qa_fixture())).endpoints();
-    assert_eq!(callable_base_for(EMULATOR.functions, true, resolve(true, Some("1"))).unwrap().as_str(), EMULATOR.functions);
+    assert_eq!(
+        callable_base_for(EMULATOR.functions, true, resolve(true, Some("1")))
+            .unwrap()
+            .as_str(),
+        EMULATOR.functions
+    );
     for (dev, selected) in [
-        (false, EMULATOR), (false, PRODUCTION), (true, resolve(true, None)),
-        (true, resolve(true, Some("0"))), (true, qa),
+        (false, EMULATOR),
+        (false, PRODUCTION),
+        (true, resolve(true, None)),
+        (true, resolve(true, Some("0"))),
+        (true, qa),
     ] {
         assert!(callable_base_for(EMULATOR.functions, dev, selected).is_none());
     }
     assert!(qa::selected(true, Some("qa"), Some("1")).is_err());
     for base in [
-        EMULATOR.identity_toolkit, EMULATOR.secure_token, EMULATOR.signin,
+        EMULATOR.identity_toolkit,
+        EMULATOR.secure_token,
+        EMULATOR.signin,
         "http://localhost:15001/demo-domios/us-central1/",
         "http://127.0.0.1.evil.invalid:15001/demo-domios/us-central1/",
         "http://192.0.2.1:15001/demo-domios/us-central1/",
@@ -291,6 +320,9 @@ fn callable_http_requires_exact_explicit_debug_emulator_functions_base() {
         "http://127.0.0.1:15001/demo-domios/us-central1/\t",
         "HTTP://127.0.0.1:15001/demo-domios/us-central1/",
     ] {
-        assert!(callable_base_for(base, true, EMULATOR).is_none(), "{base:?}");
+        assert!(
+            callable_base_for(base, true, EMULATOR).is_none(),
+            "{base:?}"
+        );
     }
 }
