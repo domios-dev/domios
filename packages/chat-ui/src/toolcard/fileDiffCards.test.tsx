@@ -7,6 +7,7 @@ import { reduceToolEvents, type FileDiff, type NormalizedChatMessage, type Timel
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
 import { ToolCallBubble } from "../ToolCallBubble";
 import { FileDiffCards } from "./FileDiffCards";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -191,7 +192,11 @@ describe("file diff cards", () => {
     const editEvent = eventFor("claude", "toolu_edit_a");
     const diffs = editEvent.fileDiffs ?? [];
     expect(diffs.length).toBeGreaterThan(0);
-    const host = await mount(<ToolCallBubble event={editEvent} expanded onToggle={() => undefined} />);
+    const opened: Array<[string, string]> = [];
+    const host = await mount(<ChatBlockHostProvider value={{
+      openFileChange: (path, view) => { opened.push([path, view]); },
+      renderMenu: ({ items }) => <>{items.map((item) => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</>,
+    }}><ToolCallBubble event={editEvent} expanded onToggle={() => undefined} /></ChatBlockHostProvider>);
     expect(all(host, "file-diff-card")).toHaveLength(diffs.length);
     expect(all(host, "file-diff-header").map((node) => node.textContent))
       .toEqual(diffs.map((diff) => `${diff.path} +${diff.additions} −${diff.deletions}`));
@@ -199,9 +204,16 @@ describe("file diff cards", () => {
     await expandAll(host);
     expect(all(host, "toolcard-edit-file")).toHaveLength(0);
     const card = all(host, "file-diff-card")[0];
-    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent?.includes("Raw command"));
+    expect(card.querySelector('[data-testid="message-raw-content"]')).toBeNull();
+    expect(card.textContent).not.toContain("Raw command");
+    const rawToggle = [...card.querySelectorAll("button")].find((button) => button.textContent === "Technical details");
+    expect(rawToggle).toBeDefined();
     await act(async () => rawToggle?.click());
     expect(card.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(JSON.stringify(editEvent.message.toolInput, null, 2));
+    for (const label of ["View changes", "View file"]) {
+      await act(async () => [...card.querySelectorAll("button")].find((button) => button.textContent === label)?.click());
+    }
+    expect(opened).toEqual([[diffs[0].path, "diff"], [diffs[0].path, "file"]]);
   });
 
   it("highlights hunk code by file extension after an untinted marker column", async () => {
@@ -243,7 +255,7 @@ describe("file diff cards", () => {
     await act(async () => toggle.click());
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(region?.hidden).toBe(false);
-    expect(all(region as HTMLElement, "file-diff-hunk-header").map((node) => node.textContent)).toEqual(["@@ -1,3 +1,3 @@"]);
+    expect(all(region as HTMLElement, "file-diff-hunk-header").map((node) => node.textContent)).toEqual(["Lines 1–3"]);
     expect(all(region as HTMLElement, "file-diff-line").map((node) => node.textContent))
       .toEqual(fixtureRecords("claude")[1].toolUseResult.structuredPatch[0].lines);
     expect(all(region as HTMLElement, "file-diff-line").map((node) => node.dataset.tone)).toEqual(["context", "del", "add", "context"]);

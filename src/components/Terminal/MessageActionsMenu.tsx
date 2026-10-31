@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
-import { Trash2, Check, Copy, Hash, ListChecks, MessageSquarePlus, GitBranch, RotateCcw } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
+import { Trash2, Check, Copy, Hash, ListChecks, MessageSquarePlus, GitBranch, RotateCcw, ArrowBigUp, MousePointer2 } from "lucide-react";
 import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
@@ -21,7 +21,7 @@ export interface MessageMenuActions {
 function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
   label: string;
   icon: ComponentType<{ size?: number; "aria-hidden"?: boolean }>;
-  hint?: string;
+  hint?: ReactNode;
   done?: boolean;
   onSelect: () => void;
 }) {
@@ -161,7 +161,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
             <div role="separator" className="ct-menu-separator" />
             <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.quote(clip); }} />
             <div role="separator" className="ct-menu-separator" />
-            <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : "Shift-click"} onSelect={() => { hide(); actions.select(); }} />
+            <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : <span className="inline-flex items-center gap-1"><kbd className="inline-flex items-center rounded border px-1 py-0.5" style={{ borderColor: "var(--ct-border)" }}><ArrowBigUp size={12} /></kbd><span>+</span><MousePointer2 size={13} /></span>} onSelect={() => { hide(); actions.select(); }} />
             {actions.fork && <MenuItem label="Fork from here" icon={GitBranch} onSelect={() => { hide(); actions.fork?.(); }} />}
             {actions.revert && <MenuItem label="Revert to here" icon={RotateCcw} onSelect={() => { hide(); actions.revert?.(); }} />}
             {actions.delete && <MenuItem label="Delete" icon={Trash2} hint="Delete" onSelect={() => { hide(); actions.delete?.(); }} />}

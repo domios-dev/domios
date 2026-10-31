@@ -97,20 +97,25 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         onClick={() => onToggle(!expanded)}
         className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
-        <span data-testid="chat-command-group-status" aria-label={statusName(event.status)} className="flex shrink-0">
-          <StatusGlyph status={event.status} />
-        </span>
+        <SquareTerminal aria-hidden size={16} className="shrink-0" style={{ color: "var(--ct-muted-fg)" }} />
         <span data-testid="chat-command-group-title" title={title} className="min-w-0 flex-1 truncate font-mono text-[12px]" style={{ color: "var(--ct-fg)" }}>
           {title}
         </span>
         <ToolOutcomeFacts event={event} />
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
       </button>
+      <span className="ct-tool-status-slot">
+      <span data-testid="chat-command-group-status" role="status" aria-label={statusName(event.status)} className="ct-tool-status-icon flex items-center justify-center">
+        <StatusGlyph status={event.status} />
+      </span>
       <ChatCardMenu label={`Actions for ${title}`} items={[{
         label: "Technical details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
         onSelect: () => setTechnicalOpen(value => !value),
       }]} />
-      <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
+      </span>
+      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} command group`} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
+        <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
+      </button>
       </div>
       {shellFileOperationPreview(event)}
       <div className="pb-1 pr-2">

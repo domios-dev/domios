@@ -77,7 +77,7 @@
 
 .ct-command-inline .ct-command-inline__head {
   min-height: 30px;
-  padding: 4px 6px;
+  padding: 4px 6px 4px 12px;
   gap: 8px;
 }
 

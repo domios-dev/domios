@@ -36,6 +36,25 @@ async function hoverFixture() {
 }
 
 describe("message action hover wiring", () => {
+  it("waits 300ms before hiding and cancels hiding when the pointer returns", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const view = await hoverFixture();
+    const move = async (x: number) => {
+      await act(async () => document.body.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerType: "mouse", clientX: x, clientY: x })));
+    };
+    try {
+      await move(1000);
+      await act(async () => vi.advanceTimersByTime(299));
+      expect(view.menu()).not.toBeNull();
+      await move(0);
+      await act(async () => vi.advanceTimersByTime(300));
+      expect(view.menu()).not.toBeNull();
+      await move(1000);
+      await act(async () => vi.advanceTimersByTime(300));
+      expect(view.menu()).toBeNull();
+    } finally { await view.unmount(); vi.useRealTimers(); }
+  });
+
   it.each(["escape", "outside press"])("opens on hover and dismisses on %s", async (dismiss) => {
     const view = await hoverFixture();
     try {
