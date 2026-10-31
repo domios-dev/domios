@@ -39,6 +39,7 @@ struct CliEnv {
     data_dir: tempfile::TempDir,
     instance: String,
     stub_port: Option<u16>,
+    inherited_token: bool,
 }
 
 impl CliEnv {
@@ -51,6 +52,7 @@ impl CliEnv {
             data_dir,
             instance: format!("jsoncontract-{}", std::process::id()),
             stub_port: Some(stub_port.unwrap_or_else(refused_port)),
+            inherited_token: true,
         }
     }
 }
@@ -95,9 +97,10 @@ fn run_cli(env: &CliEnv, args: &[String]) -> Output {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     if let Some(port) = env.stub_port {
-        command
-            .env("CODETERM_API_PORT", port.to_string())
-            .env("CODETERM_API_TOKEN", "stub-token");
+        command.env("CODETERM_API_PORT", port.to_string());
+    }
+    if env.inherited_token {
+        command.env("CODETERM_API_TOKEN", "stub-token");
     }
     let child = command.spawn().expect("spawn codeterm");
     let pid = child.id();
@@ -473,7 +476,14 @@ fn json_success_paths_print_one_object() {
 
 #[test]
 fn exact_quit_uses_its_finite_refusal_envelope_without_authorizing_replacement() {
-    let environment = CliEnv::new(None);
+    let mut environment = CliEnv::new(None);
+    let credentialed = run_cli(&environment, &json_args(&["app", "quit", "--exact"]));
+    assert!(!credentialed.status.success());
+    let refusal = check_contract(&credentialed).expect("credential admission error envelope");
+    assert_eq!(refusal["error"]["code"], "unavailable");
+    assert!(!String::from_utf8_lossy(&credentialed.stdout).contains("stub-token"));
+
+    environment.inherited_token = false;
     let output = run_cli(&environment, &json_args(&["app", "quit", "--exact"]));
     assert!(!output.status.success());
     let value = stdout_value(&output).unwrap();

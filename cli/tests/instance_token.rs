@@ -12,6 +12,16 @@ fn command(root: &std::path::Path) -> std::process::Command {
     }
     command
         .env("CODETERM_DATA_DIR", root)
+        .env("CODETERM_INSTANCE", format!("token-test-{}", std::process::id()))
+        .env(
+            "CODETERM_API_PORT",
+            std::net::TcpListener::bind("127.0.0.1:0")
+                .unwrap()
+                .local_addr()
+                .unwrap()
+                .port()
+                .to_string(),
+        )
         .env("CODETERM_API_TOKEN", "foreign-inherited");
     command
 }
@@ -27,7 +37,11 @@ fn instance_token_command_prints_only_local_authority_without_a_daemon() {
         vec!["--json", "system", "api-token"],
     ] {
         let json = flags.contains(&"--json");
-        let output = command(dir.path()).args(flags).output().unwrap();
+        let output = command(dir.path())
+            .env_remove("CODETERM_API_TOKEN")
+            .args(flags)
+            .output()
+            .unwrap();
         assert!(output.status.success());
         if json {
             assert_eq!(json_output::result(&output.stdout), "isolated-authority");
@@ -36,6 +50,15 @@ fn instance_token_command_prints_only_local_authority_without_a_daemon() {
         }
         assert!(output.stderr.is_empty());
     }
+    let inherited = command(dir.path())
+        .args(["system", "api-token"])
+        .output()
+        .unwrap();
+    assert!(!inherited.status.success());
+    assert!(inherited.stdout.is_empty());
+    let error = String::from_utf8_lossy(&inherited.stderr);
+    assert!(!error.contains("isolated-authority"));
+    assert!(!error.contains("foreign-inherited"));
 }
 
 #[test]

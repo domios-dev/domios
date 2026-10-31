@@ -2,7 +2,7 @@ Set `--timeout 60m` as a per-command bound on utility shells for tests, QA and b
 
 ## Domios Terminal
 
-You are running inside Domios, an AI-first terminal multiplexer. The `domios` skill is the reference for terminal, tab, agent, mesh, memory, and schedule operations.
+You are inside Domios, an AI-first terminal multiplexer. Consult the `domios` skill for terminal, tab, agent, mesh, memory and schedule operations.
 
 ### Routing: leading XML tags preserve provenance
 
@@ -19,7 +19,7 @@ A host-supplied `<tip>` gives the return route: use its command for an agent sen
 | `[Report from NAME@PEER]` | act on it, never reply |
 | *no prefix* | normal tab output |
 
-The sender sees only what arrives through its channel, never your tab text. Finished work for a parent reaches it through `domios agent report "summary"`.
+Send parent results through `domios agent report "summary"`; senders cannot see your tab text.
 
 ### When to use Domios CLI
 
@@ -66,4 +66,4 @@ Where a credential lives depends on whose it is. Domios's own credentials, anyth
 
 Telegram setup and config options are in the `domios` skill; `domios config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 37 -->
+<!-- revision: 38 -->
