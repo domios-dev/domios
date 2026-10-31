@@ -1,7 +1,8 @@
 import React from "react";
+import { FloatingTooltip } from "../FloatingTooltip";
 import { ClipboardList, FileText, ListChecks, Terminal, Workflow } from "lucide-react";
 
-export const TASK_CHIP_TITLE_CHARS = 36;
+export const TASK_CHIP_TITLE_CHARS = 30;
 
 /** A task label reads "KEY title"; the key shows once even when the title already repeats it. */
 export function splitTaskLabel(label: string): { key: string; title: string } {
@@ -28,10 +29,15 @@ export function ReferenceChip({ kind, label, fullRef, status, disabled, onOpen, 
   const Icon = kind === "tab" ? Terminal : kind === "blueprint" ? Workflow : kind === "task" ? ListChecks : kind === "section" ? FileText : ClipboardList;
   const task = kind === "task" ? splitTaskLabel(label) : null;
   const full = task ? [task.key, task.title].filter(Boolean).join(" ") : label;
-  return <button type="button" data-testid={`chat-${kind}-link`} data-ref-kind={kind} data-ref-state={state ?? "resolved"}
+  return <FloatingTooltip focusable={false} className="inline-flex max-w-full align-baseline"
+    content={<div className="grid gap-1">
+      <span className="font-medium">{full}</span>
+      {status && <span className="text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>{status}</span>}
+      <span className="break-all font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>{fullRef}</span>
+    </div>}>
+    <button type="button" data-testid={`chat-${kind}-link`} data-ref-kind={kind} data-ref-state={state ?? "resolved"}
     data-target-id={targetId} data-plan-id={planId} disabled={disabled}
     aria-label={`${kind[0].toUpperCase() + kind.slice(1)} ${full}${status ? ` (${status})` : ""}. ${fullRef}`}
-    title={status ? `${full} (${status})\n${fullRef}` : `${full}\n${fullRef}`}
     onClick={(event) => { event.stopPropagation(); if (!disabled) onOpen?.(); }}
     onContextMenu={(event) => { event.preventDefault(); void navigator.clipboard.writeText(fullRef); }}
     className="inline-flex max-w-full items-baseline gap-1 rounded px-1 py-0.5 align-baseline font-mono text-[0.92em] font-normal whitespace-nowrap text-start transition-colors hover:brightness-110"
@@ -43,6 +49,6 @@ export function ReferenceChip({ kind, label, fullRef, status, disabled, onOpen, 
         {task.title && <span className="min-w-0 max-w-[28ch] truncate">{truncateChipTitle(task.title)}</span>}
       </>
       : <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">{label}</span>}
-    {status && <span className="shrink-0 text-[0.82em] opacity-70">({status})</span>}
-  </button>;
+    {status && status !== "Workspace unavailable" && <span className="shrink-0 text-[0.82em] opacity-70">({status})</span>}
+  </button></FloatingTooltip>;
 }

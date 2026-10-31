@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Send } from "lucide-react";
 import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
+import { ReportTaskSummary } from "./ReportTaskSummary";
 import { LinkedText } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 import { decodeCliMessageText } from "./messageText";
@@ -64,6 +65,7 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
       onToggle={() => setExpanded((previous) => !previous)}
       title={`Report to ${formatCommunicationEndpoint(report.recipient)}`}
       summary={report.task ?? "status update"}
+      presentationSummary={<ReportTaskSummary task={report.task} resolvePlanRef={resolvePlanRef} />}
       visual={{ glyph: Send, color: "var(--ct-magenta)", label: "report" }}
       chips={chips}
       onFocusTab={onFocusTab}

@@ -183,7 +183,7 @@ export function PlanRefCards({
           <span className="min-w-0 truncate font-mono" style={{ color: "var(--ct-muted-fg)" }}>
             {label}
           </span>
-          {status && <span className="shrink-0 opacity-70">{status}</span>}
+          {status && resolved?.state !== "unowned" && <span className="shrink-0 opacity-70">{status}</span>}
         </button>
           );
         })()

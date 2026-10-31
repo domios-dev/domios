@@ -3,6 +3,7 @@ import type { NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
 import { MessageSquareText } from "lucide-react";
 import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
+import { ReportTaskSummary } from "./ReportTaskSummary";
 import { LinkedText } from "./LinkedText";
 import { hasPlanRefs } from "./planRefs";
 import { decodeCliMessageText } from "./messageText";
@@ -135,6 +136,7 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       onToggle={onToggle}
       title={`Report from ${formatCommunicationEndpoint(sender)}`}
       summary={taskObject(descriptor.task)}
+      presentationSummary={<ReportTaskSummary task={descriptor.task} resolvePlanRef={resolvePlanRef} />}
       visual={{ glyph: MessageSquareText, color: "var(--ct-magenta)", label: "report" }}
       chips={chips}
       onFocusTab={onFocusTab}

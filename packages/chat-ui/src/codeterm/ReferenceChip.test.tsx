@@ -39,7 +39,9 @@ describe("task reference chip", () => {
     expect(visible.endsWith("…")).toBe(true);
     expect(visible.length).toBeLessThan(`BLU-44 ${LONG_TITLE}`.length);
     expect(chip.getAttribute("aria-label")).toContain(LONG_TITLE);
-    expect(chip.getAttribute("title")).toContain(LONG_TITLE);
+    expect(chip.getAttribute("title")).toBeNull();
+    await act(async () => chip.focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toContain(LONG_TITLE);
   });
 
   it("splits a label into key and title and truncates by the component's rule", () => {
@@ -54,9 +56,6 @@ describe("task reference chip", () => {
     const item = el.querySelector("li")!;
     const chip = item.querySelector<HTMLElement>('[data-ref-kind="task"]')!;
     expect(chip).not.toBeNull();
-    const run = chip.parentElement!;
-    expect(run).not.toBe(item);
-    expect(run.textContent?.endsWith(":")).toBe(true);
-    expect(item.textContent).toContain(": waiting for your choice");
+    expect(item.textContent).toContain(`${chip.textContent}: waiting for your choice`);
   });
 });
