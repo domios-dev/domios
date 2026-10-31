@@ -1,5 +1,49 @@
 use super::*;
 
+struct Credentials;
+#[async_trait::async_trait]
+impl codeterm_account::CredentialStore for Credentials {
+    async fn load(&self, _: &str) -> codeterm_account::Result<Option<codeterm_account::Secret>> {
+        Ok(Some(codeterm_account::Secret::new("fixture-refresh")))
+    }
+    async fn save(&self, _: &str, _: &codeterm_account::Secret) -> codeterm_account::Result<()> { Ok(()) }
+    async fn delete(&self, _: &str) -> codeterm_account::Result<()> { Ok(()) }
+}
+
+struct NoCalls;
+#[async_trait::async_trait]
+impl codeterm_neighbors::adapter::AuthenticatedCall for NoCalls {
+    async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
+        panic!("retired committed account reached a callable")
+    }
+    async fn id_token(&self) -> codeterm_neighbors::Result<Zeroizing<String>> {
+        panic!("retired committed account reached authentication")
+    }
+}
+
+#[tokio::test]
+async fn committed_reconciliation_rejects_foreign_uid_and_retired_login_before_read_or_effects() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    fixture.service.ext::<crate::config::ConfigState>().lock().neighbors.enabled = true;
+    let account = Arc::new(codeterm_account::Account::new(
+        Arc::new(codeterm_account::adapters::fake::Fake::default()), Arc::new(Credentials), std::time::Duration::from_secs(1),
+    ));
+    account.refresh().await.unwrap();
+    let session = account.session().await.unwrap();
+    assert!(fixture.service.ext::<crate::service::account::AccountCell>().0.set(account).is_ok());
+    for foreign_uid in [true, false] {
+        let uid = if foreign_uid { "foreign-owner".into() } else { session.identity.uid.clone() };
+        let committed = Committed {
+            result: json!({"schema_version":1}), friendship: "a".repeat(64), revision: 1, generation: 0,
+            login_generation: session.login_generation + u64::from(!foreign_uid),
+            registry: Arc::new(FirebaseRegistry { calls: Arc::new(NoCalls), uid: uid.clone(), installation_id: "fixture".into(), machine_label: "Fixture".into() }),
+            scope: KeyScope::installation("fixture", &uid).unwrap(), metadata: Metadata::new(fixture.temp.path().to_owned(), &uid),
+        };
+        assert_eq!(fixture.service.reconcile_committed_neighbor_receiver(&committed, false).await, Err(Error::SessionRevoked));
+        assert!(fixture.service.neighbor_friend_receiver_views().as_object().unwrap().is_empty());
+    }
+}
+
 #[derive(Default)]
 struct Port {
     trace: parking_lot::Mutex<Vec<Value>>,

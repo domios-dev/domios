@@ -72,7 +72,7 @@ impl ServiceContext {
         metadata: &Metadata,
         friendship: &str,
         generation: u64,
-    ) -> Result<(), String> {
+    ) -> Result<Option<receiver::selection::Committed>, String> {
         let list = registry
             .calls
             .invoke("friendsList", json!({}))
@@ -82,7 +82,7 @@ impl ServiceContext {
         let friend = friend_status(&list, friendship, &registry.installation_id)
             .map_err(|e| e.to_string())?;
         if friend.receiver_installation_id.is_none() {
-            self.set_neighbor_friend_receiver(
+            let committed = self.set_neighbor_friend_receiver(
                 registry,
                 scope,
                 metadata,
@@ -94,7 +94,7 @@ impl ServiceContext {
             )
             .await
             .map_err(|e| e.to_string())?;
-            return Ok(());
+            return Ok(Some(committed));
         }
         if !friend.receiving_here() {
             let name = self
@@ -121,7 +121,8 @@ impl ServiceContext {
             generation,
         )?;
         self.publish_neighbor_friend_receiver_changes(metadata, &registry.uid, changes, generation)
-            .await
+            .await?;
+        Ok(None)
     }
 }
 

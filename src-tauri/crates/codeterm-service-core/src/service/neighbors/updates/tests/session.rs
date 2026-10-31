@@ -1,3 +1,5 @@
+mod selection;
+
 use super::super::ports::SessionPorts;
 use super::super::*;
 use codeterm_neighbors::{

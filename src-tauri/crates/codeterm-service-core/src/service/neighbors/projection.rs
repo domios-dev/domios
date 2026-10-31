@@ -23,6 +23,12 @@ struct Cell {
     changed: tokio::sync::Notify,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(super) enum ReceiverConfirmation {
+    Observed,
+    Pending,
+}
+
 #[derive(Clone)]
 pub(super) struct ActivationTicket {
     uid: String,
@@ -497,6 +503,8 @@ impl ServiceContext {
         {
             state.reconciled = Some(version);
         }
+        drop(state);
+        self.extensions.get_or_init(Cell::default).changed.notify_waiters();
         Ok(true)
     }
     pub(super) fn peek_neighbor_projection(
@@ -601,14 +609,8 @@ impl ServiceContext {
         login_generation: u64,
         friendship: &str,
         revision: u64,
-    ) -> Result<()> {
+    ) -> Result<ReceiverConfirmation> {
         let cell = self.extensions.get_or_init(Cell::default);
-        let installation = self
-            .installation_id()
-            .await
-            .map_err(|_| Error::Transport)?
-            .as_str()
-            .to_owned();
         let wait = async {
             loop {
                 let changed = cell.changed.notified();
@@ -616,11 +618,15 @@ impl ServiceContext {
                 changed.as_mut().enable();
                 {
                     let state = cell.state.lock();
+                    if state.selected.as_ref() != Some(&(uid.to_owned(), login_generation)) {
+                        return Err(Error::Revoked);
+                    }
                     if !state.authoritative
                         || state.unavailable
+                        || state.list_dirty
                         || state.snapshots.version(uid, login_generation).is_none()
                     {
-                        return Ok(());
+                        return Ok(ReceiverConfirmation::Pending);
                     }
                     let list = state
                         .snapshots
@@ -628,11 +634,12 @@ impl ServiceContext {
                             uid,
                             login_generation,
                             "friendsList",
-                            &installation,
+                            "",
                             now_seconds(),
                         )
                         .ok_or(Error::Revoked)?;
-                    if list["friends"].as_array().is_some_and(|rows| {
+                    if state.reconciled == state.snapshots.version(uid, login_generation)
+                        && list["friends"].as_array().is_some_and(|rows| {
                         rows.iter().any(|row| {
                             row["friendship_id"] == friendship
                                 && row["my_receiver"]["revision"]
@@ -640,7 +647,7 @@ impl ServiceContext {
                                     .is_some_and(|current| current >= revision)
                         })
                     }) {
-                        return Ok(());
+                        return Ok(ReceiverConfirmation::Observed);
                     }
                 }
                 changed.await;
@@ -648,7 +655,7 @@ impl ServiceContext {
         };
         tokio::time::timeout(std::time::Duration::from_secs(15), wait)
             .await
-            .map_err(|_| Error::ReceiverRevisionStale)?
+            .unwrap_or(Ok(ReceiverConfirmation::Pending))
     }
 }
 

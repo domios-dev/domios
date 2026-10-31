@@ -2,7 +2,11 @@ use super::*;
 use async_trait::async_trait;
 use tokio::sync::{mpsc, oneshot};
 
+#[cfg(test)]
+struct Observer(mpsc::UnboundedSender<&'static str>);
+
 pub(super) enum Operation {
+    ConfirmReceiver(Box<ReceiverCommit>),
     StopLocal {
         expected_generation: u64,
     },
@@ -33,6 +37,18 @@ pub(super) enum Operation {
 
 pub(super) enum Outcome {
     Value(Value),
+    ReceiverCommitted(Box<ReceiverCommit>),
+}
+
+pub(super) struct Continuation {
+    pub command: NeighborRuntimeCommand,
+    pub caller: Option<String>,
+    pub nonce: Option<String>,
+}
+
+pub(super) struct ReceiverCommit {
+    pub committed: receiver::selection::Committed,
+    pub continuation: Option<Continuation>,
 }
 
 pub(super) struct Request {
@@ -43,6 +59,48 @@ pub(super) struct Request {
 }
 
 impl ServiceContext {
+    pub(super) async fn confirm_neighbor_receiver(&self, phase: Box<ReceiverCommit>) -> Result<Value, String> {
+        use super::super::projection::ReceiverConfirmation;
+        #[cfg(test)]
+        self.observe_neighbor_operation("confirmation_waiting");
+        let observed = self.wait_neighbor_projection_receiver(
+            &phase.committed.registry.uid, phase.committed.login_generation,
+            &phase.committed.friendship, phase.committed.revision,
+        ).await;
+        let explicit = phase.continuation.is_none();
+        let result = phase.committed.result.clone();
+        if observed != Ok(ReceiverConfirmation::Observed) {
+            log::debug!("[neighbors] receiver assignment committed; projection confirmation pending: {observed:?}");
+            return if explicit { Ok(result) } else { Err(receiver_preparation_pending()) };
+        }
+        let confirmation = self.neighbor_operation(Operation::ConfirmReceiver(phase)).await;
+        match confirmation {
+            Ok(Outcome::Value(value)) => Ok(value),
+            Ok(Outcome::ReceiverCommitted(_)) => Err("Invalid Neighbor confirmation phase".into()),
+            Err(error) if explicit => {
+                log::debug!("[neighbors] receiver assignment committed; local reconciliation pending: {error}");
+                Ok(result)
+            }
+            Err(error) => {
+                log::debug!("[neighbors] receiver assignment committed; original action not resumed: {error}");
+                Err(format!("Neighbor receiver assignment committed; local preparation unavailable: {error}"))
+            }
+        }
+    }
+    #[cfg(test)]
+    pub(in crate::service::neighbors) fn observe_neighbor_owner_for_test(
+        &self,
+        sender: mpsc::UnboundedSender<&'static str>,
+    ) {
+        self.extensions.get_or_init(|| Observer(sender));
+    }
+
+    #[cfg(test)]
+    fn observe_neighbor_operation(&self, event: &'static str) {
+        if let Some(observer) = self.try_ext::<Observer>() {
+            let _ = observer.0.send(event);
+        }
+    }
     pub(in crate::service::neighbors) fn require_neighbor_generation(
         &self,
         generation: u64,
@@ -54,6 +112,8 @@ impl ServiceContext {
     }
 
     pub(super) async fn neighbor_operation(&self, operation: Operation) -> Result<Outcome, String> {
+        #[cfg(test)]
+        let registry_changed = matches!(&operation, Operation::RegistryChanged);
         let (reply, response) = oneshot::channel();
         {
             let mut owner = self.neighbor_cell().owner.lock();
@@ -71,6 +131,10 @@ impl ServiceContext {
                 })
                 .map_err(|_| "Neighbor operation queue unavailable")?;
         }
+        #[cfg(test)]
+        if registry_changed {
+            self.observe_neighbor_operation("activation_queued");
+        }
         response
             .await
             .map_err(|_| "Neighbor operation interrupted")?
@@ -83,6 +147,27 @@ impl ServiceContext {
     ) -> Result<Outcome, String> {
         self.require_neighbor_generation(generation)?;
         match operation {
+            Operation::ConfirmReceiver(phase) => {
+                if let Some(next) = &phase.continuation {
+                    self.authorize_neighbor_runtime(&next.command, next.caller.as_deref(), next.nonce.as_deref()).await?;
+                }
+                let observed = self.reconcile_committed_neighbor_receiver(&phase.committed, phase.continuation.is_some()).await;
+                if observed != Ok(super::super::projection::ReceiverConfirmation::Observed) {
+                    log::debug!("[neighbors] receiver assignment committed; owned confirmation pending: {observed:?}");
+                    return if phase.continuation.is_none() {
+                        Ok(Outcome::Value(phase.committed.result))
+                    } else {
+                        Err(receiver_preparation_pending())
+                    };
+                }
+                if let Some(next) = phase.continuation {
+                    self.require_neighbor_friend_receiver(&phase.committed.friendship, Some(phase.committed.revision))
+                        .map_err(|error| format!("Neighbor receiver assignment committed; local preparation unavailable: {error}"))?;
+                    self.neighbor_runtime_owned(next.command, next.caller.as_deref(), next.nonce.as_deref(), phase.committed.generation, Some(&phase.committed)).await
+                } else {
+                    Ok(Outcome::Value(phase.committed.result))
+                }
+            }
             Operation::StopLocal {
                 expected_generation,
             } => {
@@ -109,6 +194,8 @@ impl ServiceContext {
                 .await
                 .map(Outcome::Value),
             Operation::RegistryChanged => {
+                #[cfg(test)]
+                self.observe_neighbor_operation("activation_admitted");
                 let (transport, registry, scope, metadata) = self.neighbor_ports().await?;
                 self.start_neighbor_listeners(
                     transport.clone(),
@@ -125,9 +212,8 @@ impl ServiceContext {
                 caller,
                 nonce,
             } => self
-                .neighbor_runtime_owned(command, caller.as_deref(), nonce.as_deref(), generation)
-                .await
-                .map(Outcome::Value),
+                .neighbor_runtime_owned(command, caller.as_deref(), nonce.as_deref(), generation, None)
+                .await,
             Operation::Refuse {
                 friendship,
                 message_id,
@@ -186,6 +272,10 @@ impl ServiceContext {
             }
         }
     }
+}
+
+fn receiver_preparation_pending() -> String {
+    "Neighbor receiver assignment committed; local preparation pending. Do not repeat receiver selection.".into()
 }
 
 #[async_trait]
