@@ -276,6 +276,42 @@ describe("compact command tree", () => {
 });
 
 describe("shell file operation visibility", () => {
+  it("discloses literal command fragments inside the command and preserves call-local expansion", async () => {
+    const command = `$p='C:/games/snake.html'; $s=Get-Content $p -Raw; $nl=[Environment]::NewLine; $s=$s.Replace('<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>'); $s=$s.Replace('function tick() { $p=1; }', 'function tick() {' + $nl + 'save();}'); Set-Content -LiteralPath $p $s`;
+    const base = singleEvent(codexChain("snake-replacement-preview", command));
+    const event = { ...base, message: { ...base.message, toolInput: { command, argv: ["pwsh", "-Command", command] } } };
+    const host = await render(<Stateful event={event} />);
+    const operations = host.querySelector('ul[aria-label="Intended file operations"]');
+    const toggle = operations?.querySelector('button[aria-label="Show replacement preview for snake.html"]') ?? null;
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(operations?.textContent).toContain("snake.html1 replacement");
+    expect(operations?.textContent).not.toContain("C:/games");
+    expect(operations?.querySelector("[title]")).toBeNull();
+    expect(host.querySelector('[data-testid="chat-command-group"]')?.contains(operations)).toBe(true);
+    expect(host.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+    expect(host.querySelector('[data-testid="file-diff-card"]')).toBeNull();
+    await act(async () => (toggle as HTMLElement).focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("C:/games/snake.html");
+    await click(toggle);
+    const fragments = host.querySelector('[data-testid="shell-replacement-fragments"]');
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect([...(fragments?.querySelectorAll("pre") ?? [])].map(node => node.textContent)).toEqual([
+      '<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>',
+    ]);
+    expect(fragments?.textContent).toContain("unsupported");
+    expect(fragments?.textContent).not.toContain("Get-Content");
+    await click(host.querySelector('[data-testid="chat-command-group-toggle"]'));
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    await click(lines(host)[0].querySelector("button"));
+    expect(lines(host)[0].querySelector('[data-testid="chat-command-tree-detail"]')?.textContent).toBe("$p='C:/games/snake.html'");
+    const remounted = await render(<Stateful event={{ ...event, status: "success" }} />);
+    expect(remounted.querySelector('button[aria-label="Hide replacement preview for snake.html"]')?.getAttribute("aria-expanded")).toBe("true");
+    const otherSession = await render(<Stateful event={{ ...event, message: { ...event.message, sourceSessionId: "other-session" } }} />);
+    expect(otherSession.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+    await click(toggle);
+    expect(host.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+  });
+
   it("shows intended command-local targets, reuses analysis on render, and preserves truthful diff disclosure", async () => {
     const command = "$p='C:/work/preview.ts'; $s=Get-Content $p -Raw; $s=$s.Replace('unmatched','next'); Set-Content $p $s";
     const base = singleEvent(codexChain("file-operation-main", command));
@@ -289,7 +325,7 @@ describe("shell file operation visibility", () => {
       const host = await render(<Preview />);
       const operations = host.querySelector('ul[aria-label="Intended file operations"]');
       expect(operations?.children).toHaveLength(1);
-      expect(operations?.textContent).toContain("C:/work/preview.ts");
+      expect(operations?.textContent).toContain("preview.ts");
       expect(host.querySelector('[data-testid="file-diff-card"]')).toBeNull();
       const parses = lexer.mock.calls.filter(call => call[2] === true).length;
       expect(parses).toBe(1);

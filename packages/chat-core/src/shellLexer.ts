@@ -4,6 +4,7 @@ export type ShellOperator = "pipe" | "then" | "and" | "or";
 export interface LexedSegment {
   argv: string[];
   rawArgv?: string[];
+  literalRanges?: { start: number; end: number }[];
   redirects: string[];
   redirectTargets?: { operator: string; raw: string }[];
   heredoc?: string;
@@ -308,6 +309,7 @@ class Lexer {
           i++;
           continue;
         }
+        this.captureLiteral(open, i + 1);
         this.append(value, open, i + 1);
         this.i = i + 1;
         return;
@@ -331,6 +333,7 @@ class Lexer {
           i++;
           continue;
         }
+        this.captureLiteral(open, i + 1);
         this.append(value, open, i + 1);
         this.i = i + 1;
         return;
@@ -365,6 +368,12 @@ class Lexer {
     return unsupported();
   }
 
+  private captureLiteral(start: number, end: number): void {
+    if (!this.captureRaw) return;
+    if (this.src[start] === '"' && this.src.slice(start + 1, end - 1).includes("$(")) return;
+    (this.current.literalRanges ??= []).push({ start, end });
+  }
+
   private backtickSubstitution(open: number): void {
     const end = this.backtickEnd(open);
     this.append(this.src.slice(open, end), open, end);
@@ -384,10 +393,16 @@ class Lexer {
         if (closers.length === 0) return i + 1;
       } else if (ch === "'" || ch === "\"") {
         const quote = ch;
-        for (i++; i < src.length && src[i] !== quote; i++) {
-          if (quote === "\"" && (src[i] === "\\" || src[i] === "`")) i++;
+        const start = i;
+        for (i++; i < src.length; i++) {
+          if (src[i] === quote) {
+            if (dialect === "powershell" && src[i + 1] === quote) { i++; continue; }
+            break;
+          }
+          if (quote === "\"" && (dialect === "powershell" ? src[i] === "`" : src[i] === "\\" || src[i] === "`")) i++;
         }
         if (i >= src.length) unsupported();
+        this.captureLiteral(start, i + 1);
       } else if (ch === this.escape && dialect !== "cmd") {
         i++;
       }

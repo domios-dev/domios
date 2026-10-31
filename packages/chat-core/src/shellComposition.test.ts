@@ -176,8 +176,68 @@ describe("command display labels", () => {
 describe("bounded intended shell file operations", () => {
   it("resolves a same-command PowerShell literal path without treating Replace as diff evidence", () => {
     const command = "$p='C:/work/CommandTree.tsx'; $s=Get-Content $p -Raw; $s=$s.Replace('missing','next'); Set-Content $p $s";
-    expect(shellFileOperations(command)).toEqual({ operations: [{ action: "write", path: "C:/work/CommandTree.tsx" }], limited: false });
-    expect(shellFileOperations(command, ["pwsh", "-Command", command]).operations).toEqual([{ action: "write", path: "C:/work/CommandTree.tsx" }]);
+    const expected = { operations: [{ action: "write", path: "C:/work/CommandTree.tsx", replacement: {
+      path: "C:/work/CommandTree.tsx", fragments: [{ before: "missing", after: "next" }], unsupported: false,
+    } }], limited: false };
+    expect(shellFileOperations(command)).toEqual(expected);
+    expect(shellFileOperations(command, ["pwsh", "-Command", command])).toEqual(expected);
+  });
+
+  it("keeps the Snake path and literal fragments through quoted JavaScript and a dynamic remainder", () => {
+    const command = `$p='C:/games/snake.html'; $s=Get-Content $p -Raw; $nl=[Environment]::NewLine; $s=$s.Replace('<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>'); $s=$s.Replace('function tick() { $p=1; }', 'function tick() {' + $nl + 'save();}'); Set-Content -LiteralPath $p $s`;
+    const result = shellFileOperations(command);
+    expect(result).toEqual({ operations: [{ action: "write", path: "C:/games/snake.html", replacement: {
+      path: "C:/games/snake.html", fragments: [{ before: '<div id="score">Score: <span>0</span></div>', after: '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>' }], unsupported: true,
+    } }], limited: false });
+    expect(shellFileOperations(command)).toBe(result);
+  });
+
+  it("decodes only literal pairs including doubled apostrophes and preserves exact order", () => {
+    const command = `$p='literal.txt'; $s=Get-Content -LiteralPath $p -Raw; $s=$s.Replace('it''s { $p=1 }','ok'); $s=$s.Replace("old", "two '' quotes"); Set-Content -LiteralPath $p -Value $s`;
+    expect(shellFileOperations(command).operations[0].replacement?.fragments).toEqual([
+      { before: "it's { $p=1 }", after: "ok" }, { before: "old", after: "two '' quotes" },
+    ]);
+  });
+
+  it("requires the same local read, self replacement, data variable and final destination", () => {
+    const prefix = "$p='same.txt'; $s=Get-Content $p -Raw; $s=$s.Replace('old','new');";
+    for (const command of [
+      "$p='same.txt'; $s=$s.Replace('old','new'); Set-Content $p $s",
+      "$p='same.txt'; $s=Get-Content $p; $s=$s.Replace('old','new'); Set-Content $p $s",
+      `${prefix} Set-Content other.txt $s`, `${prefix} Set-Content $p '$s'`,
+      `${prefix} Set-Content -Value $p -Path $s`, `${prefix} Set-Content $p $outside`,
+      `${prefix} $s='reset'; Set-Content $p $s`, `${prefix} $s=$s.Replace('x','y') + 'tail'; Set-Content $p $s`,
+      `${prefix} $s=$other.Replace('x','y'); Set-Content $p $s`, `${prefix} Invoke-Unknown; Set-Content $p $s`,
+      `${prefix} $other=Invoke-Unknown; Set-Content $p $s`,
+      `${prefix} $s=$s.Replace('x',$(Get-Value)); Set-Content $p $s`,
+      `${prefix} $s=$s.Replace('x',"$($p='other')"); Set-Content $p $s`,
+      `${prefix} Set-Content $p $s -WhatIf`,
+    ]) expect(shellFileOperations(command).operations.every(operation => !operation.replacement), command).toBe(true);
+    expect(shellFileOperations(`${prefix} Set-Content $p $s`).operations[0].replacement?.fragments).toEqual([{ before: "old", after: "new" }]);
+  });
+
+  it("does not preview dynamic-only replacements, noops or a read without a writer", () => {
+    for (const expression of ["$s.Replace('x',$new)", "$s.Replace('x' + $nl,'y')", '$s.Replace("$old","new")', "$s.Replace('x','x')"]) {
+      const result = shellFileOperations(`$p='noop.txt'; $s=Get-Content $p -Raw; $s=${expression}; Set-Content $p $s`);
+      expect(result.operations).toEqual([{ action: "write", path: "noop.txt" }]);
+    }
+    expect(shellFileOperations("$p='read.txt'; $s=Get-Content $p -Raw; $s=$s.Replace('old','new')").operations).toEqual([]);
+  });
+
+  it("bounds replacement count and UTF-8 fragments while retaining a useful partial prefix", () => {
+    const prefix = "$p='bounded.txt'; $s=Get-Content $p -Raw; $s=$s.Replace('first','next');";
+    const count = shellFileOperations(`${prefix}${"$s=$s.Replace('a','b');".repeat(SHELL_FILE_LIMITS.replacements)}Set-Content $p $s`);
+    expect(count.operations[0].replacement?.fragments).toHaveLength(SHELL_FILE_LIMITS.replacements);
+    expect(count.operations[0].replacement?.unsupported).toBe(true);
+    expect(count.limited).toBe(true);
+    const fragment = shellFileOperations(`${prefix}$s=$s.Replace('${"界".repeat(700)}','x'); Set-Content $p $s`);
+    expect(fragment.operations[0].replacement?.fragments).toEqual([{ before: "first", after: "next" }]);
+    expect(fragment.operations[0].replacement?.unsupported).toBe(true);
+    expect(fragment.limited).toBe(true);
+    const total = shellFileOperations(`${prefix}${Array.from({ length: 3 }, (_, index) => `$s=$s.Replace('${"a".repeat(1500)}','${index}${"b".repeat(1499)}');`).join("")}Set-Content $p $s`);
+    expect(total.operations[0].replacement?.fragments).toHaveLength(3);
+    expect(total.operations[0].replacement?.unsupported).toBe(true);
+    expect(total.limited).toBe(true);
   });
 
   it("preserves single-quoted variable targets as literal filenames", () => {
@@ -264,5 +324,17 @@ describe("bounded intended shell file operations", () => {
       for (let index = 0; index < 40; index++) shellFileOperations(`echo '${"y".repeat(4000)}' > budget-${index}.txt`);
       expect(shellFileOperations(large)).not.toBe(retained);
     } finally { lexer.mockRestore(); }
+  });
+
+  it("accounts replacement fragment strings in the cache budget", () => {
+    const pairs = ["ab", "cd"].map(pair => `$s=$s.Replace('${pair[0].repeat(1500)}','${pair[1].repeat(1500)}');`).join("");
+    const command = (index: number) => `$p='fragment-cache-${index}.txt'; $s=Get-Content $p -Raw; ${pairs} Set-Content $p $s`;
+    const first = shellFileOperations(command(0));
+    expect(first.operations[0].replacement?.fragments).toHaveLength(2);
+    expect(Object.isFrozen(first.operations[0].replacement?.fragments)).toBe(true);
+    expect(Object.isFrozen(first.operations[0].replacement?.fragments[0])).toBe(true);
+    expect(shellFileOperations(command(0))).toBe(first);
+    for (let index = 1; index <= 12; index++) shellFileOperations(command(index));
+    expect(shellFileOperations(command(0))).not.toBe(first);
   });
 });
