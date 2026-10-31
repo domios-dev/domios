@@ -125,7 +125,7 @@ pub(crate) fn read_handoff_file<R: Read>(
     } else {
         base.join(requested)
     };
-    std::fs::read_to_string(&resolved).map_err(|error| {
+    crate::local_admission::read_local_text(&resolved).map_err(|error| {
         format!(
             "failed to read {flag} {path} (resolved from {} as {}): {error}",
             base.display(),
@@ -180,7 +180,7 @@ pub fn resolve_spawn_charter<R: Read>(
                     .map_err(|e| format!("failed to read --charter-file from stdin: {}", e))?;
                 Ok(Some(buf))
             } else {
-                std::fs::read_to_string(&path)
+                crate::local_admission::read_local_text(&path)
                     .map(Some)
                     .map_err(|e| format!("failed to read --charter-file {}: {}", path, e))
             }

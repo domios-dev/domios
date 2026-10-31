@@ -1,5 +1,7 @@
 # Encrypted Neighbors
 
+A confined concierge may receive a host-verified trusted CLI executable. Use that exact bare token instead of `domios` in command examples, without another interpreter, executable quotes or a PowerShell call operator. The exception applies to CLI execution; receiver, tab credential, nonce and friendship grants still decide every service operation. Stage replies in the current AgentPad with the native file tool and pass `--from-pad <relative_file>`; arbitrary `--from-file` reads and local administration are not granted by the execution exception.
+
 Encrypted account messages. Manage friends in Neighborhood/sidebar. Free retains connections with messaging locked.
 
 Default on. Off retains data/keys but stops receive/send/notices; sends/grants/binding/admission refuse `neighbors_disabled`. On resumes listeners. Sign-out revokes local receiving keys.
@@ -173,4 +175,4 @@ File API operations (`send`, `list`, `open`, `open_folder`, `usage`, `set_daily_
 
 `neighbor-files-changed {friendship_id}` updates local index; join by message_id. `neighbor-file-daily-limit-changed {friendship_id,file_daily_limit_bytes}` reports limit edits. List/open are local; receiver takeover never copies saved files.
 
-<!-- revision: 56 -->
+<!-- revision: 57 -->

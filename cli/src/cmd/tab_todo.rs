@@ -545,7 +545,7 @@ fn parse_source<T: DeserializeOwned>(
 ) -> Result<T, String> {
     let body = match (from_pad, from_file) {
         (Some(path), None) => crate::cmd::payload_source::read_from_pad(path)?,
-        (None, Some(path)) => std::fs::read_to_string(path)
+        (None, Some(path)) => crate::local_admission::read_local_text(path)
             .map_err(|error| format!("read todo input file {path}: {error}"))?,
         (None, None) => return Err("todo command requires --from-pad or --from-file".into()),
         (Some(_), Some(_)) => return Err("use only one of --from-pad or --from-file".into()),

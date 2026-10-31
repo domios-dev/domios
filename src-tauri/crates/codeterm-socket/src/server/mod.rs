@@ -542,6 +542,14 @@ fn respond_to_request(
         Ok(None) => {}
         Err(message) => return JsonRpcResponse::error(id, -32003, message),
     }
+    if req.method == "cli.local.authorize" {
+        return match codeterm_service_core::async_runtime::block_on(
+            codeterm_service_core::service::cli_local_admission::authorize(svc, &req.credential, local_params.as_ref()),
+        ) {
+            Ok(value) => JsonRpcResponse::success(id, value),
+            Err(message) => JsonRpcResponse::error(id, -32003, message),
+        };
+    }
     // catch_unwind so a panic inside any dispatch handler does not silently drop the socket and leave the CLI with an "EOF while parsing" mystery.
     // We surface a real JSON-RPC error instead.
     let caller_tab = match svc.authenticate_local_credential(&req.credential) {

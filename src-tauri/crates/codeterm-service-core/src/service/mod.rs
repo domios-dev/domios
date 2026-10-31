@@ -12,6 +12,7 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+pub mod cli_local_admission;
 mod construct;
 mod provider_refresh;
 pub use construct::build_service_context;

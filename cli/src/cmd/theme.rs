@@ -38,7 +38,7 @@ pub fn handle_theme(json: bool, action: ThemeAction) {
                     .send(),
             ),
         ),
-        ThemeAction::Save { id, file, apply } => match std::fs::read_to_string(&file) {
+        ThemeAction::Save { id, file, apply } => match crate::local_admission::read_local_text(&file) {
             Err(error) => LeafOutput::Failure {
                 earned: Vec::new(),
                 message: format!("reading {}: {}", file, error),

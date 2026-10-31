@@ -48,7 +48,7 @@ pub fn read_report_body(
         );
     }
     let doc_body = doc.map(|path| {
-        let body = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+        let body = crate::local_admission::read_local_text(&path).unwrap_or_else(|e| {
             crate::cmd::print::fail(1, format!("failed to read --doc {}: {}", path, e));
         });
         (path, body)

@@ -26,11 +26,7 @@
       "executable": "/trusted/cli",
       "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "configSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-      "ruleSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "argv": [
-        "identify",
-        "--json"
-      ]
+      "ruleSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     }
   },
   "operations": [
@@ -71,11 +67,7 @@
           "executable": "/trusted/cli",
           "executableSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
           "configSha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
-          "ruleSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-          "argv": [
-            "identify",
-            "--json"
-          ]
+          "ruleSha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
         }
       }
     },
@@ -169,7 +161,7 @@
             "approvalPolicy": "never",
             "approvalsReviewer": "user",
             "sandbox": "workspace-write",
-            "developerInstructions": "scoped-resume-instructions"
+            "developerInstructions": "scoped-resume-instructions\n\nTrusted Domios CLI executable: /trusted/cli. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox."
           }
         }
       }
@@ -269,7 +261,7 @@
             "approvalPolicy": "never",
             "approvalsReviewer": "user",
             "sandbox": "workspace-write",
-            "developerInstructions": "scoped-resume-instructions",
+            "developerInstructions": "scoped-resume-instructions\n\nTrusted Domios CLI executable: /trusted/cli. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox.",
             "threadId": "thread-fixture",
             "excludeTurns": true
           }

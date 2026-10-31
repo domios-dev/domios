@@ -17,16 +17,15 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
         binding_nonce: ctx.binding_nonce.clone(),
         epoch: ctx.epoch,
         cwd: ctx.cwd.clone(),
-        executable: std::env::current_exe().unwrap().to_str().unwrap().into(),
+        executable: "/trusted/cli".into(),
         executable_sha256: "a".repeat(64),
         config_sha256: "b".repeat(64),
         rule_sha256: "c".repeat(64),
-        argv: vec!["identify".into(), "--json".into()],
     });
     let js = provider("module.exports={runtimePlan(ctx){return {action:{kind:'request',call:{method:'handshake',params:ctx.restrictedCli}},state:null}}}");
     assert_eq!(
         js.agent_runtime().unwrap().restricted_cli,
-        Some(RestrictedCliCapability::ExecpolicyIdentify)
+        Some(RestrictedCliCapability::ExecpolicyServiceOperations)
     );
     let plan = js
         .runtime_plan(&ctx, &RuntimeOperation::Initialize)
@@ -39,7 +38,7 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
         call.params,
         serde_json::to_value(ctx.restricted_cli.as_ref().unwrap()).unwrap()
     );
-    for field in ["tab", "nonce", "epoch", "cwd", "argv", "hash"] {
+    for field in ["tab", "nonce", "epoch", "cwd", "executable", "hash"] {
         let mut changed = ctx.clone();
         let policy = changed.restricted_cli.as_mut().unwrap();
         match field {
@@ -47,7 +46,7 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
             "nonce" => policy.binding_nonce = "foreign".into(),
             "epoch" => policy.epoch += 1,
             "cwd" => policy.cwd = "foreign".into(),
-            "argv" => policy.argv.push("--mesh=foreign".into()),
+            "executable" => policy.executable = "C:/unsafe path/cli.exe".into(),
             _ => policy.rule_sha256 = "invalid".into(),
         }
         assert!(
@@ -63,7 +62,7 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
 }
 
 fn provider(source: &str) -> JsProvider {
-    let manifest = PluginManifest::from_json_str(&json!({"id":"runtime-hook-fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":"execpolicy-identify","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"],"answer":[],"interrupt":["interrupt"]},"notificationMethods":["changed"]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
+    let manifest = PluginManifest::from_json_str(&json!({"id":"runtime-hook-fixture","version":"1.0.0","displayName":"Fixture","capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},"agentRuntime":{"restrictedCli":"execpolicy-service-operations","runtime":"stdio-jsonrpc","command":{"binary":"fixture-engine","args":[]},"requestMethods":{"initialize":["handshake"],"submitTurn":["submit"],"answer":[],"interrupt":["interrupt"]},"notificationMethods":["changed"]}},"permissions":{"subprocess":{"allow":["fixture-engine"]}}}).to_string()).unwrap();
     JsProvider::new(
         manifest,
         Arc::new(PluginVm::from_source("runtime-hook-fixture", source.into()).unwrap()),

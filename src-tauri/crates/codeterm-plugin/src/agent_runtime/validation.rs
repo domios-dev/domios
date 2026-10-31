@@ -90,12 +90,12 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
             || ctx.settings.mode.as_deref() != Some("workspace-write")
             || ctx.settings.network_access != Some(false)
             || !identifier(&policy.executable)
+            || !policy.executable.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"/\\:._-".contains(&byte))
             || !(policy.executable.starts_with('/')
                 || std::path::Path::new(&policy.executable).is_absolute())
             || !hash(&policy.executable_sha256)
             || !hash(&policy.config_sha256)
             || !hash(&policy.rule_sha256)
-            || policy.argv != ["identify", "--json"]
         {
             return Err(mismatch(
                 "restricted CLI exception is outside runtime authority",

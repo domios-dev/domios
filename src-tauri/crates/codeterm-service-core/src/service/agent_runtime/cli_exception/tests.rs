@@ -37,10 +37,9 @@ fn fixture() -> (
 }
 
 #[test]
-fn provisions_only_fresh_protected_policy_and_exact_identify_prefix() {
+fn provisions_only_fresh_protected_policy_and_exact_executable_prefix() {
     let (_directory, context, sandbox, executable) = fixture();
     let policy = provision(&context, &sandbox, &executable).unwrap();
-    assert_eq!(policy.argv, ["identify", "--json"]);
     assert_eq!(policy.tab_id, context.tab_id);
     assert_eq!(policy.binding_nonce, context.binding_nonce);
     assert_eq!(policy.epoch, context.epoch);
@@ -49,9 +48,7 @@ fn provisions_only_fresh_protected_policy_and_exact_identify_prefix() {
     let (directory, config, rule) = paths(&policy);
     let bytes = fs::read(&rule).unwrap();
     assert_eq!(bytes, rule_bytes(&policy.executable).unwrap());
-    assert!(String::from_utf8(bytes)
-        .unwrap()
-        .contains("\"identify\",\"--json\""));
+    assert!(!String::from_utf8(bytes).unwrap().contains("identify"));
     assert!(provision(&context, &sandbox, &executable).is_err());
     remove_owned(&policy);
     assert!(!directory.exists());
@@ -115,7 +112,7 @@ fn cleanup_preserves_foreign_changed_file() {
 }
 
 #[test]
-fn changed_lifecycle_identity_and_endpoint_override_argv_refuse() {
+fn changed_lifecycle_identity_refuses() {
     let (_directory, context, sandbox, executable) = fixture();
     let policy = provision(&context, &sandbox, &executable).unwrap();
     assert!(binding_matches(&policy, &context));
@@ -139,9 +136,6 @@ fn changed_lifecycle_identity_and_endpoint_override_argv_refuse() {
     ] {
         assert!(!binding_matches(&policy, &changed));
     }
-    let mut changed = policy.clone();
-    changed.argv.push("--mesh=foreign".into());
-    assert!(!binding_matches(&changed, &context));
 }
 
 #[cfg(unix)]
@@ -255,4 +249,30 @@ fn full_concierge_skips_optional_exception_only_with_current_host_bypass_grant()
     assert!(sandbox(svc, &foreign).is_err());
     svc.set_neighbor_friend_receiver_for_test(&authority.friendship_id, Some(false), 2);
     assert!(sandbox(svc, &context).is_err());
+}
+
+#[test]
+fn trusted_cli_requires_literal_command_path_and_never_promotes_an_interpreter() {
+    for path in ["C:/trusted/cli.exe", "/trusted/cli", "C:/USERNA~1/bin/cli.exe"] { assert!(literal_command_path(path)); }
+    for path in ["C:/space path/cli.exe", "& C:/trusted/cli.exe", "C:/trusted/cli.exe;pwsh", "C:/trusted/$env.exe", ""] { assert!(!literal_command_path(path)); }
+}
+
+#[test]
+fn spaced_cli_path_uses_only_a_verified_existing_literal_alias_or_refuses() {
+    let directory = tempfile::tempdir().unwrap();
+    let spaced = directory.path().join("space directory");
+    fs::create_dir(&spaced).unwrap();
+    let executable = spaced.join("trusted-cli.exe");
+    fs::write(&executable, b"opaque-cli").unwrap();
+    let canonical = executable.canonicalize().unwrap();
+    match command_path(&canonical) {
+        Ok(alias) => {
+            assert!(literal_command_path(&alias));
+            assert_eq!(Path::new(&alias).canonicalize().unwrap(), canonical);
+            assert_eq!(file_digest(Path::new(&alias)).unwrap(), digest(b"opaque-cli"));
+        }
+        Err(reason) => assert!(reason.contains("literal")),
+    }
+    assert_eq!(fs::read(&executable).unwrap(), b"opaque-cli");
+    assert!(!directory.path().join(".codex").exists());
 }
