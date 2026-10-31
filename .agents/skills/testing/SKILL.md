@@ -3,15 +3,13 @@ name: testing
 description: "Choose, author, and run Domios unit, integration, REST, and cross-platform tests."
 ---
 
-Workers run the focused `test-one` and Clippy commands their dispatch grants (`--authorized-gate`), queued with `--wait-build`, and report the results with their SHA; they never run `check-queue`, `nextest` or regressions. A Worker without a grant lists its selectors, and the Orchestrator runs them with the results sent straight to the Worker's tab. One `./build.sh lane-check <package>... [--tests]` call type-checks all touched library crates; run changed TS/JS test files and `tsc` when TS changes in the lane. Full or reverse-dependency regressions run only in the Orchestrator's single release run. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
+Workers run lightweight deterministic tests and scoped QA autonomously within their assignment, in a Team QA utility shell. Compilation stays centralized under the current owner's decision: do not run Cargo, builds, `tsc` or provider bundles without an explicit dispatch grant. Report exact commands, nonzero discovered/executed counts and raw exits with the task SHA; defer ungranted compilation selectors to the Orchestrator. Batch related edits before focused verification; recheck only failed or newly affected proof. Full and reverse-dependency regressions remain with the Orchestrator. The build guard requires an exact `--authorized-gate "./build.sh <verb> <args>"` dispatch grant in the current persisted attempt, even in canonical. It reads the active plan store beside the host AgentPad, matches task/tab/attempt/session nonce and owner epoch, and refuses missing or unreadable proof. The Orchestrator and its direct utility shells may run these commands in canonical under their bound plan. No environment override exists.
 
 ## Domios — Testing Guide
 
 ## Test-layer taxonomy
 
-This section is the single source of truth for Domios test layers. Other test
-docs may describe how to run a suite, but they should link here instead of
-redefining the layer model.
+Four families organize the runners below: curated Browser journeys and useful archived scenarios; deterministic unit/contract/API tests; load/performance tests; and agent evals for behavior/quality. Agent evals run operationally beside load benches with explicit environment, model/data/version pins and time/token budgets; quality and load verdicts remain separate. Folder location alone does not determine a family. The [curated preread](../../../evals/qa/REPEATABLE-QA.md) owns reusable Browser mechanics and subset evidence; the runner catalogue remains the index.
 
 For assertion discipline and layer-specific recipes, see `the Writing Tests section of this skill`.
 
@@ -50,8 +48,8 @@ Is it pure logic (parsing, formatting, state machine)?
 │        for something a unit test can prove.
 └─ no → Does it require the daemon's HTTP/socket surface?
     ├─ yes, no UI → pytest API e2e
-    └─ needs real rendering/interaction → focused unit/API coverage plus manual
-        dev inspection; Playwright remains suspended. Behaviour-quality changes
+    └─ needs real rendering/interaction → the existing curated Browser case,
+        with focused unit/API coverage for pure logic; Playwright remains suspended. Behaviour-quality changes
         use an eval bench, not a pass/fail UI test.
 ```
 
@@ -407,22 +405,22 @@ CODETERM_API_URL=http://HOST:PORT CODETERM_API_TOKEN=TOKEN pytest tests/e2e/ -v
 
 ### E2E test files
 
-| File | Tests | What |
-|------|-------|------|
-| `test_health.py` | 2 | API health, identify |
-| `test_workspaces.py` | 4 | Workspace CRUD |
-| `test_tabs.py` | 6 | Tab create, split, close, rename |
-| `test_pty_io.py` | 13 | PTY read/write, exec, streaming |
-| `test_env.py` | 4 | CODETERM_TAB_ID env injection |
-| `test_notifications.py` | 3 | Notification create, list |
-| `test_cron.py` | 5 | Cron CRUD |
-| `test_agents.py` | 5 | Agent hierarchy |
-| `test_hooks.py` | 10 | Hook endpoints, prompt parsing accuracy, full approval flow |
-| `test_multi_tab.py` | 5 | Multi-tab prompt isolation |
-| `test_attachments.py` | 3 | File attachment via API |
-| `test_logging.py` | 4 | Log file, levels |
-| `test_claude_spawn.py` | 8 | Real Claude spawn (**slow**, 30-90s each) |
-| `test_hierarchy_scenarios.py` | 15 | Multi-level hierarchies (**slow**) |
+| File | What |
+|------|------|
+| `test_health.py` | API health, identify |
+| `test_workspaces.py` | Workspace CRUD |
+| `test_tabs.py` | Tab create, split, close, rename |
+| `test_pty_io.py` | PTY read/write, exec, streaming |
+| `test_env.py` | CODETERM_TAB_ID env injection |
+| `test_notifications.py` | Notification create, list |
+| `test_cron.py` | Cron CRUD |
+| `test_agents.py` | Agent hierarchy |
+| `test_hooks.py` | Hook endpoints, prompt parsing accuracy, full approval flow |
+| `test_multi_tab.py` | Multi-tab prompt isolation |
+| `test_attachments.py` | File attachment via API |
+| `test_logging.py` | Log file, levels |
+| `test_claude_spawn.py` | Real Claude spawn (**slow**, 30-90s each) |
+| `test_hierarchy_scenarios.py` | Multi-level hierarchies (**slow**) |
 
 ### E2E dependencies
 ```bash
@@ -434,7 +432,7 @@ pip install -r tests/e2e/requirements.txt  # requests, pytest
 Automated UI tests are currently suspended. Do not invoke or extend the archived
 Playwright suite. Cover UI logic at the TypeScript unit boundary, cover daemon
 behavior through Rust or API tests, preserve real accessibility semantics, and
-perform focused manual inspection in dev when rendering is the only useful oracle.
+use the existing [curated Browser procedure](../../../evals/qa/REPEATABLE-QA.md) when rendering is the useful oracle.
 
 ## Cross-platform test matrix
 
@@ -703,8 +701,8 @@ Example: `tests/playwright/suites/03-agents/agents.spec.ts`.
 
 ## Focused billing checks
 
-Workers run `pnpm exec tsc --noEmit`, `npm run test:unit -- accountPlanModel`,
-in the app lane. Backend checks belong to the private
+Workers run `npm run test:unit -- accountPlanModel` in the app lane;
+`pnpm exec tsc --noEmit` requires an explicit compilation grant. Backend checks belong to the private
 [Firebase repository](https://github.com/rollacode/codeterm-firebase): from its
 root run `cd functions && npm test -- getEntitlements`. That test owns Auth,
 Firestore and Functions emulators; it verifies the returned owner record,
@@ -719,9 +717,9 @@ prepended to `PATH`; no system Java registration or emulator bypass is needed.
 
 Ordinary Rust test operations disable default features to omit embeddings. Product DEV and library Clippy retain embeddings. The dedicated CI `rust-embeddings` job runs `./build.sh ci-tests embeddings` once; its receipt is required alongside the full and platform receipts. Use that verb to verify embedding-specific memory changes. The real-model golden-vector oracle (`candle_embedding_matches_fastembed_golden`, ignored by default) never runs in CI; run it by hand or through evals with `./build.sh embedding-parity` when the embedder, its dependencies or the pinned model change.
 
-For each batch, Workers run `./build.sh fmt` once, then one verification pass: one multi-package `./build.sh lane-check <package>... [--tests]` call for all touched crates, changed TS/JS tests and `tsc` when TS changes, then guards once. On failure, fix all reported errors and recheck only what failed; list canonical selectors under GATES REQUESTED. The lane-check subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway.
+For each batch, finish related edits, format the owned paths, then run the applicable lightweight tests once. On failure, fix reported errors and recheck only failed or affected proof; list deferred canonical selectors under GATES REQUESTED. Compilation, including `lane-check` and `tsc`, follows the explicit dispatch grant. The lane-check subshell selects `$CODETERM_RUST_CACHE_ROOT/lanes`, otherwise `$CARGO_HOME/codeterm-lanes` (Cargo home defaults to `~/.cargo`), and Cargo owns locking. Targets remain per worktree; canonical/gateway build directories remain separate. This check does not acquire the build gateway.
 
-Lanes do not run tests. A Worker lane runs `./build.sh fmt` and one `lane-check` for its touched crates (compile and Clippy on the shared warm lane intermediates), commits and reports; a bug fix that must prove red to green requests one `ci-step` run of its selector on its `ci/try-*` branch. An Integrator real-merges ready lanes into a `ci/try-*` branch and runs their tests hot in one batch: canonical `./build.sh test-one` through the gateway and `ci-step` on the warm runners for other platforms and feature sets. Failures go back to the owning lane with the exact selector and first error.
+Worker lanes run assigned lightweight tests and QA, commit and report; compilation stays centralized unless explicitly granted. A fix needing compiled proof requests the exact selector from canonical or one `ci-step` run on its `ci/try-*` branch. An Integrator real-merges ready lanes into a `ci/try-*` branch and runs deferred tests in one batch: canonical `./build.sh test-one` through the gateway and `ci-step` on warm runners for other platforms and feature sets. Failures go back to the owning lane with the exact selector and first error.
 
 Every lane diff also gets an independent read-only review before merge: correctness, the AGENTS.md hard rules (no sleeps, no lock across await, capability not provider id, file size, PTY delivery untouched, hook rules) and junk (dead code, duplication, needless abstraction, narration comments, tests that pass with the bug present). Blockers go back to the Worker before merge.
 
