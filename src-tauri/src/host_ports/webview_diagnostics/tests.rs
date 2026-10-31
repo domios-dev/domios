@@ -393,7 +393,10 @@ fn observed_client_ancestry_never_overrides_occupied_refusal() {
 
 #[test]
 fn starting_document_cannot_attest_main_target_even_with_current_generation() {
-    let generation = ClientViewGeneration { view: 8, navigation: 21 };
+    let generation = ClientViewGeneration {
+        view: 8,
+        navigation: 21,
+    };
     let main = with_root_generation(
         &Url::parse("http://127.0.0.1:15017/index.html").unwrap(),
         generation,
@@ -404,8 +407,12 @@ fn starting_document_cannot_attest_main_target_even_with_current_generation() {
     ] {
         let starting = with_root_generation(&Url::parse(starting).unwrap(), generation);
         assert!(!target_matches(
-            "page", starting.as_str(), "ws://127.0.0.1:9417/devtools/page/starting",
-            9417, generation, &main,
+            "page",
+            starting.as_str(),
+            "ws://127.0.0.1:9417/devtools/page/starting",
+            9417,
+            generation,
+            &main,
         ));
     }
 }

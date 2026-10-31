@@ -284,7 +284,8 @@ fn initialize_with_preflight(
         return Err("Client root-render latch could not be installed".into());
     }
     let diagnostics_preflight = StartupDiagnosticsPreflight::capture(
-        app.state::<crate::ClientStartupOptions>().local_webview_diagnostics,
+        app.state::<crate::ClientStartupOptions>()
+            .local_webview_diagnostics,
         probe,
     );
     app.manage(ShellSupervisor {
