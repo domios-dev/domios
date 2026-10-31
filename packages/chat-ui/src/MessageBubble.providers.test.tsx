@@ -70,7 +70,10 @@ for (const fixture of providerTranscriptFixtures) {
       assertIncludes(host, fixture.expected.thinkingNeedle, `${fixture.provider} complete thinking summary`);
       assert(!host.querySelector('[data-testid="chat-thought"] button'), `${fixture.provider} complete summary has no disclosure`);
 
-      await clickButtonContaining(host, "Copy");
+      const codeBlock = [...host.querySelectorAll('[data-testid="chat-code-block"]')].find(block => block.textContent?.includes(fixture.expected.codeNeedle));
+      const copyCode = codeBlock?.querySelector<HTMLButtonElement>('button[aria-label="Copy code"]');
+      assert(copyCode, `${fixture.provider} fenced code exposes its copy action`);
+      await act(async () => copyCode.click());
       assert(
         clipboardWrites.some((write) => write.includes(fixture.expected.codeNeedle)),
         `${fixture.provider} copy button should write fenced code`,
