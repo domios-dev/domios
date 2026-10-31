@@ -31,15 +31,13 @@
 
 ## Build, run, test
 
-- Read the owning skill first (`dev-run`, `build`, `gates`, `testing`, `github-release` under `.agents/skills/`). Use named `build.sh` operations; `.\build.ps1` only forwards. Put reusable recipes and recoveries in the owning skill.
-- Run builds/tests in one-shot Team utility tabs with `--timeout`; servers use purpose `dev` without one. Follow `utility-shell-reports`.
-- Workers run no checks on a shared machine unless dispatch grants them; they list the exact checks. The Orchestrator runs them in canonical after merging.
-- Work in waves: merge and edit everything first, run `build.sh fmt` and generators once, then one verification pass. Never merge or edit sources while a wave compiles. On failure fix everything reported and recheck only what failed.
-- Compile each crate once per wave and profile. A crate with selectors gets one `./build.sh nextest <scope> "test(a) | test(b)"`, which is also its compile check; `lane-check --tests` only covers touched crates without selectors. `check-workspace` runs once per candidate, never `test-one` per selector. Regenerate CLI contracts with `./build.sh cli-docs` only when CLI definitions changed.
-- Also run `fmt-check`, changed TS/JS tests, size/boundary guards, and `pnpm check:api-effects` when effects change. Zero compiler errors/warnings; a genuinely unavoidable warning gets a scoped `#[allow(lint, reason = "...")]` on the narrowest item, never crate-wide or for an avoidable warning. Report unrun checks honestly. Broad regression runs once on the release SHA.
-- Order of proof: merge, `build.sh fmt`, commit, then hand the SHA to live QA at once (its candidate build is the compile check). Long test passes run on a CI dry run (free runners), in parallel, never as a local wave that blocks QA. Live fixes change code, so a full local pass runs only before the release build and only if no CI dry run covered that SHA.
-- A busy gateway is a refusal: continue source work, never poll/retry. `--wait-build` requires intentional blocking. Stop foreground dev before canonical QA; do not evade the gateway with another target directory.
-- Never hand-edit generated files. Self-install: Windows `install-local`; macOS `codeterm update install` with continuation per the build skill.
+- Read the owning skill (`build`, `dev-run`, `testing`, `gates`, `github-release`) and use named `build.sh` operations; `build.ps1` only forwards. Keep recipes and recovery procedures in those skills.
+- Workers run lightweight tests and scoped QA autonomously. Compilation and heavy builds stay centralized with one build owner; no parallel Worker Cargo/DEV builds or alternate targets to evade the gateway.
+- Merge and finish edits before formatting/generating once. Never change sources while compiling. Batch selectors into one compile per crate/profile; fix reported failures together and recheck only failed or newly affected proof.
+- Commit, then hand the exact SHA to live QA immediately; its candidate build is the compile check. Long regressions run on CI in parallel, with one broad release gate on the release SHA. Do not block live QA behind repeated local suites.
+- Run owning focused checks, changed TS/JS tests, formatting and size/boundary guards; run `pnpm check:api-effects` when effects change. Require zero compiler errors/warnings; any unavoidable lint exception must be narrow and justified. Report unrun checks honestly.
+- Use Team utility tabs with timeouts for builds/checks; DEV servers have no timeout. Follow `utility-shell-reports`. A busy gateway refuses: continue source work, never poll/retry or evade it. `--wait-build` requires intentional blocking.
+- Never hand-edit generated files. Regenerate CLI contracts only when definitions change; use the owning skill for generators and self-install.
 
 ## Build speed (worktrees, tests, profiles)
 
@@ -57,6 +55,7 @@
 
 ## Testing
 
+- Test product behavior, not test infrastructure. Keep `scripts/` for helpers and runners; do not add self-test suites or dedicated self-test fixtures for catalogues, discovery tools, QA helpers or runners.
 - Extract decisions into pure models; test plain inputs/outputs with injected clocks and ports. Runtime/UI fixtures prove wiring only.
 - UI checks cover accessible controls, handlers, and behavior, not CSS classes, copy, layout internals, or component implementation.
 - Test prompt delivery/substitution mechanisms with opaque fragments, never baked-in wording or shared phrases.
@@ -117,12 +116,6 @@ Noncanonical dev requires explicit `CODETERM_DEV_INSTANCE` and `CODETERM_DEV_API
 
 Handle Windows, macOS, and Linux; report unverified platforms. Use portable PTY/Tauri facilities, forward slashes in code and native user-facing paths. Keyboard shortcuts use `e.code`; Ctrl maps to Cmd on macOS.
 
-## Project skills
-
-Repository-local operational skills live in `.agents/skills/`. Load the matching skill for dev, testing, prompt evaluation, gates, or release work instead of duplicating its procedure here.
-
-Before running `build.ps1 test`, `release-preflight`, or a release, load `.agents/skills/gates/SKILL.md`. It owns which checks you run here and which you delegate, and the traps that make a gate lie about its own result.
-
 ## Orchestration failure visibility
 
 Keep agents/utilities/crons in their Team. A failed dispatch, missing ACK/session/brief, vanished Worker, or lost assignment is a product incident: immediately tell the owner its impact, affected tasks, cleanup, and fallback. Never silently retry or claim success.
@@ -137,21 +130,12 @@ SOLID and DRY. Prefer clear names over comments; WHY comments only, at most two 
 
 ## Architecture (agent providers, detection)
 
-Agent integration is abstracted via providers under `src-tauri/src/agent/`. Live: Claude, Codex, Opencode and Aider (PTY agents). Architecture-ready: Goose. Providers expose a unified capability descriptor (`transport` = pty | chat_backend, `behavior_config`, models, presets) — branch on capability, never a provider id. Detection uses **structural fingerprints**, never literal strings — vendors change copy without notice. Full breakdown: **`essences/core.md`**.
+Provider contracts live in `essences/core.md`; load `provider-authoring` before changing them.
 
-### Plugin & capability discipline (enforce on every provider change)
-
-The provider/plugin boundary is the project's load-bearing seam. It stays clean only if every change crossing it pays the same tax. Non-negotiable when you add or extend a provider capability (a new `AgentProvider` trait method, a new host-API function, a new detection source):
-
-1. **Core asks capabilities, never identities.** Branch on `supports_chat_ui()` / `available_models()` / a new capability fn — never on a hardcoded provider-id list or display string. If you're matching `"codex"` / `"opencode"` in core code, you've leaked the boundary.
-2. **Native + JS parity in lockstep.** Any trait method a JS drop-in can implement MUST gain a case in `parity_test.rs` proving the native and JS paths agree on shared fixtures. A capability without a parity test will silently drift on drop-ins.
-3. **Detection keys off the tab's OWN session.** Provider detection (model, session, status) reads only the record belonging to this tab's claimed session id — never "latest global" / "newest for cwd". Unknown → return null (honest) over a guess (contaminating). This is a real bug class we've shipped.
-4. **Audit the host-API surface when it grows.** Every new host function a drop-in can call is a new confinement hole — justify it against the FS/sqlite/env sandbox, and remember QuickJS lacks bindings the native runtime has (a missing `console` once aborted parsing silently).
-5. **Release plugins independently of the app.** Each official plugin owns its version; its manifest, package and `plugins/channel.json` entry must agree. `minCodeterm` declares the oldest host implementing the capabilities that release needs; raise it only when a host dependency changes. `npm run sync:versions` changes app and shared-package versions and validates plugin metadata without rewriting it. Prepare a plugin release with `node scripts/release-plugin.mjs bump <id> <version> [--min-codeterm <version>]`, merge its verified PR, then tag the master commit `plugin-<id>-v<version>`. `.github/workflows/plugin-release.yml` checks and publishes that plugin without building the app. Plugin-only PRs run plugin checks; host changes retain full host CI. Official `codeterm-core` installs stay trusted, and startup never downgrades a newer channel release to the embedded fallback.
-
-Full rationale + the boundary map: **`essences/core.md`**.
-
-**Where plugin source lives — not all of it is in this repo.** Bundled system providers and capabilities ship from the in-repo `plugins/` channel (`codeterm-core`) with independent plugin versions. The other **official, non-system capability plugins are NOT in this repo** — Bitwarden, Transcriber, and friends live in the separate **`codeterm-plugins`** repo (`~/Developer/codeterm-plugins`, channel `codeterm-plugins`, `github.com/rollacode/codeterm-plugins`), authored in TS against `@codeterm/plugin-sdk` and built to a QuickJS `plugin.js` + split UI bundles via `node scripts/build-plugin.mjs <id>`. Installed copies live under `~/.codeterm/plugins/<id>/`. Use the official channel to update reserved system ids; local directory installation does not authorize replacing them.
+- Core branches on capabilities, never provider IDs or display strings. Detection uses structural fingerprints from the tab's own claimed session; unknown stays unknown, never a guess from global/latest history.
+- New or changed provider contracts require native/JS parity on shared fixtures. Audit every new plugin host API against its filesystem, SQLite and environment authority and QuickJS limitations.
+- Official plugins version independently: manifest, package and channel metadata must agree; `minCodeterm` states the required host capability. Use `scripts/release-plugin.mjs` and the plugin release skill/procedure rather than changing generated bundles by hand. Startup must not downgrade a newer installed channel release.
+- System plugins live in this repository's `plugins/` channel (`codeterm-core`). Other official capability plugins live in `~/Developer/codeterm-plugins` (`rollacode/codeterm-plugins`). Local installation does not authorize replacing reserved system IDs; use their official channel.
 
 ## Code navigation
 
@@ -166,11 +150,13 @@ Prefer cached SCIP indexes for definitions, references, and implementation graph
 
 ## Documentation
 
-Read `essences/begin_here.md` before editing any doc. Bump the `<!-- revision: N -->` tag at the bottom of any `prod-docs/` doc you change; essence docs carry no revision tag.
+Read `essences/begin_here.md` before editing docs. Keep one authoritative home:
 
-- `essences/` — internal stable product material. Start at `essences/begin_here.md`, then read `essences/capabilities.md`, `essences/core.md`, and `essences/vision.md`. Step-by-step procedures live in `.agents/skills/`.
-- `generated/cli/` — committed CLI contract artifacts: `cli.md` and `cli-manifest.json`, generated from the clap tree by `codeterm cli-manifest --write`.
-- `prod-docs/` — exactly the docs embedded in the binary and read with `codeterm docs <NAME>`, one `prod-docs/<NAME>.md` per registry entry: for example `prod-docs/API.md`, `prod-docs/CONFIG.md`, `prod-docs/MESH.md`, `prod-docs/MEMORY.md`, `prod-docs/TAB-LIFECYCLE.md`. Its audience is a production agent using Domios; a doc about Domios's own source (prompt sources, detection internals, file layout) is useless there because that agent cannot edit the binary, so it lives in `.agents/skills/` or `essences/`.
-- `.agents/skills/` — step-by-step procedures (dev run, dev testing, gates, release, prompt evaluation, lane cleanup); not a docs area.
+- `essences/`: stable product contracts, not implementation recipes.
+- `prod-docs/`: embedded help for agents using the installed product, not repository development instructions. Bump its revision tag when edited.
+- `.agents/skills/`: development procedures and recoveries.
+- `generated/cli/`: CLI contracts generated from definitions; never hand-edit.
 
-<!-- revision: 46 -->
+Do not hardcode changing totals of files, tests, cases or runners in documentation; use discovery tools. Keep decisions/evidence in plan strides and owner rules in memory.
+
+<!-- revision: 47 -->
