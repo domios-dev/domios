@@ -92,9 +92,8 @@ if (!mdSendHost.host.querySelector("h1") && !mdSendHost.host.querySelector("ul")
 const longResolvedBody = Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\\n");
 const persistentExpansionHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "long"'), result: `OK (sent)\nCODETERM_RESOLVED_TEXT="${longResolvedBody}"` }} expanded onToggle={() => {}} />);
 const expandMessage = Array.from(persistentExpansionHost.host.querySelectorAll("button")).find((button) => button.textContent?.includes("more lines")) as HTMLButtonElement | undefined;
-if (!expandMessage) throw new Error("long formatted send must retain the existing collapse affordance");
-await act(async () => expandMessage.click());
-if (!persistentExpansionHost.host.textContent?.includes("line 11")) throw new Error("long formatted send did not expand");
+if (expandMessage) throw new Error("nested line counter must not compete with card expansion");
+if (!persistentExpansionHost.host.textContent?.includes("line 11")) throw new Error("card must receive the complete message body");
 const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help")} expanded={false} onToggle={() => {}} />);
 if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);

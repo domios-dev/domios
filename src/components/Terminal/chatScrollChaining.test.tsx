@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
+import { CompactMessageContent } from "../../../packages/chat-ui/src/codeterm/CompactMessageContent";
 import { BoundedMessageContent } from "../../../packages/chat-ui/src/BoundedMessageContent";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { useChatScroll, type UseChatScrollResult } from "./useChatScroll";
@@ -30,7 +31,7 @@ function Fixture({ active }: { active: boolean }) {
   return <>
     <div ref={hook.scrollRef} onScroll={hook.handleScroll} role="log" aria-label="Conversation" className="ct-chat-surface">
       <BoundedMessageContent collapsedHeight="256px" role="region" aria-label="Report body">
-        <p>{"long report line\n".repeat(100)}</p>
+        <BoundedMessageContent collapsedHeight="128px"><CompactMessageContent markdown text={"long report line\n".repeat(100)} /></BoundedMessageContent>
       </BoundedMessageContent>
     </div>
     <ScrollToLatestButton testId="latest" onClick={hook.scrollToBottom} />
@@ -56,6 +57,8 @@ async function main() {
     await act(async () => { root.render(<Fixture active />); TestResizeObserver.deliver(); });
     const button = Array.from(host.querySelectorAll("button")).find((node) => node.textContent === "Show all");
     assert(button, "a clipped report offers an accessible Show all button");
+    assert.equal(host.querySelectorAll('[data-bounded-message]').length, 1, "one message owns its height bound");
+    assert.equal(Array.from(host.querySelectorAll("button")).filter(node => /^Show /.test(node.textContent ?? "")).length, 1, "nested content adds no line or height expansion controls");
     assert.equal(button.getAttribute("aria-controls"), body.id);
     const wheel = async (deltaY: number) => {
       const event = new window.WheelEvent("wheel", { bubbles: true, cancelable: true, deltaY });
@@ -104,6 +107,7 @@ async function main() {
     await act(async () => button.click());
     assert.equal(button.getAttribute("aria-expanded"), "false");
     assert.equal(body.scrollTop, 0, "collapse restores the preview from its beginning");
+    assert.equal(Array.from(host.querySelectorAll("button")).filter(node => /^Show /.test(node.textContent ?? "")).length, 1, "collapse leaves exactly one expansion control");
     console.log("Chat collapse, native chaining and latest wiring checks passed");
   } finally {
     await act(async () => root.unmount());

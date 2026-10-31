@@ -1,4 +1,3 @@
-import { BoundedMessageContent } from "../BoundedMessageContent";
 import { useState } from "react";
 import { Send } from "lucide-react";
 import { InboundActivityCard } from "./InboundActivityCard";
@@ -70,7 +69,7 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
       onFocusTab={onFocusTab}
       disclosureLabel="report Details"
     >
-      <BoundedMessageContent collapsedHeight="16rem" className={`ct-compact-scroll grid gap-2 ${textSize}`}>
+      <div className={`ct-compact-scroll grid gap-2 ${textSize}`}>
         {outcomeLine && (
           <div
             data-testid={tone === "error" ? "chat-outbound-report-incident" : "chat-outbound-report-outcome"}
@@ -98,7 +97,7 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
             {diagnostics}
           </pre>
         )}
-      </BoundedMessageContent>
+      </div>
     </InboundActivityCard>
   );
 }

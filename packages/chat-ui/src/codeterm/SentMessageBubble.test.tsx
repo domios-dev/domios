@@ -222,12 +222,8 @@ await (async () => {
   const body = Array.from({ length: 20 }, (_, i) => `line ${i}`).join("\n");
   const host = await render(<SentMessageBubble inv={inv(`codeterm send --tab bda "${body}"`)} />);
   const expand = host.querySelector('[data-testid="chat-sent-expand"]') as HTMLButtonElement | null;
-  assert(expand != null, "shows expand affordance past threshold");
-  assert(!(host.textContent ?? "").includes("line 15"), "collapsed body hides later lines");
-  await act(async () => {
-    expand!.click();
-  });
-  assert((host.textContent ?? "").includes("line 15"), "expanded body reveals all lines");
+  assert(expand == null, "card owns expansion instead of a second line counter");
+  assert((host.textContent ?? "").includes("line 15"), "the card bounds the complete body without truncating source lines");
 })();
 
 // failed send shows failure glyph
@@ -283,7 +279,7 @@ await (async () => {
   const technical = host.querySelector('[data-testid="raw-command-disclosure"] button');
   assert(card != null && status != null, "narrow send card exposes recipient card and truthful sent status");
   assert(host.textContent?.includes("Courier · Launch") && host.textContent.includes("Deployment"), "narrow send card shows resolved recipient, Team context and body preview");
-  assert(expand != null && technical == null, "long body has an explicit expand control and no inline technical details");
+  assert(expand == null && technical == null, "long body uses the shared card bounds and no inline technical details");
 })();
 
 // plan card click-to-open intent
