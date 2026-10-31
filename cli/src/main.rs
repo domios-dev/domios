@@ -177,8 +177,6 @@ fn main_impl() {
             if let Err(reason) = local_admission::require(operation) { cmd::print::fail(7, reason); }
         }
         plugin_bundle::install();
-    } else if !scoped && matches!(&cli.command, Commands::System { .. }) {
-        plugin_bundle::install();
     }
 
     if let Commands::App { action } = &cli.command {

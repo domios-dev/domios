@@ -33,7 +33,11 @@ pub(crate) fn host_scoped() -> bool {
 }
 
 pub(crate) fn requires_admission(scoped: bool) -> bool {
-    scoped || crate::nonempty_env("CODETERM_API_TOKEN").is_some() || crate::nonempty_env("CODETERM_TAB_ID").is_some()
+    admission_required(scoped, crate::nonempty_env("CODETERM_API_TOKEN").is_some(), crate::nonempty_env("CODETERM_TAB_ID").is_some())
+}
+
+fn admission_required(scoped: bool, inherited_token: bool, inherited_tab: bool) -> bool {
+    scoped || inherited_token || inherited_tab
 }
 
 pub(crate) fn read_local_text(path: impl AsRef<std::path::Path>) -> std::io::Result<String> {
@@ -57,11 +61,10 @@ pub(crate) fn operation_for_cli(cli: &crate::Cli, scoped: bool) -> Option<Operat
     operation_for(&cli.command, scoped)
 }
 
-pub(crate) fn operation_for(command: &Commands, scoped: bool) -> Option<Operation> {
+pub(crate) fn operation_for(command: &Commands, _scoped: bool) -> Option<Operation> {
     match command {
         Commands::System { action: SystemAction::ApiToken } => Some(Operation::HostOwner),
-        // Offline supervisor/autostart is an existing host launch boundary, not a tab grant.
-        Commands::System { .. } => scoped.then_some(Operation::HostOwner),
+        Commands::System { .. } => Some(Operation::HostOwner),
         Commands::Plugin { action: PluginAction::Pass(_) | PluginAction::ReceiverTarget { .. } } => None,
         Commands::Plugin { .. } | Commands::Trace { .. } | Commands::EssenceMap { .. }
         | Commands::Plan { .. } | Commands::Update { .. }

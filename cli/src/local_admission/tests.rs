@@ -26,7 +26,10 @@ fn actual_local_routes_require_admission_but_service_commands_and_offline_host_l
     }
     for args in [vec!["cli","system","supervise","--once"], vec!["cli","system","autostart-status"]] {
         let cli = crate::Cli::try_parse_from(args).unwrap();
-        assert_eq!(operation_for(&cli.command, false), None);
+        assert_eq!(operation_for(&cli.command, false), Some(Operation::HostOwner));
+        assert!(admission_required(false, true, false));
+        assert!(admission_required(false, false, true));
+        assert!(!admission_required(false, false, false));
     }
 }
 
