@@ -108,3 +108,93 @@ fn automatic_permission_revalidates_launch_binding_and_mode_before_the_writer() 
         super::super::clear_tab(&tab_id);
     }
 }
+
+#[test]
+fn automatic_permission_claim_holder_dispatches_after_competing_publication() {
+    let (fixture, tab_id) = fixture(true, true);
+    insert(&tab_id, permission_event());
+    let reply = claim(&fixture.service, &tab_id).unwrap();
+    let prompt = super::super::pending_for_tab(&tab_id).unwrap();
+    fixture.service.push_structured_prompt(&tab_id, Some(prompt.clone()));
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&tab_id).unwrap().pending_prompt_kind,
+        Some(PromptKind::AutomaticPermission),
+    );
+    let published = fixture.ui.0.lock().len();
+    let mut dispatches = 0;
+    let mut writes = 0;
+    fixture.service.publish_structured_prompt(&tab_id, Some(prompt), Some(reply), |reply| {
+        dispatches += 1;
+        assert_eq!(fixture.ui.0.lock().len(), published);
+        reply.run_with(&fixture.service, &tab_id, |_, _| {
+            writes += 1;
+            Ok(())
+        });
+    });
+    assert_eq!(dispatches, 1);
+    assert_eq!(writes, 1);
+    assert!(!ACTIVE.lock().contains_key(&tab_id));
+    assert!(fixture.service.mux.read().get_tab(&tab_id).unwrap().pending_prompt.is_none());
+    super::super::clear_tab(&tab_id);
+}
+
+#[test]
+fn automatic_permission_publication_cancels_claim_when_tab_disappears() {
+    let (fixture, tab_id) = fixture(true, false);
+    insert(&tab_id, permission_event());
+    let reply = claim(&fixture.service, &tab_id).unwrap();
+    let prompt = super::super::pending_for_tab(&tab_id);
+    let identity = reply.identity.clone();
+    let _ = fixture.service.mux.write().remove_tab(&tab_id);
+    let published = fixture.ui.0.lock().len();
+    fixture.service.publish_structured_prompt(&tab_id, prompt, Some(reply), |_| {
+        panic!("vanished tab dispatched an automatic response");
+    });
+    assert!(!ACTIVE.lock().contains_key(&tab_id));
+    assert!(!ATTEMPTS.lock().get(&tab_id).unwrap().iter().any(|(attempt, _)| attempt == &identity));
+    assert_eq!(fixture.ui.0.lock().len(), published);
+    super::super::clear_tab(&tab_id);
+}
+
+#[test]
+fn automatic_permission_completion_never_mutates_replacement_owner() {
+    for success in [true, false] {
+        let (fixture, tab_id) = fixture(true, false);
+        insert(&tab_id, permission_event());
+        let reply = claim(&fixture.service, &tab_id).unwrap();
+        let replacement_route = reply.route.clone();
+        let mut replacement_prompt = super::super::pending_for_tab(&tab_id).unwrap();
+        replacement_prompt.question = "replacement-owner".into();
+        let mut published = 0;
+        reply.run_with(&fixture.service, &tab_id, |_, route| {
+            assert_eq!(route, &replacement_route);
+            ACTIVE.lock().insert(tab_id.clone(), Active {
+                prompt: replacement_prompt.clone(),
+                route: replacement_route.clone(),
+                in_flight: true,
+                automatic_nonce: Some("replacement-nonce".into()),
+            });
+            fixture.service.publish_structured_prompt(
+                &tab_id,
+                Some(replacement_prompt.clone()),
+                None,
+                |_| panic!("replacement publication has no reply claim"),
+            );
+            published = fixture.ui.0.lock().len();
+            if success { Ok(()) } else { Err("old response uncertain".into()) }
+        });
+        {
+            let active = ACTIVE.lock();
+            let retained = active.get(&tab_id).unwrap();
+            assert_eq!(retained.route, replacement_route);
+            assert_eq!(retained.automatic_nonce.as_deref(), Some("replacement-nonce"));
+            assert!(retained.in_flight);
+            assert_eq!(retained.prompt, replacement_prompt);
+        }
+        let tab = fixture.service.mux.read().get_tab(&tab_id).cloned().unwrap();
+        assert_eq!(tab.pending_prompt, Some(replacement_prompt));
+        assert_eq!(tab.pending_prompt_kind, Some(PromptKind::AutomaticPermission));
+        assert_eq!(fixture.ui.0.lock().len(), published);
+        super::super::clear_tab(&tab_id);
+    }
+}

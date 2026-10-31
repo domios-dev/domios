@@ -61,6 +61,16 @@ pub(super) fn claim(svc: &ServiceContext, tab_id: &str) -> Option<Reply> {
 }
 
 impl Reply {
+    pub(crate) fn abandon(self, tab_id: &str) {
+        let mut active = ACTIVE.lock();
+        if active.get(tab_id).is_some_and(|entry| entry.route == self.route && entry.automatic_nonce.as_deref() == Some(self.binding.nonce.as_str())) {
+            active.remove(tab_id);
+        }
+        if let Some(attempts) = ATTEMPTS.lock().get_mut(tab_id) {
+            attempts.retain(|(identity, _)| identity != &self.identity);
+        }
+    }
+
     fn owns(&self, tab_id: &str) -> bool {
         ACTIVE.lock().get(tab_id).is_some_and(|entry| entry.route == self.route && entry.in_flight && entry.automatic_nonce.as_deref() == Some(self.binding.nonce.as_str()))
     }
@@ -92,18 +102,21 @@ impl Reply {
         if let Err(error) = &result {
             log::warn!("[structured-permission] tab={tab_id} automatic response stopped: {error}");
         }
-        if !self.owns(tab_id) { return; }
         if subscription::current(svc, tab_id).as_ref() != Some(&self.binding) {
-            {
+            let removed = {
                 let mut active = ACTIVE.lock();
                 if active.get(tab_id).is_some_and(|entry| entry.route == self.route && entry.automatic_nonce.as_deref() == Some(self.binding.nonce.as_str())) {
-                    active.remove(tab_id);
+                    active.remove(tab_id).is_some()
+                } else {
+                    false
                 }
+            };
+            if removed {
+                svc.push_structured_prompt(tab_id, super::pending_for_tab(tab_id));
             }
-            svc.push_structured_prompt(tab_id, super::pending_for_tab(tab_id));
             return;
         }
-        let _ = super::finish_response(svc, tab_id, &self.route, result, 0);
+        let _ = super::finish_response(svc, tab_id, &self.route, Some(&self.binding.nonce), result, 0);
     }
 }
 

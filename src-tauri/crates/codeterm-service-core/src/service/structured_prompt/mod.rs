@@ -13,6 +13,7 @@ mod tests;
 mod tool_diffs;
 
 pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
+pub(crate) use automatic_permission::Reply as AutomaticPermissionReply;
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
@@ -273,18 +274,23 @@ fn send_claimed_response(
         return Some(Err("structured endpoint disappeared".into()));
     };
     let result = send_reply(&base_url, &cwd, &route, &body);
-    finish_response(svc, tab_id, &route, result, option_index)
+    finish_response(svc, tab_id, &route, None, result, option_index)
 }
 
 fn finish_response(
     svc: &ServiceContext,
     tab_id: &str,
     route: &ResponseRoute,
+    automatic_nonce: Option<&str>,
     result: Result<(), String>,
     option_index: usize,
 ) -> Option<Result<StructuredResponse, String>> {
     let mut active = ACTIVE.lock();
-    let unchanged = active.get(tab_id).is_some_and(|entry| &entry.route == route);
+    let unchanged = active.get(tab_id).is_some_and(|entry| {
+        &entry.route == route && automatic_nonce.is_none_or(|nonce| {
+            entry.in_flight && entry.automatic_nonce.as_deref() == Some(nonce)
+        })
+    });
     if unchanged {
         if result.is_ok() {
             active.remove(tab_id);
@@ -298,7 +304,7 @@ fn finish_response(
     } else if unchanged {
         svc.push_structured_prompt(tab_id, pending_for_tab(tab_id));
     }
-    if result.is_ok() {
+    if result.is_ok() && (unchanged || automatic_nonce.is_none()) {
         request_reconcile(tab_id);
     }
     Some(result.map(|()| StructuredResponse::Answered { option_index }))
