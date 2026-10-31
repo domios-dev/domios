@@ -329,10 +329,6 @@ async fn run(
     if expected.identity.provider == "local" {
         return Ok(());
     }
-    let endpoints = codeterm_account::firebase_endpoints::current();
-    if endpoints.emulator {
-        return Ok(());
-    }
     let uid = expected.identity.uid.clone();
     let metadata = Metadata::new(
         service
@@ -346,21 +342,15 @@ async fn run(
         .map_err(|_| Error::Transport)?
         .as_str()
         .to_owned();
-    let transport = Arc::new(FirebaseTransport {
-        installation_id,
-        project: if endpoints.qa {
-            "domios-signin-qa"
-        } else {
-            "domios-d9357"
-        }
-        .into(),
-        uid: uid.clone(),
-        calls: Arc::new(Calls {
+    let transport = super::runtime::transport::new(
+        super::runtime::transport::calls(Calls {
             service: service.clone(),
-            uid,
+            uid: uid.clone(),
             generation: expected.login_generation,
-        }),
-    });
+        })?,
+        uid,
+        installation_id,
+    )?;
     service
         .select_neighbor_projection(&expected.identity.uid, expected.login_generation)
         .await?;

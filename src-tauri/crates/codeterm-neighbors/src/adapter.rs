@@ -1,4 +1,5 @@
 mod firestore;
+pub use firestore::endpoint::FirestoreTarget;
 mod pause;
 mod receiver;
 pub const PENDING_COUNT_LIMIT: u64 = 100;
@@ -17,6 +18,9 @@ use zeroize::Zeroizing;
 
 #[async_trait]
 pub trait AuthenticatedCall: Send + Sync {
+    fn firestore_target(&self, project: &str) -> Result<FirestoreTarget> {
+        FirestoreTarget::google(project)
+    }
     fn firestore_failure(
         &self,
         _operation: &'static str,

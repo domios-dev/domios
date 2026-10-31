@@ -144,6 +144,19 @@ Run the resulting image only through `.github/workflows/docker-smoke.yml`.
 
 ## Debug staging without runtime launch
 
+Native Neighbor Firestore uses Google TLS for cloud targets. Only the existing
+explicit DEBUG `DOMIOS_FIREBASE_EMULATOR=1` account selection admits the fixed
+`http://127.0.0.1:18080`, `demo-domios/(default)` transport; QA/emulator mixed
+configuration remains refused. No `FIRESTORE_EMULATOR_HOST` override is consumed.
+Use the real selected account ID token and normal emulator protocol/rules.
+Parent QA must prove state, registry, inbox and pending reception on the matched
+DEBUG capture before first receiver/key and signed delivery acceptance. A protocol
+or authentication refusal is evidence to stop, never authority to replay mutations.
+The parent adapter union is `./build.sh nextest codeterm-neighbors 'test(adapter::)'`.
+Its named router must enable `--features runtime`; the generic
+`--no-default-features` package route excludes the adapter. Require nonzero
+policy, stream and authentication discovery before accepting a test receipt.
+
 `./build.sh dev --build-only` uses the existing named DEV target and normal
 CLI/server/client/frontend build, staging and schema3 provenance. Supply the
 existing `CODETERM_DEV_INSTANCE` and its private `CODETERM_DEV_API_PORT`; all
