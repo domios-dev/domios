@@ -276,6 +276,41 @@ impl PlanDatabase {
         result
     }
 
+    pub(super) fn prepare_fixture_plans(
+        plans: &[Plan],
+    ) -> Result<Vec<store_rows::PlanRows>, PlanError> {
+        plans.iter().map(|plan| {
+            i64::try_from(plan.updated_at)
+                .map_err(|_| PlanError::Io("Fixture plan timestamp exceeds SQLite integer range".into()))?;
+            for task in &plan.tasks {
+                i64::try_from(task.updated_at)
+                    .map_err(|_| PlanError::Io("Fixture task timestamp exceeds SQLite integer range".into()))?;
+            }
+            let rows = store_rows::split_plan(serde_json::to_value(plan).map_err(json_error)?)
+                .map_err(PlanError::Io)?;
+            store_rows::validate_row_sizes(&rows).map_err(PlanError::InvalidPlanText)?;
+            Ok(rows)
+        }).collect()
+    }
+
+    pub(super) fn persist_fixture_plans(
+        &self,
+        plans: &[Plan],
+        rows: &[store_rows::PlanRows],
+    ) -> Result<(), PlanError> {
+        if plans.len() != rows.len() {
+            return Err(PlanError::Io("Fixture plan row count mismatch".into()));
+        }
+        let mut connection = self.connection.lock();
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        for (plan, rows) in plans.iter().zip(rows) {
+            upsert_plan(&transaction, plan, rows)?;
+        }
+        transaction.commit().map_err(db_error)
+    }
+
     pub(super) fn persist_spec(&self, spec: &Spec) -> Result<PathBuf, PlanError> {
         let mut connection = self.connection.lock();
         let operation_id = queue_operation(&connection, &spec.id, "persist_spec", spec.updated_at)?;

@@ -3,6 +3,122 @@ use crate::plan::{OrchestratorRef, PlannerRef};
 use crate::service_plan::ports::PlanIndexQuery;
 use crate::service_plan::{NewTask, PlanStore};
 
+fn fixture_plan(id: &str) -> Plan {
+    let project = super::super::test_support::test_data_dir().join(id);
+    let mut plan = Plan::new("Fixture plan".into(), project.to_string_lossy().into_owned(), OrchestratorRef::from_tab("fixture-owner"));
+    plan.id = id.into();
+    plan.created_at = 11;
+    plan.updated_at = 19;
+    plan
+}
+
+#[test]
+fn fixture_batch_reserves_create_only_plans_and_reopens_exact_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let path = store.database.path();
+    let mut existing = fixture_plan("existing");
+    store.save(&mut existing, 5).unwrap();
+    let plans = vec![fixture_plan("fixture-first"), fixture_plan("fixture-second")];
+    let count = store.import_fixture_plans(&plans, || {
+        assert!(plans.iter().all(|plan| store.get(&plan.id).is_none()));
+        Ok(plans.len())
+    }, Ok).unwrap();
+    assert_eq!(count, 2);
+    for plan in &plans { assert_eq!(store.get(&plan.id).as_ref(), Some(plan)); }
+    drop(store);
+    let reopened = PlanStore::open(path).unwrap();
+    assert_eq!(reopened.get("existing"), Some(existing));
+    for plan in plans { assert_eq!(reopened.get(&plan.id), Some(plan.clone())); }
+}
+
+#[test]
+fn fixture_batch_collision_and_malformed_tail_never_call_desk_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut existing = fixture_plan("existing");
+    existing.team_id = Some("existing-team".into());
+    store.save(&mut existing, 5).unwrap();
+    let mut team_collision = fixture_plan("other-plan");
+    team_collision.team_id = existing.team_id.clone();
+    let mut malformed = fixture_plan("malformed");
+    malformed.title = "x".repeat(257);
+    let mut overflow = fixture_plan("overflow");
+    overflow.updated_at = u64::MAX;
+    for tail in [existing.clone(), team_collision, malformed, overflow, fixture_plan("fresh")] {
+        let first = fixture_plan("fresh");
+        let error = store.import_fixture_plans(&[first, tail], || -> Result<(), String> {
+            panic!("all plan validation must precede the Desk commit")
+        }, Ok).unwrap_err();
+        assert!(!error.is_empty());
+        assert!(store.get("fresh").is_none());
+        assert_eq!(store.get("existing"), Some(existing.clone()));
+    }
+}
+
+#[test]
+fn fixture_batch_failed_desk_stage_creates_no_plans() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let error = store.import_fixture_plans(&[fixture_plan("new")], || -> Result<(), String> {
+        Err("competing desk revision".into())
+    }, Ok).unwrap_err();
+    assert_eq!(error, "competing desk revision");
+    assert!(store.get("new").is_none());
+}
+
+#[test]
+fn fixture_batch_reservation_orders_a_competing_import_before_any_overwrite() {
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(PlanStore::new_for_test(dir.path()));
+    let (admitted_tx, admitted_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let first_store = store.clone();
+    let first = std::thread::spawn(move || {
+        first_store.import_fixture_plans(&[fixture_plan("reserved")], || Ok(()), |()| {
+            admitted_tx.send(()).unwrap();
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+            Ok(())
+        })
+    });
+    admitted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let second_store = store.clone();
+    let second = std::thread::spawn(move || {
+        second_store.import_fixture_plans(&[fixture_plan("reserved")], || -> Result<(), String> {
+            panic!("a competing reserved identity must refuse before Desk commit")
+        }, Ok)
+    });
+    {
+        let mut state = store.mutation_writer.state.lock();
+        while state.next_ticket < 2 {
+            assert!(!store.mutation_writer.ready.wait_for(&mut state, Duration::from_secs(5)).timed_out());
+        }
+    }
+    assert_eq!(store.get("reserved"), Some(fixture_plan("reserved")));
+    release_tx.send(()).unwrap();
+    first.join().unwrap().unwrap();
+    assert!(second.join().unwrap().unwrap_err().contains("identity collision"));
+    assert_eq!(store.get("reserved"), Some(fixture_plan("reserved")));
+}
+
+#[test]
+fn fixture_batch_plan_io_failure_retains_committed_desk_stage_without_replay() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let calls = std::cell::Cell::new(0);
+    let error = store.import_fixture_plans(&[fixture_plan("new")], || {
+        calls.set(calls.get() + 1);
+        *store.database.connection.lock() = Connection::open_in_memory().unwrap();
+        Ok(())
+    }, Ok).unwrap_err();
+    assert_eq!(calls.get(), 1);
+    assert!(error.contains("stage=plans desk=committed plans=uncertain"));
+    assert!(error.contains("do not replay"));
+    assert!(!store.index.read().contains_key("new"));
+}
+
 #[test]
 fn searchable_plan_body_includes_external_refs() {
     let directory = tempfile::tempdir().unwrap();
