@@ -85,7 +85,9 @@ it("loads the side panel document reader through the same scoped REST bridge", a
   await act(async () => root?.render(<DocumentDetail tabId="reader-tab" document={{ path: "/work/report.md", kind: "document", name: "report.md", shownAt: null }} home={null} onBack={() => {}} />));
   expect(host.querySelector("h1")?.textContent).toBe("REST document");
   expect(requests).toEqual([{ path: "/api/tabs/reader-tab/preview/read", body: { path: "/work/report.md", kind: "document" } }]);
-  expect(host.querySelector<HTMLButtonElement>('button[aria-label="Reveal report.md"]')?.disabled).toBe(true);
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="More file actions"]')!.click());
+  const reveal = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(button => button.textContent?.includes("Reveal report.md"));
+  expect(reveal?.disabled).toBe(true);
 });
 
 it("reads a changed source file through the authenticated tab-scoped web bridge", async () => {

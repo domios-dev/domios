@@ -3,6 +3,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it } from "vitest";
 import { materializeToolEvent, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { MessageBubble } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider } from "../../../packages/chat-ui/src/blocks/ChatBlockHost";
 import { ChatWindowRow } from "./ChatWindowRow";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -38,9 +39,9 @@ async function renderPart(message: NormalizedChatMessage) {
   root ??= createRoot(host);
   const event = materializeToolEvent(message)!;
   await act(async () => root!.render(
-    <ChatWindowRow key={message.id} message={message}>
+    <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><ChatWindowRow key={message.id} message={message}>
       <MessageBubble message={message} item={{ kind: "tool", event }} />
-    </ChatWindowRow>,
+    </ChatWindowRow></ChatBlockHostProvider>,
   ));
   return host;
 }
@@ -113,7 +114,7 @@ it.each([
   expect(host?.querySelector(detailSelector)).not.toBeNull();
   expectUniqueDisclosureTargets(host!);
 
-  const rawDisclosure = host!.querySelector<HTMLButtonElement>('[data-testid="raw-command-disclosure"] > button')!;
+  const rawDisclosure = [...host!.querySelectorAll("button")].find(button => button.textContent === "Details")!;
   await act(async () => rawDisclosure.click());
   expectUniqueDisclosureTargets(host!);
   expect(host?.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe(input);
@@ -195,9 +196,10 @@ it("keeps structured single-command diffs behind the retained explicit disclosur
   expect(host?.querySelector("[data-chat-window-row]")).toBe(row);
   expect(host?.querySelector('[data-testid="chat-tool-call"]')).toBe(card);
   expect(host?.querySelector('[data-testid="file-diff-cards"]')?.textContent).toContain("opaque_file.txt");
+  const diffDisclosure = host!.querySelector<HTMLButtonElement>('[data-testid="file-diff-cards"] button[aria-controls]')!;
+  await act(async () => diffDisclosure.click());
   expect(Array.from(host!.querySelectorAll('[data-testid="file-diff-line"]')).map((line) => line.textContent)).toEqual(["-opaque_old", "+opaque_new"]);
   expectUniqueDisclosureTargets(host!);
-  const diffDisclosure = host!.querySelector<HTMLButtonElement>('[data-testid="file-diff-cards"] button[aria-controls]')!;
   await act(async () => diffDisclosure.click());
   expect(disclosure.getAttribute("aria-expanded")).toBe("true");
   expect(host?.querySelector('[data-testid="file-diff-line"]')).toBeNull();

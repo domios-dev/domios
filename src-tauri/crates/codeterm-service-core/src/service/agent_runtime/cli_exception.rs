@@ -76,7 +76,10 @@ fn literal_command_path(path: &str) -> bool {
     let bytes = path.as_bytes();
     let absolute = path.starts_with('/')
         || path.starts_with("\\\\")
-        || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'));
+        || (bytes.len() >= 3
+            && bytes[0].is_ascii_alphabetic()
+            && bytes[1] == b':'
+            && matches!(bytes[2], b'/' | b'\\'));
     !path.is_empty()
         && (!path.contains('~') || absolute)
         && path

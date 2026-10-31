@@ -14,7 +14,7 @@ function resultTail(result: string | undefined): string | undefined {
 export function CommandCard({ event, expanded, onToggle, children, primaryContent }: { event: ToolEvent; expanded: boolean; onToggle: () => void; children?: ReactNode; primaryContent?: ReactNode }) {
   const tail = resultTail(event.result);
   const preview = shellFileOperationPreview(event);
-  const expandable = event.status === "pending" || Boolean(event.result) || toolCommandShape(event).kind !== "single";
+  const expandable = event.status === "pending" || Boolean(event.result) || Boolean(event.fileDiffs?.length) || toolCommandShape(event).kind !== "single";
   return <ToolCardFrame event={event} expandable={expandable} minHeight={36} primaryContent={preview ? <>{primaryContent}{preview}</> : primaryContent} expanded={expanded} onToggle={onToggle} title={event.title || toolKindVisual[event.kind].label} summary={event.description || toolCommandLabel(event)} disclosureLabel="full command" tail={tail && <span data-testid="toolcard-result-tail" className="max-w-[34%] truncate font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>→ {tail}</span>}>
     {children ?? (event.status === "pending" ? <div data-testid="toolcard-spinner" style={{ color: "var(--ct-muted-fg)" }}>Running…</div> : event.result && <div data-testid="toolcard-result"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>)}
   </ToolCardFrame>;

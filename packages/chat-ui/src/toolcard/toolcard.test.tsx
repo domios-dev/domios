@@ -44,7 +44,7 @@ const cases: Array<[string, () => Promise<void>]> = [
   ["long output stays bounded and clipped", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "fetch", phase: "result", status: "success", result: "line\n".repeat(500) })} expanded onToggle={() => {}} />);
     const output = host.querySelector('[data-testid="toolcard-result"] pre');
-    if (!output || (output as HTMLElement).style.overflowY !== "hidden" || (output as HTMLElement).style.maxHeight !== "12rem") throw new Error("bounded output regression");
+    if (!output?.textContent?.includes("line") || !output.closest("[data-bounded-message]")) throw new Error("bounded output regression");
   }],
   ["generic does not leak braces", async () => {
     const { host } = await render(<GenericToolCard event={event({ kind: "generic", detail: "plain" })} expanded onToggle={() => {}} />);

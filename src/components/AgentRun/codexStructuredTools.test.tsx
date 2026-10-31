@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../../../packages/chat-ui/src/ToolCallBubble";
 import { MessageBubble } from "../../../packages/chat-ui/src/MessageBubble";
+import { ChatBlockHostProvider } from "../../../packages/chat-ui/src/blocks/ChatBlockHost";
 import fixture from "./fixtures/mixed-turn.json";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -19,7 +20,7 @@ async function render(node: React.ReactNode) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root?.render(node));
+  await act(async () => root?.render(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}>{node}</ChatBlockHostProvider>));
   return host;
 }
 
@@ -90,6 +91,9 @@ describe("Codex structured chat wire contract", () => {
     expect(view.textContent).toContain("git diff");
     expect(view.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();
     expect(view.querySelector('[data-testid="message-raw-content"]')).toBeNull();
+    const details = [...view.querySelectorAll("button")].find(button => button.textContent === "Details");
+    expect(details).toBeTruthy();
+    await act(async () => details!.click());
     expect(view.textContent).toContain("working tree clean");
     await act(async () => groupToggle?.click());
     expect(groupToggle?.getAttribute("aria-expanded")).toBe("false");

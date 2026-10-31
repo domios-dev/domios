@@ -199,6 +199,12 @@ async function main() {
     assert(expand?.getAttribute("aria-expanded") === "false", "live command group starts collapsed");
     await act(async () => expand?.click());
     assert(expand?.getAttribute("aria-expanded") === "true", "full operation can be expanded");
+    const menu = live?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
+    assert(menu, "live operation offers its details menu");
+    await act(async () => menu.click());
+    const details = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]')].find(button => button.textContent?.includes("Details"));
+    assert(details, "live operation offers output details");
+    await act(async () => details.click());
     assert(live?.textContent?.includes("opaque-live-output"), "expanded operation reveals its current output");
     await act(async () => {
       state = { ...state, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "idle" } } as Tab } };

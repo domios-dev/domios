@@ -1,7 +1,7 @@
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
 import { ArrowUpRight, Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
@@ -85,7 +85,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const inlineCommand = event.kind === "command";
   const quiet = !error && !open && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
-  const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+  const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
   const baseMenu = menu ?? toolMenuItems(event, labelText, host);
   const menuItems = showTechnicalDetails ? [...baseMenu, {

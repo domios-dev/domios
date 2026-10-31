@@ -448,6 +448,14 @@ var MAX_VIDEO_BYTES = 200 * 1024 * 1024;
 // packages/chat-core/src/shellLexer.ts
 var POSIX_ESCAPABLE = /* @__PURE__ */ new Set([..." 	\"'\\$`|&;<>(){}#*?[]~!"]);
 
+// packages/chat-core/src/shellFileOperations.ts
+var SHELL_FILE_LIMITS = Object.freeze({ inputBytes: 16384, argv: 128, tokens: 256, segments: 64, operations: 8, variables: 16, path: 512, replacements: 8, fragmentBytes: 2048, totalFragmentBytes: 8192, cache: 64, cacheBytes: 262144 });
+var EMPTY = Object.freeze({ operations: Object.freeze([]), limited: false });
+var LIMITED = Object.freeze({ operations: Object.freeze([]), limited: true });
+var QUOTED_FRAGMENT = `(?:'(?:[^']|'')*'|"[^"$\`]*")`;
+var REPLACE = new RegExp(`^\\$([A-Za-z_]\\w*)\\.Replace\\(\\s*(${QUOTED_FRAGMENT})\\s*,\\s*(${QUOTED_FRAGMENT})\\s*\\)$`, "i");
+var READ = new RegExp(`^Get-Content\\s+((?:-LiteralPath|-Path)\\s+)?(${QUOTED_FRAGMENT}|\\$[A-Za-z_]\\w*|[^\\s'"$;()]+)\\s+-Raw$`, "i");
+
 // plugins/provider-opencode/src/fileDiffs.ts
 function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : {};

@@ -1,10 +1,12 @@
 import React from "react";
 import { CommandCard } from "./CommandCard";
 import { act, assertThemeTokens, event, render } from "./cardTestSetup";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 
-const host = await render(<CommandCard event={event({ kind: "command", summary: "run command", detail: "echo hi" })} expanded onToggle={() => {}} />);
+const host = await render(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><CommandCard event={event({ kind: "command", summary: "run command", detail: "echo hi" })} expanded onToggle={() => {}} /></ChatBlockHostProvider>);
 if (!host.textContent?.includes("command") || host.querySelector('[data-testid="message-raw-content"]')) throw new Error("formatted command card must hide the full invocation");
-const rawButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Raw command");
+const rawButton = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Details");
+if (!rawButton) throw new Error("command details action is missing");
 await act(async () => rawButton?.click());
 if (host.querySelector('[data-testid="message-raw-content"]')?.textContent !== "echo hi") throw new Error("raw command card must show the full invocation");
 if (host.querySelector('[data-testid="toolcard-command-open"]')) throw new Error("per-card command opener must not render");

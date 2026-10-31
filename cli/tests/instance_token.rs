@@ -12,7 +12,10 @@ fn command(root: &std::path::Path) -> std::process::Command {
     }
     command
         .env("CODETERM_DATA_DIR", root)
-        .env("CODETERM_INSTANCE", format!("token-test-{}", std::process::id()))
+        .env(
+            "CODETERM_INSTANCE",
+            format!("token-test-{}", std::process::id()),
+        )
         .env(
             "CODETERM_API_PORT",
             std::net::TcpListener::bind("127.0.0.1:0")
