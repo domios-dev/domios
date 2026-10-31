@@ -721,11 +721,19 @@ fn isolated_debug_named_socket_accepts_owned_custom_port_without_default_fallbac
         "/tmp/domios-dev-verification-a.sock"
     };
     for path in ["domios-dev-verification-a.sock", display] {
-        let selected = resolve_socket_selection(Some(path), Some("verification-a"), Some("7798")).unwrap().unwrap();
+        let selected = resolve_socket_selection(Some(path), Some("verification-a"), Some("7798"))
+            .unwrap()
+            .unwrap();
         assert_eq!(selected.path, "domios-dev-verification-a.sock");
-        assert!(resolve_socket_selection(Some(path), Some("verification-b"), Some("7798")).is_err());
-        assert!(resolve_socket_selection(Some(path), Some("verification-a"), Some("7685")).is_err());
-        assert!(resolve_socket_selection(Some(path), Some("verification-a"), Some("7686")).is_err());
+        assert!(
+            resolve_socket_selection(Some(path), Some("verification-b"), Some("7798")).is_err()
+        );
+        assert!(
+            resolve_socket_selection(Some(path), Some("verification-a"), Some("7685")).is_err()
+        );
+        assert!(
+            resolve_socket_selection(Some(path), Some("verification-a"), Some("7686")).is_err()
+        );
     }
     assert!(resolve_socket_selection(Some("domios-dev.sock"), None, Some("7798")).is_err());
     assert!(resolve_socket_selection(None, None, Some("7798")).is_err());

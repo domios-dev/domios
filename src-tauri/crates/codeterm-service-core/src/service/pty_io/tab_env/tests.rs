@@ -478,7 +478,9 @@ fn agents_and_shells_receive_the_owning_instance_cli_with_restricted_path() {
 #[test]
 fn isolated_named_verification_child_environment_keeps_socket_port_and_tab_identity() {
     let instance = InstanceEnv {
-        socket_path: codeterm_paths::namespaced_socket_display_path("domios-dev-verification-a.sock"),
+        socket_path: codeterm_paths::namespaced_socket_display_path(
+            "domios-dev-verification-a.sock",
+        ),
         api_url: "http://127.0.0.1:7798".into(),
         api_port: "7798".into(),
         cli_path: None,
@@ -498,7 +500,10 @@ fn isolated_named_verification_child_environment_keeps_socket_port_and_tab_ident
         assert_eq!(env["CODETERM_API_URL"], instance.api_url);
         assert_eq!(env["CODETERM_API_PORT"], "7798");
         assert_eq!(env["CODETERM_TAB_ID"], tab.tab_id);
-        assert_eq!(env["CODETERM_SESSION_BINDING_NONCE"], tab.session_binding_nonce);
+        assert_eq!(
+            env["CODETERM_SESSION_BINDING_NONCE"],
+            tab.session_binding_nonce
+        );
         assert_eq!(env["CODETERM_API_TOKEN"], "opaque-tab-credential");
     }
 }

@@ -137,7 +137,13 @@ fn process_split_contract_release_isolated_verification_mode_parses_explicit_roo
     assert!(human_start_options(&debug_args, &executable, false).is_err());
     debug_args.extend(["--instance".into(), "verification-b".into()]);
     assert!(human_start_options(&debug_args, &executable, true).is_err());
-    for invalid in ["", "Upper", "../foreign", "name_with_underscore", &"a".repeat(65)] {
+    for invalid in [
+        "",
+        "Upper",
+        "../foreign",
+        "name_with_underscore",
+        &"a".repeat(65),
+    ] {
         let mut invalid_args = args.clone();
         invalid_args.extend(["--instance".into(), invalid.into()]);
         assert!(human_start_options(&invalid_args, &executable, true).is_err());

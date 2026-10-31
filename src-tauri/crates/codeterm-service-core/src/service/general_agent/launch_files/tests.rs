@@ -101,10 +101,16 @@ fn isolated_general_launch_uses_daemon_socket_and_custom_api_without_rebinding_t
     app.api.port = 7798;
     let config = Arc::new(parking_lot::Mutex::new(app));
     let env = general_agent_env_vars(
-        "verification-general", "owned-pad".into(), "opaque-binding".into(),
-        &config, Some("opaque-tab-credential".into()),
+        "verification-general",
+        "owned-pad".into(),
+        "opaque-binding".into(),
+        &config,
+        Some("opaque-tab-credential".into()),
     );
-    assert_eq!(env["CODETERM_SOCKET_PATH"], crate::paths::socket_display_path());
+    assert_eq!(
+        env["CODETERM_SOCKET_PATH"],
+        crate::paths::socket_display_path()
+    );
     assert_eq!(env["CODETERM_API_PORT"], "7798");
     assert_eq!(env["CODETERM_TAB_ID"], "verification-general");
     assert_eq!(env["CODETERM_SESSION_BINDING_NONCE"], "opaque-binding");

@@ -217,8 +217,9 @@ impl LaunchOptions {
                     data_dir,
                     config_dir,
                     *bind,
-                    &dirs::home_dir()
-                        .ok_or_else(|| std::io::Error::other("Cannot determine the user data root"))?,
+                    &dirs::home_dir().ok_or_else(|| {
+                        std::io::Error::other("Cannot determine the user data root")
+                    })?,
                 )
             }
             _ => Err(std::io::Error::other(
