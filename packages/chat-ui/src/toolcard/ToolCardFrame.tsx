@@ -1,7 +1,7 @@
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
 import { ArrowUpRight, Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
-import type { CSSProperties, ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
@@ -73,6 +73,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
 
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel }: ToolCardFrameProps) {
   const host = useChatBlockHost();
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
   const statusColor = event.status === "error"
@@ -84,7 +85,13 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${event.id.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
   const labelText = typeof label === "string" && label ? label : visual.label;
-  const menuItems = menu ?? toolMenuItems(event, labelText, host);
+  const baseMenu = menu ?? toolMenuItems(event, labelText, host);
+  const menuItems = communication && showTechnicalDetails ? [...baseMenu, {
+    label: "Technical details",
+    icon: <SquareTerminal size={14} aria-hidden />,
+    checked: technicalOpen,
+    onSelect: () => { setTechnicalOpen(value => !value); if (!expanded) onToggle(); },
+  }] : baseMenu;
 
   return (
     <div
@@ -141,7 +148,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         {expanded ? (
           communication ? <>
             {children}
-            {showTechnicalDetails && <div className="mt-2"><RawCommandDisclosure raw={event.detail || rawToolPayload(event)} label="Technical details" /></div>}
+            {technicalOpen && showTechnicalDetails && <BoundedMessageContent collapsedHeight="12rem" as="pre"
+              data-testid="message-raw-content" className="mt-2 whitespace-pre-wrap break-words font-mono text-xs"
+              style={{ color: "var(--ct-muted-fg)" }}>{event.detail || rawToolPayload(event)}</BoundedMessageContent>}
           </> : <RawCommandDisclosure raw={event.detail || rawToolPayload(event)}>
             {children}
           </RawCommandDisclosure>

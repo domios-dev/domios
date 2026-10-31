@@ -283,7 +283,7 @@ await (async () => {
   const technical = host.querySelector('[data-testid="raw-command-disclosure"] button');
   assert(card != null && status != null, "narrow send card exposes recipient card and truthful sent status");
   assert(host.textContent?.includes("Courier · Launch") && host.textContent.includes("Deployment"), "narrow send card shows resolved recipient, Team context and body preview");
-  assert(expand != null && technical?.textContent === "Technical details", "long body has an explicit expand control and collapsed technical details");
+  assert(expand != null && technical == null, "long body has an explicit expand control and no inline technical details");
 })();
 
 // plan card click-to-open intent

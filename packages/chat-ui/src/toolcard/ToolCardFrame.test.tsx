@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ToolEvent, ToolEventKind } from "@codeterm/chat-core";
 import { CommandCard } from "./CommandCard";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 import { ToolCardFrame } from "./ToolCardFrame";
 import { toolKindVisual } from "./toolKindVisual";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
@@ -67,3 +68,19 @@ for (const kind of Object.keys(toolKindVisual) as ToolEventKind[]) {
 }
 
 console.log("tool card frame tests: 5/5 passed");
+
+
+const { host: communicationHost } = await render(
+  <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item =>
+    <button key={item.label} aria-pressed={item.checked} onClick={item.onSelect}>{item.label}</button>)}</> }}>
+    <ToolCardFrame communication event={event({ kind: "generic", detail: "opaque diagnostics" })} expanded onToggle={() => {}}>
+      <p>Visible message</p>
+    </ToolCardFrame>
+  </ChatBlockHostProvider>,
+);
+const technicalToggle = [...communicationHost.querySelectorAll("button")].find(button => button.textContent === "Technical details");
+if (!technicalToggle || communicationHost.querySelector('[data-testid="message-raw-content"]')) throw new Error("technical details must start hidden");
+await act(async () => technicalToggle.click());
+if (!communicationHost.querySelector('[data-testid="message-raw-content"]')?.textContent?.includes("opaque diagnostics")) throw new Error("menu must reveal technical details");
+await act(async () => technicalToggle.click());
+if (communicationHost.querySelector('[data-testid="message-raw-content"]')) throw new Error("menu must hide technical details");
