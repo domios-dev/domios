@@ -146,15 +146,15 @@ it.each(["structured", "permission", "directory_trust", "manual_update", "provid
 );
 
 it("keeps a detached reader anchored while an automatic permission appears and resolves", async () => {
-  setPersistedChatScrollState(SESSION, { mode: "detached", scrollTop: 7700, anchor: { key: "m77", ordinal: 0, offset: 0 } });
+  setPersistedChatScrollState(SESSION, { mode: "detached", scrollTop: 6000, anchor: { key: "m60", ordinal: 0, offset: 0 } });
   await render({ pending_prompt: null });
   expect(followTail.current).toBe(false);
-  const anchor = host.querySelector('[data-message-id="m77"]')!;
+  const anchor = host.querySelector('[data-message-id="m60"]')!;
   const before = { top: scroller().scrollTop, rect: anchor.getBoundingClientRect().top };
   writes = 0;
   await render({ auto_approve: true, pending_prompt_kind: "automatic_permission", pending_prompt: prompt });
   await render({ auto_approve: true, pending_prompt: null });
-  expect(host.querySelector('[data-message-id="m77"]')).toBe(anchor);
+  expect(host.querySelector('[data-message-id="m60"]')).toBe(anchor);
   expect(anchor.getBoundingClientRect().top).toBe(before.rect);
   expect(scroller().scrollTop).toBe(before.top);
   expect(followTail.current).toBe(false);

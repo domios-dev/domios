@@ -112,8 +112,8 @@ type HunkActions = (diff: FileDiff, hunk: FileDiffHunk) => ReactNode;
 function FilePathLabel({ path }: { path: string }) {
   const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
   return <>
-    {parts.length > 1 && <span style={{ color: "var(--ct-muted-fg)" }}>{parts.at(-2)}/</span>}
-    <span>{parts.at(-1) ?? path}</span>
+    {parts.length > 1 && <span style={{ color: "var(--ct-muted-fg)" }}>{parts[parts.length - 2]}/</span>}
+    <span>{parts[parts.length - 1] ?? path}</span>
   </>;
 }
 
