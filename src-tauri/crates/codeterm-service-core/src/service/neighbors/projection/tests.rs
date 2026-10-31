@@ -488,7 +488,10 @@ async fn prepared_registry_completion_cannot_reinstall_after_invalidation_or_acc
                     ("owner", 2)
                 }
             };
-            assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+            assert!(service
+                .neighbor_cell()
+                .registry_snapshot_for_test()
+                .is_none());
             let fresh = service
                 .neighbor_projection_read_epoch(uid, generation)
                 .unwrap();
@@ -504,9 +507,7 @@ async fn prepared_registry_completion_cannot_reinstall_after_invalidation_or_acc
         assert_eq!(
             service
                 .neighbor_cell()
-                .registry_snapshot
-                .lock()
-                .as_ref()
+                .registry_snapshot_for_test()
                 .unwrap()["friends"][0]["displayName"],
             "Fresh"
         );
@@ -541,12 +542,18 @@ async fn registry_publication_before_invalidation_is_cleared_and_old_projection_
         .unwrap();
     assert!(service.neighbor_registry_receiving(&"a".repeat(64)));
     service.invalidate_neighbor_list().await.unwrap();
-    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+    assert!(service
+        .neighbor_cell()
+        .registry_snapshot_for_test()
+        .is_none());
     assert_eq!(
         service.remember_neighbor_projection_registry("owner", 1, &old),
         Err(Error::Revoked)
     );
-    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+    assert!(service
+        .neighbor_cell()
+        .registry_snapshot_for_test()
+        .is_none());
     assert!(
         service
             .apply_neighbor_projection("owner", 1, snapshot(2, None))
@@ -571,7 +578,10 @@ async fn registry_publication_before_invalidation_is_cleared_and_old_projection_
         service.remember_neighbor_projection_registry("owner", 1, &fresh),
         Err(Error::Revoked)
     );
-    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+    assert!(service
+        .neighbor_cell()
+        .registry_snapshot_for_test()
+        .is_none());
 }
 
 #[tokio::test]
@@ -605,7 +615,10 @@ async fn registry_commit_keeps_account_selection_locked_through_the_injected_pub
         .unwrap();
     assert!(service.neighbor_registry_receiving(&"a".repeat(64)));
     service.invalidate_neighbor_list().await.unwrap();
-    assert!(service.neighbor_cell().registry_snapshot.lock().is_none());
+    assert!(service
+        .neighbor_cell()
+        .registry_snapshot_for_test()
+        .is_none());
     assert_eq!(
         service.commit_neighbor_list_read("owner", 1, &epoch, || {
             panic!("A retired preparation cannot enter its publication closure")

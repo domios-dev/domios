@@ -1,3 +1,4 @@
+use super::super::ports::SessionPorts;
 use super::super::*;
 use codeterm_neighbors::{
     adapter::AuthenticatedCall,
@@ -510,13 +511,7 @@ async fn activation_port_runs_after_owned_commit_and_refuses_superseded_or_off_v
     fixture.service.pause_neighbor_reception();
     assert!(ports.activate(&session, &old).await.is_err());
     assert_eq!(ports.activations.load(Ordering::SeqCst), 2);
-    assert!(fixture
-        .service
-        .neighbor_cell()
-        .listeners
-        .lock()
-        .active
-        .is_empty());
+    assert_eq!(fixture.service.neighbor_cell().listener_count_for_test(), 0);
 }
 
 struct ReconcileBarrier {

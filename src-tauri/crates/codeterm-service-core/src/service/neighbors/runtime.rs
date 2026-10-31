@@ -60,6 +60,17 @@ pub struct NeighborRuntimeCell {
     restoration: parking_lot::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
+#[cfg(test)]
+impl NeighborRuntimeCell {
+    pub(in crate::service::neighbors) fn registry_snapshot_for_test(&self) -> Option<Value> {
+        self.registry_snapshot.lock().clone()
+    }
+
+    pub(in crate::service::neighbors) fn listener_count_for_test(&self) -> usize {
+        self.listeners.lock().active.len()
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborRuntimeCommand {
