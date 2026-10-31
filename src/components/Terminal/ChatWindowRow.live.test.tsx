@@ -59,7 +59,12 @@ it("keeps one accessible tool row and settles the same card in place", async () 
   expect(running.querySelector('[role="timer"]')?.textContent).toBe("Running · 5s");
   const expand = running.querySelector<HTMLButtonElement>('button[aria-label="Show full command"]');
   expect(expand).not.toBeNull();
+  expect(expand?.getAttribute("aria-expanded")).toBe("false");
+  const detailsId = expand?.getAttribute("aria-controls");
+  expect(detailsId).toBeTruthy();
+  expect(document.getElementById(detailsId!)?.hidden).toBe(true);
   await act(async () => expand?.click());
+  expect(expand?.getAttribute("aria-expanded")).toBe("true");
   const revealRawCommand = running.querySelector<HTMLButtonElement>('[data-testid="raw-command-disclosure"] button');
   expect(revealRawCommand?.textContent).toBe("Raw command");
   await act(async () => revealRawCommand?.click());
@@ -69,6 +74,8 @@ it("keeps one accessible tool row and settles the same card in place", async () 
   const completed = await renderOperation(operation("completed"));
   expect(completed.querySelector('[data-chat-window-row="operation"]')).toBe(row);
   expect(completed.querySelector('[data-testid="chat-tool-call"]')).toBe(card);
+  expect(completed.querySelector('button[aria-expanded="true"]')).toBe(expand);
+  expect(document.getElementById(detailsId!)?.hidden).toBe(false);
   expect(completed.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(1);
   expect(completed.querySelector('[data-chat-window-row="operation"]')?.hasAttribute("aria-live")).toBe(false);
   expect(completed.querySelector('[data-testid="chat-tool-call"]')?.getAttribute("data-tool-status")).toBe("success");
@@ -85,4 +92,5 @@ it("rebuilds one live operation row from restored transcript state", async () =>
   expect(restored.querySelectorAll('[data-chat-window-row="operation"]')).toHaveLength(1);
   expect(restored.querySelectorAll('[data-testid="chat-tool-call"]')).toHaveLength(1);
   expect(restored.querySelector('[data-chat-window-row="operation"]')?.getAttribute("role")).toBe("status");
+  expect(restored.querySelector('button[aria-expanded]')?.getAttribute("aria-expanded")).toBe("false");
 });
