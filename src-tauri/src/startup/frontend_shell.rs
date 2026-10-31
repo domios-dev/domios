@@ -124,6 +124,40 @@ impl StartupDiagnosticsPreflight {
     }
 }
 
+fn window_browser_arguments(
+    configured: Option<&str>,
+    mode: crate::LocalWebviewDiagnosticsMode,
+    startup: &StartupDiagnosticsPreflight,
+) -> Result<Option<String>, &'static str> {
+    let crate::LocalWebviewDiagnosticsMode::RequestedPort(port) = mode else {
+        return Ok(configured.map(str::to_owned));
+    };
+    if !startup.for_port(port)?.available() {
+        return Ok(configured.map(str::to_owned));
+    }
+    let mut arguments = configured.unwrap_or_default().to_owned();
+    if !arguments.is_empty() {
+        arguments.push(' ');
+    }
+    arguments.push_str(&format!(
+        "--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}"
+    ));
+    Ok(Some(arguments))
+}
+
+pub(super) fn configure_window_browser_arguments(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    config: &mut tauri::utils::config::WindowConfig,
+) -> Result<(), &'static str> {
+    let mode = app.state::<crate::ClientStartupOptions>().local_webview_diagnostics;
+    config.additional_browser_args = window_browser_arguments(
+        config.additional_browser_args.as_deref(),
+        mode,
+        &app.state::<ShellSupervisor>().diagnostics_preflight,
+    )?;
+    Ok(())
+}
+
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 struct WindowEpoch {
     generation: u64,
@@ -380,6 +414,7 @@ pub fn create_window(
     let unavailable = unavailable_url()?;
     let fallback = fallback_url()?;
     let mut window_config = initial_document::window_config(app.config())?;
+    configure_window_browser_arguments(app, &mut window_config)?;
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     // Revealed on the first painted interface (or the recovery page), so startup never shows an empty frame.
     window_config.visible = false;
@@ -409,12 +444,6 @@ pub fn create_window(
             app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
         {
             slot.set_diagnostics_port_preflight(port, preflight);
-        }
-        #[cfg(windows)]
-        if preflight.available() {
-            builder = builder.additional_browser_args(&format!(
-                "--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}"
-            ));
         }
     }
     if let Some(bootstrap) = bootstrap {
