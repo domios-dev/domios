@@ -1,6 +1,59 @@
 import type { HostOwnedCapabilities, JsonValue, RuntimeSettings } from "@codeterm/plugin-sdk";
 import { object, text } from "./runtimeProtocol";
 
+const windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+
+export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
+  const root = object(raw);
+  if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
+    throw {code:"invalid_schema",message:"Windows sandbox configuration was not reported"};
+  const config = object(root.config);
+  const windows = object(config.windows);
+  if (config.windows != null && (typeof config.windows !== "object" || Array.isArray(config.windows)))
+    throw {code:"invalid_schema",message:"Invalid Windows sandbox configuration"};
+  if (windows.sandbox != null) {
+    if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
+      throw {code:"invalid_schema",message:"Unknown configured Windows sandbox"};
+    return false;
+  }
+  if (windows.allow_mxc !== undefined) {
+    if (typeof windows.allow_mxc !== "boolean") throw {code:"invalid_schema",message:"Invalid Windows MXC policy"};
+    if (!windows.allow_mxc) return false;
+  }
+  if (config.features != null && (typeof config.features !== "object" || Array.isArray(config.features)))
+    throw {code:"invalid_schema",message:"Invalid Windows sandbox features"};
+  const features = object(config.features);
+  for (const key of windowsSandboxFeatures) {
+    if (features[key] !== undefined) {
+      if (typeof features[key] !== "boolean") throw {code:"invalid_schema",message:"Invalid Windows sandbox feature selection"};
+      return false;
+    }
+  }
+  return true;
+}
+
+export function codexWindowsSandboxOverride(raw: unknown): "mxc" | undefined {
+  const root = object(raw);
+  if (root.requirements === null) return "mxc";
+  if (typeof root.requirements !== "object" || Array.isArray(root.requirements))
+    throw {code:"invalid_schema",message:"Windows sandbox requirements were not reported"};
+  const requirements = object(root.requirements);
+  const allowed = requirements.allowedWindowsSandboxImplementations;
+  if (allowed !== null && (!Array.isArray(allowed) || allowed.some(mode => !["mxc", "elevated", "unelevated"].includes(String(mode)))))
+    throw {code:"invalid_schema",message:"Windows sandbox implementation requirements are unknown"};
+  if (Array.isArray(allowed) && !allowed.includes("mxc")) return undefined;
+  const modes = requirements.allowedSandboxModes;
+  if (modes !== null && (!Array.isArray(modes) || modes.some(mode => !["read-only", "workspace-write", "danger-full-access"].includes(String(mode)))))
+    throw {code:"invalid_schema",message:"Sandbox mode requirements are unknown"};
+  if (Array.isArray(modes) && !modes.includes("workspace-write")) return undefined;
+  if (requirements.defaultPermissions != null || requirements.allowedPermissionProfiles != null) return undefined;
+  if (requirements.featureRequirements != null && (typeof requirements.featureRequirements !== "object" || Array.isArray(requirements.featureRequirements)))
+    throw {code:"invalid_schema",message:"Windows sandbox feature requirements are unknown"};
+  const features = object(requirements.featureRequirements);
+  if (windowsSandboxFeatures.some(key => features[key] !== undefined)) return undefined;
+  return "mxc";
+}
+
 export function codexServiceTier(settings: RuntimeSettings): Record<string, string | null> {
   return settings.serviceTier === undefined ? {} : {serviceTier:settings.serviceTier.id};
 }
@@ -62,6 +115,15 @@ export function codexReportedSettings(raw: unknown, requested?: RuntimeSettings)
 export function codexEffectiveSettings(requested: RuntimeSettings, reply: unknown): RuntimeSettings {
   const {serviceTier: _requestedTier,...other} = requested;
   return {...other,...codexReportedSettings(reply,requested)};
+}
+
+export function codexWorkspaceWriteConfirmed(raw: unknown): boolean {
+  const root = object(raw);
+  const settings = root.threadSettings ? object(root.threadSettings) : root;
+  const thread = object(settings.thread);
+  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox);
+  return codexReportedSettings(raw).mode === "workspace-write" && sandbox.type === "workspaceWrite"
+    && (settings.approvalPolicy ?? thread.approvalPolicy) === "never" && sandbox.networkAccess === false;
 }
 
 export function codexWritableRootsConfirmed(settings: RuntimeSettings, reply: unknown): boolean {

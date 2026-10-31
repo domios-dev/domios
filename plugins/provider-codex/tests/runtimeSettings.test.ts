@@ -1,9 +1,31 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { codexEffectiveSettings, codexServiceTier, codexThreadConfig } from "../src/runtimeSettings";
+import { codexEffectiveSettings, codexServiceTier, codexThreadConfig, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride } from "../src/runtimeSettings";
 import { modelServiceTiers, tierAvailable, serviceTierSelection } from "../src/runtimeServiceTiers";
 
 const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/app-server-host-owned-config.json",import.meta.url),"utf8")) as Record<string,boolean>;
+
+assert.equal(codexNeedsWindowsSandboxSelection({config:{}}),true);
+for (const sandbox of ["mxc","elevated","unelevated"]) assert.equal(codexNeedsWindowsSandboxSelection({config:{windows:{sandbox}}}),false);
+for (const prefer_mxc of [false,true]) assert.equal(codexNeedsWindowsSandboxSelection({config:{features:{prefer_mxc}}}),false);
+assert.equal(codexNeedsWindowsSandboxSelection({config:{windows:{allow_mxc:false}}}),false);
+for (const config of [undefined,null,[],{windows:{sandbox:"unknown"}},{windows:{allow_mxc:"unknown"}},{features:{prefer_mxc:"unknown"}}])
+  assert.throws(()=>codexNeedsWindowsSandboxSelection({config}));
+assert.equal(codexWindowsSandboxOverride({requirements:null}),"mxc");
+assert.equal(codexWindowsSandboxOverride({requirements:{allowedWindowsSandboxImplementations:["elevated","mxc"],allowedSandboxModes:["workspace-write"]}}),"mxc");
+assert.equal(codexWindowsSandboxOverride({requirements:{allowedWindowsSandboxImplementations:null,allowedSandboxModes:null}}),"mxc");
+for (const requirements of [
+  {allowedWindowsSandboxImplementations:["elevated"],allowedSandboxModes:["workspace-write"]},
+  {allowedWindowsSandboxImplementations:[],allowedSandboxModes:["workspace-write"]},
+  {allowedWindowsSandboxImplementations:["mxc"],allowedSandboxModes:["read-only"]},
+  {allowedWindowsSandboxImplementations:["mxc"],allowedSandboxModes:["workspace-write"],defaultPermissions:"opaque-profile"},
+  {allowedWindowsSandboxImplementations:["mxc"],allowedSandboxModes:["workspace-write"],featureRequirements:{prefer_mxc:false}},
+]) assert.equal(codexWindowsSandboxOverride({requirements}),undefined);
+for (const requirements of [undefined,[],{},
+  {allowedWindowsSandboxImplementations:["unknown"],allowedSandboxModes:["workspace-write"]},
+  {allowedWindowsSandboxImplementations:["mxc"],allowedSandboxModes:"unknown"},
+  {allowedWindowsSandboxImplementations:["mxc"],allowedSandboxModes:["workspace-write"],featureRequirements:[]},
+]) assert.throws(()=>codexWindowsSandboxOverride({requirements}));
 
 for (const id of [null,"priority","ultrafast"]) {
   assert.deepEqual(codexServiceTier({serviceTier:{id}}),{serviceTier:id});
