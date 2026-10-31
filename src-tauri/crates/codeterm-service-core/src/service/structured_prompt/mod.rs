@@ -12,8 +12,8 @@ mod subscription;
 mod tests;
 mod tool_diffs;
 
-pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 pub(crate) use automatic_permission::Reply as AutomaticPermissionReply;
+pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, LazyLock};
@@ -106,11 +106,22 @@ pub(crate) fn kind_for_tab(tab_id: &str) -> codeterm_types::pty::PromptKind {
     kind_for_prompt(tab_id, pending_for_tab(tab_id).as_ref())
 }
 
-pub(crate) fn kind_for_prompt(tab_id: &str, prompt: Option<&PendingPrompt>) -> codeterm_types::pty::PromptKind {
-    automatic_permission::kind(ACTIVE.lock().get(tab_id).filter(|entry| Some(&entry.prompt) == prompt))
+pub(crate) fn kind_for_prompt(
+    tab_id: &str,
+    prompt: Option<&PendingPrompt>,
+) -> codeterm_types::pty::PromptKind {
+    automatic_permission::kind(
+        ACTIVE
+            .lock()
+            .get(tab_id)
+            .filter(|entry| Some(&entry.prompt) == prompt),
+    )
 }
 
-pub(crate) fn claim_automatic_permission(svc: &ServiceContext, tab_id: &str) -> Option<automatic_permission::Reply> {
+pub(crate) fn claim_automatic_permission(
+    svc: &ServiceContext,
+    tab_id: &str,
+) -> Option<automatic_permission::Reply> {
     automatic_permission::claim(svc, tab_id)
 }
 
@@ -287,9 +298,10 @@ fn finish_response(
 ) -> Option<Result<StructuredResponse, String>> {
     let mut active = ACTIVE.lock();
     let unchanged = active.get(tab_id).is_some_and(|entry| {
-        &entry.route == route && automatic_nonce.is_none_or(|nonce| {
-            entry.in_flight && entry.automatic_nonce.as_deref() == Some(nonce)
-        })
+        &entry.route == route
+            && automatic_nonce.is_none_or(|nonce| {
+                entry.in_flight && entry.automatic_nonce.as_deref() == Some(nonce)
+            })
     });
     if unchanged {
         if result.is_ok() {

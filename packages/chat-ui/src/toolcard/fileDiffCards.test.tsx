@@ -229,6 +229,8 @@ describe("file diff cards", () => {
     const removed = lines.find((node) => node.dataset.tone === "del") as HTMLElement;
     expect(added.querySelector(".token")).not.toBeNull();
     expect(removed.querySelector(".token")).not.toBeNull();
+    const htmlHost = await mount(<FileDiffCards event={diffEvent([{ ...jsDiff, path: "games/snake.html" }])} initiallyExpanded />);
+    expect(htmlHost.querySelector('[data-testid="file-diff-line"] .token')).not.toBeNull();
     const marker = added.querySelector<HTMLElement>('[data-testid="file-diff-marker"]') as HTMLElement;
     expect(marker.textContent).toBe("+");
     expect(marker.querySelector(".token")).toBeNull();

@@ -1,5 +1,5 @@
 import { shellFileOperations, toolCommand, type ToolEvent } from "@codeterm/chat-core";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, FileDiff } from "lucide-react";
 import { useId, useState } from "react";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { FloatingTooltip } from "../FloatingTooltip";
@@ -28,23 +28,24 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
           }
           setOpen(next);
         }}>
-        <ChevronRight size={12} aria-hidden className={`shrink-0 ${open ? "rotate-90" : ""}`} />
+        <FileDiff size={14} aria-hidden className="shrink-0" />
         <span className="min-w-0 truncate" style={{ color: "var(--ct-fg)" }}>{filename}</span>
         <span className="shrink-0">{count} {count === 1 ? "replacement" : "replacements"}</span>
-        <span className="truncate text-[10.5px]">Replacement preview{replacement.unsupported ? " · partial" : ""}</span>
+        <span className="min-w-0 flex-1 truncate text-[10.5px]">Replacement preview{replacement.unsupported ? " · partial" : ""}</span>
+        <ChevronRight size={12} aria-hidden className={`shrink-0 ${open ? "rotate-90" : ""}`} />
       </button>
     </FloatingTooltip>
     <div id={regionId} hidden={!open}>
       {open && <BoundedMessageContent unbounded collapsedHeight="160px" data-testid="shell-replacement-fragments"
         className="mt-1" style={{ maxHeight: "400px", overflow: "auto" }}>
-        <div className="mb-1 text-[10.5px]">Command fragments; file contents and matches unverified.</div>
+        <div className="mb-1 text-[10.5px]">Requested replacements</div>
         {replacement.fragments.map((fragment, index) => <div key={index} className="mb-1">
           <div className="text-[10.5px]">Before</div>
           <pre className="m-0 whitespace-pre-wrap break-words px-2 py-0.5" style={{ background: "var(--ct-diff-del-bg)", color: "var(--ct-fg)" }}>{fragment.before}</pre>
           <div className="text-[10.5px]">After</div>
           <pre className="m-0 whitespace-pre-wrap break-words px-2 py-0.5" style={{ background: "var(--ct-diff-add-bg)", color: "var(--ct-fg)" }}>{fragment.after}</pre>
         </div>)}
-        {replacement.unsupported && <div>Additional replacement expressions are unsupported or exceed preview limits.</div>}
+        {replacement.unsupported && <div role="note" aria-label="Partial replacement preview">Some replacements cannot be previewed. See command details.</div>}
       </BoundedMessageContent>}
     </div>
   </>;

@@ -872,7 +872,9 @@ impl ServiceContext {
                     )
                 };
 
-                if crate::service::structured_prompt::pending_for_tab(tab_id).as_ref() == Some(prompt) {
+                if crate::service::structured_prompt::pending_for_tab(tab_id).as_ref()
+                    == Some(prompt)
+                {
                     self.push_structured_prompt(tab_id, Some(prompt.clone()));
                     return;
                 }
@@ -886,14 +888,21 @@ impl ServiceContext {
                 }
                 if !directory_trust_prompt
                     && !require_user_confirmation
-                    && self.try_permission_auto_confirm(tab_id, screen_text).owns_prompt()
+                    && self
+                        .try_permission_auto_confirm(tab_id, screen_text)
+                        .owns_prompt()
                 {
                     return;
                 }
                 if auto_approve && !directory_trust_prompt && !require_user_confirmation {
-                    let bound_permission_owner = super::structured_endpoint::sse(tab_id).is_some() || agent_type.as_deref().is_some_and(|agent_type| {
-                        self.agent_registry.with_provider(agent_type, |provider| provider.supports_permission_auto_confirm()).unwrap_or(false)
-                    });
+                    let bound_permission_owner = super::structured_endpoint::sse(tab_id).is_some()
+                        || agent_type.as_deref().is_some_and(|agent_type| {
+                            self.agent_registry
+                                .with_provider(agent_type, |provider| {
+                                    provider.supports_permission_auto_confirm()
+                                })
+                                .unwrap_or(false)
+                        });
                     if is_general_tab {
                         let provider_classified_safety_dialog = agent_type
                             .as_deref()
@@ -945,12 +954,13 @@ impl ServiceContext {
                     let structured_prompt =
                         crate::service::structured_prompt::pending_for_tab(tab_id)
                             .is_some_and(|structured| &structured == prompt);
-                    let legacy_permitted = !bound_permission_owner && super::directory_trust::legacy_auto_approve_permitted(
-                        &trust,
-                        session_authenticated,
-                        structured_prompt,
-                        directory_trust_prompt,
-                    );
+                    let legacy_permitted = !bound_permission_owner
+                        && super::directory_trust::legacy_auto_approve_permitted(
+                            &trust,
+                            session_authenticated,
+                            structured_prompt,
+                            directory_trust_prompt,
+                        );
                     if let Some(response) = legacy_permitted
                         .then(|| legacy_auto_approve_response(prompt, directory_trust_prompt))
                         .flatten()

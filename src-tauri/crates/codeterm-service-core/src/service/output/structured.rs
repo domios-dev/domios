@@ -46,8 +46,10 @@ impl ServiceContext {
         if changed {
             self.ui.emit(
                 "prompt-state-changed",
-                serde_json::to_value(serde_json::json!({ "tab_id": tab_id, "prompt": prompt, "kind": kind }))
-                    .unwrap_or_default(),
+                serde_json::to_value(
+                    serde_json::json!({ "tab_id": tab_id, "prompt": prompt, "kind": kind }),
+                )
+                .unwrap_or_default(),
             );
             self.emit_state_changed(MuxEmitCause::Prompt);
         }

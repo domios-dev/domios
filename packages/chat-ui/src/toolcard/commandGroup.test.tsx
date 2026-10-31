@@ -298,7 +298,7 @@ describe("shell file operation visibility", () => {
     expect([...(fragments?.querySelectorAll("pre") ?? [])].map(node => node.textContent)).toEqual([
       '<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>',
     ]);
-    expect(fragments?.textContent).toContain("unsupported");
+    expect(fragments?.querySelector('[role="note"][aria-label="Partial replacement preview"]')).not.toBeNull();
     expect(fragments?.textContent).not.toContain("Get-Content");
     await click(host.querySelector('[data-testid="chat-command-group-toggle"]'));
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");

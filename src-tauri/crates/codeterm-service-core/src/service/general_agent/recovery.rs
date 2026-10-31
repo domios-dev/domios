@@ -89,7 +89,12 @@ pub(crate) fn decide<'a>(label: Label, e: &Evidence<'a>) -> Action<'a> {
     if label == Label::TrustOrPermission {
         return match e.prompt_kind {
             Some(PromptKind::DirectoryTrust) if e.directory_covered => Action::DirectoryTrust,
-            Some(PromptKind::Provider | PromptKind::Structured | PromptKind::Permission | PromptKind::AutomaticPermission) => Action::PermissionPolicy,
+            Some(
+                PromptKind::Provider
+                | PromptKind::Structured
+                | PromptKind::Permission
+                | PromptKind::AutomaticPermission,
+            ) => Action::PermissionPolicy,
             _ => Action::Notify,
         };
     }
