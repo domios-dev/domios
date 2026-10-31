@@ -12,19 +12,25 @@ test("nextest metadata reuse requires Cargo Fresh and unchanged binaries and man
   const manifest = path.join(root, "Cargo.toml"), binary = path.join(root, "test-bin");
   fs.writeFileSync(manifest, "opaque manifest");
   fs.writeFileSync(binary, "opaque binary");
-  const calls = [];
+  const calls = [], logs = [];
+  const compileFailure = Object.assign(new Error("compile refused"), { status: 43,
+    stdout: [
+      { reason: "compiler-message", message: { level: "error", rendered: "error[E0001]: opaque compile failure\n  --> owned.rs:7:3\n" } },
+      { reason: "compiler-message", message: { level: "warning", message: "opaque compiler warning" } },
+      { reason: "compiler-artifact", opaque: "must not dump artifact JSON" },
+    ].map(row => JSON.stringify(row)).join("\n") + "\nnot cargo JSON\n" });
   let fresh = true, fail = false;
   const run = (program, args) => {
     if (program === "git") return "Cargo.toml\0";
     assert.ok(args.includes("--locked"));
     calls.push(args[0]);
-    if (fail) throw Object.assign(new Error("compile refused"), { status: 43 });
+    if (fail) throw compileFailure;
     if (args[0] === "test") return JSON.stringify({ reason: "compiler-artifact", fresh, profile: { test: true }, executable: binary }) + "\n";
     if (args[0] === "nextest") return JSON.stringify({ "rust-binaries": { opaque: { "binary-path": binary } } });
     if (args[0] === "metadata") return JSON.stringify({ packages: [{ manifest_path: manifest }] });
     throw new Error(args.join(" "));
   };
-  const options = { root, manifest: "Cargo.toml", targets: ["--lib"], output: path.join(root, "out"), run, env: {}, log() {} };
+  const options = { root, manifest: "Cargo.toml", targets: ["--lib"], output: path.join(root, "out"), run, env: {}, log: line => logs.push(line) };
   assert.equal(prepareNextestMetadata(options), false);
   assert.deepEqual(calls.splice(0), ["nextest", "metadata"]);
   assert.equal(prepareNextestMetadata(options), true);
@@ -42,6 +48,10 @@ test("nextest metadata reuse requires Cargo Fresh and unchanged binaries and man
   fail = true;
   assert.throws(() => prepareNextestMetadata(options), /compile refused/);
   assert.deepEqual(calls, ["test"]);
+  assert.ok(logs.includes("error[E0001]: opaque compile failure\n  --> owned.rs:7:3"));
+  assert.ok(logs.includes("opaque compiler warning"));
+  assert.ok(logs.every(line => !line.includes("must not dump artifact JSON") && !line.includes("not cargo JSON")));
+  assert.equal(compileFailure.status, 43);
 });
 
 test("preparation stamps skip unchanged work and repair removed outputs", t => {
