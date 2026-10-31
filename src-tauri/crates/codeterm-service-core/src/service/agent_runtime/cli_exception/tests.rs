@@ -60,8 +60,23 @@ fn provisions_only_fresh_protected_policy_and_exact_executable_prefix() {
 #[test]
 fn metadata_directory_is_a_protected_direct_component_before_any_write() {
     let (_directory, context, sandbox, executable) = fixture();
-    for directory in ["", ".", "..", ".git", ".GIT", "../foreign", ".own/foreign", ".own\\foreign", "C:/foreign", ".own:stream", ".own."] {
-        assert!(provision(&context, &sandbox, &executable, directory).is_err(), "{directory}");
+    for directory in [
+        "",
+        ".",
+        "..",
+        ".git",
+        ".GIT",
+        "../foreign",
+        ".own/foreign",
+        ".own\\foreign",
+        "C:/foreign",
+        ".own:stream",
+        ".own.",
+    ] {
+        assert!(
+            provision(&context, &sandbox, &executable, directory).is_err(),
+            "{directory}"
+        );
         assert_eq!(fs::read_dir(&context.cwd).unwrap().count(), 0);
     }
 }

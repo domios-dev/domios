@@ -26,7 +26,9 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
     let js = provider("module.exports={runtimePlan(ctx){return {action:{kind:'request',call:{method:'handshake',params:ctx.restrictedCli}},state:null}}}");
     assert_eq!(
         js.agent_runtime().unwrap().restricted_cli,
-        Some(RestrictedCliCapability::ExecpolicyServiceOperations { metadata_directory: ".runtime-policy".into() })
+        Some(RestrictedCliCapability::ExecpolicyServiceOperations {
+            metadata_directory: ".runtime-policy".into()
+        })
     );
     let plan = js
         .runtime_plan(&ctx, &RuntimeOperation::Initialize)
@@ -39,7 +41,16 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
         call.params,
         serde_json::to_value(ctx.restricted_cli.as_ref().unwrap()).unwrap()
     );
-    for field in ["tab", "nonce", "epoch", "cwd", "metadata", "malformed-metadata", "executable", "hash"] {
+    for field in [
+        "tab",
+        "nonce",
+        "epoch",
+        "cwd",
+        "metadata",
+        "malformed-metadata",
+        "executable",
+        "hash",
+    ] {
         let mut changed = ctx.clone();
         let policy = changed.restricted_cli.as_mut().unwrap();
         match field {
@@ -66,14 +77,39 @@ async fn restricted_cli_context_is_typed_bound_and_transferred_without_provider_
 
 #[test]
 fn restricted_cli_descriptor_requires_a_valid_metadata_directory() {
-    let value = json!({"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"});
+    let value =
+        json!({"kind":"execpolicy-service-operations","metadataDirectory":".runtime-policy"});
     let capability: RestrictedCliCapability = serde_json::from_value(value.clone()).unwrap();
     assert_eq!(capability.metadata_directory(), ".runtime-policy");
     assert_eq!(serde_json::to_value(capability).unwrap(), value);
-    assert!(serde_json::from_value::<RestrictedCliCapability>(json!("execpolicy-service-operations")).is_err());
-    assert!(serde_json::from_value::<RestrictedCliCapability>(json!({"kind":"execpolicy-service-operations"})).is_err());
-    for directory in ["", ".", "..", ".git", ".GIT", "../foreign", ".own/foreign", ".own\\foreign", "C:/foreign", ".own:stream", ".own."] {
-        assert!(serde_json::from_value::<RestrictedCliCapability>(json!({"kind":"execpolicy-service-operations","metadataDirectory":directory})).is_err(), "{directory}");
+    assert!(serde_json::from_value::<RestrictedCliCapability>(json!(
+        "execpolicy-service-operations"
+    ))
+    .is_err());
+    assert!(serde_json::from_value::<RestrictedCliCapability>(
+        json!({"kind":"execpolicy-service-operations"})
+    )
+    .is_err());
+    for directory in [
+        "",
+        ".",
+        "..",
+        ".git",
+        ".GIT",
+        "../foreign",
+        ".own/foreign",
+        ".own\\foreign",
+        "C:/foreign",
+        ".own:stream",
+        ".own.",
+    ] {
+        assert!(
+            serde_json::from_value::<RestrictedCliCapability>(
+                json!({"kind":"execpolicy-service-operations","metadataDirectory":directory})
+            )
+            .is_err(),
+            "{directory}"
+        );
     }
 }
 

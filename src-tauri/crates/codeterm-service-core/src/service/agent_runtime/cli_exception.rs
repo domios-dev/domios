@@ -156,7 +156,9 @@ fn paths(policy: &RestrictedCliPolicy) -> (PathBuf, PathBuf, PathBuf) {
 }
 
 fn verify_files(policy: &RestrictedCliPolicy) -> Result<(), String> {
-    if !RestrictedCliCapability::valid_metadata_directory(&policy.metadata_directory) { return Err(DENIED.into()); }
+    if !RestrictedCliCapability::valid_metadata_directory(&policy.metadata_directory) {
+        return Err(DENIED.into());
+    }
     let (directory, config, rule) = paths(policy);
     reject_links(&directory)?;
     reject_links(Path::new(&policy.executable))?;
@@ -213,7 +215,9 @@ fn provision(
     executable: &Path,
     metadata_directory: &str,
 ) -> Result<RestrictedCliPolicy, String> {
-    if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) { return Err(DENIED.into()); }
+    if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) {
+        return Err(DENIED.into());
+    }
     let cwd = Path::new(&context.cwd);
     reject_links(cwd)?;
     reject_links(executable)?;
@@ -256,9 +260,14 @@ fn provision(
 }
 
 fn require_fresh_project(cwd: &Path, metadata_directory: &str) -> Result<(), String> {
-    if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) { return Err(DENIED.into()); }
+    if !RestrictedCliCapability::valid_metadata_directory(metadata_directory) {
+        return Err(DENIED.into());
+    }
     for ancestor in cwd.ancestors() {
-        if ancestor.join(metadata_directory).try_exists().map_err(|_| DENIED)?
+        if ancestor
+            .join(metadata_directory)
+            .try_exists()
+            .map_err(|_| DENIED)?
             || ancestor.join(".git").try_exists().map_err(|_| DENIED)?
         {
             return Err("Restricted CLI exception requires a fresh project configuration".into());
@@ -268,7 +277,9 @@ fn require_fresh_project(cwd: &Path, metadata_directory: &str) -> Result<(), Str
 }
 
 fn remove_owned(policy: &RestrictedCliPolicy) {
-    if !RestrictedCliCapability::valid_metadata_directory(&policy.metadata_directory) { return; }
+    if !RestrictedCliCapability::valid_metadata_directory(&policy.metadata_directory) {
+        return;
+    }
     let (directory, config, rule) = paths(policy);
     if reject_links(&directory).is_err() {
         return;
@@ -324,14 +335,23 @@ fn sandbox(
 }
 
 fn metadata_directory(svc: &ServiceContext, provider: &str) -> Result<Option<String>, String> {
-    let capability = svc.agent_registry.with_provider(provider, |provider| {
-        provider.agent_runtime().and_then(|capability| capability.restricted_cli)
-    }).flatten();
-    capability.map(|capability| {
-        let directory = capability.metadata_directory();
-        if !RestrictedCliCapability::valid_metadata_directory(directory) { return Err(DENIED.into()); }
-        Ok(directory.to_owned())
-    }).transpose()
+    let capability = svc
+        .agent_registry
+        .with_provider(provider, |provider| {
+            provider
+                .agent_runtime()
+                .and_then(|capability| capability.restricted_cli)
+        })
+        .flatten();
+    capability
+        .map(|capability| {
+            let directory = capability.metadata_directory();
+            if !RestrictedCliCapability::valid_metadata_directory(directory) {
+                return Err(DENIED.into());
+            }
+            Ok(directory.to_owned())
+        })
+        .transpose()
 }
 
 pub(super) fn prepare(
@@ -378,7 +398,9 @@ pub(super) fn prepare(
     let executable_pin = pin_executable(&executable)?;
     let policy = provision(context, &sandbox, &executable, &metadata_directory)?;
     if !self::sandbox(svc, context).is_ok_and(|current| current.as_ref() == Some(&sandbox))
-        || !self::metadata_directory(svc, provider).is_ok_and(|current| current.as_deref() == Some(metadata_directory.as_str())) {
+        || !self::metadata_directory(svc, provider)
+            .is_ok_and(|current| current.as_deref() == Some(metadata_directory.as_str()))
+    {
         remove_owned(&policy);
         return Err(DENIED.into());
     }
@@ -401,8 +423,12 @@ pub(super) fn validate(svc: &ServiceContext, context: &RuntimeContext) -> Result
     };
     let current = sandbox(svc, context)?.ok_or(DENIED)?;
     let lease = LEASES.lock().get(&context.tab_id).cloned().ok_or(DENIED)?;
-    if lease.policy != *policy || lease.sandbox != current || !binding_matches(policy, context)
-        || metadata_directory(svc, &lease.provider)?.as_deref() != Some(policy.metadata_directory.as_str()) {
+    if lease.policy != *policy
+        || lease.sandbox != current
+        || !binding_matches(policy, context)
+        || metadata_directory(svc, &lease.provider)?.as_deref()
+            != Some(policy.metadata_directory.as_str())
+    {
         return Err(DENIED.into());
     }
     let executable = crate::service::instance_env::instance_cli_binary_path().ok_or(DENIED)?;
@@ -429,8 +455,12 @@ pub(super) fn validate_binding(
     let current = sandbox(svc, context)?.ok_or(DENIED)?;
     let leases = LEASES.lock();
     let lease = leases.get(&context.tab_id).ok_or(DENIED)?;
-    if lease.policy != *policy || lease.sandbox != current || !binding_matches(policy, context)
-        || metadata_directory(svc, &lease.provider)?.as_deref() != Some(policy.metadata_directory.as_str()) {
+    if lease.policy != *policy
+        || lease.sandbox != current
+        || !binding_matches(policy, context)
+        || metadata_directory(svc, &lease.provider)?.as_deref()
+            != Some(policy.metadata_directory.as_str())
+    {
         return Err(DENIED.into());
     }
     Ok(())

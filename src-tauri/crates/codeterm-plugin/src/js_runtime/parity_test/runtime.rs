@@ -694,7 +694,15 @@ async fn restricted_cli_context_native_quickjs_authority_parity() {
             .await
             .unwrap()
     );
-    for field in ["tab", "nonce", "epoch", "cwd", "metadata", "malformed-metadata", "executable"] {
+    for field in [
+        "tab",
+        "nonce",
+        "epoch",
+        "cwd",
+        "metadata",
+        "malformed-metadata",
+        "executable",
+    ] {
         let mut changed = ctx.clone();
         let policy = changed.restricted_cli.as_mut().unwrap();
         match field {

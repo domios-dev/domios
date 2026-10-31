@@ -258,12 +258,14 @@ pub fn validate_runtime_plan(
     plan: &RuntimePlan,
 ) -> Result<(), RuntimeFailure> {
     validate_runtime_operation(ctx, op)?;
-    if let Some(policy) = &ctx.restricted_cli
-        && cap.restricted_cli.as_ref().is_none_or(|capability| {
+    if ctx.restricted_cli.as_ref().is_some_and(|policy| {
+        cap.restricted_cli.as_ref().is_none_or(|capability| {
             capability.metadata_directory() != policy.metadata_directory.as_str()
         })
-    {
-        return Err(mismatch("restricted CLI metadata differs from provider capability"));
+    }) {
+        return Err(mismatch(
+            "restricted CLI metadata differs from provider capability",
+        ));
     }
     validate_runtime_size(plan, MAX_RUNTIME_VALUE_BYTES)?;
     validate_runtime_size(&plan.state, MAX_RUNTIME_STATE_BYTES)?;
