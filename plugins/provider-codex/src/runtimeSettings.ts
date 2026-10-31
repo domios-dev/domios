@@ -178,5 +178,5 @@ export function codexRestrictedCliInstructions(ctx: RuntimeContext, instructions
   if (!ctx.restrictedCli) return instructions;
   codexRestrictedCliConfig(ctx);
   const executable = ctx.restrictedCli.executable;
-  return [instructions, `Trusted Domios CLI executable: ${executable}. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox.`].filter(value=>value!==undefined).join("\n\n");
+  return [instructions, `Trusted Domios CLI executable: ${executable}. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Single-quote opaque string arguments, especially IDs beginning with digits; keep the executable itself unquoted. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox.`].filter(value=>value!==undefined).join("\n\n");
 }
