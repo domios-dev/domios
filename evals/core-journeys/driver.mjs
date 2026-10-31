@@ -9,20 +9,24 @@ import { planFromEnv, renderPlan } from "./lib/plan.mjs";
 import { captureScreenshot } from "./lib/screenshots.mjs";
 import { REQUIRED_PROVIDERS } from "./lib/oracle.mjs";
 import { loadResults, recorder, saveResults, verdict } from "./lib/results.mjs";
+import { modelSelections, preparePolicy } from "./lib/model-policy.mjs";
+import { readTab } from "./lib/tabs.mjs";
 import { JourneyFailure } from "./lib/wait.mjs";
 import { cleanup } from "./journeys/cleanup.mjs";
 import { journeyThree, journeyThreeAfterRestart } from "./journeys/dispatch.mjs";
 import { restartCheck, restoredSends, restoredTabsReady, snapshotBeforeRestart } from "./journeys/restore.mjs";
-import { journeyOne, providers } from "./journeys/spawn.mjs";
+import { journeyOne } from "./journeys/spawn.mjs";
 import { apiNoContext, uiContext } from "./journeys/team.mjs";
 
 export function parseArgs(argv) {
   const [mode, ...rest] = argv;
   if (!["setup", "verify", "cleanup"].includes(mode)) throw new Error(`unknown driver mode ${mode}`);
+  const modelEntries = [];
   const options = { mode, out: null, providers: null, allTabs: false, historyBytes: 320 * 1024, deadlineSecs: 240, keep: false, plan: false };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index], value = rest[index + 1];
     if (flag === "--out") { options.out = resolve(value); index += 1; }
+    else if (flag === "--model") { modelEntries.push(value); index += 1; }
     else if (flag === "--providers") { options.providers = value.split(",").map((id) => id.trim()).filter(Boolean); index += 1; }
     else if (flag === "--history-kb") { options.historyBytes = Number(value) * 1024; index += 1; }
     else if (flag === "--deadline-secs") { options.deadlineSecs = Number(value); index += 1; }
@@ -34,6 +38,7 @@ export function parseArgs(argv) {
   if (!options.out) throw new Error("--out DIR is required");
   if (!Number.isFinite(options.historyBytes) || options.historyBytes < 0) throw new Error("--history-kb must be a number");
   if (!(options.deadlineSecs > 0)) throw new Error("--deadline-secs must be positive");
+  options.models = modelSelections(modelEntries);
   return options;
 }
 
@@ -65,19 +70,20 @@ async function provisionWorkspace(ctx) {
   });
 }
 
-async function setup(ctx) {
+export async function setup(ctx) {
   ctx.state.run ??= runId();
   Object.assign(ctx.state, { tabs: ctx.state.tabs ?? [], teams: ctx.state.teams ?? [], plans: ctx.state.plans ?? [] });
+  ctx.policy = await preparePolicy(ctx, { configure: true, readRecord: (id) => readTab(ctx.api, id) });
+  const selected = ctx.policy.roster;
+  const pty = preferred(selected.run, false), runtime = preferred(selected.run, true);
   const access = await ctx.check("SETUP", "agent_access_chosen", ctx.state.run, async () => {
     const evidence = await chooseAgentAccess(ctx.api);
     return { summary: `full_access=${evidence.full_access}`, evidence };
   });
   if (!access) return;
   if (!(await provisionWorkspace(ctx))) return;
-  const selected = await providers(ctx);
-  const pty = preferred(selected.run, false), runtime = preferred(selected.run, true);
   const firstRun = await ctx.check("SETUP", "general_first_run_completed", ctx.state.run, async () => {
-    const evidence = await completeFirstRun(ctx.api, pty?.id ?? runtime?.id);
+    const evidence = await completeFirstRun(ctx.api, ctx.state.model_policy.general_provider, ctx.policy);
     return { summary: `General Agent ${evidence.provider} chosen`, evidence };
   });
   if (!firstRun) return;
@@ -105,6 +111,7 @@ async function setup(ctx) {
 
 async function verify(ctx) {
   if (!ctx.state.run) throw new Error("verify needs the state written by setup in the same --out directory");
+  ctx.policy = await preparePolicy(ctx, { readRecord: (id) => readTab(ctx.api, id) });
   await restartCheck(ctx);
   await restoredTabsReady(ctx);
   await Promise.all([restoredSends(ctx), journeyThreeAfterRestart(ctx)]);
@@ -142,6 +149,7 @@ export async function main(argv) {
     if (options.mode === "verify") await verify(ctx);
     if (options.mode === "cleanup" && !options.keep) await cleanup(ctx);
   } catch (error) {
+    if (options.mode === "setup" && !ctx.policy) ctx.state.model_policy_refusal = error.message;
     await ctx.check("HARNESS", options.mode, null, async () => { throw error; });
   } finally {
     phase.wall_ms = Math.round(performance.now() - started);
@@ -149,6 +157,7 @@ export async function main(argv) {
   }
   const outcome = verdict(results);
   console.log(`${options.mode.toUpperCase()} ${outcome.pass ? "PASS" : "FAIL"}: ${outcome.reason}; phase wall ${(phase.wall_ms / 1000).toFixed(1)}s; results ${options.out}/results.md`);
+  if (ctx.state.model_policy_refusal || ctx.state.model_policy?.refusal || results.checks.some((check) => check.reason?.includes("model policy refused"))) return 8;
   return outcome.pass ? 0 : 1;
 }
 

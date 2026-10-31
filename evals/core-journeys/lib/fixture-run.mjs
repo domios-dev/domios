@@ -36,6 +36,29 @@ export function fixtureResults() {
     },
     screenshots: [{ phase: "setup", file: "screenshots/setup.png", bytes: PNG.length }, { phase: "verify", file: "screenshots/verify.png", bytes: PNG.length }],
   };
+  const roster = ["claude", "codex", "opencode"];
+  const selections = Object.fromEntries(roster.map((id) => [id, `fixture/${id}`]));
+  const catalogues = Object.fromEntries(roster.map((id) => [id, {
+    provider: id, selected: selections[id], catalogue_version: 1,
+    capability: { authority: "authoritative", liveDiscoveryRequired: true }, model: { id: selections[id] },
+    refresh: { provider_id: id, discovery_required: true, refreshed: true, version: 1, reason: null },
+  }]));
+  const identities = Object.fromEntries(roster.map((id, index) => [`tab${index + 1}`, {
+    provider: id, selected: selections[id], requested: selections[id], resolved: selections[id],
+    actual: selections[id], session: `session${index + 1}`,
+  }]));
+  results.state.tabs = roster.map((id, index) => ({ id: `tab${index + 1}`, provider: id, journey: "J1", reply: true, session: `session${index + 1}` }));
+  results.state.before_restart.tabs = results.state.tabs.map((tab) => ({ id: tab.id, agent_type: tab.provider,
+    session: tab.session, owned: true, model_identity: identities[tab.id] }));
+  results.state.model_policy = { roster, selections, general_provider: "claude", catalogues,
+    configurations: Object.fromEntries(["setup", "verify"].map((phase) => [phase, {
+      general_provider: "claude", general_model: selections.claude, defaults: selections,
+    }])),
+    identities, restored_identities: structuredClone(identities), first_sends: { tab1: true, tab2: true, tab3: true },
+    launches: ["J1-spawn", "J2-api-pair", "J2-ui-pair", "J3-dispatch"].map((path) => ({
+      path, provider: "claude", model: selections.claude, catalogue: catalogues.claude, checked_at: results.started_at,
+    })),
+  };
   return results;
 }
 

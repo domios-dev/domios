@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { restartObserved } from "../../restart-endurance/restart.mjs";
 import { JOURNEYS, renderMarkdown, verdict } from "./results.mjs";
+import { modelEvidenceErrors } from "./model-evidence.mjs";
 
 export const VERDICTS = ["pass", "fail", "skip"];
 export const PHASES = ["setup", "verify", "cleanup"];
@@ -117,6 +118,7 @@ export function validateRun(dir, { phases = PHASES, journeys = REQUIRED_JOURNEYS
     checkPhases(results, phases, errors);
     checkChecks(results, journeys, errors);
     checkIds(results, phases, errors);
+    errors.push(...modelEvidenceErrors(results.state, { verify: phases.includes("verify") }));
     checkScreenshots(dir, results, phases, errors);
     checkMarkdown(dir, results, errors);
   }
