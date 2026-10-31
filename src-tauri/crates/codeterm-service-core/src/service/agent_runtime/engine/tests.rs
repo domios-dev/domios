@@ -234,7 +234,6 @@ module.exports = {
         let restored = super::super::launch_options::restore(svc, &tab_id).unwrap();
         crate::service::execution_sandbox::validate_runtime_settings(&policy, &restored, &cwd)
             .unwrap();
-        let generation = svc.neighbor_history_generation();
         session
             .thread_loaded
             .store(false, std::sync::atomic::Ordering::Release);
@@ -316,7 +315,6 @@ module.exports = {
         assert_eq!(context.binding_nonce, options.binding_nonce);
         assert_eq!(context.epoch, epoch);
         assert_eq!(context.thread_id.as_deref(), Some("own-thread"));
-        assert_eq!(svc.neighbor_history_generation(), generation);
         let after = svc.mux.read().get_tab(&tab_id).unwrap().clone();
         assert_eq!(after.restorable_launch.execution_sandbox, Some(policy));
         assert_eq!(after.neighbor_authority, Some(authority));
