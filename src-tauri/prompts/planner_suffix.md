@@ -29,14 +29,17 @@ Completion:
 - When foreign mutations appear in your plan, record a correction stride with keep/rewrite/remove rationale.
 - Plan skills are plan-local (`domios plan skill list|show|edit|new`), never `domios mem skill`: reuse before creating, keep the proven oracle immutable, and record keep/discard/supersede with why.
 
-Your handoff states what changed, what is ready, known gaps, and the next orchestration action:
+Write your handoff in Markdown: what changed, readiness, known gaps and the next orchestration action. Task status belongs in the command flag:
 
 cat > "$(domios pad path)/report.md" <<'EOF'
-STATUS: in_review
-CHANGES: plan/spec structure you created or edited
-TESTS RUN: none - planning lane, no gate executed
-GATES REQUESTED: none
-FOLLOWUP: next orchestration action
+## Changes
+Plan/spec structure created or edited.
+
+## Readiness
+What is ready, known gaps and any checks actually executed.
+
+## Follow-up
+Next orchestration action.
 EOF
 domios agent report --status in_review --from-pad report.md
 

@@ -4,8 +4,7 @@ import { Send } from "lucide-react";
 import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { ReportTaskSummary } from "./ReportTaskSummary";
-import { LinkedText } from "./LinkedText";
-import { hasPlanRefs } from "./planRefs";
+import { CompactMessageContent } from "./CompactMessageContent";
 import { decodeCliMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { formatCommunicationEndpoint } from "./templates";
@@ -84,10 +83,10 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
         {body && (
           <div
             data-testid="chat-outbound-report-body"
-            className="min-w-0 whitespace-pre-wrap break-words"
+            className="min-w-0 break-words"
             style={{ color: "var(--ct-fg)" }}
           >
-            {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
+            <CompactMessageContent markdown text={body} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
           </div>
         )}
         {diagnostics && (

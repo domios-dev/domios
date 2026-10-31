@@ -4,8 +4,6 @@ import { MessageSquareText } from "lucide-react";
 import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { ReportTaskSummary } from "./ReportTaskSummary";
-import { LinkedText } from "./LinkedText";
-import { hasPlanRefs } from "./planRefs";
 import { decodeCliMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { CoordinationReportCard } from "./CoordinationReportCard";
@@ -22,53 +20,26 @@ import {
   type ReportTaskOutcome,
 } from "./reportOutcome";
 
-/** Identity the dense header row already states; repeating it as body rows is
- *  what made the card four lines of metadata before its first sentence. */
-const HEADER_FIELDS = new Set(["task", "status", "branch", "sha"]);
-
-interface ReportField {
-  label: string;
-  value: string;
-}
-
 export interface InboundReportDescriptor {
   task?: string;
   status?: string;
   sha?: string;
-  fields: ReportField[];
   /** The free-form message below the structured block, verbatim. */
   body: string;
 }
 
-const FIELD_RE = /^(task|status|branch|sha|tests|changed|skipped|changes|tests run|gates requested|followup):\s*(.*)$/i;
-const COMPOUND_SPLIT_RE = /\s+\|\s+(?=[A-Z][A-Z ]+:)/;
-
-// AgentReport::inject_body emits structured fields as a leading block, then the
-// message: the first non-field line opens the body, so quoted prose stays body.
+// Only host envelope metadata belongs to the card header; the report body is Markdown.
 export function parseInboundReport(text: string): InboundReportDescriptor {
   const lines = decodeCliMessageText(text).split("\n");
-  const fields: ReportField[] = [];
+  const metadata: Record<string, string> = {};
   let cut = 0;
   for (; cut < lines.length; cut += 1) {
-    const matches = lines[cut].split(COMPOUND_SPLIT_RE).map((segment) => FIELD_RE.exec(segment.trim()));
-    if (matches.some((match) => !match)) break;
-    for (const match of matches) {
-      fields.push({ label: match![1].toLowerCase().replace(" run", ""), value: match![2].trim() });
-    }
+    const match = /^(task|status|branch|sha):\s*(.*)$/.exec(lines[cut]);
+    if (!match) break;
+    metadata[match[1]] = match[2].trim();
   }
-  const value = (label: string) => {
-    for (let index = fields.length - 1; index >= 0; index -= 1) {
-      if (fields[index].label === label) return fields[index].value;
-    }
-    return undefined;
-  };
-  return {
-    task: value("task"),
-    status: value("status"),
-    sha: value("sha"),
-    fields,
-    body: lines.slice(cut).join("\n").trim(),
-  };
+  return { task: metadata.task, status: metadata.status, sha: metadata.sha,
+    body: lines.slice(cut).join("\n").trim() };
 }
 
 interface Props {
@@ -83,10 +54,6 @@ interface Props {
   /** Structured truth when the report event is linked; the delivered incident
    *  header is the fallback so a refused transition is never silently dropped. */
   taskOutcome?: ReportTaskOutcome | null;
-}
-
-function sentenceCase(label: string): string {
-  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 function taskObject(task: string | undefined): string {
@@ -125,7 +92,6 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
       ? descriptor.body
       : null;
   const outcomeLine = reportOutcomeLine(outcome);
-  const detailFields = descriptor.fields.filter((field) => !HEADER_FIELDS.has(field.label));
 
   return (
     <InboundActivityCard
@@ -156,18 +122,6 @@ export function InboundReportCard({ message, sender, expanded, onToggle, onFocus
           <div data-testid="chat-inbound-report-body" className="min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
             <CompactMessageContent markdown text={body} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
           </div>
-        )}
-        {detailFields.length > 0 && (
-          <dl className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-4 gap-y-1">
-            {detailFields.map((field, index) => (
-              <div key={`${field.label}-${index}`} className="contents">
-                <dt style={{ color: "var(--ct-muted-fg)" }}>{sentenceCase(field.label)}</dt>
-                <dd className="m-0 min-w-0 break-words" style={{ color: "var(--ct-fg)" }}>
-                  {hasPlanRefs(field.value) ? <LinkedText text={field.value} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : field.value}
-                </dd>
-              </div>
-            ))}
-          </dl>
         )}
         {diagnostics && (
           <pre
