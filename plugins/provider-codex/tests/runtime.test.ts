@@ -180,7 +180,7 @@ function replay(fixture:Fixture) {
   return {events,state};
 }
 const names = fs.readdirSync(fileURLToPath(root)).filter(n => n.endsWith(".json")).sort();
-assert.equal(names.length,11);
+assert.equal(names.length,12);
 for (const name of names) check(`replay ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(name,root),"utf8"))));
 for (const name of fs.readdirSync(new URL("captured/",root)).filter(n=>n.endsWith(".json") && n!=="metrics.json").sort())
   check(`captured traffic ${name}`,()=>replay(JSON.parse(fs.readFileSync(new URL(`captured/${name}`,root),"utf8"))));
@@ -371,7 +371,7 @@ check("fixture oracle detects corrupted expected content",()=> {
   const corrupted=structuredClone(sample);corrupted.expected.events[1]={kind:"turnState",threadId:ctx.threadId!,state:"needs_input"};
   assert.throws(()=>replay(corrupted));
 });
-console.log(`runtime hooks: ${count} checks passed (9 shared scenarios)`);
+console.log(`runtime hooks: ${count} checks passed (12 shared scenarios)`);
 check("reasoning summary and content streams stay separate",()=> {
   const frames:RuntimeFrame[]=[
     {kind:"notification",method:"item/reasoning/textDelta",params:{threadId:ctx.threadId!,turnId:"turn-a",itemId:"r",contentIndex:0,delta:"private content"}},

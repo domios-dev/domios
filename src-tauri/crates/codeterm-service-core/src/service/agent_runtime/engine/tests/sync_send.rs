@@ -130,6 +130,7 @@ pub(super) fn attach_runtime_peer(
         provider,
         adapter: Mutex::new(Some(adapter)),
         context: Mutex::new(RuntimeContext {
+            restricted_cli: None,
             host_owned: Default::default(),
             epoch,
             tab_id: tab_id.into(),

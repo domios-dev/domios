@@ -1,9 +1,53 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { codexEffectiveSettings, codexServiceTier, codexThreadConfig, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride } from "../src/runtimeSettings";
+import { codexEffectiveSettings, codexServiceTier, codexThreadConfig, codexNeedsWindowsSandboxSelection, codexWindowsSandboxOverride, codexRestrictedCliConfig, codexValidateCliTrust } from "../src/runtimeSettings";
+import type {RuntimeContext} from "@codeterm/plugin-sdk";
+import {runtimePlan as sourcePlan, runtimeResponse as sourceResponse} from "../src/runtime";
+import type {Operation, RuntimePlan, RpcReply} from "@codeterm/plugin-sdk";
 import { modelServiceTiers, tierAvailable, serviceTierSelection } from "../src/runtimeServiceTiers";
 
 const hostOwnedConfigFixture = JSON.parse(fs.readFileSync(new URL("../../../tests/fixtures/app-server-host-owned-config.json",import.meta.url),"utf8")) as Record<string,boolean>;
+
+const cliContext: RuntimeContext = {
+  tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",hostVersion:"1.18.0",
+  settings:{mode:"workspace-write",networkAccess:false},providerSettings:{},activeTurns:[],threadParents:[],claimedSends:[],
+  restrictedCli:{tabId:"own-tab",bindingNonce:"own-binding",epoch:4,cwd:"C:/opaque/project",executable:"C:/trusted/cli.exe",
+    executableSha256:"a".repeat(64),configSha256:"b".repeat(64),ruleSha256:"c".repeat(64),argv:["identify","--json"]},
+};
+assert.deepEqual(codexRestrictedCliConfig(cliContext),{projects:{"C:/opaque/project":{trust_level:"trusted"}}});
+assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined}),{});
+assert.deepEqual(codexRestrictedCliConfig({...cliContext,restrictedCli:undefined,settings:{mode:"full-access"},providerSettings:{restrictedCli:cliContext.restrictedCli as never}}),{});
+for (const changed of [
+  {tabId:"foreign"},{bindingNonce:"foreign"},{epoch:3},{cwd:"C:/foreign"},{executable:"relative.exe"},
+  {executableSha256:"unknown"},{ruleSha256:"unknown"},{configSha256:"unknown"},{argv:["identify","--json","--mesh=foreign"]},
+  {argv:["pwsh","-Command"]},
+]) assert.throws(()=>codexRestrictedCliConfig({...cliContext,restrictedCli:{...cliContext.restrictedCli!,...changed}}));
+assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"full-access",networkAccess:false}}));
+assert.throws(()=>codexRestrictedCliConfig({...cliContext,settings:{mode:"workspace-write",networkAccess:true}}));
+for (const config of [{},{projects:{"C:/opaque/project":{trust_level:"trusted"}}},{projects:{"C:/other":{trust_level:"untrusted"}}}])
+  assert.doesNotThrow(()=>codexValidateCliTrust(cliContext,{config}));
+for (const config of [{projects:{"C:/opaque/project":{trust_level:"untrusted"}}},{projects:{"C:\\opaque":{trust_level:"untrusted"}}},{projects:[]}])
+  assert.throws(()=>codexValidateCliTrust(cliContext,{config}));
+assert.throws(()=>codexValidateCliTrust(cliContext,{}));
+const cliReplay = JSON.parse(fs.readFileSync(new URL("./fixtures/runtime/restricted-cli.json",import.meta.url),"utf8")) as {
+  context:RuntimeContext;operations:{operation:Operation;context?:RuntimeContext}[];
+  rpc:({direction:"outbound";operation:number;action:RuntimePlan["action"]}|{direction:"inbound";operation:number;reply:RpcReply})[];
+  expected:{results:{operation:number;step:unknown}[]};
+};
+for (const [index,entry] of cliReplay.operations.entries()) {
+  const ctx = entry.context ?? cliReplay.context;
+  let plan = sourcePlan(ctx,entry.operation);
+  let completed:unknown;
+  for (const row of cliReplay.rpc.filter(row=>row.operation === index)) {
+    if (row.direction === "outbound") assert.deepEqual(JSON.parse(JSON.stringify(plan.action)),row.action);
+    else {
+      const step = sourceResponse(ctx,entry.operation,plan.state,row.reply);
+      if (step.kind === "continue") plan=step.plan;
+      else completed=step;
+    }
+  }
+  assert.deepEqual(JSON.parse(JSON.stringify(completed)),cliReplay.expected.results.find(row=>row.operation === index)?.step);
+}
 
 assert.equal(codexNeedsWindowsSandboxSelection({config:{}}),true);
 for (const sandbox of ["mxc","elevated","unelevated"]) assert.equal(codexNeedsWindowsSandboxSelection({config:{windows:{sandbox}}}),false);

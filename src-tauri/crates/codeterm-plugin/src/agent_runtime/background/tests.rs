@@ -3,6 +3,7 @@ use crate::agent_runtime::{validate_runtime_operation, RuntimeOperation, Runtime
 
 fn context() -> RuntimeContext {
     RuntimeContext {
+        restricted_cli: None,
         host_owned: Default::default(),
         epoch: 1,
         tab_id: "tab".into(),

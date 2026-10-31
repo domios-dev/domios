@@ -1,7 +1,43 @@
-import type { HostOwnedCapabilities, JsonValue, RuntimeSettings } from "@codeterm/plugin-sdk";
+import type { HostOwnedCapabilities, JsonValue, RuntimeSettings, RuntimeContext } from "@codeterm/plugin-sdk";
 import { object, text } from "./runtimeProtocol";
 
 const windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
+
+export function codexRestrictedCliConfig(ctx: RuntimeContext): Record<string, JsonValue> {
+  const policy = ctx.restrictedCli;
+  if (!policy) return {};
+  const hash = (value: string) => /^[0-9a-f]{64}$/.test(value);
+  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch
+    || policy.cwd !== ctx.cwd || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false
+    || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0")
+    || ![policy.executableSha256,policy.configSha256,policy.ruleSha256].every(hash)
+    || JSON.stringify(policy.argv) !== JSON.stringify(["identify","--json"]))
+    throw {code:"binding_mismatch",message:"Restricted CLI policy differs from the bound launch"};
+  return {projects:{[ctx.cwd]:{trust_level:"trusted"}}};
+}
+
+export function codexValidateCliTrust(ctx: RuntimeContext, raw: unknown): void {
+  if (!ctx.restrictedCli) return;
+  codexRestrictedCliConfig(ctx);
+  const root = object(raw);
+  if (!root.config || typeof root.config !== "object" || Array.isArray(root.config))
+    throw {code:"invalid_schema",message:"Restricted CLI project trust was not reported"};
+  const config = object(root.config);
+  if (config.projects === undefined || config.projects === null) return;
+  if (typeof config.projects !== "object" || Array.isArray(config.projects))
+    throw {code:"invalid_schema",message:"Invalid configured project trust"};
+  const normalize = (path: string) => path.replace(/\\/g,"/").replace(/\/$/,"").toLowerCase();
+  const cwd = normalize(ctx.cwd);
+  for (const [path,value] of Object.entries(object(config.projects))) {
+    if (cwd !== normalize(path) && !cwd.startsWith(normalize(path)+"/")) continue;
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw {code:"invalid_schema",message:"Invalid configured project trust"};
+    const project = object(value);
+    const trust = project.trust_level ?? project.trustLevel;
+    if (trust !== undefined && trust !== null && trust !== "trusted")
+      throw {code:"provider_refused",message:"Configured project trust refuses the restricted CLI exception"};
+  }
+}
 
 export function codexNeedsWindowsSandboxSelection(raw: unknown): boolean {
   const root = object(raw);

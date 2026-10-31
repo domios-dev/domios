@@ -72,6 +72,7 @@ fn outstanding_request_bound_refuses_at_capacity() {
 #[test]
 fn unmapped_requests_get_correlated_error_decision() {
     let context = RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("own".into()),
         ..Default::default()
     };
@@ -167,6 +168,7 @@ async fn mock_runtime_unmapped_requests_reply_and_capacity_stays_bounded() {
 fn live_trace_origin_requires_current_own_turn_and_never_contains_body() {
     use crate::service::tab_chat::structured_sink::live_runtime_origin;
     let before = RuntimeContext {
+        restricted_cli: None,
         tab_id: "opaque-live-tab".into(),
         epoch: 7,
         binding_nonce: "opaque-nonce".into(),
@@ -190,30 +192,37 @@ fn live_trace_origin_requires_current_own_turn_and_never_contains_body() {
         "default runtimeResponse/control/goal publication cannot mark even an exact active assistant live");
     for current in [
         RuntimeContext {
+            restricted_cli: None,
             tab_id: "foreign".into(),
             ..before.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             epoch: 8,
             ..before.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             epoch: 0,
             ..before.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             binding_nonce: "foreign".into(),
             ..before.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             thread_id: Some("foreign".into()),
             ..before.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             active_turn_id: None,
             ..before.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             active_turn_id: Some("stale-turn".into()),
             ..before.clone()
         },

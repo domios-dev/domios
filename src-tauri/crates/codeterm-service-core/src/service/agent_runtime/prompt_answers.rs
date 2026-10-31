@@ -301,6 +301,7 @@ mod tests {
     #[test]
     fn exact_request_identity_rejects_epoch_binding_and_typed_id_changes() {
         let context = RuntimeContext {
+            restricted_cli: None,
             epoch: 2,
             binding_nonce: "own".into(),
             ..Default::default()
@@ -320,6 +321,7 @@ mod tests {
         assert!(!matching_entry(
             &entry,
             &RuntimeContext {
+                restricted_cli: None,
                 epoch: 3,
                 ..context.clone()
             },
@@ -328,6 +330,7 @@ mod tests {
         assert!(!matching_entry(
             &entry,
             &RuntimeContext {
+                restricted_cli: None,
                 binding_nonce: "foreign".into(),
                 ..context.clone()
             },

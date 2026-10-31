@@ -244,6 +244,7 @@ fn resume_idle_without_a_turn_cannot_settle_a_turn_started_after_the_request() {
 fn completed_parent_retains_ancestry_and_descendant_interrupt_authority() {
     use codeterm_plugin::agent_runtime::*;
     let mut context = RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("root".into()),
         ..Default::default()
     };
@@ -275,6 +276,7 @@ fn completed_parent_retains_ancestry_and_descendant_interrupt_authority() {
 fn old_completion_cannot_remove_an_auto_started_goal_turn() {
     use codeterm_plugin::agent_runtime::*;
     let mut context = RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("root".into()),
         ..Default::default()
     };
@@ -477,6 +479,7 @@ fn responsiveness_selection_and_metrics_preserve_exact_authority_without_bodies(
     .unwrap();
     assert!(selection.valid());
     let context = RuntimeContext {
+        restricted_cli: None,
         tab_id: "tab".into(),
         thread_id: Some("session".into()),
         binding_nonce: "nonce".into(),
@@ -486,18 +489,22 @@ fn responsiveness_selection_and_metrics_preserve_exact_authority_without_bodies(
     assert!(selection.matches(&context));
     for foreign in [
         RuntimeContext {
+            restricted_cli: None,
             epoch: 8,
             ..context.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             binding_nonce: "other".into(),
             ..context.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             thread_id: Some("other".into()),
             ..context.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             tab_id: "other".into(),
             ..context.clone()
         },
@@ -581,6 +588,7 @@ fn responsiveness_first_binding_latches_without_following_a_replacement_epoch() 
     assert!(selection.valid());
     let trace = responsiveness::Trace::new(selection);
     let context = RuntimeContext {
+        restricted_cli: None,
         tab_id: "tab".into(),
         thread_id: Some("session".into()),
         binding_nonce: "first".into(),
@@ -590,14 +598,17 @@ fn responsiveness_first_binding_latches_without_following_a_replacement_epoch() 
     assert!(trace.bind(&context));
     assert!(trace.bind(&context));
     assert!(!trace.bind(&RuntimeContext {
+        restricted_cli: None,
         epoch: 5,
         ..context.clone()
     }));
     assert!(!trace.bind(&RuntimeContext {
+        restricted_cli: None,
         binding_nonce: "second".into(),
         ..context.clone()
     }));
     assert!(!trace.bind(&RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("foreign".into()),
         ..context
     }));
@@ -612,6 +623,7 @@ fn responsiveness_first_live_item_does_not_follow_foreign_or_later_items() {
     .unwrap();
     let trace = responsiveness::Trace::new(selection);
     assert!(trace.bind(&RuntimeContext {
+        restricted_cli: None,
         tab_id: "tab".into(),
         thread_id: Some("session".into()),
         binding_nonce: "nonce".into(),
