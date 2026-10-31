@@ -108,7 +108,9 @@ pub(crate) fn recover(
             }
             Some(
                 codeterm_types::pty::PromptKind::Provider
-                | codeterm_types::pty::PromptKind::Structured,
+                | codeterm_types::pty::PromptKind::Structured
+                | codeterm_types::pty::PromptKind::Permission
+                | codeterm_types::pty::PromptKind::AutomaticPermission,
             ) => {
                 // The tab's permission responder owns this request; a model cannot approve it.
                 return false;

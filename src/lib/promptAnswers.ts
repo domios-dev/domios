@@ -1,4 +1,9 @@
-import type { PendingPrompt, PromptOption } from "./types";
+import type { NotificationPromptIdentity, PendingPrompt, PromptOption, Tab } from "./types";
+
+export function manualPendingPrompt(tab: Pick<Tab, "pending_prompt" | "pending_prompt_kind" | "auto_approve" | "permission_auto_confirm" | "remote_peer_id"> | null | undefined): PendingPrompt | null {
+  return !tab?.remote_peer_id && tab?.pending_prompt_kind === "automatic_permission" && (tab.auto_approve || tab.permission_auto_confirm)
+    ? null : tab?.pending_prompt ?? null;
+}
 
 export function answerablePrompt<T>(
   descriptor: { supports_prompt_answers?: boolean } | null | undefined,
@@ -21,12 +26,12 @@ export function isFreeTextPromptOption(option: PromptOption): boolean {
   return /^(?:\(?\s*)?(?:other|custom|none of (?:the above|these)|type (?:your own|something(?: else)?)|write your own|enter (?:your own|custom|text)|free[\s-]?text|something else)/i.test(option.label.trim());
 }
 
-export function promptResponseArgs(tabId: string, value: string, prompt: PendingPrompt | null) {
+export function promptResponseArgs(tabId: string, value: string, prompt: PendingPrompt | null, kind: NotificationPromptIdentity["kind"] = "structured") {
   return {
     tabId, value,
     ...(prompt?.request_id != null ? {
       identity: {
-        kind: "structured" as const,
+        kind,
         options: prompt.options.map((option) => ({ ...option })),
         request_id: prompt.request_id,
       },

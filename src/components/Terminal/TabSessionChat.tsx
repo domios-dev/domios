@@ -12,7 +12,7 @@ import { useComposerPresentation } from "./useComposerPresentation";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
-import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
+import { manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
@@ -250,7 +250,7 @@ function TabSessionChatBody({
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
-  const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
+  const pendingPrompt: PendingPrompt | null = manualPendingPrompt(tab);
   const descriptor = getAgentDescriptor(tabProvider);
   const promptAnswers = descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
@@ -478,7 +478,7 @@ function TabSessionChatBody({
       promptResponseInFlight.current = true;
       if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       try {
-        await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt));
+        await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt, tab?.pending_prompt_kind ?? "structured"));
       } catch (error) {
         setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
@@ -487,7 +487,7 @@ function TabSessionChatBody({
         promptResponseInFlight.current = false;
       }
     },
-    [pendingPrompt, structuredPrompts, tabId, showComposerError],
+    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useLatestCallback((command: string) => {
