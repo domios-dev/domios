@@ -366,6 +366,76 @@ pub(crate) fn validate_runtime_settings(
     Ok(())
 }
 
+#[cfg(any(debug_assertions, test))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RuntimePolicyComparison {
+    expected_mode: &'static str,
+    actual_mode: &'static str,
+    mode_matches: bool,
+    expected_root_count: usize,
+    actual_root_count: usize,
+    roots_match: bool,
+    expected_network_access: Option<bool>,
+    actual_network_access: Option<bool>,
+    network_matches: bool,
+    cwd_matches: bool,
+}
+
+#[cfg(any(debug_assertions, test))]
+impl std::fmt::Display for RuntimePolicyComparison {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "expected_mode={} actual_mode={} mode_matches={} expected_root_count={} actual_root_count={} roots_match={} expected_network_access={:?} actual_network_access={:?} network_matches={} cwd_matches={}",
+            self.expected_mode,
+            self.actual_mode,
+            self.mode_matches,
+            self.expected_root_count,
+            self.actual_root_count,
+            self.roots_match,
+            self.expected_network_access,
+            self.actual_network_access,
+            self.network_matches,
+            self.cwd_matches
+        )
+    }
+}
+
+#[cfg(any(debug_assertions, test))]
+fn runtime_mode_label(mode: Option<&str>) -> &'static str {
+    match mode {
+        None => "missing",
+        Some("read-only") => "read-only",
+        Some("read-only-with-writable-roots") => "read-only-with-writable-roots",
+        Some("workspace-write") => "workspace-write",
+        Some("approval-required") => "approval-required",
+        Some("auto-accept-edits") => "auto-accept-edits",
+        Some("auto") => "auto",
+        Some("full-access") => "full-access",
+        Some(_) => "other",
+    }
+}
+
+#[cfg(any(debug_assertions, test))]
+pub(crate) fn runtime_policy_comparison(
+    policy: &ExecutionSandboxPolicy,
+    settings: &codeterm_plugin::agent_runtime::RuntimeSettings,
+    cwd: &str,
+) -> RuntimePolicyComparison {
+    RuntimePolicyComparison {
+        expected_mode: runtime_mode_label(policy.runtime_mode.as_deref()),
+        actual_mode: runtime_mode_label(settings.mode.as_deref()),
+        mode_matches: settings.mode == policy.runtime_mode,
+        expected_root_count: policy.writable_roots.len(),
+        actual_root_count: settings.additional_directories.len(),
+        roots_match: settings.additional_directories == policy.writable_roots,
+        expected_network_access: Some(false),
+        actual_network_access: settings.network_access,
+        network_matches: settings.network_access == Some(false),
+        cwd_matches: cwd == policy.cwd,
+    }
+}
+
 pub(crate) fn validate_runtime_operation(
     svc: &ServiceContext,
     context: &codeterm_plugin::agent_runtime::RuntimeContext,
@@ -380,17 +450,32 @@ pub(crate) fn validate_runtime_operation(
     let Some(policy) = policy else {
         return Ok(());
     };
-    validate_runtime_settings(&policy, &context.settings, &context.cwd)?;
+    let validate = |settings: &codeterm_plugin::agent_runtime::RuntimeSettings, _source: &str| {
+        let result = validate_runtime_settings(&policy, settings, &context.cwd);
+        #[cfg(debug_assertions)]
+        if result.is_err() {
+            log::debug!(
+                "[runtime-policy] phase=guard tab={} epoch={} operation={} source={} comparison=({})",
+                context.tab_id,
+                context.epoch,
+                operation.kind(),
+                _source,
+                runtime_policy_comparison(&policy, settings, &context.cwd)
+            );
+        }
+        result
+    };
+    validate(&context.settings, "context")?;
     match operation {
         RuntimeOperation::OpenThread { settings, .. }
         | RuntimeOperation::ResumeThread { settings, .. }
         | RuntimeOperation::SubmitTurn { settings, .. } => {
-            validate_runtime_settings(&policy, settings, &context.cwd)
+            validate(settings, "operation")
         }
         RuntimeOperation::Control { action, value, .. } if action == "settings" => {
             let settings = serde_json::from_value(value.clone())
                 .map_err(|reason| format!("Invalid sandbox runtime settings: {reason}"))?;
-            validate_runtime_settings(&policy, &settings, &context.cwd)
+            validate(&settings, "operation")
         }
         RuntimeOperation::Control { action, value, .. } if action == "mode" => {
             if value.as_str() != policy.runtime_mode.as_deref() {
