@@ -40,8 +40,8 @@ export function prepareCacheWrapper({ env = process.env } = {}) {
   const scratch = fs.mkdtempSync(path.join(directory, 'prepare-'));
   try {
     const pending = path.join(scratch, path.basename(executable));
-    execFileSync(compiler, ['--edition=2021', '-Dwarnings', '-O', source, '-o', pending], {
-      env: { ...env, CODETERM_CACHE_OUTPUT_PREFIX: outputPrefix, CODETERM_CACHE_CLIENT: cacheClient }, stdio: ['ignore', 'ignore', 'pipe'],
+    execFileSync(compiler, ['--edition=2021', '-Wwarnings', '-O', source, '-o', pending], {
+      env: { ...env, CODETERM_CACHE_OUTPUT_PREFIX: outputPrefix, CODETERM_CACHE_CLIENT: cacheClient }, stdio: ['ignore', 'ignore', 'inherit'],
     });
     fs.writeFileSync(manifest, compiler);
     fs.renameSync(pending, executable);

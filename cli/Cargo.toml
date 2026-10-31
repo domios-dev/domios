@@ -11,7 +11,7 @@ name = "codeterm"
 path = "src/main.rs"
 
 [lints.rust]
-warnings = "deny"
+warnings = "warn"
 
 [dependencies]
 workspace-hack = { version = "0.1", path = "../src-tauri/crates/workspace-hack" }

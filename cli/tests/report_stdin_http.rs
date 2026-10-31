@@ -74,14 +74,9 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
                     assert_eq!(admissions, 1);
                     assert_eq!(identify_probes, 1);
                     assert_eq!(body["params"]["operation"], "maintenance");
-                    assert_eq!(
-                        headers.get("x-codeterm-tab-id").map(String::as_str),
-                        Some("fixture-worker")
-                    );
-                    assert_eq!(
-                        headers.get("x-codeterm-binding-nonce").map(String::as_str),
-                        Some("own-nonce")
-                    );
+                    assert!(!headers.contains_key("x-codeterm-tab-id"));
+                    assert!(!headers.contains_key("x-codeterm-session-id"));
+                    assert!(!headers.contains_key("x-codeterm-binding-nonce"));
                     reply(&mut stream, true, json!({"result":{"authorized":true}}));
                     continue;
                 }

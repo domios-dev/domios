@@ -114,10 +114,10 @@ pub fn spawn(
     cap: &AgentRuntimeCapability,
     cwd: &str,
     env: HashMap<String, String>,
-    tab: &str,
+    _tab: &str,
 ) -> Result<Process, RuntimeFailure> {
     #[cfg(test)]
-    if let Some(factory) = test_ports::factory(tab) {
+    if let Some(factory) = test_ports::factory(_tab) {
         return Ok(factory());
     }
     if cap.runtime != codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc {
@@ -227,7 +227,7 @@ pub fn spawn(
     let (stop, mut stopping) = watch::channel(false);
     let (ended, exit) = watch::channel(None);
     #[cfg(debug_assertions)]
-    let process_tab = tab.to_string();
+    let process_tab = _tab.to_string();
     #[cfg(unix)]
     let mut witnessed = tokio::task::spawn_blocking(move || {
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };

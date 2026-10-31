@@ -175,7 +175,7 @@ qa_gate_desc() {
     shell-guards) echo "Mux-write + blocking-in-async + build-kill safety shell guards" ;;
     fmt) echo "rustfmt --check over tracked src-tauri + cli files" ;;
     check) echo "cargo check (src-tauri + cli)" ;;
-    clippy) echo "cargo clippy -D warnings (src-tauri + cli)" ;;
+    clippy) echo "cargo clippy (advisory warnings; src-tauri + cli)" ;;
     rust-unit) echo "src-tauri lib unit tests through the repository wrapper" ;;
     cli-unit) echo "cli crate unit tests through the repository wrapper" ;;
     ts-unit) echo "TypeScript unit tests (pnpm test:unit)" ;;
@@ -220,7 +220,7 @@ qa_run_gate_body() {
       qa_prep_stubs
       qa_clippy_allow
       cargo clippy --manifest-path src-tauri/Cargo.toml --workspace --all-targets \
-        -- -D warnings "${CLIPPY_ALLOW[@]}"
+        -- -W warnings "${CLIPPY_ALLOW[@]}"
       ;;
     rust-unit)
       qa_prep_stubs

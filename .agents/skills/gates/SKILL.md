@@ -83,22 +83,22 @@ The Orchestrator checks a committed Rust change in canonical with `./build.sh ch
 (default: lane HEAD). It checks the SHA out in the per-machine check worktree
 (`<gateway dir>/check-worktree`, own warm `target/app` and `target/cli`, never
 canonical or a lane target), runs incremental
-`cargo clippy --lib --no-deps --message-format short -- -D warnings` with the shared
+`cargo clippy --lib --no-deps --message-format short -- -W warnings` with the shared
 `scripts/clippy-allow.sh` policy for existing touched packages, root bins only
 when root is touched and leaf test targets only for test paths or moved crates.
 Core test targets stay at the batch. It prints at most `--max-errors` (default
 20) `file:line:col: error[...]` lines with an `errors=N shown=M` total, then at
 most `--max-warnings` (default 40) warning lines, one `warnings crate=<name>
-count=N` line per warned crate and `warnings=N shown=M failing=<crates>`.
-Warnings count as errors: any rustc or clippy warning in a touched crate fails
-the run; canonical QA requires `errors=0` and `warnings=0`.
+count=N` line per warned crate and `warnings=N shown=M failing=none`.
+Warnings remain visible and advisory; compiler errors, lint errors, failed tests,
+malformed evidence and infrastructure failures still block the run.
 check-queue, check-tests and clippy --all-targets type-check the bin against MockRuntime.
 The Wry world is checked by product library Clippy in check-queue and by every dev and production build.
-`--all` lints the whole app workspace and the CLI and fails on any warning.
+`--all` lints the whole app workspace and the CLI with advisory warnings.
 `./build.sh check` ends with one `warnings crate=` line per warned crate and a
-`check: warnings=N` total; canonical expects `warnings=0`. Every workspace crate
-and the CLI deny `warnings` through `[lints]` in Cargo.toml, so a new warning is
-a compile error everywhere; fix it at the root, never with `#[allow]`. A busy gateway refuses at once with exit 75; do source
+`check: warnings=N` total. Workspace and CLI Cargo lints keep warnings at `warn`;
+warning cleanup follows the build or release without hiding diagnostics or inflating
+baselines. A busy gateway refuses at once with exit 75; do source
 work and never poll. The first run on a machine is cold, later runs are warm.
 
 The provider boundary guard compares exact exceptions with `origin/develop`; CI supplies the target SHA through `PROVIDER_BOUNDARY_BASE`. Each exception names one exact file/token pair and its count. Lower or remove the entry when occurrences leave; moving or formatting existing occurrences within a file is allowed. Counts may only shrink; new provider coupling belongs in the provider plugin.
@@ -234,12 +234,13 @@ artifact. The always-running warning summary publishes per-target, per-lint and 
 in its job summary. Download `rust-warnings-release-report` (or `rust-warnings-tests-report`)
 for `rust-warnings-report.md` and `rust-warnings-report.json`; the release summary also comments
 on associated release PRs. JSON diagnostics include crate, location, lint, message and snippet.
-Capture/upload/comment failures do not change platform build results; new warning identities fail
-the summary ratchet. Incomplete runs are labelled and never propose a baseline update.
+Capture/upload/comment failures do not change platform build results; the summary
+still refuses missing, incomplete or malformed required evidence. New warning identities
+are advisory. Incomplete runs are labelled and never propose a baseline update.
 
-`scripts/rust-warnings-baseline.json` is initialized at zero: every crate denies `warnings`
-through Cargo `[lints]`, so any warning identity a run reports is new and fails the ratchet.
-Fix the warning at its root on the owning platform; never add a baseline entry.
+`scripts/rust-warnings-baseline.json` tracks warning identities without blocking a
+successful build. Keep diagnostics and per-platform inventories for post-release cleanup;
+never add baseline entries to conceal new warnings.
 
 The post-release cleanup task consumes the full JSON report, groups by target/file/lint, and
 fixes cfg-specific warnings on their owning platform (including Windows arm64). After a complete

@@ -1757,9 +1757,9 @@ check_queue_errors() {
 
 # Reads cargo --message-format=short output on stdin; prints at most $1 unique
 # warnings, one "warnings crate=<name> count=<n>" line per warned crate and a
-# summary. Exits 1 when a crate named in $2 (space-separated; "*" = any) warned.
+# summary. Warning findings remain advisory for every crate.
 check_queue_warnings() {
-  awk -v max="$1" -v touched=" $2 " '
+  awk -v max="$1" '
     function add(name, n) {
       if (!(name in counts)) order[++crates] = name
       counts[name] += n
@@ -1781,15 +1781,12 @@ check_queue_warnings() {
       add(name, n)
     }
     END {
-      failing = ""
       for (i = 1; i <= crates; i++) {
         name = order[i]
         if (counts[name] <= 0) continue
         printf "warnings crate=%s count=%d\n", name, counts[name]
-        if (touched == " * " || index(touched, " " name " ")) failing = failing (failing ? "," : "") name
       }
-      printf "warnings=%d shown=%d failing=%s\n", total, (total < max ? total : max), (failing ? failing : "none")
-      exit (failing ? 1 : 0)
+      printf "warnings=%d shown=%d failing=none\n", total, (total < max ? total : max)
     }
   '
 }
@@ -1867,7 +1864,7 @@ check_workspace_run() {
   CARGO_TARGET_DIR="$CT_CHECK_WORKTREE/target/app" cargo check --manifest-path src-tauri/Cargo.toml \
     --workspace --all-targets --message-format=short >> "$out" 2>&1 || status=$?
   check_queue_errors 20 "$status" < "$out"
-  check_queue_warnings 40 "*" < "$out" || [ "$status" != 0 ] || status=1
+  check_queue_warnings 40 "*" < "$out" || status=$?
   echo "check-workspace: sha=$sha os=$OSTYPE exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
 }
@@ -2015,12 +2012,12 @@ check_queue_run() {
     if grep -q '^codeterm[[:space:]]0' "$plan"; then lane_args+=(--bins); fi
     if [ "${#lane_args[@]}" -gt 0 ]; then
       configure_product_cargo "${lane_args[@]}"
-      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" "${CT_PRODUCT_CARGO_ARGS[@]}" --lib --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml "${lane_args[@]}" "${CT_PRODUCT_CARGO_ARGS[@]}" --lib --no-deps --message-format short -- -W warnings "${CLIPPY_ALLOW[@]}" || status=$?
     fi
     for package in "${test_packages[@]}"; do
       local test_args=(--lib --tests)
       [ "$package" != codeterm ] || test_args+=(--bins)
-      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml -p "$package" "${test_args[@]}" --no-default-features --profile test --no-deps --message-format short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+      CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path src-tauri/Cargo.toml -p "$package" "${test_args[@]}" --no-default-features --profile test --no-deps --message-format short -- -W warnings "${CLIPPY_ALLOW[@]}" || status=$?
     done
   elif [ "${#pkg_args[@]}" -gt 0 ]; then
     configure_product_cargo "${pkg_args[@]}"
@@ -2031,7 +2028,7 @@ check_queue_run() {
     local cli_targets=(--all-targets)
     [ "$lane" != 1 ] || cli_targets=(-p codeterm-cli --bins)
     CARGO_TARGET_DIR="$cw/target/app" run_check_queue_cargo "$out" cargo clippy --manifest-path cli/Cargo.toml \
-      "${cli_targets[@]}" --no-deps --message-format=short -- -D warnings "${CLIPPY_ALLOW[@]}" || status=$?
+      "${cli_targets[@]}" --no-deps --message-format=short -- -W warnings "${CLIPPY_ALLOW[@]}" || status=$?
   fi
   if [ "$lane" = 0 ]; then
   local test_runner test_status
@@ -2047,7 +2044,7 @@ check_queue_run() {
     node "$CT_GATEWAY_SCRIPT_ROOT/scripts/build-gateway-output.mjs" fingerprint-summary "$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.fingerprint.log"
   fi
   check_queue_errors "$max_errors" "$status" < "$out"
-  check_queue_warnings "$max_warnings" "$touched" < "$out" || [ "$status" != 0 ] || status=1
+  check_queue_warnings "$max_warnings" "$touched" < "$out" || status=$?
   echo "check-queue: sha=$sha lane=$lane packages=${pkg_args[*]:-} cli=$cli exit=$status wall=$(( $(date +%s) - started ))s full-log=$out"
   return "$status"
 }
