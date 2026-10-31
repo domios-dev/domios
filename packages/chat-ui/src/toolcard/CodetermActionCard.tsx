@@ -206,10 +206,11 @@ export function CodetermSentContent({ event, invocation, technicalCommand, ...na
       onOpenPlan={navigation.onOpenPlan}
       resolvePlanRef={navigation.resolvePlanRef}
       fontScale={navigation.fontScale}
+      onFocusTab={navigation.onFocusTab && target?.kind === "tab" ? () => navigation.onFocusTab!(target.id) : undefined}
       technicalCommand={technicalCommand}
       activityStatus={event.status}
     />
-    {navigation.onFocusTab && target?.kind === "tab" && <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(target.id)} testId="codeterm-focus-tab" />}
+
   </>;
 }
 
@@ -219,7 +220,7 @@ export function CodetermActionCard({ event, invocation, expanded, onToggle, ...n
   if (action.sent && inv) {
     const command = toolCommand(event).command;
     return (
-      <div data-testid="chat-sent-to-card" data-tool-status={action.sent.status?.pending ? "pending" : action.sent.status?.ok ? "success" : action.sent.status ? "error" : event.status} className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-lg border px-3 py-2" style={{ borderColor: "var(--ct-border, rgba(128,128,128,.25))", background: "var(--ct-card-bg, var(--ct-bg))" }}>
+      <div data-testid="chat-sent-to-card" data-tool-status={action.sent.status?.pending ? "pending" : action.sent.status?.ok ? "success" : action.sent.status ? "error" : event.status} className="ct-card ct-communication-card mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden px-3 py-2">
         <CodetermSentContent event={event} invocation={inv} technicalCommand={command} {...navigation} />
       </div>
     );

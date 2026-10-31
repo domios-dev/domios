@@ -4,10 +4,12 @@ import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { CrossTabMessageShell } from "../crossTabBubble";
 import { CompactMessageContent } from "./CompactMessageContent";
+import { ToolCardActionButton } from "../toolcard/ToolCardFrame";
 import { RadioTower, Send } from "lucide-react";
 
 interface Props {
   inv: CodetermInvocation;
+  onFocusTab?: () => void;
   result?: string;
   resolveTabName?: TabNameResolver;
   resolvePeerName?: PeerNameResolver;
@@ -18,7 +20,7 @@ interface Props {
   activityStatus?: "pending" | "success" | "error" | "unresolved" | "interrupted" | "running";
 }
 
-export function SentMessageBubble({ inv, result, resolveTabName, resolvePeerName, onOpenPlan, resolvePlanRef, fontScale, technicalCommand, activityStatus }: Props) {
+export function SentMessageBubble({ inv, result, resolveTabName, resolvePeerName, onOpenPlan, resolvePlanRef, fontScale, technicalCommand, activityStatus, onFocusTab }: Props) {
   const parsed = parseSend(inv, result, resolveTabName, resolvePeerName);
   const activity: CardStatus | undefined = activityStatus === "pending" || activityStatus === "running"
     ? { ok: false, label: "pending", pending: true }
@@ -33,21 +35,22 @@ export function SentMessageBubble({ inv, result, resolveTabName, resolvePeerName
     <div
       data-testid="chat-sent-header"
       className="mb-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11.5px] font-medium"
-      style={{ color: "color-mix(in srgb, var(--ct-accent) 72%, var(--ct-muted-fg))" }}
+      style={{ color: "var(--ct-muted-fg)" }}
     >
       <span className="flex-shrink-0" style={{ opacity: 0.85 }}>
         {msg.mesh ? <RadioTower aria-hidden="true" size={13} /> : <Send aria-hidden="true" size={13} />}
       </span>
       <span className="flex-shrink-0">Sent to</span>
-      <span className="min-w-0 flex-1 truncate">
+      <span className="min-w-0 flex-1 truncate" style={{ color: "var(--ct-fg)" }}>
         {msg.recipient}
         {msg.mesh ? ` @ ${msg.mesh}` : ""}
       </span>
+      {onFocusTab && <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId="codeterm-focus-tab" />}
       {msg.status && (
         <span
           data-testid="chat-sent-status"
           role="status"
-          className="flex-shrink-0"
+          className="flex w-6 shrink-0 items-center justify-center"
           title={msg.status.label}
           aria-label={msg.status.label}
           style={{

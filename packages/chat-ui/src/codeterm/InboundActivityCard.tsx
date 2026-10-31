@@ -48,6 +48,7 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
   return (
     <section role="group" aria-label={title}>
     <ToolCardFrame
+      communication
       testId={testId}
       event={event}
       expanded={expanded}
@@ -55,7 +56,7 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
       title={title}
       summary={presentationSummary ?? summary}
       variant="codeterm"
-      visualOverride={visual}
+      visualOverride={{ ...visual, color: "var(--ct-muted-fg)" }}
       disclosureLabel={disclosureLabel}
       metric={chips.length ? <ToolCardChips chips={chips} /> : undefined}
       menu={menu}

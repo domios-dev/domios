@@ -288,3 +288,23 @@ button.ct-card__head {
     transform: none;
   }
 }
+
+
+.ct-card.ct-communication-card {
+  background: transparent;
+  --ct-card-tone: var(--ct-muted-fg);
+}
+.ct-card.ct-communication-card:hover,
+.ct-card.ct-communication-card:focus-within {
+  background: transparent;
+  border-color: color-mix(in srgb, var(--ct-fg) 16%, transparent);
+}
+.ct-communication-card .ct-card__icon {
+  background: transparent;
+  box-shadow: none;
+}
+.ct-communication-card .ct-card__chip {
+  background: transparent;
+  padding-inline: 2px;
+  color: var(--ct-muted-fg);
+}
