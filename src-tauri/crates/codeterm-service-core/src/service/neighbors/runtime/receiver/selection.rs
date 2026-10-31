@@ -7,6 +7,17 @@ pub enum Selection {
     Reset,
 }
 
+pub(in crate::service::neighbors::runtime) struct Committed {
+    pub result: Value,
+    pub friendship: String,
+    pub revision: u64,
+    pub generation: u64,
+    pub login_generation: u64,
+    pub registry: Arc<FirebaseRegistry>,
+    pub scope: KeyScope,
+    pub metadata: Metadata,
+}
+
 #[async_trait::async_trait]
 trait SelectionPort: Send + Sync {
     async fn enroll(&self) -> codeterm_neighbors::Result<()>;
@@ -176,10 +187,15 @@ impl ServiceContext {
         confirmed: bool,
         expected_revision: u64,
         generation: u64,
-    ) -> codeterm_neighbors::Result<Value> {
+    ) -> codeterm_neighbors::Result<Committed> {
         if !hex_id(friendship, 64) || expected_revision > codeterm_neighbors::wire::MAX_SAFE_INTEGER
         {
             return Err(Error::InvalidRequest);
+        }
+        let account = self.account().await.map_err(|_| Error::Transport)?;
+        let session = account.session().await.ok_or(Error::SessionRevoked)?;
+        if session.identity.uid != registry.uid {
+            return Err(Error::SessionRevoked);
         }
         let list = registry.calls.invoke("friendsList", json!({})).await?;
         let friend = super::super::first_action::friend_status(
@@ -213,61 +229,55 @@ impl ServiceContext {
         if result["schema_version"] != 1
             || row.friendship_id != friendship
             || row.revision < expected_revision
+            || row.revision > codeterm_neighbors::wire::MAX_SAFE_INTEGER
         {
             return Err(Error::InvalidEnvelope);
         }
-        let account = self.account().await.map_err(|_| Error::Transport)?;
-        let session = account.session().await.ok_or(Error::Revoked)?;
-        self.wait_neighbor_projection_receiver(
-            &registry.uid,
-            session.login_generation,
-            friendship,
-            row.revision,
-        )
-        .await?;
-        let list = registry.calls.invoke("friendsList", json!({})).await?;
-        let projection = list["friends"]
-            .as_array()
-            .and_then(|rows| rows.iter().find(|row| row["friendship_id"] == friendship))
-            .and_then(|row| row.get("my_receiver"))
-            .ok_or(Error::InvalidEnvelope)?;
-        let receiver = super::friends::FriendReceiver::from_projection(
-            serde_json::from_value(projection.clone()).map_err(|_| Error::InvalidEnvelope)?,
-            &registry.installation_id,
-        )
-        .map_err(|_| Error::InvalidEnvelope)?;
-        if receiver.status.receiver_revision < row.revision {
-            return Err(Error::ReceiverRevisionStale);
+        if !super::super::super::same_session(account.session().await.as_ref(), &session) {
+            return Err(Error::SessionRevoked);
         }
-        self.stop_neighbor_concierge_listener(friendship);
+        self.require_neighbor_generation(generation).map_err(|_| Error::Revoked)?;
+        self.rearm_neighbor_updates();
         self.forget_neighbor_registry();
-        if receiver.status.receiving_here() {
-            let local = InstallationKeys {
-                store: &self
-                    .neighbor_key_store()
-                    .map_err(|_| Error::LocalKeyUnavailable)?,
-                registry,
-                scope: scope.clone(),
-                uid: &registry.uid,
-            }
-            .load()
-            .await?;
-            if local.as_ref().map(|key| key.encryption_key_id()).as_deref()
-                != receiver.status.receiver_encryption_key_id.as_deref()
-                || local.is_none()
-            {
-                let version = self.forget_neighbor_friend_receiver(friendship);
-                self.ui.emit("neighbor-runtime-status",json!({"friendship_id":friendship,"receiver_unavailable":true,"friend_receivers_version":version}));
-                return Err(Error::LocalKeyUnavailable);
-            }
+        Ok(Committed {
+            result, friendship: friendship.into(), revision: row.revision, generation,
+            login_generation: session.login_generation, registry: Arc::new(registry.clone()),
+            scope: scope.clone(), metadata: metadata.clone(),
+        })
+    }
+
+    pub(in crate::service::neighbors::runtime) async fn reconcile_committed_neighbor_receiver(
+        &self,
+        committed: &Committed,
+        resume: bool,
+    ) -> codeterm_neighbors::Result<super::super::super::projection::ReceiverConfirmation> {
+        use super::super::super::projection::ReceiverConfirmation;
+        self.require_neighbor_generation(committed.generation).map_err(|_| Error::Revoked)?;
+        self.require_neighbors_enabled()?;
+        let account = self.account().await.map_err(|_| Error::Transport)?;
+        let session = account.session().await.ok_or(Error::SessionRevoked)?;
+        if session.identity.uid != committed.registry.uid || session.login_generation != committed.login_generation {
+            return Err(Error::SessionRevoked);
         }
-        let changes = self
-            .remember_neighbor_friend_receiver(friendship, receiver, generation)
-            .map_err(|_| Error::Revoked)?;
-        self.publish_neighbor_friend_receiver_changes(metadata, &registry.uid, changes, generation)
-            .await
-            .map_err(|_| Error::Gateway)?;
-        Ok(result)
+        self.neighbor_reconciliation().require_readable()?;
+        let list = committed.registry.calls.invoke("friendsList", json!({})).await?;
+        let status = super::super::first_action::friend_status(&list, &committed.friendship, &committed.registry.installation_id)?;
+        if status.receiver_revision < committed.revision
+            || resume && (status.receiver_revision != committed.revision || !status.receiving_here())
+        {
+            return Ok(ReceiverConfirmation::Pending);
+        }
+        self.require_neighbor_generation(committed.generation).map_err(|_| Error::Revoked)?;
+        if !super::super::super::same_session(account.session().await.as_ref(), &session) {
+            return Err(Error::SessionRevoked);
+        }
+        let transport = self.neighbor_transport(&committed.registry).map_err(|_| Error::Transport)?;
+        self.start_neighbor_listeners(transport, committed.registry.clone(), committed.scope.clone(), committed.metadata.clone(), committed.generation)
+            .await.map_err(|error| {
+                log::debug!("[neighbors] committed receiver activation unavailable: {error}");
+                Error::Gateway
+            })?;
+        Ok(ReceiverConfirmation::Observed)
     }
 }
 

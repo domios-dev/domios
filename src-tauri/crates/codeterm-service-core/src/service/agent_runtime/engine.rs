@@ -658,6 +658,22 @@ async fn ensure_locked(
                 settings,
             },
         ) => {
+            #[cfg(debug_assertions)]
+            if let Some(policy) = svc.mux.read().get_tab(tab).and_then(|tab| {
+                tab.restorable_launch.execution_sandbox.clone()
+            }) {
+                log::debug!(
+                    "[runtime-policy] phase=thread_loaded tab={} epoch={} requested=({}) returned=({})",
+                    context.tab_id,
+                    context.epoch,
+                    crate::service::execution_sandbox::runtime_policy_comparison(
+                        &policy, &context.settings, &context.cwd
+                    ),
+                    crate::service::execution_sandbox::runtime_policy_comparison(
+                        &policy, &settings, &context.cwd
+                    )
+                );
+            }
             validate_loaded_settings(&context.settings, &settings, |requested, reported| {
                 crate::service::session_model::session_model_matches(
                     &svc.agent_registry,

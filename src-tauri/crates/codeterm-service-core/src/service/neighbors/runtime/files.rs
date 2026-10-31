@@ -101,6 +101,7 @@ impl ServiceContext {
             .await?
         {
             owner::Outcome::Value(value) => Ok(value),
+            owner::Outcome::ReceiverCommitted(_) => Err("Invalid Neighbor file outcome".into()),
         }
     }
 
