@@ -23,6 +23,7 @@ interface ToolCardFrameProps {
   children: ReactNode;
   primaryContent?: ReactNode;
   title?: ReactNode;
+  subtitle?: ReactNode;
   summary?: ReactNode;
   metric?: ReactNode;
   chips?: ReactNode;
@@ -70,7 +71,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
   );
 }
 
-export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel }: ToolCardFrameProps) {
+export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel }: ToolCardFrameProps) {
   const host = useChatBlockHost();
   const visual = visualOverride ?? toolKindVisual[event.kind];
   const Glyph = visual.glyph;
@@ -105,9 +106,10 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           <span className="ct-card__icon" style={{ color: visual.color }}>
             <Glyph aria-hidden="true" size={14} strokeWidth={2} />
           </span>
-          <span className="flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]">
+          <span className={subtitle ? "flex min-w-0 flex-1 flex-col items-start gap-0.5 font-mono text-[12.5px]" : "flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
             {label && <span className={inlineCommand ? "sr-only" : "max-w-[60%] shrink-0 truncate font-semibold"} style={{ color: communication ? "var(--ct-fg)" : visual.color }}>{label}</span>}
-            <span className="min-w-0 truncate" data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
+            {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
+            <span className={summary === "" ? "hidden" : "min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />
             {!expanded && tail}

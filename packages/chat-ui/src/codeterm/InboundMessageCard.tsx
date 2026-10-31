@@ -21,14 +21,13 @@ interface Props {
 
 export function InboundMessageCard({ message, sender, model, channel = "tab", expanded, onToggle, onFocusTab, onOpenPlan, resolvePlanRef, fontScale }: Props) {
   const isMesh = channel === "mesh";
-  const summary = [isMesh ? "mesh" : "tab", model].filter(Boolean).join(" · ");
   return (
     <InboundActivityCard
       message={message}
       testId="chat-inbound-message"
       title={`Received from ${formatCommunicationEndpoint(sender)}`}
-      summary={summary}
-      chips={[isMesh ? "mesh" : "tab"]}
+      summary=""
+      subtitle={model}
       visual={{ glyph: isMesh ? Network : MessageSquareReply, color: isMesh ? "var(--ct-cyan)" : "var(--ct-green)", label: "inbound" }}
       expanded={expanded}
       onToggle={onToggle}

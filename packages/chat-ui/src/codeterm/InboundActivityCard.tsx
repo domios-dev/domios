@@ -18,6 +18,7 @@ interface Props {
   testId: string;
   title: string;
   summary: string;
+  subtitle?: ReactNode;
   presentationSummary?: ReactNode;
   chips?: string[];
   status?: ToolEvent["status"];
@@ -40,7 +41,7 @@ export function inboundActivityEvent(message: ChatMessage, summary: string, stat
   };
 }
 
-export function InboundActivityCard({ message, testId, title, summary, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel, technicalCommand, showTechnicalDetails = true, focusTabTestId = "inbound-show-tab", headerTestId, statusTestId, statusLabel }: Props) {
+export function InboundActivityCard({ message, testId, title, summary, subtitle, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel, technicalCommand, showTechnicalDetails = true, focusTabTestId = "inbound-show-tab", headerTestId, statusTestId, statusLabel }: Props) {
   const host = useChatBlockHost();
   const event = { ...inboundActivityEvent(message, summary, status), detail: technicalCommand };
   const text = decodeCliMessageText(message.content).trim();
@@ -64,6 +65,7 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
       expanded={expanded}
       onToggle={onToggle}
       title={title}
+      subtitle={subtitle}
       summary={presentationSummary ?? summary}
       variant="codeterm"
       visualOverride={visual}
