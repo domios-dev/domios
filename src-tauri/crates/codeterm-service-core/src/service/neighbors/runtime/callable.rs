@@ -96,6 +96,12 @@ impl AuthenticatedCall for Calls {
         Ok(Zeroizing::new(session.id_token.expose().to_owned()))
     }
     async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
+        self.invoke_at(codeterm_account::firebase_endpoints::current().functions, route, data).await
+    }
+}
+
+impl Calls {
+    pub(super) async fn invoke_at(&self, functions: &str, route: &str, data: Value) -> Result<Value> {
         self.local_session().await?;
         let result = self
             .service
@@ -103,18 +109,14 @@ impl AuthenticatedCall for Calls {
                 route,
                 &self.uid,
                 self.generation,
-                self.invoke_owned(route, data),
+                self.invoke_owned(functions, route, data),
             )
             .await;
         self.local_session().await?;
         result
     }
-}
-
-impl Calls {
-    async fn invoke_owned(&self, route: &str, data: Value) -> Result<Value> {
-        let transport =
-            HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
+    async fn invoke_owned(&self, functions: &str, route: &str, data: Value) -> Result<Value> {
+        let transport = HttpCallable::new(functions)
                 .map_err(|_| Error::Transport)?;
         self.invoke_with_transport(&transport, route, data).await
     }

@@ -16,6 +16,7 @@ mod receiver;
 mod restoration;
 mod send;
 mod snapshots;
+pub(super) mod transport;
 
 use super::storage::Metadata;
 use crate::service::ServiceContext;
@@ -253,11 +254,11 @@ impl ServiceContext {
             configured_label
         };
         let registry = Arc::new(FirebaseRegistry {
-            calls: Arc::new(callable::Calls {
+            calls: transport::calls(callable::Calls {
                 service: self.clone(),
                 uid: uid.clone(),
                 generation: session.login_generation,
-            }),
+            }).map_err(|error| error.to_string())?,
             uid: uid.clone(),
             installation_id: installation_id.clone(),
             machine_label,
@@ -290,23 +291,11 @@ impl ServiceContext {
         &self,
         registry: &FirebaseRegistry,
     ) -> Result<Arc<FirebaseTransport>, String> {
-        let endpoints = codeterm_account::firebase_endpoints::current();
-        if endpoints.emulator {
-            return Err("Native Neighbor streaming requires the QA or production project".into());
-        }
-        let project = if endpoints.qa {
-            "domios-signin-qa"
-        } else {
-            "domios-d9357"
-        }
-        .to_string();
-        let transport = Arc::new(FirebaseTransport {
-            calls: registry.calls.clone(),
-            project,
-            uid: registry.uid.clone(),
-            installation_id: registry.installation_id.clone(),
-        });
-        Ok(transport)
+        transport::new(
+            registry.calls.clone(),
+            registry.uid.clone(),
+            registry.installation_id.clone(),
+        ).map_err(|error| error.to_string())
     }
 
     pub fn require_neighbor_general(
