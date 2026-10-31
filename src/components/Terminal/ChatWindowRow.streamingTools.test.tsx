@@ -197,7 +197,6 @@ it("keeps structured single-command diffs behind the retained explicit disclosur
   expect(host?.querySelector('[data-testid="chat-tool-call"]')).toBe(card);
   expect(host?.querySelector('[data-testid="file-diff-cards"]')?.textContent).toContain("opaque_file.txt");
   const diffDisclosure = host!.querySelector<HTMLButtonElement>('[data-testid="file-diff-cards"] button[aria-controls]')!;
-  await act(async () => diffDisclosure.click());
   expect(Array.from(host!.querySelectorAll('[data-testid="file-diff-line"]')).map((line) => line.textContent)).toEqual(["-opaque_old", "+opaque_new"]);
   expectUniqueDisclosureTargets(host!);
   await act(async () => diffDisclosure.click());

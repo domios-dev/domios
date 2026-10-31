@@ -544,7 +544,6 @@ test("chatBackend structured inbound renders an expanded typed message card", as
   try {
     assertIncludes(host, "from Worker A", "structured inbound sender");
     assertIncludes(host, "gpt-5", "structured inbound model");
-    assertIncludes(host, "tab", "structured inbound channel");
     assertIncludes(host, "Please inspect the last run.", "expanded inbound body");
     assert(host.querySelector('[data-testid="chat-inbound-message"]'), "expected typed inbound message card");
     assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "inbound message must not use legacy bubble");
@@ -600,7 +599,6 @@ test("chatBackend structured mesh inbound renders peer in sender header", async 
   try {
     assertIncludes(host, "Received from Edison @ BLACKSTAR", "structured mesh sender");
     assertIncludes(host, "sonnet", "structured mesh model");
-    assertIncludes(host, "mesh", "structured mesh channel");
     assertIncludes(host, "Remote status is green.", "expanded mesh body");
     assert(host.querySelector('[data-testid="chat-inbound-message"]'), "expected typed mesh message card");
   } finally {

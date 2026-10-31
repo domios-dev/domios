@@ -3,6 +3,7 @@
 import { act } from "react";
 import { Window } from "happy-dom";
 import { createRoot } from "react-dom/client";
+import { ChatBlockHostProvider } from "@codeterm/chat-ui";
 import type { Tab } from "../../lib/types";
 import { MultiplexerActionsContext, MuxStateStoreContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
@@ -180,11 +181,11 @@ async function main() {
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
     await act(async () => root.render(
-      <MuxStateStoreContext.Provider value={store}>
+      <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><MuxStateStoreContext.Provider value={store}>
         <MultiplexerActionsContext.Provider value={muxActions()}>
           <TabSessionChat tabId={liveTabId} chatBackend isVisible />
         </MultiplexerActionsContext.Provider>
-      </MuxStateStoreContext.Provider>,
+      </MuxStateStoreContext.Provider></ChatBlockHostProvider>,
     ));
     const log = host.querySelector('[role="log"]');
     const live = log?.querySelector('[data-testid="chat-live-operation"]');
@@ -199,10 +200,7 @@ async function main() {
     assert(expand?.getAttribute("aria-expanded") === "false", "live command group starts collapsed");
     await act(async () => expand?.click());
     assert(expand?.getAttribute("aria-expanded") === "true", "full operation can be expanded");
-    const menu = live?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]');
-    assert(menu, "live operation offers its details menu");
-    await act(async () => menu.click());
-    const details = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemcheckbox"]')].find(button => button.textContent?.includes("Details"));
+    const details = [...(live?.querySelectorAll("button") ?? [])].find(button => button.textContent === "Details");
     assert(details, "live operation offers output details");
     await act(async () => details.click());
     assert(live?.textContent?.includes("opaque-live-output"), "expanded operation reveals its current output");
