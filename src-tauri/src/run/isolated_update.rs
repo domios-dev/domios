@@ -29,14 +29,18 @@ pub(super) fn from_arguments(
         return Ok(None);
     }
     if !development {
-        return Err(io::Error::other("Isolated update launch requires a debug artifact"));
+        return Err(io::Error::other(
+            "Isolated update launch requires a debug artifact",
+        ));
     }
     if arguments.len() != 1
         || config.identifier != IDENTIFIER
         || config.product_name.as_deref() != Some("Domios Update Proof")
         || config.main_binary_name.as_deref() != Some("domios-dev-app")
     {
-        return Err(io::Error::other("Isolated update launch requires the dedicated DEV bundle"));
+        return Err(io::Error::other(
+            "Isolated update launch requires the dedicated DEV bundle",
+        ));
     }
     let file = arguments[0]
         .to_str()
@@ -47,15 +51,23 @@ pub(super) fn from_arguments(
         || file.file_name().is_none_or(|name| name != FILE_NAME)
         || !file.symlink_metadata()?.file_type().is_file()
     {
-        return Err(io::Error::other("Isolated update context must be a regular install-root file"));
+        return Err(io::Error::other(
+            "Isolated update context must be a regular install-root file",
+        ));
     }
     let executable = std::env::current_exe()?.canonicalize()?;
-    let root = executable.parent().ok_or_else(|| io::Error::other("Missing install root"))?;
+    let root = executable
+        .parent()
+        .ok_or_else(|| io::Error::other("Missing install root"))?;
     if file.canonicalize()? != root.join(FILE_NAME) {
-        return Err(io::Error::other("Isolated update context belongs to another install root"));
+        return Err(io::Error::other(
+            "Isolated update context belongs to another install root",
+        ));
     }
     let mut bytes = Vec::new();
-    std::fs::File::open(file)?.take(8193).read_to_end(&mut bytes)?;
+    std::fs::File::open(file)?
+        .take(8193)
+        .read_to_end(&mut bytes)?;
     if bytes.len() > 8192 {
         return Err(io::Error::other("Isolated update context exceeds limit"));
     }
@@ -68,7 +80,9 @@ pub(super) fn from_arguments(
         || config.starts_with(root)
         || launch.fixture_root.canonicalize()? != data.join("update-fixtures")
     {
-        return Err(io::Error::other("Isolated update paths do not match the install context"));
+        return Err(io::Error::other(
+            "Isolated update paths do not match the install context",
+        ));
     }
     LaunchOptions {
         instance: launch.selector(),

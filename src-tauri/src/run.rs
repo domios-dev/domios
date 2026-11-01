@@ -16,17 +16,15 @@ pub fn run(
     ) -> tauri::Builder<codeterm_client_shell::app_runtime::Runtime>,
 ) {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    let isolated = match isolated_update::from_arguments(
-        &arguments,
-        cfg!(debug_assertions),
-        context.config(),
-    ) {
-        Ok(launch) => launch,
-        Err(error) => {
-            eprintln!("Domios isolated update launch refused: {error}");
-            return;
-        }
-    };
+    let isolated =
+        match isolated_update::from_arguments(&arguments, cfg!(debug_assertions), context.config())
+        {
+            Ok(launch) => launch,
+            Err(error) => {
+                eprintln!("Domios isolated update launch refused: {error}");
+                return;
+            }
+        };
     let startup_options = match if isolated.is_some() {
         Ok(crate::ClientArgumentPreflight::Native(
             crate::ClientStartupOptions::default(),
