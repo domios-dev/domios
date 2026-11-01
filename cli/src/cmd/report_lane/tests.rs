@@ -531,7 +531,10 @@ fn repository_task_intent_keeps_its_checkout_guard() {
         .unwrap()
         .unwrap();
     assert!(scope.requires_repository);
-    assert_eq!(scope.worktree_path.as_deref(), Some(Path::new("/owned-lane")));
+    assert_eq!(
+        scope.worktree_path.as_deref(),
+        Some(Path::new("/owned-lane"))
+    );
 }
 
 impl RpcClient for ScopeLookupRpc {
