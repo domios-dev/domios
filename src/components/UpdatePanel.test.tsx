@@ -3,18 +3,18 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { UpdateAvailabilitySnapshot } from "../lib/updateAvailability";
 
-const fake = vi.hoisted(() => ({ check: vi.fn(), plugin: vi.fn(), changed: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null }));
+const fake = vi.hoisted(() => ({ check: vi.fn(), plugin: vi.fn(), app: { installing: false, error: null as string | null, currentVersion: "1.0.0", phase: "idle", nativeStatusObserved: false, applyUpdate: vi.fn() }, changed: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null }));
 vi.mock("../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
-vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => ({ installing: false, error: null, currentVersion: "1.0.0" }) }));
+vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => fake.app }));
 vi.mock("../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
 vi.mock("../lib/frontendUpdate/browser", () => ({ acceptFrontendUpdate: vi.fn(), setFrontendUpdateHeld: vi.fn(), frontendUpdateOffer: () => null, subscribeFrontendUpdateOffer: () => () => {} }));
 vi.mock("../lib/bridge", () => ({ listen: async (_event: string, handler: typeof fake.changed) => { fake.changed = handler; return () => {}; } }));
-import { UpdatePanelProvider } from "../hooks/useUpdatePanel";
+import { UpdatePanelProvider, useUpdatePanel } from "../hooks/useUpdatePanel";
 import { UpdatePanel } from "./UpdatePanel";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const available: UpdateAvailabilitySnapshot = { errors: {}, items: ["git", "grok"].map(id => ({ id, kind: "plugin", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "update_available", reason: "newer", channel: "official" })) };
-afterEach(() => { localStorage.clear(); vi.resetAllMocks(); });
+afterEach(() => { localStorage.clear(); vi.resetAllMocks(); Object.assign(fake.app, { installing: false, error: null, currentVersion: "1.0.0", phase: "idle", nativeStatusObserved: false }); });
 
 for (const outcome of ["success", "failure", "external"] as const) {
   it(`locks actions and retains component outcomes after ${outcome}`, async () => {
@@ -98,5 +98,36 @@ it("shows a channel failure once, keeps its rows non-actionable, and reports the
     await act(async () => host.querySelector("summary")!.click());
     expect(host.querySelector("details")?.open).toBe(true);
     expect(fake.plugin).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("reconciles only a restored app intent after native idle is observed without replay", async () => {
+  const saved = JSON.stringify({ stage: "app", appTarget: "2.0.0", pluginIds: [], interfaceRequested: false });
+  localStorage.setItem("codeterm.update-all.intent", saved);
+  fake.check.mockResolvedValue({ errors: {}, items: [{ ...available.items[0], id: "app", kind: "app" }] });
+  let panel!: ReturnType<typeof useUpdatePanel>;
+  function Probe() { panel = useUpdatePanel(); return null; }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const render = () => root.render(<UpdatePanelProvider><Probe /></UpdatePanelProvider>);
+  try {
+    await act(async () => render());
+    expect(panel.error).toBeFalsy();
+    Object.assign(fake.app, { nativeStatusObserved: true, phase: "downloading", installing: true });
+    await act(async () => render());
+    expect(panel.busy).toBe(true);
+    expect(panel.error).toBeFalsy();
+    Object.assign(fake.app, { phase: "idle", installing: false });
+    await act(async () => render());
+    expect(panel.busy).toBe(false);
+    expect(panel.activeId).toBeNull();
+    expect(panel.awaitingRetry).toBe(true);
+    expect(panel.rows.find(row => row.id === "app")?.state).toBe("failed");
+    expect(panel.error).toBeTruthy();
+    expect(localStorage.getItem("codeterm.update-all.intent")).toBe(saved);
+    expect(fake.app.applyUpdate).not.toHaveBeenCalled();
+    await act(async () => panel.retry());
+    expect(localStorage.getItem("codeterm.update-all.intent")).toBeNull();
+    expect(fake.app.applyUpdate).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

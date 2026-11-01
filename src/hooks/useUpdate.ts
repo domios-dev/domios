@@ -102,6 +102,7 @@ interface UpdateContextValue {
   toastOpen: boolean;
   blocking: boolean;
   installing: boolean;
+  nativeStatusObserved: boolean;
   setChannel: (next: UpdateChannel) => Promise<void>;
   refresh: (force?: boolean, opts?: { silent?: boolean }) => Promise<void>;
   applyUpdate: (opts?: { failureSurface: "inline" | "toast" }) => Promise<InstallResponse | null>;
@@ -231,6 +232,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [channelSupported, setChannelSupported] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [nativeStatusObserved, setNativeStatusObserved] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
   const [progress, setProgress] = useState(0);
   const [downloadedBytes, setDownloadedBytes] = useState(0);
@@ -312,6 +314,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const applyRuntimeStatus = useCallback(
     (raw: RuntimeStatus, opts?: { adopt?: boolean }) => {
       const next = normalizeRuntimeStatus(raw);
+      setNativeStatusObserved(true);
       if (next.phase === "idle" && installFailureRef.current) return;
       const observation = observeInstallPhase(
         next.phase,
@@ -406,6 +409,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const applyUpdate = useCallback(async (opts?: { failureSurface: "inline" | "toast" }): Promise<InstallResponse | null> => {
     if (installingRef.current) return { status: "already_in_flight" };
     installingRef.current = true;
+    setNativeStatusObserved(false);
     userInstallRef.current = opts?.failureSurface !== "inline";
     activeInstallPhaseRef.current = false;
     installCallReturnedRef.current = false;
@@ -499,6 +503,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       toastOpen,
       blocking,
       installing,
+      nativeStatusObserved,
       setChannel,
       refresh,
       applyUpdate,
@@ -516,6 +521,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       error,
       info,
       installing,
+      nativeStatusObserved,
       phase,
       progress,
       refresh,
