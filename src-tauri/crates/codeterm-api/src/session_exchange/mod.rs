@@ -56,20 +56,6 @@ fn replay_cwd(node: &mut SplitNodeSnapshot, directory: &str) {
     }
 }
 
-fn validate_layout(node: &codeterm_storage::DeskLayoutNode) -> Result<(), String> {
-    match node {
-        codeterm_storage::DeskLayoutNode::Leaf { tab_id, fields, .. } => fields
-            .validate()
-            .map_err(|error| format!("tab={tab_id}: {error}")),
-        codeterm_storage::DeskLayoutNode::Split { children, .. } => {
-            for child in children {
-                validate_layout(child)?;
-            }
-            Ok(())
-        }
-    }
-}
-
 fn capture_snapshot(
     snapshot: &SessionSnapshot,
     mut capture: impl FnMut(
@@ -246,19 +232,10 @@ pub async fn import(
             "Fixture import requires a named upgrade-restore-* DEV instance".into(),
         ));
     }
-    if document["sanitized"] != true || document["format"] != "upgrade-restore-v1" {
-        return Err(failure(
-            "Import requires an upgrade-restore-v1 sanitized document",
-        ));
-    }
-    let mut snapshot: SessionSnapshot =
-        serde_json::from_value(document["snapshot"].clone()).map_err(failure)?;
-    let mut plans: Vec<codeterm_types::plan::Plan> =
-        serde_json::from_value(document["plans"].clone()).map_err(failure)?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
+        let (mut snapshot, mut plans) = fixture_document(&document)?;
         let fixture_cwd = codeterm_paths::data_dir().join("upgrade-restore-project");
-        std::fs::create_dir_all(&fixture_cwd).map_err(|e| e.to_string())?;
         let directory = fixture_cwd.to_string_lossy().into_owned();
         for workspace in &mut snapshot.workspaces {
             workspace.cwd = Some(directory.clone());
@@ -267,30 +244,6 @@ pub async fn import(
                 replay_cwd(&mut tab.split_tree, &directory);
             }
         }
-        let candidate =
-            codeterm_service_core::multiplexer::state::MultiplexerState::from_session_snapshot(
-                &snapshot,
-            );
-        let count = candidate.snapshot().tabs.len();
-        {
-            let mux = svc.mux.read();
-            if mux.snapshot().tabs.values().any(|tab| tab.pty_id.is_some()) {
-                return Err("Fixture import refuses a DEV desk owning PTYs".to_string());
-            }
-        }
-        let authority = svc
-            .try_ext::<codeterm_service_core::startup::StorageAuthority>()
-            .ok_or("Storage authority unavailable")?;
-        let storage = authority.storage().ok_or("Storage unavailable")?.clone();
-        let projected =
-            codeterm_service_core::session::store::project_snapshot(&snapshot, Vec::new())?;
-        for workspace in &projected.workspaces {
-            for tab in &workspace.tabs {
-                validate_layout(&tab.layout)?;
-            }
-        }
-        codeterm_service_core::session::store::StorageDeskAdapter::from_storage(storage)
-            .import_snapshot(&snapshot, Vec::new())?;
         for plan in &mut plans {
             plan.project_path = directory.clone();
             plan.canonical_project_path = plan.project_path.clone();
@@ -304,13 +257,11 @@ pub async fn import(
                     }
                 }
             }
-            let updated_at = plan.updated_at;
-            svc.plan_store
-                .save(plan, updated_at)
-                .map_err(|e| format!("plan={}: {e}", plan.id))?;
         }
-        *svc.mux.write() = candidate;
-        codeterm_service_core::service::agent_runtime::restore_all(&svc);
+        let count = codeterm_service_core::service::session_persist::import_fixture(
+            &svc, snapshot, plans,
+            move || std::fs::create_dir_all(&fixture_cwd).map_err(|error| error.to_string()),
+        )?;
         svc.emit_state_changed(MuxEmitCause::SessionRestore);
         Ok::<_, String>(
             json!({"imported_tabs":count,"restart_required":true,"boot_id":svc.events.boot_id()}),
@@ -320,6 +271,16 @@ pub async fn import(
     .map_err(failure)?
     .map_err(failure)?;
     Ok(Json(result))
+}
+
+fn fixture_document(document: &Value) -> Result<(SessionSnapshot, Vec<codeterm_types::plan::Plan>), String> {
+    if document["sanitized"] != true || document["format"] != "upgrade-restore-v1" {
+        return Err("Import requires an upgrade-restore-v1 sanitized document".into());
+    }
+    let snapshot: SessionSnapshot = serde_json::from_value(document["snapshot"].clone()).map_err(|error| error.to_string())?;
+    let plans = serde_json::from_value(document["plans"].clone()).map_err(|error| error.to_string())?;
+    codeterm_service_core::service::session_persist::validate_fixture_snapshot(&snapshot)?;
+    Ok((snapshot, plans))
 }
 
 #[cfg(test)]

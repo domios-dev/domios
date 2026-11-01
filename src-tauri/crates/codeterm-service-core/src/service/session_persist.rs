@@ -7,6 +7,12 @@ use std::time::Duration;
 use crate::multiplexer::commands::MuxState;
 use crate::session::store::{SaveIntent, SaveOutcome};
 
+mod fixture_import;
+pub use fixture_import::{import_fixture, validate_fixture_snapshot};
+use fixture_import::FixtureOperation;
+#[cfg(test)]
+use fixture_import::{commit_fixture, fixture_mux_value};
+
 pub const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -31,6 +37,10 @@ struct PersistRequest {
 
 enum WorkerMessage {
     Persist(PersistRequest),
+    Fixture {
+        operation: FixtureOperation,
+        response: Sender<Result<usize, String>>,
+    },
     InstallStorage(crate::session::store::StorageDeskAdapter),
     Unavailable(String),
     #[cfg(any(test, feature = "test-support"))]
@@ -42,6 +52,8 @@ enum WorkerMessage {
 struct MailboxState {
     pending: VecDeque<WorkerMessage>,
     stopping: bool,
+    fixture_state: Option<String>,
+    fixture_published: Option<Arc<serde_json::Value>>,
 }
 
 #[derive(Default)]
@@ -64,6 +76,9 @@ impl PersistenceMailbox {
                 WorkerMessage::Stop(response) => {
                     let _ = response.send(());
                 }
+                WorkerMessage::Fixture { response, .. } => {
+                    let _ = response.send(Err(error.to_string()));
+                }
                 #[cfg(any(test, feature = "test-support"))]
                 WorkerMessage::Flush(response) => {
                     let _ = response.send(Err(error.to_string()));
@@ -77,6 +92,16 @@ impl PersistenceMailbox {
         let mut state = self.state.lock();
         if state.stopping {
             return Err("desk persistence worker is stopping".to_string());
+        }
+        if matches!(&message, WorkerMessage::Persist(_) | WorkerMessage::Fixture { .. }
+            | WorkerMessage::InstallStorage(_) | WorkerMessage::Unavailable(_))
+        {
+            if let Some(reason) = &state.fixture_state {
+                return Err(reason.clone());
+            }
+        }
+        if matches!(&message, WorkerMessage::Fixture { .. }) {
+            state.fixture_state = Some("Fixture import admitted; persistence is suspended".into());
         }
         if matches!(&message, WorkerMessage::Stop(_)) {
             state.stopping = true;
@@ -261,6 +286,14 @@ impl SessionPersistenceWorker {
     ) -> Result<Option<SaveOutcome>, String> {
         let completion = {
             let _submission = self.submission_order.lock();
+            let published = self.mailbox.state.lock().fixture_published.clone();
+            if wait && matches!(intent, SaveIntent::PreserveDesk) {
+                if let Some(published) = published {
+                    if fixture_import::fixture_mux_value(&mux.read())? == *published {
+                        return Ok(Some(SaveOutcome::Saved));
+                    }
+                }
+            }
             let snapshot = mux.read().to_session_snapshot();
             self.submit_snapshot_ordered(snapshot, intent, wait)?
         };
@@ -347,6 +380,29 @@ fn run_worker(
     loop {
         let message = mailbox.pop();
         match message {
+            WorkerMessage::Fixture { operation, response } => {
+                let result = operation(&mut backend);
+                let retained = match &result {
+                    Ok(_) => Some("Fixture import committed and published; restart required; persistence suspended".to_string()),
+                    Err(error) if error.terminal => Some(error.reason.clone()),
+                    Err(_) => None,
+                };
+                {
+                    let mut state = mailbox.state.lock();
+                    state.fixture_published = result.as_ref().ok().map(|committed| Arc::new(committed.mux.clone()));
+                    state.fixture_state = retained.clone();
+                }
+                if let Some(reason) = retained {
+                    last_error = Some(reason);
+                }
+                committed_desk = None;
+                if result.is_ok() {
+                    if let (Some(context), PersistenceBackend::Storage { revision, .. }) = (context.as_ref(), &backend) {
+                        context.ui.emit_native("desk-revision-committed", serde_json::json!(revision.to_string()));
+                    }
+                }
+                let _ = response.send(result.map(|committed| committed.tabs).map_err(|error| error.reason));
+            }
             WorkerMessage::Persist(request) => {
                 if matches!(&backend, PersistenceBackend::Pending) {
                     defer_persist(&mut deferred, request);
