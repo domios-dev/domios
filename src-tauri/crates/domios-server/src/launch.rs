@@ -594,6 +594,8 @@ pub fn spawn_detached(executable: &Path) -> io::Result<Child> {
 }
 
 fn spawn_supervised(executable: &Path) -> io::Result<Child> {
+    #[cfg(windows)]
+    exclude_bootstrap_stdio_from_children()?;
     let mut command = Command::new(executable.canonicalize()?);
     command
         .arg("serve")
