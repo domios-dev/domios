@@ -207,6 +207,7 @@ export function taskActivityMetadata(inv: CodetermInvocation, result?: string, a
 /** Describe the stable navigation target represented by a recognized invocation. */
 export function navigationTarget(inv: CodetermInvocation, result?: string, activityStatus?: string): NavigationTarget | null {
   if (isSend(inv)) {
+    if (typeof inv.flags.mesh === "string") return null;
     const candidate = inv.flags.tab ?? inv.flags.tab;
     const ref = typeof candidate === "string" ? candidate : undefined;
     return ref ? { kind: "tab", id: ref } : null;
@@ -535,10 +536,7 @@ function tab(inv: CodetermInvocation, resolve?: TabNameResolver): string {
 }
 
 function sentTitle(inv: CodetermInvocation, resolve?: TabNameResolver): string {
-  const p = inv.flags.tab ?? inv.flags.tab;
-  if (typeof p !== "string") return "Sent to current tab";
-  const name = resolve?.(p);
-  return name ? `Sent to ${name}` : `Sent to tab ${p}`;
+  return `Sent to ${parseSend(inv, undefined, resolve).recipient}`;
 }
 
 function deliveredStatus(result?: string): CardStatus | undefined {
@@ -605,12 +603,12 @@ export function parseSend(
   resolve?: TabNameResolver,
   resolvePeer?: PeerNameResolver,
 ): SentMessage {
-  const p = inv.flags.tab ?? inv.flags.tab;
-  const title = typeof p === "string" ? resolve?.(p) : undefined;
+  const p = inv.flags.tab;
+  const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
+  const title = meshRef === undefined && typeof p === "string" ? resolve?.(p) : undefined;
   let recipient: string;
   if (typeof p !== "string") recipient = "current tab";
   else recipient = title?.trim() || `tab ${p}`;
-  const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
   const resolved = resolvedSendText(result);
   const typed = decodeCliMessageText(inv.positionals[0] ?? "");

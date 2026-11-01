@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ToolEvent } from "@codeterm/chat-core";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
-import { CodetermActionCard } from "./CodetermActionCard";
+import { CodetermActionCard, CodetermActionDetail } from "./CodetermActionCard";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({ window, document: window.document, navigator: window.navigator, HTMLElement: window.HTMLElement, Element: window.Element, Node: window.Node })) Object.defineProperty(globalThis, name, { configurable: true, value });
@@ -120,12 +120,31 @@ const meshSendHost = await render(
     event={event(`codeterm send "hello" --tab 166df18d --mesh ${meshId}`)}
     expanded={false}
     onToggle={() => {}}
-    resolveTabName={(ref) => ref === "166df18d" ? "Dumas" : undefined}
+    resolveTabName={() => { throw new Error("mesh send must not consult the local tab resolver"); }}
     resolvePeerName={(ref) => ref === meshId ? "BLACKSTAR" : undefined}
+    onFocusTab={() => { throw new Error("mesh send must not open a local tab"); }}
   />,
 );
 const meshHeader = meshSendHost.host.querySelector('[data-testid="chat-sent-header"]')?.textContent ?? "";
-if (!meshHeader.includes("Sent to") || !meshHeader.includes("Dumas @ BLACKSTAR") || meshHeader.includes(meshId)) throw new Error("mesh send header must use human endpoint names");
+if (!meshHeader.includes("tab 166df18d @ BLACKSTAR") || meshHeader.includes(meshId)) throw new Error("mesh send header must retain remote ID and authoritative peer name");
+if (meshSendHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("mesh send must not expose a local opener");
+const meshCollisionHost = await render(<CodetermActionCard
+  event={event('domios send --mesh remote --tab deadbeef "hello"')}
+  expanded={false}
+  onToggle={() => {}}
+  resolveTabName={(ref) => ref === "deadbeef" ? "Courier" : undefined}
+  onFocusTab={(ref) => focusCalls.push(ref)}
+/>);
+const meshCollisionHeader = meshCollisionHost.host.querySelector('[data-testid="chat-sent-header"]')?.textContent ?? "";
+if (!meshCollisionHeader.includes("tab deadbeef @ remote") || meshCollisionHeader.includes("Courier")) throw new Error("remote short ID must not borrow a local title");
+if (meshCollisionHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("remote short ID collision must not expose a local opener");
+const meshDetailHost = await render(<CodetermActionDetail
+  event={event('domios send --mesh remote --tab deadbeef "hello"')}
+  fallback={null}
+  resolveTabName={() => { throw new Error("inline mesh detail must not resolve local titles"); }}
+  onFocusTab={() => { throw new Error("inline mesh detail must not open a local tab"); }}
+/>);
+if (meshDetailHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("inline mesh detail must not expose a local opener");
 const successfulSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (sent)\nOK" }} expanded onToggle={() => {}} />);
 if (successfulSendHost.host.querySelector('[data-testid="toolcard-result"]') || successfulSendHost.host.textContent?.includes("OK (sent)")) throw new Error("successful send result must stay hidden");
 const pendingSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), result: "OK (pending)" }} expanded onToggle={() => {}} />);

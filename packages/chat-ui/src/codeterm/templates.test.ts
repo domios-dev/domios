@@ -50,6 +50,13 @@ const TASK = "task_" + "b".repeat(32);
 
   const mesh = parseSend(inv(`codeterm send --tab bda --mesh mini "yo"`), undefined, undefined);
   assert(mesh.mesh === "mini", "mesh peer parsed");
+  const remoteInvocation = inv('domios send --mesh remote --tab deadbeef "hello"');
+  const localOnlyResolver = () => { throw new Error("remote targets must not use local title authority"); };
+  const remote = parseSend(remoteInvocation, undefined, localOnlyResolver);
+  assert(remote.recipient === "tab deadbeef" && remote.recipientId === "deadbeef" && !remote.recipientTitleResolved, "mesh recipient retains remote ID without local resolution");
+  assert(remote.mesh === "remote", "mesh recipient retains peer scope");
+  assert(navigationTarget(remoteInvocation) === null, "mesh sends never produce local navigation targets");
+  assert(renderTemplate(remoteInvocation, undefined, localOnlyResolver).title === "Sent to tab deadbeef @ remote", "mesh template does not use local title authority");
 
   const ok = parseSend(inv(`codeterm send --tab bda "x"`), "OK (sent)", undefined);
   assert(ok.status?.ok === true && ok.status.label === "sent", "sent marker does not imply delivery");
