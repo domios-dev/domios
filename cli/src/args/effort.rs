@@ -18,3 +18,22 @@ pub enum EffortAction {
         rel: String,
     },
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::Cli;
+    use clap::CommandFactory;
+
+    #[test]
+    fn effort_link_help_lists_rel_values() {
+        let help = Cli::command()
+            .find_subcommand_mut("effort")
+            .unwrap()
+            .find_subcommand_mut("link")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        assert!(help.contains("follows"), "{help}");
+        assert!(help.contains("supersedes"), "{help}");
+    }
+}
