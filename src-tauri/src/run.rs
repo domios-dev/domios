@@ -103,6 +103,7 @@ pub fn run(
     let builder = builder.plugin(tauri_plugin_deep_link::init());
     register_commands(builder)
         .setup(move |app| {
+            startup::client_logging::initialize();
             let app_handle = app.handle().clone();
             crate::install_client_startup_options(&app_handle, startup_options)?;
             startup::frontend_shell_initialize(&app_handle)?;
@@ -232,6 +233,7 @@ pub fn run(
                 }
             }
         });
+    log::info!(target: "native_updater", "client_event_loop_exited");
     log::info!("[shutdown] Tauri event loop returned");
 }
 
@@ -295,6 +297,7 @@ pub(crate) fn request_client_quit_exact(
         show_quit_feedback(app, QuitFeedback::Waiting);
         return Err(QuitRefusal::Busy);
     };
+    log::info!(target: "native_updater", "client_quit_requested");
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         let result = native

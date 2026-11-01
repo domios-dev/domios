@@ -9,8 +9,8 @@ export function requestUpdateChannel(api: DaemonApiConfig, channel?: string): Pr
   });
 }
 
-export function checkForUpdate(force: boolean, channel?: string): Promise<unknown> {
-  return nativeBridge.updater?.check(force, channel) ?? Promise.reject(new NativeCapabilityUnavailable("app updater"));
+export function checkForUpdate(force: boolean, channel?: string, retireErrorRevision?: string | null): Promise<unknown> {
+  return nativeBridge.updater?.check(force, channel, retireErrorRevision) ?? Promise.reject(new NativeCapabilityUnavailable("app updater"));
 }
 
 export function getUpdateStatus(): Promise<unknown> {

@@ -143,10 +143,21 @@ async fn check_and_apply_plugin(
 
     update_state.lock().set_phase(UpdatePhase::Downloading);
     log::info!("[updater] downloading and verifying v{}", update.version);
+    log::info!(target: "native_updater", "download_started target_version={}", update.version);
     let chunk_state = update_state.clone();
+    let mut downloaded = 0u64;
+    let mut milestone = 0u64;
     let bytes = match update
         .download(
             move |chunk_len, content_length| {
+                downloaded = downloaded.saturating_add(chunk_len as u64);
+                let next = content_length.filter(|total| *total > 0)
+                    .map(|total| downloaded.saturating_mul(4) / total)
+                    .unwrap_or(downloaded / (16 * 1024 * 1024));
+                if next > milestone {
+                    milestone = next;
+                    log::info!(target: "native_updater", "download_progress bytes={} total={:?}", downloaded, content_length);
+                }
                 chunk_state
                     .lock()
                     .record_download_chunk(chunk_len as u64, content_length);
@@ -163,6 +174,7 @@ async fn check_and_apply_plugin(
         }
     };
 
+    log::info!(target: "native_updater", "download_verified bytes={}", bytes.len());
     let verified_len = bytes.len();
     let sink = super::failure_report::AppFailureSink {
         update_state: update_state.clone(),

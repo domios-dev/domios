@@ -10,7 +10,7 @@ const calls: Array<{ command: string; args?: Record<string, unknown> }> = [];
 const response = { fixture: "opaque" };
 
 nativeBridge.updater = {
-  check: async (force) => { calls.push({ command: "check_for_update", args: { force } }); return response; },
+  check: async (force, _channel, retireErrorRevision) => { calls.push({ command: "check_for_update", args: { force, retireErrorRevision } }); return response; },
   status: async () => { calls.push({ command: "get_update_status" }); return response; },
   install: async () => { calls.push({ command: "install_app_update" }); return { status: "already_running" }; },
 };
@@ -18,12 +18,13 @@ nativeBridge.updater = {
 async function main() {
   const previousFetch = globalThis.fetch;
   try {
-    assert((await checkForUpdate(true)) === response, "update checks return the IPC response");
+    assert((await checkForUpdate(true, undefined, "opaque-revision")) === response, "update checks return the IPC response");
     assert((await getUpdateStatus()) === response, "status reads return the IPC response");
     await installAppUpdate();
 
     assert(calls[0]?.command === "check_for_update", "update checks use native IPC");
     assert(calls[0]?.args?.force === true, "forced update checks preserve the force flag");
+    assert(calls[0]?.args?.retireErrorRevision === "opaque-revision", "failure retirement preserves the action-scoped native revision");
     assert(calls[1]?.command === "get_update_status", "status reads use native IPC");
     assert(calls[2]?.command === "install_app_update", "update installs use native IPC");
     const requests: Array<{ url: string; init: RequestInit }> = [];

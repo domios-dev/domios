@@ -7,6 +7,73 @@ use codeterm_types::native_update::apply::{
 };
 use codeterm_update::{native_handoff::NativeUpdateHandoff, single_flight, UpdateStateHandle};
 
+#[async_trait::async_trait]
+impl codeterm_client_shell::application_host::NativeUpdateApply for super::NativeHostClientSlot {
+    async fn apply(&self, channel: codeterm_update::Channel) -> Result<serde_json::Value, String> {
+        use codeterm_types::native_update::{
+            ExpectedServer, NativeUpdateAction, NativeUpdateOperationId,
+        };
+        use codeterm_types::server_bootstrap::ServerExpectation;
+        let client = self
+            .0
+            .read()
+            .clone()
+            .ok_or("the native host is unavailable")?;
+        let request = NativeUpdateRequest {
+            operation_id: NativeUpdateOperationId::new(uuid::Uuid::new_v4())
+                .ok_or("native update operation identity is unavailable")?,
+            action: NativeUpdateAction::Pair,
+            expected_server: ExpectedServer {
+                components: client.manifest.clone(),
+                identity: client.ready.identity.clone(),
+                incarnation: ServerExpectation {
+                    process: client.ready.process.clone(),
+                    epoch: client.ready.epoch.clone(),
+                },
+            },
+            staged_components: client.manifest.clone(),
+            restart_authorized: true,
+        };
+        let result = client
+            .apply_update(
+                request,
+                NativeUpdateApplyOptions {
+                    channel,
+                    manifest_url: None,
+                    initiating_tab_id: None,
+                },
+            )
+            .await;
+        let mut result = match result {
+            Ok(result) => result,
+            Err(NativeHostRejection::QueueFull) => {
+                return Ok(serde_json::json!({
+                    "status": single_flight::ALREADY_IN_FLIGHT,
+                    "message": "An update is already being applied.",
+                }))
+            }
+            Err(NativeHostRejection::UpdateAdmission { reason }) => return Err(reason.error()),
+            Err(reason) => {
+                return Err(format!(
+                    "native updater refused before admission: {reason:?}"
+                ))
+            }
+        };
+        loop {
+            match result.phase {
+                Phase::NoUpdate => return Ok(serde_json::json!({ "status": "up_to_date" })),
+                Phase::Failed { message } => return Err(message),
+                Phase::Relaunching | Phase::Verified { .. } => {
+                    return Ok(serde_json::json!({ "status": single_flight::UPDATING }))
+                }
+                _ => {}
+            }
+            result = client.observe_update(result.operation_id, result.sequence).await
+                .map_err(|reason| format!("native update observation unavailable: {reason:?}; execution was not replayed"))?;
+        }
+    }
+}
+
 pub(crate) struct UpdateOperation {
     record: Mutex<Option<NativeUpdateHandoff>>,
     changed: watch::Sender<u64>,
@@ -22,6 +89,39 @@ impl Default for UpdateOperation {
 }
 
 impl UpdateOperation {
+    fn recorded_result(
+        &self,
+        request: &NativeUpdateRequest,
+        options: &NativeUpdateApplyOptions,
+    ) -> Result<Option<NativeUpdateApplyResult>, NativeHostRejection> {
+        self.record
+            .lock()
+            .as_ref()
+            .map(|record| record.recorded_result(request, options))
+            .unwrap_or(Ok(None))
+    }
+
+    fn admit(
+        &self,
+        mut record: NativeUpdateHandoff,
+        write: impl FnOnce(&NativeUpdateHandoff) -> Result<(), String>,
+    ) -> Result<(bool, NativeUpdateApplyResult), NativeHostRejection> {
+        let mut guard = self.record.lock();
+        if let Some(previous) = guard.as_ref() {
+            if let Some(result) = previous.recorded_result(&record.request, &record.options)? {
+                return Ok((false, result));
+            }
+            record.inherit_replay(previous);
+        }
+        write(&record).map_err(|_| NativeHostRejection::HostRejected)?;
+        let result = record.result.clone();
+        log::info!(target: "native_updater", "operation={} phase=admitted started_at_ms={}",
+            result.operation_id.value(), record.started_at_ms);
+        *guard = Some(record);
+        self.changed.send_replace(result.sequence);
+        Ok((true, result))
+    }
+
     fn mutate(
         &self,
         change: impl FnOnce(&mut NativeUpdateHandoff) -> Result<(), String>,
@@ -31,7 +131,18 @@ impl UpdateOperation {
             .clone()
             .ok_or("native update operation is unavailable")?;
         change(&mut record)?;
-        persist(&record)?;
+        if let Err(error) = persist(&record) {
+            log::error!(target: "native_updater", "operation={} cause=handoff_persistence",
+                record.result.operation_id.value());
+            record.advance(Phase::Failed {
+                message: "native update outcome could not be persisted; execution was not replayed"
+                    .into(),
+            })?;
+            let sequence = record.result.sequence;
+            *guard = Some(record);
+            self.changed.send_replace(sequence);
+            return Err(error);
+        }
         let sequence = record.result.sequence;
         *guard = Some(record);
         self.changed.send_replace(sequence);
@@ -96,24 +207,19 @@ impl NativeHostClient {
         request: NativeUpdateRequest,
         options: NativeUpdateApplyOptions,
     ) -> Result<NativeUpdateApplyResult, NativeHostRejection> {
-        if codeterm_update::native_handoff::validate_apply(&request, &self.ready, &self.manifest)
-            .is_err()
+        if let Err(reason) =
+            codeterm_update::native_handoff::validate_apply(&request, &self.ready, &self.manifest)
         {
-            return Err(NativeHostRejection::ProtocolMismatch);
+            return Err(match reason {
+                codeterm_types::native_update::NativeUpdateRefusal::ExpectedServerMismatch => NativeHostRejection::UpdateAdmission {
+                    reason: codeterm_types::native_update::apply::NativeUpdateAdmissionRefusal::StaleServerIncarnation,
+                },
+                _ => NativeHostRejection::ProtocolMismatch,
+            });
         }
         let operation = self.app.state::<Arc<UpdateOperation>>().inner().clone();
-        {
-            let guard = operation.record.lock();
-            if let Some(record) = guard
-                .as_ref()
-                .filter(|record| record.request.operation_id == request.operation_id)
-            {
-                return if record.request == request && record.options == options {
-                    Ok(record.result.clone())
-                } else {
-                    Err(NativeHostRejection::ProtocolMismatch)
-                };
-            }
+        if let Some(result) = operation.recorded_result(&request, &options)? {
+            return Ok(result);
         }
         let lease = single_flight::global()
             .try_acquire()
@@ -123,18 +229,22 @@ impl NativeHostClient {
         if !codeterm_update::native_handoff::supports_native_apply(&method) {
             return Err(NativeHostRejection::Unsupported);
         }
-        let record = NativeUpdateHandoff::new(request, options.clone(), self.connection.clone());
-        let admitted = record.result.clone();
+        let mut record =
+            NativeUpdateHandoff::new(request, options.clone(), self.connection.clone());
+        record.owner_client = Some(self.client_process.clone());
         let staging = operation.clone();
-        tokio::task::spawn_blocking(move || {
-            persist(&record)?;
-            *staging.record.lock() = Some(record);
-            staging.changed.send_replace(1);
-            Ok::<_, String>(())
-        })
-        .await
-        .map_err(|_| NativeHostRejection::HostRejected)?
-        .map_err(|_| NativeHostRejection::HostRejected)?;
+        let (is_new, admitted) =
+            tokio::task::spawn_blocking(move || staging.admit(record, persist))
+                .await
+                .map_err(|_| NativeHostRejection::HostRejected)??;
+        if !is_new {
+            return Ok(admitted);
+        }
+        {
+            let mut state = state.lock();
+            state.clear_error();
+            state.set_phase(codeterm_update::UpdatePhase::Checking);
+        }
         let stop = self.app.state::<ServerStopState>().0.clone();
         let host = DesktopApplicationHost {
             app: self.app.clone(),
@@ -145,15 +255,15 @@ impl NativeHostClient {
             }),
         };
         tauri::async_runtime::spawn(async move {
+            let _lease = lease;
             let start = operation.clone();
-            let outcome = async {
+            let outcome = tauri::async_runtime::spawn(async move {
                 tokio::task::spawn_blocking(move || {
                     start.mutate(|record| record.advance(Phase::Downloading))
                 })
                 .await
                 .map_err(|e| e.to_string())??;
-                single_flight::apply_with_lease(
-                    lease,
+                codeterm_update::application_host::ApplicationHost::check_and_apply(
                     &host,
                     codeterm_update::apply::ApplyOptions {
                         channel: options.channel,
@@ -163,12 +273,20 @@ impl NativeHostClient {
                     },
                 )
                 .await
-            }
-            .await;
+            })
+            .await
+            .unwrap_or_else(|_| Err("native updater task terminated before completion".into()));
             let phase = match outcome {
-                Ok(codeterm_update::apply::ApplyResult::NoUpdate) => Phase::NoUpdate,
+                Ok(codeterm_update::apply::ApplyResult::NoUpdate) => {
+                    let mut state = state.lock();
+                    state.clear_error();
+                    state.set_phase(codeterm_update::UpdatePhase::Idle);
+                    Phase::NoUpdate
+                }
                 Ok(codeterm_update::apply::ApplyResult::Restarting) => return,
                 Err(message) => {
+                    log::error!(target: "native_updater", "operation_failed cause={}",
+                        codeterm_update::native_handoff::failure_code(&message));
                     state.lock().set_error(message.clone());
                     Phase::Failed { message }
                 }
@@ -273,3 +391,6 @@ impl ServerStop for UpdateServerStop {
         .map_err(|e| e.to_string())?
     }
 }
+
+#[cfg(test)]
+mod tests;

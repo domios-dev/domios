@@ -48,3 +48,26 @@ fn persisted_relaunch_is_a_handoff_without_observing_the_dying_connection() {
     assert_eq!(terminal_outcome(&Phase::Applying), None);
     assert_eq!(terminal_outcome(&Phase::Admitted), None);
 }
+
+#[test]
+fn cli_native_admission_refusal_keeps_its_kind_and_actionable_message() {
+    use codeterm_types::{
+        native_host::NativeHostRejection, native_update::apply::NativeUpdateAdmissionRefusal,
+    };
+    for reason in [
+        NativeUpdateAdmissionRefusal::OperationConflict,
+        NativeUpdateAdmissionRefusal::RetiredOperation,
+        NativeUpdateAdmissionRefusal::IncarnationLimit,
+        NativeUpdateAdmissionRefusal::StaleServerIncarnation,
+    ] {
+        let error = admission_error(NativeHostRejection::UpdateAdmission { reason });
+        assert_eq!(
+            NativeUpdateAdmissionRefusal::from_error(&error),
+            Some(reason)
+        );
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&error).unwrap()["message"],
+            reason.message()
+        );
+    }
+}
