@@ -68,8 +68,8 @@ fn seed_basic_graph(conn: &Connection) {
         make_entity(conn, n, "thing");
         make_relation(conn, "opaque_anchor_person_61f0", "mentions", n);
     }
-    make_entity(conn, "opaque_anchor_topic_52c9", "Topic");
-    make_entity(conn, "opaque_anchor_role_84d1", "Role");
+    make_entity(conn, "topic_opaque_anchor_52c9", "Topic");
+    make_entity(conn, "role_opaque_anchor_84d1", "Role");
 }
 
 #[tokio::test]
@@ -89,11 +89,11 @@ async fn recluster_prompt_includes_existing_anchors() {
         .unwrap();
     let prompt = cap.captured.lock().unwrap().clone();
     assert!(
-        prompt.contains("opaque_anchor_topic_52c9"),
+        prompt.contains("topic_opaque_anchor_52c9"),
         "anchor missing from prompt"
     );
     assert!(
-        prompt.contains("opaque_anchor_role_84d1"),
+        prompt.contains("role_opaque_anchor_84d1"),
         "role anchor missing"
     );
     assert!(
