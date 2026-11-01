@@ -147,7 +147,6 @@ console.log("\nsection-row anchors:");
   const frame = layout.frames.find((f) => f.planId === "p1")!;
   ok("anchor per flattened section (s1,s1a,s2)", frame.anchors.size === 3);
   const planNode = frame.nodes.find((n) => n.kind === "plan")!;
-  const planRight = planNode.box.x + planNode.box.width;
   const a1 = frame.anchors.get("s1")!;
   // the section→task edge originates exactly at the section row anchor.
   const edge = frame.edges.find((e) => e.kind === "section-task" && e.to === "t1");
