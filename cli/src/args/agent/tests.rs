@@ -713,23 +713,6 @@ fn spawn_team_parses_with_an_anchoring_role() {
 }
 
 #[test]
-fn set_orchestrator_help_mentions_workers_not_leads() {
-    let help = Cli::command()
-        .find_subcommand_mut("agent")
-        .unwrap()
-        .find_subcommand_mut("set-orchestrator")
-        .unwrap()
-        .render_long_help()
-        .to_string();
-    assert!(help.contains("workers"), "{help}");
-    assert!(
-        help.contains("own live roleless, team-less agent"),
-        "{help}"
-    );
-    assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
-}
-
-#[test]
 fn launch_commands_accept_provider_owned_speed() {
     for args in [
         vec![

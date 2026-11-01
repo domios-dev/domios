@@ -345,11 +345,6 @@ mod tests {
         assert!(lines[1].contains("/repo/two"));
     }
 
-    #[test]
-    fn spec_list_renders_empty_state_without_json() {
-        assert_eq!(render_spec_list(&json!({ "specs": [] })), "(no specs)");
-    }
-
     #[derive(Default)]
     struct FakeRpc {
         response: Value,

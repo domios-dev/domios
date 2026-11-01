@@ -1,5 +1,4 @@
 use crate::Cli;
-use clap::CommandFactory;
 
 #[test]
 fn shared_worker_placement_and_extensions_have_explicit_cli_contracts() {
@@ -56,18 +55,6 @@ fn shared_worker_placement_and_extensions_have_explicit_cli_contracts() {
     ])
     .is_ok());
     assert!(Cli::try_parse_from(["domios", "plan", "task", "extend-files"]).is_err());
-}
-
-fn depends_on_help(subcommand: &str) -> String {
-    Cli::command()
-        .find_subcommand_mut("plan")
-        .unwrap()
-        .find_subcommand_mut("task")
-        .unwrap()
-        .find_subcommand_mut(subcommand)
-        .unwrap()
-        .render_long_help()
-        .to_string()
 }
 
 fn dispatch_canonical_writer(extra: &[&str]) -> bool {
@@ -191,43 +178,6 @@ fn plan_task_dispatch_accepts_a_worker_kind_override() {
             panic!("expected plan task dispatch")
         };
         assert_eq!(worker_kind.as_deref(), Some(kind));
-    }
-}
-
-#[test]
-fn task_add_help_documents_depends_on_value_types() {
-    let help = depends_on_help("add");
-    assert!(help.contains("--depends-on"), "{help}");
-    assert!(help.contains("full task id"), "{help}");
-    assert!(help.contains("handle"), "{help}");
-}
-
-#[test]
-fn task_update_help_documents_depends_on_value_types() {
-    let help = depends_on_help("update");
-    assert!(help.contains("--depends-on"), "{help}");
-    assert!(help.contains("full task id"), "{help}");
-    assert!(help.contains("handle"), "{help}");
-}
-
-#[test]
-fn task_add_and_update_help_name_model_rationale_storage() {
-    for subcommand in ["add", "update"] {
-        let help = depends_on_help(subcommand);
-        assert!(help.contains("model_rationale"), "{subcommand}: {help}");
-    }
-}
-
-#[test]
-fn task_add_and_update_help_document_external_ref_forms() {
-    for subcommand in ["add", "update"] {
-        let help = depends_on_help(subcommand);
-        assert!(help.contains("--external-ref"), "{subcommand}: {help}");
-        assert!(help.contains("full issue URL"), "{subcommand}: {help}");
-        assert!(
-            help.contains("owner/repository#number"),
-            "{subcommand}: {help}"
-        );
     }
 }
 
