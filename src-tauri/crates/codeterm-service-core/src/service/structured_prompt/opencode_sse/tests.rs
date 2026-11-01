@@ -98,6 +98,10 @@ fn parses_question_asked_into_prompt_and_route() {
             assert_eq!(prompt.options[0].value, "1");
             assert_eq!(prompt.multi_select, Some(false));
             assert_eq!(route.kind, PromptKind::Question);
+            assert_eq!(
+                route.prompt_kind(),
+                codeterm_types::pty::PromptKind::Structured
+            );
             assert_eq!(route.request_id, "que_42");
             assert_eq!(route.session_id, "ses_9");
             assert_eq!(reply_endpoint(&route), "/question/que_42/reply");
@@ -136,6 +140,10 @@ fn parses_permission_asked_with_three_replies() {
             let values: Vec<_> = prompt.options.iter().map(|o| o.value.as_str()).collect();
             assert_eq!(values, vec!["once", "always", "reject"]);
             assert_eq!(route.kind, PromptKind::Permission);
+            assert_eq!(
+                route.prompt_kind(),
+                codeterm_types::pty::PromptKind::Permission
+            );
             assert_eq!(reply_endpoint(&route), "/permission/per_7/reply");
             assert_eq!(reply_body(&route, "1").unwrap(), json!({"reply": "once"}));
             assert_eq!(
@@ -499,6 +507,10 @@ fn v2_question_events_keep_their_session_scoped_routes() {
         panic!("expected question");
     };
     assert_eq!(reply_endpoint(&route), "/api/session/s2/question/q2/reply");
+    assert_eq!(
+        route.prompt_kind(),
+        codeterm_types::pty::PromptKind::Structured
+    );
     assert_eq!(reply_body(&route, "1"), Some(json!({"answers":[["A"]]})));
     for event in ["question.v2.replied", "question.v2.rejected"] {
         assert_eq!(
@@ -518,6 +530,10 @@ fn v2_question_events_keep_their_session_scoped_routes() {
     assert_eq!(
         reply_endpoint(&route),
         "/api/session/s2/permission/p2/reply"
+    );
+    assert_eq!(
+        route.prompt_kind(),
+        codeterm_types::pty::PromptKind::Permission
     );
     assert_eq!(reply_body(&route, "once"), Some(json!({"reply":"once"})));
 }
