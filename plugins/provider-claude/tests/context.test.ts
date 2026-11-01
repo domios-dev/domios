@@ -141,7 +141,7 @@ for (const platform of ["linux", "windows"]) {
 
 for (const starterPrompt of ["assigned_task", "idle_wakeup", "team_bootstrap", "startup_handshake"]) {
   const prefix = '<domios from="system" context="opaque-' + starterPrompt + '">';
-  const text = "opaque-starter-body";
+  const text = "opaque-starter-body-" + starterPrompt;
   const command = plugin.buildLaunchCommand({ task: "opaque-task", starterPrompt, starterPromptText: text, starterPromptPrefix: prefix });
   check(() => assert.ok(command.endsWith(" -- " + quoteNativeArgument(prefix + text + "</domios>", sandbox.host.platform(), sandbox.host.shell.quoteFor))));
 

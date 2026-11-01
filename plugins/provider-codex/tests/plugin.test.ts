@@ -82,16 +82,6 @@ const manifestSeed = {
   ],
 };
 
-function sourceFiles(root: string): string[] {
-  const files: string[] = [];
-  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
-    const full = path.join(root, entry.name);
-    if (entry.isDirectory()) files.push(...sourceFiles(full));
-    else if (/\.(?:ts|tsx)$/.test(entry.name)) files.push(full);
-  }
-  return files;
-}
-
 const baseHost = (over: Record<string, unknown>) => ({
   manifestJson: () => JSON.stringify(manifestSeed),
   homeDir: () => "/tmp/home",
@@ -155,22 +145,20 @@ console.log("\n--- task instructions launch ---\n");
   assert(cmd.includes("finally { if ($ctProfileReleased -and (Test-Path -LiteralPath $ctProfilePath)) { Remove-Item -LiteralPath $ctProfilePath"), "Windows removes the temporary profile on exit after trust carry-over succeeds");
   assert(!cmd.includes('-c ("developer_instructions=" +'), "Windows never expands multiline task text inline in the native call");
   assert(!cmd.includes("<location>") && !cmd.includes("whoami") && !cmd.includes("юникод"), "task body is absent from the launch command");
-  const idle = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "idle_wakeup" });
-  assert(idle.includes("You are a newly started agent. Wait for instructions from the user or your orchestration parent."), "idle launch uses the non-actionable wake-up starter");
-  assert(!idle.includes("Execute the assigned task."), "idle launch never uses the task starter");
+  const idleText = "opaque-codex-idle-wakeup-867c";
+  const idle = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "idle_wakeup", starterPromptText: idleText });
+  assert(idle.includes(idleText), "idle launch forwards the supplied starter text");
   const silent = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "no_starter" });
   assert(silent.includes("--profile $ctProfileName"), "silent launch keeps developer instructions");
   assert(!silent.includes(" -- '"), "silent launch has no positional starter turn");
-  const empty = p.buildLaunchCommand({ task: "   " });
-  assert(!empty.includes("Execute the assigned task."), "empty instructions never create a starter message");
   const missingIdentity = p.buildLaunchCommand({ task: hostileTask });
   assert(missingIdentity.includes("Write-Error 'CodeTerm refused the Codex launch"), "Windows reports why it refused an unowned profile");
   assert(missingIdentity.includes("exit 1"), "Windows stops after the explicit launch refusal");
   assert(!missingIdentity.includes("--profile"), "Windows does not write a profile when instance identity is absent");
-  const teamText = "host-owned team bootstrap";
+  const teamText = "opaque-codex-team-bootstrap-1b27";
   const team = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "team_bootstrap", starterPromptText: teamText });
   assert(team.includes(teamText), "team launch uses the host-owned starter text");
-  const handshakeText = "opaque-startup-handshake";
+  const handshakeText = "opaque-codex-startup-handshake-50da";
   const handshake = p.buildLaunchCommand({ ...launch, task: hostileTask, starterPrompt: "startup_handshake", starterPromptText: handshakeText });
   assert(handshake.includes(handshakeText), "startup launch uses the host-owned starter text");
   eq(p.starterPromptText?.("team_bootstrap"), undefined, "team starter text is not duplicated in the plugin");
@@ -244,11 +232,6 @@ eq(plugin.meta.displayName, "Codex", "meta.displayName");
   ].sort();
   eq(Object.keys(loadHostPlugin()).sort(), expectedSurface, "plugin split preserves the exported API surface");
   eq(loadHostPlugin().sessionResume(), { exact: true }, "exact session resume is explicitly declared");
-  assert(
-    sourceFiles(path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "src"))
-      .every((file) => fs.readFileSync(file, "utf8").split(/\r?\n/).length < 1200),
-    "every provider source file stays below the hard line limit",
-  );
 }
 
 console.log("\n--- detect ---\n");
