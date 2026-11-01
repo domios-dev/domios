@@ -518,6 +518,22 @@ struct ScopeLookupRpc {
     reply: Option<Result<Value, String>>,
 }
 
+#[test]
+fn repository_task_intent_keeps_its_checkout_guard() {
+    let mut rpc = ScopeLookupRpc {
+        reply: Some(Ok(json!({"tasks": [{
+            "id": "task-a",
+            "execution_intent": codeterm_types::plan::TaskExecutionIntent::RepositoryMutation,
+            "lane": {"worktree_path": "/owned-lane"}
+        }]}))),
+    };
+    let scope = task_readiness_scope(&mut rpc, Some("plan-a"), Some("task-a"), "tab-a")
+        .unwrap()
+        .unwrap();
+    assert!(scope.requires_repository);
+    assert_eq!(scope.worktree_path.as_deref(), Some(Path::new("/owned-lane")));
+}
+
 impl RpcClient for ScopeLookupRpc {
     fn call_detailed(
         &mut self,
@@ -542,6 +558,7 @@ fn unavailable_bound_scope_never_enters_checkout_inspection() {
         Ok(json!({"tasks": []})),
         Ok(json!({"tasks": [{"id": "foreign", "execution_intent": "non_repository"}]})),
         Ok(json!({"tasks": [{"id": "task-a", "execution_intent": {}}]})),
+        Ok(json!({"tasks": [{"id": "task-a", "execution_intent": "mutating"}]})),
         Ok(json!({"tasks": [{"id": "task-a", "execution_attempts": {}}]})),
     ];
     for lookup in lookups {

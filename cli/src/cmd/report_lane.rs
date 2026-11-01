@@ -44,10 +44,7 @@ fn task_readiness_scope_from_plan(
 ) -> Option<TaskReadinessScope> {
     let task = find_task(plan, task_id)?;
     if task.get("execution_intent").is_some_and(|intent| {
-        !matches!(
-            intent.as_str(),
-            Some("unspecified" | "read_only" | "mutating" | "non_repository")
-        )
+        serde_json::from_value::<codeterm_types::plan::TaskExecutionIntent>(intent.clone()).is_err()
     }) || task
         .get("lane")
         .is_some_and(|lane| !lane.is_null() && !lane.is_object())
