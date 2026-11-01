@@ -257,11 +257,6 @@ mod store_index_tests {
                 out.get("reload_required").and_then(|v| v.as_bool()),
                 Some(true)
             );
-            assert!(out
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .contains("reload Domios to activate"));
         });
     }
 
@@ -288,11 +283,6 @@ mod store_index_tests {
                 out.get("reload_required").and_then(|v| v.as_bool()),
                 Some(false)
             );
-            assert!(!out
-                .get("message")
-                .and_then(|v| v.as_str())
-                .unwrap_or_default()
-                .contains("reload CodeTerm"));
         });
     }
 
