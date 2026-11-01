@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createUpdateIntent, groupUpdates, nextUpdateStep, readUpdateIntent, type UpdateItem } from "./updatePanelModel";
+import { createUpdateIntent, restoredAppIntentInterrupted, groupUpdates, nextUpdateStep, readUpdateIntent, type UpdateItem } from "./updatePanelModel";
 
 const items: UpdateItem[] = [
   { id: "plugin", group: "Plugins", name: "Plugin", currentVersion: "1.0.0", targetVersion: "2.0.0" },
@@ -116,3 +116,14 @@ assert.deepEqual(updateableItems([cachedApp], sourceFailure), [cachedApp]);
 assert.equal(panelItems([cachedApp], sourceFailure)[0].sourceWarning, sourceFailure.app);
 assert.equal(updateSourceMessage("Failed to fetch release: source: GitHub rate limit, retry at 14:30; mirror: access denied"), "GitHub rate limit, retry at 14:30");
 assert.equal(updateSourceMessage("offline"), "offline");
+
+assert.equal(restoredAppIntentInterrupted(intent, "1.0.0", { observed: false, phase: "idle", installing: false }), false);
+assert.equal(restoredAppIntentInterrupted(intent, "1.0.0", { observed: true, phase: "idle", installing: false }), true);
+assert.equal(restoredAppIntentInterrupted(intent, "1.0.0", { observed: true, phase: "idle", installing: true }), false);
+assert.equal(restoredAppIntentInterrupted(intent, "2.0.0", { observed: true, phase: "idle", installing: false }), false);
+for (const phase of ["checking", "downloading", "applying", "success", "error"]) {
+  assert.equal(restoredAppIntentInterrupted(intent, "1.0.0", { observed: true, phase, installing: false }), false);
+}
+assert.equal(restoredAppIntentInterrupted({ ...intent, stage: "plugins" }, "1.0.0", { observed: true, phase: "idle", installing: false }), false);
+assert.equal(restoredAppIntentInterrupted({ ...intent, appTarget: null }, "1.0.0", { observed: true, phase: "idle", installing: false }), false);
+console.log("Restored app intent reconciliation: 11 decisions passed; initial idle/current request/active native work/installed target never interrupt.");

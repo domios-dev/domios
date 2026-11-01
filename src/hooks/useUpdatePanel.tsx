@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useUpdateAvailability } from "./useUpdateAvailability";
-import { targetInstalled, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
+import { targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { useUpdate } from "./useUpdate";
@@ -19,6 +19,7 @@ function useUpdatePanelController() {
   const app = useUpdate();
   const { snapshot, setSnapshot, ready, refresh } = useUpdateAvailability();
   const [intent, setIntent] = useState(savedIntent);
+  const restoredIntent = useRef(intent);
   const [error, setError] = useState<UpdateFailure | null>(null);
   const [history, setHistory] = useState<UpdateFailure[]>([]);
   const [starting, setStarting] = useState(false);
@@ -36,12 +37,21 @@ function useUpdatePanelController() {
   const diagnostics = channelDiagnostics(status.errors, new Set());
 
   const save = useCallback((next: UpdateIntent | null) => {
+    restoredIntent.current = null;
     persistIntent(next);
     setFrontendUpdateHeld(next !== null);
     setIntent(next);
   }, []);
 
   const hostVersion = snapshot.items.find(item => item.kind === "app")?.installed ?? app.currentVersion ?? "";
+  const restoredFailure: UpdateFailure | null = ready && intent && restoredIntent.current
+    && restoredAppIntentInterrupted(intent, hostVersion, {
+      observed: app.nativeStatusObserved, phase: app.phase, installing: app.installing,
+    }) ? {
+      message: "The previous app update is no longer active. Check again before applying it.",
+      details: "A saved app update target remains uninstalled, but the native updater reports idle.",
+      channelUnavailable: false,
+    } : null;
   const nextStep = ready && intent && !error
     ? nextUpdateStep(intent, hostVersion, updateable) : null;
   const stepKind = nextStep?.kind === "interface" && !offer ? "waitForApp" : nextStep?.kind;
@@ -98,7 +108,10 @@ function useUpdatePanelController() {
   }, [intentKey, stepKind, pluginId, pluginChannel, refresh, save, recordOutcome]);
 
   useEffect(() => {
-    if (app.error && intent?.stage === "app") { recordOutcome("app", "failed"); save(null); }
+    if (app.error && intent?.stage === "app" && !restoredIntent.current) {
+      recordOutcome("app", "failed");
+      save(null);
+    }
   }, [app.error, intent?.stage, recordOutcome, save]);
 
   const updateAll = async () => {
@@ -152,10 +165,10 @@ function useUpdatePanelController() {
   };
 
   const retry = async () => {
-    if (checking || ((starting || intent || app.installing) && !error && !app.error)) return;
+    if (checking || ((starting || intent || app.installing) && !error && !app.error && !restoredFailure)) return;
     setChecking(true);
     setCheckResult(null);
-    const previousFailure = error ?? (app.error ? classifyUpdateFailure("update", app.error) : null);
+    const previousFailure = error ?? (app.error ? classifyUpdateFailure("update", app.error) : null) ?? restoredFailure;
     if (previousFailure) setHistory(previous => [...previous, previousFailure].slice(-10));
     save(null);
     setError(null);
@@ -171,13 +184,13 @@ function useUpdatePanelController() {
   };
 
   const activeId = stepKind === "plugin" ? pluginId : stepKind === "interface" ? "frontend"
-    : intent?.stage === "app" && hostVersion !== intent.appTarget ? "app" : null;
-  const rows = updateRunRows(runItems, items, snapshot.items, intent, activeId, outcomes);
-  const failure = error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null);
+    : intent?.stage === "app" && !restoredFailure && !app.error && hostVersion !== intent.appTarget ? "app" : null;
+  const rows = updateRunRows(runItems, items, snapshot.items, intent, activeId, restoredFailure || (restoredIntent.current && app.error) ? { ...outcomes, app: "failed" } : outcomes);
+  const failure = error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null) ?? restoredFailure?.message;
   return { snapshot, items, rows, activeId, awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
     ? Math.min(100, Math.max(0, app.downloadedBytes / app.downloadTotalBytes * 100)) : null,
     history, checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
-    errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error,
+    errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error ?? restoredFailure?.details,
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id && (!item.channel || !status.errors[item.channel]))) };
 }
 
