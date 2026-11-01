@@ -76,6 +76,26 @@ fn plan_round_trips_from_one_wal_database() {
 }
 
 #[test]
+fn startup_scan_never_imports_retired_yaml_or_changes_its_bytes() {
+    let directory = tempfile::tempdir().unwrap();
+    crate::service_plan::paths::mark_test_project_root(directory.path());
+    let legacy = Plan::new(
+        "Old plan".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::from_tab("orch"),
+    );
+    let legacy_dir =
+        crate::service_plan::paths::plan_dir(directory.path(), &legacy.status, &legacy.id).unwrap();
+    crate::service_plan::store_v2::write_plan(&legacy_dir, &legacy).unwrap();
+    let source = legacy_dir.join("plan.yaml");
+    let bytes = std::fs::read(&source).unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    store.scan_project(directory.path()).unwrap();
+    assert!(store.get(&legacy.id).is_none());
+    assert_eq!(std::fs::read(source).unwrap(), bytes);
+}
+
+#[test]
 fn deleting_a_plan_removes_the_document_and_search_row_atomically() {
     let directory = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(directory.path());

@@ -53,7 +53,6 @@ pub async fn watch(runtime: &'static str) {
         }
     }
 }
-
 pub struct RequestTiming {
     id: u64,
     label: Arc<String>,
@@ -87,9 +86,4 @@ impl Drop for RequestTiming {
             log::debug!("[SLOW-REST] {} {}ms", self.label, elapsed.as_millis());
         }
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
 }

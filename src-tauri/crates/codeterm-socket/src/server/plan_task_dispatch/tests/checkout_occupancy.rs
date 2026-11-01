@@ -343,7 +343,7 @@ fn free_checkout_does_not_conflict() {
 
 #[test]
 fn closed_attempt_history_does_not_occupy_checkout() {
-    let (root, mut plan, occupying_task_id, dispatched_task_id) = plan_with_attempt(Some(10), None);
+    let (root, plan, _occupying_task_id, dispatched_task_id) = plan_with_attempt(Some(10), None);
     let checkout = root.path().display().to_string();
 
     preflight_checkout_occupancy(

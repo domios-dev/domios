@@ -467,7 +467,7 @@ fn respawn_keeps_persona() {
     assert_eq!(draft.provider, "codex");
     assert_eq!(draft.planned_model.as_deref(), Some("codex/gpt-5.5"));
     assert_eq!(draft.model.as_deref(), Some("gpt-override"));
-    assert_eq!(draft.title.as_deref(), Some("Ranker"));
+    assert_eq!(draft.title.as_deref(), Some("opaque-persona-91"));
     assert_eq!(draft.cwd, "/tmp/worktree");
     let task = store.show_task(&task_id).unwrap().task;
     let expected_identity = crate::service_plan::worker_identity::compose_task_worker_identity(

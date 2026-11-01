@@ -17,3 +17,22 @@ pub(super) async fn wake(
 fn enqueue(work: impl FnOnce() + Send + 'static) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(work)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn wake_queue_returns_before_materialization_finishes() {
+        let (release, released) = std::sync::mpsc::channel();
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let task = enqueue(move || {
+            let _ = started.send(());
+            let _ = released.recv();
+        });
+        ready.await.unwrap();
+        assert!(!task.is_finished());
+        release.send(()).unwrap();
+        task.await.unwrap();
+    }
+}

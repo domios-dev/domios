@@ -1,5 +1,4 @@
 use super::*;
-use parking_lot::Mutex;
 
 #[test]
 fn sleep_marker_survives_launch_and_failure_until_agent_ready() {
