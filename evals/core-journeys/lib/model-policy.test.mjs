@@ -34,6 +34,7 @@ function fixture() {
         if (options) {
           const { key, value } = options.body;
           if (key === "general_agent.model") config.general_agent.model = value;
+          else if (key.split(".").length === 2) config.agents[key.split(".")[1]] = value;
           else config.agents[key.split(".")[1]].default_model = value;
         }
         return structuredClone(config);
