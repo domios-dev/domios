@@ -1,10 +1,6 @@
-//! Mechanism oracles for `mem secret save-master-password`: writes no credential
-//! file, asks the backend before claiming, and never emits the credential.
+//! Output and persistence oracles for `mem secret save-master-password`.
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
-
-#[path = "../src/test_support.rs"]
-mod test_support;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};

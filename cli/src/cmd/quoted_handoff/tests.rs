@@ -26,12 +26,12 @@ fn quoted_handoff_keeps_scalar_arguments_inline() {
 /// the shell-active characters are the ones already missing.
 #[test]
 fn quoted_handoff_boundary_reads_shape_not_surviving_characters() {
-    let quoted = format!("Goal: \"{}\" and 'more'", "x".repeat(INLINE_ARGV_BUDGET));
+    let quoted = format!("`\"{}'${}", "x".repeat(INLINE_ARGV_BUDGET), "y");
     let plain = "x".repeat(quoted.chars().count());
     assert!(inline_refusal(INLINE_SOURCE, &quoted, PAD_REMEDY).is_some());
     assert!(inline_refusal(INLINE_SOURCE, &plain, PAD_REMEDY).is_some());
 
-    let two_lines = "STATUS: in_review\nCHANGES: cli/src/cmd/quoted_handoff.rs";
+    let two_lines = "q\n\"x'y`$";
     assert!(two_lines.chars().count() < INLINE_ARGV_BUDGET);
     assert!(
         inline_refusal(INLINE_SOURCE, two_lines, PAD_REMEDY).is_some(),
@@ -49,11 +49,12 @@ fn quoted_handoff_budget_counts_characters_not_bytes() {
 
 #[test]
 fn quoted_handoff_refusal_names_the_remedy_its_surface_actually_has() {
-    let spawn = inline_refusal(INLINE_SOURCE, INTENDED, SPAWN_REMEDY).expect("refused");
+    let hostile = format!("q\n\"{}'`$", "x".repeat(INLINE_ARGV_BUDGET));
+    let spawn = inline_refusal(INLINE_SOURCE, &hostile, SPAWN_REMEDY).expect("refused");
     assert!(spawn.contains("--task-file"));
     assert!(!spawn.contains("--from-pad"));
 
-    let pad = inline_refusal(INLINE_SOURCE, INTENDED, PAD_REMEDY).expect("refused");
+    let pad = inline_refusal(INLINE_SOURCE, &hostile, PAD_REMEDY).expect("refused");
     assert!(pad.contains("--from-pad"));
     assert!(!pad.contains("--task-file"));
 }
