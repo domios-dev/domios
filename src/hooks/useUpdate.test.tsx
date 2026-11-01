@@ -185,7 +185,7 @@ async function main() {
     let discovery!: Promise<void>;
     await act(async () => { discovery = state().refresh(true, { silent: true }); });
     await act(async () => events.get("update-status-changed")?.({ ...runtimeStatus("error"), last_error: "opaque durable failure" }));
-    await act(async () => { finishCheck(updateInfo); await discovery; });
+    await act(async () => { finishCheck({ ...updateInfo, update_available: false }); await discovery; });
     await act(async () => events.get("update-status-changed")?.(runtimeStatus("idle")));
     assert.equal(state().status, "error");
     assert.equal(state().error, "opaque durable failure");
@@ -195,6 +195,12 @@ async function main() {
     assert.equal(state().status, "error");
     assert.equal(state().toastOpen, true);
     await act(async () => { await state().applyUpdate({ failureSurface: "inline" }); });
+    assert.equal(state().toastOpen, false);
+    nativeBridge.updater.check = async () => ({ ...updateInfo, latest_version: updateInfo.current_version, update_available: false });
+    await act(async () => { await state().refresh(true); });
+    assert.equal(state().error, null);
+    assert.equal(state().status, "up-to-date");
+    assert.equal(state().phase, "idle");
     assert.equal(state().toastOpen, false);
     await unmountFailure();
   } finally {

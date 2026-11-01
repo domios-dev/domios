@@ -42,6 +42,13 @@ pub struct ServerStopError {
 
 pub struct ServerStopState(pub Arc<dyn ServerStop>);
 
+#[async_trait::async_trait]
+pub trait NativeUpdateApply: Send + Sync {
+    async fn apply(&self, channel: codeterm_update::Channel) -> Result<serde_json::Value, String>;
+}
+
+pub struct NativeUpdateApplyState(pub Arc<dyn NativeUpdateApply>);
+
 pub struct DesktopApplicationHost {
     pub app: AppHandle,
     pub update_state: UpdateStateHandle,

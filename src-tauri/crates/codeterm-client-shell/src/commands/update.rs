@@ -3,7 +3,7 @@ use codeterm_update::UpdateStateHandle;
 use tauri::Manager;
 
 use crate::app_runtime::AppHandle;
-use crate::application_host::{DesktopApplicationHost, ServerStopState};
+use crate::application_host::NativeUpdateApplyState;
 
 #[tauri::command]
 pub async fn check_for_update(
@@ -24,10 +24,19 @@ pub async fn check_for_update(
     }
 
     let method = update_state.lock().install_method.clone();
+    let error_before = update_state.lock().phase_changed_at;
     let info = codeterm_update::checker::check_for_update(&method).await?;
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
     let mut us = update_state.lock();
+    if !info.update_available
+        && us.phase_changed_at == error_before
+        && us.phase == codeterm_update::UpdatePhase::Error
+        && !codeterm_update::single_flight::global().is_in_flight()
+    {
+        us.last_error = None;
+        us.set_phase(codeterm_update::UpdatePhase::Idle);
+    }
     us.last_check = Some(info);
     us.last_check_time = Some(std::time::Instant::now());
     Ok(val)
@@ -44,40 +53,12 @@ pub async fn install_app_update(
     if let Some(channel) = channel {
         update_state.lock().channel = channel;
     }
-    let (channel, install_method) = {
-        let us = update_state.lock();
-        (us.channel, us.install_method.clone())
-    };
-    let server_stop = app
-        .try_state::<ServerStopState>()
+    let channel = update_state.lock().channel;
+    let updater = app
+        .try_state::<NativeUpdateApplyState>()
         .map(|state| state.0.clone())
-        .ok_or("the server attachment is unavailable")?;
-    let handle: UpdateStateHandle = update_state.inner().clone();
-    let outcome = codeterm_update::single_flight::request_apply(
-        codeterm_update::single_flight::global(),
-        &DesktopApplicationHost {
-            app,
-            update_state: handle,
-            server_stop,
-        },
-        codeterm_update::apply::ApplyOptions {
-            channel,
-            manifest_url: None,
-            install_method,
-            initiating_tab_id: None,
-        },
-    )
-    .await
-    .inspect_err(|error| {
-        update_state.lock().set_error(error.clone());
-    })?;
-    Ok(
-        serde_json::json!({ "status": outcome.discriminant(), "message": match outcome {
-        codeterm_update::single_flight::UpdateRequestOutcome::AlreadyInFlight => "An update is already being applied.",
-        codeterm_update::single_flight::UpdateRequestOutcome::Applied(codeterm_update::apply::ApplyResult::NoUpdate) => "No update is available.",
-        _ => "The verified installer has started.",
-    } }),
-    )
+        .ok_or("the native updater attachment is unavailable")?;
+    updater.apply(channel).await
 }
 
 #[tauri::command]

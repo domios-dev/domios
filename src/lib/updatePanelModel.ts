@@ -1,3 +1,4 @@
+import type { UpdateFailure } from "./updateStatusModel";
 import type { UpdateAvailabilityItem } from "./updateAvailability";
 
 export const UPDATE_INTENT_KEY = "codeterm.update-all.intent";
@@ -161,8 +162,12 @@ export function updateRunRows(runItems: readonly UpdateItem[], items: readonly U
     const current = items.find(row => row.id === item.id) ?? item;
     const alreadyCurrent = targetInstalled(current, snapshot);
     const outcome = current.targetVersion === item.targetVersion ? outcomes[item.id] : undefined;
-    const state = outcome === "failed" || current.channelError ? "failed" : alreadyCurrent ? "completed" : outcome ?? (activeId === item.id ? "active"
+    const state = current.channelError ? "failed" : alreadyCurrent ? "completed" : outcome ?? (activeId === item.id ? "active"
       : intent && (intent.pluginIds.includes(item.id) || (item.group === "Interface" && intent.interfaceRequested)) ? "queued" : "available");
     return { ...current, state, alreadyCurrent };
   });
+}
+
+export function appendUpdateFailure(history: readonly UpdateFailure[], failure: UpdateFailure): UpdateFailure[] {
+  return [...history.filter(previous => previous.message !== failure.message || previous.details !== failure.details), failure].slice(-10);
 }

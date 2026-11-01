@@ -43,6 +43,12 @@ pub(crate) fn install(app: &codeterm_client_shell::app_runtime::AppHandle) {
     app.manage(Arc::new(
         super::native_client::update::UpdateOperation::default(),
     ));
+    app.manage(NativeHostClientSlot::default());
+    app.manage(
+        codeterm_client_shell::application_host::NativeUpdateApplyState(Arc::new(
+            app.state::<NativeHostClientSlot>().inner().clone(),
+        )),
+    );
     app.manage(ServerStopState(Arc::new(AttachedServerStop {
         app: app.clone(),
     })));

@@ -127,3 +127,20 @@ for (const phase of ["checking", "downloading", "applying", "success", "error"])
 assert.equal(restoredAppIntentInterrupted({ ...intent, stage: "plugins" }, "1.0.0", { observed: true, phase: "idle", installing: false }), false);
 assert.equal(restoredAppIntentInterrupted({ ...intent, appTarget: null }, "1.0.0", { observed: true, phase: "idle", installing: false }), false);
 console.log("Restored app intent reconciliation: 11 decisions passed; initial idle/current request/active native work/installed target never interrupt.");
+
+import { appendUpdateFailure } from "./updatePanelModel";
+{
+  const failure = { message: "opaque", details: "cause", channelUnavailable: false };
+  assert.deepEqual(appendUpdateFailure([failure, failure], failure), [failure]);
+  let history = [failure];
+  for (let i = 0; i < 20; i++) history = appendUpdateFailure(history, { ...failure, details: String(i) });
+  assert.equal(history.length, 10);
+  assert.equal(history[0].details, "10");
+  assert.equal(history[9].details, "19");
+  const rows = updateRunRows(offered, [], external, null, null, { plugin: "failed" });
+  assert.deepEqual(rows.map(row => row.state), ["completed", "completed"]);
+  assert.equal(summarizeUpdatePanel(rows, { busy: false, failed: false }).tone, "green");
+  assert.equal(summarizeUpdatePanel(updateRunRows(offered, offered, [plugin], null, null, { plugin: "failed" }),
+    { busy: false, failed: true }).tone, "red");
+}
+console.log("Superseded failure headers and deduplicated bounded history: 7 assertions passed");

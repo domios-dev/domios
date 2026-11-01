@@ -242,6 +242,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const activeInstallPhaseRef = useRef(false);
   const installCallReturnedRef = useRef(false);
   const installFailureRef = useRef(false);
+  const installErrorRevisionRef = useRef(0);
 
   useEffect(() => {
     installingRef.current = installing;
@@ -261,9 +262,18 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         if (!silent) setStatus("checking");
         setError(null);
       }
+      const failureAtStart = installFailureRef.current;
+      const errorAtStart = installErrorRevisionRef.current;
       try {
         const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined);
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
+        if (force && !data.update_available && failureAtStart
+          && errorAtStart === installErrorRevisionRef.current && !installingRef.current) {
+          installFailureRef.current = false;
+          setError(null);
+          setPhase("idle");
+          setToastOpen(false);
+        }
         handleInfo(data);
       } catch (e) {
         if (installFailureRef.current) return;
@@ -361,6 +371,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "error") {
         const message = next.last_error || "Update failed";
+        installErrorRevisionRef.current += 1;
         installFailureRef.current = true;
         installingRef.current = false;
         activeInstallPhaseRef.current = false;
@@ -427,6 +438,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       await fetchRuntimeStatus();
       return response;
     } catch (e) {
+      installErrorRevisionRef.current += 1;
       installFailureRef.current = true;
       installingRef.current = false;
       activeInstallPhaseRef.current = false;

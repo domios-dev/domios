@@ -42,6 +42,16 @@ pub struct NativeUpdateHandoff {
     pub options: NativeUpdateApplyOptions,
     pub result: NativeUpdateApplyResult,
     pub target_version: Option<String>,
+    #[serde(default)]
+    pub started_at_ms: u64,
+    #[serde(default)]
+    pub updated_at_ms: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner_client: Option<codeterm_types::server_bootstrap::ProcessProvenance>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub terminal_cause: Option<String>,
 }
 
 pub fn path(data: &Path) -> PathBuf {
@@ -101,7 +111,22 @@ impl NativeUpdateHandoff {
             request,
             options,
             target_version: None,
+            started_at_ms: now_ms(),
+            updated_at_ms: now_ms(),
+            owner_client: None,
+            started_version: Some(codeterm_build_info::version().into()),
+            terminal_cause: None,
         }
+    }
+
+    pub fn blocks_new_attempt(&self) -> bool {
+        matches!(
+            self.result.phase,
+            NativeUpdateApplyPhase::Admitted
+                | NativeUpdateApplyPhase::Downloading
+                | NativeUpdateApplyPhase::Applying
+                | NativeUpdateApplyPhase::Relaunching
+        )
     }
 
     pub fn advance(&mut self, phase: NativeUpdateApplyPhase) -> Result<(), String> {
@@ -110,6 +135,15 @@ impl NativeUpdateHandoff {
             .sequence
             .checked_add(1)
             .ok_or("update sequence exhausted")?;
+        self.updated_at_ms = now_ms();
+        self.terminal_cause = match &phase {
+            NativeUpdateApplyPhase::Failed { message } => Some(message.clone()),
+            NativeUpdateApplyPhase::NoUpdate => Some("no applicable update".into()),
+            NativeUpdateApplyPhase::Verified { .. } => Some("replacement pair verified".into()),
+            _ => None,
+        };
+        log::info!(target: "native_updater", "operation={} sequence={} phase={}",
+            self.result.operation_id.value(), self.result.sequence, phase_name(&phase));
         self.result.phase = phase;
         Ok(())
     }
@@ -121,6 +155,26 @@ impl NativeUpdateHandoff {
         connection: &NativeHostConnection,
         server: &ServerReady,
     ) -> bool {
+        if self.request.expected_server.identity == server.identity
+            && server.build == client_build
+            && connection.identity == server.identity
+            && connection.server_epoch == server.epoch
+            && connection.instance_id == server.instance_id
+            && connection.generation > 0
+            && self.superseded_by(version)
+        {
+            log::info!(target: "native_updater", "operation={} recovery=superseded current_version={} execution_replayed=false",
+                self.result.operation_id.value(), version);
+            return self.advance(NativeUpdateApplyPhase::NoUpdate).is_ok();
+        }
+        if matches!(
+            self.result.phase,
+            NativeUpdateApplyPhase::Failed { .. }
+                | NativeUpdateApplyPhase::Verified { .. }
+                | NativeUpdateApplyPhase::NoUpdate
+        ) {
+            return false;
+        }
         let outcome = if self.request.expected_server.identity != server.identity {
             Err("native update handoff belongs to another instance".into())
         } else {
@@ -136,16 +190,50 @@ impl NativeUpdateHandoff {
                         | NativeUpdateApplyPhase::Applying
                 ) =>
             {
-                "native update interrupted before installer handoff; execution was not replayed"
-                    .into()
+                format!(
+                    "native update owner stopped during {}; server {}; execution was not replayed",
+                    phase_name(&self.result.phase),
+                    if self.request.expected_server.incarnation.epoch == server.epoch {
+                        "unchanged"
+                    } else {
+                        "replaced"
+                    }
+                )
             }
             Ok(false) => return false,
             Err(error) => error,
         };
-        log::warn!("[updater] native handoff recovery failed: {failure}");
-        self.result.sequence = self.result.sequence.saturating_add(1);
-        self.result.phase = NativeUpdateApplyPhase::Failed { message: failure };
-        true
+        log::warn!(target: "native_updater", "operation={} recovery=interrupted prior_phase={} prior_client_pid={:?} server_changed={} execution_replayed=false",
+            self.result.operation_id.value(), phase_name(&self.result.phase),
+            self.owner_client.as_ref().map(|owner| owner.pid),
+            self.request.expected_server.incarnation.epoch != server.epoch);
+        self.advance(NativeUpdateApplyPhase::Failed { message: failure })
+            .is_ok()
+    }
+
+    fn superseded_by(&self, version: &str) -> bool {
+        if matches!(
+            self.result.phase,
+            NativeUpdateApplyPhase::Relaunching
+                | NativeUpdateApplyPhase::Verified { .. }
+                | NativeUpdateApplyPhase::NoUpdate
+        ) {
+            return false;
+        }
+        let Ok(current) = semver::Version::parse(version) else {
+            return false;
+        };
+        if let Some(target) = self
+            .target_version
+            .as_ref()
+            .and_then(|v| semver::Version::parse(v).ok())
+        {
+            return current >= target;
+        }
+        self.started_version
+            .as_ref()
+            .and_then(|v| semver::Version::parse(v).ok())
+            .is_some_and(|started| current > started)
     }
 
     pub fn reconcile(
@@ -188,3 +276,40 @@ impl NativeUpdateHandoff {
 
 #[cfg(test)]
 mod tests;
+
+pub fn phase_name(phase: &NativeUpdateApplyPhase) -> &'static str {
+    match phase {
+        NativeUpdateApplyPhase::Admitted => "admitted",
+        NativeUpdateApplyPhase::Downloading => "downloading",
+        NativeUpdateApplyPhase::Applying => "applying",
+        NativeUpdateApplyPhase::Relaunching => "relaunching",
+        NativeUpdateApplyPhase::NoUpdate => "no_update",
+        NativeUpdateApplyPhase::Failed { .. } => "failed",
+        NativeUpdateApplyPhase::Verified { .. } => "verified",
+    }
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .unwrap_or_default()
+}
+
+pub fn failure_code(message: &str) -> &'static str {
+    if message.contains("install-file holders") {
+        "install_file_holders"
+    } else if message.contains("download/verify") {
+        "download_or_signature"
+    } else if message.contains("manifest") || message.contains("fetch release") {
+        "manifest_fetch"
+    } else if message.contains("server") && message.contains("stop") {
+        "server_stop"
+    } else if message.contains("installer launch") {
+        "installer_launch"
+    } else if message.contains("task terminated") {
+        "task_terminated"
+    } else {
+        "operation_failed"
+    }
+}
