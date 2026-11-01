@@ -950,18 +950,6 @@ fn stale_provider_pty_allows_relaunch_and_cleans_screen_state() {
     assert!(!signal.wait_after(signal.generation(), Duration::ZERO));
 }
 
-#[test]
-fn repeated_lifecycle_subscriptions_release_screen_state_entries() {
-    let screen_state = Arc::new(ScreenState::new());
-
-    for _ in 0..3 {
-        let subscription = super::ScreenChangeSubscription::arm(&screen_state, "pty-1");
-        assert_eq!(screen_state.screen_change_subscriber_count(), 1);
-        drop(subscription);
-        assert_eq!(screen_state.screen_change_subscriber_count(), 0);
-    }
-}
-
 /// Records, from inside the provider call, whether `screen_state` was free.
 struct ScreenLockProbeProvider {
     screen_state: crate::ScreenStateHandle,

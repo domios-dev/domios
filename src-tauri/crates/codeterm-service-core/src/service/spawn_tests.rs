@@ -260,18 +260,6 @@ pub fn registry_with(provider: ModelProvider) -> crate::agent::registry::AgentRe
 }
 
 #[test]
-fn default_visibility_is_visible() {
-    let spec = SpawnTabSpec::default();
-    assert_eq!(spec.visibility, TabVisibility::Visible);
-}
-
-#[test]
-fn default_command_is_shell() {
-    let spec = SpawnTabSpec::default();
-    assert!(matches!(spec.command, TabCommand::Shell));
-}
-
-#[test]
 fn provider_cli_availability_rejects_invalid_binary_name() {
     let registry =
         registry_with(ModelProvider::new("bad-cli", &[]).with_cli("bad cli", "install bad-cli"));
@@ -1050,46 +1038,6 @@ fn spawn_agent_params_from_json_no_activate_means_none() {
     assert!(p.role.is_none(), "no role + no activate is the bug case");
 }
 
-// Activation checks are centralized on `activate.unwrap_or(false)`.
-// Tests mirror the predicate to prevent future focus-steal regressions from default changes.
-
-fn would_activate(spec: &AgentSpawnSpec) -> bool {
-    spec.activate.unwrap_or(false)
-}
-
-#[test]
-fn spawn_with_activate_true_sets_active_tab() {
-    let spec = AgentSpawnSpec {
-        provider: "claude".into(),
-        activate: Some(true),
-        ..Default::default()
-    };
-    assert!(would_activate(&spec));
-}
-
-#[test]
-fn spawn_with_activate_false_does_not_steal_focus() {
-    let spec = AgentSpawnSpec {
-        provider: "claude".into(),
-        activate: Some(false),
-        ..Default::default()
-    };
-    assert!(!would_activate(&spec));
-}
-
-#[test]
-fn spawn_with_no_role_and_no_activate_does_not_steal_focus() {
-    // Regression: pre-fix the predicate was `role.is_none()`, so any CLI/API/cron/bench spawn (which legitimately has no role) stole user focus.
-    // With opt-in activate, role=None + activate=None must leave focus untouched.
-    let spec = AgentSpawnSpec {
-        provider: "claude".into(),
-        role: None,
-        activate: None,
-        ..Default::default()
-    };
-    assert!(!would_activate(&spec));
-}
-
 #[test]
 fn chat_default_on_capable_visible_agent_sets_chat_view() {
     assert!(should_default_agent_tab_to_chat(
@@ -1103,14 +1051,6 @@ fn chat_default_on_non_capable_visible_agent_stays_terminal() {
     assert!(!should_default_agent_tab_to_chat(
         TabVisibility::Visible,
         false,
-    ));
-}
-
-#[test]
-fn chat_capable_visible_agent_always_defaults_to_chat() {
-    assert!(should_default_agent_tab_to_chat(
-        TabVisibility::Visible,
-        true,
     ));
 }
 

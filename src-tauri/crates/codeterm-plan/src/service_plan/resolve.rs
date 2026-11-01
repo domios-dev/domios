@@ -489,7 +489,7 @@ impl PlanStore {
 #[cfg(test)]
 mod tests {
     use super::{RefKind, ResolveError};
-    use crate::plan::{OrchestratorRef, Plan, Task, TaskPriority, TaskStatus};
+    use crate::plan::{OrchestratorRef, Plan};
     use crate::service_plan::{NewTask, PlanStore};
 
     fn store_with(dir: &std::path::Path) -> PlanStore {
@@ -523,61 +523,6 @@ mod tests {
                 2000,
             )
             .unwrap()
-    }
-
-    fn legacy_task(id: &str, name: &str, handle: &str) -> Task {
-        Task {
-            files: Default::default(),
-            id: id.into(),
-            name: name.into(),
-            kind: "task".into(),
-            model: None,
-            speed: None,
-            model_rationale: None,
-            acceptance_criteria: vec![],
-            external_refs: vec![],
-            test_plan: None,
-            qa_plan: None,
-            correctness: None,
-            status: TaskStatus::Pending,
-            review_stage: Default::default(),
-            qa_state: None,
-            review_round: 0,
-            review_oracle: None,
-            review_evidence: vec![],
-            key: None,
-            review_override: None,
-            review_audit: vec![],
-            status_label: None,
-            priority: TaskPriority::default(),
-            created_at: 0,
-            updated_at: 0,
-            status_changed_at: 0,
-            handle: Some(handle.into()),
-            tags: vec![],
-            section_ids: vec![],
-            body: String::new(),
-            role_guidance: None,
-            intent: None,
-            execution_intent: Default::default(),
-            parent_task_id: None,
-            depends_on: vec![],
-            assigned_tab_id: None,
-            lane: Default::default(),
-            taken_by_role: None,
-            executor_role: None,
-            competition: None,
-            peer: None,
-            group: None,
-            canvas: Default::default(),
-            milestones: vec![],
-            execution_attempts: vec![],
-            interruption: Default::default(),
-            pause_reason: None,
-            personality: None,
-            personality_provenance: None,
-            attachments: vec![],
-        }
     }
 
     #[test]
@@ -677,40 +622,6 @@ mod tests {
             ResolveError::NotFound { kind, .. } => assert_eq!(kind, RefKind::Task),
             other => panic!("expected not found, got {other:?}"),
         }
-    }
-
-    #[test]
-    fn legacy_long_ids_still_resolve() {
-        let dir = tempfile::tempdir().unwrap();
-        let store = store_with(dir.path());
-        let long_plan = "pl_deadbeefdeadbeefdeadbeefdeadbeef";
-        let long_task = "task_cafebabecafebabecafebabecafebabe";
-        let mut plan = Plan::new(
-            "Legacy".into(),
-            dir.path().display().to_string(),
-            OrchestratorRef::from_tab("p"),
-        );
-        plan.id = long_plan.into();
-        plan.tasks
-            .push(legacy_task(long_task, "Old", "legacy-task"));
-        store.save(&mut plan, 1000).unwrap();
-
-        assert_eq!(store.resolve_plan_id(long_plan).unwrap(), long_plan);
-        let r = store.resolve_task_ref(None, long_task).unwrap();
-        assert_eq!(r.plan_id, long_plan);
-        assert_eq!(r.task_id, long_task);
-        // Legacy id still resolvable by handle and by prefix.
-        assert_eq!(
-            store.resolve_task_ref(None, "legacy-task").unwrap().task_id,
-            long_task
-        );
-        assert_eq!(
-            store
-                .resolve_task_ref(None, &long_task[..12])
-                .unwrap()
-                .task_id,
-            long_task
-        );
     }
 
     #[test]

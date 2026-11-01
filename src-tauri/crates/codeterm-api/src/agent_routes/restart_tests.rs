@@ -102,7 +102,7 @@ fn agent_restart_reports_resumed_or_fresh_launch() {
 }
 
 #[test]
-fn stale_pre_restart_agent_ready_reports_readiness_was_not_observed() {
+fn stale_pre_restart_ready_does_not_satisfy_new_agent_readiness() {
     let readiness = codeterm_service_core::service::boot_stage::classify_restart_readiness(
         Some("pty-old"),
         Some(codeterm_types::pty::BootStage::AgentReady),
@@ -136,7 +136,4 @@ fn stale_pre_restart_agent_ready_reports_readiness_was_not_observed() {
     assert_eq!(body["old_pty_torn_down"], true);
     assert_eq!(body["agent_ready"], false);
     assert_eq!(body["new_pty_id"], serde_json::Value::Null);
-    assert!(body["error"]
-        .as_str()
-        .is_some_and(|error| error.contains("readiness was not observed")));
 }

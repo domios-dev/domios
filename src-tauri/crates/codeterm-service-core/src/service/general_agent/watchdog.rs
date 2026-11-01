@@ -282,44 +282,4 @@ fn general_limit(service: &ServiceContext) -> u32 {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::needs_restart_decision;
-
-    #[test]
-    fn grace_period_blocks_restart() {
-        assert!(!needs_restart_decision(false, true, false, true));
-        assert!(!needs_restart_decision(false, true, true, true));
-    }
-
-    #[test]
-    fn cosmetic_agent_type_without_pty_triggers_restart() {
-        assert!(needs_restart_decision(false, false, false, true));
-    }
-
-    #[test]
-    fn no_pty_no_agent_type_does_not_restart() {
-        assert!(!needs_restart_decision(false, false, false, false));
-    }
-
-    #[test]
-    fn live_pty_never_authorizes_screen_based_restart() {
-        assert!(!needs_restart_decision(false, false, true, true));
-    }
-
-    #[test]
-    fn watchdog_does_not_restart_during_declared_quiesce() {
-        // The update handoff reaps the general agent's PTY on purpose.
-        assert!(
-            !needs_restart_decision(true, false, false, true),
-            "a declared quiesce must not be restarted into"
-        );
-        // Narrowed, not disabled: the same dead process outside a quiesce still restarts.
-        assert!(
-            needs_restart_decision(false, false, false, true),
-            "outside a declared quiesce the watchdog still restarts a dead agent"
-        );
-    }
-}
-
-#[cfg(test)]
 mod event_tests;

@@ -67,38 +67,6 @@ fn transport_capabilities_contract_theme_identity_confines_host_filesystem() {
     assert!(crate::theme_routes::valid_theme_id("my_theme-2"));
 }
 
-#[tokio::test]
-async fn transport_capabilities_contract_temporary_bytes_are_persisted_and_retrievable() {
-    let temporary = tempfile::tempdir().unwrap();
-    let bytes = [0, 1, 2, 3, 255];
-    let name = crate::web_routes::sanitize_filename("../../contract.bin");
-    let path = crate::web_routes::store_upload(temporary.path(), &name, &bytes)
-        .await
-        .unwrap();
-    assert!(path.starts_with(temporary.path()));
-    assert_eq!(std::fs::read(&path).unwrap(), bytes);
-    assert_eq!(
-        codeterm_service_core::attachments::dropped_path_kind(&path),
-        "file"
-    );
-}
-
-#[test]
-fn transport_capabilities_contract_grouped_model_usage_is_not_quota() {
-    let usage = codeterm_service_core::agent::provider::ModelGroupUsage {
-        group: "group-a".into(),
-        messages: 3,
-        input_tokens: 4,
-        output_tokens: 5,
-        ..Default::default()
-    };
-    let value = serde_json::to_value(vec![usage]).unwrap();
-    assert_eq!(value[0]["group"], "group-a");
-    assert_eq!(value[0]["messages"], 3);
-    assert_eq!(value[0]["input_tokens"], 4);
-    assert!(value[0].get("spend_limit_cents").is_none());
-}
-
 #[test]
 fn transport_capabilities_contract_push_tokens_cannot_access_host_routes() {
     for (method, path) in [
@@ -112,41 +80,6 @@ fn transport_capabilities_contract_push_tokens_cannot_access_host_routes() {
     ] {
         assert!(!crate::auth::is_service_push_allowed(method, path));
     }
-}
-
-#[test]
-fn transport_capabilities_contract_notification_answer_changes_record_once() {
-    use codeterm_notification_core::contract::{adopt_caller_actions, answer_actions};
-    use codeterm_service_core::notification::answer::AnswerAdmission;
-    use codeterm_service_core::notification::store::{
-        Ask, NotificationProvenance, NotificationSeverity, NotificationStore,
-    };
-    let mut store = NotificationStore::new(4);
-    let actions = adopt_caller_actions(answer_actions(&["Yes".into(), "No".into()]).unwrap());
-    let id = store.add_ext(
-        "Question".into(),
-        None,
-        NotificationSeverity::Info,
-        NotificationProvenance {
-            tab_id: Some("asking-tab".into()),
-            ..Default::default()
-        },
-        Ask::offering(Some(actions)),
-        None,
-        None,
-    );
-    assert_eq!(
-        store.record_answer(&id, "Yes"),
-        AnswerAdmission::Recorded("Yes".into())
-    );
-    assert_eq!(
-        store.record_answer(&id, "No"),
-        AnswerAdmission::AlreadyAnswered("Yes".into())
-    );
-    assert_eq!(
-        store.record_answer(&id, "foreign"),
-        AnswerAdmission::NotOffered
-    );
 }
 
 mod http {

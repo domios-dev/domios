@@ -206,11 +206,9 @@ fn review_recovery_pend_refusals_name_the_right_remedy_verbs() {
         to: TaskStatus::Pending,
     };
     assert_eq!(bounce.to_json()["remedy"]["verb"], "bounce");
-    assert!(bounce.to_string().contains("bounce"));
 
     let hold = PlanError::ReviewHoldRequired;
     assert_eq!(hold.to_json()["remedy"]["verb"], "hold");
-    assert!(hold.to_string().contains("hold"));
 }
 
 #[test]

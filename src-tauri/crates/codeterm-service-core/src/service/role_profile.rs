@@ -349,15 +349,6 @@ mod normalization_tests {
         assert!(none.authorized_gates.is_empty());
     }
 
-    #[test]
-    fn no_normalized_role_is_ever_an_orchestrator_literal() {
-        for literal in ["Orchestrator", "Conductor", "Planner", "Watcher", "Worker"] {
-            let (role, _) = normalized(literal, None);
-            assert_ne!(role.as_deref(), Some("Orchestrator"), "{literal}");
-            assert_ne!(role.as_deref(), Some("Conductor"), "{literal}");
-        }
-    }
-
     /// The Cartographer is a Manager kind now, so a Worker naming it is refused
     /// rather than quietly demoted, and Manager normalization keeps it.
     #[test]

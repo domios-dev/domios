@@ -308,10 +308,6 @@ fn scheduler_gates_each_owner_tick_and_marks_only_delivered_wakes() {
     let plans = vec![owner_plan(&tab_id)];
     let interval =
         codeterm_types::config::schema::OrchestrationConfig::default().nudge_interval_secs;
-    assert_eq!(
-        interval,
-        codeterm_types::config::schema::OrchestrationConfig::default().nudge_interval_secs
-    );
     {
         let tab = mux.get_tab_mut(&tab_id).unwrap();
         tab.agent_type = Some("test-provider".into());

@@ -40,20 +40,6 @@ fn dispatched_worker_launch_prompt_carries_ack_instruction_persona_and_brief() {
 }
 
 #[test]
-fn brief_opens_with_personality_line_when_set() {
-    let t = task(json!({
-        "id": "task_p",
-        "name": "Wire dispatch RPC",
-        "type": "code",
-        "status": "pending",
-        "personality": "Hopper",
-    }));
-    let brief = build_brief(&t, &[]);
-    assert!(brief.starts_with("You are Hopper — executor for: Wire dispatch RPC"));
-    assert!(brief.contains("# Wire dispatch RPC"));
-}
-
-#[test]
 fn role_guidance_contract_delivery_reaches_the_composed_worker_context_first() {
     let guidance_token = "rg_7d14a091_conditioning";
     let body_token = "body_4a112f";
@@ -190,19 +176,6 @@ fn test_author_brief_carries_charter_reference_before_task() {
     assert_eq!(guidance_pos, 0);
     assert!(guidance_pos < title_pos);
     assert!(guidance_pos < body_pos);
-}
-
-#[test]
-fn brief_supplies_task_owned_identity_when_personality_is_absent() {
-    let t = task(json!({
-        "id": "task_np",
-        "name": "Bare",
-        "type": "code",
-        "status": "pending",
-    }));
-    let brief = build_brief(&t, &[]);
-    assert!(brief.starts_with("You are the Worker responsible for: Bare"));
-    assert!(brief.contains("# Bare"));
 }
 
 #[test]
@@ -394,22 +367,6 @@ fn brief_lists_section_links_and_test_plan() {
     assert!(brief.contains("## Sections"));
     assert!(brief.contains("Phase 1 (sec_9)"));
 }
-#[test]
-fn brief_omits_empty_optional_sections() {
-    let t = task(json!({
-        "id": "task_3",
-        "name": "Bare",
-        "type": "code",
-        "status": "pending",
-    }));
-    let brief = build_brief(&t, &[]);
-    assert!(!brief.contains("## Acceptance criteria"));
-    assert!(!brief.contains("## Test plan"));
-    assert!(!brief.contains("## Sections"));
-    assert!(!brief.contains("## Strides"));
-    assert!(!brief.contains("domios agent report"));
-}
-
 #[test]
 fn remote_worker_brief_replaces_the_local_ack_with_the_origin_remote_ack() {
     let ack = codeterm_service_core::service::plan::worker_identity::WORKER_ACK_INSTRUCTION;

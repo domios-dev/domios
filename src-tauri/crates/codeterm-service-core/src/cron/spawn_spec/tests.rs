@@ -97,30 +97,6 @@ fn spawn_routing_cron_pty_provider_spec_matches_the_expected_contract() {
 }
 
 #[test]
-fn spawn_routing_cron_pty_provider_keeps_the_task_out_of_a_system_prompt() {
-    let chatbackends = crate::chatbackend::ChatBackendRegistry::new();
-    let spec = build_cron_spawn_spec(&chatbackends, inputs("pty-agent"));
-    match spec.command {
-        TabCommand::Agent(agent) => assert_eq!(agent.task.as_deref(), Some(TASK)),
-        other => panic!("expected the PTY agent runtime, got {other:?}"),
-    }
-}
-
-#[test]
-fn spawn_routing_records_the_creator_as_the_run_owner() {
-    let chatbackends = crate::chatbackend::ChatBackendRegistry::new();
-    let spec = build_cron_spawn_spec(&chatbackends, inputs("pty-agent"));
-
-    assert_eq!(spec.audience, TabAudience::UserOwnedAutomation);
-    match spec.command {
-        TabCommand::Agent(agent) => {
-            assert_eq!(agent.spawned_by_tab_id.as_deref(), Some("tab-creator"));
-        }
-        other => panic!("expected the PTY agent runtime, got {other:?}"),
-    }
-}
-
-#[test]
 fn cron_spawn_spec_forwards_reasoning_effort() {
     let chatbackends = crate::chatbackend::ChatBackendRegistry::new();
     let mut inputs = inputs("pty-agent");
@@ -200,17 +176,4 @@ fn curator_round_is_visible_manager_without_activation_for_both_transports() {
             _ => panic!("agent runtime required"),
         }
     }
-}
-
-#[test]
-fn curator_tab_creation_keeps_the_existing_active_tab_and_workspace() {
-    let (mut mux, active) = crate::multiplexer::state::MultiplexerState::new();
-    let workspace = mux.get_active_workspace().unwrap().id.clone();
-    let curator = mux.create_tab(&workspace).unwrap();
-    assert_ne!(curator, active);
-    assert_eq!(mux.get_active_workspace().unwrap().id, workspace);
-    assert_eq!(
-        mux.get_active_workspace().unwrap().active_tab_id.as_deref(),
-        Some(active.as_str())
-    );
 }

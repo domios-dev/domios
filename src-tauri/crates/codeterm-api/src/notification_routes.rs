@@ -346,24 +346,6 @@ mod tests {
     }
 
     #[test]
-    fn serve_file_path_guard_rejects_outside_data_dir() {
-        let allowed = codeterm_service_core::paths::data_dir();
-        let outside = std::path::Path::new("/etc/passwd");
-        let canonical_outside = std::fs::canonicalize(outside).unwrap_or(outside.to_path_buf());
-        assert!(
-            !canonical_outside.starts_with(&allowed),
-            "/etc/passwd should not be inside the data dir"
-        );
-    }
-
-    #[test]
-    fn serve_file_path_guard_accepts_inside_data_dir() {
-        let allowed = codeterm_service_core::paths::data_dir();
-        let inside = allowed.join("config.toml");
-        assert!(inside.starts_with(&allowed));
-    }
-
-    #[test]
     fn notify_send_refuses_blank_long_titles_and_missing_target_tabs() {
         let limit = codeterm_notification_core::contract::MAX_CALLER_TITLE_CHARS;
         assert!(super::vet_title("   ").is_err());

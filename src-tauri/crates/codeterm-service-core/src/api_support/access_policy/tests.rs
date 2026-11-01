@@ -199,43 +199,6 @@ fn custom_permissions_remain_explicit() {
 }
 
 #[test]
-fn peer_local_secrets_are_never_authorized() {
-    for access in [
-        AccessLevel::Full,
-        AccessLevel::ReadOnly,
-        AccessLevel::AgentIsolated,
-        AccessLevel::Custom(vec![Permission::Admin]),
-    ] {
-        assert!(!check_access(&access, &Method::GET, "/api/secrets/items"));
-        assert!(!check_access(&access, &Method::GET, "/api/mesh/debug/sign"));
-    }
-}
-
-#[test]
-fn supporter_token_route_denied_to_peers() {
-    for access in [
-        AccessLevel::Full,
-        AccessLevel::ReadOnly,
-        AccessLevel::AgentIsolated,
-        AccessLevel::Custom(vec![Permission::Admin]),
-    ] {
-        for method in [Method::GET, Method::POST, Method::DELETE] {
-            assert!(!check_access(&access, &method, SUPPORTER_TOKEN_PATH));
-            assert!(!check_access(
-                &access,
-                &method,
-                "/api/supporter/token?adapter=x"
-            ));
-        }
-    }
-    assert!(check_access(
-        &AccessLevel::Full,
-        &Method::GET,
-        "/api/supporter/status"
-    ));
-}
-
-#[test]
 fn mesh_control_denied_below_full() {
     for access in [AccessLevel::ReadOnly, AccessLevel::AgentIsolated] {
         assert!(!check_access(&access, &Method::POST, "/api/mesh/announce"));

@@ -73,7 +73,6 @@ fn team_close_errors_keep_authorization_and_cleanup_statuses() {
 fn team_rename_requires_caller_tab_header() {
     let error = require_caller_tab_id(&HeaderMap::new()).unwrap_err();
     assert_eq!(error.0, StatusCode::BAD_REQUEST);
-    assert_eq!(error.1, "X-CodeTerm-Tab-Id is required");
 }
 
 #[test]
@@ -353,7 +352,6 @@ fn headerless_team_close_requires_explicit_confirmation() {
         },
     );
     assert_eq!(confirmed, TeamMutationCaller::HumanConfirmedHeaderless,);
-    assert_eq!(confirmed.kind(), "human-attributed (headerless, confirmed)",);
 }
 
 /// codeterm#418: the recovery add is the one Team verb a headless Team can

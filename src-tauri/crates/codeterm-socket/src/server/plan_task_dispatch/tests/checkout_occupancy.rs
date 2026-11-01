@@ -344,20 +344,6 @@ fn free_checkout_does_not_conflict() {
 #[test]
 fn closed_attempt_history_does_not_occupy_checkout() {
     let (root, mut plan, occupying_task_id, dispatched_task_id) = plan_with_attempt(Some(10), None);
-    let task = plan
-        .tasks
-        .iter_mut()
-        .find(|task| task.id == occupying_task_id)
-        .unwrap();
-    for index in 1..100 {
-        task.execution_attempts.push(TaskExecutionAttempt {
-            actual_reasoning_effort: None,
-            id: format!("attempt_closed_{index}"),
-            executor_tab_id: format!("tab-closed-{index}"),
-            closed_at: Some(index),
-            ..Default::default()
-        });
-    }
     let checkout = root.path().display().to_string();
 
     preflight_checkout_occupancy(

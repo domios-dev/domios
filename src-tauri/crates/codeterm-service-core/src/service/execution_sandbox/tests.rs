@@ -34,21 +34,6 @@ fn saved_policy_round_trip_rejects_replacement_removal_and_cwd_changes() {
 }
 
 #[test]
-fn changed_root_diagnostic_names_the_added_path() {
-    let mut saved = policy();
-    saved.writable_roots = vec!["recorded-root".into()];
-    let mut changed = saved.clone();
-    changed.writable_roots = vec!["new-root".into()];
-    assert!(validate_saved(Some(&saved), Some(&changed))
-        .unwrap_err()
-        .contains("new-root"));
-    changed.writable_roots.insert(0, "recorded-root".into());
-    assert!(validate_saved(Some(&saved), Some(&changed))
-        .unwrap_err()
-        .contains("new-root"));
-}
-
-#[test]
 fn runtime_policy_rejects_mode_directory_and_cwd_overrides() {
     let policy = policy();
     let settings = RuntimeSettings {

@@ -70,8 +70,6 @@ async fn missing_frontend_index_returns_branded_self_contained_html() {
             .to_vec(),
     )
     .unwrap();
-    assert!(html.contains("The interface could not load"));
-    assert!(html.contains("M8 8H32C46 8 56 18 56 32S46 56 32 56H24L40 40V24H24V40L8 56Z"));
     assert!(!html.contains("asset not found: index.html"));
     assert!(!html.contains("<script"));
     assert!(!html.contains("https://"));

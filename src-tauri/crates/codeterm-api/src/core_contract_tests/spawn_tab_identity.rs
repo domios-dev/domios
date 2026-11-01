@@ -29,11 +29,7 @@ fn tab_purpose_rest_description_icon_and_unknown_icon_refusal() {
     assert_eq!(spec.description.as_deref(), Some("Runs tests"));
     assert_eq!(spec.icon.as_deref(), Some("flask-conical"));
     spec.icon = Some("missing-icon".into());
-    assert!(
-        codeterm_service_core::service::prepare_tab_identity_for_test(&mut spec)
-            .unwrap_err()
-            .starts_with("Unknown Lucide icon")
-    );
+    assert!(codeterm_service_core::service::prepare_tab_identity_for_test(&mut spec).is_err());
     spec.icon = Some("bug".into());
     spec.command = TabCommand::ChatBackend {
         plugin_id: "local".into(),

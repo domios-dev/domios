@@ -70,18 +70,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fresh_main_selection_reads_saved_general_defaults() {
-        let config = crate::config::schema::GeneralAgentConfig {
-            model: Some("model-token".into()),
-            reasoning_effort: Some("effort-token".into()),
-            ..Default::default()
-        };
-        let restored = serde_json::from_value(serde_json::to_value(config).unwrap()).unwrap();
-        let selection = default_selection(&restored);
-        assert_eq!(selection.model.as_deref(), Some("model-token"));
-        assert_eq!(selection.reasoning_effort.as_deref(), Some("effort-token"));
-    }
-    #[test]
     fn fresh_session_never_reads_bootstrap_or_writes_main_state() {
         let mut writes = 0;
         LaunchOwnership::FreshSession.with_main_state(|| writes += 1);

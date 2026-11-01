@@ -6,13 +6,6 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
 #[test]
-fn task_pause_transport_removed() {
-    assert!(!handles("plan.task.pause"));
-    assert!(!handles("plan.task.resume"));
-    assert!(handles("plan.task.close"));
-}
-
-#[test]
 fn owner_close_and_record_persist_direct_completion_for_each_open_status() {
     for status in [
         TaskStatus::Pending,

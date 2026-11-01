@@ -1,13 +1,8 @@
 use super::*;
 
 #[test]
-fn explicit_host_false_cannot_be_broadened_by_an_available_authorization() {
-    assert!(!permission_request(Some(false), true));
-    assert!(!permission_request(Some(false), false));
-}
-
-#[test]
 fn permission_bypass_requires_authorization_and_defaults_only_when_unspecified() {
+    assert!(!permission_request(Some(false), true));
     assert!(permission_request(Some(true), true));
     assert!(!permission_request(Some(true), false));
     assert!(permission_request(None, true));
@@ -89,10 +84,10 @@ fn service_tier_defaults_follow_capability_and_preserve_explicit_tab_choices() {
             config["serviceTier"],
             serde_json::json!(tier_selection(value))
         );
-        let mut unsupported = serde_json::json!({});
-        apply_service_tier_default(&mut unsupported, false, Some(tier_selection(value)));
-        assert_eq!(unsupported, serde_json::json!({}));
     }
+    let mut unsupported = serde_json::json!({});
+    apply_service_tier_default(&mut unsupported, false, Some(tier_selection(true)));
+    assert_eq!(unsupported, serde_json::json!({}));
 }
 
 fn tier_selection(fast: bool) -> codeterm_plugin::agent_runtime::RuntimeServiceTierSelection {

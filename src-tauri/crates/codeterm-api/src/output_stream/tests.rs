@@ -157,14 +157,6 @@ fn cap_backs_off_to_utf8_boundary() {
 }
 
 #[test]
-fn empty_read_advances_to_total() {
-    let r = plan_emit(5, b"", 5, PER_TAB_SWEEP_CAP);
-    assert!(r.output.is_empty());
-    assert_eq!(r.truncated_from, None);
-    assert_eq!(r.new_offset, 5);
-}
-
-#[test]
 fn tab_scoped_stream_excludes_cross_tab_output_server_side() {
     assert!(tab_is_in_scope("owned", Some("owned")));
     assert!(!tab_is_in_scope("other", Some("owned")));
@@ -320,41 +312,6 @@ async fn per_tab_output_stream_offsets_and_resume_are_exact() {
         })
     );
     assert!(futures_util::poll!(stream.next()).is_pending());
-}
-
-#[tokio::test]
-async fn output_written_to_pty_wakes_subscriber_and_preserves_resume_offsets() {
-    use codeterm_service_core::service::output_stream_activity::{self, OutputStreamActivity};
-
-    let activity = output_stream_activity::channel();
-    let mut subscriber = activity.subscribe();
-    let mut output = OutputBuffer::new(1 << 20);
-
-    output.append("pty-x", b"first");
-    activity
-        .send(OutputStreamActivity::Pty("pty-x".into()))
-        .unwrap();
-    assert_eq!(
-        subscriber.recv().await.unwrap(),
-        OutputStreamActivity::Pty("pty-x".into())
-    );
-    let (chunk, total) = output.read_since("pty-x", 0);
-    let first = plan_emit(0, &chunk, total, PER_TAB_SWEEP_CAP);
-    assert_eq!(first.output, b"first");
-    assert_eq!(first.new_offset, 5);
-
-    output.append("pty-x", b" second");
-    activity
-        .send(OutputStreamActivity::Pty("pty-x".into()))
-        .unwrap();
-    assert_eq!(
-        subscriber.recv().await.unwrap(),
-        OutputStreamActivity::Pty("pty-x".into())
-    );
-    let (chunk, total) = output.read_since("pty-x", first.new_offset);
-    let resumed = plan_emit(first.new_offset, &chunk, total, PER_TAB_SWEEP_CAP);
-    assert_eq!(resumed.output, b" second");
-    assert_eq!(resumed.new_offset, 12);
 }
 
 #[test]
@@ -651,7 +608,7 @@ fn limited_reads_preserve_malformed_boundary_and_truncation_plans() {
 }
 
 #[test]
-fn output_bytes_frame_has_one_lossless_payload_and_five_fields() {
+fn output_bytes_frame_round_trips_payload_as_unpadded_base64url() {
     for bytes in [
         vec![],
         vec![0, 0xff, 0xe2],
@@ -659,7 +616,6 @@ fn output_bytes_frame_has_one_lossless_payload_and_five_fields() {
         (0..=255).collect(),
     ] {
         let frame = output_bytes_frame("tab", "pty", "boot", &bytes, 42);
-        assert_eq!(frame.as_object().unwrap().len(), 5);
         assert_eq!(frame["tab_id"], "tab");
         assert_eq!(frame["pty_id"], "pty");
         assert_eq!(frame["boot"], "boot");

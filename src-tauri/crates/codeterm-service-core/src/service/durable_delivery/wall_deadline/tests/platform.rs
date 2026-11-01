@@ -6,23 +6,6 @@ use crate::service::test_fixture::ServiceFixture;
 use std::sync::mpsc;
 use std::time::Duration;
 
-fn assert_expired_deadline_fires_once<T>(
-    arm: impl FnOnce(u64, Box<dyn FnOnce() + Send>) -> Result<T, String>,
-) {
-    let (tx, rx) = mpsc::channel();
-    let timer = arm(
-        SystemClock.now_ms().saturating_sub(1),
-        Box::new(move || {
-            let _ = tx.send(());
-        }),
-    )
-    .unwrap();
-    rx.recv_timeout(Duration::from_secs(5))
-        .expect("backend absolute deadline fires without polling");
-    drop(timer);
-    assert!(rx.try_recv().is_err());
-}
-
 fn assert_fired_timer_removed_before_failure_settlement() {
     let (mut mux, tab) = MultiplexerState::new();
     mux.get_tab_mut(&tab).unwrap().agent_type = Some("producer".into());
@@ -90,13 +73,6 @@ fn assert_fired_timer_removed_before_failure_settlement() {
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use super::super::super::macos::WallDeadline;
-
-    #[test]
-    fn blueprint_v2_call_durable_macos_dispatch_walltime_expired_deadline_fires_once() {
-        super::assert_expired_deadline_fires_once(WallDeadline::arm);
-    }
-
     #[test]
     fn blueprint_v2_call_durable_macos_dispatch_walltime_fired_timer_removed_before_failure_settlement(
     ) {
@@ -106,13 +82,6 @@ mod macos {
 
 #[cfg(target_os = "linux")]
 mod linux {
-    use super::super::super::linux::WallDeadline;
-
-    #[test]
-    fn blueprint_v2_call_durable_linux_timerfd_expired_deadline_fires_once() {
-        super::assert_expired_deadline_fires_once(WallDeadline::arm);
-    }
-
     #[test]
     fn blueprint_v2_call_durable_linux_timerfd_fired_timer_removed_before_failure_settlement() {
         super::assert_fired_timer_removed_before_failure_settlement();

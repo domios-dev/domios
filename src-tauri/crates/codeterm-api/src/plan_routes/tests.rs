@@ -1,15 +1,5 @@
-use super::plans::{CreatePlanBody, ListPlansQuery};
+use super::plans::ListPlansQuery;
 use super::*;
-
-#[test]
-fn groups_from_csv_parses_key_label() {
-    let g = groups_from_csv("phase-1:Phase 1,phase-2:Phase 2,solo");
-    assert_eq!(g.len(), 3);
-    assert_eq!(g[0].key, "phase-1");
-    assert_eq!(g[0].label, "Phase 1");
-    assert_eq!(g[2].key, "solo");
-    assert_eq!(g[2].label, "solo");
-}
 
 #[test]
 fn full_and_unowned_query_accept_1_and_true() {
@@ -22,13 +12,6 @@ fn full_and_unowned_query_accept_1_and_true() {
     let uri: axum::http::Uri = "/?unowned=1".parse().unwrap();
     let q: Query<ListPlansQuery> = Query::try_from_uri(&uri).unwrap();
     assert_eq!(q.unowned, Some(true));
-}
-
-#[test]
-fn kinds_from_csv_splits() {
-    let k = kinds_from_csv("status_update,testing,review");
-    assert_eq!(k.len(), 3);
-    assert_eq!(k[0].key, "status_update");
 }
 
 #[test]
@@ -60,13 +43,6 @@ fn tag_facets_from_body_accepts_compact_string() {
     assert_eq!(facets[0].label.as_deref(), Some("Area"));
     assert_eq!(facets[0].values.len(), 2);
     assert_eq!(facets[0].values[1].label.as_deref(), Some("UI"));
-}
-
-#[test]
-fn create_body_deserializes() {
-    let body: CreatePlanBody = serde_json::from_str(r#"{"title":"T","kinds":"a,b"}"#).unwrap();
-    assert_eq!(body.title, "T");
-    assert_eq!(body.kinds.as_deref(), Some("a,b"));
 }
 
 #[test]

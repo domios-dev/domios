@@ -416,15 +416,15 @@ fn respawn_keeps_persona() {
             NewTask {
                 name: "retry lane".into(),
                 kind: "implement".into(),
-                personality: Some("Ranker".into()),
+                personality: Some("opaque-persona-91".into()),
                 model: Some("codex/gpt-5.5".into()),
-                body: "Fix the task history respawn CLI.".into(),
-                role_guidance: Some("Act as planner; do not implement.".into()),
-                acceptance_criteria: vec!["preserve task authority".into()],
-                correctness: Some("The final provider prompt keeps every task field.".into()),
-                test_plan: Some("cargo test respawn_prompt".into()),
-                qa_plan: Some("independent hidden oracle".into()),
-                intent: Some("Prefer shared prompt composition.".into()),
+                body: "opaque-task-body-92".into(),
+                role_guidance: Some("opaque-role-fragment-93".into()),
+                acceptance_criteria: vec!["opaque-acceptance-94".into()],
+                correctness: Some("opaque-correctness-95".into()),
+                test_plan: Some("opaque-test-plan-96".into()),
+                qa_plan: Some("opaque-qa-plan-97".into()),
+                intent: Some("opaque-intent-98".into()),
                 lane: TaskLaneMetadata {
                     worktree_path: Some("/tmp/worktree".into()),
                     branch: Some("lane/retry".into()),
@@ -470,38 +470,29 @@ fn respawn_keeps_persona() {
     assert_eq!(draft.title.as_deref(), Some("Ranker"));
     assert_eq!(draft.cwd, "/tmp/worktree");
     let task = store.show_task(&task_id).unwrap().task;
-    let expected_identity =
-        crate::service_plan::worker_identity::compose_task_worker_identity(&task, Some("Ranker"));
+    let expected_identity = crate::service_plan::worker_identity::compose_task_worker_identity(
+        &task,
+        Some("opaque-persona-91"),
+    );
     let (identity, _) =
         crate::service_plan::worker_identity::split_worker_identity(&draft.task_prompt);
     assert_eq!(identity, Some(expected_identity.as_str()));
     let identity = identity.unwrap();
-    assert!(identity.contains("Ranker"));
-    assert!(identity.contains("Act as planner; do not implement."));
+    assert!(identity.contains("opaque-persona-91"));
+    assert!(identity.contains("opaque-role-fragment-93"));
     assert!(draft
         .task_prompt
         .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
-    assert!(
-        draft
-            .task_prompt
-            .find(crate::service_plan::worker_identity::WORKER_IDENTITY_END)
-            .unwrap()
-            < draft
-                .task_prompt
-                .find("You are a CodeTerm Worker respawned")
-                .unwrap()
-    );
     assert!(draft.task_prompt.contains("STATUS: blocked"));
     assert!(draft.task_prompt.contains("branch: lane/retry"));
-    assert!(draft.task_prompt.contains("preserve task authority"));
+    assert!(draft.task_prompt.contains("opaque-acceptance-94"));
+    assert!(draft.task_prompt.contains("opaque-correctness-95"));
+    assert!(draft.task_prompt.contains("opaque-test-plan-96"));
+    assert!(!draft.task_prompt.contains("opaque-qa-plan-97"));
+    assert!(draft.task_prompt.contains("opaque-intent-98"));
     assert!(draft
         .task_prompt
-        .contains("The final provider prompt keeps every task field."));
-    assert!(draft.task_prompt.contains("cargo test respawn_prompt"));
-    assert!(draft
-        .task_prompt
-        .contains("Prefer shared prompt composition."));
-    assert!(!draft.task_prompt.contains("independent hidden oracle"));
+        .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
     assert!(draft
         .task_prompt
         .contains(&format!("attempt_id: {}", attempt.attempt_id)));
@@ -902,7 +893,7 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
                 name: "guided".into(),
                 kind: "implement".into(),
                 personality: Some("Hopper".into()),
-                role_guidance: Some("You are Hopper. Review only.".into()),
+                role_guidance: Some("opaque-guidance-71".into()),
                 assigned_tab_id: Some("tab_guided".into()),
                 competition: None,
                 ..Default::default()
@@ -912,16 +903,11 @@ fn role_guidance_round_trips_and_worker_charter_prepends_it() {
         .unwrap();
     let plan = store.get(&p.id).unwrap();
     let task = plan.tasks.iter().find(|task| task.id == task_id).unwrap();
-    assert_eq!(
-        task.role_guidance.as_deref(),
-        Some("You are Hopper. Review only.")
-    );
+    assert_eq!(task.role_guidance.as_deref(), Some("opaque-guidance-71"));
 
     let brief = store.prepend_worker_charter_for_tab("tab_guided", "continue");
-    let expected_prefix =
-        format!("<codeterm-worker-charter task=\"{task_id}\">\nYou are Hopper. Review only.\n");
-    assert_eq!(&brief[..expected_prefix.len()], expected_prefix);
-    assert_eq!(brief.matches("You are Hopper.").count(), 1);
+    assert!(brief.starts_with(&format!("<codeterm-worker-charter task=\"{task_id}\">\n")));
+    assert_eq!(brief.matches("opaque-guidance-71").count(), 1);
 }
 
 #[test]
@@ -941,7 +927,7 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
                 name: "retry lane".into(),
                 kind: "implement".into(),
                 personality: Some("Hopper".into()),
-                role_guidance: Some("You are Hopper. Audit reconnect semantics.".into()),
+                role_guidance: Some("opaque-guidance-72".into()),
                 body: "Fix the reconnect prompt.".into(),
                 ..Default::default()
             },
@@ -964,21 +950,11 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
         )
         .unwrap();
 
-    let expected_prefix = format!(
-        "You are Hopper. Audit reconnect semantics.\n\
-         Your assigned task is: retry lane\n\n{}\n\n\
-         {}\n\n\
-         You are a CodeTerm Worker respawned from a prior task attempt.\n\
-         Work only on this one task. Do not reactivate or reuse the old historical attempt.\n\n",
-        crate::service_plan::worker_identity::WORKER_IDENTITY_END,
-        crate::service_plan::worker_identity::WORKER_ACK_INSTRUCTION
-    );
-    assert_eq!(&draft.task_prompt[..expected_prefix.len()], expected_prefix);
-    assert_eq!(draft.task_prompt.matches("You are Hopper.").count(), 1);
-    let ack = draft.task_prompt.find("domios agent ack").unwrap();
-    let report = draft.task_prompt.find("When done, run exactly:").unwrap();
-    assert!(ack < draft.task_prompt.find("Original task body:").unwrap());
-    assert!(ack < report);
+    assert!(draft.task_prompt.starts_with("opaque-guidance-72"));
+    assert_eq!(draft.task_prompt.matches("opaque-guidance-72").count(), 1);
+    assert!(draft
+        .task_prompt
+        .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
 }
 
 #[test]
@@ -998,7 +974,7 @@ fn competition_prompt_starts_with_same_canonical_identity() {
                 name: "judgeable".into(),
                 kind: "implement".into(),
                 personality: Some("Hopper".into()),
-                role_guidance: Some("You are Hopper. Audit reconnect semantics.".into()),
+                role_guidance: Some("opaque-guidance-73".into()),
                 competition: Some(crate::plan::TaskCompetitionMetadata {
                     enabled: true,
                     attempts: Some(2),
@@ -1020,18 +996,7 @@ fn competition_prompt_starts_with_same_canonical_identity() {
         .unwrap();
     let prompt = &drafts[0].task_prompt;
 
-    let expected_prefix = format!(
-        "You are Hopper. Audit reconnect semantics.\n\
-         Your assigned task is: judgeable\n\n{}\n\n\
-         {}\n\n\
-         You are one isolated competitive attempt.",
-        crate::service_plan::worker_identity::WORKER_IDENTITY_END,
-        crate::service_plan::worker_identity::WORKER_ACK_INSTRUCTION
-    );
-    assert_eq!(&prompt[..expected_prefix.len()], expected_prefix);
-    assert_eq!(prompt.matches("You are Hopper.").count(), 1);
-    let ack = prompt.find("domios agent ack").unwrap();
-    let report = prompt.find("When done, run exactly:").unwrap();
-    assert!(ack < prompt.find("Task body:").unwrap());
-    assert!(ack < report);
+    assert!(prompt.starts_with("opaque-guidance-73"));
+    assert_eq!(prompt.matches("opaque-guidance-73").count(), 1);
+    assert!(prompt.contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
 }

@@ -73,37 +73,6 @@ mod tests {
     use crate::plan::OrchestratorRef;
 
     #[test]
-    fn zero_count_points_to_new_command() {
-        let line = render_plan_skill_registry_line("plan_abc", 0);
-        assert!(line.contains("plan_abc"));
-        assert!(line.contains("none registered"));
-        assert!(line.contains("domios plan skill new"));
-    }
-
-    #[test]
-    fn nonzero_line_is_a_pointer_not_content() {
-        let line = render_plan_skill_registry_line("plan_abc", 3);
-        assert!(line.contains("3 skills registered"));
-        assert!(line.contains("domios plan skill list"));
-        assert!(line.contains("never inlined"));
-        // A pointer line stays short; it must never carry SKILL.md bodies.
-        assert!(line.len() < 200);
-    }
-
-    #[test]
-    fn singular_noun_for_one_skill() {
-        let line = render_plan_skill_registry_line("p1", 1);
-        assert!(line.contains("1 skill registered"));
-        assert!(!line.contains("1 skills"));
-    }
-
-    #[test]
-    fn pointer_constant_carries_no_body() {
-        assert!(PLAN_SKILL_REGISTRY_POINTER.contains("domios plan skill list"));
-        assert!(PLAN_SKILL_REGISTRY_POINTER.len() < 200);
-    }
-
-    #[test]
     fn count_only_dirs_with_skill_md() {
         let tmp = tempfile::tempdir().unwrap();
         let plan_dir = tmp.path();

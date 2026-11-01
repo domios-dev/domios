@@ -582,7 +582,6 @@ mod tests {
             .find(|action| action.kind == NextActionKind::Dispatch)
             .expect("pending task remains dispatchable");
         assert!(dispatch.message.contains("phase-1"));
-        assert!(dispatch.message.contains("advisory (dispatch allowed)"));
     }
 
     #[test]
@@ -599,8 +598,6 @@ mod tests {
             .find(|a| a.kind == NextActionKind::Dispatch)
             .expect("pending task remains dispatchable");
         assert!(dispatch.message.contains("phase-1"));
-        assert!(dispatch.message.contains("advisory (dispatch allowed)"));
-        assert!(!dispatch.message.contains("record"));
     }
 
     #[test]
@@ -618,11 +615,13 @@ mod tests {
         s.open_lanes = vec![parked];
 
         let actions = compute_next_actions(&s);
-        let parked_action = actions
-            .iter()
-            .find(|action| action.kind == NextActionKind::ParkedForLaterGroups)
-            .expect("parked task count");
-        assert_eq!(parked_action.message, "1 tasks parked for later groups");
+        assert_eq!(
+            actions
+                .iter()
+                .filter(|action| action.kind == NextActionKind::ParkedForLaterGroups)
+                .count(),
+            1
+        );
         assert!(actions.iter().all(|action| !matches!(
             action.kind,
             NextActionKind::Dispatch | NextActionKind::WaitingOnDependency

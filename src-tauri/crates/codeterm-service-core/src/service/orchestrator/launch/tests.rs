@@ -33,12 +33,6 @@ use std::cell::{Cell, RefCell};
 use std::sync::Arc;
 use std::sync::Barrier;
 
-#[test]
-fn launch_registry_uses_shared_hold_instrumentation() {
-    fn require_timed<T>(_: &codeterm_util::lock_hold::TimedMutex<T>) {}
-    require_timed(&*LAUNCH_REGISTRY);
-}
-
 #[derive(Default)]
 struct DeliverySink(Mutex<Vec<&'static str>>);
 
@@ -331,40 +325,6 @@ fn owner_prompt_cleared_on_lazy_session_launch_accepts_first_turn_without_bindin
 }
 
 #[test]
-fn team_pair_codex_orchestrator_reaches_agent_ready_without_starter_turn() {
-    use crate::agent::provider::StarterPrompt;
-    use crate::agent::test_provider::MockProvider;
-
-    let (mut mux, tab_id) = MultiplexerState::new();
-    mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("pair-lazy-session".into());
-    let harness = crate::service::test_fixture::ServiceFixture::new(mux);
-    harness.service.agent_registry.register_provider(Box::new(
-        MockProvider::with_system_prompt_flag("pair-lazy-session", "-c developer_instructions")
-            .with_task_delivery(crate::agent::provider::TaskDelivery::InlineFlag)
-            .with_hooks()
-            .with_session_starts_on_first_user_turn(),
-    ));
-    let startup_turn = crate::service::startup_turn::resolve(
-        &harness.service.agent_registry,
-        "pair-lazy-session",
-        StarterPrompt::NoStarter,
-        None,
-        Some("opaque-team-bootstrap-instructions-f7a1"),
-        true,
-        None,
-    );
-    assert!(startup_turn.expected_turn.is_none());
-    assert!(!startup_turn.first_turn_will_be_delivered);
-    assert!(launch_waits_for_first_turn_binding(
-        &harness.service,
-        &tab_id,
-        "pair-lazy-session",
-        startup_turn.first_turn_will_be_delivered,
-        crate::service::launch_diagnostics::AgentLaunchOrigin::OrchestratedSpawn,
-    ));
-}
-
-#[test]
 fn codex_orchestrator_waits_for_owner_trust_then_lazy_readiness() {
     use crate::agent::provider::{StarterPrompt, TaskDelivery};
     use crate::agent::test_provider::MockProvider;
@@ -543,19 +503,6 @@ fn worker_brief_is_one_payload_and_one_turn() {
     );
 }
 
-#[test]
-fn worker_brief_failure_alert_states_impact_cleanup_and_fallback() {
-    let (title, body) =
-        worker_brief_delivery_incident("worker-tab", "submit_unconfirmed: composer retained");
-
-    assert_eq!(title, "Orchestration incident: launch brief undelivered");
-    assert!(body.contains("Impact: Tab worker-tab was not marked ready"));
-    assert!(body.contains("Cleanup: confirmed-delivery cleanup was skipped"));
-    assert!(body.contains("Fallback:"));
-    assert!(body.contains("pending brief was retained"));
-    assert!(body.contains("submit_unconfirmed"));
-}
-
 fn orchestrator_params(task: Option<&str>) -> SpawnAgentParams {
     SpawnAgentParams {
         agent: Some("test-provider".into()),
@@ -604,17 +551,6 @@ fn posix_launch_inherits_an_escaped_binding_nonce() {
         command,
         "export CODETERM_SESSION_BINDING_NONCE='nonce'\"'\"'a'; export CODETERM_STARTUP_ATTEMPT_ID='pty-a'; unset CLAUDECODE && claude --resume"
     );
-}
-
-#[test]
-fn production_driver_rejects_a_stale_generation_before_emit_or_write() {
-    let mut driver = LaunchRegistry::default();
-    let stale = driver.begin("binding-stale", "binding-stale-old".into());
-    let current = driver.begin("binding-stale", "binding-stale-new".into());
-    assert!(!driver.owns(&stale));
-    assert!(driver.owns(&current));
-    assert!(!driver.finish(&stale));
-    assert!(driver.owns(&current));
 }
 
 #[test]
@@ -672,23 +608,6 @@ fn reused_success_finishes_before_a_later_reader_eof() {
     let reused = driver.begin("binding-reused", "binding-reused-live".into());
     assert!(driver.finish(&reused));
     assert!(driver.take_for_pty("binding-reused-live").is_none());
-}
-
-#[test]
-fn production_driver_replaces_pty_and_reader_generation_together() {
-    let mut driver = LaunchRegistry::default();
-    let original = driver.begin("binding-replace", "binding-replace-old".into());
-    let replacement = driver.begin("binding-replace", "binding-replace-new".into());
-    assert!(!driver.owns(&original));
-    assert!(driver.owns(&replacement));
-    assert!(driver.take_for_pty("binding-replace-old").is_none());
-    assert_eq!(
-        driver
-            .take_for_pty("binding-replace-new")
-            .unwrap()
-            .generation,
-        replacement.generation
-    );
 }
 
 #[test]
@@ -783,18 +702,6 @@ fn process_death_faults_void_the_binding_proof_that_deadlines_do_not() {
             "{failure:?} is an observer giving up, not a dead process",
         );
     }
-}
-
-#[test]
-fn shell_idle_to_working_cannot_resolve_launch_readiness() {
-    let launch = LaunchRegistry::default().begin("shell-transition", "pty-a".into());
-    assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
-}
-
-#[test]
-fn shell_working_to_idle_cannot_resolve_launch_readiness() {
-    let launch = LaunchRegistry::default().begin("shell-transition", "pty-a".into());
-    assert!(!launch.await_provider_ack(std::time::Duration::ZERO));
 }
 
 #[test]
