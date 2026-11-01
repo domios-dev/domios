@@ -1,4 +1,4 @@
-
+import { throws } from "node:assert/strict";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -12,6 +12,9 @@ import type { Plan } from "./types";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
+const frames = new Map<number, FrameRequestCallback>();
+let nextFrame = 0;
+let frameTime = 0;
 function test(name: string, fn: TestFn) {
   tests.push([name, fn]);
 }
@@ -52,8 +55,14 @@ function setupDom() {
   });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "Event", { value: window.Event, configurable: true });
-  (globalThis as unknown as { requestAnimationFrame: (cb: FrameRequestCallback) => number }).requestAnimationFrame =
-    (cb: FrameRequestCallback) => setTimeout(() => cb(Date.now()), 0) as unknown as number;
+  for (const target of [globalThis, window]) {
+    Object.defineProperty(target, "requestAnimationFrame", { configurable: true, value: (callback: FrameRequestCallback) => {
+      const id = ++nextFrame;
+      frames.set(id, callback);
+      return id;
+    } });
+    Object.defineProperty(target, "cancelAnimationFrame", { configurable: true, value: (id: number) => frames.delete(id) });
+  }
   __setListenForTest(async () => () => {});
 }
 
@@ -81,10 +90,17 @@ function readback(): RenderReadbackNode[] {
 function nodeOf(kind: string, id?: string): RenderReadbackNode | undefined {
   return readback().find((n) => n.kind === kind && (id ? n.id === id : true));
 }
-async function settle() {
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 10));
-  });
+async function paintFrames() {
+  for (let batch = 0; frames.size && batch < 32; batch++) {
+    await act(async () => {
+      frameTime += 1000 / 60;
+      for (const [id, callback] of [...frames]) {
+        if (!frames.delete(id)) continue;
+        callback(frameTime);
+      }
+    });
+  }
+  assert(frames.size === 0, "canvas frame work completes within 32 controlled frames");
 }
 function dblclickAt(host: HTMLElement, x: number, y: number) {
   const canvas = host.querySelector('[data-testid="canvas-world-canvas"]') as HTMLElement;
@@ -98,7 +114,7 @@ const FIXTURE_PLAN_WITH_SPEC: Plan = {
 
 test("canvas renders SEPARATE spec + plan + task nodes with their card content", async () => {
   const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN_WITH_SPEC]} />);
-  await settle();
+  await paintFrames();
   assert(host.querySelector('[data-testid="canvas-view"]'), "canvas shell");
   assert(host.querySelector('[data-testid="canvas-world-canvas"]'), "world <canvas> mounted");
 
@@ -118,13 +134,13 @@ test("canvas renders SEPARATE spec + plan + task nodes with their card content",
 
 test("double-click focuses a node — no breadcrumb UI", async () => {
   const { host, root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[FIXTURE_PLAN]} />);
-  await settle();
+  await paintFrames();
   const box = window.__codetermCanvasScene?.get("workspace:workspace")?.nodeScreenBox(FIXTURE_TASK.id);
   assert(box, "scene readback exposes the task screen box");
   await act(async () => {
     dblclickAt(host, box!.x + box!.width / 2, box!.y + box!.height / 2);
   });
-  await settle();
+  await paintFrames();
   // breadcrumb bar is GONE for good — focusing/Esc-return work without that top UI.
   assert(host.querySelector('[data-testid="canvas-world-canvas"]'), "world canvas still mounted after focus");
   assert(window.__codetermCanvasScene?.get("workspace:workspace")?.nodeScreenBox(FIXTURE_TASK.id), "scene still resolves the focused node");
@@ -143,7 +159,7 @@ test("canvas shows empty state without plans", async () => {
 test("canvas scopes workspace plans by project_path", async () => {
   const planA = { ...FIXTURE_PLAN, id: "plan-a", project_path: "/repo/a", title: "Plan A" };
   const { root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[planA]} projectPath="/repo/a" />);
-  await settle();
+  await paintFrames();
   const titles = readback().filter((n) => n.kind === "plan").map((n) => n.title);
   assert(titles.includes("Plan A"), "plan A rendered");
   assert(!titles.includes("Plan B"), "plan B not rendered when scoped to A");
@@ -151,7 +167,7 @@ test("canvas scopes workspace plans by project_path", async () => {
 
   const planB = { ...FIXTURE_PLAN, id: "plan-b", project_path: "/repo/b", title: "Plan B", tasks: [], sections: [] };
   const { root: root2 } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={[planB]} projectPath="/repo/b" />);
-  await settle();
+  await paintFrames();
   assert(readback().some((n) => n.kind === "plan" && n.title === "Plan B"), "plan B rendered for its project");
   await act(async () => root2.unmount());
 });
@@ -159,7 +175,7 @@ test("canvas scopes workspace plans by project_path", async () => {
 test("canvas reflects in-place task-data growth (more nodes drawn)", async () => {
   const plans: Plan[] = [{ ...FIXTURE_PLAN, tasks: [{ ...FIXTURE_TASK, body: "small" }] }];
   const { root, rerender } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={plans} />);
-  await settle();
+  await paintFrames();
   const before = readback().filter((n) => n.kind === "task").length;
 
   plans[0] = {
@@ -172,7 +188,7 @@ test("canvas reflects in-place task-data growth (more nodes drawn)", async () =>
     ],
   };
   await rerender(<CanvasViewInner {...CANVAS_PROPS} plans={plans} />);
-  await settle();
+  await paintFrames();
   const after = readback().filter((n) => n.kind === "task").length;
   assert(after > before, `task node count grows (${before} -> ${after})`);
   assert(readback().some((n) => n.id === "task-extra-1"), "new task node drawn");
@@ -182,11 +198,16 @@ test("canvas reflects in-place task-data growth (more nodes drawn)", async () =>
 test("canvas spec node reflects spec sections loaded from the API", async () => {
   const plans: Plan[] = [{ ...FIXTURE_PLAN, primary_spec_id: "spec-entity-1", sections: [FIXTURE_SECTION] }];
   const originalFetch = globalThis.fetch;
+  let releaseSpec!: () => void;
+  const specResponse = new Promise<void>((resolve) => { releaseSpec = resolve; });
+  let specRequested = false;
   Object.defineProperty(globalThis, "fetch", {
     configurable: true,
     value: async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/api/specs/spec-entity-1")) {
+        specRequested = true;
+        await specResponse;
         return new Response(
           JSON.stringify({
             spec: { sections: [FIXTURE_SECTION, { ...FIXTURE_SECTION, id: "sec-extra", title: "Extra section", subsections: [] }] },
@@ -194,18 +215,25 @@ test("canvas spec node reflects spec sections loaded from the API", async () => 
           { status: 200 },
         );
       }
-      return originalFetch(input);
+      assert(url.includes("/reconcile"), `unexpected API request: ${url}`);
+      return new Response(JSON.stringify({ drift: [] }), { status: 200 });
     },
   });
   const api = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: true };
   const { root } = await render(<CanvasViewInner {...CANVAS_PROPS} plans={plans} api={api} />);
-  await act(async () => {
-    await new Promise((r) => setTimeout(r, 30));
-  });
-  const spec = nodeOf("spec");
-  assert(spec?.sectionTitles.includes("Extra section"), "loaded spec sections appear in the spec card");
-  Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
-  await act(async () => root.unmount());
+  try {
+    await paintFrames();
+    assert(specRequested, "the canvas requests its own spec");
+    const assertLoadedSections = () => assert(nodeOf("spec")?.sectionTitles.includes("Extra section"), "loaded spec sections appear in the spec card");
+    throws(assertLoadedSections, /loaded spec sections appear in the spec card/);
+    await act(async () => { releaseSpec(); await specResponse; });
+    await paintFrames();
+    assertLoadedSections();
+    console.log("  sensitivity: loaded-section oracle RED before response, GREEN after response");
+  } finally {
+    Object.defineProperty(globalThis, "fetch", { configurable: true, value: originalFetch });
+    await act(async () => root.unmount());
+  }
 });
 
 const OTHER_WS_ID = "ws-other";
@@ -250,19 +278,23 @@ test("fixture plans that the shell did not receive contribute no owner binding",
 });
 
 async function main() {
+  console.log(`Timing: main entry=${performance.now().toFixed(3)}ms since process time origin`);
+  const bodyStarted = performance.now();
   setupDom();
   let passed = 0;
   for (const [name, fn] of tests) {
+    const started = performance.now();
     try {
       await fn();
       passed++;
-      console.log(`  ✓ ${name}`);
+      console.log(`  ✓ ${name} body=${(performance.now() - started).toFixed(3)}ms`);
     } catch (e) {
       console.error(`  ✗ ${name}`);
       console.error(`    ${e instanceof Error ? e.message : e}`);
       process.exit(1);
     }
   }
+  console.log(`Timing: all bodies=${(performance.now() - bodyStarted).toFixed(3)}ms`);
   console.log(`\n✓ ${passed}/${tests.length} CanvasView tests passed`);
 }
 
