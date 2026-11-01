@@ -52,6 +52,7 @@ impl codeterm_client_shell::application_host::NativeUpdateApply for super::Nativ
                     "message": "An update is already being applied.",
                 }))
             }
+            Err(NativeHostRejection::UpdateAdmission { reason }) => return Err(reason.error()),
             Err(reason) => {
                 return Err(format!(
                     "native updater refused before admission: {reason:?}"
@@ -206,10 +207,15 @@ impl NativeHostClient {
         request: NativeUpdateRequest,
         options: NativeUpdateApplyOptions,
     ) -> Result<NativeUpdateApplyResult, NativeHostRejection> {
-        if codeterm_update::native_handoff::validate_apply(&request, &self.ready, &self.manifest)
-            .is_err()
+        if let Err(reason) =
+            codeterm_update::native_handoff::validate_apply(&request, &self.ready, &self.manifest)
         {
-            return Err(NativeHostRejection::ProtocolMismatch);
+            return Err(match reason {
+                codeterm_types::native_update::NativeUpdateRefusal::ExpectedServerMismatch => NativeHostRejection::UpdateAdmission {
+                    reason: codeterm_types::native_update::apply::NativeUpdateAdmissionRefusal::StaleServerIncarnation,
+                },
+                _ => NativeHostRejection::ProtocolMismatch,
+            });
         }
         let operation = self.app.state::<Arc<UpdateOperation>>().inner().clone();
         if let Some(result) = operation.recorded_result(&request, &options)? {

@@ -244,6 +244,20 @@ async function main() {
     assert.equal(retiredNativeRevision, "native-E2");
     assert.equal(state().error, null);
     assert.equal(Boolean(panelState().error), false);
+    for (const [reason, message] of [
+      ["operation_conflict", "No installer was started. This operation ID was already used with different update options. Check for updates and start a new update."],
+      ["retired_operation", "No installer was started. This operation was already admitted, and its recorded result is no longer retained. Check for updates and start a new update."],
+      ["incarnation_limit", "No installer was started. This Domios server has reached its update admission limit. Restart Domios, then check for updates and update again."],
+      ["stale_server_incarnation", "No installer was started. This request belongs to a previous Domios server. Check for updates and start a new update."],
+    ]) {
+      let requests = 0;
+      const refusal = JSON.stringify({ kind: "native_update_admission_refused", reason, message });
+      nativeBridge.updater.install = async () => { requests++; throw refusal; };
+      await act(async () => { assert.equal(await state().applyUpdate({ failureSurface: "inline" }), null); });
+      assert.equal(panelState().error, message);
+      assert.equal(panelState().errorDetails, refusal);
+      assert.equal(requests, 1);
+    }
     await unmountFailure();
   } finally {
     nativeBridge.updater = undefined;

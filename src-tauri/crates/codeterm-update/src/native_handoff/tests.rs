@@ -439,3 +439,31 @@ fn relaunch_recovery_verifies_exact_target_supersedes_newer_pair_and_rejects_mis
         assert_eq!(record, recovered);
     }
 }
+
+#[test]
+fn incarnation_retirement_cannot_admit_a_known_request_bound_to_the_old_server() {
+    let mut previous = handoff();
+    previous.advance(NativeUpdateApplyPhase::NoUpdate).unwrap();
+    let old_request = previous.request.clone();
+    let (connection, ready) = replacement(&previous);
+    let mut current = handoff();
+    current.request.operation_id = NativeUpdateOperationId::new(Uuid::from_u128(100)).unwrap();
+    current.result.operation_id = current.request.operation_id;
+    current.request.expected_server.identity = ready.identity.clone();
+    current.request.expected_server.incarnation.epoch = ready.epoch.clone();
+    current.request.expected_server.incarnation.process = ready.process.clone();
+    current.request.expected_server.components.server_build = ready.build.clone();
+    current.request.staged_components.server_build = ready.build.clone();
+    current.result.connection = connection;
+    current.inherit_replay(&previous);
+    let stored = serde_json::to_value(&current).unwrap();
+    assert_eq!(stored["replay"]["used"].as_array().unwrap().len(), 1);
+    assert!(!current.replay.contains(old_request.operation_id));
+    let manifest = current.request.expected_server.components.clone();
+    assert_eq!(validate_apply(&current.request, &ready, &manifest), Ok(()));
+    let refused: Result<(), NativeUpdateRefusal> = validate_apply(&old_request, &ready, &manifest)
+        .map(|()| {
+            panic!("an old-incarnation request must not reach admission, a write, or execution")
+        });
+    assert_eq!(refused, Err(NativeUpdateRefusal::ExpectedServerMismatch));
+}

@@ -189,6 +189,9 @@ pub enum NativeHostRejection {
     InvalidView,
     Unsupported,
     ProtocolMismatch,
+    UpdateAdmission {
+        reason: crate::native_update::apply::NativeUpdateAdmissionRefusal,
+    },
     HostRejected,
 }
 

@@ -34,6 +34,13 @@ export interface UpdateFailure { message: string; details: string; channelUnavai
 export function classifyUpdateFailure(origin: UpdateFailureOrigin, detail: unknown): UpdateFailure | null {
   if (origin === "background") return null;
   const raw = detail instanceof Error ? detail.toString() : String(detail);
+  try {
+    const refusal: unknown = JSON.parse(raw.replace(/^Error: /, ""));
+    if (typeof refusal === "object" && refusal !== null && "kind" in refusal
+      && refusal.kind === "native_update_admission_refused" && "message" in refusal && typeof refusal.message === "string") {
+      return { message: refusal.message, details: raw, channelUnavailable: false };
+    }
+  } catch {}
   const channel = raw.indexOf(CHANNEL_UNAVAILABLE_PREFIX);
   if (channel >= 0) return { message: raw.slice(channel), details: raw, channelUnavailable: true };
   return {

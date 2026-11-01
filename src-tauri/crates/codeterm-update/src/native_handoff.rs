@@ -111,10 +111,10 @@ impl NativeUpdateHandoff {
                 sequence: 1,
                 phase: NativeUpdateApplyPhase::Admitted,
             },
+            replay: replay::ReplayLedger::new(request.operation_id),
             request,
             options,
             target_version: None,
-            replay: replay::ReplayLedger::default(),
             started_at_ms: now_ms(),
             updated_at_ms: now_ms(),
             owner_client: None,
@@ -129,34 +129,50 @@ impl NativeUpdateHandoff {
         options: &NativeUpdateApplyOptions,
     ) -> Result<Option<NativeUpdateApplyResult>, codeterm_types::native_host::NativeHostRejection>
     {
-        use codeterm_types::native_host::NativeHostRejection;
-        let previous = if self.request.operation_id == request.operation_id {
+        use codeterm_types::{
+            native_host::NativeHostRejection,
+            native_update::apply::NativeUpdateAdmissionRefusal as Refusal,
+        };
+        let same_incarnation = replay::same_incarnation(&self.request, request);
+        let previous = if same_incarnation && self.request.operation_id == request.operation_id {
             Some((&self.request, &self.options, &self.result))
         } else {
             self.replay
                 .recent
                 .iter()
-                .find(|prior| prior.request.operation_id == request.operation_id)
+                .find(|prior| {
+                    prior.request.operation_id == request.operation_id
+                        && replay::same_incarnation(&prior.request, request)
+                })
                 .map(|prior| (&prior.request, &prior.options, &prior.result))
         };
         if let Some((prior_request, prior_options, result)) = previous {
             return if prior_request == request && prior_options == options {
                 Ok(Some(result.clone()))
             } else {
-                Err(NativeHostRejection::ProtocolMismatch)
+                Err(NativeHostRejection::UpdateAdmission {
+                    reason: Refusal::OperationConflict,
+                })
             };
         }
-        if self.replay.contains(request.operation_id) {
-            return Err(NativeHostRejection::ProtocolMismatch);
+        if same_incarnation && self.replay.contains(request.operation_id) {
+            return Err(NativeHostRejection::UpdateAdmission {
+                reason: Refusal::RetiredOperation,
+            });
         }
         if self.blocks_new_attempt() {
             return Err(NativeHostRejection::QueueFull);
+        }
+        if same_incarnation && self.replay.at_capacity(self.request.operation_id) {
+            return Err(NativeHostRejection::UpdateAdmission {
+                reason: Refusal::IncarnationLimit,
+            });
         }
         Ok(None)
     }
 
     pub fn inherit_replay(&mut self, previous: &Self) {
-        self.replay = replay::ReplayLedger::after(previous, self.request.operation_id);
+        self.replay = replay::ReplayLedger::after(previous, &self.request);
     }
 
     pub fn blocks_new_attempt(&self) -> bool {

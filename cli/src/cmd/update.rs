@@ -197,6 +197,13 @@ fn install_with_withdrawal(
     }
 }
 
+fn update_failure_message(raw: &str) -> String {
+    codeterm_types::native_update::apply::NativeUpdateAdmissionRefusal::from_error(raw)
+        .map(|reason| reason.message())
+        .unwrap_or(raw)
+        .to_string()
+}
+
 fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
     let status_url = format!("{}/api/update/status", base_url);
     let started = Instant::now();
@@ -215,7 +222,7 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
                 connect_failures = 0;
                 let body: serde_json::Value = resp.json().unwrap_or_default();
                 let phase = body["phase"].as_str().unwrap_or("idle").to_string();
-                let err = body["last_error"].as_str().unwrap_or("").to_string();
+                let err = update_failure_message(body["last_error"].as_str().unwrap_or(""));
                 if phase != last_phase {
                     println!("phase: {}", phase);
                     last_phase = phase.clone();

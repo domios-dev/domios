@@ -222,3 +222,23 @@ fn failed_checks_never_print_unknown_up_to_date() {
         "app: 1.17.0 → 1.17.1 (update_available)"
     );
 }
+
+#[test]
+fn updater_admission_errors_render_recovery_copy_without_protocol_noise() {
+    use codeterm_types::native_update::apply::NativeUpdateAdmissionRefusal as Refusal;
+    for reason in [
+        Refusal::OperationConflict,
+        Refusal::RetiredOperation,
+        Refusal::IncarnationLimit,
+        Refusal::StaleServerIncarnation,
+    ] {
+        assert_eq!(
+            super::update_failure_message(&reason.error()),
+            reason.message()
+        );
+    }
+    assert_eq!(
+        super::update_failure_message("download failure"),
+        "download failure"
+    );
+}

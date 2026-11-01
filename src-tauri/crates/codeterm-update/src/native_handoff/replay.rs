@@ -6,13 +6,12 @@ use codeterm_types::native_update::{
 use serde::{Deserialize, Serialize};
 
 pub const MAX_RECENT_RESULTS: usize = 16;
-const FILTER_WORDS: usize = 1024;
+pub const MAX_INCARNATION_ADMISSIONS: usize = 256;
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReplayLedger {
     pub(super) recent: Vec<RecordedAttempt>,
-    // Bits never clear: evicted IDs remain refused, and collisions only refuse fresh admission.
-    used: Vec<u64>,
+    used: Vec<NativeUpdateOperationId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -22,26 +21,36 @@ pub(super) struct RecordedAttempt {
     pub result: NativeUpdateApplyResult,
 }
 
+pub(super) fn same_incarnation(left: &NativeUpdateRequest, right: &NativeUpdateRequest) -> bool {
+    left.expected_server.identity == right.expected_server.identity
+        && left.expected_server.incarnation.epoch == right.expected_server.incarnation.epoch
+        && left.expected_server.incarnation.process == right.expected_server.incarnation.process
+}
+
 impl ReplayLedger {
-    pub(super) fn contains(&self, id: NativeUpdateOperationId) -> bool {
-        if self.used.is_empty() {
-            return false;
+    pub(super) fn new(id: NativeUpdateOperationId) -> Self {
+        Self {
+            recent: Vec::new(),
+            used: vec![id],
         }
-        if self.used.len() != FILTER_WORDS || self.recent.len() > MAX_RECENT_RESULTS {
-            return true;
-        }
-        positions(id)
-            .into_iter()
-            .all(|bit| self.used[bit / 64] & (1 << (bit % 64)) != 0)
     }
 
-    pub(super) fn after(previous: &NativeUpdateHandoff, id: NativeUpdateOperationId) -> Self {
+    pub(super) fn contains(&self, id: NativeUpdateOperationId) -> bool {
+        self.used.contains(&id)
+    }
+
+    pub(super) fn at_capacity(&self, current: NativeUpdateOperationId) -> bool {
+        self.used.len() + usize::from(!self.contains(current)) >= MAX_INCARNATION_ADMISSIONS
+    }
+
+    pub(super) fn after(previous: &NativeUpdateHandoff, request: &NativeUpdateRequest) -> Self {
         let mut ledger = previous.replay.clone();
-        if ledger.used.is_empty() {
-            ledger.used.resize(FILTER_WORDS, 0);
+        if same_incarnation(&previous.request, request) {
+            ledger.remember(previous.request.operation_id);
+        } else {
+            ledger.used.clear();
         }
-        ledger.remember(previous.request.operation_id);
-        ledger.remember(id);
+        ledger.remember(request.operation_id);
         ledger.recent.push(RecordedAttempt {
             request: previous.request.clone(),
             options: previous.options.clone(),
@@ -53,23 +62,8 @@ impl ReplayLedger {
     }
 
     fn remember(&mut self, id: NativeUpdateOperationId) {
-        for bit in positions(id) {
-            self.used[bit / 64] |= 1 << (bit % 64);
+        if !self.contains(id) {
+            self.used.push(id);
         }
     }
-}
-
-fn positions(id: NativeUpdateOperationId) -> [usize; 4] {
-    use sha2::Digest;
-    let bytes = sha2::Sha256::digest(id.value().into_bytes());
-    std::array::from_fn(|index| {
-        let offset = index * 4;
-        u32::from_le_bytes([
-            bytes[offset],
-            bytes[offset + 1],
-            bytes[offset + 2],
-            bytes[offset + 3],
-        ]) as usize
-            % (FILTER_WORDS * 64)
-    })
 }

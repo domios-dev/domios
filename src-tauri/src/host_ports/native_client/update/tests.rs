@@ -1,4 +1,5 @@
 use super::*;
+use codeterm_types::native_update::apply::NativeUpdateAdmissionRefusal as Refusal;
 use codeterm_types::native_update::{ExpectedServer, NativeUpdateAction, NativeUpdateOperationId};
 use codeterm_types::server_bootstrap::{ClientIdentity, ServerExpectation};
 use uuid::Uuid;
@@ -91,7 +92,9 @@ fn terminal_a_then_b_then_a_returns_persisted_result_without_admitting_execution
     changed.options.initiating_tab_id = Some("different".into());
     assert_eq!(
         restored.admit(changed, |_| panic!("conflict cannot execute")),
-        Err(NativeHostRejection::ProtocolMismatch)
+        Err(NativeHostRejection::UpdateAdmission {
+            reason: Refusal::OperationConflict
+        })
     );
 }
 
@@ -115,14 +118,16 @@ fn evicted_operation_ids_remain_refused_after_restart_with_bounded_evidence() {
         .unwrap();
     let encoded = serde_json::to_value(&persisted).unwrap();
     assert_eq!(encoded["replay"]["recent"].as_array().unwrap().len(), 16);
-    assert_eq!(encoded["replay"]["used"].as_array().unwrap().len(), 1024);
+    assert_eq!(encoded["replay"]["used"].as_array().unwrap().len(), 32);
     let restored = UpdateOperation::default();
     *restored.record.lock() = Some(persisted);
     assert_eq!(
         restored.admit(record(1, root.path()), |_| panic!(
             "evicted A cannot execute"
         )),
-        Err(NativeHostRejection::ProtocolMismatch)
+        Err(NativeHostRejection::UpdateAdmission {
+            reason: Refusal::RetiredOperation
+        })
     );
 }
 
@@ -149,4 +154,92 @@ fn failed_admission_write_does_not_forget_predecessor_or_mark_new_id_used() {
         ),
         Ok(None)
     );
+}
+
+#[test]
+fn exact_incarnation_cap_refuses_without_writes_and_restart_reopens_admission() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let operation = UpdateOperation::default();
+    let writes = AtomicUsize::new(0);
+    let admitted = AtomicUsize::new(0);
+    let cap = codeterm_update::native_handoff::replay::MAX_INCARNATION_ADMISSIONS;
+    for number in 1..=cap {
+        let (is_new, _) = operation
+            .admit(record(number as u128, root.path()), |_| {
+                writes.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+            .unwrap();
+        assert!(is_new);
+        admitted.fetch_add(usize::from(is_new), Ordering::SeqCst);
+        operation
+            .record
+            .lock()
+            .as_mut()
+            .unwrap()
+            .advance(Phase::NoUpdate)
+            .unwrap();
+    }
+    assert_eq!(writes.load(Ordering::SeqCst), cap);
+    let before = operation.record.lock().clone();
+    assert_eq!(
+        operation.admit(record((cap + 1) as u128, root.path()), |_| panic!(
+            "refusal must not write or execute"
+        )),
+        Err(NativeHostRejection::UpdateAdmission {
+            reason: Refusal::IncarnationLimit
+        })
+    );
+    assert_eq!(
+        operation.admit(record(1, root.path()), |_| panic!(
+            "evicted ID cannot execute"
+        )),
+        Err(NativeHostRejection::UpdateAdmission {
+            reason: Refusal::RetiredOperation
+        })
+    );
+    let mut conflict = record(cap as u128, root.path());
+    conflict.options.initiating_tab_id = Some("different".into());
+    assert_eq!(
+        operation.admit(conflict, |_| panic!("conflict cannot execute")),
+        Err(NativeHostRejection::UpdateAdmission {
+            reason: Refusal::OperationConflict
+        })
+    );
+    assert!(
+        !operation
+            .admit(record(cap as u128, root.path()), |_| panic!(
+                "known ID cannot execute"
+            ))
+            .unwrap()
+            .0
+    );
+    assert_eq!(*operation.record.lock(), before);
+    assert_eq!(writes.load(Ordering::SeqCst), cap);
+    assert_eq!(admitted.load(Ordering::SeqCst), cap);
+
+    let mut restarted = record((cap + 1) as u128, root.path());
+    restarted.request.expected_server.incarnation.epoch = "replacement-epoch".into();
+    restarted.request.expected_server.incarnation.process.pid = 2;
+    restarted
+        .request
+        .expected_server
+        .incarnation
+        .process
+        .created = "replacement-created".into();
+    restarted.result.connection.server_epoch = "replacement-epoch".into();
+    assert!(
+        operation
+            .admit(restarted, |_| {
+                writes.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            })
+            .unwrap()
+            .0
+    );
+    let after = serde_json::to_value(operation.record.lock().as_ref().unwrap()).unwrap();
+    assert_eq!(after["replay"]["used"].as_array().unwrap().len(), 1);
+    assert_eq!(after["replay"]["recent"].as_array().unwrap().len(), 16);
+    assert_eq!(writes.load(Ordering::SeqCst), cap + 1);
 }
