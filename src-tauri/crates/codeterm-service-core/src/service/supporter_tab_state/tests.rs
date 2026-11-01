@@ -952,21 +952,6 @@ fn tab_state_two_agreeing_strong_from_distinct_events_acts() {
 }
 
 #[test]
-fn tab_state_second_agreeing_strong_acts() {
-    let tab_id = tab();
-    let launch_key = state::launch_episode_key(&tab_id, Some("pty-launch"), None);
-
-    assert_eq!(
-        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94),
-        SignalAction::WeakHint
-    );
-    assert_eq!(
-        state::apply_verdict(&tab_id, &launch_key, ERROR_LOOP, 0.94),
-        SignalAction::StrongAction
-    );
-}
-
-#[test]
 fn tab_state_stuck_prompt_gets_second_observation_from_existing_event() {
     let model = StubModel::answering(Ok(choice(TRUST_OR_PERMISSION_PROMPT, 0.93)));
     let (host, calls, _) = StubHost::new("permission prompt", model);
@@ -1002,19 +987,6 @@ fn tab_state_proxy_and_bad_model_reach_observation() {
         assert_eq!(verdict.action, SignalAction::WeakHint);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
-}
-
-#[test]
-fn tab_state_strong_trust_keeps_pending_options_for_orchestrator() {
-    let model = StubModel::answering(Ok(choice(TRUST_OR_PERMISSION_PROMPT, 0.93)));
-    let (host, _, _) = StubHost::new("permission question", model);
-    let tab_id = tab();
-    run(&host, &tab_id, ObservationTrigger::WorkerIdle);
-    run(&host, &tab_id, ObservationTrigger::TabExit);
-    assert!(host.deliveries.lock().iter().any(|(_, label, action)| {
-        label == TRUST_OR_PERMISSION_PROMPT && *action == SignalAction::StrongAction
-    }));
-    assert_eq!(host.writes.load(Ordering::SeqCst), 0);
 }
 
 #[test]

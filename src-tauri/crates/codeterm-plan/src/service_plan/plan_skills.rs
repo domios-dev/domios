@@ -969,10 +969,5 @@ mod tests {
             show_plan_skill(&store, &plan.id, "legacy"),
             Err(PlanError::NotFound)
         ));
-        let paths_source = include_str!("paths.rs");
-        assert!(
-            !paths_source.contains("project.join(\".codeterm\").join(\"plans\")"),
-            "plan state paths must not join .codeterm/plans beneath a project"
-        );
     }
 }

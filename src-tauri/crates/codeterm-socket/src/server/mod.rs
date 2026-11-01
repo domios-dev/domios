@@ -953,17 +953,19 @@ mod tests {
             .to_ns_name::<GenericNamespaced>()
             .unwrap();
         let (accepted_tx, accepted_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
 
         let server = std::thread::spawn(move || {
             let mut stream = listener.incoming().next().unwrap().unwrap();
             accepted_tx.send(()).unwrap();
-            std::thread::sleep(Duration::from_millis(100));
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
             write_json_rpc_response(&mut stream, &test_response())
         });
 
         let client = interprocess::local_socket::Stream::connect(client_name).unwrap();
         accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
         drop(client);
+        release_tx.send(()).unwrap();
 
         let keep_open = server.join().unwrap().unwrap();
         assert!(
@@ -1065,7 +1067,6 @@ mod tests {
 
         let mut client = interprocess::local_socket::Stream::connect(client_name).unwrap();
         accepted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        std::thread::sleep(Duration::from_millis(50));
         client
             .write_all(br#"{"jsonrpc":"2.0","id":1,"method":"socket.roundtrip"}"#)
             .unwrap();

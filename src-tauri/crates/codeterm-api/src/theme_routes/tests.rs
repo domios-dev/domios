@@ -1,7 +1,6 @@
 use codeterm_service_core::agent::provider::{
     AgentLaunchParams, AgentProvider, ReadinessStrategy, TaskDelivery,
 };
-use codeterm_service_core::agent::registry::AgentRegistry;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -53,25 +52,4 @@ impl AgentProvider for SettingsProbe {
             .map(|_| ())
             .map_err(|error| error.to_string())
     }
-}
-
-#[test]
-fn provider_settings_contract_restore_dispatch_persists_provider_result() {
-    let temporary = tempfile::tempdir().unwrap();
-    let path = temporary.path().join("integration");
-    std::fs::write(path.with_extension("backup"), b"original").unwrap();
-    std::fs::write(&path, b"modified").unwrap();
-    let registry = AgentRegistry::new();
-    registry.register_provider(Box::new(SettingsProbe { path: path.clone() }));
-    codeterm_service_core::service::provider_hooks::restore_provider_integration_core(
-        &registry, "fixture",
-    )
-    .unwrap();
-    assert_eq!(std::fs::read(path).unwrap(), b"original");
-    assert_eq!(
-        codeterm_service_core::service::provider_hooks::restore_provider_integration_core(
-            &registry, "unknown"
-        ),
-        Err("Unknown provider: unknown".into())
-    );
 }

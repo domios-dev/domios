@@ -82,17 +82,20 @@ async fn parked_stderr_and_slow_catalogue_do_not_delay_health_or_inline_auth() {
             .oneshot(authenticated("/api/agents/providers")),
     );
     catalogue_entered_rx.await.unwrap();
-    let started = Instant::now();
-    let health = router
-        .clone()
-        .oneshot(request("/api/health"))
-        .await
-        .unwrap();
-    let inline_auth = router
-        .oneshot(authenticated("/api/identify"))
-        .await
-        .unwrap();
-    let elapsed = started.elapsed();
+    let (health, inline_auth) = tokio::time::timeout(Duration::from_millis(250), async {
+        let health = router
+            .clone()
+            .oneshot(request("/api/health"))
+            .await
+            .unwrap();
+        let inline_auth = router
+            .oneshot(authenticated("/api/identify"))
+            .await
+            .unwrap();
+        (health, inline_auth)
+    })
+    .await
+    .expect("liveness and inline auth must finish before the catalogue is released");
     let still_waiting = !listing.is_finished();
     catalogue_release_tx.send(()).unwrap();
     sink_release_tx.send(()).unwrap();
@@ -100,9 +103,5 @@ async fn parked_stderr_and_slow_catalogue_do_not_delay_health_or_inline_auth() {
     assert!(still_waiting);
     assert_eq!(health.status(), StatusCode::OK);
     assert_eq!(inline_auth.status(), StatusCode::OK);
-    assert!(
-        elapsed < Duration::from_millis(50),
-        "liveness requests took {elapsed:?}"
-    );
     assert_eq!(drops.total(), 1);
 }

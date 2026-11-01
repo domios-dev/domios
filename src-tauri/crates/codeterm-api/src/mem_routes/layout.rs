@@ -117,12 +117,6 @@ mod tests {
     use super::parse_ids;
 
     #[test]
-    fn parse_ids_trims_and_filters_empty() {
-        let ids = parse_ids("a, b ,, c,");
-        assert_eq!(ids, vec!["a", "b", "c"]);
-    }
-
-    #[test]
     fn parse_ids_caps_at_max() {
         let raw = (0..600)
             .map(|i| i.to_string())

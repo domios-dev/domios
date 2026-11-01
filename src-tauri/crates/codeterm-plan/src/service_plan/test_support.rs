@@ -4,9 +4,6 @@ use std::sync::OnceLock;
 
 use super::ports::{PlanIndexHit, PlanIndexQuery, PlanSearchPort};
 
-#[cfg(test)]
-mod tests;
-
 static TEST_DATA_DIR: OnceLock<tempfile::TempDir> = OnceLock::new();
 
 pub(super) fn seed_plan_database(path: &Path) {

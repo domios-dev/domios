@@ -118,17 +118,23 @@ async fn adopt_agent_inner(
 mod tests {
     use super::*;
 
-    #[test]
-    fn missing_provider_is_refused_at_the_api_boundary() {
-        let request = TabAdoptRequest {
-            provider: Some("  ".into()),
-            force: false,
-        };
-        assert!(request
-            .provider
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .is_none());
+    #[tokio::test]
+    async fn missing_provider_is_refused_at_the_api_boundary() {
+        let (mux, tab_id) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let response = adopt_agent(
+            AxumState(crate::transport_tabs::fixture::app_state(&fixture)),
+            Path(tab_id),
+            HeaderMap::new(),
+            Json(TabAdoptRequest {
+                provider: Some("  ".into()),
+                force: false,
+            }),
+        )
+        .await
+        .unwrap_err();
+
+        assert_eq!(response.0, StatusCode::BAD_REQUEST);
+        assert_eq!(response.1 .0["error"]["code"], TAB_ADOPT_PROVIDER_REQUIRED);
     }
 }

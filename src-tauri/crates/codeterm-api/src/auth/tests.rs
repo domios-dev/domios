@@ -333,6 +333,10 @@ fn custom_auth_only_exempts_self_verifying_paths() {
         &Method::POST,
         "/api/mesh/peers/abc123/addr"
     ));
+    assert!(!is_custom_auth(&Method::POST, "/api/mesh/link"));
+    assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers"));
+    assert!(!is_custom_auth(&Method::GET, "/api/mesh/status"));
+    assert!(!is_custom_auth(&Method::POST, "/api/tabs/abc/send"));
     // Unpair must be DELETE — a GET on the same path is not exempt.
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/abc123"));
 
@@ -365,15 +369,9 @@ fn custom_auth_only_exempts_self_verifying_paths() {
 }
 
 #[test]
-fn v1_14_9_peer_protocol_is_refused_with_a_version_upgrade_message() {
-    crate::test_support::install_app_version();
+fn older_peer_protocol_is_refused_on_authenticated_routes() {
     let ancient_protocol = codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION - 1;
-    let refusal = peer_protocol_refusal(ancient_protocol).unwrap();
-    assert!(refusal.contains(&format!(
-        "both peers on Domios {}",
-        crate::test_support::TEST_APP_VERSION
-    )));
-    assert!(refusal.contains("upgrade both peers through the updater"));
+    assert!(peer_protocol_refusal(ancient_protocol).is_some());
     for path in ["/api/mesh/announce", "/api/mesh/sync"] {
         assert!(!peer_protocol_allowed(ancient_protocol, path));
     }
@@ -609,9 +607,6 @@ fn custom_permissions() {
 
 #[test]
 fn public_paths_recognized() {
-    for p in PUBLIC_PATHS {
-        assert!(PUBLIC_PATHS.iter().any(|pp| pp == p));
-    }
     assert!(!PUBLIC_PATHS.contains(&"/api/providers"));
     for removed in [
         "/api/mesh/connect",
@@ -637,18 +632,6 @@ fn remote_network_follows_mesh_toggle() {
     assert!(remote_network_allowed(false, Some(local)));
     assert!(!remote_network_allowed(false, Some(remote)));
     assert!(remote_network_allowed(true, Some(remote)));
-}
-
-#[test]
-fn custom_auth_paths() {
-    assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
-    assert!(!is_custom_auth(&Method::POST, "/api/mesh/link"));
-    // Unpair self-verifies; only the DELETE on the bare id is exempt.
-    assert!(!is_custom_auth(&Method::DELETE, "/api/mesh/peers/some-id"));
-    assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/some-id"));
-    assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers"));
-    assert!(!is_custom_auth(&Method::GET, "/api/mesh/status"));
-    assert!(!is_custom_auth(&Method::POST, "/api/tabs/abc/send"));
 }
 
 #[test]

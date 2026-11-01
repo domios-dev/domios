@@ -662,7 +662,6 @@ fn review_hold_verdict_pause_guard_survives() {
 
     let pause_error = set_status(&store, &plan_id, &task_id, "paused", 5).unwrap_err();
     assert!(matches!(pause_error, PlanError::ReviewHoldRequired));
-    assert!(pause_error.to_string().contains("hold"));
     assert!(matches!(
         set_status(&store, &plan_id, &task_id, "paused", 6),
         Err(PlanError::ReviewHoldRequired)

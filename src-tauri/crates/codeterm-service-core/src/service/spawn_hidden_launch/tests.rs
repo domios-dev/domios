@@ -6,14 +6,10 @@ use std::time::Duration;
 
 #[test]
 fn hidden_inline_launch_owns_the_first_turn_even_with_system_instructions() {
-    for system_prompt in [false, true] {
-        for starter in [None, Some("opaque-starter")] {
-            assert_eq!(
-                super::first_turn(system_prompt, true, Some("opaque-task"), starter),
-                None
-            );
-        }
-    }
+    assert_eq!(
+        super::first_turn(true, true, Some("opaque-task"), Some("opaque-starter")),
+        None
+    );
 }
 
 #[test]

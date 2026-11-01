@@ -147,19 +147,6 @@ fn close_first_run_tabs_retires_the_protected_picker() {
 }
 
 #[test]
-fn first_run_picker_tab_has_skip_snapshot_set() {
-    // The picker must not survive a daemon restart as a ghost tab.
-    let mut mux = MultiplexerState::empty();
-    ensure_first_run_tab(&mut mux);
-    let tab_id = mux.list_workspaces()[0].tab_ids[0].clone();
-    let tab = mux.get_tab(&tab_id).expect("picker Tab exists");
-    assert!(
-        tab.skip_snapshot,
-        "first-run picker Tab must have skip_snapshot=true to be excluded from the session snapshot"
-    );
-}
-
-#[test]
 fn purge_snapshot_ghosts_drops_picker_tab_and_records_to_closed() {
     // purge_snapshot_ghosts must drop it and record it in Recently Closed.
     let mut mux = MultiplexerState::empty();

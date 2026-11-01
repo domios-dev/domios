@@ -359,19 +359,6 @@ mod tests {
 
         assert_eq!(attempts[0].closed_at, Some(20));
         assert_eq!(attempts[1].closed_at, None);
-
-        let unchanged_on_failed_commit = vec![attempt("attempt-current", "tab-current")];
-        assert_eq!(unchanged_on_failed_commit[0].closed_at, None);
-    }
-
-    #[test]
-    fn closing_reassigned_tab_closes_only_its_attempt() {
-        let mut attempts = vec![attempt("attempt-a", "tab-a"), attempt("attempt-b", "tab-b")];
-
-        assert_eq!(close_live_attempts_for_tab(&mut attempts, "tab-a", 30), 1);
-        assert_eq!(close_live_attempts_for_tab(&mut attempts, "tab-a", 40), 0);
-        assert_eq!(attempts[0].closed_at, Some(30));
-        assert_eq!(attempts[1].closed_at, None);
     }
 
     #[test]
@@ -384,6 +371,10 @@ mod tests {
         assert_eq!(
             close_live_attempts_for_tab(&mut attempts, "tab-dead", 50),
             1
+        );
+        assert_eq!(
+            close_live_attempts_for_tab(&mut attempts, "tab-dead", 60),
+            0
         );
         assert_eq!(attempts[0].closed_at, Some(50));
         assert_eq!(attempts[1].closed_at, None);
@@ -408,32 +399,6 @@ mod tests {
         assert_eq!(attempts[3].closed_at, None);
         close_live_attempts_for_tab(&mut attempts, "peer-a-tab", 70);
         assert_eq!(attempts[2].closed_at, None);
-    }
-
-    #[test]
-    fn live_attempt_consumers_converge_after_stale_attempt_repair() {
-        let mut attempts = vec![
-            attempt("attempt-stale", "tab-gone"),
-            attempt("attempt-active", "tab-active"),
-        ];
-        assert_eq!(
-            attempts
-                .iter()
-                .filter(|attempt| attempt.closed_at.is_none())
-                .count(),
-            2
-        );
-
-        close_live_attempts_for_tab(&mut attempts, "tab-gone", 80);
-
-        assert_eq!(
-            attempts
-                .iter()
-                .filter(|attempt| attempt.closed_at.is_none())
-                .count(),
-            1
-        );
-        assert_eq!(attempts[1].executor_tab_id, "tab-active");
     }
 
     #[test]
@@ -508,6 +473,9 @@ mod tests {
         tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
         tab.pty_id = Some("pty-1".into());
         assert!(tab_has_live_agent(tab));
+        tab.reported_session_binding_nonce = Some("stale-nonce".into());
+        assert!(!tab_has_live_agent(tab));
+        tab.reported_session_binding_nonce = tab.session_binding_nonce.clone();
 
         tab.agent_state = Some(
             codeterm_types::pty::TabVerdict {
@@ -528,5 +496,16 @@ mod tests {
             session_id: "session-1".into(),
         };
         assert!(tab_has_live_agent(tab));
+
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "foreign-provider".into(),
+            session_id: "session-1".into(),
+        };
+        assert!(!tab_has_live_agent(tab));
+        tab.backing = TabBacking::ChatBackend {
+            plugin_id: "provider-neutral".into(),
+            session_id: "foreign-session".into(),
+        };
+        assert!(!tab_has_live_agent(tab));
     }
 }

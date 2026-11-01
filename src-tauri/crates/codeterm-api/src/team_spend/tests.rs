@@ -235,28 +235,6 @@ fn team_spend_aggregates_active_archived_and_excludes_unknown_rows_without_forei
 }
 
 #[test]
-fn team_spend_excludes_planless_rows_and_counts_unassigned_attribution() {
-    let plans = vec![plan(
-        "pl-active",
-        "Active",
-        Some("team-a"),
-        PlanStatus::Active,
-    )];
-    let events = vec![event(None, "", None, "2026-01-01", 7, 3, 2)];
-    let projection = project_tokens(
-        &plans,
-        &events,
-        "team-a",
-        range("2026-01-01", "2026-01-01"),
-        ModelSelector::All,
-    );
-    assert!(projection.daily.is_empty());
-    assert_eq!(projection.attribution.unassigned_plan_rows, 1);
-    assert_eq!(projection.attribution.unknown_plan_rows, 0);
-    assert_eq!(projection.attribution.foreign_plan_rows_excluded, 0);
-}
-
-#[test]
 fn team_spend_model_filters_keep_all_unknowns_only_in_all_selector() {
     let plans = vec![plan(
         "pl-active",

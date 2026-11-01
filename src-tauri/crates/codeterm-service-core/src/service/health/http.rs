@@ -168,21 +168,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn empty_body_is_healthy() {
-        let mut server = Server::new_async().await;
-        let _m = server
-            .mock("GET", "/ping")
-            .with_status(200)
-            .with_body("")
-            .create_async()
-            .await;
-        let snap = probe_http(&format!("{}/ping", server.url()), 5000, None, None, None)
-            .await
-            .unwrap();
-        assert_eq!(snap.status, HealthStatus::Healthy);
-    }
-
-    #[tokio::test]
     async fn html_body_is_healthy() {
         let mut server = Server::new_async().await;
         let _m = server

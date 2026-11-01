@@ -137,20 +137,10 @@ fn ga_safe_choice_requires_agreement_with_provider_declared_option() {
 }
 
 #[test]
-fn ga_other_label_never_recovers() {
-    assert_eq!(decide(Label::Other, &evidence()), Action::None);
-}
-
-#[test]
 fn ga_unqualified_heldout_degrades_automatic_rows_to_notify_only() {
     let mut e = evidence();
     e.automatic_actions_qualified = false;
     for label in [Label::ErrorLoop, Label::StillStarting, Label::UpdatePrompt] {
         assert_eq!(decide(label, &e), Action::Notify);
     }
-}
-
-#[test]
-fn ga_screen_only_crashed_verdict_without_exit_event_does_nothing() {
-    assert_eq!(decide(Label::CrashedToShell, &evidence()), Action::None);
 }

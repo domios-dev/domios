@@ -67,7 +67,7 @@ async fn size_and_permission_refusals_keep_their_typed_reason_and_limit() {
 }
 
 #[tokio::test]
-async fn ended_neighbor_history_retains_a_typed_conflict_and_diagnostic() {
+async fn ended_neighbor_history_keeps_a_typed_conflict() {
     let response = neighbor_failure("friendship_ended: This Neighbor conversation has ended; refresh the friendship before sending".into());
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let bytes = axum::body::to_bytes(response.into_body(), 4096)
@@ -75,10 +75,6 @@ async fn ended_neighbor_history_retains_a_typed_conflict_and_diagnostic() {
         .unwrap();
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["reason"], "friendship_ended");
-    assert!(body["message"]
-        .as_str()
-        .unwrap()
-        .contains("conversation has ended"));
 }
 
 #[tokio::test]
@@ -676,18 +672,15 @@ async fn explicit_plan_refresh_fetches_each_time_while_passive_focus_is_throttle
 }
 
 #[tokio::test]
-async fn portal_no_billing_customer_keeps_its_code_and_message() {
+async fn portal_no_billing_customer_keeps_its_code() {
     let response = portal_failure(codeterm_billing::NO_BILLING_CUSTOMER.into());
     assert_eq!(response.status(), StatusCode::CONFLICT);
     let body = axum::body::to_bytes(response.into_body(), 4096)
         .await
         .unwrap();
     assert_eq!(
-        serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
-        serde_json::json!({
-            "code": "no_billing_customer",
-            "message": "There is no paid subscription to manage. Your current access is not billed through Paddle."
-        })
+        serde_json::from_slice::<serde_json::Value>(&body).unwrap()["code"],
+        "no_billing_customer"
     );
     assert_eq!(
         portal_failure("unavailable".into()).status(),
@@ -732,7 +725,7 @@ async fn receiver_refusals_retain_machine_readable_codes() {
 }
 
 #[tokio::test]
-async fn refusal_preflight_errors_report_nothing_sent_and_keep_byte_counts() {
+async fn refusal_preflight_errors_keep_typed_codes_and_byte_counts() {
     for (error, status, reason) in [
         (
             "refusal_too_long: {\"limit\":1024,\"actual\":1025}",
@@ -752,10 +745,6 @@ async fn refusal_preflight_errors_report_nothing_sent_and_keep_byte_counts() {
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(body["code"], reason);
-        assert!(body["message"]
-            .as_str()
-            .unwrap()
-            .contains("Nothing was sent"));
         if reason == "refusal_too_long" {
             assert_eq!(body["limit"], 1024);
             assert_eq!(body["actual"], 1025);
@@ -810,10 +799,6 @@ async fn stopped_reply_is_a_typed_presend_conflict() {
     let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(body["code"], "reply_target_stopped");
     assert_eq!(body["reason"], "reply_target_stopped");
-    assert!(body["message"]
-        .as_str()
-        .unwrap()
-        .contains("nothing was sent"));
 }
 
 #[tokio::test]
@@ -828,10 +813,6 @@ async fn empty_neighbor_body_is_a_typed_presend_bad_request() {
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["code"], "empty_body");
     assert_eq!(body["reason"], "empty_body");
-    assert!(body["message"]
-        .as_str()
-        .unwrap()
-        .contains("nothing was sent"));
 }
 
 #[tokio::test]

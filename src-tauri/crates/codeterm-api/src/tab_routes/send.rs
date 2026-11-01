@@ -1045,10 +1045,6 @@ mod delivery_classification_tests {
         assert_eq!(rejection.status, StatusCode::CONFLICT);
         assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
         assert_eq!(rejection.body["error"]["bytes_written"], false);
-        assert!(rejection.body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("nothing written"));
     }
 
     #[test]
@@ -1085,10 +1081,6 @@ mod delivery_classification_tests {
         assert_eq!(rejection.body["ok"], false);
         assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
         assert_eq!(rejection.body["error"]["bytes_written"], false);
-        assert!(rejection.body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("nothing written"));
     }
 
     #[test]

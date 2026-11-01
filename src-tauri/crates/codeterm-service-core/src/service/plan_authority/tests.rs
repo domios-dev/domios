@@ -443,6 +443,7 @@ fn planner_task_updates_reject_execution_lifecycle_fields() {
         "assign_tab",
         "assigned_tab_id",
         "tab",
+        "peer",
         "personality_provenance",
         "attempt",
         "attempt_id",
@@ -621,16 +622,6 @@ fn sessionless(caller: &AuthenticatedPlanCaller) -> AuthenticatedPlanCaller {
         session_id: None,
         ..caller.clone()
     }
-}
-
-// Mirror the W3-C task gate so both authority paths are proven on one input.
-fn w3c_task_binding_matches(fixture: &ServiceFixture, caller: &AuthenticatedPlanCaller) -> bool {
-    let mux = fixture.service.mux.read();
-    let tab = mux.get_tab(caller.tab_id.as_deref().unwrap()).unwrap();
-    let nonce = caller.binding_nonce.as_deref();
-    tab.agent_session_id.as_deref() == caller.session_id.as_deref()
-        && tab.session_binding_nonce.as_deref() == nonce
-        && tab.reported_session_binding_nonce.as_deref() == nonce
 }
 
 #[test]
@@ -880,27 +871,48 @@ fn binding_rule_and_role_rule_are_mechanically_distinct() {
 }
 
 #[test]
-fn one_rebind_heals_both_the_plan_gate_and_the_w3c_task_gate() {
+fn one_rebind_heals_plan_and_task_execution_authority() {
     let (fixture, plan_id, _, owner) = fixture();
+    let task_id = fixture
+        .service
+        .plan_store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "execution gate".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    fixture
+        .service
+        .approve_and_activate_plan(&plan_id, &owner, None, 3)
+        .unwrap();
     relaunch_tab(&fixture, owner.tab_id.as_deref().unwrap(), "owner-nonce-3");
-    // Before rebind BOTH gates reject the same stale caller — one coherent
-    // stale-binding verdict, not two fighting predicates.
+    // Both service gates reject the same stale caller before rebind.
     let before = match fixture.service.classify_planning_caller(&plan_id, &owner) {
         Err(error) => error,
         Ok(_) => panic!("stale caller must be rejected before rebind"),
     };
     assert!(is_binding_rule(before));
-    assert!(!w3c_task_binding_matches(&fixture, &owner));
+    assert!(fixture
+        .service
+        .authorize_task_execution_action(&task_id, &owner)
+        .is_err());
     fixture
         .service
         .rebind_stale_planning_session(&owner)
         .unwrap();
-    // After ONE rebind BOTH gates accept the same caller.
+    // One rebind restores both plan and task execution authority.
     assert!(matches!(
         fixture.service.classify_planning_caller(&plan_id, &owner),
         Ok(PlanningAuthor::User)
     ));
-    assert!(w3c_task_binding_matches(&fixture, &owner));
+    assert!(fixture
+        .service
+        .authorize_task_execution_action(&task_id, &owner)
+        .is_ok());
 }
 
 /// The person at the machine outranks every agent role. Identity here is built

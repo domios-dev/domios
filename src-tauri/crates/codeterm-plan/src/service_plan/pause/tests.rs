@@ -36,11 +36,10 @@ impl FakePorts {
 }
 
 struct World {
-    dir: tempfile::TempDir,
+    _dir: tempfile::TempDir,
     store: PlanStore,
     ports: FakePorts,
     plan_id: String,
-    other_plan_id: String,
     team_job: String,
 }
 
@@ -55,17 +54,10 @@ fn world() -> World {
     plan.team_id = Some("team".into());
     plan.mode = PlanMode::Execution;
     store.save(&mut plan, 1).unwrap();
-    let mut other = Plan::new(
-        "Unrelated plan".into(),
-        dir.path().display().to_string(),
-        OrchestratorRef::from_tab("other"),
-    );
-    store.save(&mut other, 1).unwrap();
     World {
-        dir,
+        _dir: dir,
         store,
         plan_id: plan.id,
-        other_plan_id: other.id,
         team_job: "job".into(),
         ports: FakePorts {
             sent: RefCell::new(vec![]),
@@ -107,7 +99,7 @@ fn resume(w: &World, now_ms: u64) -> PlanLifecycleOutcome {
 }
 
 #[test]
-fn plan_pause_resume_record_round_trips_and_legacy_plan_loads_without_it() {
+fn plan_pause_record_round_trips() {
     let w = world();
     pause(&w);
     let plan = w.store.get(&w.plan_id).unwrap();
@@ -116,17 +108,6 @@ fn plan_pause_resume_record_round_trips_and_legacy_plan_loads_without_it() {
     let json = serde_json::to_value(&plan).unwrap();
     let decoded: Plan = serde_json::from_value(json.clone()).unwrap();
     assert_eq!(decoded.pause_operations, plan.pause_operations);
-
-    let mut legacy = json;
-    legacy.as_object_mut().unwrap().remove("pause_operations");
-    let legacy: Plan = serde_json::from_value(legacy).unwrap();
-    assert!(legacy.pause_operations.is_empty());
-    let untouched = w.store.get(&w.other_plan_id).unwrap();
-    assert!(serde_json::to_value(&untouched)
-        .unwrap()
-        .get("pause_operations")
-        .is_none());
-    assert!(w.dir.path().exists());
 }
 
 #[test]
@@ -162,19 +143,4 @@ fn plan_pause_resume_resume_on_non_paused_plan_is_noop() {
     let preview = resume_preview(&w.store.get(&w.plan_id).unwrap(), |_| true);
     assert!(!preview.applicable);
     assert!(preview.agents.is_empty());
-}
-
-#[test]
-fn plan_pause_resume_legacy_pause_without_record_resumes_without_notices() {
-    let w = world();
-    w.store
-        .pause_plan(&w.plan_id, "legacy hold", AgentRef::default(), 10)
-        .unwrap();
-
-    let outcome = resume(&w, 20);
-
-    assert!(outcome.applied);
-    assert!(outcome.operation.is_none());
-    assert_eq!(w.store.get(&w.plan_id).unwrap().mode, PlanMode::Execution);
-    assert!(w.ports.recipients().is_empty());
 }

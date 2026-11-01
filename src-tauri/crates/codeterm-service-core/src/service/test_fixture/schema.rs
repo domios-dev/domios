@@ -27,6 +27,3 @@ pub(super) fn seed(root: &Path) {
         std::io::Write::write_all(&mut file, bytes).unwrap();
     }
 }
-
-#[cfg(test)]
-mod tests;

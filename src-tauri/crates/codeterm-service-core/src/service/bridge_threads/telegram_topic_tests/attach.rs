@@ -14,37 +14,6 @@ fn topic_posts(transport: &FakeTransport, thread_id: i64) -> usize {
 }
 
 #[tokio::test]
-async fn telegram_topic_agent_can_create_and_bind_its_thread_on_demand() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    let threads = attached(transport.clone());
-
-    let first = threads
-        .open(&tabs, tab_caller(PLANCK), PLANCK, CHAT)
-        .await
-        .expect("opened");
-    let second = threads
-        .open(&tabs, tab_caller(PLANCK), PLANCK, CHAT)
-        .await
-        .expect("reopened");
-
-    assert!(first.created);
-    assert_eq!(first.tab_id, PLANCK);
-    assert!(threads.has_open_binding(PLANCK));
-    assert_eq!(
-        second,
-        OpenedThread {
-            created: false,
-            ..first.clone()
-        }
-    );
-    assert_eq!(transport.creates().len(), 1);
-    assert_eq!(topic_posts(&transport, first.thread_id), 1);
-    let intro = topic_post(&transport);
-    assert!(intro.html.contains("Planck") && intro.html.contains(&tabs.header(PLANCK)));
-}
-
-#[tokio::test]
 async fn telegram_topic_attach_menu_general_agent_and_own_tab_share_one_binding() {
     let transport = FakeTransport::enabled();
     let tabs = tabs_with_planck();
@@ -76,6 +45,9 @@ async fn telegram_topic_attach_menu_general_agent_and_own_tab_share_one_binding(
     assert_eq!(transport.creates().len(), 1);
     assert_eq!(topic_posts(&transport, from_general.thread_id), 1);
     assert!(threads.has_open_binding(PLANCK));
+    let intro = topic_post(&transport);
+    assert!(intro.html.contains(&tabs.header(PLANCK)));
+    assert!(!intro.html.contains(&tabs.header(GENERAL)));
     assert_eq!(
         threads.resolve_inbound(&tabs, CHAT, Some(from_general.thread_id), None),
         InboundRoute::Tab {
@@ -129,24 +101,6 @@ async fn telegram_topic_attach_reuses_a_topic_a_send_created() {
         "one binding owner for sends and opens"
     );
     assert_eq!(Some(opened.thread_id), topic_post(&transport).thread);
-}
-
-#[tokio::test]
-async fn telegram_topic_attach_general_agent_opens_a_topic_owned_by_the_target() {
-    let transport = FakeTransport::enabled();
-    let tabs = tabs_with_planck();
-    let threads = attached(transport.clone());
-
-    let opened = threads
-        .open(&tabs, tab_caller(GENERAL), PLANCK, CHAT)
-        .await
-        .expect("the General Agent may name another tab");
-
-    assert_eq!(opened.tab_id, PLANCK);
-    assert_eq!(transport.creates(), vec!["Planck".to_string()]);
-    let intro = topic_post(&transport);
-    assert!(intro.html.contains(&tabs.header(PLANCK)));
-    assert!(!intro.html.contains(&tabs.header(GENERAL)));
 }
 
 #[tokio::test]

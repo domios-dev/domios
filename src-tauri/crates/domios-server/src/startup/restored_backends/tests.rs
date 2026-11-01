@@ -1,6 +1,4 @@
-use super::{
-    ordered_ids, run_transport_waves, run_wave, take_next, RestoreBudgets, RestoreTransport,
-};
+use super::{ordered_ids, run_transport_waves, run_wave, RestoreBudgets, RestoreTransport};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
@@ -99,16 +97,6 @@ fn general_tabs_precede_projects_then_recent_activity_wins() {
             "unknown"
         ]
     );
-}
-
-#[test]
-fn changed_focus_takes_the_next_slot_without_reclaiming_in_flight_tabs() {
-    let mut pending = vec![0, 1, 2, 3];
-    assert_eq!(take_next(&mut pending, Some(2)), Some(2));
-    assert_eq!(take_next(&mut pending, Some(3)), Some(3));
-    assert_eq!(take_next(&mut pending, Some(2)), Some(0));
-    assert_eq!(take_next(&mut pending, None), Some(1));
-    assert_eq!(take_next(&mut pending, Some(3)), None);
 }
 
 #[test]

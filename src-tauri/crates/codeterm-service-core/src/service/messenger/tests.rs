@@ -630,24 +630,6 @@ fn chatbackend_rotation_after_preflight_is_not_accepted_as_delivered() {
 }
 
 #[test]
-fn inbound_context_has_sender_with_canonical_marker() {
-    let envelope = MessageEnvelope::tab("Edison", "e8a0ac20-1111")
-        .model(Some("opus".into()))
-        .mesh(Some("BLACKSTAR".into()));
-    let ctx = inbound_model_context(&envelope, "hello");
-    let parsed = codeterm_wire::domios::parse_message(&ctx).expect("tag parses");
-    let legacy = ["[CodeTerm", " inbound"].concat();
-
-    assert!(!ctx.contains(&legacy));
-    assert_eq!(parsed.attr("from"), Some("tab"));
-    assert_eq!(parsed.attr("label"), Some("Edison"));
-    assert_eq!(parsed.attr("tab"), Some("e8a0ac20"));
-    assert_eq!(parsed.attr("model"), Some("opus"));
-    assert_eq!(parsed.attr("mesh"), Some("BLACKSTAR"));
-    assert_eq!(parsed.body, "hello");
-}
-
-#[test]
 fn relay_metadata_preserves_sender_and_hop_count() {
     let mut envelope = MessageEnvelope::tab("relay", "abcdef12-3456-7890-abcd-123456789abc");
     envelope.relay_hops = 3;

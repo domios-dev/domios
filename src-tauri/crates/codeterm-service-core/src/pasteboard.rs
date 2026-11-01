@@ -255,12 +255,15 @@ mod tests {
         for i in 0..MAX_ENTRIES {
             let e = put_text(&pb, &format!("payload-{i}"));
             ids.push(e.id);
-            // Spread the created_at so oldest is unambiguous.
-            std::thread::sleep(std::time::Duration::from_millis(2));
         }
         let oldest = ids.first().unwrap().clone();
+        {
+            let mut entries = pb.inner.write();
+            for (created_at, id) in ids.iter().enumerate() {
+                entries.get_mut(id).unwrap().created_at = created_at as u64;
+            }
+        }
         // One more push triggers eviction of the oldest.
-        std::thread::sleep(std::time::Duration::from_millis(2));
         put_text(&pb, "overflow");
         assert_eq!(pb.list().len(), MAX_ENTRIES);
         assert!(pb.get(&oldest, false).is_none(), "oldest must be evicted");
@@ -307,7 +310,7 @@ mod tests {
                 ..Default::default()
             })
             .unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        pb.inner.write().get_mut(&entry.id).unwrap().expires_at = 0;
         pb.gc();
         assert!(pb.get(&entry.id, false).is_none());
         assert!(pb.list().is_empty());

@@ -44,17 +44,6 @@ pub(crate) fn require_current_peer_version(
     })
 }
 
-#[cfg(test)]
-pub(crate) fn current_peer_version_header() -> HeaderMap {
-    let mut headers = HeaderMap::new();
-    if let Ok(value) =
-        axum::http::HeaderValue::from_str(codeterm_service_core::mesh::version::local_version())
-    {
-        headers.insert(codeterm_service_core::mesh::version::VERSION_HEADER, value);
-    }
-    headers
-}
-
 pub async fn mesh_ping(
     AxumState(_state): AxumState<AppState>,
     _headers: HeaderMap,

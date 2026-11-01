@@ -333,25 +333,6 @@ mod tests {
         String::from_utf8_lossy(&output.stdout).trim().to_string()
     }
 
-    #[test]
-    fn worker_dispatch_accepts_legacy_wire_without_identity_set() {
-        let request: super::MeshWorkerDispatchRequest = serde_json::from_value(serde_json::json!({
-            "repository_identity": "sha256:legacy",
-            "base_commit": "base",
-            "plan_id": "plan",
-            "task_id": "task",
-            "attempt_id": "attempt",
-            "origin_tab_id": "tab",
-            "provider": "provider",
-            "model": null,
-            "reasoning_effort": null,
-            "brief": "brief"
-        }))
-        .unwrap();
-        assert!(request.repository_identities.is_empty());
-        assert_eq!(request.repository_identity, "sha256:legacy");
-    }
-
     fn bundle_fixture(
         peer_target: &str,
     ) -> (

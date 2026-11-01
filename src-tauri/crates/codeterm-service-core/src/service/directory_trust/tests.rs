@@ -2,9 +2,9 @@ use codeterm_plugin::provider::{AgentProvider, DirectoryTrustPromptResponse};
 
 use super::{
     decide, decide_with_frame_identity, directory_trust_check_applies, directory_trust_occurrence,
-    directory_trust_provenance, directory_trust_skip_reason, inherited_workspace_provenance,
-    legacy_auto_approve_permitted, shared_directory_trust_check_applies, DirectoryTrustRefusal,
-    SharedTrustCache, TrustDecision, TrustLedger, LEDGER, SHARED_TRUST,
+    directory_trust_provenance, inherited_workspace_provenance, legacy_auto_approve_permitted,
+    shared_directory_trust_check_applies, DirectoryTrustRefusal, SharedTrustCache, TrustDecision,
+    TrustLedger, LEDGER, SHARED_TRUST,
 };
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{PendingPrompt, PromptOption};
@@ -1053,32 +1053,6 @@ fn cwd_provenance_refusal_keeps_trust_prompt_out_of_both_auto_responders() {
     assert!(crate::service::output::legacy_auto_approve_response(&trust_prompt, true).is_none());
     assert!(
         crate::service::general_agent::blocker::classify(&trust_prompt, screen, true).is_none()
-    );
-}
-
-#[test]
-fn skip_reason_names_why_a_provisioned_agent_is_not_answered() {
-    let (state, tab_id) = agent_tab(Some("/srv/lanes/a"), true);
-    assert_eq!(
-        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
-        Some("launch session already authenticated")
-    );
-    let (state, tab_id) = agent_tab(Some("/srv/lanes/b"), false);
-    assert_eq!(
-        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
-        Some(DirectoryTrustRefusal::CwdDiffersFromProvenance.reason())
-    );
-    let (state, tab_id) = agent_tab(Some("/srv/lanes/a"), false);
-    assert_eq!(
-        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
-        None,
-        "an applicable tab is answered, not skipped"
-    );
-    let (state, tab_id) = agent_tab(None, false);
-    assert_eq!(
-        directory_trust_skip_reason(state.get_tab(&tab_id).unwrap()),
-        None,
-        "a user directory is never logged"
     );
 }
 

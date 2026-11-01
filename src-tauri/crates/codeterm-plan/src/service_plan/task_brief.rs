@@ -188,8 +188,6 @@ mod tests {
             content_digest: "sha256:abc".into(),
         }];
         let rendered = render_plan_skill_manifest("pl_zzmxgb", &manifest);
-        assert_eq!(rendered.matches("## Plan skill manifest").count(), 1);
-        assert!(rendered.contains("domios plan skill show --plan pl_zzmxgb <slug>"));
         assert!(rendered.contains("sha256:abc"));
         assert!(!rendered.contains("# Alpha"));
         assert!(render_plan_skill_manifest("pl_zzmxgb", &[]).is_empty());

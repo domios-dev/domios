@@ -716,51 +716,6 @@ fn dead_worker_routes_via_spawned_by_when_no_parent() {
     );
 }
 
-// ── Report message format ── submit_report builds the notify body without a trailing CR — Enter is sent as a separate delayed raw write by send_text's bracket-paste path.
-
-fn format_report(from_title: &str, message: &str) -> String {
-    format!("[Report from {}] {}", from_title, message)
-}
-
-#[test]
-fn report_format_basic() {
-    let msg = format_report("Scout", "Task completed successfully");
-    assert_eq!(msg, "[Report from Scout] Task completed successfully");
-}
-
-#[test]
-fn report_format_no_trailing_cr() {
-    // the bracket-paste end marker is processed.
-    let msg = format_report("Worker-1", "done");
-    assert!(!msg.ends_with('\r'), "Report body must not end with \\r");
-}
-
-#[test]
-fn report_format_message_with_newlines() {
-    // Internal newlines pass through raw — bracket paste protects them.
-    let msg = format_report("Worker", "line1\nline2\nline3");
-    assert_eq!(msg, "[Report from Worker] line1\nline2\nline3");
-    assert!(msg.contains('\n'), "Internal newlines are preserved");
-}
-
-#[test]
-fn report_format_empty_message() {
-    let msg = format_report("Agent", "");
-    assert_eq!(msg, "[Report from Agent] ");
-}
-
-#[test]
-fn report_format_title_with_spaces() {
-    let msg = format_report("My Agent Title", "ok");
-    assert_eq!(msg, "[Report from My Agent Title] ok");
-}
-
-#[test]
-fn report_format_message_with_special_chars() {
-    let msg = format_report("Bot", "found 3 files: a.rs, b.rs, c.rs");
-    assert!(msg.starts_with("[Report from Bot] "));
-}
-
 // ── Remote (mesh) report target ──
 
 #[test]

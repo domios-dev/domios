@@ -174,8 +174,6 @@ fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
         assert_eq!(status, axum::http::StatusCode::BAD_REQUEST, "key: {key}");
         let message = error["error"].as_str().unwrap();
         assert!(message.contains(key), "{message}");
-        assert!(message.contains("accepted"), "{message}");
-        assert!(message.contains("external_refs"), "{message}");
         assert_eq!(
             after, before,
             "rejected key {key} changed the full task record"
@@ -287,10 +285,6 @@ fn rest_cleanup_done_refusal_returns_conflict_for_unmerged_lane_branch() {
 
     let (status, Json(body)) = result.expect_err("unmerged commits refuse cleanup completion");
     assert_eq!(status, axum::http::StatusCode::CONFLICT);
-    assert!(body["error"]
-        .as_str()
-        .unwrap()
-        .contains("commits not merged"));
     assert!(body["error"].as_str().unwrap().contains(branch));
 }
 

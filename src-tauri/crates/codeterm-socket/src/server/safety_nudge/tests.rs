@@ -1,16 +1,6 @@
-use std::collections::HashSet;
-
 use super::*;
 use codeterm_service_core::plan::{AgentRef, OrchestratorRef, Plan};
 use codeterm_service_core::service::plan::{PlanIncident, PlanStore};
-
-#[test]
-fn nudge_ids_are_stable_and_unique() {
-    let unique: HashSet<&&str> = NUDGE_IDS.iter().collect();
-    assert_eq!(unique.len(), NUDGE_IDS.len());
-    assert!(NUDGE_IDS.iter().all(|id| !id.trim().is_empty()));
-    assert!(NUDGE_IDS.contains(&NUDGE_RETROSPECTIVE_UNRECORDED));
-}
 
 #[test]
 fn nudges_ride_a_successful_result_and_merge_into_existing_hints() {

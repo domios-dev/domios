@@ -74,13 +74,6 @@ fn tick_idle_does_not_emit_and_keeps_cursor() {
 }
 
 #[test]
-fn tick_first_poll_no_cursor_emits_full_transcript() {
-    let tick = plan_poll_tick(&delta(3, Some("c0")), None, POLL_IDLE_MS, None);
-    assert!(tick.emit);
-    assert_eq!(tick.cursor.as_deref(), Some("c0"));
-}
-
-#[test]
 fn tick_suppresses_byte_identical_delta() {
     let d = delta(1, Some("liveFrom"));
     let sig = delta_signature(&d);

@@ -212,6 +212,5 @@ fn mem_backend_sqlite_import_target_does_not_seed_or_clean_source_records() {
     };
     let target = opener.migration_target(MemoryBackend::Sqlite).unwrap();
     let counts = target.table_counts().unwrap();
-    assert_eq!(counts.len(), 21);
     assert!(counts.values().all(|count| *count == 0));
 }

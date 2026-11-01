@@ -174,19 +174,4 @@ fn take_prioritized(
 }
 
 #[cfg(test)]
-fn take_next(pending: &mut Vec<usize>, preferred: Option<usize>) -> Option<usize> {
-    let len = pending.iter().copied().max().map_or(0, |index| index + 1);
-    let priorities = (0..len)
-        .map(|index| {
-            if Some(index) == preferred {
-                Priority::Focused
-            } else {
-                Priority::Background
-            }
-        })
-        .collect::<Vec<_>>();
-    take_prioritized(pending, &priorities, false)
-}
-
-#[cfg(test)]
 mod tests;

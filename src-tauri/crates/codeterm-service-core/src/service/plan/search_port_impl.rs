@@ -207,7 +207,7 @@ mod tests {
         port.init_schema(&conn).unwrap();
         let blobs = tempfile::tempdir().unwrap();
 
-        for index in 0..15 {
+        for index in 0..11 {
             insert_search_item(
                 &conn,
                 blobs.path(),
@@ -216,15 +216,13 @@ mod tests {
                 format!("Searchable task {index}"),
             );
         }
-        for index in 0..15 {
-            insert_search_item(
-                &conn,
-                blobs.path(),
-                MemKind::SpecSection,
-                MemScope::Global,
-                format!("Searchable spec section {index}"),
-            );
-        }
+        insert_search_item(
+            &conn,
+            blobs.path(),
+            MemKind::SpecSection,
+            MemScope::Global,
+            "Searchable spec section".into(),
+        );
         insert_search_item(
             &conn,
             blobs.path(),

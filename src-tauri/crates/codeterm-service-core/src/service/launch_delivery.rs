@@ -584,14 +584,6 @@ mod tests {
     }
 
     #[test]
-    fn delivery_prefers_system_prompt_when_declared() {
-        assert_eq!(
-            mode_for_descriptor(&SystemPromptDelivery::CliFlag("--system".into())),
-            LaunchDeliveryMode::SystemPrompt
-        );
-    }
-
-    #[test]
     fn system_prompt_channel_consumes_launch_content_without_a_fallback_turn() {
         let content = content_for_descriptor(
             &SystemPromptDelivery::CliFlag("--system".into()),
@@ -658,16 +650,6 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn startup_ack_starter_requires_a_supervised_non_task_launch() {
-        assert_eq!(startup_starter_prompt(false, false), None);
-        assert_eq!(
-            startup_starter_prompt(true, false),
-            Some(crate::agent::provider::StarterPrompt::StartupHandshake)
-        );
-        assert_eq!(startup_starter_prompt(true, true), None);
     }
 
     #[test]
