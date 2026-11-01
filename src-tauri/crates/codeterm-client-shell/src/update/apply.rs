@@ -45,6 +45,10 @@ async fn check_and_apply_plugin(
     update_state: UpdateStateHandle,
     server_stop: std::sync::Arc<dyn ServerStop>,
 ) -> Result<ApplyResult, String> {
+    // Restoring a resolved manifest skips the provider initialization in Updater::check.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
     let resolved_manifest = codeterm_update::checker::resolve_manifest(
         &opts.install_method,
         opts.channel,
