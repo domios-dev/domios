@@ -1,6 +1,7 @@
 use super::*;
 use crate::service_plan::paths;
 use crate::service_plan::plan_match;
+use serde_json::Value;
 
 impl PlanStore {
     /// codeterm-releases#56: a freshly minted Team never owns a plan, so the
@@ -39,6 +40,20 @@ impl PlanStore {
     /// `None` when the plan is unknown; the inner value is the plan's Team binding.
     pub fn plan_team_id(&self, id: &str) -> Option<Option<String>> {
         self.index.read().get(id).map(|row| row.team_id.clone())
+    }
+
+    /// Compact exact-plan admission metadata; this never loads or clones the Plan.
+    pub fn plan_team_binding_metadata(
+        &self,
+        id: &str,
+    ) -> Option<(PlanStatus, Option<String>, bool)> {
+        match self.database.plan_team_binding_metadata(id) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                log::warn!("[plan.store] {error}; source left unchanged");
+                None
+            }
+        }
     }
 
     pub fn live_active_plan_ids(&self) -> Vec<String> {
@@ -405,6 +420,20 @@ impl PlanStore {
             log::warn!("[plan.store] plan index query failed: {error}");
             Vec::new()
         })
+    }
+
+    pub fn task_board_page(
+        &self,
+        plan_id: &str,
+        status: Option<&str>,
+        limit: usize,
+        after: Option<(u64, i64, &str)>,
+    ) -> Result<Value, PlanError> {
+        self.database.task_board_page(plan_id, status, limit, after)
+    }
+
+    pub fn task_detail_for_plan(&self, plan_id: &str, task_id: &str) -> Result<Value, PlanError> {
+        self.database.task_detail(plan_id, task_id)
     }
 
     pub fn list_spec_index(&self) -> Vec<SpecIndexEntry> {

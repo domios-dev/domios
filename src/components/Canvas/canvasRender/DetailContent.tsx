@@ -4,7 +4,7 @@ import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { AgentIcon } from "../../AgentIcon";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { TASK_STATUS_COLORS } from "../settings";
-import type { Plan, Section, Task, TaskLaneMetadata } from "../types";
+import type { Plan, PlanTaskDetailContext, Section, Task, TaskLaneMetadata } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
 import { canonicalTaskStatusLabel } from "../planView/taskStatusLabel";
@@ -21,6 +21,7 @@ export interface DetailContentProps {
   planId?: string;
   api?: ApiConfig;
   task?: Task;
+  taskContext?: PlanTaskDetailContext;
   plan?: Plan;
   spec?: Plan;
   specSections?: Section[];
@@ -59,19 +60,23 @@ function flattenSections(sections: Section[]): Section[] {
   return sections.flatMap((section) => [section, ...flattenSections(section.subsections ?? [])]);
 }
 
-function linkedTaskSections(task: Task, plan?: Plan): Section[] {
-  if (!plan || task.section_ids.length === 0) return [];
-  const byId = new Map(flattenSections(plan.sections).map((section) => [section.id, section]));
-  return task.section_ids.map((id) => byId.get(id)).filter((section): section is Section => Boolean(section));
+function linkedTaskSections(task: Task, plan?: Plan, taskContext?: PlanTaskDetailContext): Array<Pick<Section, "id" | "title">> {
+  if ((!plan && !taskContext) || task.section_ids.length === 0) return [];
+  const sections = plan ? flattenSections(plan.sections) : taskContext?.sections ?? [];
+  const byId = new Map(sections.map((section) => [section.id, section]));
+  return task.section_ids
+    .map((id) => byId.get(id))
+    .filter((section): section is Pick<Section, "id" | "title"> => Boolean(section));
 }
 
-function TaskSectionLinks({ task, plan, planId, onSection }: {
+function TaskSectionLinks({ task, plan, taskContext, planId, onSection }: {
   task: Task;
   plan?: Plan;
+  taskContext?: PlanTaskDetailContext;
   planId?: string;
   onSection?: (a: SectionNavArgs) => void;
 }) {
-  const sections = linkedTaskSections(task, plan);
+  const sections = linkedTaskSections(task, plan, taskContext);
   if (sections.length === 0) return null;
   const navPlanId = planId ?? plan?.id;
   return (
@@ -207,9 +212,10 @@ function AgentCard({ task, tabs, persona, agentTab, onOpenTab }: {
   );
 }
 
-function TaskDetail({ api, task, plan, planId, tabs = {}, onOpenTab, onSection, renderTaskAttachmentThumbnails }: {
+function TaskDetail({ api, task, taskContext, plan, planId, tabs = {}, onOpenTab, onSection, renderTaskAttachmentThumbnails }: {
   api?: ApiConfig;
   task: Task;
+  taskContext?: PlanTaskDetailContext;
   plan?: Plan;
   planId?: string;
   tabs?: Record<string, Tab>;
@@ -221,7 +227,9 @@ function TaskDetail({ api, task, plan, planId, tabs = {}, onOpenTab, onSection, 
   const agentTab = resolveTab(task.assigned_tab_id, tabs);
   const persona = task.personality?.trim() || agentTab?.title || null;
   const attachmentThumbnails = renderTaskAttachmentThumbnails?.(task);
-  const statusLabel = canonicalTaskStatusLabel(task, plan);
+  const blockedOnSubtasks = taskContext?.has_open_subtasks
+    && (task.status === "pending" || task.status === "in_progress");
+  const statusLabel = blockedOnSubtasks ? "blocked on subtasks" : canonicalTaskStatusLabel(task, plan);
   return (
     <div className="ct-detail" data-testid="canvas-detail-content">
       <div className="ct-detail__meta">
@@ -258,7 +266,7 @@ function TaskDetail({ api, task, plan, planId, tabs = {}, onOpenTab, onSection, 
           <div data-testid="plan-detail-attachment-thumbnails">{attachmentThumbnails}</div>
         </Block>
       )}
-      <TaskSectionLinks task={task} plan={plan} planId={planId} onSection={onSection} />
+      <TaskSectionLinks task={task} plan={plan} taskContext={taskContext} planId={planId} onSection={onSection} />
       {task.external_refs?.length ? (
         <Block label="External references" testId="task-external-references">
           <div className="ct-detail__list">
@@ -527,13 +535,14 @@ function resolvePlanModel(kind: PlanDetailKind, plan?: Plan, spec?: Plan, specSe
   return spec;
 }
 
-export function DetailContent({ kind, planId, api, task, plan, spec, specSections, tabs, onOpenTab, onOpenTask, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
+export function DetailContent({ kind, planId, api, task, taskContext, plan, spec, specSections, tabs, onOpenTab, onOpenTask, onSectionClick, onSectionFrame, renderTaskAttachmentThumbnails }: DetailContentProps) {
   if (kind === "task") {
     const onSection = onSectionFrame ?? onSectionClick;
     return task ? (
       <TaskDetail
         api={api}
         task={task}
+        taskContext={taskContext}
         plan={plan}
         planId={planId}
         tabs={tabs}

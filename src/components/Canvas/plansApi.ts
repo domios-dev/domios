@@ -2,7 +2,18 @@ import { daemonFetch } from "../../lib/webApi";
 import type { ControlLoopUpdate, PlanControlLoop } from "./planControlLoop";
 import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
-import type { DriftItem, OrchestratorRef, Plan, PlanMode, PlanStatus, Section } from "./types";
+import type {
+  DriftItem,
+  OrchestratorRef,
+  Plan,
+  PlanMode,
+  PlanStatus,
+  PlanTaskBoardColumnKey,
+  PlanTaskBoardCursor,
+  PlanTaskBoardPage,
+  PlanTaskDetail,
+  Section,
+} from "./types";
 import type { PlanLifecycleKind, PlanLifecyclePreview } from "./planLifecycle";
 
 // without fetching full plan bodies.
@@ -74,6 +85,46 @@ export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSi
     signal,
   });
   if (!res.ok) throw new Error(`plan get failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchPlanTaskDetail(
+  api: ApiConfig,
+  planId: string,
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<PlanTaskDetail> {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (!res.ok) throw new Error(`plan task detail failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchPlanTaskBoardPage(
+  api: ApiConfig,
+  planId: string,
+  options: {
+    signal?: AbortSignal;
+    status?: PlanTaskBoardColumnKey | "cancelled";
+    cursor?: PlanTaskBoardCursor | null;
+    pageSize?: number;
+  } = {},
+): Promise<PlanTaskBoardPage> {
+  const params = new URLSearchParams({ page_size: String(options.pageSize ?? 25) });
+  if (options.status) params.set("status", options.status);
+  if (options.cursor) {
+    params.set("after_created_at", String(options.cursor.created_at));
+    params.set("after_position", String(options.cursor.position));
+    params.set("after_task_id", options.cursor.task_id);
+  }
+  const res = await daemonFetch(
+    api,
+    `/api/plans/${encodeURIComponent(planId)}/tasks?${params}`,
+    { headers: authHeaders(api), signal: options.signal },
+  );
+  if (!res.ok) throw new Error(`plan task page failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
 

@@ -11,6 +11,9 @@ import {
   type Section,
   type Task,
   type TaskStatus as TaskStatusType,
+  type PlanTaskBoardSummary,
+  type PlanTaskCompetitionBadge,
+  type PlanTaskHistoricalExecutor,
 } from "../types";
 import { canonicalTaskStatusLabel, latestTaskNote } from "./taskStatusLabel";
 import { qaChipText } from "./taskQa";
@@ -71,7 +74,7 @@ export interface TaskLocator {
 }
 
 export interface BoardTaskCardModel {
-  task: Task;
+  task: BoardTaskCardTask;
   statusChipText: string;
   presenceLabel: string | null;
   historicalExecutorSummary: string | null;
@@ -83,6 +86,26 @@ export interface BoardTaskCardModel {
   competeBadge: CompetitionForTaskResult | null;
   focusMatch: boolean;
   locator: TaskLocator | null;
+}
+
+/** The renderer's bounded task identity/presentation fields; summaries do not fake full Task records. */
+export interface BoardTaskCardTask {
+  id: string;
+  name: string;
+  status: TaskStatusType;
+  key?: string | null;
+  handle?: string | null;
+  pause_reason?: string | null;
+  created_at?: number;
+  updated_at?: number;
+  status_changed_at?: number;
+  activity_at?: number;
+  assigned_tab_id?: string | null;
+  lane?: Pick<NonNullable<Task["lane"]>, "tab_id" | "branch">;
+  milestones?: Task["milestones"];
+  taken_by_role?: string | null;
+  model?: string | null;
+  peer?: string | null;
 }
 
 export interface BoardColumnModel {
@@ -218,6 +241,118 @@ function buildTaskCard(
     competeBadge: competitionForTask(task, tabs),
     focusMatch: focusMatches(plan, task, tabId),
     locator: buildTaskLocator(plan, task),
+  };
+}
+
+function executorSummary(
+  summary: PlanTaskHistoricalExecutor | null | undefined,
+  task: BoardTaskCardTask,
+  tabs: Record<string, Tab>,
+): string | null {
+  if (task.status !== TaskStatus.Done && task.status !== TaskStatus.Cancelled && task.status !== TaskStatus.Paused) return null;
+  const tabId = summary?.tab_id?.trim() || task.assigned_tab_id?.trim() || task.lane?.tab_id?.trim() || null;
+  const tabTitle = summary?.tab_title?.trim() || (tabId ? tabs[tabId]?.title?.trim() : null);
+  const label = tabTitle || (tabId ? (tabId.length > 12 ? tabId.slice(0, 8) : tabId) : null);
+  const fields = [
+    label,
+    summary?.role?.trim() || task.taken_by_role?.trim(),
+    summary?.model?.trim(),
+    summary?.branch?.trim() || task.lane?.branch?.trim(),
+    summary?.report_status?.trim() || summary?.outcome?.trim(),
+  ].filter((value): value is string => Boolean(value));
+  return fields.length ? fields.join(" · ") : null;
+}
+
+function competitionBadge(
+  summary: PlanTaskCompetitionBadge | null | undefined,
+  tabs: Record<string, Tab>,
+): CompetitionForTaskResult | null {
+  if (!summary) return null;
+  const lines = [`${summary.count} competitive attempts configured`];
+  if (summary.models.length) lines.push(`models: ${summary.models.join(", ")}`);
+  if (summary.judge_hint?.trim()) lines.push(`judge: ${summary.judge_hint.trim()}`);
+  if (summary.live_count === 0) {
+    lines.push("no live attempts");
+  } else {
+    for (const attempt of summary.live_attempts) {
+      const id = attempt.tab_id?.trim();
+      const label = attempt.tab_title?.trim() || (id ? tabs[id]?.title?.trim() : null) || (id ? (id.length > 8 ? id.slice(0, 8) : id) : "unknown");
+      const model = attempt.model?.trim();
+      const lane = attempt.competition_lane != null ? ` lane ${attempt.competition_lane}` : "";
+      lines.push(`live: ${label}${lane}${model ? ` · ${model}` : ""}`);
+    }
+    if (summary.live_count > summary.live_attempts.length) {
+      lines.push(`${summary.live_count - summary.live_attempts.length} more live attempts`);
+    }
+  }
+  return { count: summary.count, liveCount: summary.live_count, tooltip: lines.join("\n") };
+}
+
+function summaryStatusLabel(summary: PlanTaskBoardSummary): string {
+  if (summary.status === TaskStatus.InReview && summary.review_stage === "qa") {
+    if (summary.qa_state === "running") return "In QA · running";
+    const position = summary.qa_queue_position ?? 0;
+    const base = position > 0 ? `In QA · queued #${position}` : "In QA · queued";
+    const reason = summary.status_label?.trim();
+    return reason ? `${base} — ${reason}` : base;
+  }
+  return summary.status.replace(/_/g, " ");
+}
+
+function summaryLatestNote(text: string | null | undefined): string | null {
+  const normalized = text?.replace(/\s+/g, " ").trim();
+  if (!normalized) return null;
+  return normalized.length <= 120 ? normalized : `${normalized.slice(0, 119)}…`;
+}
+
+export function buildSummaryBoardTaskCard(
+  summary: PlanTaskBoardSummary,
+  tabs: Record<string, Tab>,
+  now: number = Date.now(),
+): BoardTaskCardModel {
+  const task: BoardTaskCardTask = {
+    id: summary.id,
+    name: summary.name,
+    status: summary.status,
+    key: summary.key,
+    handle: summary.handle,
+    pause_reason: summary.pause_reason,
+    created_at: summary.created_at,
+    updated_at: summary.updated_at,
+    status_changed_at: summary.status_changed_at,
+    activity_at: summary.activity_at ?? Math.max(summary.created_at, summary.updated_at, summary.status_changed_at),
+    assigned_tab_id: summary.assigned_tab_id,
+    lane: summary.lane,
+    taken_by_role: summary.taken_by_role,
+    model: summary.model,
+    peer: summary.peer,
+  };
+  const tabId = task.assigned_tab_id?.trim() || task.lane?.tab_id?.trim() || null;
+  const canHavePresence = task.status !== TaskStatus.Done && task.status !== TaskStatus.Cancelled && task.status !== TaskStatus.Paused;
+  const presenceLabel = canHavePresence && tabId && tabs[tabId]
+    ? tabs[tabId]?.title?.trim() || tabId.slice(0, 8)
+    : null;
+  const locator = summary.locator;
+  return {
+    task,
+    statusChipText: summaryStatusLabel(summary),
+    presenceLabel,
+    historicalExecutorSummary: executorSummary(summary.historical_executor, task, tabs),
+    roleLabel: summary.historical_executor?.role?.trim() || task.taken_by_role?.trim() || null,
+    branch: task.lane?.branch?.trim() || null,
+    latestNote: summaryLatestNote(summary.latest_note),
+    workingOn: deriveWorkingOnRow(task, tabs, now),
+    loopBadge: summary.loop_badge ?? null,
+    competeBadge: competitionBadge(summary.competition_badge, tabs),
+    focusMatch: false,
+    locator: locator && (locator.groupKey || locator.section)
+      ? {
+          groupKey: locator.groupKey,
+          groupLabel: locator.groupLabel?.trim() || locator.groupKey,
+          groupColor: locator.groupColor,
+          section: locator.section,
+        }
+      : null,
   };
 }
 

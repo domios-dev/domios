@@ -13,6 +13,7 @@ import {
   PlansProvider,
   useCanvasPlans,
   useFullPlans,
+  useFullPlansOptional,
   useSidebarPlansOptional,
 } from "./PlansProvider";
 
@@ -119,6 +120,11 @@ function FullProbe() {
   return null;
 }
 
+function OptionalFullProbe({ enabled }: { enabled: boolean }) {
+  const full = useFullPlansOptional(enabled);
+  return <output data-testid="optional-full-state">{full ? "enabled" : "disabled"}</output>;
+}
+
 function SidebarProbe() {
   const { plans } = useSidebarPlansOptional();
   return <output data-testid="sidebar-plan-count">{plans.length}</output>;
@@ -191,6 +197,43 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
   );
   assert(indexCalls === 1, `one index fetch (got ${indexCalls})`);
   assert(fullCalls === 1, `one batched full fetch for N canvas consumers (got ${fullCalls})`);
+  await act(async () => root.unmount());
+});
+
+test("optional full reader leaves Tasks detached and releases the collection when hidden", async () => {
+  indexCalls = 0;
+  fullCalls = 0;
+  const { host, root } = await renderTree(
+    <PlansProvider api={API}>
+      <OptionalFullProbe enabled={false} />
+    </PlansProvider>,
+  );
+  assert(fullCalls === 0, "disabled Tasks mode does not subscribe to the full collection");
+  assert(host.querySelector('[data-testid="optional-full-state"]')?.textContent === "disabled", "no full snapshot exposed");
+
+  await act(async () => {
+    root.render(
+      <PlansProvider api={API}>
+        <OptionalFullProbe enabled />
+      </PlansProvider>,
+    );
+    await flushAsyncWork();
+  });
+  assert(fullCalls === 1, "visible full-plan surface acquires the collection");
+
+  await act(async () => {
+    root.render(
+      <PlansProvider api={API}>
+        <OptionalFullProbe enabled={false} />
+      </PlansProvider>,
+    );
+    await flushAsyncWork();
+  });
+  await act(async () => {
+    emitPlansLoaded();
+    await flushAsyncWork();
+  });
+  assert(fullCalls === 1, `hidden full-plan surface remains unsubscribed after reload events (got ${fullCalls})`);
   await act(async () => root.unmount());
 });
 
