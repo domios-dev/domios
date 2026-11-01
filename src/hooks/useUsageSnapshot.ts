@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { readUsageOnEvent } from "../lib/usageEventReads";
 import { DEV_BUILD } from "../lib/devBuild";
 import { invoke } from "../lib/bridge";
 import { listen } from "../lib/bridge";
@@ -34,16 +35,16 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
   const readSequence = useRef(0);
   const snapshotKey = snapshot ? JSON.stringify(snapshot) : null;
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (event?: UsageSnapshotEvent) => {
     if (!enabled) return;
     const read = ++readSequence.current;
     setLoading(true);
     setError(null);
     try {
-      const row = await invoke<UsageSnapshot | null>("usage_latest", {
+      const row = await readUsageOnEvent<UsageSnapshot | null>(event, "usage_latest", {
         provider,
         accountId: accountId ?? undefined,
-      });
+      }, invoke);
       if (!cancelledRef.current && read === readSequence.current) setSnapshot(row ?? null);
     } catch (e) {
       if (DEV_BUILD) console.debug("Background usage snapshot read failed", e);
@@ -72,7 +73,7 @@ export function useUsageSnapshot(opts: UseUsageSnapshotOptions): UseUsageSnapsho
       if (evt.payload.provider !== provider) return;
       const wantAcc = accountId ?? null;
       if ((evt.payload.account_id ?? null) !== wantAcc) return;
-      refetch();
+      refetch(evt.payload);
     }).then((fn) => {
       if (!active) fn();
       else {
@@ -138,17 +139,17 @@ export function useUsageHistory(opts: UseUsageHistoryOptions): UseUsageHistoryRe
   const [error, setError] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (event?: UsageSnapshotEvent) => {
     if (!enabled) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<UsageSnapshot[] | null>("usage_history", {
+      const result = await readUsageOnEvent<UsageSnapshot[] | null>(event, "usage_history", {
         provider,
         since: sinceMs,
         limit,
         accountId: accountId ?? undefined,
-      });
+      }, invoke);
       if (!cancelledRef.current) setRows(result ?? []);
     } catch (e) {
       if (DEV_BUILD) console.debug("Background usage history read failed", e);
@@ -168,7 +169,7 @@ export function useUsageHistory(opts: UseUsageHistoryOptions): UseUsageHistoryRe
         if (evt.payload.provider !== provider) return;
         const wantAcc = accountId ?? null;
         if ((evt.payload.account_id ?? null) !== wantAcc) return;
-        refetch();
+        refetch(evt.payload);
       }).then((fn) => {
         if (cancelledRef.current) fn();
         else unlisten = fn;
@@ -234,15 +235,15 @@ export function useUsageProjection(opts: UseUsageProjectionOptions): UseUsagePro
   const [error, setError] = useState<string | null>(null);
   const cancelledRef = useRef(false);
 
-  const refetch = useCallback(async () => {
+  const refetch = useCallback(async (event?: UsageSnapshotEvent) => {
     if (!enabled) return;
     setLoading(true);
     setError(null);
     try {
-      const result = await invoke<ProjectionResponse | null>("usage_projection", {
+      const result = await readUsageOnEvent<ProjectionResponse | null>(event, "usage_projection", {
         provider,
         accountId: accountId ?? undefined,
-      });
+      }, invoke);
       if (!cancelledRef.current) setProjection(result ?? null);
     } catch (e) {
       if (DEV_BUILD) console.debug("Background usage projection read failed", e);
@@ -262,7 +263,7 @@ export function useUsageProjection(opts: UseUsageProjectionOptions): UseUsagePro
       if (evt.payload.provider !== provider) return;
       const wantAcc = accountId ?? null;
       if ((evt.payload.account_id ?? null) !== wantAcc) return;
-      refetch();
+      refetch(evt.payload);
     }).then((fn) => {
       if (cancelledRef.current) fn();
       else unlisten = fn;
