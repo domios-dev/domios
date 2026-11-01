@@ -54,7 +54,7 @@ async function verifySendIdentity() {
     const opener = await show(ref);
     assert(opener && host.textContent?.includes("Courier"), "exact live ID and explicitly supplied unique short ref resolve");
     await act(async () => opener.click());
-    assert(focused.at(-1) === ref, "resolved opener forwards the supplied authoritative ref");
+    assert(focused[focused.length - 1] === ref, "resolved opener forwards the supplied authoritative ref");
   }
   await act(async () => root.unmount());
   host.remove();
