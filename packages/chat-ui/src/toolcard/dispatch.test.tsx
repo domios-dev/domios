@@ -30,10 +30,20 @@ for (const kind of Object.keys(expectedLabels) as ToolEventKind[]) {
   if (!host.textContent?.includes(expectedLabels[kind])) throw new Error(`${kind} dispatched to the wrong card`);
 }
 
+const commandFocusCalls: string[] = [];
 const codetermHost = await render(
-  <ToolCallBubble event={tool("command", 'codeterm send --tab e3fa0754 "hello"')} expanded onToggle={() => {}} onFocusTab={() => {}} />,
+  <ToolCallBubble
+    event={tool("command", 'codeterm send --tab e3fa0754 "hello"')}
+    expanded
+    onToggle={() => {}}
+    resolveTabName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined}
+    onFocusTab={(ref) => commandFocusCalls.push(ref)}
+  />,
 );
-if (!codetermHost.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("recognized codeterm command did not use CodetermActionCard");
+const commandFocusButton = codetermHost.querySelector<HTMLButtonElement>('[data-testid="codeterm-focus-tab"]');
+if (!commandFocusButton) throw new Error("recognized codeterm command did not expose its resolved tab action");
+await act(async () => commandFocusButton.click());
+if (commandFocusCalls.join() !== "e3fa0754") throw new Error("command-shaped send did not focus its exact tab target");
 
 const focusCalls: string[] = [];
 const resolverHost = await render(

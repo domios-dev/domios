@@ -72,13 +72,20 @@ function stubStylesheetAnimations() {
 type RunningAnimation = Pick<CSSAnimation, "animationName" | "playState">;
 
 /** Stands in for the browser's own animation list, which the stylesheet name alone cannot tell apart from a hidden element. */
-function stubElementAnimations(read: () => RunningAnimation[]) {
+function stubElementAnimations(read: (element: HTMLElement) => RunningAnimation[]) {
   const prototype = HTMLElement.prototype as { getAnimations?: unknown };
   const original = Object.getOwnPropertyDescriptor(prototype, "getAnimations");
-  Object.defineProperty(prototype, "getAnimations", { configurable: true, value: () => read() });
+  Object.defineProperty(prototype, "getAnimations", { configurable: true, value: function (this: HTMLElement) { return read(this); } });
   restorers.push(() => {
     if (original) Object.defineProperty(prototype, "getAnimations", original);
     else delete prototype.getAnimations;
+  });
+}
+
+function stubConfiguredPresenceAnimations() {
+  stubElementAnimations((element) => {
+    const names = styledAnimationName(element)?.split(",").map((name) => name.trim()).filter((name) => name && name !== "none") ?? [];
+    return names.map((animationName): RunningAnimation => ({ animationName, playState: "running" }));
   });
 }
 
@@ -128,6 +135,7 @@ async function mountPanelWithOpener() {
 describe("side panel presence", () => {
   it("keeps the closing panel mounted until its own exit animation ends, then returns focus to the opener", async () => {
     stubStylesheetAnimations();
+    stubConfiguredPresenceAnimations();
     const opener = await mountPanelWithOpener();
     await openTask(FIRST);
 
@@ -158,6 +166,7 @@ describe("side panel presence", () => {
 
   it("an interrupted exit animation still unmounts through animationcancel", async () => {
     stubStylesheetAnimations();
+    stubConfiguredPresenceAnimations();
     await mountPanelWithOpener();
     await openTask(FIRST);
     const panel = sidePanel() as HTMLElement;
@@ -183,6 +192,7 @@ describe("side panel presence", () => {
 
   it("replacing the content keeps the same open panel, does not replay its entry, and fades the new body in", async () => {
     stubStylesheetAnimations();
+    stubConfiguredPresenceAnimations();
     await mountPanelWithOpener();
     await openTask(FIRST);
     const panel = sidePanel() as HTMLElement;
@@ -198,6 +208,7 @@ describe("side panel presence", () => {
 
   it("reopening during the exit enters again on the same panel", async () => {
     stubStylesheetAnimations();
+    stubConfiguredPresenceAnimations();
     await mountPanelWithOpener();
     await openTask(FIRST);
     const panel = sidePanel() as HTMLElement;
@@ -222,6 +233,7 @@ describe("temporary task segment presence", () => {
 
   it("grows in and shrinks out on its own animations while the selection moves back to Tasks", async () => {
     stubStylesheetAnimations();
+    stubConfiguredPresenceAnimations();
     const onChange = vi.fn();
     const { host, rerender } = await mount(<PlanViewModeSwitch value="task" onChange={onChange} temporaryTab={TEMPORARY_TAB} />);
 

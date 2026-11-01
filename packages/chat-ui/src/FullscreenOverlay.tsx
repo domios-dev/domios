@@ -42,7 +42,9 @@ export function useFullscreenKeyboard(open: boolean, ref: RefObject<HTMLDivEleme
     };
     const fromFrame = (event: MessageEvent) => {
       if (event.data?.source !== "ct-html-preview" || event.data?.action !== "close") return;
-      if (Array.from(ref.current?.querySelectorAll("iframe") ?? []).some((frame) => frame.contentWindow === event.source)) closeRef.current();
+      const source = event.source;
+      if (source === null) return;
+      if (Array.from(ref.current?.querySelectorAll("iframe") ?? []).some((frame) => frame.contentWindow !== null && frame.contentWindow === source)) closeRef.current();
     };
     window.addEventListener("keydown", handle, true);
     window.addEventListener("message", fromFrame);
