@@ -15,7 +15,7 @@ const stores = vi.hoisted(() => ({
     plan: { authority: "billing", fullAccess: false, plan: "pro", status: "unavailable", stale: false, periodEnd: null, cancelAtPeriodEnd: false },
     manage: vi.fn(async () => new Error("billing-store-error")),
   },
-  update: { error: "update-store-error", busy: false, items: [], rows: [], retry: vi.fn() },
+  update: { error: "update-store-error", busy: false, checking: false, items: [], rows: [], diagnostics: [], retry: vi.fn() },
 }));
 
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => stores.account }));
@@ -29,6 +29,7 @@ vi.mock("../../lib/keybindings", async (original) => ({
 vi.mock("../Settings/useAccountPlan", () => ({ useAccountPlan: () => stores.billing }));
 vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({ subscription: { paid_subscription: { tier: "pro" } } }) }));
 vi.mock("../../hooks/useUpdatePanel", () => ({ useUpdatePanel: () => stores.update }));
+vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ phase: "idle", installing: false, downloadedBytes: 0, downloadTotalBytes: null }) }));
 vi.mock("./KeepAwakeTray", () => ({ KeepAwakeTray: () => null }));
 vi.mock("./ExtensionsTray", () => ({ ExtensionsTray: () => null }));
 vi.mock("../WebPeerPicker/WebPeerPicker", () => ({ WebPeerPicker: () => null }));
