@@ -1,4 +1,5 @@
 use super::{db_error, PlanDatabase};
+use crate::plan::{PlanOrphan, PlanStatus};
 use crate::service_plan::PlanError;
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::{json, Map, Value};
@@ -253,6 +254,63 @@ fn competition_badge(
 }
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn plan_team_binding_metadata(
+        &self,
+        plan_id: &str,
+    ) -> Result<Option<(PlanStatus, Option<String>, bool)>, PlanError> {
+        let connection = self.connection.lock();
+        let row: Option<(String, Option<String>, Option<String>, Option<String>)> = connection
+            .query_row(
+                "SELECT status, team_id, json_type(header_json, '$.orphaned'),
+                        json_extract(header_json, '$.orphaned')
+                 FROM plans WHERE id = ?1",
+                [plan_id],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            )
+            .optional()
+            .map_err(db_error)?;
+        let Some((raw_status, team_id, orphaned_type, orphaned_json)) = row else {
+            return Ok(None);
+        };
+        let status = match raw_status.as_str() {
+            "active" => PlanStatus::Active,
+            "archived" => PlanStatus::Archived,
+            _ => {
+                return Err(PlanError::Quarantined {
+                    plan_id: plan_id.to_string(),
+                    reason: format!("plan has invalid status {raw_status:?}"),
+                });
+            }
+        };
+        let has_orphan_marker = match orphaned_type.as_deref() {
+            None | Some("null") => false,
+            Some("object") => {
+                let raw = orphaned_json
+                    .as_deref()
+                    .ok_or_else(|| PlanError::Quarantined {
+                        plan_id: plan_id.to_string(),
+                        reason: "plan orphan marker is invalid".into(),
+                    })?;
+                serde_json::from_str::<PlanOrphan>(raw).map_err(|error| {
+                    PlanError::Quarantined {
+                        plan_id: plan_id.to_string(),
+                        reason: format!("plan orphan marker is invalid: {error}"),
+                    }
+                })?;
+                true
+            }
+            Some(_) => {
+                return Err(PlanError::Quarantined {
+                    plan_id: plan_id.to_string(),
+                    reason: "plan orphan marker is invalid".into(),
+                });
+            }
+        };
+        let orphaned_active =
+            status == PlanStatus::Active && team_id.is_none() && has_orphan_marker;
+        Ok(Some((status, team_id, orphaned_active)))
+    }
+
     pub(in crate::service_plan) fn task_board_page(
         &self,
         plan_id: &str,

@@ -42,6 +42,20 @@ impl PlanStore {
         self.index.read().get(id).map(|row| row.team_id.clone())
     }
 
+    /// Compact exact-plan admission metadata; this never loads or clones the Plan.
+    pub fn plan_team_binding_metadata(
+        &self,
+        id: &str,
+    ) -> Option<(PlanStatus, Option<String>, bool)> {
+        match self.database.plan_team_binding_metadata(id) {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                log::warn!("[plan.store] {error}; source left unchanged");
+                None
+            }
+        }
+    }
+
     pub fn live_active_plan_ids(&self) -> Vec<String> {
         self.database
             .live_active_plan_ids()

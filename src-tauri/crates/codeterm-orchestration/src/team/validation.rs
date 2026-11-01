@@ -48,11 +48,9 @@ pub fn validate_plan_team_binding(
     plan_id: &str,
 ) -> Result<(), TeamPlanError> {
     validate_bindings_with(
-        || match svc.plan_store.get(plan_id) {
-            Some(plan) if plan.status == PlanStatus::Archived || plan.is_orphaned_active() => {
-                vec![]
-            }
-            Some(plan) => vec![PlanTeamBinding::new(plan_id.into(), Some(plan.team_id))],
+        || match svc.plan_store.plan_team_binding_metadata(plan_id) {
+            Some((PlanStatus::Archived, _, _)) | Some((_, _, true)) => vec![],
+            Some((_, team_id, _)) => vec![PlanTeamBinding::new(plan_id.into(), Some(team_id))],
             None => vec![PlanTeamBinding::new(plan_id.into(), None)],
         },
         |team_ids| existing_teams(svc, team_ids),
