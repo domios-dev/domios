@@ -31,7 +31,7 @@ afterEach(async () => {
 function Harness() {
   const [open, setOpen] = useState(false);
   const panel = useRef<HTMLDivElement>(null);
-  return <div><button type="button" onClick={() => setOpen(true)}>Open viewer</button>{open && <FullscreenOverlay panelRef={panel} label="Preview" onClose={() => setOpen(false)}><iframe title="Preview frame" /><button type="button">Last control</button></FullscreenOverlay>}</div>;
+  return <div><button type="button" onClick={() => setOpen(true)}>Open viewer</button>{open && <FullscreenOverlay panelRef={panel} label="Preview" onClose={() => setOpen(false)}><iframe title="Preview frame" srcDoc="<p>Preview content</p>" /><button type="button">Last control</button></FullscreenOverlay>}</div>;
 }
 async function open() {
   const opener = host.querySelector("button")!;
@@ -68,10 +68,14 @@ test("Escape and backdrop close the viewer without closing its host", async () =
 test("only the viewer's own HTML frame may forward Escape", async () => {
   await mount(<Harness />);
   const { dialog } = await open();
-  await act(async () => window.dispatchEvent(new window.MessageEvent("message", { data: { source: "ct-html-preview", action: "close" } })));
-  assert(document.querySelector('[role="dialog"]'));
   const frame = dialog.querySelector("iframe")!;
-  await act(async () => window.dispatchEvent(new window.MessageEvent("message", { source: frame.contentWindow, data: { source: "ct-html-preview", action: "close" } })));
+  const ownSource = frame.contentWindow;
+  assert(ownSource);
+  await act(async () => window.dispatchEvent(new window.MessageEvent("message", { data: { source: "ct-html-preview", action: "close" } })));
+  assert.equal(document.querySelector('[role="dialog"]'), dialog);
+  await act(async () => window.dispatchEvent(new window.MessageEvent("message", { source: window as unknown as MessageEventSource, data: { source: "ct-html-preview", action: "close" } })));
+  assert.equal(document.querySelector('[role="dialog"]'), dialog);
+  await act(async () => window.dispatchEvent(new window.MessageEvent("message", { source: ownSource as unknown as MessageEventSource, data: { source: "ct-html-preview", action: "close" } })));
   assert.equal(document.querySelector('[role="dialog"]'), null);
 });
 test("HTML fullscreen uses the shared viewport viewer and restores its trigger", async () => {
