@@ -25,10 +25,8 @@ pub fn run(
                 return;
             }
         };
-    let startup_options = match if isolated.is_some() {
-        Ok(crate::ClientArgumentPreflight::Native(
-            crate::ClientStartupOptions::default(),
-        ))
+    let startup_options = match if let Some(launch) = isolated.as_ref() {
+        Ok(crate::ClientArgumentPreflight::Native(launch.startup_options()))
     } else {
         crate::preflight_client_arguments(&arguments)
     } {

@@ -32,9 +32,10 @@ const launchBytes = fs.readFileSync(launchFile);
 if (launchBytes.length > 8192) throw new Error('Launch context exceeds limit');
 const launch = JSON.parse(launchBytes.toString('utf8'));
 const fields = ['install_root', 'instance', 'data_dir', 'config_dir', 'port', 'fixture_root'];
-if (Object.keys(launch).length !== fields.length || fields.some(key => !(key in launch))) throw new Error('Unexpected launch context fields');
+if (Object.keys(launch).some(key => ![...fields, 'diagnostics_port'].includes(key)) || fields.some(key => !(key in launch))) throw new Error('Unexpected launch context fields');
 if (launch.instance !== process.env.CODETERM_DEV_INSTANCE || String(launch.port) !== process.env.CODETERM_DEV_API_PORT) throw new Error('Launch context differs from the named build instance');
 if (!/^[a-z0-9-]{1,64}$/.test(launch.instance) || !Number.isInteger(launch.port) || launch.port < 1024 || launch.port > 65535 || [7685, 7686].includes(launch.port)) throw new Error('Invalid isolated DEV instance or port');
+if ('diagnostics_port' in launch && (!Number.isInteger(launch.diagnostics_port) || launch.diagnostics_port < 1024 || launch.diagnostics_port > 65535 || [7685, 7686, launch.port].includes(launch.diagnostics_port))) throw new Error('Invalid isolated diagnostics port');
 for (const key of ['install_root', 'data_dir', 'config_dir', 'fixture_root']) {
   if (!path.isAbsolute(launch[key]) || !fs.lstatSync(launch[key]).isDirectory() || fs.lstatSync(launch[key]).isSymbolicLink()) throw new Error('Launch directories must be existing absolute directories');
 }

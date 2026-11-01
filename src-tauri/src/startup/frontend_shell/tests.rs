@@ -156,6 +156,44 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
 }
 
 #[test]
+#[cfg(debug_assertions)]
+fn frontend_shell_contract_native_commands_require_attached_origin_and_main_window() {
+    use std::collections::BTreeMap;
+    use tauri::ipc::{Origin, RuntimeAuthority};
+    use tauri::utils::acl::{capability::Capability, manifest::Manifest, resolved::Resolved};
+
+    let manifests: BTreeMap<String, Manifest> = serde_json::from_str(include_str!(
+        "../../../gen/schemas/acl-manifests.json"
+    ))
+    .unwrap();
+    let origin = "http://127.0.0.1:17891";
+    let capability: Capability = serde_json::from_str(&daemon_capability(origin).unwrap()).unwrap();
+    let resolved = Resolved::resolve(
+        &manifests,
+        BTreeMap::from([(capability.identifier.clone(), capability)]),
+        tauri::utils::platform::Target::current(),
+    )
+    .unwrap();
+    let authority = RuntimeAuthority::new(manifests, resolved);
+    for command in [
+        "frontend_view_root_ready",
+        "native_webview_diagnostics_snapshot",
+        "check_for_update",
+        "install_app_update",
+        "get_update_status",
+    ] {
+        let attached = Origin::Remote { url: Url::parse(origin).unwrap() };
+        assert!(authority.resolve_access(command, "main", "main", &attached).is_some(), "{command}");
+        assert!(authority.resolve_access(command, "starting", "starting", &attached).is_none());
+        assert!(authority.resolve_access(command, "main", "main", &Origin::Local).is_none());
+        for foreign in ["http://127.0.0.1:7685", "https://foreign.example"] {
+            assert!(authority.resolve_access(command, "main", "main", &Origin::Remote { url: Url::parse(foreign).unwrap() }).is_none());
+        }
+    }
+    assert!(authority.resolve_access("undeclared_native_command", "main", "main", &Origin::Remote { url: Url::parse(origin).unwrap() }).is_none());
+}
+
+#[test]
 fn frontend_shell_contract_binds_root_acknowledgement_to_document_generation() {
     let url = Url::parse("http://127.0.0.1:7686/index.html?keep=1&__codeterm_client_view=old#tab")
         .unwrap();
