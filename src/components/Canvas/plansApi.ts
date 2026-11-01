@@ -223,7 +223,7 @@ export async function deleteTask(api: ApiConfig, planId: string, taskId: string)
   const res = await daemonFetch(
     api,
     `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`,
-    { method: "DELETE", headers: authHeaders(api) },
+    { method: "DELETE", headers: confirmedHeaders(api, planId) },
   );
   if (!res.ok) throw new Error(`task delete failed: ${res.status} ${await res.text()}`);
 }
