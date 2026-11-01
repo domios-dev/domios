@@ -29,6 +29,12 @@ impl Membership {
             ..Default::default()
         }
     }
+    pub(super) fn pending_count(&self) -> Result<u64> {
+        if !self.observe_only {
+            return Err(Error::Gateway);
+        }
+        Ok((self.documents.len() as u64).min(super::super::PENDING_COUNT_LIMIT))
+    }
     pub(super) fn observe(&mut self, response: &fs::ListenResponse) -> Result<bool> {
         use fs::listen_response::ResponseType;
         match response.response_type.as_ref() {
@@ -36,7 +42,15 @@ impl Membership {
                 let document = change.document.as_ref().ok_or(Error::ListenProtocol {
                     kind: "document_missing",
                 })?;
-                if !self.observe_only && change.target_ids.contains(&1) {
+                if change.target_ids.contains(&1) {
+                    if self.observe_only
+                        && self.documents.len() >= 500
+                        && !self.documents.contains(&document.name)
+                    {
+                        return Err(Error::ListenProtocol {
+                            kind: "pending_membership_limit",
+                        });
+                    }
                     self.documents.insert(document.name.clone());
                 }
                 if change.removed_target_ids.contains(&1) {
@@ -51,7 +65,7 @@ impl Membership {
                     self.documents.remove(&change.document);
                 }
             }
-            Some(ResponseType::Filter(filter)) if filter.target_id == 1 && !self.observe_only => {
+            Some(ResponseType::Filter(filter)) if filter.target_id == 1 => {
                 if usize::try_from(filter.count).ok() != Some(self.documents.len()) {
                     return Err(Error::ListenProtocol {
                         kind: "existence_filter_mismatch",
