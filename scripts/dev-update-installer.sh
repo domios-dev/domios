@@ -70,14 +70,20 @@ import fs from 'node:fs';
 import path from 'node:path';
 const [compile, output, staged, launch] = process.argv.slice(2);
 const config = JSON.parse(fs.readFileSync(compile, 'utf8'));
+const project = fs.realpathSync.native(path.resolve('src-tauri'));
+const resourceKey = source => {
+  const relative = path.relative(project, fs.realpathSync.native(source));
+  if (path.isAbsolute(relative)) throw new Error('DEV resources must share the canonical project volume');
+  return relative.split(path.sep).join('/');
+};
 const resources = {};
 for (const name of ['server-component.json', 'domios-server', 'cli', 'dist', 'skills', 'LICENSE', 'NOTICE', 'conpty']) {
   const source = path.resolve(staged, name);
   const stat = fs.lstatSync(source);
   if (stat.isSymbolicLink()) throw new Error('Staged resource must not be a link');
-  resources[source + (stat.isDirectory() ? '/' : '')] = name;
+  resources[resourceKey(source)] = name;
 }
-resources[path.resolve(launch)] = '.domios-isolated-update.json';
+resources[resourceKey(path.resolve(launch))] = '.domios-isolated-update.json';
 config.bundle.resources = resources;
 fs.writeFileSync(output, JSON.stringify(config));
 NODE
