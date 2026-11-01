@@ -31,7 +31,8 @@ pub(crate) fn dev_locator_enabled(
             selector,
             codeterm_types::server_bootstrap::InstanceSelector::Development { .. }
                 | codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification {
-                    instance: Some(_), ..
+                    instance: Some(_),
+                    ..
                 }
         )
 }

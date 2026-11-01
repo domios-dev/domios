@@ -26,7 +26,9 @@ pub fn run(
             }
         };
     let startup_options = match if let Some(launch) = isolated.as_ref() {
-        Ok(crate::ClientArgumentPreflight::Native(launch.startup_options()))
+        Ok(crate::ClientArgumentPreflight::Native(
+            launch.startup_options(),
+        ))
     } else {
         crate::preflight_client_arguments(&arguments)
     } {

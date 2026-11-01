@@ -76,9 +76,10 @@ pub(super) fn from_arguments(
     let launch: IsolatedUpdateLaunch = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     let data = launch.data_dir.canonicalize()?;
     let config = launch.config_dir.canonicalize()?;
-    if launch.diagnostics_port.is_some_and(|port| {
-        port < 1024 || port == launch.port || matches!(port, 7685 | 7686)
-    }) {
+    if launch
+        .diagnostics_port
+        .is_some_and(|port| port < 1024 || port == launch.port || matches!(port, 7685 | 7686))
+    {
         return Err(io::Error::other("Invalid isolated diagnostics port"));
     }
     if launch.port < 1024
@@ -129,6 +130,8 @@ impl IsolatedUpdateLaunch {
     }
 }
 
-fn diagnostics_port<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u16>, D::Error> {
+fn diagnostics_port<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<u16>, D::Error> {
     u16::deserialize(deserializer).map(Some)
 }

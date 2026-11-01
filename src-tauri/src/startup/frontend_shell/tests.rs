@@ -162,10 +162,8 @@ fn frontend_shell_contract_native_commands_require_attached_origin_and_main_wind
     use tauri::ipc::{Origin, RuntimeAuthority};
     use tauri::utils::acl::{capability::Capability, manifest::Manifest, resolved::Resolved};
 
-    let manifests: BTreeMap<String, Manifest> = serde_json::from_str(include_str!(
-        "../../../gen/schemas/acl-manifests.json"
-    ))
-    .unwrap();
+    let manifests: BTreeMap<String, Manifest> =
+        serde_json::from_str(include_str!("../../../gen/schemas/acl-manifests.json")).unwrap();
     let origin = "http://127.0.0.1:17891";
     let capability: Capability = serde_json::from_str(&daemon_capability(origin).unwrap()).unwrap();
     let resolved = Resolved::resolve(
@@ -182,15 +180,44 @@ fn frontend_shell_contract_native_commands_require_attached_origin_and_main_wind
         "install_app_update",
         "get_update_status",
     ] {
-        let attached = Origin::Remote { url: Url::parse(origin).unwrap() };
-        assert!(authority.resolve_access(command, "main", "main", &attached).is_some(), "{command}");
-        assert!(authority.resolve_access(command, "starting", "starting", &attached).is_none());
-        assert!(authority.resolve_access(command, "main", "main", &Origin::Local).is_none());
+        let attached = Origin::Remote {
+            url: Url::parse(origin).unwrap(),
+        };
+        assert!(
+            authority
+                .resolve_access(command, "main", "main", &attached)
+                .is_some(),
+            "{command}"
+        );
+        assert!(authority
+            .resolve_access(command, "starting", "starting", &attached)
+            .is_none());
+        assert!(authority
+            .resolve_access(command, "main", "main", &Origin::Local)
+            .is_none());
         for foreign in ["http://127.0.0.1:7685", "https://foreign.example"] {
-            assert!(authority.resolve_access(command, "main", "main", &Origin::Remote { url: Url::parse(foreign).unwrap() }).is_none());
+            assert!(authority
+                .resolve_access(
+                    command,
+                    "main",
+                    "main",
+                    &Origin::Remote {
+                        url: Url::parse(foreign).unwrap()
+                    }
+                )
+                .is_none());
         }
     }
-    assert!(authority.resolve_access("undeclared_native_command", "main", "main", &Origin::Remote { url: Url::parse(origin).unwrap() }).is_none());
+    assert!(authority
+        .resolve_access(
+            "undeclared_native_command",
+            "main",
+            "main",
+            &Origin::Remote {
+                url: Url::parse(origin).unwrap()
+            }
+        )
+        .is_none());
 }
 
 #[test]
