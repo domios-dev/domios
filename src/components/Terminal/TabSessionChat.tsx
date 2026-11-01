@@ -582,29 +582,9 @@ function TabSessionChatBody({
   });
   const pasteIntoComposer = useLatestCallback(handlePasteEvent, [tabId]);
 
-  // Names change far more rarely than the transcript that carries them; keep the
-  // map (and resolveTabName below) stable while streaming only appends content.
-  const communicationTabNamesRef = useRef<{ key: string; value: Map<string, string> }>({
-    key: "",
-    value: new Map(),
-  });
-  const communicationTabNames = useMemo(() => {
-    const names = new Map(tabCommunicationNames);
-    for (const { origin } of enrichedMessages) {
-      if (origin?.kind !== "tab") continue;
-      const sender = origin.title.split("@")[0]?.trim();
-      if (sender && !names.has(origin.tabIdShort.slice(0, 8))) names.set(origin.tabIdShort.slice(0, 8), sender);
-    }
-    const key = JSON.stringify([...names]);
-    const prev = communicationTabNamesRef.current;
-    if (key === prev.key) return prev.value;
-    communicationTabNamesRef.current = { key, value: names };
-    return names;
-  }, [enrichedMessages, tabCommunicationNames]);
-
   const resolveTabName = useLatestCallback(
-    (tabRef: string): string | undefined => communicationTabNames.get(tabRef.slice(0, 8)),
-    [communicationTabNames],
+    (tabRef: string): string | undefined => tabCommunicationNames.get(tabRef) ?? tabCommunicationNames.get(tabRef.slice(0, 8)),
+    [tabCommunicationNames],
   );
 
   const reportProjection = useAgentReportProjection(tabId);

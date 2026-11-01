@@ -42,3 +42,11 @@ test("rejects missing, ambiguous, and detached Tab refs", () => {
   );
   assert.equal(resolveTabNavigationTarget("detached", ["detached"], workspaces), null);
 });
+
+test("rejects a live id with conflicting workspace ownership", () => {
+  const duplicatedOwnership: Workspace[] = [
+    ...workspaces,
+    { id: "workspace-c", name: "C", tabs: ["other-tab"], active_tab_id: null, cwd: null },
+  ];
+  assert.equal(resolveTabNavigationTarget("other-tab", ["other-tab"], duplicatedOwnership), null);
+});

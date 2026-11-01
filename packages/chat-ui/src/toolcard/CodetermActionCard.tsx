@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { toolCommand, type ToolEvent } from "@codeterm/chat-core";
 import { recognize, type CodetermInvocation } from "../codeterm/recognize";
-import { describeAction, isHelp, isSend, navigationTarget, parseSend, type ActionDescriptor, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
+import { describeAction, isHelp, isSend, navigationTarget, parseSend, taskActivityMetadata, type ActionDescriptor, type NavigationTarget, type PeerNameResolver, type TabNameResolver } from "../codeterm/templates";
 import { CompactMessageContent } from "../codeterm/CompactMessageContent";
 import { SentMessageBubble } from "../codeterm/SentMessageBubble";
 import { usePluginNameResolver } from "../codeterm/PluginNames";
@@ -111,12 +111,20 @@ export function actionVisual(invocation: CodetermInvocation): ToolKindVisual {
 }
 
 function codetermAction(event: ToolEvent, invocation: CodetermInvocation | undefined, navigation: CodetermNavigationProps, resolvePlugin?: PluginNameResolver) {
-  const { resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, onOpenSpec, onOpenMemory, onOpenSource } = navigation;
+  const { resolveTabName, resolvePeerName, onFocusTab, onOpenPlan, onOpenSpec, onOpenMemory, onOpenSource, resolvePlanRef } = navigation;
   const command = toolCommand(event);
   const inv = invocation ?? recognize(command.command, command.argv);
   const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName, resolvePeerName) : undefined;
-  const target = inv ? navigationTarget(inv, event.result) : null;
-  const descriptor: ActionDescriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName, resolvePlugin) : { lead: "codeterm", chips: [] };
+  const target = inv ? navigationTarget(inv, event.result, String(event.status)) : null;
+  const descriptor: ActionDescriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName, resolvePlugin, String(event.status)) : { lead: "codeterm", chips: [] };
+  const taskMetadata = inv ? taskActivityMetadata(inv, event.result, String(event.status)) : undefined;
+  const resolvedTask = target?.kind === "task" ? resolvePlanRef?.(target.planId, target.id, "task") : undefined;
+  const taskTitle = taskMetadata?.name ?? resolvedTask?.taskTitle;
+  const taskKey = taskMetadata?.key ?? resolvedTask?.taskKey;
+  const taskStatus = taskMetadata?.status;
+  if (taskTitle) descriptor.object = taskTitle;
+  if (taskKey && !descriptor.chips.includes(taskKey)) descriptor.chips.unshift(taskKey);
+  if (taskStatus && !descriptor.chips.includes(taskStatus)) descriptor.chips.push(taskStatus);
   const canNavigate = target != null && (
     target.kind === "tab" ? Boolean(onFocusTab) :
     target.kind === "plan" || target.kind === "task" || target.kind === "section" || target.kind === "goal"
@@ -125,11 +133,12 @@ function codetermAction(event: ToolEvent, invocation: CodetermInvocation | undef
   );
   const isTabList = inv?.path.join(" ") === "tab list";
   const tabListJson = isTabList && inv?.flags.json === true;
-  const sendSucceeded = sent?.status?.ok === true;
-  const sendPending = sent?.status?.pending === true;
+  const activityStatus = String(event.status);
+  const sendSucceeded = sent?.status?.ok === true && !["error", "pending", "running", "unresolved", "interrupted", "submit_unconfirmed"].includes(activityStatus);
+  const sendPending = sent?.status?.pending === true && !["error", "unresolved", "interrupted"].includes(activityStatus);
   const showResult = Boolean(event.result && (!isTabList || tabListJson) && (!inv || !isSend(inv) || !sendSucceeded));
   const hasBody = Boolean(sent || (isTabList && !tabListJson) || descriptor.fields?.length || descriptor.detail || descriptor.bullets?.length || showResult || canNavigate);
-  return { inv, sent, sendSucceeded, sendPending, target, descriptor, canNavigate, isTabList, tabListJson, showResult, hasBody };
+  return { inv, sent, sendSucceeded, sendPending, target, descriptor, taskTitle, canNavigate, isTabList, tabListJson, showResult, hasBody };
 }
 
 type CodetermAction = ReturnType<typeof codetermAction>;
@@ -197,6 +206,7 @@ export function CodetermSentContent({ event, invocation, technicalCommand, ...na
   technicalCommand?: string;
 }) {
   const target = navigationTarget(invocation, event.result);
+  const resolvedTargetName = target?.kind === "tab" ? navigation.resolveTabName?.(target.id) : undefined;
   return <>
     <SentMessageBubble
       eventId={event.id}
@@ -207,7 +217,9 @@ export function CodetermSentContent({ event, invocation, technicalCommand, ...na
       onOpenPlan={navigation.onOpenPlan}
       resolvePlanRef={navigation.resolvePlanRef}
       fontScale={navigation.fontScale}
-      onFocusTab={navigation.onFocusTab && target?.kind === "tab" ? () => navigation.onFocusTab!(target.id) : undefined}
+      onFocusTab={navigation.onFocusTab && target?.kind === "tab" && resolvedTargetName
+        ? () => navigation.onFocusTab!(target.id)
+        : undefined}
       technicalCommand={technicalCommand}
       activityStatus={event.status}
     />
@@ -217,7 +229,7 @@ export function CodetermSentContent({ event, invocation, technicalCommand, ...na
 
 export function CodetermActionCard({ event, invocation, expanded, onToggle, ...navigation }: Props) {
   const action = codetermAction(event, invocation, navigation, usePluginNameResolver());
-  const { inv, descriptor, target, canNavigate, sendSucceeded, sendPending } = action;
+  const { inv, descriptor, target, taskTitle, canNavigate, sendSucceeded, sendPending } = action;
   if (action.sent && inv) {
     const command = toolCommand(event).command;
     return <CodetermSentContent event={event} invocation={inv} technicalCommand={command} {...navigation} />;
@@ -235,13 +247,17 @@ export function CodetermActionCard({ event, invocation, expanded, onToggle, ...n
       event={displayEvent}
       expanded={expanded}
       onToggle={onToggle}
-      title={descriptor.object ? descriptor.lead : ""}
+      title={taskTitle ? "" : descriptor.object ? descriptor.lead : ""}
       summary={descriptor.object ?? descriptor.lead}
       variant="codeterm"
       disclosureLabel="full command"
       visualOverride={inv ? actionVisual(inv) : undefined}
       metric={collapsedChips.length ? <ToolCardChips chips={collapsedChips} wrap /> : undefined}
-      action={canNavigate && target?.kind === "tab" ? <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(target.id)} testId="codeterm-focus-tab" /> : undefined}
+      action={canNavigate && target?.kind === "tab"
+        ? <ToolCardActionButton label="Show Tab" onClick={() => navigation.onFocusTab!(target.id)} testId="codeterm-focus-tab" />
+        : canNavigate && target?.kind === "task" && !expanded
+          ? <ToolCardActionButton label="Show Task" onClick={() => navigation.onOpenPlan!(target.planId!, target.id, "task")} testId="codeterm-show-plan" />
+          : undefined}
     >
       <ActionBody event={event} action={action} navigation={navigation} inlineTabAction={false} />
     </ToolCardFrame>

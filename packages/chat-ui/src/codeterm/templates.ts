@@ -55,6 +55,8 @@ const SECTION_RE = /sec_[a-z0-9][a-z0-9_-]*/i;
 const SPEC_RE = /(?:sp|spec)_[a-z0-9][a-z0-9_-]*/i;
 const MEMORY_RE = /mem_[a-z0-9][a-z0-9_-]*/i;
 const SOURCE_RE = /src_[a-z0-9][a-z0-9_-]*/i;
+const TASK_ID_RE = /^task_[a-z0-9][a-z0-9_-]*$/i;
+const PLAN_ID_RE = /^pl_[a-z0-9][a-z0-9_-]*$/i;
 
 function strFlag(inv: CodetermInvocation, key: string): string | undefined {
   const v = inv.flags[key];
@@ -74,8 +76,136 @@ function firstRef(re: RegExp, inv: CodetermInvocation, result?: string): string 
   return firstMatch(re, ...Object.values(inv.flags).filter((value): value is string => typeof value === "string"), ...inv.positionals, result, inv.raw);
 }
 
+export interface TaskActivityMetadata {
+  id: string;
+  planId?: string;
+  name?: string;
+  key?: string;
+  status?: string;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function nonBlank(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+interface ParsedTaskRecord {
+  record?: TaskActivityMetadata;
+  conflict?: boolean;
+}
+
+function taskRecord(result?: string): ParsedTaskRecord {
+  if (!result || result.length > 65_536) return {};
+  try {
+    const envelope = record(JSON.parse(result));
+    const payload = record(envelope?.result);
+    if (!payload) return {};
+    const task = record(payload.task);
+    const taskId = nonBlank(task?.id) ?? nonBlank(task?.task_id);
+    const mutationId = nonBlank(payload.task_id);
+    if (taskId && mutationId && taskId !== mutationId) return { conflict: true };
+    const id = taskId ?? mutationId;
+    if (!id) return {};
+    if (!TASK_ID_RE.test(id)) return { conflict: true };
+    const taskPlanId = nonBlank(task?.plan_id);
+    const mutationPlanId = nonBlank(payload.plan_id);
+    if (taskPlanId && mutationPlanId && taskPlanId !== mutationPlanId) return { conflict: true };
+    const planId = taskPlanId ?? mutationPlanId;
+    if (planId && !PLAN_ID_RE.test(planId)) return { conflict: true };
+    return {
+      record: {
+        id,
+        planId,
+        name: nonBlank(task?.name),
+        key: nonBlank(task?.key) ?? nonBlank(task?.display_key) ?? nonBlank(payload.key) ?? nonBlank(payload.display_key),
+        status: nonBlank(task?.status) ?? nonBlank(payload.status),
+      },
+    };
+  } catch {
+    const ids = [...result.matchAll(/^\s*task_id\s+(task_[a-z0-9][a-z0-9_-]*)\s*$/gim)].map((match) => match[1]);
+    if (!ids.length) return {};
+    if (new Set(ids).size > 1 || ids.some((id) => !TASK_ID_RE.test(id))) return { conflict: true };
+    return { record: { id: ids[0] } };
+  }
+}
+
+function taskMutationFailed(result?: string, activityStatus?: string): boolean {
+  if (activityStatus === "error") return true;
+  if (!result) return false;
+  try {
+    const envelope = record(JSON.parse(result));
+    const payload = record(envelope?.result);
+    if (envelope?.ok === false || envelope?.error != null || payload?.ok === false || payload?.error != null) return true;
+  } catch {}
+  return /^\s*(?:error\b|failed?\b|exit code:\s*[1-9]\d*|[^\r\n]*\bnot found\b)/im.test(result);
+}
+
+function taskMutationNameUnconfirmed(result?: string, activityStatus?: string): boolean {
+  return taskMutationFailed(result, activityStatus) || (activityStatus !== undefined && activityStatus !== "success");
+}
+
+function taskMutationSucceeded(action: string | undefined, result: string | undefined, response: TaskActivityMetadata | undefined, activityStatus?: string): boolean {
+  if ((activityStatus !== undefined && activityStatus !== "success") || taskMutationFailed(result, activityStatus)) return false;
+  if (action === "add") return Boolean(response?.id);
+  if (action !== "update") return false;
+  if (response?.id) return true;
+  if (!result || result.length > 65_536) return false;
+  try {
+    const envelope = record(JSON.parse(result));
+    const payload = record(envelope?.result);
+    return envelope?.ok !== false && envelope?.error == null && payload?.ok === true && payload.error == null;
+  } catch {
+    return result.split(/\r?\n/).map((line) => line.trim()).find(Boolean) === "OK";
+  }
+}
+
+function commandPlanId(inv: CodetermInvocation): string | undefined {
+  const flag = strFlag(inv, "plan");
+  if (flag && PLAN_ID_RE.test(flag)) return flag;
+  return inv.positionals.find((value) => PLAN_ID_RE.test(value));
+}
+
+function commandTaskId(inv: CodetermInvocation): string | undefined {
+  const flag = strFlag(inv, "task");
+  if (flag && TASK_ID_RE.test(flag)) return flag;
+  return inv.positionals.find((value) => TASK_ID_RE.test(value));
+}
+
+function commandTaskDisplayRef(inv: CodetermInvocation): string | undefined {
+  const flag = nonBlank(strFlag(inv, "task"));
+  if (flag) return flag;
+  const planId = commandPlanId(inv);
+  return inv.positionals.find((value) => value !== planId && !value.startsWith("-"));
+}
+
+export function taskActivityMetadata(inv: CodetermInvocation, result?: string, activityStatus?: string): TaskActivityMetadata | undefined {
+  if (inv.path[0] !== "plan" || inv.path[1] !== "task" || (inv.path[2] !== "add" && inv.path[2] !== "update")) return undefined;
+  const parsedTask = taskRecord(result);
+  if (parsedTask.conflict) return undefined;
+  const responseTask = parsedTask.record;
+  const inputTaskId = commandTaskId(inv);
+  const inputPlanId = commandPlanId(inv);
+  if (inputTaskId && responseTask && inputTaskId !== responseTask.id) return undefined;
+  if (inputPlanId && responseTask?.planId && inputPlanId !== responseTask.planId) return undefined;
+  const succeeded = taskMutationSucceeded(inv.path[2], result, responseTask, activityStatus);
+  const id = inv.path[2] === "add"
+    ? succeeded ? responseTask?.id : undefined
+    : responseTask?.id ?? inputTaskId;
+  if (!id) return undefined;
+  return {
+    id,
+    planId: inputPlanId ?? responseTask?.planId,
+    name: succeeded ? responseTask?.name ?? nonBlank(flagText(inv, "name")) : undefined,
+    key: succeeded ? responseTask?.key : undefined,
+    status: succeeded ? responseTask?.status ?? nonBlank(flagText(inv, "status")) : undefined,
+  };
+}
+
 /** Describe the stable navigation target represented by a recognized invocation. */
-export function navigationTarget(inv: CodetermInvocation, result?: string): NavigationTarget | null {
+export function navigationTarget(inv: CodetermInvocation, result?: string, activityStatus?: string): NavigationTarget | null {
   if (isSend(inv)) {
     const candidate = inv.flags.tab ?? inv.flags.tab;
     const ref = typeof candidate === "string" ? candidate : undefined;
@@ -84,6 +214,11 @@ export function navigationTarget(inv: CodetermInvocation, result?: string): Navi
   if (inv.path[0] === "tab") {
     const candidate = inv.flags.tab ?? inv.flags.tab ?? inv.positionals[0];
     return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
+  }
+  if (inv.path[0] === "plan" && inv.path[1] === "task" && (inv.path[2] === "add" || inv.path[2] === "update")) {
+    const task = taskActivityMetadata(inv, result, activityStatus);
+    const planId = commandPlanId(inv) ?? task?.planId;
+    return task && planId ? { kind: "task", id: task.id, planId } : null;
   }
   const planId = firstRef(PLAN_RE, inv, result);
   const taskId = firstRef(TASK_RE, inv, result);
@@ -217,13 +352,13 @@ function reportFields(inv: CodetermInvocation, result?: string): Array<{ label: 
 }
 
 /** Build the compact lead/object/chips payload used by the action card header; the object never repeats the lead. */
-export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver, resolvePlugin?: PluginNameResolver): ActionDescriptor {
-  const descriptor = describeInvocation(inv, result, resolve, resolvePeer, resolvePlugin);
+export function describeAction(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver, resolvePlugin?: PluginNameResolver, activityStatus?: string): ActionDescriptor {
+  const descriptor = describeInvocation(inv, result, resolve, resolvePeer, resolvePlugin, activityStatus);
   const object = descriptor.object?.trim();
   return object && object.toLowerCase() !== descriptor.lead.trim().toLowerCase() ? descriptor : { ...descriptor, object: undefined };
 }
 
-function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver, resolvePlugin?: PluginNameResolver): ActionDescriptor {
+function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: TabNameResolver, resolvePeer?: PeerNameResolver, resolvePlugin?: PluginNameResolver, activityStatus?: string): ActionDescriptor {
   const path = inv.path.join(" ");
   if (isHelp(inv)) {
     return { lead: path, object: "help", chips: [] };
@@ -277,14 +412,26 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
     return { lead: "goal", object: `set on ${plan}`, chips: [], fields: ["vector", "constraint", "postulate"].map((key) => ({ label: key, value: flagText(inv, key) ?? "—" })) };
   }
   if (inv.path[0] === "plan" && inv.path[1] === "task") {
-    const task = firstRef(TASK_RE, inv, result);
     const action = inv.path[2];
-    const name = flagText(inv, "name", "title");
-    const target = action === "add" ? undefined : inv.positionals[1] ?? inv.positionals[0] ?? task;
+    const task = taskActivityMetadata(inv, result, activityStatus);
+    const target = action === "add" ? undefined : commandTaskDisplayRef(inv) ?? firstRef(TASK_RE, inv, result);
     const changingDeps = action === "update" && (inv.flags["clear-dependencies"] === true || inv.flags["depends-on"] != null);
     const lead = changingDeps ? "task deps" : action === "update" ? "task edit" : action === "close" ? "close" : action === "dispatch" ? "dispatch" : "plan task";
     const model = flagText(inv, "model");
-    return { lead, object: name ?? target ?? (action === "add" ? "New task" : "Task"), chips: [model, action === "close" ? "done" : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "test-plan", "criterion", "correctness", "why"), fields: model ? [{ label: "model", value: model }] : undefined };
+    const chips = [model, task?.key, task?.status, action === "close" ? "done" : undefined].filter((value): value is string => Boolean(value));
+    const fields = [
+      ...(task?.key ? [{ label: "key", value: task.key }] : []),
+      ...(task?.status ? [{ label: "status", value: task.status }] : []),
+      ...(model ? [{ label: "model", value: model }] : []),
+    ];
+    const requestedName = action === "add" || action === "update" ? nonBlank(flagText(inv, "name")) : undefined;
+    return {
+      lead,
+      object: task?.name ?? (taskMutationNameUnconfirmed(result, activityStatus) ? undefined : requestedName) ?? (action === "add" ? "New task" : target ?? "Task"),
+      chips,
+      detail: flagText(inv, "test-plan", "criterion", "correctness", "why"),
+      fields: fields.length ? fields : undefined,
+    };
   }
   if (inv.path[0] === "plan" && inv.path[1] === "section") {
     const section = firstRef(SECTION_RE, inv, result) ?? flagText(inv, "handle");
@@ -363,7 +510,12 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
 }
 
 /** Recover the (planId, taskId) a plan-family invocation points at. */
-export function planLink(inv: CodetermInvocation, result?: string): PlanLink | undefined {
+export function planLink(inv: CodetermInvocation, result?: string, activityStatus?: string): PlanLink | undefined {
+  if (inv.path[0] === "plan" && inv.path[1] === "task" && (inv.path[2] === "add" || inv.path[2] === "update")) {
+    const task = taskActivityMetadata(inv, result, activityStatus);
+    const planId = commandPlanId(inv) ?? task?.planId;
+    return task && planId ? { planId, taskId: task.id } : planId ? { planId } : undefined;
+  }
   const planId =
     strFlag(inv, "plan") ??
     inv.positionals.find((p) => PLAN_RE.test(p)) ??
@@ -393,21 +545,41 @@ function deliveredStatus(result?: string): CardStatus | undefined {
   if (!result) return undefined;
   try {
     const envelope = JSON.parse(result);
-    const parsed = envelope.ok === false ? envelope : envelope.result;
-    if (parsed?.delivery === "pending" || parsed?.pending?.length) return { ok: false, label: "pending", pending: true };
-    if (parsed?.delivery === "sent" || parsed?.delivered?.length) return { ok: true, label: "sent" };
-    if (parsed?.ok === true) return { ok: false, label: "pending", pending: true };
+    const parsed = envelope.ok === false || envelope.error != null ? envelope : envelope.result;
+    const delivery = parsed?.delivery ?? parsed?.status;
     if (parsed?.ok === false || parsed?.failed?.length || parsed?.error) {
       const error = parsed?.error;
       return { ok: false, label: "failed", detail: typeof error === "string" ? error : typeof error?.message === "string" ? error.message : undefined };
     }
+    if (delivery === "submit_unconfirmed") return { ok: false, label: "submit_unconfirmed", pending: true };
+    if (delivery === "interrupted") return { ok: false, label: "interrupted" };
+    if (delivery === "unresolved") return { ok: false, label: "unresolved" };
+    if (delivery === "error" || delivery === "failed") {
+      const error = parsed?.error;
+      return { ok: false, label: "failed", detail: typeof error === "string" ? error : typeof error?.message === "string" ? error.message : undefined };
+    }
+    if (delivery === "pending" || parsed?.pending?.length) return { ok: false, label: "pending", pending: true };
+    if (delivery === "sent" || parsed?.sent?.length) return { ok: true, label: "sent" };
+    if (delivery === "delivered" || parsed?.delivered?.length) return { ok: true, label: "delivered" };
+    if (parsed?.ok === true) return { ok: false, label: "pending", pending: true };
   } catch {}
-  if (/\bOK\s*\(pending\)/i.test(result)) {
+  if (/\bsubmit[_ -]unconfirmed\b/i.test(result)) return { ok: false, label: "submit_unconfirmed", pending: true };
+  if (/\binterrupted\b/i.test(result)) return { ok: false, label: "interrupted" };
+  if (/\bunresolved\b/i.test(result)) return { ok: false, label: "unresolved" };
+  const explicitError = result.match(/^\s*(?:error|failed?|exit code:\s*[1-9]\d*)\b[^\r\n]*/im)?.[0]?.trim();
+  if (explicitError) {
+    const detail = explicitError.replace(/^(?:error|failed?)\s*:\s*/i, "").trim();
+    return { ok: false, label: "failed", detail: (detail || explicitError).slice(0, 500) };
+  }
+  const statusLine = result.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+  if (/^OK\s*\(pending\)$/i.test(statusLine ?? "")) {
     return { ok: false, label: "pending", pending: true };
   }
-  if (/\bOK\s*\(sent\)|delivered/i.test(result)) return { ok: true, label: "delivered" };
+  if (/^(?:OK\s*\(delivered\)|delivered)$/i.test(statusLine ?? "")) return { ok: true, label: "delivered" };
+  if (/^OK\s*\(sent\)$/i.test(statusLine ?? "")) return { ok: true, label: "sent" };
   if (/error|fail|not found/i.test(result)) {
-    const detail = result.match(/^\s*(?:error|failed?)\s*:\s*([^\r\n]{1,500})/im)?.[1];
+    const detail = result.match(/^\s*(?:error|failed?)\s*:\s*([^\r\n]{1,500})/im)?.[1]
+      ?? result.split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, 500);
     return { ok: false, label: "failed", detail };
   }
   return undefined;
@@ -416,6 +588,8 @@ function deliveredStatus(result?: string): CardStatus | undefined {
 export interface SentMessage {
   /** Resolved tab name, or `tab <ref>` / `current tab` fallback. */
   recipient: string;
+  recipientId?: string;
+  recipientTitleResolved: boolean;
   mesh?: string;
   body: string;
   bodySource: "resolved" | "typed" | "pad";
@@ -432,9 +606,10 @@ export function parseSend(
   resolvePeer?: PeerNameResolver,
 ): SentMessage {
   const p = inv.flags.tab ?? inv.flags.tab;
+  const title = typeof p === "string" ? resolve?.(p) : undefined;
   let recipient: string;
   if (typeof p !== "string") recipient = "current tab";
-  else recipient = resolve?.(p) ?? `tab ${p}`;
+  else recipient = title?.trim() || `tab ${p}`;
   const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
   const resolved = resolvedSendText(result);
@@ -447,6 +622,8 @@ export function parseSend(
     inv.flags.stdin === true;
   return {
     recipient,
+    recipientId: typeof p === "string" ? p : undefined,
+    recipientTitleResolved: Boolean(title?.trim()),
     mesh,
     body: resolved?.text || (staged ? sendBodyDescriptor(inv) : typed) || sendBodyDescriptor(inv),
     bodySource: resolved != null ? "resolved" : typeof fromPad === "string" ? "pad" : "typed",
@@ -516,13 +693,15 @@ const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
 const planTaskTemplate: TemplateFn = (inv, result) => {
   const action = inv.path[2] ?? inv.positionals[0];
   const link = planLink(inv, result);
+  const task = taskActivityMetadata(inv, result);
+  if ((action === "add" || action === "update") && taskMutationFailed(result)) {
+    return { icon: "🗂", title: action === "update" ? "Task update failed" : "Task creation failed", link };
+  }
   if (action === "update") {
-    const status = strFlag(inv, "status");
-    return { icon: "🔄", title: status ? `Task status → ${status}` : "Task updated", link };
+    return { icon: "🔄", title: task?.name ? `Task updated: ${task.name}` : "Task updated", link };
   }
   if (action === "add") {
-    const name = strFlag(inv, "name");
-    return { icon: "🗂", title: name ? `Task created: ${name}` : "Task created", link };
+    return { icon: "🗂", title: task?.name ? `Task created: ${task.name}` : "Task created", link };
   }
   return { icon: "🗂", title: `Plan task ${action ?? ""}`.trim(), link };
 };
