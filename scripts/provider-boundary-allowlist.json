@@ -2,6 +2,12 @@
   "version": 1,
   "splits": [
     {
+      "from": "src-tauri/crates/codeterm-service-core/src/usage/poller.rs",
+      "to": [
+        "src-tauri/crates/codeterm-service-core/src/usage/poller/tests.rs"
+      ]
+    },
+    {
       "from": "src-tauri/crates/codeterm-plugins/src/config.rs",
       "to": [
         "src-tauri/crates/codeterm-plugins/src/config/tests.rs"
@@ -10620,7 +10626,7 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/usage/poller.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/usage/poller/tests.rs",
       "token": "claude",
       "count": 2,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
