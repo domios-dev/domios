@@ -13,7 +13,6 @@ import { revealAssignedAgentTab } from "./planRevealAgentTab";
 import { selectDrawerContextKey, selectSelectionSeeds, usePlanSidePanelContextBinding } from "./planSidePanelContext";
 import { planSidePanelStore, usePlanSidePanelEntry, type PlanSidePanelTarget } from "./planSidePanelStore";
 import { fetchPlan } from "./plansApi";
-import { useFullPlans } from "./PlansProvider";
 import { PlanSidePanel } from "./planView/PlanSidePanel";
 import { usePlanTargetNavigation, type PlanTarget } from "./teamViewNavigation";
 import type { Plan } from "./types";
@@ -99,7 +98,6 @@ const selectTabRecord = (state: ExtendedState) => state.tabs;
 
 function OpenPlanSidePanel({ api, onExited }: { api: ApiConfig; onExited: () => void }) {
   const activateReturnTo = useReturnToChat();
-  const { plans, loading } = useFullPlans();
   const openPlanTarget = usePlanTargetNavigation();
   const tabs = useMuxSelector(selectTabRecord);
   const nav = useMuxSelector(selectPlanNavContext, planNavContextEqual);
@@ -110,8 +108,7 @@ function OpenPlanSidePanel({ api, onExited }: { api: ApiConfig; onExited: () => 
   }, [nav.workspaces, setActiveTab, setFocusedTab]);
   return (
     <PlanSidePanelLayer
-      plans={plans}
-      loading={loading}
+      plans={[]}
       api={api}
       tabs={tabs}
       onOpenTab={onOpenTab}

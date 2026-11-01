@@ -1,6 +1,6 @@
 use axum::{
-    extract::{Path, State as AxumState},
-    http::HeaderMap,
+    extract::{Path, Query, State as AxumState},
+    http::{HeaderMap, StatusCode},
     Json,
 };
 use serde::Deserialize;
@@ -14,7 +14,7 @@ use codeterm_service_core::plan::{
 use codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest;
 use codeterm_service_core::service::plan::{NewTask, TaskLaneUpdate};
 use codeterm_service_core::service::{
-    persist_attempt_executor_identity_for_mux, respawn_title_provenance,
+    persist_attempt_executor_identity_for_mux, respawn_title_provenance, TeamPlanError,
 };
 
 use super::{
@@ -24,6 +24,104 @@ use super::{
 
 mod block_authority;
 use block_authority::{verify_task_mutation_owner, TaskMutationKind};
+
+#[derive(Debug, Deserialize, Default)]
+pub struct TaskBoardPageQuery {
+    status: Option<String>,
+    page_size: Option<usize>,
+    after_created_at: Option<u64>,
+    after_position: Option<i64>,
+    after_task_id: Option<String>,
+}
+
+fn task_board_cursor(
+    query: &TaskBoardPageQuery,
+) -> Result<Option<(u64, i64, String)>, (StatusCode, Json<Value>)> {
+    let supplied = [
+        query.after_created_at.is_some(),
+        query.after_position.is_some(),
+        query.after_task_id.is_some(),
+    ];
+    if supplied.iter().any(|present| *present) && supplied.iter().any(|present| !present) {
+        return Err(text_err(
+            StatusCode::BAD_REQUEST,
+            "task cursor requires created_at, position, and task_id",
+        ));
+    }
+    if supplied[0] && query.status.is_none() {
+        return Err(text_err(
+            StatusCode::BAD_REQUEST,
+            "task cursor requires a status",
+        ));
+    }
+    Ok(
+        match (
+            query.after_created_at,
+            query.after_position,
+            query.after_task_id.clone(),
+        ) {
+            (Some(created_at), Some(position), Some(task_id)) => {
+                Some((created_at, position, task_id))
+            }
+            _ => None,
+        },
+    )
+}
+
+fn task_board_status_valid(status: Option<&str>) -> bool {
+    matches!(
+        status,
+        None | Some("pending")
+            | Some("in_progress")
+            | Some("in_review")
+            | Some("blocked")
+            | Some("done")
+            | Some("cancelled")
+    )
+}
+
+fn task_board_team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
+    match error {
+        TeamPlanError::Plan(error) => plan_err(error),
+        TeamPlanError::Team(message)
+            if message.contains("not authorized")
+                || message.contains("not a member")
+                || message.contains("authority") =>
+        {
+            text_err(StatusCode::FORBIDDEN, message)
+        }
+        TeamPlanError::Team(message) => text_err(StatusCode::BAD_REQUEST, message),
+    }
+}
+
+pub async fn task_board_page(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    Query(query): Query<TaskBoardPageQuery>,
+) -> PlanRouteResult {
+    if !task_board_status_valid(query.status.as_deref()) {
+        return Err(text_err(StatusCode::BAD_REQUEST, "invalid task status"));
+    }
+    let cursor = task_board_cursor(&query)?;
+    let page_size = query.page_size.unwrap_or(25).clamp(1, 50);
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(status, message)| text_err(status, message))?;
+        codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
+            .map_err(task_board_team_plan_err)?;
+        let after = cursor
+            .as_ref()
+            .map(|(created_at, position, task_id)| (*created_at, *position, task_id.as_str()));
+        let page = state
+            .svc
+            .plan_store
+            .task_board_page(&id, query.status.as_deref(), page_size, after)
+            .map_err(plan_err)?;
+        Ok(Json(page))
+    })
+    .await
+    .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
+}
 
 fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
     state.svc.mux.read().get_tab(tab_id).and_then(|tab| {

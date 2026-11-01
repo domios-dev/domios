@@ -524,5 +524,6 @@ mod schema_tests;
 #[cfg(test)]
 mod snapshot_check;
 mod startup_queries;
+pub(in crate::service_plan) mod task_page_queries;
 #[cfg(test)]
 mod tests;

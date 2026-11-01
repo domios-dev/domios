@@ -247,6 +247,56 @@ export interface Task {
   attachments?: PlanAttachment[];
 }
 
+export interface PlanTaskBoardSummary {
+  id: string;
+  position: number;
+  name: string;
+  status: TaskStatus;
+  created_at: number;
+  updated_at: number;
+  status_changed_at: number;
+  handle?: string | null;
+  key?: string | null;
+  assigned_tab_id?: string | null;
+  lane?: Pick<TaskLaneMetadata, "tab_id" | "branch">;
+  taken_by_role?: string | null;
+  pause_reason?: string | null;
+  model?: string | null;
+  peer?: string | null;
+}
+
+export type PlanTaskBoardColumnKey = "pending" | "in_progress" | "in_review" | "blocked" | "done";
+export type PlanTaskBoardStatus = PlanTaskBoardColumnKey | "cancelled";
+
+export interface PlanTaskBoardCursor {
+  created_at: number;
+  position: number;
+  task_id: string;
+}
+
+export interface PlanTaskBoardColumnPage {
+  status: PlanTaskBoardStatus;
+  items: PlanTaskBoardSummary[];
+  next_cursor: PlanTaskBoardCursor | null;
+}
+
+export interface PlanTaskBoardCounts {
+  pending: number;
+  in_progress: number;
+  in_review: number;
+  blocked: number;
+  done: number;
+  cancelled: number;
+  total: number;
+}
+
+export interface PlanTaskBoardPage {
+  plan_id: string;
+  counts?: PlanTaskBoardCounts;
+  columns?: Partial<Record<PlanTaskBoardStatus, PlanTaskBoardColumnPage>>;
+  column?: PlanTaskBoardColumnPage;
+}
+
 export interface LoopStage {
   key: string;
   role: string;

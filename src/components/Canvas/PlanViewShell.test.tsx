@@ -3,9 +3,11 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import type { ApiConfig } from "../../lib/types";
 import { __setListenForTest } from "../../lib/bridge";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
 import { PlanViewShell } from "./PlanViewShell";
+import { PlansProvider } from "./PlansProvider";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -28,7 +30,8 @@ const SHELL_PROPS = {
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/plan-view-shell" });
+  const window = new Window({ url: "http://127.0.0.1:7686/plan-view-shell" });
+  Object.assign(window, { __CODETERM_DAEMON__: { origin: "http://127.0.0.1:7686", token: "test-token" } });
   (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
@@ -176,6 +179,79 @@ test("PlanViewShell switches between Spec, Plan, and Board without losing shell 
   await unmount();
 });
 
+test("Tasks mode requests one compact page without subscribing to full plans", async () => {
+  setupDom();
+  window.localStorage.setItem(PLAN_VIEW_MODE_STORAGE_KEY, "tasks");
+  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
+  const entry = {
+    plan_id: FIXTURE_PLAN.id,
+    file_path: "/tmp/plan.json",
+    canonical_project_path: FIXTURE_PLAN.project_path,
+    owner: { ...FIXTURE_PLAN.owner, tab_id: "orch-1" },
+    team_id: null,
+    title: FIXTURE_PLAN.title,
+    status: "active" as const,
+    updated_at: FIXTURE_PLAN.updated_at,
+    assigned_tab_ids: [],
+    task_count: 1,
+    open_task_count: 1,
+    section_count: 0,
+    element_count: 0,
+    loop_count: 0,
+    has_goal: false,
+  };
+  let fullCalls = 0;
+  let pageCalls = 0;
+  const requestPaths: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    requestPaths.push(`${url.pathname}${url.search}`);
+    if (url.searchParams.get("full") === "1") {
+      fullCalls++;
+      return Response.json({ plans: [FIXTURE_PLAN] });
+    }
+    if (url.searchParams.get("chat") === "1") return Response.json({ plans: [] });
+    if (url.pathname === "/api/plans") return Response.json({ plans: [entry] });
+    if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks`) {
+      pageCalls++;
+      return Response.json({
+        plan_id: FIXTURE_PLAN.id,
+        counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, done: 0, cancelled: 0, total: 0 },
+        columns: Object.fromEntries(["pending", "in_progress", "in_review", "blocked", "done"].map((status) => [status, { status, items: [], next_cursor: null }])),
+      });
+    }
+    return Response.json({ plans: [] });
+  };
+  const ui = (
+    <PlansProvider api={api}>
+      <PlanViewShell
+        mode="focus"
+        plans={[]}
+        planIndex={[entry]}
+        api={api}
+        planId={FIXTURE_PLAN.id}
+        tabs={{}}
+      />
+    </PlansProvider>
+  );
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => root.render(ui));
+  await act(async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  const selectedMode = host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode");
+  assert(selectedMode === "tasks", `Tasks mode selected (got ${selectedMode ?? "none"})`);
+  assert(pageCalls === 1, `one bounded task page requested (got ${pageCalls}; requests: ${requestPaths.join(", ")}; board=${Boolean(host.querySelector('[data-testid="plan-board-view"]'))}, single=${Boolean(host.querySelector('[data-testid="plan-board-single"]'))}, empty=${Boolean(host.querySelector('[data-testid="plan-board-empty"]'))}, loader=${Boolean(host.querySelector('[data-testid="plan-board-loading"]'))}, error=${Boolean(host.querySelector('[data-testid="plan-board-error"]'))})`);
+  assert(fullCalls === 0, `Tasks mode did not request the full collection (got ${fullCalls})`);
+  assert(host.querySelector('[data-testid="plan-board-columns"]'), "task board opened from the compact page");
+  await act(async () => root.unmount());
+  host.remove();
+});
+
 let passed = 0;
 async function main() {
   for (const [name, fn] of tests) {
@@ -214,5 +290,5 @@ test("useFrozenWhenHidden keeps last-visible reference while hidden", async () =
   if (outputs[0] !== a) throw new Error("visible passes live props");
   if (outputs[1] !== a) throw new Error("hidden must keep the last-visible reference (memo identity)");
   if (outputs[2] !== c) throw new Error("re-shown surface receives fresh props");
-  root.unmount();
+  await act(async () => root.unmount());
 });

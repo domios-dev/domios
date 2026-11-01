@@ -6,6 +6,7 @@ import { Window } from "happy-dom";
 import type { Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { TaskStatus, type Plan, type Task } from "../types";
+import type { PlanIndexEntry } from "../plansApi";
 import { DONE_COLUMN_COLLAPSED_LIMIT } from "./boardModel";
 import { PlanBoardView } from "./PlanBoardView";
 
@@ -69,6 +70,32 @@ test("renders loading gate", async () => {
     <PlanBoardView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[]} loading error={null} />,
   );
   assert(host.querySelector('[data-testid="plan-board-loading"]'), "loading visible");
+});
+
+test("paged Tasks surface uses the standard fullscreen Loader while the compact index is pending", async () => {
+  const entry: PlanIndexEntry = {
+    plan_id: FIXTURE_PLAN.id,
+    file_path: "/tmp/plan.json",
+    canonical_project_path: FIXTURE_PLAN.project_path,
+    owner: FIXTURE_PLAN.owner,
+    title: FIXTURE_PLAN.title,
+    status: "active",
+    updated_at: FIXTURE_PLAN.updated_at,
+    assigned_tab_ids: [],
+    task_count: 1,
+    open_task_count: 1,
+  };
+  const { host } = await render(
+    <PlanBoardView
+      mode="workspace"
+      plans={[]}
+      planIndex={[entry]}
+      loading
+      workspaceId={WS_ID}
+      workspaces={WORKSPACES}
+    />,
+  );
+  assert(host.querySelector('[data-testid="plan-board-loading"]'), "fullscreen Loader wrapper mounted");
 });
 
 test("renders board columns without the repeated status header and with task cards", async () => {

@@ -1,6 +1,7 @@
 use super::*;
 use crate::service_plan::paths;
 use crate::service_plan::plan_match;
+use serde_json::Value;
 
 impl PlanStore {
     /// codeterm-releases#56: a freshly minted Team never owns a plan, so the
@@ -405,6 +406,16 @@ impl PlanStore {
             log::warn!("[plan.store] plan index query failed: {error}");
             Vec::new()
         })
+    }
+
+    pub fn task_board_page(
+        &self,
+        plan_id: &str,
+        status: Option<&str>,
+        limit: usize,
+        after: Option<(u64, i64, &str)>,
+    ) -> Result<Value, PlanError> {
+        self.database.task_board_page(plan_id, status, limit, after)
     }
 
     pub fn list_spec_index(&self) -> Vec<SpecIndexEntry> {

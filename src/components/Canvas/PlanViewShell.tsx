@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { X } from "lucide-react";
+import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { PlanViewModeSwitch, type TemporaryModeTab } from "./PlanViewModeSwitch";
 import type { PlanViewSurfaceProps } from "./planViewSurfaceProps";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
@@ -15,6 +16,8 @@ import { PlanPlanView, PlanSpecView } from "./planView/PlanDocumentView";
 import { TaskSegmentPanel } from "./planView/TaskSegmentPanel";
 import { findTaskByReference, taskSegmentLabel } from "./taskDisplayKey";
 import type { Plan } from "./types";
+import { useFullPlansOptional } from "./PlansProvider";
+import { usePlanById } from "./usePlans";
 
 const BoardSurface = memo(MissionControlPlanSurface);
 const ListSurface = memo(PlanListView);
@@ -87,10 +90,20 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [segment, setSegment] = useTaskSegment(props.workspaceTarget, setViewMode);
   const viewMode: PlanViewMode = storedMode;
   const selected = segment ? TASK_SEGMENT_VALUE : viewMode;
-  const listProps = useFrozenWhenHidden(props, selected === "list");
-  const specProps = useFrozenWhenHidden(props, selected === "spec");
-  const planProps = useFrozenWhenHidden(props, selected === "plan");
-  const boardProps = useFrozenWhenHidden(props, selected === "board");
+  const fullQuery = useFullPlansOptional(Boolean(props.planIndex) && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
+  const fullPlans = fullQuery?.plans ?? props.plans;
+  const fullProps: PlanViewSurfaceProps = {
+    ...props,
+    plans: fullPlans,
+    loading: fullQuery?.loading ?? props.loading,
+    reconnecting: fullQuery?.reconnecting ?? props.reconnecting,
+    error: fullQuery?.error ?? props.error,
+    onRetry: fullQuery?.refetch ?? props.onRetry,
+  };
+  const listProps = useFrozenWhenHidden(fullProps, selected === "list");
+  const specProps = useFrozenWhenHidden(fullProps, selected === "spec");
+  const planProps = useFrozenWhenHidden(fullProps, selected === "plan");
+  const boardProps = useFrozenWhenHidden(fullProps, selected === "board");
   const tasksProps = useFrozenWhenHidden(props, selected === "tasks");
   const [actionsSlot, setActionsSlot] = useState<HTMLDivElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -123,12 +136,22 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
     rootRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   }, [segment]);
 
-  const found = useMemo(() => {
+  const foundInCollection = useMemo(() => {
     if (!segment) return null;
-    const plan: Plan | undefined = props.plans.find((candidate) => candidate.id === segment.planId);
+    const plan: Plan | undefined = fullPlans.find((candidate) => candidate.id === segment.planId);
     const task = plan ? findTaskByReference(plan.tasks, segment.taskRef) : undefined;
     return plan && task ? { plan, task } : null;
-  }, [props.plans, segment]);
+  }, [fullPlans, segment]);
+  const directPlan = usePlanById(
+    props.api,
+    segment && !fullPlans.some((candidate) => candidate.id === segment.planId) ? segment.planId : null,
+  );
+  const found = useMemo(() => {
+    if (foundInCollection) return foundInCollection;
+    if (!segment || directPlan.plan?.id !== segment.planId) return null;
+    const task = findTaskByReference(directPlan.plan.tasks, segment.taskRef);
+    return task ? { plan: directPlan.plan, task } : null;
+  }, [foundInCollection, segment, directPlan.plan]);
 
   const temporaryTab = useMemo<TemporaryModeTab | null>(() => {
     if (!segment) return null;
@@ -232,20 +255,28 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         </div>
         {segment && (
           <div className="absolute inset-0">
-            <TaskSegmentPanel
-              panelId={segmentPanelId}
-              tabId={segmentTabId}
-              panelRef={panelRef}
-              plan={found?.plan ?? null}
-              task={found?.task ?? null}
-              taskRef={segment.taskRef}
-              loading={props.loading}
-              api={props.api}
-              tabs={props.tabs}
-              onOpenTab={props.onOpenTab}
-              onOpenTask={openRelatedTask}
-              onOpenSection={selectMode}
-            />
+            {directPlan.error && !found && (
+              <div data-testid="plan-task-segment-error" className="absolute inset-y-0 right-0 z-50 flex w-[min(43vw,720px)] flex-col items-center justify-center gap-3 border-l px-6 text-center" style={{ background: "var(--ct-bg)", borderColor: "var(--ct-border)" }}>
+                <InlineErrorNotice error={directPlan.error} operation="loading task details" />
+                <button type="button" onClick={directPlan.retry} className="rounded border px-3 py-1 text-xs">Retry</button>
+              </div>
+            )}
+            {!directPlan.error && (
+              <TaskSegmentPanel
+                panelId={segmentPanelId}
+                tabId={segmentTabId}
+                panelRef={panelRef}
+                plan={found?.plan ?? null}
+                task={found?.task ?? null}
+                taskRef={segment.taskRef}
+                loading={directPlan.loading || (fullQuery?.loading ?? false)}
+                api={props.api}
+                tabs={props.tabs}
+                onOpenTab={props.onOpenTab}
+                onOpenTask={openRelatedTask}
+                onOpenSection={selectMode}
+              />
+            )}
           </div>
         )}
       </div>

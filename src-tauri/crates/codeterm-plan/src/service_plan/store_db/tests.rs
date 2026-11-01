@@ -43,6 +43,141 @@ fn searchable_plan_body_includes_external_refs() {
 }
 
 #[test]
+fn task_board_pages_keep_counts_cursor_order_and_compact_history_free_rows() {
+    use crate::plan::TaskStatus;
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Paged board".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let paused_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "paused".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let first_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "first".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let second_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "second".into(),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+    let done_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "done".into(),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    let cancelled_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "cancelled".into(),
+                ..Default::default()
+            },
+            6,
+        )
+        .unwrap();
+
+    let mut plan_data = store.get(&plan.id).unwrap();
+    for task in &mut plan_data.tasks {
+        task.created_at = match task.id.as_str() {
+            id if id == paused_id => 9,
+            _ => 10,
+        };
+        if task.id == paused_id {
+            task.status = TaskStatus::Paused;
+        } else if task.id == done_id {
+            task.status = TaskStatus::Done;
+            task.body = "large detail body".repeat(400);
+        } else if task.id == cancelled_id {
+            task.status = TaskStatus::Cancelled;
+        }
+    }
+    store.save(&mut plan_data, 7).unwrap();
+
+    let first_page = store.task_board_page(&plan.id, None, 1, None).unwrap();
+    assert_eq!(first_page["counts"]["pending"], 3);
+    assert_eq!(first_page["counts"]["done"], 1);
+    assert_eq!(first_page["counts"]["cancelled"], 1);
+    assert_eq!(
+        first_page["columns"]["pending"]["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        first_page["columns"]["pending"]["items"][0]["id"],
+        paused_id
+    );
+
+    let first_cursor = &first_page["columns"]["pending"]["next_cursor"];
+    let first_created = first_cursor["created_at"].as_u64().unwrap();
+    let first_position = first_cursor["position"].as_i64().unwrap();
+    let first_task_id = first_cursor["task_id"].as_str().unwrap();
+    let second_page = store
+        .task_board_page(
+            &plan.id,
+            Some("pending"),
+            1,
+            Some((first_created, first_position, first_task_id)),
+        )
+        .unwrap();
+    assert_eq!(second_page["column"]["items"][0]["id"], first_id);
+
+    let third_cursor = &second_page["column"]["next_cursor"];
+    let third_page = store
+        .task_board_page(
+            &plan.id,
+            Some("pending"),
+            1,
+            Some((
+                third_cursor["created_at"].as_u64().unwrap(),
+                third_cursor["position"].as_i64().unwrap(),
+                third_cursor["task_id"].as_str().unwrap(),
+            )),
+        )
+        .unwrap();
+    assert_eq!(third_page["column"]["items"][0]["id"], second_id);
+    assert!(third_page["column"]["next_cursor"].is_null());
+
+    let compact_done = &first_page["columns"]["done"]["items"][0];
+    assert!(compact_done.get("body").is_none());
+    assert!(compact_done.get("milestones").is_none());
+    assert!(compact_done.get("execution_attempts").is_none());
+}
+
+#[test]
 fn plan_round_trips_from_one_wal_database() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("plans.db");
