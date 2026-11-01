@@ -88,7 +88,8 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   const generalProvider = policy.general_provider ?? (roster.run.find((provider) => !provider.runtime)?.id ?? ids[0]);
   generalSelection(config, generalProvider, selections[generalProvider]);
   if (configure) {
-    for (const provider of ids) await ctx.api("/api/config", { method: "PATCH", body: { key: `agents.${provider}.default_model`, value: selections[provider] } });
+    // A fresh instance has no per-provider entry, and the config PATCH only creates the last path segment.
+    for (const provider of ids) await ctx.api("/api/config", { method: "PATCH", body: { key: `agents.${provider}`, value: { ...(config.agents?.[provider] ?? {}), default_model: selections[provider] } } });
     await ctx.api("/api/config", { method: "PATCH", body: { key: "general_agent.model", value: selections[generalProvider] } });
   }
   const saved = await ctx.api("/api/config");
