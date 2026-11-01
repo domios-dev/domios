@@ -123,6 +123,26 @@ pub async fn task_board_page(
     .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }
 
+pub async fn task_detail(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+    Path((id, tid)): Path<(String, String)>,
+) -> PlanRouteResult {
+    tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(status, message)| text_err(status, message))?;
+        codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
+            .map_err(task_board_team_plan_err)?;
+        let detail = state
+            .svc
+            .plan_store
+            .task_detail_for_plan(&id, &tid)
+            .map_err(plan_err)?;
+        Ok(Json(detail))
+    })
+    .await
+    .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
+}
+
 fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
     state.svc.mux.read().get_tab(tab_id).and_then(|tab| {
         (tab.role == Some(codeterm_service_core::multiplexer::types::AgentRole::Manager)

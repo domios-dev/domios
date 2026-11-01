@@ -110,7 +110,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/canvas/focus", post(task_routes::canvas_focus))
         .route(
             "/api/plans/{id}/tasks/{tid}",
-            patch(plan_routes::task_update).delete(plan_routes::task_rm),
+            get(plan_routes::tasks::task_detail)
+                .patch(plan_routes::task_update)
+                .delete(plan_routes::task_rm),
         )
         .route(
             "/api/plans/{id}/tasks/{tid}/close",

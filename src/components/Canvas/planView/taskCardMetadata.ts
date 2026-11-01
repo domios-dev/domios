@@ -1,6 +1,6 @@
-import type { BoardTaskCardModel } from "./boardModel";
+import type { BoardTaskCardModel, BoardTaskCardTask } from "./boardModel";
 import { formatSpan } from "../../../lib/timeLabels";
-import { TaskStatus, type Task, type TaskStatus as TaskStatusType } from "../types";
+import { TaskStatus, type TaskStatus as TaskStatusType } from "../types";
 import { middleTruncateSlug } from "./textTruncate";
 
 export type TaskCardMetaRowKind = "handle" | "executor" | "historical" | "branch" | "age";
@@ -18,9 +18,9 @@ export interface TaskCardMetadata {
 
 const TERMINAL: ReadonlySet<TaskStatusType> = new Set([TaskStatus.Done, TaskStatus.Cancelled]);
 
-function activityTs(task: Task): number {
-  let ts = task.status_changed_at ?? task.updated_at ?? task.created_at ?? 0;
-  for (const m of task.milestones) if (m.ts > ts) ts = m.ts;
+function activityTs(task: BoardTaskCardTask): number {
+  let ts = task.activity_at ?? task.status_changed_at ?? task.updated_at ?? task.created_at ?? 0;
+  for (const m of task.milestones ?? []) if (m.ts > ts) ts = m.ts;
   return ts;
 }
 
@@ -28,7 +28,7 @@ function branchRow(branch: string): TaskCardMetaRow {
   return { kind: "branch", label: "Branch", value: middleTruncateSlug(branch), mono: true };
 }
 
-function ageRow(task: Task, now: number): TaskCardMetaRow | null {
+function ageRow(task: BoardTaskCardTask, now: number): TaskCardMetaRow | null {
   const ts = activityTs(task);
   if (!ts) return null;
   return { kind: "age", label: "Age", value: formatSpan(now - ts) };

@@ -3,8 +3,8 @@ import { listen } from "../../lib/bridge";
 import { useResilientQuery } from "../../lib/useResilientQuery";
 import { formatPlanFetchError } from "../../lib/fetchResilience";
 import type { ApiConfig } from "../../lib/types";
-import { fetchPlan, fetchPlanTaskBoardPage, fetchPlans } from "./plansApi";
-import type { Plan, PlanTaskBoardPage, PlanTaskBoardStatus } from "./types";
+import { fetchPlan, fetchPlanTaskBoardPage, fetchPlanTaskDetail, fetchPlans } from "./plansApi";
+import type { Plan, PlanTaskBoardPage, PlanTaskBoardStatus, PlanTaskDetail } from "./types";
 
 const EMPTY_PLANS: Plan[] = [];
 
@@ -267,6 +267,64 @@ export function usePlanTaskBoard(
     loadingStatus: (status) => moreLoading.has(status),
     errorForStatus: (status) => moreErrors.get(status) ?? null,
   };
+}
+
+export interface UsePlanTaskDetailResult {
+  detail: PlanTaskDetail | null;
+  loading: boolean;
+  error: string | null;
+  retry: () => Promise<void>;
+}
+
+interface PlanTaskDetailState {
+  key: string | null;
+  detail: PlanTaskDetail | null;
+  loading: boolean;
+  error: string | null;
+}
+
+export function usePlanTaskDetail(
+  api: ApiConfig | undefined,
+  planId: string | null,
+  taskId: string | null,
+  contextKey?: number,
+): UsePlanTaskDetailResult {
+  const key = planId && taskId ? `${planId}\u0000${taskId}` : null;
+  const [state, setState] = useState<PlanTaskDetailState>({ key: null, detail: null, loading: false, error: null });
+  const [retryKey, setRetryKey] = useState(0);
+
+  useEffect(() => {
+    if (!api || !planId || !taskId || !key) {
+      setState({ key: null, detail: null, loading: false, error: null });
+      return;
+    }
+    const controller = new AbortController();
+    setState({ key, detail: null, loading: true, error: null });
+    void fetchPlanTaskDetail(api, planId, taskId, controller.signal)
+      .then((detail) => {
+        if (controller.signal.aborted) return;
+        if (detail.plan_id !== planId || detail.task_id !== taskId || detail.task.id !== taskId || detail.context.plan_id !== planId) {
+          throw new Error("Task detail response did not match the selected task.");
+        }
+        setState({ key, detail, loading: false, error: null });
+      })
+      .catch((cause) => {
+        if (controller.signal.aborted || (cause instanceof Error && cause.name === "AbortError")) return;
+        setState({ key, detail: null, loading: false, error: formatPlanFetchError(cause) });
+      });
+    return () => controller.abort();
+  }, [api?.host, api?.port, api?.token, planId, taskId, contextKey, retryKey, key]);
+
+  const retry = useCallback(async () => {
+    setRetryKey((previous) => previous + 1);
+  }, []);
+  const current = state.key === key;
+  return useMemo(() => ({
+    detail: current ? state.detail : null,
+    loading: Boolean(api && key && (!current || state.loading)),
+    error: current ? state.error : null,
+    retry,
+  }), [api, key, current, state.detail, state.loading, state.error, retry]);
 }
 
 export interface UsePlanByIdResult {

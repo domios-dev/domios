@@ -418,6 +418,10 @@ impl PlanStore {
         self.database.task_board_page(plan_id, status, limit, after)
     }
 
+    pub fn task_detail_for_plan(&self, plan_id: &str, task_id: &str) -> Result<Value, PlanError> {
+        self.database.task_detail(plan_id, task_id)
+    }
+
     pub fn list_spec_index(&self) -> Vec<SpecIndexEntry> {
         self.spec_index.read().values().cloned().collect()
     }

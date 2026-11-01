@@ -5,8 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
 import { __setListenForTest } from "../../lib/bridge";
-import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
+import { FIXTURE_PLAN, FIXTURE_TASK } from "./cards/fixtures.testdata";
 import { PlanViewShell } from "./PlanViewShell";
+import { PlanSidePanelLayer } from "./PlanSidePanelHost";
+import { planSidePanelStore } from "./planSidePanelStore";
 import { PlansProvider } from "./PlansProvider";
 
 type TestFn = () => void | Promise<void>;
@@ -249,6 +251,150 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
   assert(fullCalls === 0, `Tasks mode did not request the full collection (got ${fullCalls})`);
   assert(host.querySelector('[data-testid="plan-board-columns"]'), "task board opened from the compact page");
   await act(async () => root.unmount());
+  host.remove();
+});
+
+test("task segment opens from the scoped detail endpoint without a full plan read", async () => {
+  setupDom();
+  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
+  const taskId = "task-exact-detail";
+  const task = {
+    ...FIXTURE_TASK,
+    id: taskId,
+    key: "CT-DETAIL",
+    name: "Scoped task detail",
+    body: "The task description is preserved.",
+    acceptance_criteria: ["The selected task criterion is preserved."],
+    milestones: [{
+      id: "detail-milestone",
+      from: { tab_id: "orch-1", session_id: null, title: "Orchestrator" },
+      kind: "decision",
+      text: "Diagnostic history is available on demand.",
+      ts: 9,
+      links: [],
+      loop_id: null,
+      iteration: null,
+      canvas: { x: null, y: null, collapsed: false },
+    }],
+    execution_attempts: [],
+  };
+  const detail = {
+    plan_id: FIXTURE_PLAN.id,
+    task_id: taskId,
+    task,
+    context: {
+      plan_id: FIXTURE_PLAN.id,
+      title: FIXTURE_PLAN.title,
+      status: FIXTURE_PLAN.status,
+      team_id: FIXTURE_PLAN.team_id,
+      owner: FIXTURE_PLAN.owner,
+      sections: [],
+      has_open_subtasks: false,
+    },
+    loop_badge: null,
+  };
+  let detailCalls = 0;
+  let fullPlanCalls = 0;
+  let fullCollectionCalls = 0;
+  const paths: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    paths.push(url.pathname);
+    if (url.pathname === "/api/plans" && url.searchParams.get("full") === "1") fullCollectionCalls++;
+    if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks/${taskId}`) {
+      detailCalls++;
+      return Response.json(detail);
+    }
+    if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}`) {
+      fullPlanCalls++;
+      return Response.json(FIXTURE_PLAN);
+    }
+    if (url.pathname === "/api/plans") return Response.json({ plans: [] });
+    return Response.json({ plans: [] });
+  };
+
+  const { host, unmount } = await render(
+    <PlanViewShell
+      mode="focus"
+      plans={[]}
+      planIndex={[{
+        plan_id: FIXTURE_PLAN.id,
+        file_path: "/tmp/plan.json",
+        owner: FIXTURE_PLAN.owner,
+        title: FIXTURE_PLAN.title,
+        status: FIXTURE_PLAN.status,
+        updated_at: FIXTURE_PLAN.updated_at,
+        assigned_tab_ids: [],
+      }]}
+      api={api}
+      tabs={{}}
+      workspaceTarget={{ planId: FIXTURE_PLAN.id, jump: { view: "task", taskId } }}
+    />,
+  );
+  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  assert(detailCalls === 1, `one exact detail request (got ${detailCalls}; ${paths.join(", ")})`);
+  assert(fullPlanCalls === 0, `no full plan by id for a task segment (got ${fullPlanCalls})`);
+  assert(fullCollectionCalls === 0, `no full plan collection read (got ${fullCollectionCalls})`);
+  assert(host.querySelector('[data-testid="plan-task-segment-title"]')?.textContent === task.name, "exact task identity and title");
+  assert(host.textContent?.includes("The task description is preserved."), "task description rendered");
+  assert(host.textContent?.includes("The selected task criterion is preserved."), "acceptance criteria rendered");
+  assert(host.textContent?.includes("Diagnostic history is available on demand."), "task diagnostic history rendered");
+  await unmount();
+});
+
+test("task side panel requests scoped detail even when a full plan is already listed", async () => {
+  setupDom();
+  planSidePanelStore.close();
+  const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
+  const taskId = "task-side-panel-detail";
+  const task = { ...FIXTURE_TASK, id: taskId, key: "CT-PANEL", name: "Side panel scoped detail", body: "Panel task description." };
+  const detail = {
+    plan_id: FIXTURE_PLAN.id,
+    task_id: taskId,
+    task,
+    context: {
+      plan_id: FIXTURE_PLAN.id,
+      title: FIXTURE_PLAN.title,
+      status: FIXTURE_PLAN.status,
+      team_id: FIXTURE_PLAN.team_id,
+      owner: FIXTURE_PLAN.owner,
+      sections: [],
+      has_open_subtasks: false,
+    },
+    loop_badge: null,
+  };
+  let detailCalls = 0;
+  let fullPlanCalls = 0;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input));
+    if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks/${taskId}`) {
+      detailCalls++;
+      return Response.json(detail);
+    }
+    if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}`) {
+      fullPlanCalls++;
+      return Response.json(FIXTURE_PLAN);
+    }
+    return Response.json({ plans: [] });
+  };
+  act(() => planSidePanelStore.open({ planId: FIXTURE_PLAN.id, taskId }));
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => {
+    root.render(<PlanSidePanelLayer plans={[FIXTURE_PLAN]} api={api} tabs={{}} onOpenPlanTarget={() => {}} />);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+  assert(detailCalls === 1, `one exact task detail request (got ${detailCalls})`);
+  assert(fullPlanCalls === 0, `listed plan was not refetched whole (got ${fullPlanCalls})`);
+  assert(host.querySelector('[data-testid="plan-side-panel"]')?.getAttribute("data-task-id") === taskId, "exact panel task identity");
+  assert(host.querySelector('[data-testid="plan-side-panel-title"]')?.textContent === task.name, "detail task title");
+  assert(host.textContent?.includes("Panel task description."), "detail task description");
+  await act(async () => {
+    root.unmount();
+    planSidePanelStore.close();
+  });
   host.remove();
 });
 

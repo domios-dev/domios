@@ -25,6 +25,21 @@ const CHIP_ORDER: WorkingOnChipKind[] = ["model", "tab", "peer", "branch", "age"
 
 const EMPTY_LABELS = new Set(["", "unknown"]);
 
+export interface WorkingOnTask {
+  id: string;
+  status: TaskStatus;
+  model?: string | null;
+  peer?: string | null;
+  assigned_tab_id?: string | null;
+  taken_by_role?: string | null;
+  created_at?: number;
+  updated_at?: number;
+  status_changed_at?: number;
+  activity_at?: number;
+  lane?: Pick<NonNullable<Task["lane"]>, "tab_id" | "branch">;
+  milestones?: Task["milestones"];
+}
+
 function clean(value?: string | null): string | null {
   const text = value?.trim() ?? "";
   return text && !EMPTY_LABELS.has(text.toLowerCase()) ? text : null;
@@ -34,14 +49,14 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id;
 }
 
-function remotePeer(task: Task): string | null {
+function remotePeer(task: WorkingOnTask): string | null {
   const peer = clean(task.peer);
   return peer && !LOCAL_PEERS.has(peer.toLowerCase()) ? peer : null;
 }
 
-function activityTs(task: Task): number {
-  let ts = task.status_changed_at ?? task.updated_at ?? task.created_at ?? 0;
-  for (const m of task.milestones) if (m.ts > ts) ts = m.ts;
+function activityTs(task: WorkingOnTask): number {
+  let ts = task.activity_at ?? task.status_changed_at ?? task.updated_at ?? task.created_at ?? 0;
+  for (const m of task.milestones ?? []) if (m.ts > ts) ts = m.ts;
   return ts;
 }
 
@@ -66,7 +81,7 @@ function sortChips(chips: WorkingOnChip[]): WorkingOnChip[] {
 // Lane hygiene warnings (branch missing, tab gone) are active-task-only via working-on chips.
 // Done/paused/pending cards surface branch metadata when present, not duplicate warn chips.
 export function deriveWorkingOnRow(
-  task: Task,
+  task: WorkingOnTask,
   tabs: Record<string, Tab>,
   now: number = Date.now(),
 ): WorkingOnRowModel | null {

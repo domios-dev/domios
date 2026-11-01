@@ -1,18 +1,18 @@
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Tab } from "../../../lib/types";
 import { Loader } from "../../shared/Loader";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
-import { TASK_STATUS_COLORS } from "../settings";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import { archivePlan, deleteTask, fetchSpecSections, renamePlan, unarchivePlan } from "../plansApi";
 import type { PlanIndexEntry } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
-import { TaskStatus, type Plan, type PlanStatus, type PlanTaskBoardColumnKey, type PlanTaskBoardSummary, type Section, type Task } from "../types";
+import { type Plan, type PlanStatus, type PlanTaskBoardColumnKey, type PlanTaskBoardSummary, type Section, type Task } from "../types";
 import { usePlanTaskBoard } from "../usePlans";
 import { collectTabChain } from "../planTabMatch";
 import {
   BOARD_COLUMN_DEFS,
   boundDoneColumnCards,
+  buildSummaryBoardTaskCard,
   buildBoardPlanModel,
   DONE_COLUMN_COLLAPSED_LIMIT,
   filterPlansForBoard,
@@ -28,8 +28,6 @@ import { usePlanSwitcherActions } from "./usePlanSwitcherActions";
 import { enrichSwitcherOptions, selectActiveWork } from "./activeWork";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./PlanFetchErrorState";
 import { planFetchShowsData } from "./planViewFetchGate";
-import { MissionControlControls } from "../missionControl/MissionControlControls";
-import { usePlanTaskActivate } from "./planTaskInteraction";
 import { PlanSwitcher, type PlanKebabAction, type PlanSwitcherOption } from "./PlanSwitcher";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
@@ -132,42 +130,13 @@ function SummaryTaskCard({
   onOpen: () => void;
   onDeleteTask?: (planId: string, taskId: string) => void | Promise<void>;
 }) {
-  const { onPointerDown, onPointerMove, onClick } = usePlanTaskActivate(onOpen);
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onOpen();
-  };
-  const tabId = task.assigned_tab_id?.trim() || task.lane?.tab_id?.trim();
-  const tabTitle = tabId ? tabs[tabId]?.title?.trim() || tabId.slice(0, 8) : null;
-  const displayKey = task.key?.trim() || task.handle?.trim() || task.id;
-  const paused = task.status === TaskStatus.Paused;
   return (
-    <article
-      data-testid="plan-board-task-card"
-      data-task-id={task.id}
-      data-task-status={task.status}
-      className={`plan-board-task-card plan-task-selectable plan-board-task-card-interactive${paused ? " plan-board-task-card-paused" : ""}`}
-      role="button"
-      tabIndex={0}
-      aria-label={`Open task ${displayKey}`}
-      title={paused ? `Paused${task.pause_reason ? `: ${task.pause_reason}` : ""}` : undefined}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onClick={onClick}
-      onKeyDown={handleKeyDown}
-    >
-      <div className="plan-board-task-actions">
-        <MissionControlControls scope="task" planId={planId} taskId={task.id} taskName={task.name} onDeleteTask={onDeleteTask} />
-      </div>
-      <p data-testid="plan-board-task-key" className="plan-board-task-key plan-board-task-mono">{displayKey}</p>
-      <h4 data-testid="plan-board-task-title" className="plan-board-task-title">{task.name}</h4>
-      <span data-testid="status-chip" className={`plan-board-task-status${paused ? " plan-board-task-status-paused" : ""}`} style={{ background: TASK_STATUS_COLORS[task.status] }}>
-        {task.status.replace(/_/g, " ")}
-      </span>
-      {tabTitle && <p data-testid="plan-board-task-active-executor" className="plan-board-task-meta"><span className="plan-board-task-meta-label">Executor</span><span className="plan-board-task-meta-value">{tabTitle}</span></p>}
-      {task.lane?.branch && <p data-testid="plan-board-task-lane" className="plan-board-task-meta"><span className="plan-board-task-meta-label">Branch</span><span className="plan-board-task-meta-value">{task.lane.branch}</span></p>}
-    </article>
+    <BoardTaskCard
+      card={buildSummaryBoardTaskCard(task, tabs)}
+      planId={planId}
+      onOpen={onOpen}
+      onDeleteTask={onDeleteTask}
+    />
   );
 }
 

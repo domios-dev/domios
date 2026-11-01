@@ -2,7 +2,7 @@ use super::store_rows;
 use super::store_sync::{self, RowWrites, StoredStrides};
 use super::{Plan, PlanError, Spec};
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::PathBuf;
 
 /// `PRAGMA user_version` of the 1.18 row schema; older databases are converted once on open.
@@ -75,7 +75,7 @@ impl PlanDatabase {
             std::fs::create_dir_all(parent).map_err(io_error)?;
         }
         let mut connection = if path.exists() {
-            Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            Connection::open(&path)
         } else {
             Connection::open_in_memory()
         }

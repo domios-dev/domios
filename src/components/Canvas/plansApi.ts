@@ -11,6 +11,7 @@ import type {
   PlanTaskBoardColumnKey,
   PlanTaskBoardCursor,
   PlanTaskBoardPage,
+  PlanTaskDetail,
   Section,
 } from "./types";
 import type { PlanLifecycleKind, PlanLifecyclePreview } from "./planLifecycle";
@@ -84,6 +85,20 @@ export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSi
     signal,
   });
   if (!res.ok) throw new Error(`plan get failed: ${res.status} ${await res.text()}`);
+  return res.json();
+}
+
+export async function fetchPlanTaskDetail(
+  api: ApiConfig,
+  planId: string,
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<PlanTaskDetail> {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}`, {
+    headers: authHeaders(api),
+    signal,
+  });
+  if (!res.ok) throw new Error(`plan task detail failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
 

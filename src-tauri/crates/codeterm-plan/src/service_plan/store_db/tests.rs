@@ -178,6 +178,250 @@ fn task_board_pages_keep_counts_cursor_order_and_compact_history_free_rows() {
 }
 
 #[test]
+fn task_board_cursor_pages_use_the_ordered_plan_status_index_without_temp_sort() {
+    use rusqlite::Connection;
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Indexed task board".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    for index in 0..3 {
+        store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: format!("indexed-{index}"),
+                    ..Default::default()
+                },
+                index + 2,
+            )
+            .unwrap();
+    }
+
+    let database_path = store.database_path_for_test();
+    drop(store);
+    let old_database = Connection::open(&database_path).unwrap();
+    old_database
+        .execute_batch("DROP INDEX plan_tasks_board_cursor")
+        .unwrap();
+    drop(old_database);
+    let database = PlanDatabase::open(database_path).unwrap();
+    let connection = database.connection.lock();
+    let index_exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'plan_tasks_board_cursor')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        index_exists,
+        "opening an existing database restores the schema-owned cursor index"
+    );
+    let explain = |sql: &str, parameters: &[&dyn rusqlite::ToSql]| -> Vec<String> {
+        let mut statement = connection.prepare(sql).unwrap();
+        statement
+            .query_map(parameters, |row| row.get(3))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let first_page_plan = explain(
+        "EXPLAIN QUERY PLAN SELECT task_id FROM plan_tasks
+         WHERE plan_id = ?1
+           AND CASE WHEN status IN ('pending', 'paused') THEN 'pending' ELSE status END = 'pending'
+         ORDER BY coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0), position, task_id
+         LIMIT ?2",
+        &[&plan.id, &2_i64],
+    );
+    let later_page_plan = explain(
+        "EXPLAIN QUERY PLAN SELECT task_id FROM plan_tasks
+         WHERE plan_id = ?1
+           AND CASE WHEN status IN ('pending', 'paused') THEN 'pending' ELSE status END = 'pending'
+           AND (coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0), position, task_id) > (?2, ?3, ?4)
+         ORDER BY coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0), position, task_id
+         LIMIT ?5",
+        &[&plan.id, &1_i64, &1_i64, &"cursor", &2_i64],
+    );
+    for query_plan in [first_page_plan, later_page_plan] {
+        let detail = query_plan.join("\n");
+        assert!(detail.contains("plan_tasks_board_cursor"), "{detail}");
+        assert!(!detail.contains("TEMP B-TREE FOR ORDER BY"), "{detail}");
+    }
+}
+
+#[test]
+fn task_board_cursor_breaks_created_and_position_ties_by_unique_task_id() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Task cursor ties".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let first_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "First".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let second_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Second".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .database
+        .connection
+        .lock()
+        .execute(
+            "UPDATE plan_tasks
+             SET position = 7, row_json = json_set(row_json, '$.created_at', 9)
+             WHERE plan_id = ?1 AND task_id IN (?2, ?3)",
+            rusqlite::params![plan.id, first_id, second_id],
+        )
+        .unwrap();
+
+    let mut expected = [first_id, second_id];
+    expected.sort();
+    let first_page = store
+        .task_board_page(&plan.id, Some("pending"), 1, None)
+        .unwrap();
+    let first = &first_page["column"]["items"][0];
+    assert_eq!(first["id"], expected[0]);
+    let cursor = &first_page["column"]["next_cursor"];
+    let second_page = store
+        .task_board_page(
+            &plan.id,
+            Some("pending"),
+            1,
+            Some((
+                cursor["created_at"].as_u64().unwrap(),
+                cursor["position"].as_i64().unwrap(),
+                cursor["task_id"].as_str().unwrap(),
+            )),
+        )
+        .unwrap();
+    assert_eq!(second_page["column"]["items"][0]["id"], expected[1]);
+    assert!(second_page["column"]["next_cursor"].is_null());
+}
+
+#[test]
+fn task_detail_reads_one_exact_task_with_its_history_and_small_context() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Scoped task detail".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let selected_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Selected detail".into(),
+                body: "Selected task description".into(),
+                acceptance_criteria: vec!["Selected criterion".into()],
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let other_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Unselected task".into(),
+                body: "Must stay outside the response".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let connection = store.database.connection.lock();
+    connection
+        .execute(
+            "INSERT INTO plan_task_milestones(plan_id, task_id, seq, row_json) VALUES (?1, ?2, 0, ?3)",
+            rusqlite::params![
+                plan.id,
+                selected_id,
+                serde_json::json!({ "id": "milestone-1", "kind": "decision", "text": "Selected task diagnostic history", "ts": 4, "links": [], "loop_id": null, "iteration": null, "canvas": { "x": null, "y": null, "collapsed": false } }).to_string(),
+            ],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO plan_task_attempts(plan_id, task_id, attempt_id, position, content_hash, row_json) VALUES (?1, ?2, 'attempt-1', 1, 0, ?3)",
+            rusqlite::params![
+                plan.id,
+                selected_id,
+                serde_json::json!({ "id": "attempt-1", "tab_id": "worker-1", "role": "worker", "report_status": "in_review", "outcome": "review requested" }).to_string(),
+            ],
+        )
+        .unwrap();
+    drop(connection);
+
+    let detail = store.task_detail_for_plan(&plan.id, &selected_id).unwrap();
+    assert_eq!(detail["plan_id"], plan.id);
+    assert_eq!(detail["task_id"], selected_id);
+    assert_eq!(detail["task"]["id"], selected_id);
+    assert_eq!(detail["task"]["body"], "Selected task description");
+    assert_eq!(
+        detail["task"]["acceptance_criteria"][0],
+        "Selected criterion"
+    );
+    assert_eq!(
+        detail["task"]["milestones"][0]["text"],
+        "Selected task diagnostic history"
+    );
+    assert_eq!(detail["task"]["execution_attempts"][0]["id"], "attempt-1");
+    assert_eq!(detail["context"]["plan_id"], plan.id);
+    assert!(detail.get("tasks").is_none());
+    assert!(detail
+        .to_string()
+        .find("Must stay outside the response")
+        .is_none());
+
+    let other_plan = store
+        .create_plan(
+            "Different plan".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            5,
+        )
+        .unwrap();
+    assert!(store
+        .task_detail_for_plan(&other_plan.id, &selected_id)
+        .is_err());
+    assert!(store.task_detail_for_plan(&plan.id, &other_id).is_ok());
+}
+
+#[test]
 fn plan_round_trips_from_one_wal_database() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("plans.db");

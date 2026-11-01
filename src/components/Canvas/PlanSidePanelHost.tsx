@@ -16,6 +16,7 @@ import { fetchPlan } from "./plansApi";
 import { PlanSidePanel } from "./planView/PlanSidePanel";
 import { usePlanTargetNavigation, type PlanTarget } from "./teamViewNavigation";
 import type { Plan } from "./types";
+import { usePlanTaskDetail } from "./usePlans";
 import { usePresence, type PresenceMotion } from "./usePresence";
 
 const PLAN_SIDE_PANEL_MOTION: PresenceMotion = { enter: "ct-plan-side-panel-in", exit: "ct-plan-side-panel-out" };
@@ -73,15 +74,24 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
   }, [onReturnTo]);
 
   const listed = target ? plans.find((plan) => plan.id === target.planId) ?? null : null;
-  const unlisted = useUnlistedPlan(api, target && !listed && !target.documentsTabId ? target.planId : null);
+  const taskDetail = usePlanTaskDetail(
+    api,
+    target?.taskId ? target.planId : null,
+    target?.taskId ?? null,
+  );
+  const unlisted = useUnlistedPlan(api, target && !target.taskId && !listed && !target.documentsTabId ? target.planId : null);
   if (!target || !presence.state) return null;
   return (
     <div className="plan-side-panel-layer" data-testid="plan-side-panel-layer">
       {target.documentsTabId
         ? <TabSidePanel key={target.documentsTabId} tabId={target.documentsTabId} view={target.tabView ?? "documents"} cwd={tabs?.[target.documentsTabId]?.cwd} state={presence.state} panelRef={presence.ref} onClose={dismiss} /> : <PlanSidePanel
         target={target}
-        plan={listed ?? unlisted.plan}
-        loading={!listed && (loading || unlisted.loading)}
+        plan={target.taskId ? (!api ? listed : null) : listed ?? unlisted.plan}
+        taskDetail={taskDetail.detail}
+        taskLoading={taskDetail.loading}
+        taskError={taskDetail.error}
+        onRetryTask={taskDetail.retry}
+        loading={!target.taskId && !listed && (loading || unlisted.loading)}
         api={api}
         tabs={tabs}
         onOpenTab={onOpenTab}

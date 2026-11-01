@@ -15,9 +15,8 @@ import { PlanListView } from "./planView/PlanListView";
 import { PlanPlanView, PlanSpecView } from "./planView/PlanDocumentView";
 import { TaskSegmentPanel } from "./planView/TaskSegmentPanel";
 import { findTaskByReference, taskSegmentLabel } from "./taskDisplayKey";
-import type { Plan } from "./types";
 import { useFullPlansOptional } from "./PlansProvider";
-import { usePlanById } from "./usePlans";
+import { usePlanTaskDetail } from "./usePlans";
 
 const BoardSurface = memo(MissionControlPlanSurface);
 const ListSurface = memo(PlanListView);
@@ -61,16 +60,22 @@ function useTaskSegment(
   target: CanvasWorkspaceTarget | null | undefined,
   setViewMode: (mode: PlanViewMode) => void,
 ): [TaskSegment | null, (segment: TaskSegment | null) => void] {
-  const [segment, setSegment] = useState<TaskSegment | null>(null);
+  const [segment, setSegment] = useState<TaskSegment | null>(() => {
+    const planId = target?.planId;
+    const jump = target?.jump;
+    return planId && jump?.view === "task" ? { planId, taskRef: jump.taskId } : null;
+  });
   useLayoutEffect(() => {
     const planId = target?.planId;
     const jump = target?.jump;
     if (!planId || !jump) return;
     if (jump.view === "task") {
-      setSegment({ planId, taskRef: jump.taskId });
+      setSegment((current) => current?.planId === planId && current.taskRef === jump.taskId
+        ? current
+        : { planId, taskRef: jump.taskId });
       return;
     }
-    setSegment(null);
+    setSegment((current) => current === null ? current : null);
     setViewMode("plan");
   }, [target, setViewMode]);
   return [segment, setSegment];
@@ -90,7 +95,8 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const [segment, setSegment] = useTaskSegment(props.workspaceTarget, setViewMode);
   const viewMode: PlanViewMode = storedMode;
   const selected = segment ? TASK_SEGMENT_VALUE : viewMode;
-  const fullQuery = useFullPlansOptional(Boolean(props.planIndex) && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
+  const openingTask = props.workspaceTarget?.jump?.view === "task";
+  const fullQuery = useFullPlansOptional(Boolean(props.planIndex) && !openingTask && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
   const fullPlans = fullQuery?.plans ?? props.plans;
   const fullProps: PlanViewSurfaceProps = {
     ...props,
@@ -136,26 +142,26 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
     rootRef.current?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]')?.focus();
   }, [segment]);
 
-  const foundInCollection = useMemo(() => {
-    if (!segment) return null;
-    const plan: Plan | undefined = fullPlans.find((candidate) => candidate.id === segment.planId);
+  const taskDetail = usePlanTaskDetail(
+    props.api,
+    segment?.planId ?? null,
+    segment?.taskRef ?? null,
+  );
+  const detail = useMemo(() => {
+    const selectedDetail = taskDetail.detail;
+    if (!segment || !selectedDetail || selectedDetail.plan_id !== segment.planId || selectedDetail.task_id !== segment.taskRef) return null;
+    return selectedDetail;
+  }, [segment, taskDetail.detail]);
+  const cachedTask = useMemo(() => {
+    if (props.api || !segment) return null;
+    const plan = props.plans.find((candidate) => candidate.id === segment.planId);
     const task = plan ? findTaskByReference(plan.tasks, segment.taskRef) : undefined;
     return plan && task ? { plan, task } : null;
-  }, [fullPlans, segment]);
-  const directPlan = usePlanById(
-    props.api,
-    segment && !fullPlans.some((candidate) => candidate.id === segment.planId) ? segment.planId : null,
-  );
-  const found = useMemo(() => {
-    if (foundInCollection) return foundInCollection;
-    if (!segment || directPlan.plan?.id !== segment.planId) return null;
-    const task = findTaskByReference(directPlan.plan.tasks, segment.taskRef);
-    return task ? { plan: directPlan.plan, task } : null;
-  }, [foundInCollection, segment, directPlan.plan]);
+  }, [props.api, props.plans, segment]);
 
   const temporaryTab = useMemo<TemporaryModeTab | null>(() => {
     if (!segment) return null;
-    const label = taskSegmentLabel({ id: segment.taskRef, key: found?.task.key });
+    const label = taskSegmentLabel({ id: segment.taskRef, key: detail?.task.key ?? cachedTask?.task.key });
     return {
       value: TASK_SEGMENT_VALUE,
       label,
@@ -164,13 +170,14 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
       panelId: segmentPanelId,
       onClose: closeSegment,
     };
-  }, [segment, found, segmentTabId, segmentPanelId, closeSegment]);
+  }, [segment, detail, cachedTask, segmentTabId, segmentPanelId, closeSegment]);
 
   const { onOpenPlanTarget } = props;
   const openRelatedTask = useCallback((taskId: string) => {
-    if (!found) return;
-    onOpenPlanTarget?.({ planId: found.plan.id, taskId, teamId: found.plan.team_id });
-  }, [found, onOpenPlanTarget]);
+    const planId = detail?.context.plan_id ?? cachedTask?.plan.id;
+    if (!planId) return;
+    onOpenPlanTarget?.({ planId, taskId, teamId: detail?.context.team_id ?? cachedTask?.plan.team_id ?? undefined });
+  }, [detail, cachedTask, onOpenPlanTarget]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!segment || event.key !== "Escape" || event.defaultPrevented) return;
@@ -255,21 +262,21 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
         </div>
         {segment && (
           <div className="absolute inset-0">
-            {directPlan.error && !found && (
+            {taskDetail.error && !detail && (
               <div data-testid="plan-task-segment-error" className="absolute inset-y-0 right-0 z-50 flex w-[min(43vw,720px)] flex-col items-center justify-center gap-3 border-l px-6 text-center" style={{ background: "var(--ct-bg)", borderColor: "var(--ct-border)" }}>
-                <InlineErrorNotice error={directPlan.error} operation="loading task details" />
-                <button type="button" onClick={directPlan.retry} className="rounded border px-3 py-1 text-xs">Retry</button>
+                <InlineErrorNotice error={taskDetail.error} operation="loading task details" />
+                <button type="button" onClick={taskDetail.retry} className="rounded border px-3 py-1 text-xs">Retry</button>
               </div>
             )}
-            {!directPlan.error && (
+            {!taskDetail.error && (
               <TaskSegmentPanel
                 panelId={segmentPanelId}
                 tabId={segmentTabId}
                 panelRef={panelRef}
-                plan={found?.plan ?? null}
-                task={found?.task ?? null}
+                detail={detail}
+                fallbackPlan={cachedTask?.plan ?? null}
                 taskRef={segment.taskRef}
-                loading={directPlan.loading || (fullQuery?.loading ?? false)}
+                loading={taskDetail.loading}
                 api={props.api}
                 tabs={props.tabs}
                 onOpenTab={props.onOpenTab}
