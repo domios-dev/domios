@@ -1499,6 +1499,7 @@ dependencies = [
  "log",
  "objc2-app-kit",
  "objc2-foundation",
+ "rustls",
  "serde_json",
  "tauri",
  "tauri-plugin-single-instance",
