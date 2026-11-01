@@ -135,7 +135,9 @@ impl Fixture {
             tab.agent_session_id = Some(id.clone());
         }
         let pad_data = tempfile::tempdir().unwrap();
-        let service = ServiceFixture::new_at(mux, &pad_data.path().join(".domios"));
+        let data = pad_data.path().join(".domios");
+        std::fs::create_dir_all(&data).unwrap();
+        let service = ServiceFixture::new_at(mux, &data.canonicalize().unwrap());
         let rows = Arc::new(Mutex::new(HashMap::new()));
         service
             .service
