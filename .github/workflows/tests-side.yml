@@ -222,7 +222,9 @@ jobs:
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
       - name: Prepare compile fixtures
-        run: node scripts/ci-rust-prepare.mjs
+        run: |
+          node scripts/ci-rust-prepare.mjs
+          node scripts/prepare-test-bundle.mjs x86_64-unknown-linux-gnu
       - name: Check all workspace targets
         run: cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets --locked
       - name: Clean compile fixtures

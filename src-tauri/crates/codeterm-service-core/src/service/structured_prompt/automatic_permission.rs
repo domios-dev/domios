@@ -4,7 +4,7 @@ use std::sync::LazyLock;
 use codeterm_types::pty::PromptKind;
 use parking_lot::Mutex;
 
-use super::{opencode_sse, subscription, Active, ResponseRoute, ServiceContext, ACTIVE};
+use super::{subscription, Active, ResponseRoute, ServiceContext, ACTIVE};
 
 #[derive(Clone, PartialEq, Eq)]
 struct Identity {
@@ -30,10 +30,7 @@ fn enabled(svc: &ServiceContext, tab_id: &str) -> bool {
 }
 
 fn permission(route: &ResponseRoute) -> bool {
-    matches!(
-        route.kind,
-        opencode_sse::PromptKind::Permission | opencode_sse::PromptKind::PermissionV2
-    )
+    route.prompt_kind() == PromptKind::Permission
 }
 
 pub(super) fn kind(entry: Option<&Active>) -> PromptKind {

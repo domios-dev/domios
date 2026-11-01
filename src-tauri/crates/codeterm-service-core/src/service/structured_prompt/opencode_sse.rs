@@ -91,6 +91,17 @@ pub enum PromptKind {
     PermissionV2,
 }
 
+impl ResponseRoute {
+    pub(super) fn prompt_kind(&self) -> codeterm_types::pty::PromptKind {
+        use codeterm_types::pty::PromptKind as HostPromptKind;
+
+        match self.kind {
+            PromptKind::Question | PromptKind::QuestionV2 => HostPromptKind::Structured,
+            PromptKind::Permission | PromptKind::PermissionV2 => HostPromptKind::Permission,
+        }
+    }
+}
+
 const PERMISSION_OPTIONS: [(&str, &str); 3] =
     [("once", "Once"), ("always", "Always"), ("reject", "Reject")];
 
