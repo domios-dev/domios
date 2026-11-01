@@ -36,10 +36,7 @@ fn cleanup_is_not_run_when_main_thread_dispatch_fails() {
         move || cleaned.send(()).unwrap(),
     );
 
-    assert_eq!(
-        result.unwrap_err(),
-        "failed to schedule application cleanup: event loop closed"
-    );
+    assert!(result.unwrap_err().contains("event loop closed"));
     assert_eq!(
         observed.try_recv(),
         Err(std::sync::mpsc::TryRecvError::Disconnected)

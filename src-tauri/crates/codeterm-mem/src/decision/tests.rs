@@ -410,9 +410,9 @@ fn decision_stage_body_capped_on_char_boundary() {
 
 #[test]
 fn decision_stage_request_uses_supplied_query_and_memory_fields() {
-    let query = "where is the migration runbook";
-    let title = "Migration Runbook";
-    let body = "The operations manual contains the answer.";
+    let query = "opaque_decision_query_38ae";
+    let title = "opaque_memory_title_906c";
+    let body = "opaque_memory_body_1e73";
     let requests = Arc::new(Mutex::new(Vec::new()));
     let seen = requests.clone();
     let model = stub(NOUL, move |req| {
@@ -441,7 +441,7 @@ fn decision_stage_request_uses_supplied_query_and_memory_fields() {
 
 #[test]
 fn decision_stage_score_instruction_uses_supplied_query() {
-    let query = "what is the fallback path";
+    let query = "opaque_score_query_84d2";
     let instructions = Arc::new(Mutex::new(Vec::new()));
     let seen = instructions.clone();
     let model = stub(SCORE, move |req| {

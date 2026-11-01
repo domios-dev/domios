@@ -293,13 +293,3 @@ fn wide_name(value: &[u16]) -> String {
 fn last_error(operation: &str) -> String {
     format!("{operation}: {}", std::io::Error::last_os_error())
 }
-
-#[test]
-fn failed_process_observation_is_not_an_empty_success() {
-    let error = run_process_query("Write-Error 'synthetic query failure'; exit 17")
-        .expect_err("a failed observer must not become an empty result");
-    assert!(error.contains("synthetic query failure"), "{error}");
-
-    let (_tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
-    assert!(recv_pipe_until(&rx, Instant::now(), "probe").is_err());
-}

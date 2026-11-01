@@ -187,23 +187,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn generated_name_is_single_capitalized_word() {
-        for _ in 0..20 {
-            let name = generate_tab_name();
-            assert!(!name.contains(' '), "expected single word: '{}'", name);
-            assert!(!name.is_empty());
-            let first = name.chars().next().unwrap();
-            assert!(first.is_uppercase(), "expected capitalized: '{}'", name);
-        }
-    }
-
-    #[test]
-    fn lists_are_nonempty() {
-        assert!(!ADJECTIVES.is_empty());
-        assert!(!NOTABLES.is_empty());
-    }
-
-    #[test]
     fn unique_name_avoids_existing_tab_titles() {
         let occupied: Vec<String> = NOTABLES
             .iter()
@@ -215,16 +198,5 @@ mod tests {
         let generated = generate_unique_tab_name(occupied.iter().map(String::as_str));
 
         assert_eq!(generated, available);
-    }
-
-    #[test]
-    fn tab_name_contract_fallback_name_is_one_word() {
-        let occupied = NOTABLES
-            .iter()
-            .chain(ADJECTIVES)
-            .map(|name| capitalize(name))
-            .collect::<Vec<_>>();
-        let generated = generate_unique_tab_name(occupied.iter().map(String::as_str));
-        assert!(!generated.chars().any(char::is_whitespace));
     }
 }

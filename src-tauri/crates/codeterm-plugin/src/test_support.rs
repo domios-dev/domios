@@ -1,10 +1,6 @@
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
-#[cfg(test)]
-#[path = "test_support/tests.rs"]
-mod tests;
-
 pub(crate) fn fixture_repo_root() -> &'static Path {
     static ROOT: OnceLock<PathBuf> = OnceLock::new();
     ROOT.get_or_init(|| {

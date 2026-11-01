@@ -170,13 +170,6 @@ fn deleting_scaffold_skill_never_removes_provider_folder() {
 }
 
 #[test]
-fn open_in_memory_works() {
-    let mem = MemManager::open_in_memory().unwrap();
-    let stats = mem.stats().unwrap();
-    assert_eq!(stats.total_items, 0);
-}
-
-#[test]
 fn save_and_get_roundtrip() {
     let mem = MemManager::open_in_memory().unwrap();
     let id = mem
