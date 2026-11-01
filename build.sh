@@ -700,7 +700,7 @@ CT_VITE_PORT="${CODETERM_VITE_PORT:-}"
 CT_CDP_PORT="${CODETERM_CDP_PORT:-}"
 CT_INSTANCE_HASH=""
 case "$CMD" in
-  dev|dev-prebuilt|dev-server|dev-front|kill|e2e|e2e:llm)
+  dev-update-installer|dev|dev-prebuilt|dev-server|dev-front|kill|e2e|e2e:llm)
     CT_DEV_SELECTION="$(node scripts/dev-instance-policy.mjs)" || exit $?
     CT_INSTANCE="${CT_DEV_SELECTION%:*}"
     CT_PORT="${CT_DEV_SELECTION##*:}"
@@ -2723,7 +2723,11 @@ case "$CMD" in
 esac
 
 case "$CMD" in
-  process-probe|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-arm64-compile|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
+  dev-update-installer|process-probe|dev-link-measure|feature-cycle|embedding-parity|fmt-check|check|check-tests|ci-tests|ci-clippy|ci-cli-tests|release-inputs|release-bundle|release-finalize|release-arm64-compile|release-preflight|release-rust|test|test-one|nextest|verify|worktree-check|build|qa-prep|bootstrap|cli|cli-docs|clean|test:all)
+    if [ "$CMD" = dev-update-installer ]; then
+      [ -n "$CT_INSTANCE" ] || { echo "dev-update-installer requires a named DEV instance" >&2; exit 2; }
+      prepare_named_dev_target
+    fi
     enter_cargo_gateway "$CMD ${*:2}"
     ;;
   docker-smoke-inputs)
@@ -2735,11 +2739,16 @@ case "$CMD" in
 esac
 
 case "$CMD" in
+  dev-update-installer)
+    source scripts/dev-update-installer.sh
+    build_dev_update_installer "${@:2}"
+    ;;
   help)
     cat <<'EOF'
 Domios build commands
 
   dev [--build-only]          Build/stage only, or start the visible shared dev instance
+  dev-update-installer <fixture-public-key-file> <launch-context-file>  Build a signed isolated Windows DEV installer
   dev-prebuilt                Restart a validated dev build without Cargo
   dev-env                     Create or refresh the ignored local build .env from the vault once
   dev-back                    DEV server + native window; the frontend comes from dev-front

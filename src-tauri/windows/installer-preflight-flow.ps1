@@ -31,10 +31,11 @@ function Assert-NoInstalledHolders {
 }
 
 function Invoke-InstallerPreflight {
-    param([string]$InstallRoot, [hashtable]$Ports)
+    param([string]$InstallRoot, [hashtable]$Ports, $DevelopmentTarget = $null)
     $root = (Get-InstalledImagePath ([IO.Path]::GetFullPath($InstallRoot))).TrimEnd('\')
     $serverImage = "$root\domios-server\domios-server.exe"
     $desktopImage = "$root\domios-app.exe"
+    if ($null -ne $DevelopmentTarget) { $desktopImage = "$root\domios-dev-app.exe" }
     $treeImages = @($serverImage, "$root\conpty\x64\OpenConsole.exe", "$root\conpty\arm64\OpenConsole.exe")
     $capture = & $Ports.Capture $root
     try {
@@ -53,6 +54,12 @@ function Invoke-InstallerPreflight {
         }
         $token = & $Ports.Token $root
         $snapshot = & $Ports.Snapshot $token
+        if ($null -ne $DevelopmentTarget -and (
+            (Get-InstalledImagePath $snapshot.ready.identity.data) -ine $DevelopmentTarget.Data -or
+            (Get-InstalledImagePath $snapshot.ready.identity.config) -ine "$($DevelopmentTarget.Config)\config.toml" -or
+            $snapshot.ready.api_address -ne "127.0.0.1:$($DevelopmentTarget.Port)")) {
+            throw 'The running server does not match the isolated update context.'
+        }
         $serverPid = [int]$snapshot.ready.process.pid
         $serverCreated = [long]$snapshot.ready.process.created
         $server = $capture.Table[$serverPid]
