@@ -284,6 +284,7 @@ async function main() {
     taskPageRequests.length = 0;
     failTaskPageReads = false;
     let current: UsePlanTaskBoardResult | null = null;
+    const readCurrent = (): UsePlanTaskBoardResult | null => current;
     function TaskBoardProbe({ planId }: { planId: string }) {
       const state = usePlanTaskBoard(API, planId);
       useEffect(() => { current = state; }, [state]);
@@ -296,25 +297,25 @@ async function main() {
       root.render(<TaskBoardProbe planId="plan-board" />);
       await flushMicrotasks();
     });
-    assert(current?.data?.counts?.pending === 2, "initial compact response includes status counts");
-    assert(current?.data?.columns?.pending?.items.length === 1, "initial response contains one bounded card");
-    await act(async () => current!.loadNextPage("pending"));
-    assert(current?.data?.columns?.pending?.items.map((task) => task.id).join(",") === "task-1,task-2", "cursor page appends without duplicating prior cards");
+    assert(readCurrent()?.data?.counts?.pending === 2, "initial compact response includes status counts");
+    assert(readCurrent()?.data?.columns?.pending?.items.length === 1, "initial response contains one bounded card");
+    await act(async () => readCurrent()!.loadNextPage("pending"));
+    assert(readCurrent()?.data?.columns?.pending?.items.map((task) => task.id).join(",") === "task-1,task-2", "cursor page appends without duplicating prior cards");
     assert(taskPageRequests[1]?.searchParams.get("after_task_id") === "task-1", "next request carries the stable cursor");
 
     failTaskPageReads = true;
     await act(async () => {
-      await current!.refetch();
+      await readCurrent()!.refetch();
       await flushMicrotasks();
     });
-    assert(Boolean(current?.error), "initial request failure is surfaced");
-    assert(!current?.error?.includes("TypeError"), "raw transport type is not exposed");
+    assert(Boolean(readCurrent()?.error), "initial request failure is surfaced");
+    assert(!readCurrent()?.error?.includes("TypeError"), "raw transport type is not exposed");
     failTaskPageReads = false;
     await act(async () => {
-      await current!.refetch();
+      await readCurrent()!.refetch();
       await flushMicrotasks();
     });
-    assert(current?.data?.plan_id === "plan-board", "retry restores the compact page");
+    assert(readCurrent()?.data?.plan_id === "plan-board", "retry restores the compact page");
     await act(async () => root.unmount());
     host.remove();
   });
@@ -322,6 +323,7 @@ async function main() {
   test("usePlanTaskBoard cancels the old plan request on selection change", async () => {
     pendingTaskPageSignal = null;
     let current: UsePlanTaskBoardResult | null = null;
+    const readCurrent = (): UsePlanTaskBoardResult | null => current;
     function TaskBoardProbe({ planId }: { planId: string }) {
       const state = usePlanTaskBoard(API, planId);
       useEffect(() => { current = state; }, [state]);
@@ -341,7 +343,7 @@ async function main() {
       await flushMicrotasks();
     });
     assert(oldSignal.aborted, "selection change aborts the previous request");
-    assert(current?.data?.plan_id === "replacement-plan", "only the selected plan page is exposed");
+    assert(readCurrent()?.data?.plan_id === "replacement-plan", "only the selected plan page is exposed");
     await act(async () => root.unmount());
     host.remove();
   });
@@ -351,6 +353,7 @@ async function main() {
     taskDetailRequests.length = 0;
     failTaskDetailReads = false;
     let current: import("./usePlans").UsePlanTaskDetailResult | null = null;
+    const readCurrent = (): import("./usePlans").UsePlanTaskDetailResult | null => current;
     function TaskDetailProbe({ planId, taskId }: { planId: string; taskId: string }) {
       const state = usePlanTaskDetail(API, planId, taskId);
       useEffect(() => { current = state; }, [state]);
@@ -365,20 +368,20 @@ async function main() {
     });
     assert(taskDetailCalls === 1, "one task detail request");
     assert(taskDetailRequests[0]?.pathname === "/api/plans/detail-plan/tasks/task-exact", "exact scoped task path");
-    assert(current?.detail?.task.id === "task-exact", "exact task identity accepted");
+    assert(readCurrent()?.detail?.task.id === "task-exact", "exact task identity accepted");
     failTaskDetailReads = true;
     await act(async () => {
       root.render(<TaskDetailProbe planId="detail-plan" taskId="task-error" />);
       await flushMicrotasks();
     });
-    assert(Boolean(current?.error), "request error is surfaced");
-    assert(!current?.error?.includes("TypeError"), "raw transport type is not exposed");
+    assert(Boolean(readCurrent()?.error), "request error is surfaced");
+    assert(!readCurrent()?.error?.includes("TypeError"), "raw transport type is not exposed");
     failTaskDetailReads = false;
     await act(async () => {
-      await current!.retry();
+      await readCurrent()!.retry();
       await flushMicrotasks();
     });
-    assert(current?.detail?.task.id === "task-error", "retry restores exact detail");
+    assert(readCurrent()?.detail?.task.id === "task-error", "retry restores exact detail");
     await act(async () => root.unmount());
     host.remove();
   });
@@ -386,6 +389,7 @@ async function main() {
   test("usePlanTaskDetail cancels the prior task read on selection change", async () => {
     pendingTaskDetailSignal = null;
     let current: import("./usePlans").UsePlanTaskDetailResult | null = null;
+    const readCurrent = (): import("./usePlans").UsePlanTaskDetailResult | null => current;
     function TaskDetailProbe({ planId }: { planId: string }) {
       const state = usePlanTaskDetail(API, planId, "task-current");
       useEffect(() => { current = state; }, [state]);
@@ -405,7 +409,7 @@ async function main() {
       await flushMicrotasks();
     });
     assert(oldSignal.aborted, "selection change aborts the previous task read");
-    assert(current?.detail?.plan_id === "replacement-detail-plan", "only the selected task detail is exposed");
+    assert(readCurrent()?.detail?.plan_id === "replacement-detail-plan", "only the selected task detail is exposed");
     await act(async () => root.unmount());
     host.remove();
   });

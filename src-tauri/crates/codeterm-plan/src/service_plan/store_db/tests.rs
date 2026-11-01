@@ -225,6 +225,17 @@ fn task_board_cursor_pages_use_the_ordered_plan_status_index_without_temp_sort()
         index_exists,
         "opening an existing database restores the schema-owned cursor index"
     );
+    let preserved_task_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM plan_tasks WHERE plan_id = ?1",
+            [&plan.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        preserved_task_count, 3,
+        "reopening preserves existing task rows"
+    );
     let explain = |sql: &str, parameters: &[&dyn rusqlite::ToSql]| -> Vec<String> {
         let mut statement = connection.prepare(sql).unwrap();
         statement

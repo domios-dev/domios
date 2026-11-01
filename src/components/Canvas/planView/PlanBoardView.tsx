@@ -31,6 +31,7 @@ import { planFetchShowsData } from "./planViewFetchGate";
 import { PlanSwitcher, type PlanKebabAction, type PlanSwitcherOption } from "./PlanSwitcher";
 
 const SELECTED_PLAN_STORAGE_KEY = "codeterm.board.selectedPlanId";
+type TaskSelection = Pick<Task, "id">;
 
 function readStoredPlanId(): string | null {
   try {
@@ -219,7 +220,7 @@ function BoardColumn({
   cards: BoardPlanModel["columns"][number]["cards"];
   doneExpanded: boolean;
   onToggleDone: () => void;
-  onOpenTask: (task: Task) => void;
+  onOpenTask: (task: TaskSelection) => void;
   planId: string;
   taskActions: BoardTaskActions;
 }) {
@@ -289,7 +290,7 @@ function BoardPlanBoard({
   model: BoardPlanModel;
   plan: Plan;
   taskActions: BoardTaskActions;
-  onOpenTask: (task: Task) => void;
+  onOpenTask: (task: TaskSelection) => void;
 }) {
   const [doneExpanded, setDoneExpanded] = useState(false);
   const [cancelledOpen, setCancelledOpen] = useState(false);
@@ -511,7 +512,7 @@ export function PlanBoardView({
     [selectedPlan, tabs, selectedSpecSections],
   );
 
-  const openTask = useCallback((task: Task) => {
+  const openTask = useCallback((task: TaskSelection) => {
     if (!selectedPlan) return;
     onOpenPlanTarget?.({ planId: selectedPlan.id, taskId: task.id, teamId: selectedPlan.team_id });
   }, [selectedPlan, onOpenPlanTarget]);

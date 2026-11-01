@@ -36,6 +36,8 @@ const API: ApiConfig = {
 
 let indexCalls = 0;
 let fullCalls = 0;
+const readIndexCalls = (): number => indexCalls;
+const readFullCalls = (): number => fullCalls;
 let fullFixturePlans = [FIXTURE_PLAN];
 let lastFullProject: string | null = null;
 type ListenHandler = (ev: { payload: unknown }) => void;
@@ -162,8 +164,8 @@ test("provider fetches one index and one full snapshot regardless of consumer co
   );
   const buttons = host.querySelectorAll('[data-testid="plan-button"]');
   assert(buttons.length === 5, "five buttons rendered");
-  assert(indexCalls === 1, `one index fetch for N consumers (got ${indexCalls})`);
-  assert(fullCalls === 0, "chat controls never download full plans");
+  assert(readIndexCalls() === 1, `one index fetch for N consumers (got ${readIndexCalls()})`);
+  assert(readFullCalls() === 0, "chat controls never download full plans");
   await act(async () => root.unmount());
 });
 
@@ -175,13 +177,13 @@ test("plans-loaded event refetches the sidebar plan index immediately", async ()
       <PlanButton tabId="orch-1" tabs={{}} />
     </PlansProvider>,
   );
-  assert(indexCalls === 1, `one index fetch before event (got ${indexCalls})`);
+  assert(readIndexCalls() === 1, `one index fetch before event (got ${readIndexCalls()})`);
   await act(async () => {
     emitPlansLoaded();
     await flushAsyncWork();
   });
-  const callsAfterEvent: number = indexCalls;
-  assert(callsAfterEvent === 2, `plans-loaded refetches index (got ${indexCalls})`);
+  const callsAfterEvent: number = readIndexCalls();
+  assert(callsAfterEvent === 2, `plans-loaded refetches index (got ${readIndexCalls()})`);
   await act(async () => root.unmount());
 });
 
@@ -195,8 +197,8 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
       <FullProbe />
     </PlansProvider>,
   );
-  assert(indexCalls === 1, `one index fetch (got ${indexCalls})`);
-  assert(fullCalls === 1, `one batched full fetch for N canvas consumers (got ${fullCalls})`);
+  assert(readIndexCalls() === 1, `one index fetch (got ${readIndexCalls()})`);
+  assert(readFullCalls() === 1, `one batched full fetch for N canvas consumers (got ${readFullCalls()})`);
   await act(async () => root.unmount());
 });
 
@@ -208,7 +210,7 @@ test("optional full reader leaves Tasks detached and releases the collection whe
       <OptionalFullProbe enabled={false} />
     </PlansProvider>,
   );
-  assert(fullCalls === 0, "disabled Tasks mode does not subscribe to the full collection");
+  assert(readFullCalls() === 0, "disabled Tasks mode does not subscribe to the full collection");
   assert(host.querySelector('[data-testid="optional-full-state"]')?.textContent === "disabled", "no full snapshot exposed");
 
   await act(async () => {
@@ -219,7 +221,7 @@ test("optional full reader leaves Tasks detached and releases the collection whe
     );
     await flushAsyncWork();
   });
-  assert(fullCalls === 1, "visible full-plan surface acquires the collection");
+  assert(readFullCalls() === 1, "visible full-plan surface acquires the collection");
 
   await act(async () => {
     root.render(
@@ -233,7 +235,7 @@ test("optional full reader leaves Tasks detached and releases the collection whe
     emitPlansLoaded();
     await flushAsyncWork();
   });
-  assert(fullCalls === 1, `hidden full-plan surface remains unsubscribed after reload events (got ${fullCalls})`);
+  assert(readFullCalls() === 1, `hidden full-plan surface remains unsubscribed after reload events (got ${readFullCalls()})`);
   await act(async () => root.unmount());
 });
 
@@ -245,7 +247,7 @@ test("sidebar reads compact plans without mounting canvas", async () => {
       <SidebarProbe />
     </PlansProvider>,
   );
-  assert(fullCalls === 0, "sidebar never requests full plan bodies");
+  assert(readFullCalls() === 0, "sidebar never requests full plan bodies");
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
     "sidebar receives the full plan body",
@@ -268,7 +270,7 @@ test("desktop plan queries wait for config and bypass REST", async () => {
       <SidebarProbe />
     </PlansProvider>,
   );
-  assert(fullCalls === 0, "disabled provider makes no unauthenticated full request");
+  assert(readFullCalls() === 0, "disabled provider makes no unauthenticated full request");
 
   await act(async () => {
     root.render(
@@ -278,7 +280,7 @@ test("desktop plan queries wait for config and bypass REST", async () => {
     );
     await flushAsyncWork();
   });
-  const callsAfterEnable: number = fullCalls;
+  const callsAfterEnable: number = readFullCalls();
   assert(callsAfterEnable === 0, "loaded config enables compact HTTP reads only");
   assert(restCalls > 0, "desktop plan reads use authenticated HTTP");
   assert(
@@ -298,7 +300,7 @@ test("canvas release cannot drop plans while sidebar remains mounted", async () 
       <FullProbe />
     </PlansProvider>,
   );
-  assert(fullCalls === 1, `shared consumers trigger one full fetch (got ${fullCalls})`);
+  assert(readFullCalls() === 1, `shared consumers trigger one full fetch (got ${readFullCalls()})`);
 
   await act(async () => {
     root.render(
@@ -313,10 +315,10 @@ test("canvas release cannot drop plans while sidebar remains mounted", async () 
     await flushAsyncWork();
   });
 
-  const callsAfterCanvasRelease: number = fullCalls;
+  const callsAfterCanvasRelease: number = readFullCalls();
   assert(
     callsAfterCanvasRelease === 1,
-    `sidebar refetches after canvas release (got ${fullCalls})`,
+    `sidebar refetches after canvas release (got ${readFullCalls()})`,
   );
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
@@ -335,7 +337,7 @@ test("workspace canvas does not rescope the shared full-plan query", async () =>
       <WorkspaceProbe projectPath="/repo/a" />
     </PlansProvider>,
   );
-  assert(fullCalls === 1, "one scoped full fetch");
+  assert(readFullCalls() === 1, "one scoped full fetch");
   assert(lastFullProject === null, "shared IPC query remains global while canvas filters locally");
   await act(async () => root.unmount());
 });
