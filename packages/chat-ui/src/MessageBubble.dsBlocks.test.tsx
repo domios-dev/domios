@@ -218,6 +218,33 @@ test("dsBlocks retires executable HTML fences and gates Mermaid on the complete 
   } finally { await view.close(); configureHtmlFileLoader(null); }
 });
 
+test("dsBlocks tool and paste excerpts never create frames or agent subscriptions and release outside blocks", async () => {
+  for (const wrapper of ["tool_result", "tool_output", "transcript", "pasted_content"]) {
+    const view = await mount();
+    const agents = binding({ kind: "loading" } as const);
+    const value: ChatBlockHost = { agents: { binding: agents.source, open() {}, stop: async () => {} } };
+    const excerpt = `<${wrapper}>\n${html}\n<ds-agent tab="deadbeef" />\n</${wrapper}>`;
+    const render = (content: string, streaming = true) => view.render(<ChatBlockHostProvider value={value}><MessageBubble message={{ id: wrapper, type: "assistant", content }} streaming={streaming} /></ChatBlockHostProvider>);
+    try {
+      for (let end = 1; end <= excerpt.length; end++) {
+        await render(excerpt.slice(0, end));
+        assert.equal(view.host.querySelectorAll("iframe").length, 0, `${wrapper} prefix ${end}: frames`);
+        assert.deepEqual(agents.counts, { starts: 0, live: 0, refresh: 0 }, `${wrapper} prefix ${end}: agent effects`);
+      }
+      const source = `${excerpt}\n${html}\n<ds-agent tab="outside" />`;
+      await render(source);
+      const frame = view.host.querySelector("iframe");
+      assert.ok(frame);
+      assert.equal(view.host.querySelectorAll("iframe").length, 1);
+      assert.deepEqual(agents.counts, { starts: 1, live: 1, refresh: 1 });
+      await render(source, false);
+      assert.equal(view.host.querySelector("iframe"), frame);
+      assert.deepEqual(agents.counts, { starts: 1, live: 1, refresh: 1 });
+    } finally { await view.close(); }
+    assert.equal(agents.counts.live, 0);
+  }
+});
+
 test("dsBlocks all nine live-card kinds have no subscription before their own terminator", async () => {
   const view = await mount();
   const events: string[] = [];

@@ -19,7 +19,7 @@ interface Candidate {
   jsonQuote: boolean; jsonEscape: boolean;
 }
 const HEADER_LIMIT = 16_384;
-const INERT_NAMES = ["context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff", "environment_context", "system-reminder", "instructions", "INSTRUCTIONS", "previous_messages", "conversation_history"];
+const INERT_NAMES = ["context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff", "environment_context", "system-reminder", "instructions", "INSTRUCTIONS", "previous_messages", "conversation_history", "tool_result", "tool_output", "transcript", "pasted_content"];
 
 export class DsBlockScanner {
   private source = "";
