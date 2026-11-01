@@ -105,7 +105,12 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                 root_tab_id: None,
             });
             let data_dir = tempfile::tempdir().unwrap();
-            let fixture = ServiceFixture::new_at(mux, data_dir.path());
+            let disk_restart = access == MachineAccess::Folder && resumed;
+            let fixture = if disk_restart {
+                ServiceFixture::new_at(mux, data_dir.path())
+            } else {
+                ServiceFixture::new(mux)
+            };
             fixture
                 .service
                 .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
@@ -158,33 +163,53 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
             );
             let snapshot = serde_json::to_vec(&svc.mux.read().to_session_snapshot()).unwrap();
             let snapshot = serde_json::from_slice(&snapshot).unwrap();
-            fixture
-                .save_neighbor_restore_settings(
-                    "owner",
-                    &"a".repeat(64),
-                    &tab_id,
-                    codeterm_neighbors::permissions::Permission {
-                        machine_access: access,
-                        folder: (access == MachineAccess::Folder)
-                            .then(|| cwd.to_string_lossy().into_owned()),
-                        ..Default::default()
-                    },
-                )
-                .await;
-            drop(fixture);
-            let fixture = ServiceFixture::new_at(
-                MultiplexerState::from_session_snapshot(&snapshot),
-                data_dir.path(),
-            );
+            let restored_mux = MultiplexerState::from_session_snapshot(&snapshot);
+            let fixture = if disk_restart {
+                fixture
+                    .save_neighbor_restore_settings(
+                        "owner",
+                        &"a".repeat(64),
+                        &tab_id,
+                        codeterm_neighbors::permissions::Permission {
+                            machine_access: access,
+                            folder: Some(cwd.to_string_lossy().into_owned()),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+                drop(fixture);
+                let fixture = ServiceFixture::new_at(restored_mux, data_dir.path());
+                register_neighbor_runtime(&fixture.service);
+                fixture.install_seeded_storage_desk();
+                fixture
+                    .service
+                    .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+                assert_eq!(
+                    super::restore(&fixture.service, &tab_id).unwrap_err(),
+                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                );
+                fixture.load_neighbor_restore_settings("owner").await;
+                fixture
+            } else {
+                *fixture.service.mux.write() = restored_mux;
+                fixture
+                    .service
+                    .mux
+                    .write()
+                    .get_tab_mut(&tab_id)
+                    .unwrap()
+                    .session_binding_nonce = Some("restored-nonce".into());
+                assert_eq!(
+                    super::restore(&fixture.service, &tab_id).unwrap_err(),
+                    codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
+                );
+                fixture
+                    .service
+                    .prepare_neighbor_restore_grant(&tab_id, "pad-runtime", &params)
+                    .unwrap();
+                fixture
+            };
             let svc = &fixture.service;
-            register_neighbor_runtime(svc);
-            fixture.install_seeded_storage_desk();
-            svc.set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
-            assert_eq!(
-                super::restore(svc, &tab_id).unwrap_err(),
-                codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
-            );
-            fixture.load_neighbor_restore_settings("owner").await;
             let options = super::restore(svc, &tab_id).unwrap();
             assert_eq!(options.mode.as_deref(), Some(mode));
             let pad = svc.ensure_agent_pad(&tab_id).unwrap();

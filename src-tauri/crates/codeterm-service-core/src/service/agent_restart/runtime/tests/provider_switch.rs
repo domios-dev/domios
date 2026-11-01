@@ -664,7 +664,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         "lifecycle_epoch",
         "sleeping",
     ] {
-        let (fixture, task_id, _) = switch_worker_fixture();
+        let (fixture, task_id, _) = prepared_switch_worker_fixture(false);
         complete_switch_task(&fixture, &task_id);
         let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
         match invalid {
@@ -788,7 +788,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
 
 #[test]
 fn completed_switch_revalidates_history_before_source_retirement() {
-    let (fixture, task_id, _) = switch_worker_fixture();
+    let (fixture, task_id, _) = prepared_switch_worker_fixture(false);
     complete_switch_task(&fixture, &task_id);
     let authority = fixture
         .service
@@ -1042,8 +1042,11 @@ fn failed_runtime_restart_releases_the_task_attempt_authority() {
 }
 
 fn switch_worker_fixture() -> (RuntimeFixture, String, String) {
-    let fixture = RuntimeFixture::new();
-    agent_runtime::engine::stop_blocking(&fixture.service, &fixture.tab).unwrap();
+    prepared_switch_worker_fixture(true)
+}
+
+fn prepared_switch_worker_fixture(storage: bool) -> (RuntimeFixture, String, String) {
+    let fixture = RuntimeFixture::prepared(SOURCE, storage);
     let source_transcript = fixture.temp.path().join("source-thread.jsonl");
     std::fs::write(&source_transcript, []).unwrap();
     fixture.service.agent_registry.register_provider(Box::new(
