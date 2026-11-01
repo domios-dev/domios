@@ -125,7 +125,6 @@ fn queued_agent_delivery_reports_pending_without_written_bytes() {
             "ok": true,
             "delivery": "pending",
             "bytes_written": false,
-            "send_id": "delivery-1",
         }),
     );
 }
