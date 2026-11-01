@@ -28,6 +28,64 @@ fn transport_orchestration_contract_caller_identity_denial() {
 }
 
 #[test]
+fn transport_orchestration_header_claim_preserves_nonce_authority() {
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
+
+    let (mux, tab_id) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("owner-secret".into());
+    state
+        .svc
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .session_binding_nonce = Some("current-nonce".into());
+    let tab_token = state
+        .svc
+        .frontend_pty_env(Some(&tab_id))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    for token in ["owner-secret", tab_token.as_str()] {
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+        headers.insert("x-codeterm-tab-id", tab_id.parse().unwrap());
+        for nonce in [None, Some("stale-nonce"), Some("current-nonce")] {
+            headers.remove("x-codeterm-binding-nonce");
+            if let Some(nonce) = nonce {
+                headers.insert("x-codeterm-binding-nonce", nonce.parse().unwrap());
+            }
+            let result = authority::validate_claim(&state, &headers, &Default::default());
+            if nonce == Some("current-nonce") {
+                assert_eq!(result.unwrap().as_deref(), Some(tab_id.as_str()));
+            } else {
+                assert_eq!(result.unwrap_err().0, StatusCode::FORBIDDEN);
+            }
+        }
+        for claim in [
+            authority::CallerClaim {
+                caller_tab_id: Some("foreign".into()),
+                session_binding_nonce: None,
+            },
+            authority::CallerClaim {
+                caller_tab_id: None,
+                session_binding_nonce: Some("stale-nonce".into()),
+            },
+        ] {
+            assert_eq!(
+                authority::validate_claim(&state, &headers, &claim)
+                    .unwrap_err()
+                    .0,
+                StatusCode::FORBIDDEN
+            );
+        }
+    }
+}
+
+#[test]
 fn transport_orchestration_contract_cross_tab_claims_and_missing_target() {
     assert!(authorize_open(
         ThreadCaller::Tab {

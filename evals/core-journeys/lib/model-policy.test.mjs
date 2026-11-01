@@ -41,16 +41,16 @@ function fixture() {
       }
       if (path.endsWith("complete-first-run")) { Object.assign(config.general_agent, { first_run_complete: true, agent_provider: provider }); return { ok: true }; }
       if (path === "/api/orchestration/new") return { opaque: "pair" };
+      if (path === "/api/tabs/owned/chat-send") return { send_id: "own-send", state: "held" };
       throw new Error(`unexpected API ${path}`);
     },
     command: async (args, options) => { calls.push({ args, options }); return { tab_id: "created" }; },
-    sendCommand: async (args, options) => { calls.push({ args, options }); return { code: 0, stdout: "sent" }; },
   };
   return { ctx, calls, descriptors, config, setTab: (value) => { tab = value; }, setRefresh: (value) => { refresh = value; },
     prepare: async (configure = true) => { ctx.policy = await preparePolicy(ctx, { configure, required: [], readRecord: async () => tab }); return ctx.policy; } };
 }
 
-const paidCalls = (calls) => calls.filter((call) => call.args || ["/api/agents/general/complete-first-run", "/api/orchestration/new"].includes(call.path));
+const paidCalls = (calls) => calls.filter((call) => call.args || call.path?.endsWith("/chat-send") || ["/api/agents/general/complete-first-run", "/api/orchestration/new"].includes(call.path));
 
 test("repeat selectors are exact and duplicate/conflicting/malformed selections are refused", () => {
   assert.equal(parseArgs(["setup", "--out", "owned", "--model", `${provider}=${model}`]).models[provider], model);
@@ -147,7 +147,9 @@ test("only initial J1 input may precede actual model evidence; unknown then bloc
   await assert.rejects(sendText(f.ctx, "owned", "second"), /actual model unknown/);
   await assert.rejects(spawnOne(f.ctx, { id: provider }), /persisted refusal/);
   assert.equal(paidCalls(f.calls).length, 1);
-  assert.equal(paidCalls(f.calls)[0].options.stdin, "first");
+  assert.equal(paidCalls(f.calls)[0].path, "/api/tabs/owned/chat-send");
+  assert.equal(paidCalls(f.calls)[0].options.body.text, "first");
+  assert.ok(paidCalls(f.calls)[0].options.body.client_token);
 });
 
 test("mismatch, fallback, missing identity and conflicting General block send and review bounce", async () => {
