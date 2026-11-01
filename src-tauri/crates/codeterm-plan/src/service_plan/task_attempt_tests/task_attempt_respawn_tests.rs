@@ -416,7 +416,7 @@ fn respawn_keeps_persona() {
             NewTask {
                 name: "retry lane".into(),
                 kind: "implement".into(),
-                personality: Some("opaque-persona-91".into()),
+                personality: Some("Opaquepersona".into()),
                 model: Some("codex/gpt-5.5".into()),
                 body: "opaque-task-body-92".into(),
                 role_guidance: Some("opaque-role-fragment-93".into()),
@@ -467,18 +467,18 @@ fn respawn_keeps_persona() {
     assert_eq!(draft.provider, "codex");
     assert_eq!(draft.planned_model.as_deref(), Some("codex/gpt-5.5"));
     assert_eq!(draft.model.as_deref(), Some("gpt-override"));
-    assert_eq!(draft.title.as_deref(), Some("opaque-persona-91"));
+    assert_eq!(draft.title.as_deref(), Some("Opaquepersona"));
     assert_eq!(draft.cwd, "/tmp/worktree");
     let task = store.show_task(&task_id).unwrap().task;
     let expected_identity = crate::service_plan::worker_identity::compose_task_worker_identity(
         &task,
-        Some("opaque-persona-91"),
+        Some("Opaquepersona"),
     );
     let (identity, _) =
         crate::service_plan::worker_identity::split_worker_identity(&draft.task_prompt);
     assert_eq!(identity, Some(expected_identity.as_str()));
     let identity = identity.unwrap();
-    assert!(identity.contains("opaque-persona-91"));
+    assert!(identity.contains("Opaquepersona"));
     assert!(identity.contains("opaque-role-fragment-93"));
     assert!(draft
         .task_prompt

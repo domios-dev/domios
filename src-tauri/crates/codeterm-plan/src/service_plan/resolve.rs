@@ -489,7 +489,7 @@ impl PlanStore {
 #[cfg(test)]
 mod tests {
     use super::{RefKind, ResolveError};
-    use crate::plan::{OrchestratorRef, Plan};
+    use crate::plan::OrchestratorRef;
     use crate::service_plan::{NewTask, PlanStore};
 
     fn store_with(dir: &std::path::Path) -> PlanStore {
