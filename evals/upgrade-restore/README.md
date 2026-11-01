@@ -52,6 +52,12 @@ for example `/tmp/upgrade-real/bin`, and `CODETERM_INSTANCE=upgrade-restore-real
 Use the same named instance and port for its subsequent restart. The daemon's
 provider descriptor must resolve `codex` to the prepared fake executable;
 verification refuses a real executable before touching any provider session.
+The supported resolver searches the daemon's inherited PATH first, then persisted
+machine/user PATH and finally known installation directories. On Windows it uses
+PATHEXT to find `codex.cmd`; keep `.CMD` in PATHEXT. Set PATH in the backend
+launcher on both initial launch and restart, not only in `dev-front` or the bench
+shell. The Windows desktop handoff forwards PATH and PATHEXT to the native client
+that launches the daemon. An already running daemon retains its launch environment.
 `prepare` rewrites replay working directories into its isolated project while
 retaining the size evidence in the original capture.
 
