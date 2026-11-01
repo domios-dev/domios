@@ -4,9 +4,62 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { LinkedText } from "../../../packages/chat-ui/src/codeterm/LinkedText";
+import { CodetermActionCard } from "../../../packages/chat-ui/src/toolcard/CodetermActionCard";
 import type { Workspace } from "../../lib/types";
+import { selectTabCommunicationNameMap } from "../../store/multiplexer/selectors";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 import type { PlanIndexEntry, ResolvedPlanRef } from "../Canvas/plansApi";
 import { chatPlanRefView } from "./chatPlanRef";
+import { useChatTabNameResolver } from "./useChatTabNameResolver";
+
+function SendRow({ names, refId, onFocusTab }: { names: Map<string, string>; refId: string; onFocusTab: (ref: string) => void }) {
+  const resolveTabName = useChatTabNameResolver(names);
+  const command = `domios send --tab ${refId} "hello"`;
+  return <CodetermActionCard
+    event={{ id: "send", phase: "result", status: "success", kind: "codeterm", summary: command, detail: command, message: { id: "send", type: "tool_call", content: "" } }}
+    expanded={false}
+    onToggle={() => {}}
+    resolveTabName={resolveTabName}
+    onFocusTab={onFocusTab}
+  />;
+}
+
+async function verifySendIdentity() {
+  const liveId = "deadbeef1111";
+  const closedId = "deadbeef2222";
+  const state: ExtendedState = {
+    workspaces: [{ id: "ws", name: "Workspace", tabs: [liveId, closedId], active_tab_id: liveId, cwd: null }],
+    tabs: Object.fromEntries([[liveId, "Courier"], [closedId, "Archivist"]].map(([id, title]) => [id, {
+      id, title, pty_id: id, tab_type: "Terminal", cwd: null, agent_type: null, agent_state: null,
+    }])),
+    teams: [], active_workspace_id: "ws", focused_tab_id: liveId, notifications: [], tabStatuses: {},
+    toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+  };
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  const focused: string[] = [];
+  async function show(refId: string) {
+    await act(async () => root.render(<SendRow names={selectTabCommunicationNameMap(state)} refId={refId} onFocusTab={(ref) => focused.push(ref)} />));
+    return host.querySelector<HTMLButtonElement>('[data-testid="codeterm-focus-tab"]');
+  }
+  assert(await show(closedId), "live full recipient has an opener before closure");
+  state.workspaces[0].tabs = [liveId];
+  assert(!await show(closedId), "closed full recipient has no opener after its prefix becomes a live alias");
+  assert(host.querySelector('[data-testid="chat-sent-header"]')?.textContent?.includes(closedId), "closed full recipient retains its complete ID");
+  assert(!host.textContent?.includes("Courier") && !host.textContent?.includes("Archivist"), "closed recipient borrows neither a live prefix title nor a stale title");
+  assert(!await show("deadbeef3333"), "missing full recipient has no opener despite a matching live short alias");
+  assert(host.querySelector('[data-testid="chat-sent-header"]')?.textContent?.includes("deadbeef3333"), "missing recipient retains its complete ID");
+  for (const ref of [liveId, "deadbeef"]) {
+    const opener = await show(ref);
+    assert(opener && host.textContent?.includes("Courier"), "exact live ID and explicitly supplied unique short ref resolve");
+    await act(async () => opener.click());
+    assert(focused.at(-1) === ref, "resolved opener forwards the supplied authoritative ref");
+  }
+  await act(async () => root.unmount());
+  host.remove();
+  console.log("✓ Chat caller resolves exact live refs and never aliases missing or closed full IDs");
+}
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
@@ -22,6 +75,7 @@ function setupDom() {
 
 async function main() {
   setupDom();
+  await verifySendIdentity();
   const workspace: Workspace = {
     id: "ws-codeterm",
     name: "CodeTerm",

@@ -1,6 +1,7 @@
 import { DEV_BUILD } from "../../lib/devBuild";
 import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { useChatTabNameResolver } from "./useChatTabNameResolver";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useTabLock } from "../billing/useTabLock";
@@ -582,10 +583,7 @@ function TabSessionChatBody({
   });
   const pasteIntoComposer = useLatestCallback(handlePasteEvent, [tabId]);
 
-  const resolveTabName = useLatestCallback(
-    (tabRef: string): string | undefined => tabCommunicationNames.get(tabRef) ?? tabCommunicationNames.get(tabRef.slice(0, 8)),
-    [tabCommunicationNames],
-  );
+  const resolveTabName = useChatTabNameResolver(tabCommunicationNames);
 
   const reportProjection = useAgentReportProjection(tabId);
   // The sender's own transcript never contains the report it just sent, so the
