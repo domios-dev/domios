@@ -1,4 +1,5 @@
 use super::*;
+use std::io;
 
 #[test]
 fn process_split_contract_missing_identity_is_locked_before_initialization() {

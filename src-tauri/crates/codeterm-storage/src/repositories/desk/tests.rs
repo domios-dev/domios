@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+#[path = "tests/neighbor_authority.rs"]
+mod neighbor_authority;
 #[path = "tests/ordered_rows.rs"]
 mod ordered_rows;
 

@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 
+pub mod query;
+pub mod sensitive;
+
 pub const DEFAULT_MAX_LINES: usize = 200;
 pub const MAX_LINES: usize = 2000;
 const NAME_LIMIT: usize = 100;
@@ -12,6 +15,8 @@ mod agent_tests;
 
 const INTERACTIVE: &[&str] = &[
     "button",
+    "DisclosureTriangle",
+    "summary",
     "link",
     "textbox",
     "searchbox",
@@ -112,6 +117,18 @@ pub struct Snapshot {
     pub text: String,
     pub refs: HashMap<String, i64>,
     pub index: Vec<RefEntry>,
+    pub items: Vec<SnapshotItem>,
+    pub truncated: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SnapshotItem {
+    pub role: String,
+    pub name: String,
+    pub depth: usize,
+    pub text: String,
+    pub reference: Option<String>,
 }
 
 /// `result` is the `Accessibility.getFullAXTree` response body.
@@ -154,6 +171,25 @@ pub fn build_snapshot(nodes: &[AxNode], max_lines: usize) -> Snapshot {
 
 /// The caller supplies a new scope per capture so old refs cannot alias newly indexed elements.
 pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) -> Snapshot {
+    build_snapshot_filtered(nodes, max_lines, scope, false)
+}
+
+pub fn build_snapshot_filtered(
+    nodes: &[AxNode],
+    max_lines: usize,
+    scope: &str,
+    actions_only: bool,
+) -> Snapshot {
+    build_snapshot_with_text(nodes, max_lines, scope, actions_only, false)
+}
+
+pub fn build_snapshot_with_text(
+    nodes: &[AxNode],
+    max_lines: usize,
+    scope: &str,
+    actions_only: bool,
+    with_text: bool,
+) -> Snapshot {
     let max_lines = max_lines.clamp(1, MAX_LINES);
     let by_id: HashMap<&str, &AxNode> = nodes.iter().map(|n| (n.node_id.as_str(), n)).collect();
     let root = nodes
@@ -171,14 +207,16 @@ pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) ->
         }
         let role = node.role.as_ref().map(AxValue::as_str).unwrap_or("");
         let name = collapse_whitespace(node.name.as_ref().map(AxValue::as_str).unwrap_or(""));
-        let visible = !node.ignored && !HIDDEN_ROLES.contains(&role);
+        let static_leaf = with_text && role == "StaticText" && !name.is_empty();
+        let visible = !node.ignored && (!HIDDEN_ROLES.contains(&role) || static_leaf);
         let backend = node.backend_dom_node_id.filter(|id| *id != 0);
         let interactive = visible && INTERACTIVE.contains(&role) && backend.is_some();
         let mut next_depth = depth;
         if visible
             && (interactive
-                || STRUCTURAL.contains(&role)
-                || (!name.is_empty() && role != "paragraph"))
+                || static_leaf
+                || (!actions_only
+                    && (STRUCTURAL.contains(&role) || (!name.is_empty() && role != "paragraph"))))
         {
             if lines.len() >= max_lines {
                 truncated = true;
@@ -212,12 +250,14 @@ pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) ->
                     _ => {}
                 }
             }
+            let mut item_ref = None;
             if let (true, Some(backend)) = (interactive, backend) {
                 let reference = if scope.is_empty() {
                     format!("e{}", snapshot.index.len() + 1)
                 } else {
                     format!("{scope}-e{}", snapshot.index.len() + 1)
                 };
+                item_ref = Some(reference.clone());
                 snapshot.refs.insert(reference.clone(), backend);
                 line.push_str(&format!(" [@{reference}]"));
                 snapshot.index.push(RefEntry {
@@ -227,6 +267,13 @@ pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) ->
                     backend_node_id: backend,
                 });
             }
+            snapshot.items.push(SnapshotItem {
+                role: role.into(),
+                name: truncate_chars(&name, NAME_LIMIT),
+                depth,
+                text: line.trim_start().to_string(),
+                reference: item_ref,
+            });
             lines.push(line);
             next_depth = depth + 1;
         }
@@ -241,6 +288,7 @@ pub fn build_snapshot_scoped(nodes: &[AxNode], max_lines: usize, scope: &str) ->
             "… (truncated at {max_lines} lines; pass a larger limit)"
         ));
     }
+    snapshot.truncated = truncated;
     snapshot.text = lines.join("\n");
     snapshot
 }
@@ -288,6 +336,10 @@ impl std::fmt::Display for ResolveError {
     }
 }
 
+fn role_matches(actual: &str, wanted: &str) -> bool {
+    actual == wanted || (wanted == "summary" && actual == "DisclosureTriangle")
+}
+
 /// Resolve `@e3` or `(role, name)` against the latest snapshot: exact name first, then substring.
 pub fn resolve_target(
     snapshot: Option<&Snapshot>,
@@ -310,7 +362,12 @@ pub fn resolve_target(
     }
     let name = args.get(1).copied().unwrap_or("");
     let want = name.to_lowercase();
-    let same_role = || snapshot.index.iter().filter(|entry| entry.role == first);
+    let same_role = || {
+        snapshot
+            .index
+            .iter()
+            .filter(|entry| role_matches(&entry.role, first))
+    };
     let exact = same_role().any(|entry| entry.name.to_lowercase() == want);
     let mut matches = same_role().filter(|entry| {
         let actual = entry.name.to_lowercase();
@@ -344,148 +401,4 @@ pub fn resolve_target(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    const FIXTURE: &str = include_str!("fixtures/ax_tree_login.json");
-    const EXPECTED: &str = "- navigation \"Primary\"
-  - link \"Home\" [@e1]
-  - link \"Pricing\" [@e2]
-- main
-  - heading \"Sign in to Acme\"
-  - form
-    - textbox \"Email\": andrey@example.com [required] [@e3]
-    - textbox \"Password\" [@e4]
-    - checkbox \"Remember me\" [checked=false] [@e5]
-    - slider \"Session length\": 30 [@e6]
-    - button \"Sign in\" [@e7]
-    - button \"Continue with SSO\" [disabled] [@e8]
-    - link \"Forgot password?\" [@e9]
-  - list
-    - listitem
-      - link \"Terms\"
-    - listitem \"Status: all systems normal\"
-      - img
-      - tab \"Sign in\" [@e10]";
-
-    fn fixture_nodes() -> Vec<AxNode> {
-        let value: Value = serde_json::from_str(FIXTURE).unwrap();
-        parse_full_ax_tree(&value).unwrap()
-    }
-
-    fn fixture_snapshot() -> Snapshot {
-        build_snapshot(&fixture_nodes(), DEFAULT_MAX_LINES)
-    }
-
-    #[test]
-    fn browser_snapshot_matches_poc_output_for_recorded_tree() {
-        assert_eq!(fixture_snapshot().text, EXPECTED);
-    }
-
-    #[test]
-    fn browser_snapshot_maps_refs_to_backend_node_ids() {
-        let snapshot = fixture_snapshot();
-        let expected = [
-            ("e1", 9),
-            ("e2", 11),
-            ("e3", 24),
-            ("e4", 25),
-            ("e5", 26),
-            ("e6", 27),
-            ("e7", 28),
-            ("e8", 29),
-            ("e9", 31),
-            ("e10", 45),
-        ];
-        assert_eq!(snapshot.refs.len(), expected.len());
-        for (reference, id) in expected {
-            assert_eq!(snapshot.refs.get(reference), Some(&id), "{reference}");
-        }
-        assert_eq!(snapshot.index[2].role, "textbox");
-        assert_eq!(snapshot.index[2].name, "Email");
-    }
-
-    #[test]
-    fn browser_snapshot_truncates_at_line_limit() {
-        let snapshot = build_snapshot(&fixture_nodes(), 4);
-        assert_eq!(
-            snapshot.text,
-            "- navigation \"Primary\"\n  - link \"Home\" [@e1]\n  - link \"Pricing\" [@e2]\n- main\n… (truncated at 4 lines; pass a larger limit)"
-        );
-        assert_eq!(snapshot.refs.len(), 2);
-    }
-
-    #[test]
-    fn browser_snapshot_survives_cycles_and_empty_trees() {
-        assert_eq!(build_snapshot(&[], DEFAULT_MAX_LINES).text, "");
-        let cyclic: Vec<AxNode> = serde_json::from_value(serde_json::json!([
-            {"nodeId": "a", "role": {"value": "button"}, "name": {"value": "Go"}, "childIds": ["b"], "backendDOMNodeId": 3},
-            {"nodeId": "b", "parentId": "a", "role": {"value": "link"}, "name": {"value": "Back"}, "childIds": ["a"], "backendDOMNodeId": 4}
-        ]))
-        .unwrap();
-        let snapshot = build_snapshot(&cyclic, DEFAULT_MAX_LINES);
-        assert_eq!(
-            snapshot.text,
-            "- button \"Go\" [@e1]\n  - link \"Back\" [@e2]"
-        );
-    }
-
-    #[test]
-    fn browser_snapshot_truncates_long_names_by_chars() {
-        let long = "→".repeat(150);
-        let nodes: Vec<AxNode> = serde_json::from_value(serde_json::json!([
-            {"nodeId": "a", "role": {"value": "heading"}, "name": {"value": long}}
-        ]))
-        .unwrap();
-        let text = build_snapshot(&nodes, DEFAULT_MAX_LINES).text;
-        assert_eq!(text, format!("- heading \"{}\"", "→".repeat(NAME_LIMIT)));
-    }
-
-    #[test]
-    fn browser_resolve_by_ref_and_stale_ref() {
-        let snapshot = fixture_snapshot();
-        assert_eq!(
-            resolve_target(Some(&snapshot), &["@e7"]),
-            Ok(ResolvedTarget {
-                backend_node_id: 28,
-                label: "@e7".into()
-            })
-        );
-        assert_eq!(
-            resolve_target(Some(&snapshot), &["@e99"]),
-            Err(ResolveError::StaleRef("@e99".into()))
-        );
-    }
-
-    #[test]
-    fn browser_resolve_by_role_and_name_prefers_exact_then_substring() {
-        let snapshot = fixture_snapshot();
-        let exact = resolve_target(Some(&snapshot), &["button", "sign in"]).unwrap();
-        assert_eq!(exact.backend_node_id, 28);
-        assert_eq!(exact.label, "button \"Sign in\"");
-        let partial = resolve_target(Some(&snapshot), &["button", "sso"]).unwrap();
-        assert_eq!(partial.backend_node_id, 29);
-        let tab = resolve_target(Some(&snapshot), &["tab", "Sign in"]).unwrap();
-        assert_eq!(tab.backend_node_id, 45);
-    }
-
-    #[test]
-    fn browser_resolve_reports_typed_errors() {
-        let snapshot = fixture_snapshot();
-        assert_eq!(
-            resolve_target(None, &["@e1"]),
-            Err(ResolveError::NoSnapshot)
-        );
-        assert_eq!(
-            resolve_target(Some(&snapshot), &[]),
-            Err(ResolveError::MissingTarget)
-        );
-        assert_eq!(
-            resolve_target(Some(&snapshot), &["button", "Delete account"]),
-            Err(ResolveError::NotFound {
-                role: "button".into(),
-                name: "Delete account".into()
-            })
-        );
-    }
-}
+mod tests;

@@ -30,6 +30,7 @@ impl JsAgentCommandHandler {
     }
 
     pub fn with_catalog(mut self, catalog: AgentVerbCatalog) -> Self {
+        self.vm.configure_connection(&catalog);
         self.catalog = Some(catalog);
         self
     }
@@ -80,7 +81,10 @@ impl AgentCommandProvider for JsAgentCommandHandler {
     }
 
     fn catalog(&self) -> Option<AgentVerbCatalog> {
-        self.catalog.clone()
+        self.catalog.clone().map(|mut catalog| {
+            catalog.connection_state = self.vm.connection_state();
+            catalog
+        })
     }
 
     fn on_agent_command(
@@ -97,8 +101,18 @@ impl AgentCommandProvider for JsAgentCommandHandler {
         let _caller = super::host_surface::AgentCallerScope::enter(session_id);
         match call_json::<AgentCommandOut>(&self.vm, "onAgentCommand", &[ctx]) {
             Ok(out) => {
+                self.vm.observe_connection(
+                    verb,
+                    &json!({
+                        "result": out.result,
+                        "error": out.error,
+                    }),
+                );
                 if let Some(e) = out.error {
-                    Err(e)
+                    Err(self.catalog.as_ref().map_or_else(
+                        || e.clone(),
+                        |catalog| crate::plugin_connection::actionable_refusal(catalog, &e),
+                    ))
                 } else {
                     Ok(crate::agent_commands::AgentCommandResult {
                         result: out.result.unwrap_or_default(),

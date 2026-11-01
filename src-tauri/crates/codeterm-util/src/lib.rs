@@ -1,5 +1,6 @@
 pub mod atomic_write;
 pub mod attachments;
+pub mod autostart;
 pub mod git_checkout;
 pub mod headless_cli;
 pub mod instance_token;
@@ -14,6 +15,7 @@ pub mod plugin_agent_guide;
 pub mod plugin_config;
 pub mod plugin_grants;
 pub mod private_file;
+pub mod process_tree;
 pub mod process_util;
 pub mod project_roots;
 pub mod pty_frame_timing;
@@ -28,6 +30,7 @@ pub mod tcp_listener;
 pub mod terminal;
 pub mod test_env;
 pub mod user_path;
+pub mod watch_plan;
 pub mod windows_env;
 #[cfg(windows)]
 pub mod windows_job;

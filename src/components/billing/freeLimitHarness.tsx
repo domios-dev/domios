@@ -150,7 +150,7 @@ export async function mountApp(daemon: Daemon, upgrade: (planKey: string) => Pro
 }
 
 export const modal = () => document.querySelector<HTMLElement>("[role=dialog]");
-export const modalLine = () => modal()?.querySelector("h2")?.textContent ?? null;
+export const modalPrompt = () => freeLimitGate.current();
 export const toastTitles = (state: { toasts?: Array<{ title: string }> }) => (state.toasts ?? []).map((toast) => toast.title);
 
 export async function unmountAll() {

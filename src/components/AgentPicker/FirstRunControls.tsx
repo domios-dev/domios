@@ -3,6 +3,7 @@ import { FIRST_RUN_DISABLED_REASON } from "../../lib/firstRunGate";
 
 const controls = "button, input, select, textarea, a, [tabindex], [role=button], [role=switch]";
 const allowed = "[data-first-run-allowed=true]";
+const dragRegion = "[data-tauri-drag-region]";
 
 function useFirstRunControls(locked: boolean) {
   const root = useRef<HTMLDivElement>(null);
@@ -42,6 +43,8 @@ function useFirstRunControls(locked: boolean) {
   const guard = (event: SyntheticEvent) => {
     if (!locked) return;
     if (event.target instanceof Node && !root.current?.contains(event.target)) return;
+    // The window still moves and maximizes from its title bar: a drag region outside any control passes through.
+    if (event.target instanceof Element && event.target.closest(dragRegion) && !event.target.closest(controls)) return;
     if (event.target instanceof Element && event.target.closest(allowed) && event.type !== "contextmenu" && event.type !== "dblclick") {
       if (["pointerdown", "mousedown", "touchstart"].includes(event.type) && event.target.closest("[data-first-run-home=true]")) event.stopPropagation();
       return;

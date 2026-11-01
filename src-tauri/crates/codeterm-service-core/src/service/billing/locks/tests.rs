@@ -68,10 +68,16 @@ fn unchanged_gate_emits_nothing_and_this_build_enforces_free_before_billing() {
     let (mux, newest) = three_workspaces();
     let fixture = ServiceFixture::new(mux);
     fixture.service.sync_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 0);
+    assert!(!fixture.service.limit_gate().summary().enforcing);
+    assert!(!fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    fixture.service.sync_limit_gate();
+    assert_eq!(entitlement_events(&fixture), 0);
+    fixture
+        .service
+        .apply_limit_gate(LimitGate::new(compiled_free(), true));
     assert_eq!(entitlement_events(&fixture), 1);
     assert!(fixture.service.is_locked(LimitKey::Workspaces, &newest));
-    fixture.service.sync_limit_gate();
-    assert_eq!(entitlement_events(&fixture), 1);
 }
 
 fn locked_and_sibling_tabs() -> (MultiplexerState, String, String) {
@@ -174,7 +180,7 @@ fn service_metadata_writes_on_locked_items_refuse() {
 }
 
 #[test]
-fn forged_paid_hint_keeps_every_write_path_closed_while_checking() {
+fn unverified_account_keeps_workspaces_usable_without_paid_authority() {
     let data = tempfile::tempdir().unwrap();
     let state = data.path().join("state/account");
     std::fs::create_dir_all(&state).unwrap();
@@ -212,16 +218,13 @@ fn forged_paid_hint_keeps_every_write_path_closed_while_checking() {
         .set(std::sync::Arc::new(billing))
         .is_ok());
     svc.sync_limit_gate();
-    assert!(svc.limit_gate().summary().enforcing);
-    assert!(svc.is_locked(LimitKey::Workspaces, &newest));
-    assert!(svc.tab_write_lock(&tab).is_some());
-    assert!(svc.item_write_lock(LimitKey::Workspaces, &newest).is_some());
-    assert!(svc
-        .rename_workspace(&newest, "Forged")
-        .unwrap_err()
-        .starts_with(PLAN_LIMIT_LOCKED));
+    assert!(!svc.limit_gate().summary().enforcing);
+    assert!(!svc.is_locked(LimitKey::Workspaces, &newest));
+    assert!(svc.tab_write_lock(&tab).is_none());
+    assert!(svc.item_write_lock(LimitKey::Workspaces, &newest).is_none());
+    assert!(svc.rename_workspace(&newest, "Usable").is_ok());
     let over = svc.mux.read().list_workspaces().len();
-    assert!(svc.limit_gate().admit(LimitKey::Workspaces, over).is_err());
+    assert!(svc.limit_gate().admit(LimitKey::Workspaces, over).is_ok());
 }
 
 #[test]
@@ -229,10 +232,16 @@ fn deadline_announce_reaches_the_ui_even_when_the_gate_is_unchanged() {
     let (mux, newest) = three_workspaces();
     let fixture = ServiceFixture::new(mux);
     fixture.service.sync_limit_gate();
-    assert_eq!(entitlement_events(&fixture), 1);
+    assert_eq!(entitlement_events(&fixture), 0);
     fixture.service.announce_limit_gate();
-    assert_eq!(entitlement_events(&fixture), 2);
-    assert!(fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    assert_eq!(entitlement_events(&fixture), 1);
+    assert!(!fixture.service.is_locked(LimitKey::Workspaces, &newest));
+    let events = fixture.ui.0.lock();
+    let (_, payload) = events
+        .iter()
+        .find(|(event, _)| event == ENTITLEMENT_CHANGED_EVENT)
+        .unwrap();
+    assert_eq!(payload["limits"]["enforcing"], false);
 }
 
 struct LocalCredential;
@@ -285,7 +294,8 @@ async fn broken_billing_configuration_never_disables_startup_enforcement() {
             result.err().as_deref(),
             Some("Unknown or unavailable billing provider")
         );
-        assert!(svc.is_locked(LimitKey::Workspaces, &newest));
+        assert!(!svc.limit_gate().summary().enforcing);
+        assert!(!svc.is_locked(LimitKey::Workspaces, &newest));
     }
 }
 
@@ -304,6 +314,7 @@ async fn account_initialization_errors_restore_compiled_free_enforcement() {
             svc.account_plan().await
         };
         assert_eq!(result.err().as_deref(), Some("Invalid account config"));
-        assert!(svc.is_locked(LimitKey::Workspaces, &newest));
+        assert!(!svc.limit_gate().summary().enforcing);
+        assert!(!svc.is_locked(LimitKey::Workspaces, &newest));
     }
 }

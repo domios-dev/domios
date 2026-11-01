@@ -7,7 +7,6 @@ pub mod adopt;
 mod adopt_tests;
 pub mod lane_port_impl;
 pub mod search_port_impl;
-pub mod sink_impl;
 #[cfg(test)]
 mod task_key_contract_tests;
 pub mod task_key_port_impl;
@@ -20,6 +19,7 @@ mod mission_control_spend_tests;
 mod mission_control_tests;
 mod project_path;
 mod relink_ext;
+pub(crate) mod respawn_executor;
 pub mod respawn_lane;
 pub use respawn_lane::verify_respawn_lane as respawn_lane_verify_respawn_lane;
 mod state_ext;

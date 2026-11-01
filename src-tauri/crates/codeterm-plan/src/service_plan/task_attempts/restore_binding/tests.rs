@@ -338,14 +338,22 @@ fn attempt_binding_restore_storage_failure_keeps_task_unmodified() {
         .unwrap();
     drop(connection);
 
-    assert!(fixture
+    let error = fixture
         .store
         .restore_current_attempt_binding(request(&fixture, 7), 7)
-        .is_err());
+        .unwrap_err();
+    assert!(
+        matches!(error, PlanError::Io(ref message) if message.contains("injected plan write failure"))
+    );
     assert_eq!(
         fixture.store.show_task(&fixture.task_id).unwrap().task,
         before
     );
+    let connection = rusqlite::Connection::open(&database_path).unwrap();
+    connection
+        .execute_batch("DROP TRIGGER reject_restore;")
+        .unwrap();
+    drop(connection);
     let reloaded = PlanStore::open(database_path).unwrap();
     assert_eq!(reloaded.show_task(&fixture.task_id).unwrap().task, before);
 }

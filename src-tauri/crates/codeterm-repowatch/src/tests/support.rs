@@ -111,7 +111,11 @@ impl WatchBackend for RefusingBackend {
 }
 
 struct InertWatch;
-impl ActiveWatch for InertWatch {}
+impl ActiveWatch for InertWatch {
+    fn update(&mut self, _: &[WatchSpec]) -> Result<(), String> {
+        Ok(())
+    }
+}
 
 /// Accepts every watch but never delivers an event — isolates registry
 /// bookkeeping from OS behaviour.
@@ -133,6 +137,7 @@ impl WatchBackend for InertBackend {
 pub struct WatchLedger {
     pub built: std::sync::atomic::AtomicUsize,
     pub dropped: std::sync::atomic::AtomicUsize,
+    pub updated: std::sync::atomic::AtomicUsize,
 }
 
 impl WatchLedger {
@@ -153,7 +158,14 @@ struct CountedWatch {
     ledger: Arc<WatchLedger>,
 }
 
-impl ActiveWatch for CountedWatch {}
+impl ActiveWatch for CountedWatch {
+    fn update(&mut self, _: &[WatchSpec]) -> Result<(), String> {
+        self.ledger
+            .updated
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
 
 impl Drop for CountedWatch {
     fn drop(&mut self) {
@@ -222,7 +234,7 @@ pub fn fire_worktree(taps: &Arc<Mutex<Vec<Tap>>>, signal: WatchSignal) -> usize 
     let taps = taps.lock();
     let mut fired = 0;
     for tap in taps.iter() {
-        if !tap.specs.iter().any(|s| s.optional) {
+        if tap.specs.iter().any(|s| s.partitioned) {
             tap.fire(signal.clone());
             fired += 1;
         }

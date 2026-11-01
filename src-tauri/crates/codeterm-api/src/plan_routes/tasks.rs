@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::routes::{check_auth, AppState};
 use codeterm_service_core::multiplexer::commands::MuxState;
 use codeterm_service_core::plan::{
-    AgentRef, IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
+    IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
 };
 use codeterm_service_core::service::plan::task_attempts::TaskRespawnRequest;
 use codeterm_service_core::service::plan::{NewTask, TaskLaneUpdate};
@@ -699,7 +699,8 @@ pub async fn task_close(
     )
     .await?;
     tokio::task::spawn_blocking(move || {
-        let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
+        let from = crate::auth::actor_ref(&state, &headers, body.from)
+            .map_err(|(status, message)| text_err(status, message))?;
         let owner_epoch = state
             .svc
             .plan_store

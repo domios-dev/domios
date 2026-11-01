@@ -63,7 +63,31 @@ pub struct Callback {
     pub code: String,
     pub state: String,
 }
+#[derive(Debug, PartialEq, Eq)]
+pub enum PasteCallbackError {
+    CallbackUrlRequired,
+    InvalidCallback,
+}
+impl std::fmt::Display for PasteCallbackError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::CallbackUrlRequired => "Paste the whole redirected callback URL, including code and state; a bare code is refused",
+            Self::InvalidCallback => "Invalid redirected callback URL",
+        })
+    }
+}
+impl std::error::Error for PasteCallbackError {}
 impl Callback {
+    pub fn parse_paste(value: &str) -> std::result::Result<Self, PasteCallbackError> {
+        let value = value.trim();
+        if !value.contains("://") {
+            return Err(PasteCallbackError::CallbackUrlRequired);
+        }
+        if value.len() > 4096 {
+            return Err(PasteCallbackError::InvalidCallback);
+        }
+        Self::parse(value).map_err(|_| PasteCallbackError::InvalidCallback)
+    }
     pub fn parse(value: &str) -> Result<Self> {
         let url = Url::parse(value).map_err(|_| Error::InvalidCallback)?;
         let loopback =

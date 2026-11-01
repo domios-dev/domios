@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ToolEvent, ToolEventKind } from "@codeterm/chat-core";
 import { CommandCard } from "./CommandCard";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 import { ToolCardFrame } from "./ToolCardFrame";
 import { toolKindVisual } from "./toolKindVisual";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
@@ -21,7 +22,8 @@ async function render(node: React.ReactElement) {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => root.render(node));
+  await act(async () => root.render(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item =>
+    <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}>{node}</ChatBlockHostProvider>));
   return { host, root };
 }
 
@@ -29,7 +31,7 @@ const { host } = await render(<CommandCard event={event()} expanded={false} onTo
 for (const source of [{toolInput:{changes:{opaque:{value:17}}}}, {toolResult:"opaque raw patch"}]) {
   const message = {id:"unknown", type:"tool_call" as const, content:"", ...source};
   const {host: rawHost} = await render(<ToolCardFrame event={event({kind:"edit", summary:"", detail:undefined, result:source.toolResult, message})} expanded onToggle={() => {}}><span /></ToolCardFrame>);
-  const button = [...rawHost.querySelectorAll("button")].find(node => node.textContent === "Raw command");
+  const button = [...rawHost.querySelectorAll("button")].find(node => node.textContent === "Details");
   if (!button) throw new Error("raw payload disclosure missing");
   await act(async () => button.click());
   if (!rawHost.textContent?.includes("opaque")) throw new Error("unknown edit payload must remain visible");
@@ -50,8 +52,8 @@ if (!errorHost.querySelector('[data-testid="toolcard-status"] svg')) throw new E
 const detailsToggle = errorHost.querySelector('button[aria-expanded="true"]');
 const detailsId = detailsToggle?.getAttribute("aria-controls");
 const detailsRegion = detailsId ? errorHost.querySelector<HTMLElement>(`#${detailsId}`) : null;
-const contentStack = detailsRegion?.querySelector<HTMLElement>('[data-testid="raw-command-disclosure"]');
-if (!contentStack) throw new Error("expanded tool details must own the raw command disclosure");
+if (!detailsRegion?.textContent?.includes("details")) throw new Error("expanded tool details must show supplied content");
+if (detailsRegion.querySelector('[data-testid="message-raw-content"]')) throw new Error("raw command must stay behind the menu");
 
 const usedThemeVars = [
   "--ct-border", "--ct-surface", "--ct-muted-fg", "--ct-red", "--ct-yellow", "--ct-green",
@@ -67,3 +69,19 @@ for (const kind of Object.keys(toolKindVisual) as ToolEventKind[]) {
 }
 
 console.log("tool card frame tests: 5/5 passed");
+
+
+const { host: communicationHost } = await render(
+  <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item =>
+    <button key={item.label} aria-pressed={item.checked} onClick={item.onSelect}>{item.label}</button>)}</> }}>
+    <ToolCardFrame communication event={event({ kind: "generic", detail: "opaque diagnostics" })} expanded onToggle={() => {}}>
+      <p>Visible message</p>
+    </ToolCardFrame>
+  </ChatBlockHostProvider>,
+);
+const technicalToggle = [...communicationHost.querySelectorAll("button")].find(button => button.textContent === "Details");
+if (!technicalToggle || communicationHost.querySelector('[data-testid="message-raw-content"]')) throw new Error("technical details must start hidden");
+await act(async () => technicalToggle.click());
+if (!communicationHost.querySelector('[data-testid="message-raw-content"]')?.textContent?.includes("opaque diagnostics")) throw new Error("menu must reveal technical details");
+await act(async () => technicalToggle.click());
+if (communicationHost.querySelector('[data-testid="message-raw-content"]')) throw new Error("menu must hide technical details");

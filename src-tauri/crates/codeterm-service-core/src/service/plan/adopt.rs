@@ -141,11 +141,7 @@ fn plan_dir_unchecked(project: &Path, status: &PlanStatus, plan_id: &str) -> Pat
         .join(".domios")
         .join("plans")
         .join(paths::plan_bucket(status))
-        .join(if plan_id == crate::plan::INBOX_PLAN_ID {
-            crate::plan::INBOX_PLAN_FILE_STEM
-        } else {
-            plan_id
-        })
+        .join(plan_id)
 }
 
 fn destination_exists(target_dir: &Path, plan_id: &str) -> bool {
@@ -156,14 +152,7 @@ fn destination_exists(target_dir: &Path, plan_id: &str) -> bool {
             .and_then(|bucket| bucket.parent())
             .is_some_and(|plans_dir| {
                 ["active", "archive"].iter().any(|bucket| {
-                    let dir =
-                        plans_dir
-                            .join(bucket)
-                            .join(if plan_id == crate::plan::INBOX_PLAN_ID {
-                                crate::plan::INBOX_PLAN_FILE_STEM
-                            } else {
-                                plan_id
-                            });
+                    let dir = plans_dir.join(bucket).join(plan_id);
                     dir.join("plan.yaml").is_file() || dir.join("plan.json").is_file()
                 })
             })

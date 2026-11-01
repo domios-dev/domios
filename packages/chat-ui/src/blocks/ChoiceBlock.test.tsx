@@ -84,7 +84,7 @@ function fakeChoiceHost() {
   }
   const option = (element: HTMLElement, label: string) => element.querySelector(`[data-choice-option="${label}"]`) as HTMLButtonElement;
   const status = (element: HTMLElement) => element.querySelector('[data-testid="chat-block-status"]')?.textContent;
-  const TEXT = "Deploy to production now?\n@ds-choice Ship it | Hold | Ask me later";
+  const TEXT = 'Deploy to production now?\n<ds-choice options="[&quot;Ship it&quot;,&quot;Hold&quot;,&quot;Ask me later&quot;]" />';
 
   test("renders_options_under_a_lead_sentence_without_sending", async () => {
     const { host, sent } = fakeChoiceHost();

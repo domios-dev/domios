@@ -87,12 +87,6 @@ pub async fn stop_agent_turn(
         .await
         .map_err(|error| format!("Runtime stop operation failed: {error}"))?;
     }
-    if let Some(result) = crate::service::codex_rpc::control::interrupt(&tab_id).await {
-        let stopped = result?;
-        return Ok(
-            serde_json::json!({"ok":true,"stopped":stopped,"reason":if stopped {"stopped"} else {"interrupt_unconfirmed"},"route":"rpc"}),
-        );
-    }
     let deadline = Instant::now() + STOP_CONFIRMATION_TIMEOUT;
     let decision_svc = svc.clone();
     let decided_tab = tab_id.clone();

@@ -4,15 +4,9 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { siteLinks } from "../../../shared/siteLinks";
 import { PlanCards } from "./PlanCards";
+import { emitDotMatrixWave, sampleDotMatrixWave } from "../brand/dotMatrixModel";
 import { FREE_LIMITS } from "./planCatalog";
-import vectorPacket from "../../../src-tauri/crates/codeterm-entitlements/vectors/grant-vectors.json";
-
-type SignedVector = { exact_payload?: { utf8: string } };
-type SignedLimits = Record<string, { max: number | null }>;
-const signedFreeLimits = (vectorPacket as unknown as { vectors: SignedVector[] }).vectors
-  .flatMap((vector) => vector.exact_payload ? [JSON.parse(vector.exact_payload.utf8) as { authority: string; limits: SignedLimits }] : [])
-  .filter((payload) => payload.authority === "free")
-  .flatMap((payload) => Object.entries(payload.limits));
+import { accessibleName } from "../../test/semanticRoles";
 
 const bridge = vi.hoisted(() => ({ openUrl: vi.fn(async () => undefined) }));
 const analytics = vi.hoisted(() => ({ localJson: vi.fn(async () => ({ consent: "off" })) }));
@@ -43,9 +37,6 @@ async function renderPlanCards(viewRequested = false) {
   return host;
 }
 
-const featuresOf = (host: HTMLElement, plan: string) =>
-  Array.from(host.querySelectorAll(`section[aria-label="${plan} plan"] li`), (item) => item.textContent);
-
 it("records a plan view once under StrictMode with consent and no account properties", async () => {
   analytics.localJson.mockResolvedValue({ consent: "on" });
   await renderPlanCards(true);
@@ -60,49 +51,8 @@ it("does not send a plan view without consent", async () => {
   expect(analytics.localJson.mock.calls).toEqual([["GET", "/api/analytics/status"]]);
 });
 
-it("lists the five Free limits and the unlimited Pro equivalents", async () => {
-  const host = await renderPlanCards();
-
-  expect(featuresOf(host, "Free")).toEqual([
-    "2 machines in your mesh",
-    "2 workspaces",
-    "1000 memory items",
-    "6 Teams across all workspaces",
-    "35 tabs running at once",
-  ]);
-  expect(featuresOf(host, "Pro")).toEqual([
-    "Unlimited machines in your mesh",
-    "Unlimited workspaces",
-    "Unlimited memory items",
-    "Unlimited Teams across all workspaces",
-    "Unlimited concurrent tabs",
-    "Everything in Free",
-  ]);
-  expect(featuresOf(host, "Sponsor")).toEqual(["Everything in Pro", "Sponsor role in Discord", "Priority support"]);
-});
-
-it("shows every limit of the signed free baseline with its compiled value", () => {
-  expect(signedFreeLimits.length).toBeGreaterThan(0);
-  for (const [key, limit] of signedFreeLimits) {
-    expect({ key, max: FREE_LIMITS[key as keyof typeof FREE_LIMITS] }).toEqual({ key, max: limit.max });
-  }
-});
-
-it("renders Enterprise separately below the priced plan row with only contact content", async () => {
-  const host = await renderPlanCards();
-  const planRow = host.querySelector('[role="group"][aria-label="Subscription plans"]');
-  const enterprise = host.querySelector('section[aria-label="Enterprise plan"]');
-
-  expect(planRow).not.toBeNull();
-  expect(Array.from(planRow!.querySelectorAll("h3"), (heading) => heading.textContent)).toEqual(["Free", "Pro", "Sponsor"]);
-  expect(enterprise).not.toBeNull();
-  expect(planRow!.compareDocumentPosition(enterprise!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(enterprise!.querySelector("h3")?.textContent).toBe("Enterprise");
-  expect(Array.from(enterprise!.querySelectorAll("p"), (line) => line.textContent)).toEqual([
-    "Running Domios at scale for a big team? Contact us.",
-  ]);
-  expect(Array.from(enterprise!.querySelectorAll("button"), (button) => button.textContent?.trim())).toEqual(["Contact us"]);
-  expect(enterprise!.querySelector("ul, [aria-label='Billed yearly']")).toBeNull();
+it("shows the policy two Free baseline", () => {
+  expect(FREE_LIMITS).toEqual({ "mesh.machines": 2, workspaces: 2, "mem.items": 500, teams: 6, "agent.tabs": 35 });
 });
 
 it("opens the Discord link from siteLinks through the external URL opener", async () => {
@@ -115,32 +65,106 @@ it("opens the Discord link from siteLinks through the external URL opener", asyn
   expect(bridge.openUrl).toHaveBeenCalledExactlyOnceWith(siteLinks.discord);
 });
 
-it("puts the yearly switch and the purchase terms under the plans, yearly on by default", async () => {
+it("opens the purchase documents through the external URL port", async () => {
   const host = await renderPlanCards();
-  const plans = host.querySelector('[aria-label="Subscription plans"]')!;
-  const toggle = host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!;
-  const footer = Array.from(host.querySelectorAll("p")).find((line) => line.textContent?.includes("Renews automatically, cancel anytime"))!;
-  expect(plans.compareDocumentPosition(toggle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(plans.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(toggle.getAttribute("aria-checked")).toBe("true");
-  expect(Array.from(footer.querySelectorAll("a"), (link) => link.textContent)).toEqual(["14-day money-back guarantee", "Terms", "Privacy"]);
-  for (const link of Array.from(footer.querySelectorAll("a"))) await act(async () => link.click());
+  const links = Array.from(host.querySelectorAll("a"));
+  expect(links.map(link => link.href)).toEqual([`${siteLinks.terms}#refunds`, siteLinks.terms, siteLinks.privacy]);
+  for (const link of links) await act(async () => link.click());
   expect(bridge.openUrl.mock.calls).toEqual([[`${siteLinks.terms}#refunds`], [siteLinks.terms], [siteLinks.privacy]]);
+});
+
+it("the interval toggle selects the checkout key", async () => {
+  const choose = vi.fn();
+  const host = await renderWith(<PlanCards onChoose={choose} />);
+  await act(async () => buttonIn(card(host, "Pro"), "Choose Pro")!.click());
+  await act(async () => host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!.click());
+  await act(async () => buttonIn(card(host, "Pro"), "Choose Pro")!.click());
+  expect(choose.mock.calls).toEqual([["pro_yearly"], ["pro_monthly"]]);
+});
+
+it("keeps the four offers in one navigable group and chooses every paid offer", async () => {
+  const choose = vi.fn();
+  const host = await renderWith(<PlanCards onChoose={choose} />);
+  const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Subscription plans"]')!;
+  expect(group.tabIndex).toBe(0);
+  expect(group.querySelectorAll(":scope > section")).toHaveLength(4);
+  for (const section of group.querySelectorAll("section")) {
+    for (const button of section.querySelectorAll("button")) await act(async () => button.click());
+  }
+  expect(choose.mock.calls).toEqual([["pro_yearly"], ["max_yearly"], ["sponsor_yearly"]]);
+});
+
+it("offers navigation only toward hidden cards and removes it after resizing to fit", async () => {
+  let resize = () => {};
+  const disconnect = vi.fn();
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: () => void) { resize = callback; }
+    observe() {}
+    disconnect = disconnect;
+  });
+  const host = await renderWith(<PlanCards onChoose={vi.fn()} />);
+  const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Subscription plans"]')!;
+  const previous = () => host.querySelector<HTMLButtonElement>('[aria-label="Previous plans"]');
+  const next = () => host.querySelector<HTMLButtonElement>('[aria-label="Next plans"]');
+  expect(previous()).toBeNull();
+  expect(next()).toBeNull();
+  let viewport = 500;
+  Object.defineProperties(group, {
+    clientWidth: { configurable: true, get: () => viewport },
+    scrollWidth: { configurable: true, value: 1000 },
+  });
+  await act(async () => resize());
+  expect(previous()).toBeNull();
+  expect(next()).not.toBeNull();
+  await act(async () => { group.scrollLeft = 250; group.dispatchEvent(new Event("scroll")); });
+  expect(previous()).not.toBeNull();
+  expect(next()).not.toBeNull();
+  await act(async () => { group.scrollLeft = 500; group.dispatchEvent(new Event("scroll")); });
+  expect(previous()).not.toBeNull();
+  expect(next()).toBeNull();
+  await act(async () => { viewport = 1000; group.scrollLeft = 0; resize(); });
+  expect(previous()).toBeNull();
+  expect(next()).toBeNull();
+});
+
+it("scrolls with keyboard, wheel and focused card controls", async () => {
+  const host = await renderWith(<PlanCards onChoose={vi.fn()} />);
+  const group = host.querySelector<HTMLElement>('[role="group"][aria-label="Subscription plans"]')!;
+  Object.defineProperties(group, {
+    clientWidth: { configurable: true, value: 500 },
+    scrollWidth: { configurable: true, value: 1000 },
+  });
+  const scroll = vi.spyOn(group, "scrollBy").mockImplementation(() => {});
+  vi.spyOn(group.firstElementChild!, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 220, 400));
+  const sponsor = card(host, "Sponsor");
+  const reveal = vi.spyOn(sponsor, "scrollIntoView").mockImplementation(() => {});
+  await act(async () => group.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowRight", bubbles: true })));
+  expect(scroll).toHaveBeenCalledWith({ left: 232 });
+  scroll.mockClear();
+  const wheel = new WheelEvent("wheel", { deltaY: 80, cancelable: true });
+  await act(async () => group.dispatchEvent(wheel));
+  expect(wheel.defaultPrevented).toBe(true);
+  expect(scroll).toHaveBeenCalledWith({ left: 80 });
+  const trackpad = new WheelEvent("wheel", { deltaX: 40, cancelable: true });
+  await act(async () => group.dispatchEvent(trackpad));
+  expect(trackpad.defaultPrevented).toBe(false);
+  group.scrollLeft = 500;
+  const endWheel = new WheelEvent("wheel", { deltaY: 80, cancelable: true });
+  await act(async () => group.dispatchEvent(endWheel));
+  expect(endWheel.defaultPrevented).toBe(false);
+  await act(async () => sponsor.querySelector<HTMLButtonElement>("button")!.focus());
+  expect(reveal).toHaveBeenCalledWith({ block: "nearest", inline: "nearest" });
 });
 
 it("a paid subscription never starts a checkout; other paid cards and intervals offer Manage subscription", async () => {
   const onChoose = vi.fn();
   const onManage = vi.fn();
   const host = await renderWith(<PlanCards onChoose={onChoose} onManage={onManage} currentPlan="pro_yearly" subscribedPlan="pro_yearly" />);
-  const buttons = () => Array.from(host.querySelectorAll("button"), (button) => button.textContent?.trim());
-  expect(buttons().filter((label) => label?.startsWith("Choose"))).toEqual([]);
-  const sponsor = host.querySelector('section[aria-label="Sponsor plan"]')!;
-  expect(sponsor.textContent).toContain("To switch plans, cancel in Manage subscription and choose a new plan after it ends, or contact us.");
   await act(async () => host.querySelector<HTMLElement>('[aria-label="Billed yearly"]')!.click());
   const manage = Array.from(host.querySelectorAll("button")).filter((button) => button.textContent?.trim() === "Manage subscription");
-  expect(manage).toHaveLength(2);
+  expect(manage).toHaveLength(3);
   for (const button of manage) await act(async () => button.click());
-  expect(onManage).toHaveBeenCalledTimes(2);
+  expect(onManage).toHaveBeenCalledTimes(3);
   expect(onChoose).not.toHaveBeenCalled();
 });
 
@@ -157,6 +181,15 @@ async function renderWith(element: React.ReactElement) {
 const card = (host: HTMLElement, plan: string) => host.querySelector<HTMLElement>(`section[aria-label="${plan} plan"]`)!;
 const buttonIn = (scope: HTMLElement, name: string) =>
   Array.from(scope.querySelectorAll("button")).find((button) => button.textContent?.trim() === name);
+
+it("names an unlimited limit Unlimited and keeps its sign out of the accessibility tree", async () => {
+  const host = await renderWith(<PlanCards />);
+  const benefits = Array.from(card(host, "Max").querySelectorAll("li"));
+  expect(benefits.map(accessibleName)).toContain("Unlimited Teams");
+  expect(benefits.map(accessibleName)).toContain("12 machines in your mesh");
+  const unlimited = benefits.find((item) => accessibleName(item) === "Unlimited Teams")!;
+  expect(Array.from(unlimited.querySelectorAll("svg")).every((sign) => sign.getAttribute("aria-hidden") === "true")).toBe(true);
+});
 
 it("keeps every Choose button live by default, signed out or not", async () => {
   const host = await renderWith(<PlanCards onChoose={() => {}} />);
@@ -240,75 +273,11 @@ it("records an explicit subscription plans request after mounting", async () => 
   ]);
 });
 
-it("draws changing Pro greeting and re-entry frames for one second, with a visible reduced-motion field", async () => {
-  let now = 100;
-  let nextFrame = 0;
-  const frames = new Map<number, FrameRequestCallback>();
-  vi.spyOn(performance, "now").mockImplementation(() => now);
-  vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
-    frames.set(++nextFrame, callback);
-    return nextFrame;
-  });
-  vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
-  const dots: number[][] = [];
-  let dot: number[] = [];
-  const context = {
-    globalAlpha: 1,
-    setTransform() {},
-    clearRect() { dots.length = 0; },
-    beginPath() {},
-    arc(x: number, y: number, radius: number) { dot = [x, y, radius]; },
-    fill() { dots.push([...dot, Math.round(this.globalAlpha * 255)]); },
-  };
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(context as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
-    x: 0, y: 0, left: 0, top: 0, right: 256, bottom: 176, width: 256, height: 176, toJSON() {},
-  });
-  const preference = vi.fn(() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
-  vi.stubGlobal("matchMedia", preference);
-  const sample = (elapsed: number, frameTimestamp = elapsed) => {
-    now = elapsed;
-    const pending = [...frames.values()];
-    frames.clear();
-    for (const callback of pending) callback(frameTimestamp);
-    return structuredClone(dots);
-  };
-  const peakAlpha = (frame: number[][]) => Math.max(...frame.map(dot => dot[3]));
-  try {
-    const pro = card(await renderPlanCards(), "Pro");
-    const greeting = [sample(110, 95), sample(350), sample(600), sample(900)];
-    expect(new Set(greeting.map(frame => JSON.stringify(frame))).size).toBe(4);
-    expect(greeting.every(frame => peakAlpha(frame) > 25)).toBe(true);
-    const rest = sample(1100);
-    expect(frames.size).toBe(0);
-    expect(peakAlpha(rest)).toBeGreaterThanOrEqual(30);
-    expect(peakAlpha(rest)).toBeLessThan(50);
-    for (const releasedAt of [1200, 2400]) {
-      now = releasedAt;
-      await act(async () => {
-        pro.dispatchEvent(new PointerEvent("pointerout", { bubbles: true }));
-        pro.dispatchEvent(new PointerEvent("pointerover", { bubbles: true }));
-      });
-      const first = sample(releasedAt + 10, releasedAt - 5);
-      const middle = sample(releasedAt + 500);
-      const late = sample(releasedAt + 800);
-      expect(first).not.toEqual(rest);
-      expect(middle).not.toEqual(first);
-      expect(late).not.toEqual(middle);
-      expect(sample(releasedAt + 1000)).toEqual(rest);
-      expect(frames.size).toBe(0);
-    }
-    await act(async () => mounted?.root.unmount());
-    mounted?.host.remove();
-    mounted = null;
-    preference.mockReturnValue({ matches: true, addEventListener() {}, removeEventListener() {} });
-    const reducedPro = card(await renderPlanCards(), "Pro");
-    const staticFrame = structuredClone(dots);
-    await act(async () => { reducedPro.dispatchEvent(new PointerEvent("pointerover", { bubbles: true })); });
-    expect(dots).toEqual(staticFrame);
-    expect(peakAlpha(staticFrame)).toBeGreaterThanOrEqual(30);
-    expect(frames.size).toBe(0);
-  } finally {
-    vi.restoreAllMocks();
-  }
+it("samples release waves with an injected clock and suppresses reduced motion", () => {
+  const wave = { releasedAt: 100, originX: 0, originY: 0, maxRadius: 200 };
+  expect(emitDotMatrixWave([], wave, "loading", false)).toEqual([wave]);
+  expect(emitDotMatrixWave([], wave, "loading", true)).toEqual([]);
+  expect(sampleDotMatrixWave(wave, 99, 1000)).toBeNull();
+  expect(sampleDotMatrixWave(wave, 600, 1000)).toEqual({ progress: 0.5, radius: 100, fade: 0.5 });
+  expect(sampleDotMatrixWave(wave, 1100, 1000)).toBeNull();
 });

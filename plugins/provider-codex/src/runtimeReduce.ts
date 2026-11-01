@@ -37,14 +37,25 @@ interface ReduceState {
   open?:string[];
   retired?:string[];
 }
+function copyReducerState(state: ReduceState): ReduceState {
+  const items: Record<string,RuntimeItem> = Object.create(null);
+  for (const [id,row] of Object.entries(state.items)) items[id] = {...row};
+  const copy: ReduceState = {...state,items,completed:[...state.completed],compacted:[...state.compacted],evidenced:[...state.evidenced]};
+  for (const key of ["questions","abandoned","childCompleted","open","retired"] as const) {
+    const values = state[key];
+    if (values) copy[key] = [...values];
+  }
+  if (state.parents) copy.parents = Object.assign(Object.create(null),state.parents);
+  if (state.childActive) copy.childActive = {...state.childActive};
+  if (state.agents) copy.agents = {...state.agents,rows:Object.assign(Object.create(null),state.agents.rows)};
+  if (state.reasoning) copy.reasoning = Object.fromEntries(Object.entries(state.reasoning)
+    .map(([id,parts]) => [id,{summary:[...parts.summary],content:[...parts.content]}]));
+  return copy;
+}
 function initial(ctx: RuntimeContext, raw: JsonValue): ReduceState {
   const state = object(raw);
   if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
-    const restored=JSON.parse(JSON.stringify(state)) as ReduceState;
-    restored.items=Object.assign(Object.create(null),restored.items);
-    if(restored.parents) restored.parents=Object.assign(Object.create(null),restored.parents);
-    if(restored.agents) restored.agents.rows=Object.assign(Object.create(null),restored.agents.rows);
-    return restored;
+    return copyReducerState(state as unknown as ReduceState);
   }
   return {epoch:ctx.epoch,bindingNonce:ctx.bindingNonce,threadId:ctx.threadId,seq:0,items:Object.create(null),completed:[],compacted:[],evidenced:[],activeTurnId:ctx.activeTurnId};
 }
@@ -198,7 +209,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         events.push(...abandonOpenTurn(state,threadId,turnId));
         state.activeTurnId = turnId;
         delete state.compacting;
-        const settings = codexReportedSettings({...params,...object(params.turn)});
+        const settings = codexReportedSettings({...params,...object(params.turn)},ctx.settings);
         if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         events.push({kind:"turnState",threadId,turnId,state:"working",...timing(params)}); break;
       }
@@ -241,7 +252,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         const mapped = usage(params); if (mapped) events.push({kind:"usage",threadId,usage:mapped}); break;
       }
       case "thread/settings/updated": {
-        const settings = codexReportedSettings(params);
+        const settings = codexReportedSettings(params,ctx.settings);
         if (Object.keys(settings).length) events.push({kind:"controlsConfirmed",threadId,settings});
         break;
       }

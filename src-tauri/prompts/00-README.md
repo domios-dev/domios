@@ -35,7 +35,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `agent_routing_contract.md` | `AGENT_ROUTING_CONTRACT` | Shared routed-message trust and reply policy | — | `codeterm-service-core/src/prompts.rs`; composed after the Agent primer for spawned launches in `service/orchestrator/prompt_compose.rs` and `service/orchestrator/spawn/runtime_prompt.rs` |
 | `utility_tab_guidance.md` | `UTILITY_TAB_GUIDANCE` | Three-line utility lifecycle and repeated-monitoring guidance | — | `service/orchestrator/prompt_compose.rs` — non-Worker launches only |
 | `worker_codeterm_context.md` | `WORKER_CODETERM_CONTEXT` | Worker Domios context | — | `service/orchestrator/prompt_compose.rs` — injected once into Worker launches before assignment work |
-| `read_only_worker_guidance.md` | `READ_ONLY_WORKER_GUIDANCE` | Sandbox limits, explicit owner-run gates and stdin reports | — | Worker launch composition replaces the writable-pad fragment for read-only execution |
+| `read_only_worker_guidance.md` | `READ_ONLY_WORKER_GUIDANCE` | Read-only intent authority, explicit-sandbox refusals and stdin reports | — | Worker launch composition replaces the writable-pad fragment for `read_only` execution intent |
 | `rich_rendering_guidance.md` | `RICH_RENDERING_GUIDANCE` | Shared rendering capability | — | `service/orchestrator/prompt_compose.rs` — included for capable spawned agents |
 | `agent_pad_rule.md` | `AGENT_PAD_RULE` | Shared AgentPad contract — the one semantic source | — | `service/orchestrator/prompt_compose.rs` for every spawned class; `service/general_agent/instructions.rs` (`general_cli_reference`) for the GA; `service/skill_mirror.rs` renders it into the `codeterm` skill via `{agent_pad_rule}` |
 | `worker_suffix.md` | `WORKER_SUFFIX` | Role suffix | — | `service/orchestrator.rs` and `service/spawn.rs` — appended when spawned with `--role Worker` |
@@ -61,7 +61,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
 | `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `cron/skill_block.rs` — points a cron agent at the resolved skill |
 | `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `cron/skill_block.rs` — provides a bounded failure handoff when the requested skill is absent |
-| `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
+| `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/domios.md` |
 | `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; `service/skill_mirror.rs` renders the same constant into the `codeterm` skill through the same placeholder |
 | `mem_management.md` | `MEM_MANAGEMENT` | Shared memory management | — | GA renderer, Orchestrator and Planner suffixes, and roleless agent onboarding; excluded from Workers and Cartographer |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
@@ -95,7 +95,7 @@ Substitution is plain, ordered `String::replace()` with no template engine:
 
 - **Spawned agents** — `service/orchestrator/prompt_compose.rs` composes it into every launch prompt: solo, Orchestrator, Planner, watcher, and Worker, with or without an assignment.
 - **General Agent** — `general_cli_reference()` appends it to the CLI reference unconditionally, so a moved section heading cannot drop it.
-- **`codeterm` skill** — `service/skill_mirror.rs` substitutes it into `skills/codeterm/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
+- **`domios` skill** — `service/skill_mirror.rs` substitutes it into `skills/domios/SKILL.md` through `{agent_pad_rule}` at seed time, including launches delivered as a bare assignment rather than a composed system prompt.
 
 Delivery tests assert constant identity, never wording: `prompt_compose::tests` covers each launch class, `skills_seed_tests::seed_renders_shared_codeterm_fragments_from_constants` covers the skill, the GA writer covers `AGENT.md`/`AGENTS.md`, and `prompts.rs::agent_pad_rule_has_exactly_one_source` rejects duplicate sources.
 
@@ -225,7 +225,7 @@ owning loader module (pub const &str)
 3. **Verify** — check the running `AGENT.md` actually reflects your change:
    ```bash
    cat ~/.domios/general/AGENT.md  # for general_agent.md edits
-   cat ~/.claude/rules/codeterm.md   # for codeterm_rule.md edits
+   cat ~/.claude/rules/domios.md   # for codeterm_rule.md edits
    ```
 4. **Run the prompt-evaluator** before committing any prompt change: A/B compare `HEAD~1` against `HEAD` for the edited file. If any eval reports `Δ < 0`, fix or revert; if the file has no eval set, have the evaluator bootstrap one first. Harness: `.claude/skills/prompt-evaluator/SKILL.md` and `evals/`.
 5. **Commit** — use `prompts:` or `prompt:` scope in the commit message so prompt changes are easy to find in `git log`.

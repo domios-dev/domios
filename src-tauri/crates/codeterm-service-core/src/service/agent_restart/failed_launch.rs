@@ -4,7 +4,7 @@ use super::{AgentRestartError, TabRestartSnapshot};
 use crate::service::ServiceContext;
 
 fn failed_provider(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
-    if tab.agent_booting {
+    if tab.agent_booting && tab.boot_stage != Some(BootStage::PtyStarting) {
         return None;
     }
     tab.restorable_launch
@@ -14,7 +14,8 @@ fn failed_provider(tab: &crate::multiplexer::types::Tab) -> Option<&str> {
             matches!(
                 tab.boot_stage,
                 Some(
-                    BootStage::SpawnFailed
+                    BootStage::PtyStarting
+                        | BootStage::SpawnFailed
                         | BootStage::LaunchDeadlineElapsed
                         | BootStage::LaunchBindingUnconfirmed
                 )
@@ -63,7 +64,9 @@ impl ServiceContext {
             .close_restore
             .as_ref()
             .is_some_and(|state| state.exact_session);
-        let session_id = if exact_session {
+        let session_id = if exact_session
+            || (tab.boot_stage == Some(BootStage::PtyStarting) && tab.agent_session_id.is_some())
+        {
             let exists =
                 self.restart_session_exists(&tab, provider, tab.agent_session_id.as_deref());
             if exists != Some(true) {

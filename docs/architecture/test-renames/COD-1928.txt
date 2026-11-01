@@ -1,0 +1,2 @@
+subcommand_contract_tests::radar_add_parses_repeated_tags_and_source_identity -> subcommand_contract_tests::radar::radar_add_parses_repeated_tags_and_source_identity
+subcommand_contract_tests::radar_refuses_conflicting_workspace_and_tag_flags -> subcommand_contract_tests::radar::radar_refuses_conflicting_workspace_and_tag_flags

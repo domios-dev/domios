@@ -65,10 +65,24 @@ impl State {
     }
 
     pub fn read(path: &Path) -> Result<Self, String> {
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        let meta = std::fs::metadata(path).map_err(|_| "analytics settings unavailable")?;
+        Self::read_with_metadata(path, |path| std::fs::metadata(path))
+    }
+
+    fn read_with_metadata(
+        path: &Path,
+        metadata: impl FnOnce(&Path) -> std::io::Result<std::fs::Metadata>,
+    ) -> Result<Self, String> {
+        let meta = match metadata(path) {
+            Ok(meta) => meta,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Self {
+                    consent: Consent::On,
+                    device_id: Some(Uuid::new_v4()),
+                    ..Self::default()
+                });
+            }
+            Err(_) => return Err("analytics settings unavailable".into()),
+        };
         if meta.len() > 2_000_000 {
             return Err("analytics settings exceed size bound".into());
         }
@@ -116,3 +130,6 @@ pub(crate) fn valid_uid(uid: &str) -> bool {
             .bytes()
             .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
 }
+
+#[cfg(test)]
+mod tests;

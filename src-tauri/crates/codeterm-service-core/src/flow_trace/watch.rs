@@ -1,9 +1,9 @@
 use super::{enabled, PtyFlow, SourceCursor};
+use crate::service::tab_chat::file_events::{self, WatchGuard};
 use crate::service::{
     chat_send_transaction::{EvidenceWindow, SendEvidenceAnchor},
     ServiceContext,
 };
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -28,53 +28,17 @@ pub(crate) fn capture_window(
     }
 }
 
-fn normalized_path(path: &Path) -> PathBuf {
-    codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()).into()
-}
-
 pub(crate) fn register_source(
     path: &Path,
     events: mpsc::SyncSender<()>,
-) -> Result<RecommendedWatcher, &'static str> {
-    let parent = path.parent().ok_or("parent_unavailable")?;
-    let root = parent
-        .ancestors()
-        .find(|path| path.is_dir())
-        .ok_or("parent_unavailable")?;
-    let canonical = std::fs::canonicalize(root).map_err(|_| "parent_unreadable")?;
-    let relative = path.strip_prefix(root).map_err(|_| "path_unavailable")?;
-    let watched = normalized_path(&canonical).join(relative);
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-        if event.is_ok_and(|event| {
-            matches!(
-                event.kind,
-                notify::EventKind::Create(_)
-                    | notify::EventKind::Modify(_)
-                    | notify::EventKind::Remove(_)
-            ) && event.paths.iter().any(|path| {
-                let changed = normalized_path(path);
-                changed == watched || watched.starts_with(&changed)
-            })
-        }) {
-            let _ = events.try_send(());
-        }
-    })
-    .map_err(|_| "watcher_unavailable")?;
-    let mode = if root == parent {
-        RecursiveMode::NonRecursive
-    } else {
-        RecursiveMode::Recursive
-    };
-    watcher
-        .watch(&normalized_path(&canonical), mode)
-        .map_err(|_| "watch_failed")?;
-    Ok(watcher)
+) -> Result<WatchGuard, &'static str> {
+    file_events::watch(path, events).map_err(|_| "watch_failed")
 }
 
 struct Subscription {
     tab: String,
     identity: (String, Option<String>),
-    _watcher: RecommendedWatcher,
+    _watcher: WatchGuard,
 }
 
 fn subscriptions() -> &'static Mutex<HashMap<String, Subscription>> {

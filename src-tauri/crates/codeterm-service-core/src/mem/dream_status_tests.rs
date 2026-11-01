@@ -170,6 +170,7 @@ fn rem_completion_links_own_diary_without_cron() {
         .record_run(
             &job.id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: CRON_JOB_ID.into(),
                 started_at: CRON_FINISHED_AT - 60_000,
                 finished_at: Some(CRON_FINISHED_AT),

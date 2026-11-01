@@ -18,6 +18,7 @@ test("durable sends round-trip authority, recovery fields, and only exact duplic
     echo: { content: "payload", timestampMs: 102 },
     matchedRow,
     echoBoundary: { sourceSessionId: "source-session", sessionBindingNonce: "nonce-1", lastRowId: "prior-row" },
+    localAttempt: { ptyId: "own-pty", bindingNonce: "nonce-1" },
     droppedUploads: ["private.bin"],
     dismissed: true,
     status: {
@@ -49,6 +50,7 @@ test("durable sends round-trip authority, recovery fields, and only exact duplic
     echo: send.echo,
     matchedRow,
     echoBoundary: send.echoBoundary,
+    localAttempt: send.localAttempt,
     droppedUploads: send.droppedUploads,
     dismissed: true,
     status: { ...send.status, tab_id: "tab-1" },

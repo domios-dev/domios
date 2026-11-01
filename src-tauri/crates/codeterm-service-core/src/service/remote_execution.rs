@@ -96,13 +96,13 @@ impl ServiceContext {
         config: &serde_json::Value,
     ) -> Result<bool, String> {
         let capability = self
-            .agent_registry
-            .with_provider(provider, |provider| provider.remote_task_capability())
-            .flatten()
+            .chatbackend_registry
+            .descriptor(provider)
+            .and_then(|descriptor| descriptor.remote_task)
             .or_else(|| {
-                self.chatbackend_registry
-                    .descriptor(provider)
-                    .and_then(|descriptor| descriptor.remote_task)
+                self.agent_registry
+                    .with_provider(provider, |provider| provider.remote_task_capability())
+                    .flatten()
             });
         if config
             .get("executionMode")

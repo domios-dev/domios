@@ -160,6 +160,10 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Bridge { .. } => socket_rest(),
         Commands::Mesh { .. } => socket_rest(),
         Commands::Mem {
+            action: MemAction::Backup { .. },
+        } => pre_socket_unsupported("memory backups are local-only; run on the owning machine"),
+        Commands::Mem { action: MemAction::Backend { .. } } => pre_socket_unsupported("memory backend migration is local-only; run on the owning machine"),
+        Commands::Mem {
             action: MemAction::Embedder { action: crate::MemEmbedderAction::Key { .. } },
         } => pre_socket_unsupported("embedder keys are local-only; run on the owning machine"),
         Commands::Mem { action } => Transport {
@@ -180,7 +184,9 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
             "essence-map is local-only — it reads the repository's source essences",
         ),
         Commands::Task { .. } => socket_rpc_relayed(TASK_LOCAL_ONLY),
-        Commands::Inbox { .. } => socket_rpc_relayed(TASK_LOCAL_ONLY),
+        Commands::Radar { .. } => socket_rpc_relayed(
+            "radar management is local-only — run it on the target machine",
+        ),
         // Canvas is not in the relayed group, so its verdict is reachable.
         Commands::Canvas { .. } => {
             socket_unsupported("canvas control is local-only — run it on the target machine")

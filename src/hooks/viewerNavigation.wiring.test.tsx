@@ -43,14 +43,14 @@ async function main() {
   await page.close();
 
   let settings!: ReturnType<typeof useSettingsNavigation>;
-  function SettingsProbe({ link }: { link?: "privacy" | "agents" }) { settings = useSettingsNavigation(link, undefined); return null; }
+  function SettingsProbe({ link }: { link?: "general" | "agents" }) { settings = useSettingsNavigation(link, undefined); return null; }
   let panel = await mount(<SettingsProbe />);
   await act(async () => settings[1]([{ kind: "root" }, { kind: "section", id: "agents" }, { kind: "agent-provider", providerId: "fixture" }]));
   await panel.close();
   panel = await mount(<SettingsProbe />);
   assert.deepEqual(settings[0].map((route) => route.kind), ["root", "section", "agent-provider"]);
-  await panel.render(<SettingsProbe link="privacy" />);
-  assert.deepEqual(settings[0], [{ kind: "root" }, { kind: "section", id: "privacy", card: undefined, helpSection: undefined }]);
+  await panel.render(<SettingsProbe link="general" />);
+  assert.deepEqual(settings[0], [{ kind: "root" }, { kind: "section", id: "general", card: undefined, helpSection: undefined }]);
   await panel.close();
   assert.deepEqual(settingsStack([{ kind: "root" }, { kind: "section", id: "removed" }]), [{ kind: "root" }]);
 

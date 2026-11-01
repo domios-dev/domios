@@ -20,10 +20,10 @@ import {
 } from "./dotMatrixModel";
 import type { DotMatrixWave } from "./dotMatrixModel";
 
-test("disconnect remains hidden until the exact grace deadline", () => {
+test("first connect remains hidden until the exact grace deadline, then blocks", () => {
   const disconnected = transitionBrandConnection({ kind: "connected" }, "disconnect", 500);
-  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS - 1), { kind: "hidden" });
-  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS), { kind: "reconnecting" });
+  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS - 1, false), { kind: "hidden" });
+  assert.deepEqual(brandConnectionModel(disconnected, 500 + RECONNECT_GRACE_MS, false), { kind: "reconnecting" });
   assert.equal(transitionBrandConnection(disconnected, "grace-expired", 500 + RECONNECT_GRACE_MS).kind, "disconnected");
 });
 
@@ -41,6 +41,19 @@ test("a disconnect that outlasts the grace period shows a reconnect notice", () 
   assert.deepEqual(reconnected, { kind: "reconnected", connectedAt: 100 + RECONNECT_GRACE_MS });
   assert.deepEqual(brandConnectionModel(reconnected, 100 + RECONNECT_GRACE_MS), { kind: "reconnected" });
   assert.deepEqual(brandConnectionModel(reconnected, 100 + RECONNECT_GRACE_MS + RECONNECTED_NOTICE_MS), { kind: "hidden" });
+});
+
+test("a drop after the app loaded pauses updates without blocking; only a first connect blocks", () => {
+  const waiting = transitionBrandConnection({ kind: "connected" }, "disconnect", 100);
+  const lost = transitionBrandConnection(waiting, "grace-expired", 100 + RECONNECT_GRACE_MS);
+  assert.deepEqual(brandConnectionModel(waiting, 100 + RECONNECT_GRACE_MS - 1, true), { kind: "hidden" });
+  assert.deepEqual(brandConnectionModel(waiting, 100 + RECONNECT_GRACE_MS, true), { kind: "paused" });
+  assert.deepEqual(brandConnectionModel(lost, 100 + RECONNECT_GRACE_MS, true), { kind: "paused" });
+  assert.deepEqual(brandConnectionModel(lost, 100 + RECONNECT_GRACE_MS, false), { kind: "reconnecting" });
+  const back = 200 + RECONNECT_GRACE_MS;
+  const recovered = transitionBrandConnection(lost, "connect", back);
+  assert.deepEqual(brandConnectionModel(recovered, back, true), { kind: "reconnected" }, "recovery replaces the pill with the notice");
+  assert.deepEqual(brandConnectionModel(recovered, back + RECONNECTED_NOTICE_MS, true), { kind: "hidden" });
 });
 
 test("error presentation takes precedence over loading", () => {

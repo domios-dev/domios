@@ -18,6 +18,10 @@ import type {
   PluginModule,
   SurfaceContribution,
   TabMenuContribution,
+  ViewHostAction,
+  ViewHostBridge,
+  ViewHostResult,
+  ViewInputsContribution,
   WebhookDelivery,
   WebhookReceiveContext,
   WebhookReceiverCapability,
@@ -394,6 +398,27 @@ const unknownRenderer: SurfaceContribution = {
   renderer: "canvas",
 };
 void unknownRenderer;
+const declaredHostActions: ViewHostAction[] = ["copyText", "saveAs", "reveal", "pickFile"];
+void declaredHostActions;
+const referenceInputs: ViewInputsContribution = { accept: ["image/png", "image/jpeg"], maxBytes: 20_971_520, maxFiles: 4 };
+void referenceInputs;
+// @ts-expect-error only passive media may be picked
+const svgInputs: ViewInputsContribution = { accept: ["image/svg+xml"], maxBytes: 1, maxFiles: 1 };
+void svgInputs;
+async function pickReference(bridge: ViewHostBridge): Promise<string[]> {
+  const result = await bridge.pickFile({ accept: ["image/png"], multiple: true });
+  return result.ok ? result.inputs.map((input) => input.handle) : [];
+}
+void pickReference;
+// @ts-expect-error host actions are a closed set
+const openUrlAction: ViewHostAction = "openUrl";
+void openUrlAction;
+async function saveFromView(bridge: ViewHostBridge): Promise<string> {
+  if (!(await bridge.availability()).saveAs) return "hidden";
+  const result: ViewHostResult = await bridge.saveAs("0".repeat(64), "frame.png");
+  return result.ok ? "saved" : `${result.code}:${result.reason}`;
+}
+void saveFromView;
 function callSurface(): string {
   // host.surface.call answers with JSON text; the plugin parses it.
   return host.surface.call("status", "[]");

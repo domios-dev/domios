@@ -14,7 +14,9 @@ pub use installation::{FileInstallationStore, InstallationId, InstallationStore}
 
 pub use account::{Account, Status};
 use async_trait::async_trait;
-pub use flow::{Callback, LoginFlow, LoginHint, LoginMode, LoginProvider, Redemption};
+pub use flow::{
+    Callback, LoginFlow, LoginHint, LoginMode, LoginProvider, PasteCallbackError, Redemption,
+};
 pub use loopback::Loopback;
 use serde::{Deserialize, Serialize};
 use zeroize::{Zeroize, ZeroizeOnDrop};
@@ -78,6 +80,11 @@ pub struct Session {
     pub id_token: Secret,
     pub expires_at: Option<u64>,
 }
+
+#[async_trait]
+pub trait SessionAdmission: Send + Sync {
+    async fn admit(&self, session: &Session) -> Result<()>;
+}
 pub struct Tokens {
     pub session: Session,
     pub refresh_token: Secret,
@@ -133,6 +140,7 @@ pub trait CredentialStore: Send + Sync {
 #[async_trait]
 pub trait IdentityObserver: Send + Sync {
     async fn changed(&self, identity: Option<&Identity>);
+    async fn session_refreshed(&self, _session: &Session) {}
 }
 #[async_trait]
 pub trait Browser: Send + Sync {
@@ -152,6 +160,8 @@ impl Default for Config {
         adapters::default_config()
     }
 }
+#[cfg(test)]
+mod build_guard;
 pub mod legacy_credentials;
 #[cfg(test)]
 mod tests;

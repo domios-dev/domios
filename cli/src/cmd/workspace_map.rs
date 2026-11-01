@@ -386,9 +386,9 @@ mod tests {
             {"id":"ws_empty","name":"empty","tab_count":0,"cwd":"D:/empty","is_active":true,"tab_ids":[]}
         ]);
         let tabs = json!([
-            {"id":"worker","tab_title":"Docs audit","workspace_id":"ws_code","team_id":"team_cli","parent_tab_id":"orch","agent_type":"codex","agent_session_model":"gpt-5.6-sol","agent_liveness":"live","role_profile":"worker","status":"working"},
-            {"id":"orch","tab_title":"CLI audit","workspace_id":"ws_code","team_id":"team_cli","agent_type":"claude","agent_session_model":"opus","agent_liveness":"live","role_profile":"orchestrator","status":"idle"},
-            {"id":"other","tab_title":"A second independent team with a title that is too long","workspace_id":"ws_code","team_id":"team_other"},
+            {"id":"worker","title":"Docs audit","workspace_id":"ws_code","team_id":"team_cli","parent_tab_id":"orch","agent_type":"codex","agent_session_model":"gpt-5.6-sol","agent_liveness":"live","role_profile":"worker","status":"working"},
+            {"id":"orch","title":"CLI audit","workspace_id":"ws_code","team_id":"team_cli","agent_type":"claude","agent_session_model":"opus","agent_liveness":"live","role_profile":"orchestrator","status":"idle"},
+            {"id":"other","title":"A second independent team with a title that is too long","workspace_id":"ws_code","team_id":"team_other"},
             {"id":"shell","title":"logs","workspace_id":"ws_code"}
         ]);
         let teams = json!({"teams":[
@@ -420,9 +420,9 @@ mod tests {
     fn a_tab_restored_without_an_agent_renders_no_model() {
         let workspaces = json!([{"id":"ws","name":"w","tab_count":2,"tab_ids":["ghost","live"]}]);
         let tabs = json!([
-            {"id":"ghost","tab_title":"Ghost","workspace_id":"ws","agent_liveness":"absent",
+            {"id":"ghost","title":"Ghost","workspace_id":"ws","agent_liveness":"absent",
              "role_profile":"worker"},
-            {"id":"live","tab_title":"Live","workspace_id":"ws","agent_type":"claude",
+            {"id":"live","title":"Live","workspace_id":"ws","agent_type":"claude",
              "agent_session_model":"opus","agent_liveness":"absent","role_profile":"worker"}
         ]);
 

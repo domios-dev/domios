@@ -196,6 +196,13 @@ export interface HostWorkspace {
 }
 
 // session), get (the plugin's key→session map). send/poll is the job-id bridge — the VM never blocks.
+export type HostAgentRunReply = { state?: "running" | "done" | "failed" | "canceled" | "unknown"; text?: string; reason?: string; error?: string };
+export interface HostAgentRun {
+  start<T>(opts: { prompt: string; cwd: string; model?: string; timeoutMs: number; sandbox?: "read-only" }, then: (reply: { run?: string; error?: string }) => T): T;
+  await<T>(run: string, then: (reply: HostAgentRunReply) => T): T;
+  cancel<T>(run: string, then: (reply: HostAgentRunReply) => T): T;
+}
+
 export interface HostAgent {
   spawn(
     workspaceId: string,
@@ -408,10 +415,13 @@ export interface HostLocalRecording {
   setEnabled(enabled: boolean): LocalRecordingStatus | LocalRecordingRefusal | null;
 }
 
-// Acts on the calling agent's own stream surface; only inside onAgentCommand, with the `surfaces` grant.
+// Acts on the calling agent's authorized surface; only inside onAgentCommand, with the `surfaces` grant.
 export interface HostSurface {
+  dispatch(verb: string, argsJson?: string | string[] | { args: string[]; of?: string }): { result: string } | { error: string };
   // Returns the JSON text `{ "result": string }` or `{ "error": string }`.
   call(verb: string, argsJson: string): string;
+  /** Identity only; plugin identity comes from the sandbox. Returns {ok:true} or {error}. */
+  invalidate(identity: { surface: string; instance: string; tab: string }): { ok: true } | { error: string };
 }
 
 export interface HostProgressOpts {
@@ -470,6 +480,10 @@ export interface Host {
   execClose(jobId: string): void;
   // The VM must yield while the job completes so a plugin cannot block other calls.
   awaitJob<T, R = ExecPollResult>(jobId: string, then: (result: R) => T): T;
+  transfer: import("./binaryTransfer").HostTransfer;
+  transferStart(optsJson: string): string;
+  transferAbort(jobId: string): boolean;
+  transferBindInput(requestJson: string): string;
   fetch: HostFetch;
   fetchStart(optsJson: string): string;
   fetchStream(optsJson: string): string;
@@ -495,6 +509,7 @@ export interface Host {
   worker: HostWorker;
   workspace: HostWorkspace;
   agent: HostAgent;
+  agentRun: HostAgentRun;
   mem: HostMem;
   analyticsQuery(queryJson: string): string;
   analytics: HostAnalytics;

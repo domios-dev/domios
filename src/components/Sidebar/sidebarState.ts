@@ -3,7 +3,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 
 const sidebarFields = [
   "tabs", "workspaces", "teams", "active_workspace_id", "activeTabIds",
-  "notifications", "tabStatuses", "recently_closed", "closed_structures",
+  "notifications", "tabStatuses",
 ] as const;
 
 export type SidebarState = Pick<ExtendedState, typeof sidebarFields[number]>;

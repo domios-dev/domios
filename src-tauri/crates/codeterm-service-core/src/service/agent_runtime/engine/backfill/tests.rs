@@ -15,6 +15,7 @@ fn session() -> (Session, u64) {
         provider: "fixture".into(),
         adapter: Mutex::new(None),
         context: Mutex::new(RuntimeContext {
+            restricted_cli: None,
             host_owned: Default::default(),
             epoch,
             tab_id: "tab".into(),

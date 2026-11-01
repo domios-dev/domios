@@ -20,6 +20,6 @@ export default defineConfig({
     // Timeouts catch hangs only; a slow test on a loaded runner must not fail.
     testTimeout: 60_000,
     hookTimeout: 60_000,
-    poolOptions: { forks: { execArgv } },
+    execArgv,
   },
 });

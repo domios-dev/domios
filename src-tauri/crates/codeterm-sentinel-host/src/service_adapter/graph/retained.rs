@@ -47,6 +47,7 @@ pub(super) fn project(
     jobs: &[Sentinel],
     journals: &BTreeMap<String, Vec<BlueprintJournalEntry>>,
     definitions: &Definitions,
+    plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
 ) -> Result<(), String> {
     for job in jobs
         .iter()
@@ -71,12 +72,12 @@ pub(super) fn project(
                 .filter(|row| row.run_id == entry.run_id)
                 .cloned()
                 .collect::<Vec<_>>();
-            let projection = run_projection(job, &rows, definitions.get(&job.id))?;
+            let projection = run_projection(job, &rows, definitions.get(&job.id), plugins)?;
             runs.push((entry.run_id.clone(), projection));
         }
         let latest = match runs.first() {
             Some((_, projection)) => projection.clone(),
-            None => run_projection(job, &[], definitions.get(&job.id))?,
+            None => run_projection(job, &[], definitions.get(&job.id), plugins)?,
         };
         let index = match snapshot
             .blueprints
@@ -113,6 +114,7 @@ fn run_projection(
     job: &Sentinel,
     rows: &[BlueprintJournalEntry],
     versions: Option<&BTreeMap<u64, Value>>,
+    plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
 ) -> Result<Value, String> {
     let version = if rows.is_empty() {
         Some(job.definition_version)
@@ -122,7 +124,7 @@ fn run_projection(
     let document = version
         .and_then(|version| versions?.get(&version))
         .and_then(|value| serde_json::from_value::<Document>(value.clone()).ok());
-    crate::blueprint_calls::project_retained(document.as_ref(), rows, version)
+    crate::blueprint_calls::project_retained(document.as_ref(), rows, version, plugins)
 }
 
 fn extend(target: &mut Value, projection: Value) {

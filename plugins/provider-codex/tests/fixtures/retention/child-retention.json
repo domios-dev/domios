@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "provenance": {
+    "kind": "synthetic",
+    "protocolSources": ["../runtime/captured/subagent.json", "../runtime/captured/subagent_v2.json"]
+  },
+  "context": {
+    "epoch": 7,
+    "tabId": "opaque-retention-tab",
+    "bindingNonce": "opaque-retention-nonce",
+    "threadId": "opaque-retention-root",
+    "activeTurnId": "opaque-retention-turn",
+    "cwd": "/work/opaque",
+    "hostVersion": "1.18.0",
+    "settings": {},
+    "providerSettings": {},
+    "claimedSends": [],
+    "activeTurns": [{"threadId": "opaque-retention-root", "turnId": "opaque-retention-turn"}],
+    "threadParents": []
+  },
+  "ages": [0, 8, 32],
+  "descriptionChars": 256,
+  "reportChars": [1024, 8192],
+  "suffixTextChars": 256,
+  "repetitions": 16,
+  "suffix": [
+    {"kind": "notification", "method": "item/started", "params": {"threadId": "opaque-retention-root", "turnId": "opaque-retention-turn", "item": {"id": "opaque-retention-answer", "type": "agentMessage", "text": ""}}},
+    {"kind": "notification", "method": "item/agentMessage/delta", "params": {"threadId": "opaque-retention-root", "turnId": "opaque-retention-turn", "itemId": "opaque-retention-answer", "delta": "$suffix"}},
+    {"kind": "notification", "method": "item/started", "params": {"threadId": "opaque-retention-root", "turnId": "opaque-retention-turn", "item": {"id": "opaque-retention-tool", "type": "commandExecution", "command": "opaque-command", "status": "inProgress"}}},
+    {"kind": "notification", "method": "item/commandExecution/outputDelta", "params": {"threadId": "opaque-retention-root", "turnId": "opaque-retention-turn", "itemId": "opaque-retention-tool", "delta": "$suffix"}},
+    {"kind": "notification", "method": "item/completed", "params": {"threadId": "opaque-retention-root", "turnId": "opaque-retention-turn", "item": {"id": "opaque-retention-tool", "type": "commandExecution", "command": "opaque-command", "status": "completed", "aggregatedOutput": "$suffix", "exitCode": 0}}}
+  ]
+}

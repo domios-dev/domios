@@ -1,18 +1,16 @@
 # Lane Lifecycle Standard
 
-### Lane safety: two hard stops, everything else advisory
+### Shared checkout by default
 
-A **mutating** Worker dispatch is refused before any tab is created when its
-resolved worktree is the canonical checkout, or is the lane another task owns.
-Both would destroy work in progress, so both are hard stops carrying a stable
-violation id (`lane.mutating_write_in_canonical_checkout`,
-`lane.mutating_write_in_foreign_lane`) and the exact `plan task update` command
-that supplies an isolated lane.
+Local mutating tasks default to the canonical shared checkout. Declare editable files first with `domios plan task files <plan> <task> --edit-file <path>`; directory prefixes are allowed. Missing declarations refuse shared placement. Dispatch prints the placement and its reason. `--placement lane` requests isolation; automatic placement chooses a lane for overlapping live ownership, a `build-breaking` task tag, or a retained lane. `--placement shared` refuses these conflicts and names the owner instead of switching placement. Mesh and unplanned Workers remain isolated.
 
-**A mutating dispatch with no recorded lane provisions one.** With no lane on
-the task, the resolved worktree is the caller's `--cwd`; when that is canonical
-the dispatcher branches an isolated lane from it, records the lane on the task,
-and spawns the Worker there. An explicit `--cwd` must be an existing directory
+Shared ownership is reserved atomically across plans using the same checkout. Workers can extend their own set with `domios plan task extend-files --edit-file <path>`; an overlap refuses the entire extension. Live ownership cannot be dropped before the attempt closes. Use repository-relative paths without traversal or filesystem links. Shared Workers commit only their declared paths with `git commit -- <paths>` and keep the checkout compiling. Foreign compiler failures belong to the Orchestrator. Never switch branches, merge, reset or format another Worker's paths.
+
+The report-time commit guard inspects the actual Git commit, requires it to follow dispatch and remain in canonical history, and refuses foreign or undeclared paths. Make one task commit and report its full literal SHA. Another Worker's newer HEAD or dirty files do not block that report; your own uncommitted paths do. The Orchestrator reviews shared commits in place. Lane integration waits while a canonical Worker holds the checkout.
+
+The integrator pushes shared canonical commits on the integration branch. Lane work reaches canonical through real merges that leave foreign dirty files untouched; Git refuses a merge when it overlaps that dirt.
+
+**A lane dispatch with no recorded lane provisions one.** An explicit `--cwd` must be an existing directory
 (the CLI resolves a relative one against the caller's directory) and is never
 bypassed: a missing path is refused before any tab exists, and a directory that
 is not a usable checkout is refused instead of falling back to the workspace or
@@ -34,7 +32,7 @@ the response carries `safety_nudges`, each with a stable id, why it matters, and
 the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs
 are never obstructed, including in canonical.
 
-**The one mutating canonical placement is an explicit opt-in.** `plan task
+**Exclusive canonical placement remains an explicit opt-in.** `plan task
 dispatch --execution-intent mutating --canonical-writer` places a single Worker
 in the canonical checkout when sequential work benefits from fast iteration. It
 is never inferred from `--cwd`, a recorded path, or the task's shape, and it is
@@ -48,8 +46,14 @@ integration branch, and reports with a clean tree. The report CLI uses the
 attempt's explicit placement to validate the SHA against the plan's canonical
 checkout, even if that attempt has no worktree path; any dirt refuses the report,
 even with `--acknowledge-dirty`.
-Other attempts with an unresolved lane still receive the lane worktree refusal.
-Without the flag every rule above is unchanged.
+Task-bound direct spawns on an existing git checkout record that checkout on the
+attempt, including across restore. Their readiness reports validate the reported
+SHA against that checkout HEAD and require a clean tree, even with an explicit
+base or `--acknowledge-dirty`. They never use the canonical checkout as a fallback.
+A failed task lookup or unusable checkout root refuses readiness reporting instead
+of falling back to the caller's directory; repair the binding or report partial progress.
+Attempts with neither a lane nor a recorded checkout still receive the worktree
+refusal; ask the Orchestrator to dispatch with a worktree and report partial progress.
 For this canonical dispatch, add `--kind qa` or `--kind release_manager` to
 select the built-in prompt profile without changing `task.executor_role`; the
 kind does not grant canonical placement.
@@ -74,7 +78,7 @@ competition is unchanged.
 This is the portable contract for orchestrated branch work in any project. It is
 about lifecycle and evidence, not Domios's own repository layout.
 
-1. Create one lane per task in a dedicated worktree from the current integration
+1. For a task requiring isolation, create its lane in a dedicated worktree from the current integration
    target. Use `lane/<task-shortid>-<slug>` unless the project has a stricter
    branch prefix. **All worktrees live in ONE sibling container next to the repo —
    `../<repo>-worktrees/<branch-slug>`, where `<repo>` is the repo directory's own
@@ -101,7 +105,7 @@ about lifecycle and evidence, not Domios's own repository layout.
    of rebuilding in every lane.
 6. Integrate accepted work with a real merge commit from the lane into the
    integration target. Never cherry-pick, squash, replay, or patch-copy lane
-   commits. Rebase the lane onto the target when necessary, re-run its bounded
+   commits. Real-merge the target into the lane when necessary, re-run its bounded
    review, then merge the lane itself.
 7. Before final QA, prove each accepted lane is an ancestor of the integration
    candidate with `git merge-base --is-ancestor <accepted-lane> <candidate>`.
@@ -128,4 +132,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 22 -->
+<!-- revision: 26 -->

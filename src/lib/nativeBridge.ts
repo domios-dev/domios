@@ -1,4 +1,5 @@
 import type { TransportClient } from "./transportClient";
+import { handleNeighborLink } from "./notificationActions";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -150,6 +151,7 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
     readClipboardText: () => native ? invoke("read_clipboard_text") : clipboard().readText(),
     readClipboard: () => clipboard().read(),
     async openUrl(url) {
+      if (handleNeighborLink(url)) return;
       if (native) return invoke("open_url", { url });
       globalThis.window.open(url, "_blank", "noopener,noreferrer");
     },

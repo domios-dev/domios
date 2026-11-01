@@ -7,8 +7,6 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::multiplexer::types::AgentRole;
-use codeterm_types::agent::role_kind::builtins::PLANNER;
 
 pub(crate) use crate::agent_restart_routes::{agent_restart_handler, agent_restart_response};
 
@@ -16,6 +14,11 @@ pub(crate) use crate::agent_restart_routes::{agent_restart_handler, agent_restar
 use crate::agent_restart_routes::agent_restart_failure_response;
 
 mod model_error;
+mod mutation_authority;
+mod role_mutations;
+pub use role_mutations::{
+    clear_tab_role, make_orchestrator, make_planner, set_can_spawn, set_tab_role,
+};
 mod pair_headers;
 pub(crate) mod spawn_ownership;
 mod spawn_rejection;
@@ -238,6 +241,29 @@ pub async fn spawn_agent(
             |message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message),
         )?;
     }
+    if crate::auth::caller_peer_id(&state, &headers).is_none() {
+        if let Some(caller) = crate::auth::tab_caller(&state, &headers)
+            .map_err(|(status, message)| SpawnRejection::new(status, "forbidden", message))?
+        {
+            for claim in [
+                body.spawned_by_tab_id.as_deref(),
+                body.creator_tab_id.as_deref(),
+            ] {
+                caller.validate_claim(claim).map_err(|message| {
+                    SpawnRejection::new(StatusCode::FORBIDDEN, "forbidden", message)
+                })?;
+            }
+            if body.origin_peer.is_some() {
+                return Err(SpawnRejection::new(
+                    StatusCode::FORBIDDEN,
+                    "forbidden",
+                    "Tab credentials cannot supply peer provenance".into(),
+                ));
+            }
+            body.spawned_by_tab_id = Some(caller.tab_id.clone());
+            body.creator_tab_id = Some(caller.tab_id);
+        }
+    }
     let require_delivery_ack = body.require_delivery_ack;
     let spawning_peer = crate::auth::caller_peer_id(&state, &headers).map(|peer_id| {
         let peer_name = state
@@ -263,7 +289,18 @@ pub async fn spawn_agent(
             body: serde_json::json!({"ok": false, "error": {"code": "bad_request", "message": m}}),
         },
     )?;
-    let params = spawn_request::into_params(body, role_probe, ownership);
+    let mut params = spawn_request::into_params(body, role_probe, ownership);
+    state
+        .svc
+        .inherit_neighbor_agent_spawn(&mut params)
+        .await
+        .map_err(SpawnRejection::from)?;
+    codeterm_service_core::service::execution_sandbox_enforce_delegation_ceiling(
+        &state.svc,
+        &params,
+        crate::tab_routes::caller_tab_header(&headers).as_deref(),
+    )
+    .map_err(|message| SpawnRejection::new(StatusCode::FORBIDDEN, "sandbox_ceiling", message))?;
     let cwd_params = params.clone();
     spawn_rejection::validate_spawn_cwd(
         &state.svc,
@@ -515,6 +552,12 @@ pub async fn batch_commands(
     Json(body): Json<BatchBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if crate::auth::tab_caller(&state, &headers)?.is_some() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Agent batch execution requires the host credential".into(),
+        ));
+    }
     let ops: Vec<codeterm_service_core::service::BatchOp> = body
         .commands
         .into_iter()
@@ -526,216 +569,6 @@ pub async fn batch_commands(
         .collect();
     let results = codeterm_orchestration::batch(&state.svc, ops).await;
     Ok(Json(serde_json::json!({"results": results})))
-}
-
-#[derive(Deserialize)]
-pub struct SetRoleBody {
-    role: String,
-    #[serde(default)]
-    role_profile: Option<String>,
-    #[serde(default)]
-    plan_id: Option<String>,
-    parent_tab_id: Option<String>,
-    can_spawn: Option<bool>,
-}
-
-pub async fn set_tab_role(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(body): Json<SetRoleBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-        let mut role_probe = codeterm_service_core::service::SpawnAgentParams {
-            role: Some(body.role),
-            role_profile: body.role_profile.clone(),
-            ..Default::default()
-        };
-        role_probe
-            .normalize_role_profile()
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        let role = role_probe.role.unwrap_or_else(|| "Worker".into());
-        let (parsed_role, parsed_profile) =
-            codeterm_service_core::service::ServiceContext::parse_role_kind(
-                &role,
-                role_probe.role_profile.as_deref(),
-            )
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        // Same contract as `agent spawn --role Planner` — never an anchor, so
-        // promotion onboarding never applies here.
-        if parsed_role == AgentRole::Manager && parsed_profile.as_deref() == Some(PLANNER) {
-            let plan_id = body.plan_id.clone().ok_or_else(|| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    "Planner requires a plan_id".to_string(),
-                )
-            })?;
-            state
-                .svc
-                .place_planner_on_plan(&id, &plan_id, body.parent_tab_id.as_deref(), true)
-                .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-            return Ok(Json(serde_json::json!({"ok": true})));
-        }
-        if let Some(outcome) = worker_transfer::try_task_bound_worker_transfer(
-            &state.svc,
-            &headers,
-            &id,
-            parsed_role,
-            body.role_profile.as_deref(),
-            body.plan_id.as_deref(),
-            body.parent_tab_id.as_deref(),
-            body.can_spawn,
-        )
-        .map_err(|error| (StatusCode::BAD_REQUEST, error))?
-        {
-            return Ok(Json(outcome));
-        }
-        let becomes_anchor = codeterm_types::agent::role_kind::anchors_team(
-            Some(parsed_role),
-            parsed_profile.as_deref(),
-        );
-        let was_orchestrator = {
-            let mux = state.svc.mux.read();
-            mux.get_tab(&id).map(|p| p.anchors_team()).unwrap_or(false)
-        };
-        if becomes_anchor {
-            codeterm_orchestration::admit_anchor_promotion(&state.svc, &id)
-                .map_err(|error| (StatusCode::FORBIDDEN, error))?;
-        }
-        let plan_binding: Option<String> = None;
-        let destination = match parsed_role {
-            AgentRole::Manager if becomes_anchor => {
-                codeterm_service_core::service::AgentPlacement::Manager {
-                    role_profile: parsed_profile.clone().unwrap_or_default(),
-                    parent_tab_id: None,
-                    can_spawn: body.can_spawn,
-                }
-            }
-            AgentRole::Worker => codeterm_service_core::service::AgentPlacement::Worker {
-                parent_tab_id: body.parent_tab_id.ok_or_else(|| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        "Worker requires a parent_tab_id".to_string(),
-                    )
-                })?,
-                role_profile: parsed_profile.clone(),
-            },
-            AgentRole::Manager => codeterm_service_core::service::AgentPlacement::Manager {
-                parent_tab_id: Some(body.parent_tab_id.clone().ok_or_else(|| {
-                    (
-                        StatusCode::BAD_REQUEST,
-                        "Manager requires a parent_tab_id".to_string(),
-                    )
-                })?),
-                role_profile: parsed_profile.clone().unwrap_or_default(),
-                can_spawn: body.can_spawn,
-            },
-        };
-        state
-            .svc
-            .transition_agent(codeterm_service_core::service::AgentTransitionRequest {
-                tab_id: id.clone(),
-                destination,
-                plan_binding,
-                require_verified_session: true,
-                planner_replacement: None,
-                plan_rebind: None,
-            })
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        if becomes_anchor {
-            codeterm_orchestration::maybe_deliver_orchestrator_promotion_onboarding(
-                &state.svc,
-                &id,
-                was_orchestrator,
-            );
-        }
-        Ok(Json(serde_json::json!({"ok": true})))
-    })
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed".to_string(),
-        )
-    })?
-}
-
-pub async fn clear_tab_role(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-        state
-            .svc
-            .clear_tab_role(&id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        Ok(Json(serde_json::json!({"ok": true})))
-    })
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed".to_string(),
-        )
-    })?
-}
-
-pub async fn make_orchestrator(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-        codeterm_orchestration::make_orchestrator(&state.svc, &id)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        Ok(Json(serde_json::json!({"ok": true})))
-    })
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed".to_string(),
-        )
-    })?
-}
-
-#[derive(Deserialize)]
-pub struct MakePlannerBody {
-    plan_id: String,
-}
-
-pub async fn make_planner(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(body): Json<MakePlannerBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-        state
-            .svc
-            .transition_plan_planner(
-                &body.plan_id,
-                Some(codeterm_service_core::plan::PlannerRef::Tab {
-                    tab_id: id,
-                    session_id: None,
-                    title: None,
-                }),
-            )
-            .map_err(|error| (StatusCode::CONFLICT, error))?;
-        Ok(Json(serde_json::json!({"ok": true})))
-    })
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed".to_string(),
-        )
-    })?
 }
 
 pub async fn get_tab_status(
@@ -778,10 +611,35 @@ pub async fn submit_report(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
     Path(id): Path<String>,
-    Json(body): Json<ReportBody>,
+    Json(mut body): Json<ReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
         check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+        let id = state
+            .svc
+            .mux
+            .read()
+            .resolve_tab_id(&id)
+            .ok_or((StatusCode::NOT_FOUND, "Reporting tab not found".into()))?;
+        let mut details = Some(
+            serde_json::to_value(body.details)
+                .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?,
+        );
+        details
+            .as_mut()
+            .ok_or((StatusCode::BAD_REQUEST, "Missing report details".into()))?["tab_id"] =
+            serde_json::json!(id);
+        let credential = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .unwrap_or_default();
+        state
+            .svc
+            .bind_local_rpc(credential, "agent.report", &mut details)
+            .map_err(|error| (StatusCode::FORBIDDEN, error))?;
+        body.details = serde_json::from_value(details.unwrap_or_default())
+            .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
         let result = state
             .svc
             .submit_report_with_source_outcome(
@@ -855,34 +713,6 @@ pub async fn get_reports(
     let clear = query.clear.unwrap_or(false);
     let reports = state.svc.report_store.lock().get(&id, clear);
     Ok(Json(serde_json::to_value(&reports).unwrap_or_default()))
-}
-
-#[derive(Deserialize)]
-pub struct CanSpawnBody {
-    can_spawn: bool,
-}
-
-pub async fn set_can_spawn(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Path(id): Path<String>,
-    Json(body): Json<CanSpawnBody>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-        state
-            .svc
-            .set_can_spawn(&id, body.can_spawn)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-        Ok(Json(serde_json::json!({"ok": true})))
-    })
-    .await
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed".to_string(),
-        )
-    })?
 }
 
 pub async fn respond_prompt(

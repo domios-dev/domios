@@ -3,7 +3,6 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Window } from "happy-dom";
-import { SentMessageBubble, sentInvocation } from "@codeterm/chat-ui";
 import type { Notification } from "../../lib/types";
 import { askAccessibleName, choiceAccessibleName, levelTone } from "../../lib/notifyLevels";
 import { reducer } from "../../store/multiplexer/reducer";
@@ -199,8 +198,6 @@ async function run() {
     "both surfaces should still show the first answer only",
   );
 
-  // 4. The answer is a routed message, so it renders through the existing sent
-  //    bubble — the same markup that component produces on its own.
   const answeredAsk = stored();
   view = await renderCard(answeredAsk, answerThroughStore);
   assert(
@@ -211,22 +208,9 @@ async function run() {
     view.querySelector('[data-testid="chat-sent-message"]'),
     "the answer should render inside the shared sent-message bubble",
   );
-  const direct = renderToStaticMarkup(
-    <SentMessageBubble
-      inv={sentInvocation(ASKING_TAB, FIRST_CHOICE)}
-      resolveTabName={resolveTabName}
-    />,
-  );
-  const withinCard = renderToStaticMarkup(
-    <ChatAskCard
-      notification={answeredAsk}
-      onAnswer={() => {}}
-      resolveTabName={resolveTabName}
-    />,
-  );
   assert(
-    withinCard.includes(direct),
-    "the transcript answer should be the shared bubble verbatim, not a local copy",
+    view.querySelector('[data-testid="chat-sent-message"]')?.textContent?.includes(FIRST_CHOICE),
+    "the transcript bubble should display the chosen answer",
   );
 
   // 5. Accessible names are composed from the level and the label the question

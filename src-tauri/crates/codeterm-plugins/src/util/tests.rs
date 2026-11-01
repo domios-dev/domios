@@ -62,6 +62,53 @@ mod git_never_prompts {
     use super::*;
 
     #[test]
+    fn shutdown_fences_discovery_to_real_operation_admission() {
+        use std::os::unix::ffi::OsStrExt;
+        let _env = TestEnvGuard::lock();
+        let directory = tempfile::tempdir().unwrap();
+        let fifo = directory.path().join("gate");
+        let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        let marker = directory.path().join("operation-spawned");
+        let git = install_fake_git(directory.path(), &format!(
+            "if [ \"$1\" = '--version' ]; then printf 'git version 2.21.0\\n'; exec /bin/cat '{}'; else : > '{}'; fi",
+            fifo.display(), marker.display()
+        ));
+        let (started, ready) = std::sync::mpsc::channel();
+        let epoch = crate::git_probe::epoch();
+        let worker = std::thread::spawn(move || {
+            run_git_with(vec!["clone".into()], None, epoch, || {
+                let _ = crate::git_probe::capture_observed(
+                    &git,
+                    std::time::Instant::now() + std::time::Duration::from_secs(5),
+                    epoch,
+                    |pid| started.send(pid).unwrap(),
+                );
+                Ok(Command::new(git))
+            })
+        });
+        let pid = ready
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap();
+        assert_eq!(stop_live_git_children(), 1);
+        assert_eq!(
+            worker.join().unwrap().unwrap_err(),
+            "plugin channel git operation cancelled"
+        );
+        assert!(!marker.exists());
+        assert!(LIVE_GIT_CHILDREN.lock().unwrap().is_empty());
+        let mut status = 0;
+        assert_eq!(
+            unsafe { libc::waitpid(pid as libc::pid_t, &mut status, libc::WNOHANG) },
+            -1
+        );
+        assert_eq!(
+            std::io::Error::last_os_error().raw_os_error(),
+            Some(libc::ECHILD)
+        );
+    }
+
+    #[test]
     fn git_command_sets_non_interactive_env() {
         let mut env = TestEnvGuard::lock();
         let directory = tempfile::tempdir().expect("tempdir");

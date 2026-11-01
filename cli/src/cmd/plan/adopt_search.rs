@@ -15,11 +15,6 @@ pub(super) fn resolve_source_plan(from: &str, plan_id: &str) -> Result<String, S
 }
 
 fn source_plan_candidates(root: &Path, plan_id: &str) -> Vec<PathBuf> {
-    let stem = if plan_id == "inbox" {
-        "_inbox"
-    } else {
-        plan_id
-    };
     let plans_root = if root.ends_with(".domios/plans") || root.ends_with("plans") {
         root.to_path_buf()
     } else if root.join(".domios").join("plans").is_dir() {
@@ -31,7 +26,7 @@ fn source_plan_candidates(root: &Path, plan_id: &str) -> Vec<PathBuf> {
     };
     ["active", "archive"]
         .into_iter()
-        .map(|bucket| plans_root.join(bucket).join(stem))
+        .map(|bucket| plans_root.join(bucket).join(plan_id))
         .collect()
 }
 
@@ -61,6 +56,13 @@ pub(super) fn render_adopt_report(value: &Value) -> String {
 }
 
 pub(super) fn render_plan_search(value: &Value) -> String {
+    if !crate::cmd::output::verbose() {
+        return crate::cmd::output::compact_list(value, None);
+    }
+    render_plan_search_verbose(value)
+}
+
+fn render_plan_search_verbose(value: &Value) -> String {
     let hits = value
         .get("hits")
         .and_then(|v| v.as_array())

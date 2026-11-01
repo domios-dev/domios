@@ -11,11 +11,11 @@ afterEach(closeScenario);
 describe("paid subscription in grace", () => {
   it("stays unlimited and shows its status", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.grace, { workspaces: 2, teams: 6, tabs: 35 });
-    expect(scenario.tray).toBe("Pro · past_due");
+    expect(scenario.tray?.tier).toBe("pro");
     await scenario.createWorkspace("/new/third");
     await scenario.createTab();
     await scenario.createPair();
-    expect(scenario.modalLine()).toBeNull();
+    expect(scenario.modalPrompt()).toBeNull();
     expect(scenario.daemon.counts()).toEqual({ workspaces: 3, teams: 7, "agent.tabs": 38 });
   });
 });

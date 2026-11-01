@@ -26,6 +26,13 @@ pub struct ChatSessionInfo {
     pub model: Option<String>,
 }
 
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatBackendCloseReceipt {
+    pub session_id: String,
+    pub process_exited: bool,
+}
+
 /// One user entry plus everything the assistant produced in response to it, in
 /// source order. The window's atomic unit: a tool call and its result are never
 /// individually addressable, so a boundary cannot split the pair.
@@ -182,6 +189,18 @@ pub trait ChatBackendProvider: Send + Sync {
     /// Tear down a session. Best-effort; called on tab close.
     fn close_session(&self, session_id: &str) -> Result<(), ChatBackendError>;
 
+    /// Success acknowledges that the adapter closed this session and its owned processes exited.
+    fn close_session_confirmed(
+        &self,
+        session_id: &str,
+        deadline: std::time::Instant,
+    ) -> Result<(), ChatBackendError> {
+        let _ = (session_id, deadline);
+        Err(ChatBackendError::Call(
+            "confirmed session close is unsupported".into(),
+        ))
+    }
+
     /// Models this backend offers, for the tab's model picker.
     fn list_models(&self) -> Result<Vec<ModelInfo>, ChatBackendError>;
 
@@ -239,6 +258,8 @@ pub trait ChatBackendProvider: Send + Sync {
             agent_runtime: self.agent_runtime(),
             cli_login: None,
             supports_session_fork: false,
+            supports_initial_prompt_update_on_resume: false,
+            neighbor_concierge: Default::default(),
             schema_version: PROVIDER_DESCRIPTOR_SCHEMA_VERSION,
             cli_status: None,
             id: self.id().to_string(),
@@ -272,7 +293,6 @@ pub trait ChatBackendProvider: Send + Sync {
             supports_chat_ui: true,
             supports_structured_prompts: false,
             supports_prompt_answers: false,
-            structured_control: None,
             supports_permission_auto_confirm: false,
             supports_watcher: self.watcher_capable(),
             paste_limit_bytes: None,

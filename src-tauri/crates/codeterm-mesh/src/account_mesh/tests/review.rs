@@ -1,10 +1,5 @@
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-
-use super::support::*;
-use crate::account_mesh::link::{adopt_peer_with, link_installation_with, LinkTransport};
+use super::*;
 use crate::account_mesh::protocol::{LINK_COMMIT_PATH, LINK_CONFIRM_PATH};
-use crate::account_mesh::{AdmissionRefusal, BoxFuture};
 
 fn linked_pair() -> (Machine, Machine) {
     let clock = clock();
@@ -13,43 +8,6 @@ fn linked_pair() -> (Machine, Machine) {
     a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
     (a, b)
-}
-
-#[tokio::test]
-async fn account_mesh_unpaired_peer_cannot_relink_itself_from_the_other_side() {
-    let (a, b) = linked_pair();
-    let transport = Loopback::new(&[&a, &b]);
-    link_installation_with(&a.mesh, &transport, &b.installation_id)
-        .await
-        .unwrap();
-    b.mesh.lock().unpair(&a.id()).unwrap();
-
-    let entered = Arc::new(tokio::sync::Notify::new());
-    let held = Loopback::new(&[&a, &b]).hold_approval(entered.clone());
-    let mesh = a.mesh.clone();
-    let installation = b.installation_id.clone();
-    let retry =
-        tokio::spawn(async move { link_installation_with(&mesh, &held, &installation).await });
-    entered.notified().await;
-    assert!(
-        b.mesh.lock().is_revoked(&a.id()),
-        "request alone cannot lift removal"
-    );
-    assert!(!b.mesh.lock().paired_peers.contains_key(&a.id()));
-    let id = b.mesh.lock().link_requests()[0].request_id.clone();
-    b.mesh.lock().decide_link(&id, false).unwrap();
-    assert_eq!(
-        retry.await.unwrap().unwrap_err(),
-        AdmissionRefusal::Declined
-    );
-    b.mesh.lock().clear_link_request(&id);
-
-    link_installation_with(&b.mesh, &transport, &a.installation_id)
-        .await
-        .expect("a local Add on the removing machine may link again");
-    let manager = b.mesh.lock();
-    assert!(!manager.is_revoked(&a.id()));
-    assert!(manager.traffic_open(&a.id()));
 }
 
 #[tokio::test]
@@ -77,8 +35,8 @@ async fn account_mesh_lost_confirm_reply_leaves_no_pair_on_the_responder() {
     assert!(b.mesh.lock().traffic_open(&a.id()));
     assert_eq!(
         transport.posts.load(Ordering::SeqCst),
-        4,
-        "hello, approval, confirm, commit"
+        3,
+        "hello, confirm, commit"
     );
 }
 
@@ -99,89 +57,6 @@ async fn account_mesh_lost_commit_reply_is_repaired_by_the_next_add() {
     assert_eq!(b.mesh.lock().paired_peers.len(), 1);
 }
 
-struct HeldCommitReply {
-    inner: Loopback,
-    entered: Arc<tokio::sync::Notify>,
-    release: Arc<tokio::sync::Notify>,
-}
-
-impl LinkTransport for HeldCommitReply {
-    fn post(
-        &self,
-        ip: &str,
-        port: u16,
-        path: &'static str,
-        bearer: Option<String>,
-        body: serde_json::Value,
-    ) -> BoxFuture<'_, Result<serde_json::Value, AdmissionRefusal>> {
-        let inner = &self.inner;
-        let ip = ip.to_string();
-        let entered = self.entered.clone();
-        let release = self.release.clone();
-        Box::pin(async move {
-            let result = inner.post(&ip, port, path, bearer, body).await;
-            if path == LINK_COMMIT_PATH {
-                entered.notify_one();
-                release.notified().await;
-            }
-            result
-        })
-    }
-}
-
-#[tokio::test]
-async fn account_mesh_add_started_before_unpair_cannot_clear_its_removal() {
-    let (a, b) = linked_pair();
-    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
-    let entered = Arc::new(tokio::sync::Notify::new());
-    let release = Arc::new(tokio::sync::Notify::new());
-    let transport = HeldCommitReply {
-        inner: Loopback::new(&[&a, &b]),
-        entered: entered.clone(),
-        release: release.clone(),
-    };
-    let mesh = a.mesh.clone();
-    let installation_id = b.installation_id.clone();
-    let add =
-        tokio::spawn(
-            async move { link_installation_with(&mesh, &transport, &installation_id).await },
-        );
-
-    entered.notified().await;
-    assert!(a.mesh.lock().unpair(&b.id()).unwrap().is_some());
-    release.notify_one();
-
-    assert_eq!(add.await.unwrap().unwrap_err(), AdmissionRefusal::Cancelled);
-    let manager = a.mesh.lock();
-    assert!(manager.is_revoked(&b.id()));
-    assert!(!manager.paired_peers.contains_key(&b.id()));
-}
-
-#[tokio::test]
-async fn account_mesh_refused_adoption_is_not_offered_again_until_the_peer_changes() {
-    let clock = clock();
-    let (a, b) = (machine(1, &clock), machine(2, &clock));
-    a.mesh.lock().insert_legacy_pair_for_test(b.as_peer());
-    b.mesh.lock().insert_legacy_pair_for_test(a.as_peer());
-    a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
-    let transport = Loopback::new(&[&a, &b]);
-
-    assert!(adopt_peer_with(&a.mesh, &transport, &b.id()).await.is_err());
-    assert_eq!(transport.posts.load(Ordering::SeqCst), 1);
-    adopt_peer_with(&a.mesh, &transport, &b.id()).await.unwrap();
-    assert_eq!(
-        transport.posts.load(Ordering::SeqCst),
-        1,
-        "a refusing peer is not offered again on the next trigger"
-    );
-
-    a.mesh
-        .lock()
-        .note_advertised_membership(&b.id(), "renewed-membership");
-    let _ = adopt_peer_with(&a.mesh, &transport, &b.id()).await;
-    assert_eq!(transport.posts.load(Ordering::SeqCst), 2);
-}
-
 #[test]
 fn account_mesh_membership_tolerates_issuer_skew_but_never_extends_expiry() {
     use crate::account_mesh::NOT_BEFORE_SKEW_SECONDS;
@@ -196,4 +71,82 @@ fn account_mesh_membership_tolerates_issuer_skew_but_never_extends_expiry() {
     assert!(!issued_ahead.is_current(START));
     issued_ahead.issued_at = 0;
     assert!(!issued_ahead.is_current(START + 600), "no grace at expiry");
+}
+
+#[tokio::test]
+async fn account_mesh_registry_revocation_closes_an_open_account_stream() {
+    let (a, b) = linked_pair();
+    let transport = Loopback::new(&[&a, &b]);
+    link_installation_with(&a.mesh, &transport, &b.installation_id)
+        .await
+        .unwrap();
+    assert!(a.mesh.lock().traffic_open(&b.id()));
+    let blocked = crate::account_mesh::wait_until_blocked(a.mesh.clone(), b.id());
+    tokio::pin!(blocked);
+    std::future::poll_fn(|cx| {
+        assert!(std::future::Future::poll(blocked.as_mut(), cx).is_pending());
+        std::task::Poll::Ready(())
+    })
+    .await;
+    let mut state = a.mesh.lock().account_state().clone();
+    state
+        .revoked_installations
+        .insert(b.installation_id.clone());
+    a.mesh.lock().apply_account_state(state);
+    blocked.await;
+    assert!(!a.mesh.lock().traffic_open(&b.id()));
+    assert!(matches!(
+        a.mesh.lock().link_record(&b.id()).unwrap().admission,
+        crate::account_mesh::ledger::LinkAdmission::Account { .. }
+    ));
+}
+
+#[tokio::test]
+async fn account_mesh_signed_out_peer_is_unavailable_and_returns_on_the_same_account_edge() {
+    use crate::account_mesh::{
+        gate::{BlockReason, TrafficDecision},
+        AccountMeshAuthority,
+    };
+    let (a, b) = linked_pair();
+    let transport = Loopback::new(&[&a, &b]);
+    link_installation_with(&a.mesh, &transport, &b.installation_id)
+        .await
+        .unwrap();
+    let original = serde_json::to_value(a.mesh.lock().link_record(&b.id()).unwrap()).unwrap();
+    let token = a
+        .mesh
+        .lock()
+        .link_record(&b.id())
+        .unwrap()
+        .remote_membership
+        .as_ref()
+        .unwrap()
+        .token
+        .clone();
+    let mut state = a.mesh.lock().account_state().clone();
+    state
+        .unavailable_installations
+        .insert(b.installation_id.clone());
+    a.mesh.lock().apply_account_state(state.clone());
+    assert_eq!(
+        a.mesh.lock().traffic_decision(&b.id()),
+        TrafficDecision::Blocked(BlockReason::PeerUnavailable)
+    );
+    assert!(a.authority.verify_membership(&token, START).is_ok());
+    assert!(a
+        .mesh
+        .lock()
+        .account_state()
+        .revoked_installations
+        .is_empty());
+    assert!(!a.mesh.lock().account_mesh_pairs()[0].online);
+    state.unavailable_installations.clear();
+    a.mesh.lock().apply_account_state(state);
+    assert!(a.mesh.lock().traffic_open(&b.id()));
+    assert_eq!(
+        serde_json::to_value(a.mesh.lock().link_record(&b.id()).unwrap()).unwrap(),
+        original
+    );
+    assert_eq!(a.mesh.lock().paired_peers.len(), 1);
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
 }

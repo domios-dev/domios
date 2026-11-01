@@ -24,7 +24,7 @@ fn missing_rollout_replaces_only_a_proven_unused_thread_without_sending_input() 
         let session = for_tab(&tab).unwrap();
         crate::async_runtime::block_on(async {
             if never_used {
-                mark_unused(&fixture.service, &session, "own-thread").unwrap();
+                bind(&fixture.service, &session, "own-thread", true).unwrap();
             } else if evidence == "used" {
                 fixture
                     .service
@@ -90,7 +90,7 @@ fn missing_rollout_replaces_only_a_proven_unused_thread_without_sending_input() 
                     None
                 );
                 session.context.lock().thread_id = Some("replacement-thread".into());
-                bind(&fixture.service, &session, "replacement-thread").unwrap();
+                bind(&fixture.service, &session, "replacement-thread", true).unwrap();
                 let epoch = session.context.lock().epoch;
                 assert!(session.state.lock().load(epoch, "replacement-thread"));
                 validate_binding(&fixture.service, &session).unwrap();
@@ -120,7 +120,7 @@ fn missing_rollout_replaces_only_a_proven_unused_thread_without_sending_input() 
 fn first_turn_durably_removes_unused_evidence_before_any_provider_write() {
     let (fixture, tab, _peer, _cleanup) = runtime_fixture_with(PROVIDER);
     let session = for_tab(&tab).unwrap();
-    mark_unused(&fixture.service, &session, "own-thread").unwrap();
+    bind(&fixture.service, &session, "own-thread", true).unwrap();
     let storage = fixture.install_seeded_storage_desk();
     let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage);
     crate::async_runtime::block_on(before_turn(&fixture.service, &session)).unwrap();

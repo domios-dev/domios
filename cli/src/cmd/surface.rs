@@ -15,9 +15,7 @@ pub fn handle_surface(json: bool, action: SurfaceAction) {
     let http = crate::build_local_api().unwrap_or_else(|error| {
         crate::cmd::print::fail(1, format!("failed to connect to local API: {error}"));
     });
-    let caller = std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|value| !value.trim().is_empty());
+    let caller = crate::nonempty_env("CODETERM_TAB_ID");
     let outcome = match &action {
         SurfaceAction::Open {
             target,
@@ -41,7 +39,12 @@ pub fn handle_surface(json: bool, action: SurfaceAction) {
         ),
     };
     match outcome {
-        Outcome::Ok(value) if json => println!("{value}"),
+        Outcome::Ok(value) if json => crate::cmd::print::print_json(&value),
+        Outcome::Ok(value)
+            if matches!(action, SurfaceAction::List) && !crate::cmd::output::verbose() =>
+        {
+            print!("{}", crate::cmd::output::compact_list(&value, None));
+        }
         Outcome::Ok(value) => {
             for line in human_lines(&action, &value) {
                 println!("{line}");

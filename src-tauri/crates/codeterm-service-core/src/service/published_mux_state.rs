@@ -30,15 +30,31 @@ impl Snapshot {
     }
 }
 
-pub(super) struct PublishedMuxState {
+pub(crate) struct PublishedMuxState {
     current: ArcSwap<Snapshot>,
 }
 
 impl PublishedMuxState {
-    pub(super) fn new(generation: u64, value: &impl Serialize) -> Result<Self, serde_json::Error> {
+    pub(crate) fn new(generation: u64, value: &impl Serialize) -> Result<Self, serde_json::Error> {
         Ok(Self {
             current: ArcSwap::from_pointee(Snapshot::new(generation, value)?),
         })
+    }
+
+    pub(crate) fn publish_startup(
+        &self,
+        generation: u64,
+        value: &impl Serialize,
+    ) -> Result<(), serde_json::Error> {
+        let next = Arc::new(Snapshot::new(generation, value)?);
+        let _ = self.current.rcu(|current| {
+            if generation > current.latest {
+                next.clone()
+            } else {
+                current.clone()
+            }
+        });
+        Ok(())
     }
 
     pub(super) fn read(&self) -> Bytes {
@@ -49,7 +65,7 @@ impl PublishedMuxState {
         self.current.load().value.as_ref().clone()
     }
 
-    pub(super) fn read_versioned(&self) -> (u64, Bytes) {
+    pub(crate) fn read_versioned(&self) -> (u64, Bytes) {
         let snapshot = self.current.load();
         (snapshot.generation, snapshot.json.clone())
     }

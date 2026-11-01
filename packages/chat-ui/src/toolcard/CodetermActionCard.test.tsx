@@ -77,8 +77,8 @@ if (!failedSendHost.host.querySelector('[role="alert"]') || !failedSendHost.host
 const resolvedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "$VAR"'), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"' }} expanded onToggle={() => {}} />);
 if (!resolvedSendHost.host.textContent.includes("expanded REDACTED text")) throw new Error("resolved send must render redacted text");
 if (resolvedSendHost.host.textContent.includes("expanded-secret")) throw new Error("resolved send must not reveal secret text");
-const rawCommandDetails = resolvedSendHost.host.querySelector<HTMLDetailsElement>('[data-testid="raw-command-disclosure"]');
-if (!rawCommandDetails || rawCommandDetails.open) throw new Error("send command details must stay collapsed when the card expands");
+const rawCommandDetails = resolvedSendHost.host.querySelector('[data-testid="raw-command-disclosure"] button');
+if (rawCommandDetails) throw new Error("send technical details must be available only from the card menu");
 if (resolvedSendHost.host.querySelector('[data-testid="message-raw-content"]')) throw new Error("formatted card must hide the raw invocation");
 const typedSendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "$VAR"')} expanded onToggle={() => {}} />);
 if (!typedSendHost.host.textContent?.includes("$VAR")) throw new Error("typed message body must render in the formatted card");
@@ -92,9 +92,8 @@ if (!mdSendHost.host.querySelector("h1") && !mdSendHost.host.querySelector("ul")
 const longResolvedBody = Array.from({ length: 12 }, (_, index) => `line ${index}`).join("\\n");
 const persistentExpansionHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "long"'), result: `OK (sent)\nCODETERM_RESOLVED_TEXT="${longResolvedBody}"` }} expanded onToggle={() => {}} />);
 const expandMessage = Array.from(persistentExpansionHost.host.querySelectorAll("button")).find((button) => button.textContent?.includes("more lines")) as HTMLButtonElement | undefined;
-if (!expandMessage) throw new Error("long formatted send must retain the existing collapse affordance");
-await act(async () => expandMessage.click());
-if (!persistentExpansionHost.host.textContent?.includes("line 11")) throw new Error("long formatted send did not expand");
+if (expandMessage) throw new Error("nested line counter must not compete with card expansion");
+if (!persistentExpansionHost.host.textContent?.includes("line 11")) throw new Error("card must receive the complete message body");
 const sendHelpHost = await render(<CodetermActionCard event={event("codeterm send --help")} expanded={false} onToggle={() => {}} />);
 if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textContent?.includes("send") || sendHelpHost.host.textContent?.includes("current tab")) throw new Error("send help must not look like an outgoing message");
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);
@@ -196,7 +195,7 @@ if (!tabOutputHost.host.textContent?.includes("tab get-text") || !tabOutputHost.
 if (!tabOutputHost.host.querySelector(".lucide-scroll-text") || tabOutputHost.host.querySelector(".lucide-terminal")) throw new Error("tab get-text icon must differ from shell command");
 const wrappedTabList = await render(<CodetermActionCard event={{
   ...event("codeterm tab list"),
-  result: `Exit code: 0\nOutput:\n${JSON.stringify([{ id: "one" }, { id: "two" }, { id: "three" }], null, 2)}`,
+  result: `Exit code: 0\nOutput:\n${JSON.stringify({ result: [{ id: "one" }, { id: "two" }, { id: "three" }] }, null, 2)}`,
 }} expanded={false} onToggle={() => {}} />);
 if (!wrappedTabList.host.textContent?.includes("3 tabs") || wrappedTabList.host.textContent.includes("11 tabs")) throw new Error("wrapped tab list must count JSON entries instead of output lines");
 const compactTabList = await render(<CodetermActionCard event={{
@@ -207,10 +206,10 @@ if (!compactTabList.host.querySelector('[data-testid="tab-list-compact"]') || co
 if (!compactTabList.host.textContent?.includes("Adele") || !compactTabList.host.textContent.includes("Working")) throw new Error("compact tab list labels regression");
 const jsonTabList = await render(<CodetermActionCard event={{
   ...event("codeterm tab list --json"),
-  result: '{"tabs":[{"id":"aaaa1111","title":"Adele"},{"id":"bbbb2222","title":"Scout"}]}',
+  result: '{"result":[{"id":"aaaa1111","title":"Adele"},{"id":"bbbb2222","title":"Scout"}]}',
 }} expanded onToggle={() => {}} />);
 if (!jsonTabList.host.querySelector('[data-testid="tab-list-json"]') || jsonTabList.host.querySelector('[data-testid="tab-list-compact"]') || !jsonTabList.host.textContent?.includes("JSON inspection")) throw new Error("tab list JSON must remain full inspection output");
-if (!jsonTabList.host.textContent?.includes("2 tabs")) throw new Error("tab list --json count must read the tabs key of the shipped envelope");
+if (!jsonTabList.host.textContent?.includes("2 tabs")) throw new Error("tab list --json count must read the result key of the shipped envelope");
 const meshTabs = await render(<CodetermActionCard event={event("codeterm mesh tabs peer-a")} expanded onToggle={() => {}} />);
 if (meshTabs.host.querySelector('[data-testid="tab-list-compact"]')) throw new Error("mesh tabs must not use the local tab list renderer");
 

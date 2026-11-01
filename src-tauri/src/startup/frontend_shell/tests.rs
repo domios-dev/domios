@@ -1,6 +1,85 @@
 use super::*;
 
 #[test]
+fn starting_and_main_webviews_share_browser_options_for_the_same_profile() {
+    let configured =
+        "--disable-features=opaque-feature --remote-debugging-port=9441 --opaque-option=value";
+    let config: tauri::utils::config::Config = serde_json::from_value(serde_json::json!({
+        "identifier":"opaque.app",
+        "app":{"windows":[{"label":"main","additionalBrowserArgs":configured}]}
+    }))
+    .unwrap();
+    let mode = crate::LocalWebviewDiagnosticsMode::RequestedPort(9441);
+    let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+        PortPreflight::evaluate(true, true, || Ok(()))
+    });
+    let mut starting = initial_document::starting_window_config(&config).unwrap();
+    let mut main = initial_document::window_config(&config).unwrap();
+    for window in [&mut starting, &mut main] {
+        window.additional_browser_args =
+            window_browser_arguments(window.additional_browser_args.as_deref(), mode, &startup)
+                .unwrap();
+    }
+    assert_eq!(starting.label, "starting");
+    assert_eq!(main.label, "main");
+    assert_eq!(
+        starting.additional_browser_args,
+        main.additional_browser_args
+    );
+    assert_eq!(
+        main.additional_browser_args.unwrap(),
+        format!("{configured} --remote-debugging-address=127.0.0.1 --remote-debugging-port=9441")
+    );
+}
+
+#[test]
+fn browser_options_preserve_disabled_unavailable_and_unrequested_diagnostics() {
+    let configured = "--opaque-option=value";
+    let disabled =
+        StartupDiagnosticsPreflight::capture(crate::LocalWebviewDiagnosticsMode::Disabled, |_| {
+            panic!("unexpected probe")
+        });
+    assert_eq!(
+        window_browser_arguments(
+            Some(configured),
+            crate::LocalWebviewDiagnosticsMode::Disabled,
+            &disabled
+        ),
+        Ok(Some(configured.into()))
+    );
+    assert_eq!(
+        window_browser_arguments(
+            None,
+            crate::LocalWebviewDiagnosticsMode::Disabled,
+            &disabled
+        ),
+        Ok(None)
+    );
+    let mode = crate::LocalWebviewDiagnosticsMode::RequestedPort(9441);
+    for (debug, windows) in [(false, true), (true, false), (true, true)] {
+        let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+            PortPreflight::evaluate(debug, windows, || {
+                Err(std::io::Error::from(std::io::ErrorKind::AddrInUse))
+            })
+        });
+        assert_eq!(
+            window_browser_arguments(Some(configured), mode, &startup),
+            Ok(Some(configured.into()))
+        );
+    }
+    assert!(window_browser_arguments(Some(configured), mode, &disabled).is_err());
+    let startup = StartupDiagnosticsPreflight::capture(mode, |_| {
+        PortPreflight::evaluate(true, true, || Ok(()))
+    });
+    assert!(window_browser_arguments(
+        Some(configured),
+        crate::LocalWebviewDiagnosticsMode::RequestedPort(9442),
+        &startup
+    )
+    .is_err());
+}
+
+#[test]
 fn frontend_shell_contract_reopen_wakes_the_existing_supervisor_without_listener_restart() {
     let app = tauri::test::mock_builder()
         .build(tauri::test::mock_context(tauri::test::noop_assets()))
@@ -29,23 +108,26 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
     let origin = "http://127.0.0.1:7686";
     let unavailable = unavailable_url().unwrap();
     let fallback = fallback_url().unwrap();
-    assert_eq!(external_link(&unavailable, Some(origin)), None);
-    assert_eq!(external_link(&fallback, Some(origin)), None);
+    assert_eq!(external_link(&unavailable, Some(origin), None), None);
+    assert_eq!(external_link(&fallback, Some(origin), None), None);
     assert!(navigation_allowed(
         &unavailable,
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
     assert!(navigation_allowed(
         &fallback,
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
     assert!(navigation_allowed(
         &Url::parse(&format!("{origin}/bundled/index.html")).unwrap(),
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
@@ -58,6 +140,7 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
         assert!(!navigation_allowed(
             &Url::parse(target).unwrap(),
             Some(origin),
+            None,
             &unavailable,
             &fallback
         ));
@@ -70,6 +153,71 @@ fn frontend_shell_contract_confines_navigation_and_remote_capabilities() {
         serde_json::json!(["http://127.0.0.1:7686/*"])
     );
     assert_eq!(capability["windows"], serde_json::json!(["main"]));
+}
+
+#[test]
+#[cfg(debug_assertions)]
+fn frontend_shell_contract_native_commands_require_attached_origin_and_main_window() {
+    use std::collections::BTreeMap;
+    use tauri::ipc::{Origin, RuntimeAuthority};
+    use tauri::utils::acl::{capability::Capability, manifest::Manifest, resolved::Resolved};
+
+    let manifests: BTreeMap<String, Manifest> =
+        serde_json::from_str(include_str!("../../../gen/schemas/acl-manifests.json")).unwrap();
+    let origin = "http://127.0.0.1:17891";
+    let capability: Capability = serde_json::from_str(&daemon_capability(origin).unwrap()).unwrap();
+    let resolved = Resolved::resolve(
+        &manifests,
+        BTreeMap::from([(capability.identifier.clone(), capability)]),
+        tauri::utils::platform::Target::current(),
+    )
+    .unwrap();
+    let authority = RuntimeAuthority::new(manifests, resolved);
+    for command in [
+        "frontend_view_root_ready",
+        "native_webview_diagnostics_snapshot",
+        "check_for_update",
+        "install_app_update",
+        "get_update_status",
+    ] {
+        let attached = Origin::Remote {
+            url: Url::parse(origin).unwrap(),
+        };
+        assert!(
+            authority
+                .resolve_access(command, "main", "main", &attached)
+                .is_some(),
+            "{command}"
+        );
+        assert!(authority
+            .resolve_access(command, "starting", "starting", &attached)
+            .is_none());
+        assert!(authority
+            .resolve_access(command, "main", "main", &Origin::Local)
+            .is_none());
+        for foreign in ["http://127.0.0.1:7685", "https://foreign.example"] {
+            assert!(authority
+                .resolve_access(
+                    command,
+                    "main",
+                    "main",
+                    &Origin::Remote {
+                        url: Url::parse(foreign).unwrap()
+                    }
+                )
+                .is_none());
+        }
+    }
+    assert!(authority
+        .resolve_access(
+            "undeclared_native_command",
+            "main",
+            "main",
+            &Origin::Remote {
+                url: Url::parse(origin).unwrap()
+            }
+        )
+        .is_none());
 }
 
 #[test]
@@ -93,6 +241,7 @@ fn frontend_shell_contract_binds_root_acknowledgement_to_document_generation() {
     assert!(navigation_allowed(
         &prepared,
         Some("http://127.0.0.1:7686"),
+        None,
         &unavailable_url().unwrap(),
         &fallback_url().unwrap()
     ));
@@ -178,6 +327,7 @@ fn start_failure_page_carries_its_reason_without_changing_the_permitted_document
     assert!(navigation_allowed(
         &failed,
         Some(origin),
+        None,
         &unavailable,
         &fallback
     ));
@@ -236,12 +386,318 @@ fn external_link_decision_table() {
     ] {
         let url = Url::parse(target).unwrap();
         assert_eq!(
-            external_link(&url, origin).as_ref().map(Url::as_str),
+            external_link(&url, origin, None).as_ref().map(Url::as_str),
             expected,
             "{target}"
         );
     }
     let external = Url::parse("https://example.com/").unwrap();
-    assert_eq!(external_link(&external, None), Some(external.clone()));
-    assert_eq!(external_link(&external, Some("https://example.com")), None);
+    assert_eq!(external_link(&external, None, None), Some(external.clone()));
+    assert_eq!(
+        external_link(&external, Some("https://example.com"), None),
+        None
+    );
+}
+
+#[test]
+fn frontend_shell_contract_own_api_navigation_never_opens_externally() {
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    for api in ["http://127.0.0.1:7685", "http://127.0.0.1:17901/"] {
+        for captured in [
+            None,
+            Some("http://127.0.0.1:1420/"),
+            Some("http://localhost:7686"),
+        ] {
+            for path in ["/", "/bundled/index.html"] {
+                let url = Url::parse(api).unwrap().join(path).unwrap();
+                let prepared = with_root_generation(
+                    &url,
+                    ClientViewGeneration {
+                        view: 2,
+                        navigation: 7,
+                    },
+                );
+                for target in [&url, &prepared, &fallback] {
+                    assert!(navigation_allowed(
+                        target,
+                        captured,
+                        Some(api),
+                        &unavailable,
+                        &fallback,
+                    ));
+                    assert_eq!(external_link(target, captured, Some(api)), None);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn frontend_shell_contract_canonicalizes_frontend_and_loopback_api_origins() {
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    for (target, frontend, api) in [
+        (
+            "http://127.0.0.1:7685/",
+            None,
+            Some("HTTP://127.0.0.1:7685/bundled/index.html"),
+        ),
+        (
+            "http://localhost:7685/",
+            None,
+            Some("HTTP://LOCALHOST:7685/"),
+        ),
+        ("http://[::1]:7685/", None, Some("http://[::1]:7685/")),
+        ("http://127.0.0.1/", None, Some("http://127.0.0.1:80/")),
+        (
+            "http://127.0.0.1:1420/",
+            Some("HTTP://127.0.0.1:1420/index.html"),
+            None,
+        ),
+    ] {
+        let target = Url::parse(target).unwrap();
+        assert!(navigation_allowed(
+            &target,
+            frontend,
+            api,
+            &unavailable,
+            &fallback
+        ));
+        assert_eq!(external_link(&target, frontend, api), None);
+    }
+}
+
+#[test]
+fn frontend_shell_contract_keeps_genuine_external_links_and_rejects_credentials() {
+    let api = Some("http://127.0.0.1:7685");
+    let unavailable = unavailable_url().unwrap();
+    let fallback = fallback_url().unwrap();
+    for raw in [
+        "https://example.com/path?query=fixture#fragment",
+        "mailto:owner@example.com",
+        "http://127.0.0.1:4180/",
+        "http://127.0.0.2:7685/",
+        "http://127.23.45.67:7685/",
+        "http://localhost:7685/",
+        "http://[::1]:7685/",
+        "https://localhost:7685/",
+        "http://localhost.example:7685/",
+    ] {
+        let target = Url::parse(raw).unwrap();
+        assert!(!navigation_allowed(
+            &target,
+            None,
+            api,
+            &unavailable,
+            &fallback
+        ));
+        assert_eq!(external_link(&target, None, api), Some(target));
+    }
+    for raw in [
+        "http://user@localhost:7685/",
+        "http://user:pass@127.0.0.1:7685/",
+    ] {
+        let target = Url::parse(raw).unwrap();
+        assert!(!navigation_allowed(
+            &target,
+            None,
+            api,
+            &unavailable,
+            &fallback
+        ));
+        assert_eq!(external_link(&target, None, api), None);
+    }
+}
+
+#[test]
+fn frontend_shell_contract_first_navigation_waits_for_starting_document_completion() {
+    use tauri::webview::PageLoadEvent::{Finished, Started};
+    let starting = starting_url().unwrap();
+    assert!(!starting_document_finished(Started, &starting));
+    assert!(starting_document_finished(Finished, &starting));
+    for other in [
+        unavailable_url().unwrap(),
+        fallback_url().unwrap(),
+        start_failure_url(None).unwrap(),
+    ] {
+        assert!(!starting_document_finished(Finished, &other));
+    }
+}
+
+#[test]
+fn stale_initial_document_event_cannot_retire_a_newer_root_render() {
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    initialize(app.handle()).unwrap();
+    let window = WebviewWindowBuilder::new(
+        app.handle(),
+        "stale-main",
+        WebviewUrl::External(starting_url().unwrap()),
+    )
+    .build()
+    .unwrap();
+    let supervisor = app.state::<ShellSupervisor>();
+    supervisor
+        .active_view_generation
+        .store(2, Ordering::Release);
+    let generation = ClientViewGeneration {
+        view: 2,
+        navigation: 3,
+    };
+    let origin = "http://127.0.0.1:17686";
+    supervisor.root_render.arm(generation, origin.into());
+    observe_navigation(
+        window,
+        starting_url().unwrap(),
+        1,
+        None,
+        &unavailable_url().unwrap(),
+        &fallback_url().unwrap(),
+    );
+    assert!(supervisor.root_render.is_armed(generation, origin));
+}
+
+#[test]
+fn completed_root_acknowledgement_cannot_reveal_a_newer_navigation_or_view() {
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    initialize(app.handle()).unwrap();
+    let supervisor = app.state::<ShellSupervisor>();
+    supervisor
+        .active_view_generation
+        .store(2, Ordering::Release);
+    supervisor.navigation.store(4, Ordering::Release);
+    assert!(!active_root_matches(
+        app.handle(),
+        ClientViewGeneration {
+            view: 2,
+            navigation: 3
+        }
+    ));
+    assert!(active_root_matches(
+        app.handle(),
+        ClientViewGeneration {
+            view: 2,
+            navigation: 4
+        }
+    ));
+    supervisor
+        .active_view_generation
+        .store(3, Ordering::Release);
+    assert!(!active_root_matches(
+        app.handle(),
+        ClientViewGeneration {
+            view: 2,
+            navigation: 4
+        }
+    ));
+}
+
+#[test]
+fn startup_diagnostics_binds_once_before_starting_view_and_reuses_outcome() {
+    use crate::host_ports::webview_diagnostics::initial_status;
+    use codeterm_types::native_host::{
+        NativeWebviewDiagnosticsStatus, NativeWebviewDiagnosticsUnavailableReason,
+    };
+    use std::cell::Cell;
+
+    for kind in [
+        None,
+        Some(std::io::ErrorKind::AddrInUse),
+        Some(std::io::ErrorKind::PermissionDenied),
+    ] {
+        let binds = Cell::new(0);
+        let starting_created = Cell::new(false);
+        let startup = StartupDiagnosticsPreflight::capture(
+            crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+            |port| {
+                assert_eq!(port, 9417);
+                assert!(!starting_created.get());
+                PortPreflight::evaluate(true, true, || {
+                    assert_eq!(binds.replace(binds.get() + 1), 0, "second bind");
+                    match kind {
+                        None => Ok(()),
+                        Some(kind) => Err(kind.into()),
+                    }
+                })
+            },
+        );
+        starting_created.set(true);
+        let starting_decision = startup.for_port(9417).unwrap();
+        let expected_reason = match kind {
+            None => NativeWebviewDiagnosticsUnavailableReason::EndpointNotAttributed,
+            Some(std::io::ErrorKind::AddrInUse) => {
+                NativeWebviewDiagnosticsUnavailableReason::PortOccupied
+            }
+            Some(_) => NativeWebviewDiagnosticsUnavailableReason::WebviewInitializationFailed,
+        };
+        for _view in ["main", "recovery", "reopen"] {
+            let preflight = startup.for_port(9417).unwrap();
+            assert_eq!(preflight, starting_decision);
+            assert_eq!(preflight.available(), kind.is_none());
+            assert_eq!(
+                initial_status(Some(9417), preflight),
+                NativeWebviewDiagnosticsStatus::Unavailable {
+                    reason: expected_reason,
+                }
+            );
+        }
+        assert_eq!(binds.get(), 1);
+    }
+}
+
+#[test]
+fn startup_diagnostics_missing_or_mismatched_port_refuses_without_probe() {
+    let absent =
+        StartupDiagnosticsPreflight::capture(crate::LocalWebviewDiagnosticsMode::Disabled, |_| {
+            panic!("disabled diagnostics probed")
+        });
+    assert_eq!(
+        absent.for_port(9417),
+        Err("Native diagnostics startup preflight is missing")
+    );
+    let requested = StartupDiagnosticsPreflight::capture(
+        crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+        |_| PortPreflight::evaluate(true, true, || Ok(())),
+    );
+    assert_eq!(
+        requested.for_port(9418),
+        Err("Native diagnostics port does not match startup preflight")
+    );
+    assert!(requested.for_port(9417).unwrap().available());
+}
+
+#[test]
+fn shell_initialization_captures_diagnostics_before_any_view_and_refuses_recapture() {
+    use std::cell::Cell;
+    let app = tauri::test::mock_builder()
+        .build(tauri::test::mock_context(tauri::test::noop_assets()))
+        .unwrap();
+    crate::install_client_startup_options(
+        app.handle(),
+        crate::ClientStartupOptions {
+            local_webview_diagnostics: crate::LocalWebviewDiagnosticsMode::RequestedPort(9417),
+        },
+    )
+    .unwrap();
+    let evaluations = Cell::new(0);
+    initialize_with_preflight(app.handle(), |port| {
+        assert_eq!(port, 9417);
+        assert!(app.webview_windows().is_empty());
+        evaluations.set(evaluations.get() + 1);
+        PortPreflight::evaluate(true, true, || Ok(()))
+    })
+    .unwrap();
+    assert_eq!(evaluations.get(), 1);
+    let supervisor = app.state::<ShellSupervisor>();
+    assert!(supervisor
+        .diagnostics_preflight
+        .for_port(9417)
+        .unwrap()
+        .available());
+    assert!(initialize_with_preflight(app.handle(), |_| panic!("second evaluation")).is_err());
+    assert_eq!(evaluations.get(), 1);
 }

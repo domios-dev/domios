@@ -53,7 +53,7 @@ dev_resolve_identity() {
   if ! parsed="$(printf '%s\n' "$output" | python3 -c '
 import json, sys
 connection = json.load(sys.stdin)["connection"]
-print("\\t".join([connection["data_dir"], connection["host"], str(connection["port"]),
+print("\t".join([connection["data_dir"], connection["host"], str(connection["port"]),
                   connection["socket_path"], (connection.get("instance") or "").strip()]))
 ')"; then
     echo 'ERROR [dev-resolution]: checkout CLI identity is malformed.' >&2; return 7;

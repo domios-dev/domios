@@ -76,6 +76,10 @@ it("requests a round through the owner-confirmed endpoint and disables it while 
   expect(new Headers(run?.init?.headers).get("X-CodeTerm-Plan-Confirmation")).toBe(FIXTURE_PLAN.id);
   await render(<ConnectedPlanSettings plan={FIXTURE_PLAN} initial={{ ...BASE, suspended_reason: "waiting_on_human" }} api={API} now={NOW} />);
   expect(button("Run now").disabled).toBe(true);
+  const pending = vi.fn();
+  window.addEventListener("codeterm:open-notification-center", pending, { once: true });
+  await click("Open pending questions");
+  expect(pending).toHaveBeenCalledTimes(1);
 });
 
 it("shows the authoritative Curator outcome in Jobs history", async () => {

@@ -19,6 +19,7 @@ use super::discovery::{run_with_timeout, tailscale_binary};
 /// probes because `tailscale cert` provisioning can take a few seconds.
 const SERVE_TIMEOUT: Duration = Duration::from_secs(10);
 /// Read probe budget for `serve status --json`.
+#[cfg(not(target_os = "macos"))]
 const PROBE_TIMEOUT: Duration = Duration::from_secs(3);
 /// Preferred public HTTPS port — phone-friendly, no port suffix in the URL.
 const DEFAULT_HTTPS_PORT: u16 = 443;
@@ -287,23 +288,28 @@ fn choose_free_https_port(
     })
 }
 
+#[cfg(target_os = "macos")]
 fn tailscale_binary_info() -> TailscaleBinaryInfo {
-    // The app-bundle CLI hangs when spawned from the GUI daemon; a LocalAPI answer proves Tailscale.
-    #[cfg(target_os = "macos")]
-    if let Some(status) = macos_status_json() {
-        return TailscaleBinaryInfo {
-            installed: true,
-            path: None,
-            cli_version: None,
-            daemon_version: status
-                .get("Version")
-                .and_then(serde_json::Value::as_str)
-                .map(String::from),
-            version_skew: false,
-            version_output: None,
-            error: None,
-        };
+    let status = macos_status_json();
+    TailscaleBinaryInfo {
+        installed: status.is_some() || std::path::Path::new("/Applications/Tailscale.app").exists(),
+        path: None,
+        cli_version: None,
+        daemon_version: status
+            .as_ref()
+            .and_then(|status| status.get("Version"))
+            .and_then(serde_json::Value::as_str)
+            .map(String::from),
+        version_skew: false,
+        version_output: None,
+        error: status
+            .is_none()
+            .then(|| "Tailscale LocalAPI not responding".into()),
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn tailscale_binary_info() -> TailscaleBinaryInfo {
     let Some(path) = tailscale_binary() else {
         return TailscaleBinaryInfo {
             installed: false,
@@ -317,9 +323,10 @@ fn tailscale_binary_info() -> TailscaleBinaryInfo {
     };
     let output = run_tailscale_capture(&path, &["version"], PROBE_TIMEOUT);
     let version_output = output.as_ref().map(|o| o.1.clone());
-    let (cli_version, daemon_version) = version_output
-        .as_deref()
-        .map(parse_tailscale_versions)
+    let (cli_version, daemon_version) = output
+        .as_ref()
+        .filter(|(ok, _)| *ok)
+        .map(|(_, raw)| parse_tailscale_versions(raw))
         .unwrap_or((None, None));
     let version_skew =
         cli_version.is_some() && daemon_version.is_some() && cli_version != daemon_version;
@@ -334,14 +341,13 @@ fn tailscale_binary_info() -> TailscaleBinaryInfo {
     }
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn parse_tailscale_versions(raw: &str) -> (Option<String>, Option<String>) {
     let versions: Vec<String> = raw
         .lines()
-        .filter_map(|line| {
-            line.split_whitespace()
-                .find(|p| p.chars().next().is_some_and(|c| c.is_ascii_digit()))
-        })
-        .map(|s| s.trim_matches(',').to_string())
+        .map(str::trim)
+        .filter(|line| semver::Version::parse(line).is_ok())
+        .map(String::from)
         .collect();
     (versions.first().cloned(), versions.get(1).cloned())
 }
@@ -457,109 +463,14 @@ pub(crate) fn endpoint_matches_build(url: &str, expected_build: &str) -> bool {
     check_https_health(Some(url), Some(expected_build.to_string())).ok
 }
 
-/// Read any Tailscale LocalAPI JSON endpoint passively: in-process first (works
-/// in dev), then a responsibility-disclaimed helper (signed prod). Returns None
-/// when Tailscale isn't running — the loopback read simply fails, so this NEVER
-/// wakes/launches the GUI app the way spawning the bundled CLI would.
+#[cfg(any(target_os = "macos", test))]
+mod macos_localapi;
 #[cfg(target_os = "macos")]
-pub(crate) fn macos_localapi(path: &str) -> Option<serde_json::Value> {
-    localapi_via_proof_file(path).or_else(|| localapi_via_disclaimed_helper(path))
-}
+use macos_localapi::macos_localapi;
 
-/// Full `status --json`-equivalent read passively via the macOS LocalAPI.
 #[cfg(target_os = "macos")]
 pub(crate) fn macos_status_json() -> Option<serde_json::Value> {
     macos_localapi("/localapi/v0/status")
-}
-
-/// Fetch a LocalAPI path from a responsibility-disclaimed `/bin/sh` helper: the
-/// signed `.app` cannot read Tailscale's Group Container in-process (App-Data
-/// protection → silent EPERM), but a disclaimed child runs with CLI-tool
-/// authority and can. The helper locates the `sameuserproof-<port>-<proof>`
-/// token, then curls the LocalAPI — both the protected read and the loopback
-/// fetch happen in the allowed context; we only parse the JSON it prints.
-#[cfg(target_os = "macos")]
-fn localapi_via_disclaimed_helper(path: &str) -> Option<serde_json::Value> {
-    let gc = dirs::home_dir()?.join("Library/Group Containers");
-    let gc = gc.to_str()?;
-    if gc.contains('\'') || !path.starts_with("/localapi/") {
-        return None;
-    }
-    let script = format!(
-        "d=$(ls -d '{gc}'/*group.io.tailscale.ipn.macos 2>/dev/null | head -1); \
-         [ -n \"$d\" ] || exit 1; \
-         f=$(ls \"$d\"/sameuserproof-* 2>/dev/null | head -1); \
-         [ -n \"$f\" ] || exit 1; \
-         b=$(basename \"$f\"); rest=${{b#sameuserproof-}}; \
-         port=${{rest%%-*}}; proof=${{rest#*-}}; \
-         exec curl -s -u \":$proof\" \"http://127.0.0.1:$port{path}\""
-    );
-    let out = codeterm_util::process_util::disclaimed_capture("/bin/sh", &["-c", &script])?;
-    let start = out.find('{')?;
-    let end = out.rfind('}')?;
-    serde_json::from_str(out.get(start..=end)?).ok()
-}
-
-/// Fetch a LocalAPI path from the macOS sandboxed Tailscale LocalAPI: discover
-/// the `sameuserproof-<port>-<proof>` token file, then a Basic-auth GET (blank
-/// user, proof as password) to `http://127.0.0.1:<port><path>`.
-#[cfg(target_os = "macos")]
-fn localapi_via_proof_file(path: &str) -> Option<serde_json::Value> {
-    let gc = dirs::home_dir()?.join("Library/Group Containers");
-    for dir in std::fs::read_dir(&gc).ok()?.flatten() {
-        if !dir
-            .file_name()
-            .to_string_lossy()
-            .ends_with("group.io.tailscale.ipn.macos")
-        {
-            continue;
-        }
-        for f in std::fs::read_dir(dir.path()).ok()?.flatten() {
-            let name = f.file_name();
-            let name = name.to_string_lossy();
-            let Some(rest) = name.strip_prefix("sameuserproof-") else {
-                continue;
-            };
-            let Some((port, proof)) = rest.split_once('-') else {
-                continue;
-            };
-            let Ok(port) = port.parse::<u16>() else {
-                continue;
-            };
-            if let Some(val) = localapi_get(port, proof, path) {
-                return Some(val);
-            }
-        }
-    }
-    None
-}
-
-/// Minimal raw-HTTP GET against the loopback LocalAPI (avoids a reqwest blocking
-/// client panicking when called from inside the async mesh loop).
-#[cfg(target_os = "macos")]
-fn localapi_get(port: u16, proof: &str, path: &str) -> Option<serde_json::Value> {
-    use base64::Engine;
-    use std::io::{Read, Write};
-    let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
-    let mut stream = std::net::TcpStream::connect_timeout(&addr, PROBE_TIMEOUT).ok()?;
-    stream.set_read_timeout(Some(PROBE_TIMEOUT)).ok()?;
-    stream.set_write_timeout(Some(PROBE_TIMEOUT)).ok()?;
-    let cred = base64::engine::general_purpose::STANDARD.encode(format!(":{proof}"));
-    let req = format!(
-        "GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nAuthorization: Basic {cred}\r\nConnection: close\r\n\r\n"
-    );
-    stream.write_all(req.as_bytes()).ok()?;
-    let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).ok()?;
-    let text = String::from_utf8_lossy(&buf);
-    let (head, body) = text.split_once("\r\n\r\n")?;
-    if !head.starts_with("HTTP/1.1 200") && !head.starts_with("HTTP/1.0 200") {
-        return None;
-    }
-    // Slice the JSON object out of the body — robust to chunked framing.
-    let start = body.find('{')?;
-    let end = body.rfind('}')?;
-    serde_json::from_str(body.get(start..=end)?).ok()
 }
 
 /// Find the HTTPS-terminating Serve listener whose root `/` handler proxies to
@@ -800,186 +711,4 @@ fn run_serve_cmd(bin: &str, args: &[&str]) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    // Tailscale 1.102 refuses a LocalAPI request whose Host omits the listener port.
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn localapi_request_names_the_listener_port_in_host() {
-        use std::io::{BufRead, BufReader, Write};
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let server = std::thread::spawn(move || {
-            let (mut connection, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(connection.try_clone().unwrap());
-            let mut head = String::new();
-            loop {
-                let mut line = String::new();
-                assert!(reader.read_line(&mut line).unwrap() > 0);
-                head.push_str(&line);
-                if line == "\r\n" {
-                    break;
-                }
-            }
-            connection
-                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 11\r\nConnection: close\r\n\r\n{\"ok\":true}")
-                .unwrap();
-            head
-        });
-        assert_eq!(
-            localapi_get(port, "fixture-proof", "/localapi/v0/status"),
-            Some(json!({"ok": true}))
-        );
-        assert!(server
-            .join()
-            .unwrap()
-            .contains(&format!("\r\nHost: 127.0.0.1:{port}\r\n")));
-    }
-
-    fn serve_json(host_port: &str, https_port: &str, proxy: &str) -> serde_json::Value {
-        json!({
-            "TCP": { https_port: { "HTTPS": true } },
-            "Web": { host_port: { "Handlers": { "/": { "Proxy": proxy } } } }
-        })
-    }
-
-    fn multi_serve_json() -> serde_json::Value {
-        json!({
-            "TCP": {
-                "443": { "HTTPS": true },
-                "8443": { "HTTPS": true },
-                "10443": { "HTTPS": true }
-            },
-            "Web": {
-                "host.ts.net:443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:7685" } } },
-                "host.ts.net:8443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:7686" } } },
-                "host.ts.net:10443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:9000" } } }
-            }
-        })
-    }
-
-    #[test]
-    fn target_none_when_no_serve() {
-        assert_eq!(parse_serve_target(&json!({}), 7685), None);
-    }
-
-    #[test]
-    fn url_https_443_targeting_our_port() {
-        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7685");
-        let (host, port) = parse_serve_target(&v, 7685).unwrap();
-        assert_eq!(format_serve_url(&host, port), "https://host.ts.net");
-    }
-
-    #[test]
-    fn url_https_non_443_keeps_port_suffix() {
-        let v = serve_json("host.ts.net:7600", "7600", "http://127.0.0.1:7685");
-        let (host, port) = parse_serve_target(&v, 7685).unwrap();
-        assert_eq!(format_serve_url(&host, port), "https://host.ts.net:7600");
-    }
-
-    #[test]
-    fn target_none_when_proxy_targets_different_port() {
-        // Serve points at the dev port (7686) but we are the prod daemon (7685):
-        // advertising the HTTPS URL here would hand the user a 502 link.
-        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7686");
-        assert_eq!(parse_serve_target(&v, 7685), None);
-    }
-
-    #[test]
-    fn target_none_when_https_not_terminated() {
-        let v = json!({
-            "TCP": { "443": { "HTTPS": false } },
-            "Web": { "host.ts.net:443": { "Handlers": { "/": { "Proxy": "http://127.0.0.1:7685" } } } }
-        });
-        assert_eq!(parse_serve_target(&v, 7685), None);
-    }
-
-    #[test]
-    fn proxy_target_matches_loopback_variants() {
-        assert!(proxy_targets_local_port("http://127.0.0.1:7685", 7685));
-        assert!(proxy_targets_local_port("http://localhost:7685", 7685));
-        assert!(!proxy_targets_local_port("http://127.0.0.1:7686", 7685));
-        assert!(!proxy_targets_local_port("http://10.0.0.5:7685", 7685));
-        assert!(!proxy_targets_local_port("garbage", 7685));
-    }
-
-    #[test]
-    fn self_dns_from_serve_config_web_key() {
-        let v = serve_json("host.ts.net:443", "443", "http://127.0.0.1:7685");
-        assert_eq!(serve_config_self_dns(&v).as_deref(), Some("host.ts.net"));
-        assert_eq!(serve_config_self_dns(&json!({})), None);
-        // Non-tailnet host keys are ignored.
-        let bad = serve_json("localhost:8080", "8080", "http://127.0.0.1:7685");
-        assert_eq!(serve_config_self_dns(&bad), None);
-    }
-
-    #[test]
-    fn collect_routes_marks_owned_and_conflicts_without_dropping_any() {
-        let routes = collect_routes(&multi_serve_json(), 7686);
-        assert_eq!(routes.len(), 3);
-        assert_eq!(routes[0].https_port, 443);
-        assert_eq!(routes[0].ownership, ServeRouteOwnership::Conflict);
-        assert_eq!(routes[1].https_port, 8443);
-        assert_eq!(routes[1].ownership, ServeRouteOwnership::Owned);
-        assert_eq!(routes[2].https_port, 10443);
-        assert_eq!(routes[2].ownership, ServeRouteOwnership::Conflict);
-    }
-
-    #[test]
-    fn choose_free_https_port_preserves_existing_mappings() {
-        let routes = collect_routes(&multi_serve_json(), 7685);
-        assert_eq!(choose_free_https_port(&routes, 443, 7685), Some(11443));
-    }
-
-    #[test]
-    fn choose_free_https_port_refuses_own_and_sibling_api_ports() {
-        let routes = Vec::new();
-        assert_eq!(choose_free_https_port(&routes, 7686, 7685), Some(8443));
-        assert_eq!(choose_free_https_port(&routes, 7685, 7685), Some(8443));
-    }
-
-    #[test]
-    fn parse_tailscale_versions_detects_client_daemon_skew() {
-        let (cli, daemon) = parse_tailscale_versions(
-            "1.82.5\n  tailscale commit: abc\n  other commit: def\n1.80.3\n",
-        );
-        assert_eq!(cli.as_deref(), Some("1.82.5"));
-        assert_eq!(daemon.as_deref(), Some("1.80.3"));
-        assert_ne!(cli, daemon);
-    }
-
-    #[test]
-    fn operator_bootstrap_error_is_explicit() {
-        assert!(is_operator_bootstrap_error(
-            "Access denied: user is not allowed to modify tailscale serve config"
-        ));
-        assert!(is_operator_bootstrap_error(
-            "set --operator=rollacode before using this command"
-        ));
-        assert!(!is_operator_bootstrap_error("connection refused"));
-    }
-
-    #[test]
-    fn sibling_ports_pair_up() {
-        assert_eq!(sibling_codeterm_port(7685), Some(7686));
-        assert_eq!(sibling_codeterm_port(7686), Some(7685));
-        assert_eq!(sibling_codeterm_port(9000), None);
-    }
-
-    #[test]
-    fn clobber_guard_rejects_own_and_sibling_ports() {
-        // Public port == our own API port.
-        assert!(would_clobber_codeterm_port(7685, 7685));
-        // Public port == sibling Domios API port (the #150 footgun).
-        assert!(would_clobber_codeterm_port(7685, 7686));
-        assert!(would_clobber_codeterm_port(7686, 7685));
-        // 443 / 8443 against a Domios api_port are fine.
-        assert!(!would_clobber_codeterm_port(7685, 443));
-        assert!(!would_clobber_codeterm_port(7685, 8443));
-        // Non-sibling custom port: only self-collision is rejected.
-        assert!(would_clobber_codeterm_port(9000, 9000));
-        assert!(!would_clobber_codeterm_port(9000, 7686));
-    }
-}
+mod tests;

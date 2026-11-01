@@ -40,6 +40,9 @@ fn stamp_chatbackend_launch_identity(
     tab: &mut crate::multiplexer::types::Tab,
     metadata: &super::spawn::ChatBackendLaunchMetadata,
 ) {
+    if tab.neighbor_authority.is_none() {
+        tab.neighbor_authority = metadata.params.neighbor_authority.clone();
+    }
     let agent = &metadata.agent;
     tab.worker_id = agent.worker_id.clone();
     tab.provisioned_cwd = agent.provisioned_cwd.clone();
@@ -442,6 +445,7 @@ impl ServiceContext {
         }
         let budget_notice = self.workspace_tab_budget_notice(&ws_id);
         let handle = TabHandle {
+            command_submission: None,
             tab_id: tab_id.clone(),
             pty_id: None,
             workspace_id: ws_id.clone(),

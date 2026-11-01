@@ -1,10 +1,6 @@
 import { attachmentMarkerSegments, formatAttachmentMarker } from "./attachmentMarker";
 import { buildDomiosMessage, parseDomiosMessage } from "./domios";
 
-/**
- * Legacy non-routing markers — TS twin of `src-tauri/src/message_markers.rs`.
- * Routed messages use the XML-tagged Domios frame parser from `domios.ts`.
- */
 export const MARKER_OPEN = "-=-codeterm:";
 export const MARKER_CLOSE = "-=-";
 const BRACKETED_PASTE_START = "\x1b[200~";
@@ -79,7 +75,9 @@ export function parseMarker(text: string): ParsedMarker | null {
     const attrs: Record<string, string> = { file: first.attachment.path };
     if (/\sstatus="untranscribed"/.test(head)) attrs.status = "untranscribed";
     const body = normalized.slice(head.length);
-    return { kind: "voice", attrs, payload: voicePayload(body.replace(/^(?:\r\n|[\r\n])/, "")) };
+    const rawPayload = body.replace(/^(?:\r\n|[\r\n])/, "");
+    const payload = attrs.status === "untranscribed" || !rawPayload ? rawPayload : voicePayload(rawPayload);
+    return payload === null ? null : { kind: "voice", attrs, payload };
   }
   if (!normalized.startsWith(MARKER_OPEN)) return null;
   const rest = normalized.slice(MARKER_OPEN.length);
@@ -95,7 +93,7 @@ export function parseMarker(text: string): ParsedMarker | null {
       : raw;
   const tokens = head.split(" ");
   const kind = tokens.shift() ?? "";
-  if (!kind || isLegacyRouteKind(kind)) return null;
+  if (!kind || ["voice", "tab", "report", "system", "reminder", "mesh", "telegram", "pebble", "inbound"].includes(kind)) return null;
   const attrs: Record<string, string> = {};
   for (const tok of tokens) {
     if (!tok) continue;
@@ -103,10 +101,6 @@ export function parseMarker(text: string): ParsedMarker | null {
     if (eq > 0) attrs[tok.slice(0, eq)] = decode(tok.slice(eq + 1));
   }
   return { kind, attrs, payload };
-}
-
-function isLegacyRouteKind(kind: string): boolean {
-  return ["tab", "report", "system", "reminder", "mesh", "telegram", "pebble", "inbound"].includes(kind);
 }
 
 const opt = (k: string, v: string | null | undefined): Array<[string, string]> =>
@@ -140,12 +134,12 @@ function unescapeTranscript(value: string): string {
   return decoded;
 }
 
-function voicePayload(payload: string): string {
-  if (!payload.startsWith(TRANSCRIPT_OPEN)) return payload;
+function voicePayload(payload: string): string | null {
+  if (!payload.startsWith(TRANSCRIPT_OPEN)) return null;
   const end = payload.indexOf(TRANSCRIPT_CLOSE);
-  if (end < 0) return payload;
+  if (end < 0) return null;
   const tail = payload.slice(end + TRANSCRIPT_CLOSE.length);
-  if (tail.trim()) return payload;
+  if (tail.trim()) return null;
   return unescapeTranscript(payload.slice(TRANSCRIPT_OPEN.length, end));
 }
 

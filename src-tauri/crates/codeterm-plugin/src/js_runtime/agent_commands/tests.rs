@@ -63,6 +63,52 @@ fn granted_flag_is_carried() {
 }
 
 #[test]
+fn auth_responses_update_catalog_state_and_refusals_offer_login() {
+    use crate::plugin_connection::PluginConnectionState;
+    let vm = vm_with(
+        r#"module.exports = {
+        onAgentCommand(ctx) {
+            if (ctx.verb === 'health') return {result: JSON.stringify({state:'logged-in', deviceCode:'private-code'})};
+            if (ctx.verb === 'logout') return {result:'Signed out'};
+            return {error:'not-installed: helper missing'};
+        }
+    }"#,
+    );
+    let catalog = AgentVerbCatalog::compose(
+        "opaque-client",
+        "Fixture",
+        None,
+        &["login".into(), "health".into(), "logout".into()],
+        None,
+        &[],
+    );
+    let handler = JsAgentCommandHandler::new(vm, "opaque-client", true).with_catalog(catalog);
+    handler
+        .on_agent_command("tab", "health", &[], None)
+        .unwrap();
+    assert_eq!(
+        handler.catalog().unwrap().connection_state,
+        Some(PluginConnectionState::SignedIn)
+    );
+    handler
+        .on_agent_command("tab", "logout", &[], None)
+        .unwrap();
+    assert_eq!(
+        handler.catalog().unwrap().connection_state,
+        Some(PluginConnectionState::SignedOut)
+    );
+    let error = handler
+        .on_agent_command("tab", "chats", &[], None)
+        .unwrap_err();
+    assert!(error.contains("`domios plugin opaque-client login`"));
+    assert!(error.contains("sign-in code or QR"));
+    assert_eq!(
+        handler.catalog().unwrap().connection_state,
+        Some(PluginConnectionState::RuntimeMissing)
+    );
+}
+
+#[test]
 fn body_reaches_quickjs_exactly_and_absent_body_stays_optional() {
     let vm = vm_with(
         r#"module.exports.default = {

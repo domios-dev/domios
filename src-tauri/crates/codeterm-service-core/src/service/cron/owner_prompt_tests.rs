@@ -121,6 +121,7 @@ fn params() -> CronCreateParams {
 
 fn running(tab_id: &str) -> CronRunInfo {
     CronRunInfo {
+        cancel_reason: None,
         run_id: RUN.to_string(),
         started_at: 1_700_000_000_000,
         finished_at: None,

@@ -35,7 +35,7 @@ fn unreferenced_documents<'a>(
 #[test]
 fn prompt_and_skill_doc_references_resolve() {
     for (path, label) in prescription_corpus().into_iter().filter(|(_, label)| {
-        label.starts_with("src-tauri/prompts/") || label.starts_with("skills/codeterm/")
+        label.starts_with("src-tauri/prompts/") || label.starts_with("skills/domios/")
     }) {
         let text = std::fs::read_to_string(path).unwrap();
         let missing = unknown_references(&text);
@@ -49,7 +49,7 @@ fn prompt_and_skill_doc_references_resolve() {
 #[test]
 fn registered_documents_have_a_gate_or_index_reference() {
     let gate = std::fs::read_to_string(repo_path("src-tauri/prompts/codeterm_cli.md")).unwrap();
-    let index = std::fs::read_to_string(repo_path("skills/codeterm/references/docs.md")).unwrap();
+    let index = std::fs::read_to_string(repo_path("skills/domios/references/docs.md")).unwrap();
     let missing =
         unreferenced_documents(DOCS.iter().map(|doc| doc.name), &format!("{gate}\n{index}"));
     assert!(

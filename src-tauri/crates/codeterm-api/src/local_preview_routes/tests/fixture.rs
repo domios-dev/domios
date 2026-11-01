@@ -135,7 +135,9 @@ impl Fixture {
             tab.agent_session_id = Some(id.clone());
         }
         let pad_data = tempfile::tempdir().unwrap();
-        let service = ServiceFixture::new_at(mux, &pad_data.path().join(".domios"));
+        let data = pad_data.path().join(".domios");
+        std::fs::create_dir_all(&data).unwrap();
+        let service = ServiceFixture::new_at(mux, &data.canonicalize().unwrap());
         let rows = Arc::new(Mutex::new(HashMap::new()));
         service
             .service
@@ -183,7 +185,7 @@ impl Fixture {
         self.state
             .mesh
             .lock()
-            .insert_legacy_pair_for_test(PairedPeer {
+            .insert_account_peer_for_test(PairedPeer {
                 instance_id: "preview-peer".into(),
                 instance_name: "Preview".into(),
                 addresses: Vec::new(),
@@ -210,9 +212,59 @@ impl Fixture {
             .or_default()
             .push(ChatMsg {
                 kind: "assistant".into(),
-                content: format!("@ds-document {}", path.display()),
+                content: format!(
+                    "<ds-document src=\"{}\" />",
+                    path.to_string_lossy()
+                        .replace('&', "&amp;")
+                        .replace('"', "&quot;")
+                        .replace('<', "&lt;")
+                        .replace('>', "&gt;")
+                ),
                 ..Default::default()
             });
+    }
+
+    pub fn content(&self, session: &str, content: String) {
+        self.rows.lock().insert(
+            session.into(),
+            vec![ChatMsg {
+                kind: "assistant".into(),
+                content,
+                ..Default::default()
+            }],
+        );
+    }
+
+    pub fn user_content(&self, session: &str, content: String) {
+        self.rows.lock().insert(
+            session.into(),
+            vec![ChatMsg {
+                kind: "user".into(),
+                content,
+                ..Default::default()
+            }],
+        );
+    }
+
+    pub fn inbound_content(&self, session: &str, content: String, kind: &str, wire: &str) {
+        let mut message = ChatMsg {
+            kind: "user".into(),
+            content,
+            inbound_kind: Some(kind.into()),
+            ..Default::default()
+        };
+        message.refresh_segments_from(wire);
+        self.rows.lock().insert(session.into(), vec![message]);
+    }
+
+    pub fn bind_session(&self, tab: &str, session: &str) {
+        self._service
+            .service
+            .mux
+            .write()
+            .get_tab_mut(tab)
+            .unwrap()
+            .agent_session_id = Some(session.into());
     }
 
     pub fn write(&self, name: &str, bytes: impl AsRef<[u8]>) -> PathBuf {

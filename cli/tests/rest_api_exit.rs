@@ -1,5 +1,7 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
+#[path = "support/json_output.rs"]
+mod json_output;
 
 use interprocess::local_socket::{prelude::*, GenericNamespaced, ListenerOptions};
 use serde_json::{json, Value};
@@ -50,6 +52,7 @@ fn run_rest_api(verb: &str, json_mode: bool, result: Value) -> std::process::Out
     }
     command
         .env("CODETERM_SOCKET_PATH", socket)
+        .env("CODETERM_API_TOKEN", "fixture-host-token")
         .env("CODETERM_DATA_DIR", scratch.path())
         .current_dir(scratch.path())
         .args(["rest-api", verb])
@@ -105,10 +108,7 @@ fn rest_api_restart_failed_status_exits_nonzero_and_status_remains_readable() {
     assert_eq!(output.status.code(), Some(1));
     let output = run_rest_api("status", true, failed.clone());
     assert!(output.status.success());
-    assert_eq!(
-        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
-        failed
-    );
+    assert_eq!(json_output::result(&output.stdout), failed);
     let output = run_rest_api("restart", true, json!({ "phase": "listening" }));
     assert!(output.status.success());
 }

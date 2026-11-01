@@ -7,6 +7,10 @@ use axum::{
 use std::net::SocketAddr;
 
 pub(crate) mod remote;
+mod tab;
+pub(crate) use tab::{actor_ref, caller_claim, tab_caller};
+#[cfg(test)]
+mod neighbor_tests;
 #[cfg(test)]
 mod remote_tests;
 
@@ -18,6 +22,7 @@ use codeterm_service_core::service::tokens::token_fp;
 #[derive(Clone, Debug)]
 pub enum CallerIdentity {
     Local,
+    Tab(codeterm_service_core::service::tab_credentials::TabCaller),
     ServicePush {
         service_id: String,
     },
@@ -59,8 +64,6 @@ pub(crate) const PUBLIC_PATHS: &[&str] = &[
     "/api/health",
     "/api/mesh/ping",
     "/api/mesh/link/hello",
-    "/api/mesh/link/approval",
-    "/api/mesh/disconnect-notice",
     "/api/mesh/link/confirm",
     "/api/mesh/link/commit",
 ];
@@ -85,15 +88,11 @@ fn tailnet_exempt(method: &Method, path: &str) -> bool {
             && matches!(
                 path,
                 "/api/mesh/link/hello"
-                    | "/api/mesh/link/approval"
-                    | "/api/mesh/disconnect-notice"
                     | "/api/mesh/link/confirm"
                     | "/api/mesh/link/commit"
                     | "/api/mesh/relay"
                     | "/api/mesh/announce"
                     | "/api/mesh/account-presence"
-                    | "/api/mesh/adopt/offer"
-                    | "/api/mesh/adopt/commit"
             ))
         || (method == Method::DELETE && is_custom_auth(method, path))
 }
@@ -183,25 +182,20 @@ fn remote_network_allowed(mesh_enabled: bool, address: Option<SocketAddr>) -> bo
     mesh_enabled || address.is_none_or(|address| address.ip().is_loopback())
 }
 
-/// Paths whose handlers authenticate independently and must skip bearer middleware.
-/// This is an EXACT allowlist on purpose: an earlier `starts_with("/api/mesh/peers/")`
-/// prefix match exempted every peer sub-route whose handlers only call the no-op
-/// `check_auth`, leaving them unauthenticated. Only `relay`, the adoption pair and
-/// the unpair handler (`DELETE /api/mesh/peers/{id}`) self-verify against open edges;
-/// announce verifies identity only to accept a renewed membership.
+/// Exact routes whose handlers authenticate their own peer proofs.
 pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
-    if matches!(
-        path,
-        "/api/mesh/relay" | "/api/mesh/adopt/offer" | "/api/mesh/adopt/commit"
-    ) {
+    if matches!(path, "/api/mesh/relay") {
         return true;
     }
-    // Announce verifies its sender itself so an adopted peer can deliver a renewed membership.
+    // Announce accepts an authenticated renewal before re-evaluating an expired edge.
     if method == Method::POST && matches!(path, "/api/mesh/announce" | "/api/mesh/account-presence")
     {
         return true;
     }
     if is_inbound_webhook_path(method, path) {
+        return true;
+    }
+    if crate::plugin_media_routes::is_playback_path(method, path) {
         return true;
     }
     if is_graph_event_path(method, path) {
@@ -210,10 +204,7 @@ pub(crate) fn is_custom_auth(method: &Method, path: &str) -> bool {
     if path.starts_with("/api/mesh/relay-asset/") {
         return true;
     }
-    // distinct from POST /peers/add-manual and the deeper /peers/{id}/… routes.
-    method == Method::DELETE
-        && path.starts_with("/api/mesh/peers/")
-        && path.matches('/').count() == 4
+    false
 }
 
 fn is_graph_event_path(method: &Method, path: &str) -> bool {
@@ -239,6 +230,10 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
     if token.is_empty() {
         return Err(());
+    }
+
+    if let Some(caller) = state.svc.identify_tab_credential(token) {
+        return Ok(CallerIdentity::Tab(caller));
     }
 
     if let Some(ref api_token) = state.config.lock().api.token {
@@ -333,7 +328,7 @@ pub(crate) fn is_local_caller(state: &AppState, headers: &axum::http::HeaderMap)
 }
 
 fn ownership_release_is_local(caller: CallerIdentity) -> bool {
-    matches!(caller, CallerIdentity::Local)
+    matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_))
 }
 
 pub(crate) fn isolated_caller_peer_id(
@@ -395,7 +390,7 @@ pub(crate) fn caller_access_level(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
     match identify_caller(state, auth) {
-        Ok(CallerIdentity::Local) => Ok(AccessLevel::Full),
+        Ok(CallerIdentity::Local | CallerIdentity::Tab(_)) => Ok(AccessLevel::Full),
         Ok(CallerIdentity::Peer { access_level, .. }) => Ok(access_level),
         Ok(CallerIdentity::ServicePush { .. }) => Err((
             StatusCode::FORBIDDEN,
@@ -421,6 +416,21 @@ pub async fn auth_middleware(
     req: Request,
     next: Next,
 ) -> Response {
+    if let Some(caller) = req
+        .headers()
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .and_then(|token| state.svc.identify_tab_credential(token))
+    {
+        if let Err(message) = state
+            .svc
+            .authorize_neighbor_http(&caller, req.method().as_str(), req.uri().path())
+            .await
+        {
+            return neighbor_capability_failure(message);
+        }
+    }
     let local_liveness = matches!(req.uri().path(), "/api/health" | "/api/mesh/ping")
         && req
             .extensions()
@@ -470,6 +480,15 @@ pub async fn auth_middleware(
         Ok(AuthOutcome::Rejected(response)) => response,
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
+}
+
+fn neighbor_capability_failure(message: String) -> Response {
+    let reason = message.split(':').next().unwrap_or("neighbor_forbidden");
+    (
+        StatusCode::FORBIDDEN,
+        axum::Json(serde_json::json!({"code":reason,"reason":reason,"message":message})),
+    )
+        .into_response()
 }
 
 fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
@@ -563,10 +582,13 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
     }
 
     if let Ok(identity) = &caller {
+        if let Err(message) = tab::bind_headers(&state, &mut req, identity) {
+            return (StatusCode::FORBIDDEN, message).into_response().into();
+        }
         req.extensions_mut().insert(identity.clone());
     }
     match caller {
-        Ok(CallerIdentity::Local) => AuthOutcome::Allowed(req, false),
+        Ok(CallerIdentity::Local | CallerIdentity::Tab(_)) => AuthOutcome::Allowed(req, false),
         Ok(CallerIdentity::ServicePush { ref service_id }) => {
             if is_service_push_allowed(method.as_str(), &path) {
                 AuthOutcome::Allowed(req, false)

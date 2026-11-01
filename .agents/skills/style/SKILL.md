@@ -48,6 +48,7 @@ Everything else gets deleted. If you catch yourself writing a comment and you ca
 - StrictMode-safe: guard side-effectful `useEffect([])` with `useRef<boolean>` if you can't make it idempotent.
 - No `any`. Use `unknown` + narrowing or a typed cast.
 - Components >400 lines = extract hooks. Hooks >200 lines = extract pure functions to `lib/`.
+- Loading has three forms and no others; the rule is in `src/components/shared/Loader.tsx`. A whole area waiting uses `Loader` (branded, variants `fullscreen | overlay | region | compact`, deferred). A small wait inside content uses the activity dots (`BusyState`, a Button's `loading`). A placeholder in the shape of coming content uses `Skeleton`. Never add another loader or spinner.
 
 ## Architecture guardrails
 

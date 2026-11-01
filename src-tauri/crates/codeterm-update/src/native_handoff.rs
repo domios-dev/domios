@@ -16,6 +16,7 @@ pub fn supports_native_apply(method: &crate::InstallMethod) -> bool {
             | crate::InstallMethod::Nsis
             | crate::InstallMethod::Msi
             | crate::InstallMethod::AppImage
+            | crate::InstallMethod::Deb
     )
 }
 

@@ -1,5 +1,4 @@
 import {
-  Shield,
   UserRound,
   Sliders,
   Bell,
@@ -15,7 +14,6 @@ import type { HelpSettingsTarget } from "../../help/types";
 
 export type SectionId =
   | "account"
-  | "privacy"
   | "general"
   | "notifications"
   | "agents"
@@ -35,7 +33,6 @@ export interface SettingsSection {
 // (secrets lives in the Extensions surface but still needs a breadcrumb icon).
 export const SECTION_ICONS: Record<SectionId, LucideIcon> = {
   account: UserRound,
-  privacy: Shield,
   general: Sliders,
   notifications: Bell,
   agents: Bot,
@@ -52,7 +49,6 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { id: "general", label: "General", desc: "Theme, fonts, messengers, keybindings", icon: SECTION_ICONS.general },
   { id: "notifications", label: "Notifications", desc: "The bell, desktop alerts, sound, and where each level may go", icon: SECTION_ICONS.notifications },
   { id: "agents", label: "Agents", desc: "General Agent, agent access, and per-provider config", icon: SECTION_ICONS.agents },
-  { id: "privacy", label: "Privacy", desc: "Optional product analytics", icon: SECTION_ICONS.privacy },
   { id: "jobs", label: "Jobs", desc: "Crons and Blueprints on this machine", icon: SECTION_ICONS.jobs },
   { id: "logs", label: "Logs", desc: "App diagnostics — live, filterable, scoped", icon: SECTION_ICONS.logs },
   { id: "guide", label: "Guide", desc: "What Domios is and how to work with it", icon: SECTION_ICONS.guide },
@@ -70,19 +66,16 @@ export interface SettingsCardRoute {
   card: SettingsCardAnchorId;
 }
 
-/** Retired section ids that still arrive from old links. */
-export type LegacySectionId = "integrations";
 /** Links straight to one card inside a section. */
 export type CardLinkId = "messengers" | "plans";
-export type SettingsLinkId = SectionId | LegacySectionId | CardLinkId;
+export type SettingsLinkId = SectionId | CardLinkId;
 
 export interface SettingsLinkRoute {
   section: SectionId;
   card?: SettingsCardAnchorId;
 }
 
-const CARD_ROUTES: Record<LegacySectionId | CardLinkId, SettingsLinkRoute> = {
-  integrations: { section: "general", card: "telegram-bridge" },
+const CARD_ROUTES: Record<CardLinkId, SettingsLinkRoute> = {
   messengers: { section: "general", card: "telegram-bridge" },
   plans: { section: "account", card: "subscription-plans" },
 };
@@ -95,7 +88,7 @@ export function isSettingsLinkId(id: string): id is SettingsLinkId {
 
 export function resolveSettingsLink(id: SettingsLinkId | undefined): SettingsLinkRoute | undefined {
   if (!id) return undefined;
-  return own(CARD_ROUTES, id) ? CARD_ROUTES[id as LegacySectionId | CardLinkId] : { section: id as SectionId };
+  return own(CARD_ROUTES, id) ? CARD_ROUTES[id as CardLinkId] : { section: id as SectionId };
 }
 
 const HELP_SETTINGS_ROUTES: Record<HelpSettingsTarget, SettingsCardRoute> = {

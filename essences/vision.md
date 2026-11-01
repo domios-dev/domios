@@ -46,7 +46,7 @@ Domios provides the environment and the control surface; a Worker's character co
 
 ## Mesh: distributed fabric
 
-Today: machines discover each other, pair into one flat trusted mesh, and relay commands, agents and reports via `--mesh`.
+Today: installations signed in to the same account connect automatically into a trusted mesh and relay commands, agents and reports via `--mesh`.
 
 Tomorrow: the mesh becomes a **unified fabric** where:
 - **Shared memory** — agents across machines share knowledge, context, and recall.

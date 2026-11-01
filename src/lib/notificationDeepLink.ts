@@ -34,10 +34,13 @@ export interface NeedsYouNotificationItem {
   id: string;
   title: string;
   state: DeepLinkState;
+  sourceTabId?: string | null;
+  workspaceId?: string | null;
+  timestamp?: number;
 }
 
 export function isNeedsYouNotification(notification: Notification): boolean {
-  return notification.level === "action_needed" && !notification.read && !notification.answer?.answered;
+  return notification.level === "action_needed" && !notification.resolved && !notification.read && !notification.answer?.answered;
 }
 
 /** Scope reads daemon-resolved provenance only: a caller-supplied jump target cannot place a record in a team. */
@@ -89,6 +92,9 @@ export function needsYouNotificationItems(
       key: `notification-${notification.id}`,
       id: notification.id,
       title: notification.title,
+      sourceTabId: notification.tab_id,
+      workspaceId: notification.workspace_id,
+      timestamp: notification.timestamp,
       state: resolveDeepLink(notification, tabs, workspaces, reveal),
     }));
 }

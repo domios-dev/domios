@@ -75,7 +75,12 @@ fn each_intent_gets_its_own_vector_and_recall_takes_the_best_one() {
         BACKUP,
         &["copy the production database somewhere safe"],
     );
-    let vectors = index::read_vectors(&mem.conn.lock(), &logs, &mem.embedder.identity()).unwrap();
+    let vectors = crate::backend::sqlite::blueprint::index::read_vectors(
+        &mem.fixture_conn().lock(),
+        &logs,
+        &mem.embedder.identity(),
+    )
+    .unwrap();
     let intents = vectors.slot(Slot::Intent).collect::<Vec<_>>();
     assert_eq!(intents.len(), 3);
     assert!(intents

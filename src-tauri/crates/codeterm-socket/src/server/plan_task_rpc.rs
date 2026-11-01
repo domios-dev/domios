@@ -3,7 +3,7 @@ use super::plan_fields::{
     execution_intent_field, optional_string_field, string_array_field, tab_and_ancestors, tab_role,
 };
 use super::plan_lane_fields::{lane_metadata_field, lane_update_field};
-use super::plan_linking::{csv_string_field, owner_from_params, tags_field};
+use super::plan_linking::{csv_string_field, tags_field};
 use super::plan_refs;
 use super::plan_role_helpers::assign_task_with_profile;
 pub(super) use super::plan_task_authority::authorize_draft_mutation;
@@ -18,12 +18,13 @@ use codeterm_service_core::service::plan::{hints, NewTask, PlanError};
 use codeterm_service_core::service::ServiceState;
 use serde_json::{json, Value};
 
+mod add_fields;
 mod respawn;
 mod split;
 mod task_fields;
 use task_fields::task_files_field;
 
-fn authenticated_caller(
+pub(super) fn authenticated_caller(
     params: Option<&Value>,
 ) -> codeterm_service_core::service::AuthenticatedPlanCaller {
     codeterm_service_core::service::AuthenticatedPlanCaller {
@@ -103,32 +104,6 @@ fn validate_task_update_params(p: Option<&Value>) -> Result<(), JsonRpcError> {
     })
 }
 
-fn validate_model_field(p: Option<&Value>, provider_ids: &[String]) -> Result<(), JsonRpcError> {
-    let Some(model) = p
-        .and_then(|value| value.get("model"))
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|model| !model.is_empty())
-    else {
-        return Ok(());
-    };
-    if !provider_ids
-        .iter()
-        .any(|provider| provider.eq_ignore_ascii_case(model))
-    {
-        return Ok(());
-    }
-    Err(JsonRpcError {
-        code: -32602,
-        message: format!("'{model}' is a provider id, not a model; use --model <provider>:<model>"),
-        data: Some(json!({
-            "type": "provider_id_in_model_field",
-            "provider": model,
-            "suggestion": "use --model <provider>:<model>",
-        })),
-    })
-}
-
 pub(super) fn handles(method: &str) -> bool {
     matches!(
         method,
@@ -136,10 +111,10 @@ pub(super) fn handles(method: &str) -> bool {
             | "task.show"
             | "task.take"
             | "task.drop"
-            | "task.add"
             | "plan.task.add"
             | "plan.task.split"
             | "plan.task.update"
+            | "plan.task.extend_files"
             | "plan.task.link"
             | "plan.task.relink"
             | "plan.task.assign"
@@ -172,6 +147,28 @@ pub(super) fn dispatch(
         super::plan_task_authority::verify_remote_worker_binding(params, svc)?;
     }
     match method {
+        "plan.task.extend_files" => {
+            let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
+            let edit = p
+                .and_then(|params| params.get("edit"))
+                .cloned()
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: "edit paths required".into(),
+                    data: None,
+                })?;
+            let paths =
+                serde_json::from_value::<Vec<String>>(edit).map_err(|error| JsonRpcError {
+                    code: -32602,
+                    message: error.to_string(),
+                    data: None,
+                })?;
+            store
+                .extend_task_edit_files(&plan_id, &task_id, paths, now)
+                .map_err(plan_rpc_err)?;
+            emit_plan_changed(svc, &plan_id);
+            Ok(json!({"plan_id": plan_id, "task_id": task_id, "extended": true}))
+        }
         "plan.task.adopt_checkpoint" => {
             let (plan_id, task_id) = plan_refs::resolve_task(store, params)?;
             let tab_id = get_string_param(params, "caller_tab_id")?;
@@ -298,125 +295,11 @@ pub(super) fn dispatch(
             Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
         }
 
-        "task.add" => {
-            validate_model_field(p, &svc.agent_registry.provider_ids())?;
-            let body = p.ok_or(JsonRpcError {
-                code: -32602,
-                message: "params required".to_string(),
-                data: None,
-            })?;
-            let project = body
-                .get("project")
-                .and_then(|v| v.as_str())
-                .map(str::to_string)
-                .unwrap_or_else(|| {
-                    std::env::current_dir()
-                        .map(|d| d.display().to_string())
-                        .unwrap_or_default()
-                });
-            let owner = owner_from_params(body);
-            let assign_tab = body
-                .get("assign_tab")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let assign_role = assign_tab.as_deref().and_then(|tab| tab_role(svc, tab));
-            let has_model = body
-                .get("model")
-                .and_then(|v| v.as_str())
-                .is_some_and(|s| !s.trim().is_empty());
-            let has_why = body
-                .get("why")
-                .and_then(|v| v.as_str())
-                .is_some_and(|s| !s.trim().is_empty());
-            let acceptance_criteria = string_array_field(p, "acceptance_criteria");
-            let has_criteria = acceptance_criteria.iter().any(|s| !s.trim().is_empty());
-            let test_plan = body
-                .get("test_plan")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let qa_plan = body
-                .get("qa_plan")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let has_test_plan = test_plan.as_deref().is_some_and(|s| !s.trim().is_empty());
-            let correctness = body
-                .get("correctness")
-                .and_then(|v| v.as_str())
-                .map(str::to_string);
-            let has_correctness = correctness.as_deref().is_some_and(|s| !s.trim().is_empty());
-            let (plan_id, task_id) = store
-                .add_inbox_task(
-                    &project,
-                    owner,
-                    NewTask {
-                        files: task_files_field(p)?.unwrap_or_default(),
-                        name: get_string_param(params, "name")?,
-                        kind: body
-                            .get("type")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("task")
-                            .into(),
-                        model: body
-                            .get("model")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string),
-                        model_rationale: body
-                            .get("why")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string),
-                        acceptance_criteria,
-                        test_plan,
-                        qa_plan,
-                        correctness,
-                        body: body
-                            .get("body")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or_default()
-                            .into(),
-                        intent: body
-                            .get("intent")
-                            .and_then(|v| v.as_str())
-                            .map(str::to_string),
-                        execution_intent: execution_intent_field(
-                            Some(body),
-                            Some(project.as_str()),
-                        )?,
-                        competition: super::plan_competition::metadata_field(p)?,
-                        depends_on: dependency_vec_field(p)?.unwrap_or_default(),
-                        assigned_tab_id: assign_tab.clone(),
-                        ..Default::default()
-                    },
-                    now,
-                )
-                .map_err(plan_rpc_err)?;
-            if let Some(tab) = assign_tab.as_deref() {
-                store
-                    .set_task_assignment(&task_id, Some(tab), assign_role, now)
-                    .map_err(plan_rpc_err)?;
-            }
-            emit_plan_changed(svc, &plan_id);
-            let mut response_hints = hints::task_create_hints(
-                &plan_id,
-                &task_id,
-                false,
-                has_model,
-                has_why,
-                has_criteria,
-                has_test_plan,
-                has_correctness,
-            );
-            if let Some(hint) = hints::maybe_orchestration_reminder() {
-                response_hints.push(hint);
-            }
-            Ok(json!({
-                "plan_id": plan_id.clone(),
-                "task_id": task_id.clone(),
-                "_hints": response_hints
-            }))
-        }
         "plan.task.add" => {
-            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let id = plan_refs::resolve_plan(store, params)?;
+            let normalized = add_fields::normalize(params, store, &id)?;
+            let p = Some(&normalized);
+            let params = &Some(normalized.clone());
             let name = get_string_param(params, "name")?;
             let kind = p
                 .and_then(|x| x.get("type"))
@@ -580,6 +463,9 @@ pub(super) fn dispatch(
             if let Some(hint) = hints::maybe_orchestration_reminder() {
                 response_hints.push(hint);
             }
+            if let Some(warning) = normalized["inferred_work_warning"].as_str() {
+                response_hints.push(warning.to_owned());
+            }
             let caller_tab = p
                 .and_then(|x| x.get("caller_tab_id"))
                 .and_then(|v| v.as_str());
@@ -602,7 +488,6 @@ pub(super) fn dispatch(
         "plan.task.update" => {
             validate_task_update_params(p)?;
             let files = task_files_field(p)?;
-            validate_model_field(p, &svc.agent_registry.provider_ids())?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let previous_name = store
                 .show_task(&tid)

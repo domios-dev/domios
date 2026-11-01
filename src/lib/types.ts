@@ -241,7 +241,6 @@ export interface Tab {
   agent_session_name?: string | null;
   agent_session_model?: string | null;
   agent_requested_model?: string | null;
-  structured_control_active?: boolean;
   structured_runtime_mode?: string | null;
   agent_provider_resolved_model?: string | null;
   agent_label?: string | null;
@@ -270,6 +269,7 @@ export interface Tab {
   depth?: number;
   chat_view?: boolean;
   pending_prompt?: PendingPrompt | null;
+  pending_prompt_kind?: import("./notificationTypes").NotificationPromptIdentity["kind"] | null;
   /** Live 3-state agent classification from the backend state engine. Drives
    *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
   agent_state?: TabAgentState | null;
@@ -493,7 +493,10 @@ export interface SpawnWorkerReq {
 
 export type CronRunStatus = "Running" | "AwaitingOwnerPrompt" | "Success" | "Failed" | "Cancelled";
 
+export type CronCancelReason = "user_cancel" | "superseded" | "restart_reconcile" | "timeout" | "owner_closed";
+
 export interface CronRunInfo {
+  cancel_reason?: CronCancelReason | null;
   run_id: string;
   started_at: number;
   finished_at: number | null;
@@ -661,6 +664,7 @@ export interface AgentConfig {
   idle_timeout_s: number;
   resume_sessions: boolean;
   full_access?: boolean;
+  sandbox_ceiling?: "read-only" | "workspace-write";
 }
 
 export interface ApiConfig {
@@ -716,6 +720,19 @@ export interface OrchestrationConfig {
   nudge_interval_secs: number;
 }
 
+export interface NetworkIdentity { kind: string; network_id: string }
+export interface NetworkTransportStatus {
+  display_name: string;
+  state: "not_installed" | "not_running" | "permission_needed" | "signed_out" | "starting" | "connected" | "unknown";
+  identity: NetworkIdentity | null;
+  network_name: string | null;
+  user?: string | null;
+  addresses: string[];
+  peer_listener: boolean;
+  encrypted: boolean;
+  setup_actions: Array<{ kind: string; url: string }>;
+}
+
 export interface MeshStatus {
   enabled: boolean;
   instance_id: string;
@@ -724,6 +741,8 @@ export interface MeshStatus {
   local_ip: string | null;
   api_port: number;
   paired_count: number;
+  transport: NetworkTransportStatus | null;
+  web_ui: WebUiAnnouncement | null;
 }
 
 export interface PeerAddress {
@@ -850,6 +869,7 @@ export interface AppConfig {
   supporter: SupporterConfig;
   integrations: IntegrationsConfig;
   mesh: MeshConfig;
+  neighbors: { enabled: boolean };
   orchestration: OrchestrationConfig;
   ui?: UiConfig;
   model_defaults?: ModelDefaultsConfig;
@@ -1077,9 +1097,13 @@ export interface ProviderAttachmentCapabilities {
 
 export interface ProviderDescriptor {
   general_agent_offer_when_absent?: boolean;
+  /** Whether this provider can be a Neighbor's concierge here, for which machine access modes, and which of those this
+   *  platform actually confines; the per-friend folder enforcement note stays the precise projection. */
+  neighbor_concierge?: { supported: boolean; machine_access: readonly string[]; enforced_machine_access: readonly string[] };
   attachments?: ProviderAttachmentCapabilities;
   remote_task?: import("../../packages/plugin-sdk/src/remoteTasks").RemoteTaskCapability;
   agent_runtime?: {
+    runtimeModes?: readonly { id: string; displayName: string }[];
     serviceTiers?: readonly import("../../packages/plugin-sdk/src/agentRuntime").RuntimeServiceTier[];
     usage?: boolean;
     backgroundProcesses?: boolean;
@@ -1088,11 +1112,6 @@ export interface ProviderDescriptor {
   };
   supports_session_fork?: boolean;
   supports_subagent_visibility?: boolean;
-  structured_control?: {
-    protocol: string;
-    minVersion: string;
-    runtimeModes?: readonly { id: string; displayName: string }[];
-  };
   cli_status?: import("./providerCli").ProviderCliStatus;
   schema_version: number;
   id: string;

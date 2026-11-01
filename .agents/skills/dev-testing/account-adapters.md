@@ -67,12 +67,14 @@ the password field or capture screenshots with unmasked credentials.
 Debug builds pin the TEST key `test-2026-10` and take the TEST project from build-time `DOMIOS_QA_PROJECT_ID`, which build.sh injects from the secret store. Without it, DEV refuses every verdict and stays plain free. The signing key is the secret `entitlements/test-signing-key` (base64 PKCS#8 DER); never print or copy it.
 
 1. Build DEV through build.sh on a machine whose secret store holds `DOMIOS_QA_PROJECT_ID` and `entitlements/test-signing-key`.
-2. Run `node scripts/dev-entitlements-issuer.mjs smoke` to prove the stored TEST key signs a Sponsor verdict for `local-dev-user` and the QA project; the command verifies against the pinned TEST public key without printing secrets. Start the issuer: `node scripts/dev-entitlements-issuer.mjs serve --port 15200` (loopback only).
+2. Run `node scripts/dev-entitlements-issuer.mjs smoke` to prove the stored TEST key signs a Sponsor verdict for `local-dev-user` and the QA project; the command verifies against the pinned TEST public key without printing secrets. `node scripts/dev-entitlements-issuer.mjs smoke-refused` proves `pro` verifies while `tampered` and `unsigned` fail that verification. Start the issuer: `node scripts/dev-entitlements-issuer.mjs serve --port 15200` (loopback only).
 3. In DEV set `account.provider` to `local`, `billing.provider` to `cloud`, and `billing.endpoint` to `http://127.0.0.1:15200/`, restart DEV, and sign in as `local-dev-user`. Debug cloud billing sends a `domios-local-dev.` bearer containing the uid and installation id only to loopback HTTP `getEntitlements`; the issuer requires its installation id to match the request body. Other endpoints and billing actions retain the normal account token. Release compiles out this bearer path.
 4. Switch the plan with `node scripts/dev-entitlements-issuer.mjs mode <mode>`, then refresh with `POST /api/account/plan/refresh` or app focus. Focus refreshes are throttled to one per 60 s.
    - `free`: signed unpaid verdict; free limits enforced.
    - `pro` / `sponsor`: signed paid verdict; no locks.
    - `expired`: a paid verdict whose 24 h lease already ended; refused, so free limits apply and items lock (never deleted).
+   - `tampered`: a correctly signed paid verdict with one signature byte flipped; the pinned TEST key rejects it (signature refusal), so free limits apply.
+   - `unsigned`: a paid payload with an empty signature; refused before verification (signature length), so free limits apply.
    - `offline`: 503; a still-valid cached verdict holds until its lease ends, otherwise free.
 5. Confirm the issuer logs `sponsor uid=local-dev-user`, and the refresh response reports Sponsor access with a verified grant. A server log alone does not prove the app accepted the signature. Canonical Rust selectors: `./build.sh test-one billing adapters::cloud::tests::`; the release-configuration test `release_local_session_has_no_dev_bearer` must also run with debug assertions disabled. Release pins the PRODUCTION key and endpoint, so TEST verdicts stay free.
 

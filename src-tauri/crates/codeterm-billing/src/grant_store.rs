@@ -37,6 +37,42 @@ pub struct FileGrantStore {
     hint: PathBuf,
     floors: PathBuf,
 }
+
+pub fn startup_grant(
+    store: &dyn GrantStore,
+    uid: &str,
+    installation_id: &str,
+    now: u64,
+) -> Option<VerifiedGrant> {
+    startup_grant_with(
+        store,
+        codeterm_entitlements::pinned().as_ref(),
+        uid,
+        installation_id,
+        now,
+    )
+}
+
+pub(crate) fn startup_grant_with(
+    store: &dyn GrantStore,
+    authority: &dyn EntitlementAuthority,
+    uid: &str,
+    installation_id: &str,
+    now: u64,
+) -> Option<VerifiedGrant> {
+    let mut floors = store.load_floors().ok()??;
+    let raw = store.load().ok()??;
+    let now = now.max(floors.observed_at);
+    let grant = authenticate(&raw, authority, uid, installation_id, None, now).ok()?;
+    floors
+        .revisions
+        .get(&Floors::key(uid, installation_id))?
+        .admits(&grant)
+        .ok()?;
+    floors.observed_at = now.max(grant.payload().issued_at);
+    store.save_floors(&floors).ok()?;
+    Some(grant)
+}
 impl FileGrantStore {
     pub fn new(data_dir: PathBuf) -> Self {
         let dir = data_dir.join("state/account");

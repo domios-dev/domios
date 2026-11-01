@@ -16,6 +16,8 @@ mod attachment_capabilities;
 mod execution_sandbox;
 #[path = "parity_test/general_offer.rs"]
 mod general_offer;
+#[path = "parity_test/host_agent_run.rs"]
+mod host_agent_run;
 #[path = "parity_test/host_exec.rs"]
 mod host_exec;
 #[path = "parity_test/inline_fixture.rs"]
@@ -30,9 +32,11 @@ mod raw_arguments;
 mod remote_tasks;
 #[path = "parity_test/runtime.rs"]
 mod runtime;
+#[path = "parity_test/scoped_filesystem.rs"]
+mod scoped_filesystem;
 #[path = "parity_test/session_resume.rs"]
 mod session_resume;
-use inline_fixture::{load_inline_js, load_inline_js_with_manifest};
+use inline_fixture::{load_inline_js, load_inline_js_with_manifest, provider_fixture};
 
 use std::path::PathBuf;
 
@@ -67,10 +71,10 @@ mod plugin_lifecycle;
 mod provider_compat;
 #[path = "parity_test/rotterdom.rs"]
 mod rotterdom;
+#[path = "parity_test/runtime_modes.rs"]
+mod runtime_modes;
 #[path = "parity_test/sqlite_fixture.rs"]
 mod sqlite_fixture;
-#[path = "parity_test/structured_control.rs"]
-mod structured_control;
 #[path = "parity_test/unbound_submit_recovery.rs"]
 mod unbound_submit_recovery;
 #[path = "parity_test/update_prompt.rs"]
@@ -122,12 +126,8 @@ fn load_js(id: &str) -> JsProvider {
     load_one(&manifest).unwrap_or_else(|e| panic!("load {id} plugin: {e}"))
 }
 
-fn provider_fixture(id: &str, relative: &str) -> String {
-    let path = workspace_plugins_root()
-        .join(format!("provider-{id}"))
-        .join("tests/fixtures")
-        .join(relative);
-    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+pub(crate) fn native_provider_fixture() -> impl AgentProvider {
+    crate::agent_claude::provider::ClaudeProvider::new()
 }
 
 #[test]
@@ -135,7 +135,7 @@ fn host_owned_capabilities_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
-    let native = crate::agent_claude::provider::ClaudeProvider::new();
+    let native = native_provider_fixture();
     let js = load_js("claude");
     // A private task-file root keeps parallel tests that sweep the shared one away from these files.
     let root = tempfile::tempdir().unwrap();
@@ -146,6 +146,23 @@ fn host_owned_capabilities_native_js_parity() {
         native.execution_sandbox_capability(),
         js.execution_sandbox_capability()
     );
+    assert_eq!(
+        native.launch_permission_capability(),
+        js.launch_permission_capability()
+    );
+    for read_all in [false, true] {
+        for root in ["C:/opaque root", "/opaque root"] {
+            assert_eq!(
+                native
+                    .launch_permission_capability()
+                    .unwrap()
+                    .scoped_filesystem_args(read_all, &[root.into()], &[root.into()]),
+                js.launch_permission_capability()
+                    .unwrap()
+                    .scoped_filesystem_args(read_all, &[root.into()], &[root.into()]),
+            );
+        }
+    }
     for platform in ["macos", "linux", "windows", "unknown"] {
         assert_eq!(js.update_command(platform), native.update_command(platform));
     }
@@ -1008,10 +1025,9 @@ fn paste_limit_capability_native_js_parity() {
     let Some(_) = require_plugins() else {
         return;
     };
-    // 4096 lies above passing short cells and below cn20's first failing 8192-byte cell.
     let codex = load_js("codex");
-    assert_eq!(codex.paste_limit_bytes(), Some(4096));
-    assert_eq!(codex.describe().paste_limit_bytes, Some(4096));
+    assert_eq!(codex.paste_limit_bytes(), None);
+    assert_eq!(codex.describe().paste_limit_bytes, None);
     assert_eq!(load_js("claude").paste_limit_bytes(), None);
     assert_eq!(load_js("opencode").paste_limit_bytes(), None);
 }
@@ -1143,6 +1159,8 @@ mod launch_artifacts;
 mod no_native_fallback_recursion;
 
 mod availability;
+#[path = "parity_test/chat_close.rs"]
+mod chat_close;
 mod codex;
 mod codex_launch_session;
 mod codex_user_images;
@@ -1164,11 +1182,15 @@ mod launch_session_support;
 
 mod reply_relay;
 
-#[path = "parity_test/local_recording_devices.rs"]
-mod local_recording_devices;
-
-#[path = "parity_test/runtime_chat_descriptor.rs"]
-mod runtime_chat_descriptor;
-
+#[path = "parity_test/binary_transfer.rs"]
+mod binary_transfer;
 #[path = "parity_test/data_dir.rs"]
 mod data_dir;
+#[path = "parity_test/local_recording_devices.rs"]
+mod local_recording_devices;
+#[path = "parity_test/media_delivery.rs"]
+mod media_delivery;
+#[path = "parity_test/runtime_chat_descriptor.rs"]
+mod runtime_chat_descriptor;
+#[path = "parity_test/view_context.rs"]
+mod view_context;

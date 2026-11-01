@@ -1,0 +1,42 @@
+{
+  "skill_name": "plugin-recall",
+  "description": "First-step messaging plugin use and chat-first sign-in from ordinary per-turn memory recall.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "teams-message-recalls-signed-out-plugin",
+      "response_mode": "text",
+      "prompt": "Per-turn recall supplied:\nFound similar in mem:\n- skill_plugin_teams_client: Teams Client: not signed in. Offer sign-in: `domios plugin teams-client login`.\n\nUser: Look, Anna Ivanova wrote to me in Teams, check the PRs.\n\nExplain your immediate next step without executing commands.",
+      "expected_output": "Offers Teams sign-in in chat and identifies the recalled login command as the next action.",
+      "expectations": [
+        "Offers to help the user sign in to Teams in this chat instead of giving up because Teams is disconnected",
+        "Identifies domios plugin teams-client login as the next command for sign-in",
+        "Does not invent a sign-in code, a Teams message, or pull request findings"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "telegram-message-recalls-connected-plugin",
+      "response_mode": "text",
+      "prompt": "Per-turn recall supplied:\nFound similar in mem:\n- skill_plugin_telegram_client: Telegram Client: signed in. `domios plugin telegram-client --help`.\n\nUser: Anna wrote to me in Telegram about the PRs; check what she said.\n\nExplain your immediate next step without executing commands.",
+      "expected_output": "Uses the recalled connected Telegram plugin to discover its chat lookup and reading verbs.",
+      "expectations": [
+        "Identifies the telegram-client plugin or domios plugin telegram-client --help as the immediate tool for reading the message",
+        "Does not ask the user to connect or sign in to Telegram, because the recalled plugin is signed in",
+        "Does not claim to have read a message or checked a pull request"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "missing-client-refusal-offers-chat-first-sign-in",
+      "response_mode": "text",
+      "prompt": "User asked you to check Anna's Teams message. The plugin command refused with:\nnot-installed: helper missing\nNext: `domios plugin teams-client login`. Offer chat-first sign-in; show the returned sign-in code or QR and instructions to the user in chat. Setup requirements: `domios plugin get teams-client`.\n\nExplain your immediate next step without executing commands.",
+      "expected_output": "Offers the actionable login path and explains that its returned code will be shown in chat.",
+      "expectations": [
+        "Offers chat-first Teams sign-in using domios plugin teams-client login",
+        "Says it will show the returned sign-in code and instructions to the user in chat",
+        "Does not give up, fabricate a sign-in code, or claim Teams was connected"
+      ]
+    }
+  ]
+}

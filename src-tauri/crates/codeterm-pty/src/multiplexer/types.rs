@@ -7,6 +7,8 @@ mod shell;
 pub use shell::{CloseRestoreTabState, ShellActivity, ShellCommandState, ShellPurpose};
 mod managed_tab;
 mod model_identity;
+mod neighbor;
+pub use neighbor::NeighborAuthority;
 mod restorable_launch;
 pub use managed_tab::ManagedTab;
 mod turn_resume;
@@ -665,11 +667,7 @@ pub struct Tab {
     #[serde(skip_deserializing, default)]
     pub agent_booting: bool,
     /// Agent session ID for resume (e.g. Claude Code session).
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        default,
-        alias = "claude_session_id"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_session_id: Option<String>,
     /// Human-readable session name emitted by the agent's TUI (e.g. Claude
     /// Code's "vivid-bhabha-1234" handle). Captured once per agent run via
@@ -692,8 +690,6 @@ pub struct Tab {
     /// reports use `agent_session_model`, which must come from runtime evidence.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub agent_requested_model: Option<String>,
-    #[serde(default)]
-    pub structured_control_active: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(serialize_with = "runtime_state::serialize")]
     pub agent_runtime_state: Option<serde_json::Value>,
@@ -798,6 +794,8 @@ pub struct Tab {
     /// so a top-level orchestrator's report still reaches its spawning agent.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub spawned_by_tab_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neighbor_authority: Option<NeighborAuthority>,
     /// Authenticated control ownership (controller identity, origin peer, origin
     /// Team) — separate from transport identity. Drives target-side attribution.
     #[serde(skip_serializing_if = "Option::is_none", default)]

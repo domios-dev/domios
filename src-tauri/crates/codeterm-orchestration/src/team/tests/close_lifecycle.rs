@@ -850,7 +850,7 @@ fn team_close_inventory_includes_terminal_unplanned_child_and_worktree_less_lane
     };
     store.save(&mut plan, 4).unwrap();
 
-    let lanes = team_close_lanes(&store.list_full(), &team_id, &[]);
+    let lanes = team_close_lanes(&store.all_plans_for_test(), &team_id, &[]);
 
     assert_eq!(lanes.len(), 2);
     assert!(lanes.iter().any(|lane| {

@@ -69,7 +69,7 @@ After review/integration, pushing the reviewed workflow ref, and exact-SHA quali
 record that ref's resolved SHA and dispatch once with owner authorization:
 
 ```bash
-gh workflow run release.yml --repo rollacode/codeterm --ref <reviewed-ref> \
+gh workflow run release.yml --repo domios-dev/domios --ref <reviewed-ref> \
   -f tag=v<package-version> -f dry_run=true -f mirror=false
 ```
 

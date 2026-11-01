@@ -3,6 +3,21 @@ use axum::body::{to_bytes, Body};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 fn complete_service(api: &EarlyApi) {
+    for subsystem in [
+        "desk",
+        "account",
+        "billing",
+        "plans",
+        "plugins",
+        "providers",
+        "crons",
+        "memory",
+        "mesh",
+        "neighbors",
+        "docs_vectors",
+    ] {
+        api.complete_subsystem(subsystem);
+    }
     for phase in [
         "listener",
         "states",
@@ -51,6 +66,71 @@ async fn early_bind_health_answers_while_subsystems_are_starting() {
 }
 
 #[tokio::test]
+async fn desktop_reads_and_navigation_are_available_before_optional_services() {
+    let api = EarlyApi::new(None);
+    for phase in ["listener", "integrity", "states"] {
+        api.complete(phase);
+    }
+    let navigations = Arc::new(AtomicUsize::new(0));
+    let observed = navigations.clone();
+    api.publish_desktop(
+        Router::new()
+            .route(
+                "/api/mux/state",
+                axum::routing::get(|| async {
+                    Json(serde_json::json!({"generation": 1, "tabs": ["opaque"]}))
+                }),
+            )
+            .route(
+                "/api/workspaces/opaque/focus",
+                axum::routing::post(move || {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    async { StatusCode::OK }
+                }),
+            ),
+    )
+    .unwrap();
+    let listener = api.router();
+    assert_eq!(
+        listener
+            .clone()
+            .oneshot(request(Method::GET, "/api/mux/state"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        listener
+            .clone()
+            .oneshot(request(Method::POST, "/api/workspaces/opaque/focus"))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(navigations.load(Ordering::SeqCst), 1);
+    let snapshot = json(
+        listener
+            .clone()
+            .oneshot(request(Method::GET, "/api/startup"))
+            .await
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(snapshot["desktop_ready"], true);
+    assert_eq!(snapshot["routes_ready"], false);
+    let response = listener
+        .oneshot(request(Method::GET, "/api/plans"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let pending = json(response).await;
+    assert_eq!(pending["error"]["code"], "starting");
+    assert_eq!(pending["error"]["subsystem"], "plans");
+}
+
+#[tokio::test]
 async fn starting_refusal_never_dispatches_or_replays_a_mutation() {
     let api = EarlyApi::new(None);
     let calls = Arc::new(AtomicUsize::new(0));
@@ -69,7 +149,9 @@ async fn starting_refusal_never_dispatches_or_replays_a_mutation() {
         .await
         .unwrap();
     assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(json(response).await["error"]["code"], "starting");
+    let refusal = json(response).await;
+    assert_eq!(refusal["error"]["code"], "starting");
+    assert_eq!(refusal["error"]["request_executed"], false);
     complete_service(&api);
     assert!(api.activate(full.clone()).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -170,6 +252,102 @@ async fn startup_events_refuse_foreign_unauthenticated_callers() {
     );
 }
 
+#[tokio::test]
+async fn published_listener_router_serves_authenticated_startup_events_instead_of_html() {
+    use axum::body::HttpBody;
+    for state in ["starting", "ready", "failed"] {
+        let api = EarlyApi::new(Some("fixture-token".into()));
+        let published = api.with_startup_events(
+            Router::new()
+                .fallback(|| async { axum::response::Html("<html>frontend shell</html>") }),
+        );
+        if state == "failed" {
+            api.fail("platform");
+        } else if state == "ready" {
+            complete_service(&api);
+            api.complete("integrity");
+            api.activate(published.clone()).unwrap();
+        }
+        for router in [api.router(), published.clone()] {
+            for method in [Method::GET, Method::HEAD, Method::POST] {
+                for token in [None, Some("wrong-token"), Some("fixture-token")] {
+                    let mut request = Request::builder()
+                        .method(method.clone())
+                        .uri("/api/startup/events")
+                        .extension(ConnectInfo(
+                            "192.0.2.2:40000".parse::<SocketAddr>().unwrap(),
+                        ));
+                    if let Some(token) = token {
+                        request = request.header("authorization", format!("Bearer {token}"));
+                    }
+                    let response = router
+                        .clone()
+                        .oneshot(request.body(Body::empty()).unwrap())
+                        .await
+                        .unwrap();
+                    if token != Some("fixture-token") {
+                        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+                        continue;
+                    }
+                    if method != Method::GET {
+                        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
+                        assert!(to_bytes(response.into_body(), 1024)
+                            .await
+                            .unwrap()
+                            .is_empty());
+                        continue;
+                    }
+                    assert_eq!(response.status(), StatusCode::OK);
+                    assert_eq!(response.headers()["content-type"], "text/event-stream");
+                    let mut body = response.into_body();
+                    let frame =
+                        std::future::poll_fn(|cx| std::pin::Pin::new(&mut body).poll_frame(cx))
+                            .await
+                            .unwrap()
+                            .unwrap()
+                            .into_data()
+                            .unwrap();
+                    let event = std::str::from_utf8(&frame).unwrap();
+                    assert!(event.starts_with("event: startup-state\n"));
+                    let data = event
+                        .lines()
+                        .find_map(|line| line.strip_prefix("data: "))
+                        .unwrap();
+                    let snapshot: serde_json::Value = serde_json::from_str(data).unwrap();
+                    assert_eq!(snapshot["state"], state);
+                    if state != "starting" {
+                        assert!(std::future::poll_fn(
+                            |cx| std::pin::Pin::new(&mut body).poll_frame(cx)
+                        )
+                        .await
+                        .is_none());
+                    }
+                }
+            }
+        }
+        let response = published.oneshot(request(Method::GET, "/")).await.unwrap();
+        assert_eq!(
+            response.headers()["content-type"],
+            "text/html; charset=utf-8"
+        );
+    }
+}
+
+#[test]
+fn activated_published_router_does_not_retain_the_readiness_gate() {
+    let api = EarlyApi::new(Some("fixture-token".into()));
+    let gate = Arc::downgrade(&api.gate);
+    let primary = api.router();
+    let published = api.with_startup_events(Router::new());
+    complete_service(&api);
+    api.complete("integrity");
+    api.activate(published.clone()).unwrap();
+    drop(api);
+    assert!(gate.upgrade().is_some());
+    drop(primary);
+    drop(published);
+    assert!(gate.upgrade().is_none());
+}
 #[tokio::test]
 async fn early_health_only_exempts_loopback_from_authentication() {
     let api = EarlyApi::new(Some("fixture-token".into()));

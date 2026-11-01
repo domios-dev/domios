@@ -4,9 +4,6 @@ macro_rules! agent_provider_identity {
             false
         }
 
-        fn structured_control(&self) -> Option<StructuredControl> {
-            None
-        }
         /// Unique identifier for this provider (e.g. "claude").
         fn id(&self) -> &str;
 
@@ -73,7 +70,6 @@ macro_rules! agent_provider_identity {
             false
         }
 
-        /// Direct launches skip `preparation::start`; providers returning a spec must not depend on it.
         fn launch_spec(
             &self,
             _params: &crate::provider::LaunchSpecParams<'_>,

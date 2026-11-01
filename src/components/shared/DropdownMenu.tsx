@@ -1,6 +1,6 @@
 import { cloneElement, isValidElement, useCallback, useEffect, useId, useRef, useState, type ReactElement, type ReactNode, type RefObject } from "react";
 import { Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
-import { AnchoredPopover } from "./AnchoredPopover";
+import { AnchoredPopover, type AnchoredPopoverProps } from "./AnchoredPopover";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
 import { useBackDismissal } from "../../lib/backDismissal";
 
@@ -12,6 +12,7 @@ const TRIGGER_FOCUSABLE = 'button:not([disabled]), [href], [tabindex]:not([tabin
 
 export interface DropdownMenuItem {
   label: string;
+  labelContent?: ReactNode;
   icon?: ReactNode;
   /** Short chip rendered beside the label (e.g. a model's catalog badge). */
   badge?: string;
@@ -94,6 +95,8 @@ function leafItems(entries: DropdownMenuEntry[]): DropdownMenuItem[] {
 type PendingFocus = { kind: "submenu" } | { kind: "parent"; key: string };
 
 interface DropdownMenuProps {
+  placement?: AnchoredPopoverProps["placement"];
+  maxWidth?: number;
   items: DropdownMenuEntry[];
   trigger: ReactNode;
   /** Extra class on the trigger wrapper */
@@ -114,6 +117,8 @@ interface DropdownMenuProps {
  * Closes on click outside, Escape, or item click.
  */
 export function DropdownMenu({
+  placement,
+  maxWidth,
   items,
   trigger,
   className,
@@ -353,7 +358,7 @@ export function DropdownMenu({
         {triggerWithPopup}
       </div>
       {!open && <div id={menuId} role="menu" aria-label={menuLabel} hidden />}
-      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} gap={contextPoint ? 0 : 2}>
+      <AnchoredPopover open={open} anchor={contextPoint ?? triggerRef} placement={placement} width={maxWidth} gap={contextPoint ? 0 : 2}>
           <div
             ref={menuRef}
             id={menuId}
@@ -390,7 +395,7 @@ export function DropdownMenu({
             }}
             aria-description={activeSubmenu?.description}
             className="ct-menu w-max"
-            style={{ width: inSubmenu && pageWidth ? pageWidth : undefined, maxHeight }}
+            style={{ width: maxWidth ?? (inSubmenu && pageWidth ? pageWidth : undefined), maxHeight, maxWidth }}
           >
             <div key={submenuKey ?? "root"} className="ct-menu-page" data-direction={pageDirection ?? undefined}>
             {activeSubmenu ? (
@@ -469,6 +474,7 @@ function DropdownMenuRow({
     <button
       type="button"
       role={menuItemRole(item)}
+      aria-label={item.labelContent === undefined ? undefined : item.label}
       aria-checked={item.checked ?? item.selected}
       aria-haspopup={item.submenu ? "menu" : undefined}
       aria-expanded={item.submenu ? false : undefined}
@@ -493,7 +499,7 @@ function DropdownMenuRow({
       {item.icon && <span className="ct-menu-row__icon">{item.icon}</span>}
       <span className="min-w-0 flex-1 text-left">
         <span className="flex min-w-0 items-center gap-1.5">
-          <span className="truncate">{item.label}</span>
+          <span className="truncate">{item.labelContent ?? item.label}</span>
           {item.badge && (
             <span
               data-badge-for={item["data-testid"]}
@@ -529,6 +535,9 @@ export interface DropdownSelectOption {
    *  header. Options without a group stay in a headerless section. */
   group?: string;
 }
+
+/** The closed look of every value picker: a pill that names the current choice, with a trailing chevron. */
+export const SELECT_TRIGGER = "flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40";
 
 /**
  * A value-picker built on {@link DropdownMenu}. Same portal-rendered menu
@@ -594,7 +603,7 @@ export function DropdownSelect({
       data-value={value}
       disabled={disabled}
       aria-label={ariaLabel ? `${ariaLabel}: ${label}` : prefix ? `${prefix}: ${label}` : undefined}
-      className={`flex items-center gap-2 w-full min-w-0 px-3 py-1.5 rounded-full border border-[var(--ct-border)] bg-[var(--ct-bg)] text-[12px] text-[var(--ct-fg)] outline-none disabled:opacity-40 ${className ?? ""}`}
+      className={`${SELECT_TRIGGER} ${className ?? ""}`}
     >
       {leading}
       {prefix && (

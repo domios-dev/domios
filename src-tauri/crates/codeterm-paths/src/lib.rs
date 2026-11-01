@@ -6,7 +6,9 @@
 
 use std::path::PathBuf;
 
+pub mod container_install;
 pub mod instance_identity;
+pub mod path_owner;
 mod port_policy;
 pub mod relaunch_env;
 pub use port_policy::{runtime_api_port, validate_listener_port, PRODUCTION_PORT};
@@ -108,6 +110,19 @@ pub fn data_dir_path_for_instance(dev: bool, instance: Option<&str>) -> PathBuf 
         .unwrap_or_default();
     let name = identity_names_for(dev, if dev { &suffix } else { "" }).0;
     data_dir_path_for_name(&name)
+}
+
+pub fn explicit_development_data_dir(instance: &str) -> Result<PathBuf, String> {
+    if instance.is_empty()
+        || instance.len() > 64
+        || !instance
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+    {
+        return Err("invalid_dev_instance: use a lowercase instance slug".into());
+    }
+    default_data_dir(&identity_names_for(true, &format!("-{instance}")).0)
+        .ok_or_else(|| "DEV data directory is unavailable".into())
 }
 
 fn data_dir_path_for_name(name: &str) -> PathBuf {

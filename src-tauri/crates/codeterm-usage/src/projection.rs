@@ -26,6 +26,9 @@ use serde::{Deserialize, Serialize};
 
 use super::store::UsageStoreHandle;
 
+mod calendar;
+use calendar::Calendar;
+
 const DAY_MS: i64 = 86_400_000;
 const RECENT_WINDOW_MS: i64 = 30 * 60 * 1000;
 const BASELINE_LOOKBACK_DAYS: i64 = 90;
@@ -138,7 +141,10 @@ fn cache() -> &'static Mutex<HashMap<CacheKey, Baseline>> {
 }
 
 fn local_yyyymmdd(ms: i64) -> i32 {
-    let dt = local_from_ms(ms);
+    yyyymmdd(local_from_ms(ms).date_naive())
+}
+
+fn yyyymmdd(dt: chrono::NaiveDate) -> i32 {
     dt.year() * 10_000 + (dt.month() as i32) * 100 + (dt.day() as i32)
 }
 
@@ -335,22 +341,14 @@ fn compute_weekly(
         0.5 * (hist * scale) + 0.5 * hist
     };
 
-    let mut end_of_cycle = end_of_today;
-    let today_start_ms = local_start_of_day_ms(now_ms);
-    let mut cursor = today_start_ms + DAY_MS;
-    while cursor < cycle_end_ms {
-        let dow = local_from_ms(cursor).weekday().num_days_from_sunday() as usize;
-        end_of_cycle += dow_estimate(dow);
-        cursor += DAY_MS;
-    }
-
-    // can paint each future day with its own height.
     let est_wd_total = (1..=5).map(|d| dow_estimate(d)).sum::<f64>() / 5.0;
     let est_we_total = (dow_estimate(0) + dow_estimate(6)) / 2.0;
-    let dow_estimates: [f64; 7] = std::array::from_fn(|d| dow_estimate(d));
+    let dow_estimates: [f64; 7] = std::array::from_fn(dow_estimate);
+    let calendar = Calendar(Local);
+    let end_of_cycle =
+        end_of_today + calendar.future_spend(now_ms, cycle_end_ms, &dow_estimates)?;
 
-    let day_actuals =
-        compute_day_actuals(store, provider, account_id, today_start_ms, cycle_end_ms)?;
+    let day_actuals = compute_day_actuals(store, provider, account_id, cycle_end_ms, &calendar)?;
 
     Ok(Some(WeeklyProjection {
         end_of_today_pct: end_of_today.min(200.0),
@@ -374,7 +372,7 @@ fn today_delta(
     _current_pct: f64,
     current_resets_at: i64,
 ) -> Result<f64, String> {
-    let today_start_ms = local_start_of_day_ms(now_ms);
+    let today_start_ms = Calendar(Local).start_of_day(now_ms)?;
     Ok(day_delta_for_window(
         store,
         provider,
@@ -484,31 +482,32 @@ fn day_delta_for_window(
     })
 }
 
-fn compute_day_actuals(
+fn compute_day_actuals<Tz: TimeZone>(
     store: &UsageStoreHandle,
     provider: &str,
     account_id: Option<&str>,
-    today_start_ms: i64,
     cycle_end_ms: i64,
+    calendar: &Calendar<Tz>,
 ) -> Result<Vec<DayActual>, String> {
     let cycle_start_ms = cycle_end_ms - 7 * DAY_MS;
-    let first_day_aligned = local_start_of_day_ms(cycle_start_ms);
-    let mut out: Vec<DayActual> = Vec::new();
-    let mut cursor = first_day_aligned;
-    while cursor < cycle_end_ms {
-        let day_end = if cursor == local_start_of_day_ms(today_start_ms) {
-            cycle_end_ms.min(cursor + DAY_MS)
-        } else {
-            cursor + DAY_MS
-        };
-        let pct = day_delta_for_window(store, provider, account_id, cursor, day_end, cycle_end_ms)?;
-        out.push(DayActual {
-            day_start_ms: cursor,
-            pct,
-        });
-        cursor += DAY_MS;
-    }
-    Ok(out)
+    calendar
+        .windows(cycle_start_ms, cycle_end_ms)?
+        .into_iter()
+        .map(|day| {
+            let pct = day_delta_for_window(
+                store,
+                provider,
+                account_id,
+                day.start_ms,
+                day.end_ms,
+                cycle_end_ms,
+            )?;
+            Ok(DayActual {
+                day_start_ms: day.start_ms,
+                pct,
+            })
+        })
+        .collect()
 }
 
 fn latest_weekly(
@@ -614,15 +613,23 @@ fn compute_baseline(
     account_id: Option<&str>,
     now_ms: i64,
 ) -> Result<Baseline, String> {
-    let today_start_ms = local_start_of_day_ms(now_ms);
-    let lookback_start_ms = today_start_ms - BASELINE_LOOKBACK_DAYS * DAY_MS;
+    compute_baseline_with_calendar(store, provider, account_id, now_ms, &Calendar(Local))
+}
+
+fn compute_baseline_with_calendar<Tz: TimeZone>(
+    store: &UsageStoreHandle,
+    provider: &str,
+    account_id: Option<&str>,
+    now_ms: i64,
+    calendar: &Calendar<Tz>,
+) -> Result<Baseline, String> {
+    let today_start_ms = calendar.start_of_day(now_ms)?;
+    let lookback_start_ms = calendar.shift_start(now_ms, -BASELINE_LOOKBACK_DAYS)?;
 
     store.with_conn(|conn| {
         let mut stmt = conn
             .prepare(
                 r#"SELECT
-                       strftime('%Y%m%d', captured_at / 1000, 'unixepoch', 'localtime') AS day,
-                       CAST(strftime('%w', captured_at / 1000, 'unixepoch', 'localtime') AS INTEGER) AS dow,
                        captured_at,
                        weekly_pct,
                        weekly_resets_at
@@ -636,16 +643,14 @@ fn compute_baseline(
                      ORDER BY captured_at ASC"#,
             )
             .map_err(|e| format!("prepare samples: {}", e))?;
-        let samples: Vec<(String, i64, i64, f64, Option<i64>)> = stmt
+        let samples: Vec<(i64, f64, Option<i64>)> = stmt
             .query_map(
                 params![provider, account_id, lookback_start_ms, today_start_ms],
                 |r| {
                     Ok((
-                        r.get::<_, String>(0)?,
-                        r.get::<_, i64>(1)?,
-                        r.get::<_, i64>(2)?,
-                        r.get::<_, f64>(3)?,
-                        r.get::<_, Option<i64>>(4)?,
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, f64>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
                     ))
                 },
             )
@@ -657,7 +662,10 @@ fn compute_baseline(
         // This works on sparse histories — even one sample per hour produces signal.
         let mut day_buckets: HashMap<String, (bool, [f64; 24], Vec<(i64, f64, Option<i64>)>)> =
             HashMap::new();
-        for (day, dow, captured_at, pct, resets_at) in samples {
+        for (captured_at, pct, resets_at) in samples {
+            let local = calendar.at(captured_at)?;
+            let day = local.date_naive().to_string();
+            let dow = local.weekday().num_days_from_sunday();
             let is_we = dow == 0 || dow == 6;
             let entry = day_buckets
                 .entry(day)
@@ -672,7 +680,7 @@ fn compute_baseline(
         for (day, (is_we, _empty_hours, mut samples)) in day_buckets {
             samples.sort_by_key(|s| s.0);
             if let Some(first) = samples.first() {
-                let dow = local_from_ms(first.0).weekday().num_days_from_sunday() as usize;
+                let dow = calendar.at(first.0)?.weekday().num_days_from_sunday() as usize;
                 day_dows.insert(day.clone(), dow);
             }
             let mut hours = [0.0_f64; 24];
@@ -696,7 +704,7 @@ fn compute_baseline(
                 if gap_ms > SHAPE_PAIR_GAP_MS || delta > SHAPE_PAIR_DELTA_MAX {
                     continue;
                 }
-                let h = local_from_ms(ts_b).hour().clamp(0, 23) as usize;
+                let h = calendar.at(ts_b)?.hour().clamp(0, 23) as usize;
                 hours[h] += delta;
             }
             day_hours.insert(day, (is_we, hours, day_total));
@@ -768,10 +776,18 @@ fn compute_baseline(
         let default_wd_sum: f64 = DEFAULT_HOURLY_WEEKDAY.iter().sum();
         let default_we_sum: f64 = DEFAULT_HOURLY_WEEKEND.iter().sum();
         let default_wd_share: [f64; 24] = std::array::from_fn(|h| {
-            if default_wd_sum > 0.0 { DEFAULT_HOURLY_WEEKDAY[h] / default_wd_sum } else { 0.0 }
+            if default_wd_sum > 0.0 {
+                DEFAULT_HOURLY_WEEKDAY[h] / default_wd_sum
+            } else {
+                0.0
+            }
         });
         let default_we_share: [f64; 24] = std::array::from_fn(|h| {
-            if default_we_sum > 0.0 { DEFAULT_HOURLY_WEEKEND[h] / default_we_sum } else { 0.0 }
+            if default_we_sum > 0.0 {
+                DEFAULT_HOURLY_WEEKEND[h] / default_we_sum
+            } else {
+                0.0
+            }
         });
 
         let wd_hour_share: [f64; 24] = if wd_share_n >= 2 {
@@ -785,8 +801,16 @@ fn compute_baseline(
             default_we_share
         };
         // wd_total_sum / we_total_sum are MEDIANS (renamed signature for clarity).
-        let wd_total_avg = if wd_n > 0 { wd_total_sum } else { default_wd_sum };
-        let we_total_avg = if we_n > 0 { we_total_sum } else { default_we_sum };
+        let wd_total_avg = if wd_n > 0 {
+            wd_total_sum
+        } else {
+            default_wd_sum
+        };
+        let we_total_avg = if we_n > 0 {
+            we_total_sum
+        } else {
+            default_we_sum
+        };
         let we_to_wd_ratio = if wd_total_avg > 0.0 {
             (we_total_avg / wd_total_avg).clamp(0.02, 2.0)
         } else {
@@ -801,7 +825,11 @@ fn compute_baseline(
             dow_total[d] = if n > 0 {
                 median(std::mem::take(&mut dow_totals[d]))
             } else {
-                if d == 0 || d == 6 { we_total_avg } else { wd_total_avg }
+                if d == 0 || d == 6 {
+                    we_total_avg
+                } else {
+                    wd_total_avg
+                }
             };
         }
 
@@ -814,7 +842,7 @@ fn compute_baseline(
             dow_n: dow_n_out,
             we_to_wd_ratio,
             confidence,
-            computed_day: local_yyyymmdd(now_ms),
+            computed_day: yyyymmdd(calendar.at(now_ms)?.date_naive()),
             computed_at_ms: now_ms,
         })
     })
@@ -827,13 +855,9 @@ fn local_from_ms(ms: i64) -> DateTime<Local> {
         .unwrap_or_else(|| Local.timestamp_opt(0, 0).unwrap())
 }
 
+#[cfg(test)]
 fn local_start_of_day_ms(ms: i64) -> i64 {
-    let dt = local_from_ms(ms);
-    let start = Local
-        .with_ymd_and_hms(dt.year(), dt.month(), dt.day(), 0, 0, 0)
-        .single()
-        .unwrap_or(dt);
-    start.timestamp_millis()
+    Calendar(Local).start_of_day(ms).unwrap()
 }
 
 #[cfg(test)]

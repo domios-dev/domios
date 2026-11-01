@@ -42,7 +42,7 @@ def test_socket_eager_create_then_immediate_list_returns(api_only, tmp_path):
             env,
             timeout=10,
         )
-        ws = json.loads(created.stdout)
+        ws = json.loads(created.stdout)["result"]
         ws_id = ws["id"]
 
         run_socket_cli(
@@ -66,7 +66,7 @@ def test_socket_eager_create_then_immediate_list_returns(api_only, tmp_path):
         listed = run_socket_cli(["workspace", "list", "--json"], env, timeout=2)
         elapsed = time.monotonic() - started
         assert elapsed < 2
-        assert any(w["id"] == ws_id for w in json.loads(listed.stdout))
+        assert any(w["id"] == ws_id for w in json.loads(listed.stdout)["result"])
     finally:
         if ws_id:
             api_only.close_workspace(ws_id)

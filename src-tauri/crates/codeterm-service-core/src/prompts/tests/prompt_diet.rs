@@ -39,7 +39,7 @@ const PLANNER_CONTRACT_MAX_BYTES: usize = 21_490;
 // provider-native subagent rule (9d4ae23d1).
 const WORKER_SUFFIX_MAX_BYTES: usize = 5_000;
 // Primer and worker launch re-measured for the owner-requested Sentinel command line
-// (bench case 9 needs the concrete flags) and the `@ds-guide` rendering sentence.
+// (bench case 9 needs the concrete flags) and the `ds-guide` rendering sentence.
 const PRIMER_MAX_BYTES: usize = 2_600;
 const PROVIDER_RULES_MAX_BYTES: usize = 9_700;
 const WORKER_CHARTER_MAX_BYTES: usize = 1_450;

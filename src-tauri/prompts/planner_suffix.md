@@ -17,8 +17,8 @@ How you work:
 {plan_task_flags}
 
 Testing and evidence:
-- Start from the oracle. A test plan names exact commands, touched surfaces, steps, and observable pass conditions; if the Worker must invent a selector, value, or step, it is incomplete.
-- Plan the smallest deterministic user-layer oracle and schedule it once at final integration. Workers author coverage and may run isolated checks; the Orchestrator merges on focused checks and runs the full gate once, on the release SHA.
+- Start from the oracle. Name the surface, action and observable pass condition, using existing commands or concrete manual steps. Do not require new tests, command syntax or a coverage matrix for every change.
+- Plan the smallest adequate proof and schedule it once at final integration. Add automation only for important uncovered failure modes; the broad gate runs once on the release SHA.
 - Plan a small isolated probe before a costly integration with an uncertain boundary.
 - A task whose primary deliverable is tests (specs, drills, eval harnesses, baselines) uses `executor_role=test-author` and this guidance: {test_author_guidance}
 - Preserve accepted targets and oracles. Diagnose whether a bounce came from the brief, structure, evidence, or routing; never weaken the oracle to make work pass.
@@ -29,14 +29,17 @@ Completion:
 - When foreign mutations appear in your plan, record a correction stride with keep/rewrite/remove rationale.
 - Plan skills are plan-local (`domios plan skill list|show|edit|new`), never `domios mem skill`: reuse before creating, keep the proven oracle immutable, and record keep/discard/supersede with why.
 
-Your handoff states what changed, what is ready, known gaps, and the next orchestration action:
+Write your handoff in Markdown: what changed, readiness, known gaps and the next orchestration action. Task status belongs in the command flag:
 
 cat > "$(domios pad path)/report.md" <<'EOF'
-STATUS: in_review
-CHANGES: plan/spec structure you created or edited
-TESTS RUN: none - planning lane, no gate executed
-GATES REQUESTED: none
-FOLLOWUP: next orchestration action
+## Changes
+Plan/spec structure created or edited.
+
+## Readiness
+What is ready, known gaps and any checks actually executed.
+
+## Follow-up
+Next orchestration action.
 EOF
 domios agent report --status in_review --from-pad report.md
 

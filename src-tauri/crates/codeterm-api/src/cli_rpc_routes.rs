@@ -17,20 +17,16 @@ pub(crate) struct RpcRequest {
 
 pub(super) fn local_caller(
     remote: SocketAddr,
-    expected_token: Option<&str>,
+    state: &AppState,
     authorization: Option<&str>,
-) -> bool {
-    let Some(expected_token) = expected_token.filter(|value| !value.is_empty()) else {
-        return false;
-    };
+) -> Result<Option<codeterm_service_core::service::tab_credentials::TabCaller>, String> {
+    if !remote.ip().is_loopback() {
+        return Err("Local credentials require a loopback connection".into());
+    }
     let presented = authorization
         .and_then(|value| value.strip_prefix("Bearer "))
-        .unwrap_or("");
-    remote.ip().is_loopback()
-        && codeterm_service_core::service::tokens::constant_time_eq(
-            presented.as_bytes(),
-            expected_token.as_bytes(),
-        )
+        .unwrap_or_default();
+    state.svc.authenticate_local_credential(presented)
 }
 
 fn identity_matches(method: &str, params: Option<&serde_json::Value>, headers: &HeaderMap) -> bool {
@@ -114,16 +110,22 @@ pub(crate) async fn dispatch(
     State(state): State<AppState>,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
-    Json(request): Json<RpcRequest>,
+    Json(mut request): Json<RpcRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    let expected_token = state.config.lock().api.token.clone();
-    if !local_caller(
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .unwrap_or_default();
+    if local_caller(
         remote,
-        expected_token.as_deref(),
+        &state,
         headers
             .get("authorization")
             .and_then(|value| value.to_str().ok()),
-    ) {
+    )
+    .is_err()
+    {
         return Err((
             StatusCode::FORBIDDEN,
             Json(
@@ -131,6 +133,20 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
+    state
+        .svc
+        .bind_local_rpc(token, &request.method, &mut request.params)
+        .map_err(|message| {
+            let data = message
+                .starts_with("neighbor_capability_denied:")
+                .then(|| serde_json::json!({"reason":"neighbor_capability_denied"}));
+            (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":data}})),
+            )
+        })?;
+    state.svc.authorize_neighbor_rpc_credential(token, &request.method, request.params.as_ref()).await
+        .map_err(|message| (StatusCode::FORBIDDEN, Json(serde_json::json!({"error":{"code":-32003,"message":message,"data":{"reason":message.split(':').next().unwrap_or("neighbor_capability_denied")}}}))))?;
     let bridge = codeterm_service_core::ports::socket::bridge();
     if let Some(error) = (bridge.version_skew_gate)(request.protocol_version.as_ref()) {
         return Err((
@@ -139,6 +155,43 @@ pub(crate) async fn dispatch(
                 "error": { "code": error.code, "message": error.message, "data": error.data }
             })),
         ));
+    }
+    if request.method == "cli.local.authorize" {
+        return codeterm_service_core::service::cli_local_admission::authorize(
+            &state.svc,
+            token,
+            request.params.as_ref(),
+        )
+        .await
+        .map(|value| Json(serde_json::json!({"result":value})))
+        .map_err(|message| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+            )
+        });
+    }
+    if request.method == "mem.neighbor_save" {
+        let body = serde_json::from_value(request.params.unwrap_or_default()).map_err(|error| (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error":{"code":-32602,"message":format!("Invalid neighbor save: {error}")}})),
+        ))?;
+        return crate::mem_routes::neighbor_save::save(State(state), headers, Json(body)).await
+            .map(|Json(value)| Json(serde_json::json!({"result":value})))
+            .map_err(|(status, Json(error))| (status, Json(serde_json::json!({"error":{"code":-32003,"message":error["message"],"data":{"reason":error["code"]}}}))));
+    }
+    if let Some(value) = state
+        .svc
+        .neighbor_rpc_discovery(token, &request.method, request.params.as_ref())
+        .await
+        .map_err(|message| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+            )
+        })?
+    {
+        return Ok(Json(serde_json::json!({"result":value})));
     }
     if matches!(
         request.method.as_str(),
@@ -152,12 +205,33 @@ pub(crate) async fn dispatch(
             ),
         ));
     }
+    let caller = crate::auth::tab_caller(&state, &headers).map_err(|(status, message)| {
+        (
+            status,
+            Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+        )
+    })?;
+    let author = codeterm_service_core::mem_ops::author::mem_author_for_rpc(
+        &state.svc,
+        caller.as_ref().map(|caller| caller.tab_id.as_str()),
+        &request.method,
+    )
+    .await
+    .map_err(|message| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error":{"code":-32003,"message":message}})),
+        )
+    })?;
+    let actor = codeterm_service_core::mem_ops::author::author_audit_label(&author);
     let svc = state.svc.clone();
     let method = request.method;
     let params = request.params;
     let result = tokio::task::spawn_blocking(move || {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            (bridge.dispatch_service_rpc)(&method, params, &svc)
+            codeterm_service_core::mem::store::with_authored_change(author, &actor, || {
+                (bridge.dispatch_service_rpc)(&method, params, &svc)
+            })
         }))
     })
     .await;
@@ -189,43 +263,58 @@ pub(crate) async fn dispatch(
 }
 
 #[cfg(test)]
+mod neighbor_tests;
+#[cfg(test)]
 mod tests {
     use super::{identity_matches, local_caller};
     use axum::http::HeaderMap;
     use std::net::SocketAddr;
 
+    fn caller_fixture() -> (
+        codeterm_service_core::service::test_fixture::ServiceFixture,
+        super::AppState,
+    ) {
+        let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+        let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+        let state = crate::test_support::app_state(&fixture);
+        state.config.lock().api.token = Some("secret".into());
+        (fixture, state)
+    }
+
     #[test]
     fn mesh_peer_identity_cannot_use_loopback_rpc_fallback() {
+        let (_fixture, state) = caller_fixture();
         let peer = "192.0.2.10:7000".parse::<SocketAddr>().unwrap();
-        assert!(!local_caller(peer, Some("secret"), Some("Bearer secret")));
-        assert!(!local_caller(
-            "127.0.0.1:7000".parse().unwrap(),
-            Some("secret"),
-            Some("Bearer peer-token")
-        ));
+        assert!(local_caller(peer, &state, Some("Bearer secret")).is_err());
         assert!(local_caller(
             "127.0.0.1:7000".parse().unwrap(),
-            Some("secret"),
-            Some("Bearer secret")
+            &state,
+            Some("Bearer peer-token")
+        )
+        .is_err());
+        assert!(matches!(
+            local_caller(
+                "127.0.0.1:7000".parse().unwrap(),
+                &state,
+                Some("Bearer secret")
+            ),
+            Ok(None)
         ));
     }
 
     #[test]
     fn rest_identity_headers_are_accepted_for_local_auth_and_refused_for_mesh_callers() {
+        let (_fixture, state) = caller_fixture();
         let local = "127.0.0.1:7000".parse().unwrap();
         let peer = "192.0.2.10:7000".parse().unwrap();
         let mut headers = HeaderMap::new();
         headers.insert("x-codeterm-tab-id", "worker-1".parse().unwrap());
         let params = serde_json::json!({"tab_id": "worker-1"});
-        let local_authenticated = local_caller(local, Some("secret"), Some("Bearer secret"));
+        let local_authenticated = local_caller(local, &state, Some("Bearer secret")).is_ok();
         assert!(local_authenticated);
         assert!(local_authenticated && identity_matches("agent.ack", Some(&params), &headers));
-        assert!(!local_caller(peer, Some("secret"), Some("Bearer secret")));
-        assert!(!local_caller(
-            local,
-            Some("secret"),
-            Some("Bearer peer-token")
-        ));
+        assert!(local_caller(peer, &state, Some("Bearer secret")).is_err());
+        assert!(local_caller(local, &state, Some("Bearer peer-token")).is_err());
     }
 
     #[test]

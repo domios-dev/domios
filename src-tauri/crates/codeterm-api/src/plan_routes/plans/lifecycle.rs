@@ -73,10 +73,12 @@ pub async fn pause(
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
+    let from = crate::auth::actor_ref(&state, &headers, Some(body.from))
+        .map_err(|(status, message)| text_err(status, message))?;
     tokio::task::spawn_blocking(move || {
         let outcome = state
             .svc
-            .pause_plan_operation(&id, &body.reason, body.from, epoch_ms())
+            .pause_plan_operation(&id, &body.reason, from, epoch_ms())
             .map_err(team_plan_err)?;
         let mut response = serde_json::to_value(&outcome).unwrap_or_default();
         response["ok"] = serde_json::json!(true);

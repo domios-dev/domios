@@ -1,6 +1,13 @@
-use codeterm_types::agent::chat_types::SessionDelta;
+use codeterm_types::agent::chat_types::{MessageBlock, RichMessage, SessionDelta};
 
 use super::JsProvider;
+
+#[derive(PartialEq, Eq)]
+pub(super) struct Failure {
+    path: std::path::PathBuf,
+    offset: u64,
+    cause: String,
+}
 
 impl JsProvider {
     pub(super) fn js_parse_session_delta(
@@ -16,19 +23,38 @@ impl JsProvider {
             .get("sessionTranscript")
             .filter(|_| self.has_js("parseSessionRecords"))
         {
-            return crate::jsonl_window::records::read_records(
+            let window = match crate::jsonl_window::records::read_records(
                 path,
                 from_offset,
                 byte_budget,
                 source,
                 None,
-            )
-            .ok()
-            .and_then(|window| self.js_parse_session_records(&window).ok())
-            .unwrap_or(SessionDelta {
-                new_offset: from_offset,
-                messages: Vec::new(),
-            });
+            ) {
+                Ok(window) => window,
+                Err(error) => {
+                    return self.session_delta_failed(
+                        path,
+                        from_offset,
+                        from_offset,
+                        error.to_string(),
+                    );
+                }
+            };
+            if window.meta.new_offset == from_offset {
+                return SessionDelta {
+                    new_offset: from_offset,
+                    messages: Vec::new(),
+                };
+            }
+            return match self.js_parse_session_records(&window) {
+                Ok(delta) => {
+                    *self.session_delta_failure.lock() = None;
+                    delta
+                }
+                Err(error) => {
+                    self.session_delta_failed(path, from_offset, window.meta.new_offset, error)
+                }
+            };
         }
         // Seek-based and capped: session files reach hundreds of MB, and this runs on every tailer poll.
         let read = crate::jsonl_window::read_records_from(
@@ -106,16 +132,16 @@ impl JsProvider {
             messages: Vec<serde_json::Value>,
             new_offset: u64,
         }
-        let delta: Delta = self
-            .try_call_records(
-                "parseSessionRecords",
-                &[
-                    serde_json::json!(window.records),
-                    serde_json::json!(window.meta),
-                ],
-                window,
-            )
-            .ok_or("Parsed session record projection failed")?;
+        let delta: Delta = super::super::vm::call_records(
+            &self.vm,
+            "parseSessionRecords",
+            &[
+                serde_json::json!(window.records),
+                serde_json::json!(window.meta),
+            ],
+            window,
+        )
+        .map_err(|error| error.to_string())?;
         if delta.new_offset != window.meta.new_offset {
             return Err("Parsed session record offset differs from host boundary".into());
         }
@@ -143,6 +169,52 @@ impl JsProvider {
             messages,
             new_offset: window.meta.new_offset,
         })
+    }
+
+    fn session_delta_failed(
+        &self,
+        path: &std::path::Path,
+        from: u64,
+        until: u64,
+        cause: String,
+    ) -> SessionDelta {
+        let failure = Failure {
+            path: path.to_path_buf(),
+            offset: from,
+            cause,
+        };
+        let mut previous = self.session_delta_failure.lock();
+        if previous.as_ref() == Some(&failure) {
+            return SessionDelta {
+                new_offset: until,
+                messages: Vec::new(),
+            };
+        }
+        log::warn!(
+            "[parse_session_delta] plugin '{}' failed for {} at {}..{}: {}",
+            self.manifest.id,
+            path.display(),
+            from,
+            until,
+            failure.cause
+        );
+        let message = RichMessage {
+            role: "system".into(),
+            record_start: Some(from),
+            blocks: vec![MessageBlock {
+                kind: "text".into(),
+                data: serde_json::json!({
+                    "text": format!("Some transcript messages could not be displayed: {}", failure.cause),
+                    "subtype": "transcript_error",
+                }),
+            }],
+            ..Default::default()
+        };
+        *previous = Some(failure);
+        SessionDelta {
+            new_offset: until,
+            messages: vec![message],
+        }
     }
 }
 

@@ -28,6 +28,7 @@ fn rejected_question_clears_only_the_matching_pending_request() {
         active.insert(
             tab_id.to_string(),
             Active {
+                automatic_nonce: None,
                 prompt: dummy_prompt(tab_id),
                 in_flight: false,
                 route: ResponseRoute {
@@ -72,6 +73,7 @@ fn endpoint_and_active_round_trip_per_tab() {
     ACTIVE.lock().insert(
         tab.to_string(),
         Active {
+            automatic_nonce: None,
             prompt: dummy_prompt("Pick one"),
             in_flight: false,
             route: ResponseRoute {
@@ -156,6 +158,7 @@ fn structured_multi_select_advances_without_a_pty_or_clearing_the_next_prompt() 
 fn promotion_preserves_an_already_active_request() {
     let tab_id = "test-structured-promotion";
     let active = Active {
+        automatic_nonce: None,
         prompt: dummy_prompt("queued"),
         route: ResponseRoute {
             session_id: "own".into(),

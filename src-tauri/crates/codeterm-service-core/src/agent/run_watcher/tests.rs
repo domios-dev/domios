@@ -582,6 +582,7 @@ fn dead_cron_run_is_reaped_on_process_exit() {
             .record_run(
                 &job.id,
                 crate::cron::store::CronRunInfo {
+                    cancel_reason: None,
                     run_id: run_id.into(),
                     started_at: 1,
                     finished_at: None,

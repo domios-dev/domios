@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::{check_auth, AppState};
-use codeterm_service_core::plan::{AgentRef, OrchestratorRef};
+use codeterm_service_core::plan::OrchestratorRef;
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
 
@@ -28,7 +28,8 @@ pub async fn milestone_add(
     Json(body): Json<MilestoneAddBody>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let from = body.from.unwrap_or_else(|| AgentRef::from_tab("unknown"));
+    let from = crate::auth::actor_ref(&state, &headers, body.from)
+        .map_err(|(status, message)| text_err(status, message))?;
     let mid = state
         .svc
         .plan_store

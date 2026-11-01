@@ -239,7 +239,10 @@ pub fn run_action(action: PluginManagerAction, svc: &ServiceContext) -> Result<V
             codeterm_service_core::config::cleanup_removed_plugin_config(plugin_id)?;
         }
         if action_refreshes_catalog(&action.kind) {
-            codeterm_service_core::service::plugin_skills::sync(&svc.mem);
+            codeterm_service_core::service::plugin_skills::sync(
+                &svc.mem,
+                svc.ext::<codeterm_service_core::agent_commands::AgentCommandRegistryHandle>(),
+            );
         }
         // Action responses are authoritative UI state. Recompute before snapshotting so
         // install/update/remove and channel actions cannot return their pre-action drift.

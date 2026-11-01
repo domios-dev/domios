@@ -25,6 +25,26 @@ pub(super) fn dispatch(
         return super::tab_todos::dispatch(method, params, svc);
     }
     match method {
+        "tab.send_status" => {
+            let send_id = get_string_param(params, "send_id")?;
+            let status = svc
+                .inspect_retained_send(&send_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32603,
+                    message,
+                    data: None,
+                })?
+                .ok_or_else(|| JsonRpcError {
+                    code: -32602,
+                    message: format!("retained send not found: {send_id}"),
+                    data: None,
+                })?;
+            serde_json::to_value(status).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
         "tab.shells" => {
             let refresh = params
                 .as_ref()

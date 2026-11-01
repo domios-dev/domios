@@ -8,8 +8,21 @@ use serde::Deserialize;
 use crate::routes::{check_auth, AppState};
 use codeterm_update::apply::{ApplyOptions, ApplyResult};
 use codeterm_update::single_flight;
-use codeterm_update::InstallMethod;
 use codeterm_update::UpdatePhase;
+
+#[derive(Clone)]
+pub struct InstalledExecutable(pub std::path::PathBuf);
+
+fn container_refusal(
+    installed: Option<axum::Extension<InstalledExecutable>>,
+) -> Option<codeterm_update::headless::Error> {
+    match installed {
+        Some(axum::Extension(installed)) => codeterm_update::container::marker_refusal(
+            codeterm_paths::container_install::marked_at(&installed.0),
+        ),
+        None => codeterm_update::container::refusal(),
+    }
+}
 
 #[derive(Deserialize)]
 pub struct CheckUpdateQuery {
@@ -21,8 +34,13 @@ pub async fn check_update(
     headers: HeaderMap,
     Query(q): Query<CheckUpdateQuery>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
-) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    installed: Option<axum::Extension<InstalledExecutable>>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| availability_error(status, error.to_string()))?;
+    if let Some(error) = container_refusal(installed) {
+        return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
+    }
 
     if super::auth::is_local_caller(&state, &headers) {
         if let Some(axum::Extension(bundles)) = bundles {
@@ -55,7 +73,10 @@ pub async fn check_update(
                 .update_state
                 .lock()
                 .set_error(format!("check failed: {}", e));
-            return Err((StatusCode::BAD_GATEWAY, "Failed to check for updates"));
+            return Err(availability_error(
+                StatusCode::BAD_GATEWAY,
+                "Failed to check for updates".into(),
+            ));
         }
     };
 
@@ -73,6 +94,11 @@ pub async fn update_status(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
+    if let Some(port) = codeterm_update::headless::backend().cloned() {
+        if let Ok(Some(status)) = tokio::task::spawn_blocking(move || port.status()).await {
+            return Ok(Json(status));
+        }
+    }
     let mut status = state.update_state.lock().runtime_status();
     match tokio::task::spawn_blocking(|| {
         codeterm_update::native_handoff::read_optional(&codeterm_service_core::paths::data_dir())
@@ -127,8 +153,31 @@ pub async fn install_update(
     state: AxumState<AppState>,
     headers: HeaderMap,
     query: Query<InstallUpdateQuery>,
+    installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
+
+    if let Some(error) = container_refusal(installed) {
+        if let Err(error) = check_auth(&state.0, &headers) {
+            return error.into_response();
+        }
+        return (StatusCode::CONFLICT, Json(serde_json::json!(error))).into_response();
+    }
+    if let Some(port) = codeterm_update::headless::backend() {
+        if let Err(error) = check_auth(&state.0, &headers) {
+            return error.into_response();
+        }
+        if query.manifest_url.is_some() || query.after_update.is_some() {
+            return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
+                "code": "headless_update_options_refused",
+                "message": "The systemd helper selects its signed feed independently; manifest overrides and desktop continuation are unavailable."
+            }))).into_response();
+        }
+        return match port.install().await {
+            Ok(value) => Json(value).into_response(),
+            Err(error) => (StatusCode::CONFLICT, Json(serde_json::json!(error))).into_response(),
+        };
+    }
 
     match install_update_inner(state, headers, query).await {
         Ok(value) => {
@@ -154,7 +203,7 @@ pub async fn install_update(
             status,
             Json(serde_json::json!({
                 "code": "native_capability_unavailable",
-                "message": "Automatic installation requires a native application host attached to this server. The server has no application-host updater registered; a running desktop client alone does not provide this capability. Use Settings > Updates in the desktop client, or download the official installer from https://github.com/rollacode/codeterm-releases/releases/latest and run domios update install --from-file <installer-path> locally on macOS or Windows. On Linux, install the official package with the package manager."
+                "message": "Automatic installation requires a native application host attached to this server. The server has no application-host updater registered; a running desktop client alone does not provide this capability. Use Settings > Updates in the desktop client, or download the official installer from https://github.com/domios-dev/domios/releases/latest and run domios update install --from-file <installer-path> locally on macOS or Windows. On Linux, install the official package with the package manager."
             })),
         ).into_response()
             } else {
@@ -178,36 +227,6 @@ async fn install_update_inner(
     if q.method.as_deref() == Some("auto") {
         validate_initiating_tab(caller_tab_id.as_deref(), q.continue_tab.as_deref())
             .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
-    }
-    let install_method = state.update_state.lock().install_method.clone();
-    if q.method.as_deref() == Some("auto") && install_method == InstallMethod::Deb {
-        if q.after_update.is_some() {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                "after_update_requires_native_install",
-            ));
-        }
-        let _lease = single_flight::global()
-            .try_acquire()
-            .ok_or((StatusCode::CONFLICT, single_flight::ALREADY_IN_FLIGHT))?;
-        let staged = codeterm_update::debian::stage(q.manifest_url.as_deref())
-            .await
-            .map_err(|error| {
-                log::error!("[updater] Debian staging failed: {error}");
-                state.update_state.lock().set_error(error);
-                (
-                    StatusCode::BAD_GATEWAY,
-                    "Debian package verification or staging failed",
-                )
-            })?;
-        let mut update = state.update_state.lock();
-        update.clear_error();
-        update.set_phase(UpdatePhase::Idle);
-        return Ok(Json(
-            staged
-                .map(|package| package.response())
-                .unwrap_or_else(|| serde_json::json!({"status": "up_to_date"})),
-        ));
     }
     let application_host = if q.method.as_deref() == Some("auto") {
         Some(
@@ -396,12 +415,16 @@ pub async fn availability(
     headers: HeaderMap,
     query: Result<Query<CheckUpdateQuery>, axum::extract::rejection::QueryRejection>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
+    installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> Result<
     Json<codeterm_update::update_state::AvailabilitySnapshot>,
     (StatusCode, Json<serde_json::Value>),
 > {
     check_auth(&state, &headers)
         .map_err(|(status, error)| availability_error(status, error.to_string()))?;
+    if let Some(error) = container_refusal(installed) {
+        return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
+    }
     let Query(q) =
         query.map_err(|error| availability_error(StatusCode::BAD_REQUEST, error.to_string()))?;
     availability_response(

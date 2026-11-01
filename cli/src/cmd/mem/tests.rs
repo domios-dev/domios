@@ -5,7 +5,7 @@ use serde_json::json;
 fn recall_priority_degradation_is_visible_with_hits_and_empty_results() {
     for hits in [json!([]), json!([{"item":{"id":"fts"},"score":0.5}])] {
         let response = json!({"hits":hits,"degraded":"semantic pending"});
-        assert!(super::render_search_hits(&response).contains("degraded: semantic pending"));
+        assert!(super::render_search_hits_verbose(&response).contains("degraded: semantic pending"));
         assert_eq!(
             super::compact_search_json(&response)["degraded"],
             "semantic pending"
@@ -21,7 +21,7 @@ fn mem_search_human_output_keeps_full_search_details() {
         {"item": {"id": "mem_3", "title": "Third", "kind": "skill", "body": "x".repeat(140)}, "score": 0.125}
     ], "query": "fixture", "total": 3});
 
-    let out = super::render_search_hits(&value);
+    let out = super::render_search_hits_verbose(&value);
 
     assert_eq!(out.lines().count(), 3);
     assert!(out.contains("mem_1 | First | fact | 0.875 | short summary"));
@@ -45,7 +45,7 @@ fn mem_search_human_output_renders_doc_pointer() {
     }]});
 
     assert_eq!(
-        super::render_search_hits(&value),
+        super::render_search_hits_verbose(&value),
         "SECRETS § Auto-unlock contract | domios docs SECRETS | rel 93%\n"
     );
 }
@@ -64,7 +64,7 @@ fn mem_search_human_output_renders_session_pointer_and_excerpt() {
     }]});
 
     assert_eq!(
-        super::render_search_hits(&value),
+        super::render_search_hits_verbose(&value),
         "session [claude] Release command | domios sessions get sess-42 | rel 93% | Use domios sessions get sess-42 to inspect the prior run.\n"
     );
 }
@@ -78,7 +78,7 @@ fn mem_skill_list_renders_columns_without_json() {
         {"id": "skill_2", "kind": "skill", "title": "Release Runbook", "area": "release", "updated_at": "2026-08-02T00:00:00Z", "changed_by": "user"},
     ]});
 
-    let out = super::render_mem_skill_list(&value);
+    let out = super::render_mem_skill_list_verbose(&value);
 
     let lines: Vec<&str> = out.lines().collect();
     assert_eq!(lines.len(), 2, "one line per record, not one line total");
@@ -100,7 +100,7 @@ fn mem_skill_list_renders_columns_without_json() {
 #[test]
 fn mem_skill_list_renders_empty_state_without_json() {
     assert_eq!(
-        super::render_mem_skill_list(&json!({"skills": []})),
+        super::render_mem_skill_list_verbose(&json!({"skills": []})),
         "(no skills)\n"
     );
 }

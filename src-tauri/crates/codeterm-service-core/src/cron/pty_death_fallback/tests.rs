@@ -52,6 +52,7 @@ fn owned_run() -> Owned {
         .record_run(
             &job_id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: RUN.into(),
                 started_at: 1,
                 finished_at: None,

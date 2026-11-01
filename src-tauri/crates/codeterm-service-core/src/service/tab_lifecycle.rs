@@ -100,6 +100,7 @@ impl ServiceContext {
     /// End the tab's authority and drop its lineage, so no snapshot can match
     /// a dead operation.
     pub(crate) fn record_lifecycle_end(&self, tab_id: &str, transition: LifecycleTransition) {
+        self.revoke_tab_credential(tab_id);
         self.record_lifecycle(tab_id, transition);
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.lifecycle_epoch = None;

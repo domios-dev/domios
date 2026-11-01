@@ -489,17 +489,21 @@ fn success(output: &ExecutionEnvelope, label: &str) -> crate::pipeline::StepResu
 #[cfg(test)]
 mod tests;
 
+pub mod plugin_nodes;
+
 pub fn project(
     document: &Document,
     entries: &[codeterm_storage::BlueprintJournalEntry],
+    plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
 ) -> Result<Value, String> {
-    project_retained(Some(document), entries, None)
+    project_retained(Some(document), entries, None, plugins)
 }
 
 pub fn project_retained(
     document: Option<&Document>,
     entries: &[codeterm_storage::BlueprintJournalEntry],
     definition_version: Option<u64>,
+    plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
 ) -> Result<Value, String> {
     let latest = entries.first().map(|entry| entry.run_id.as_str());
     let mut seen = BTreeSet::new();
@@ -517,8 +521,48 @@ pub fn project_retained(
         let graph = calls::projection::graph(&closure)?;
         value["expanded_calls"] = json!(graph.calls);
         value["call_graph"] = graph.root;
+        value["plugin_nodes"] = plugin_nodes::descriptors(plugins, &closure);
     }
     Ok(value)
+}
+
+fn refuse_unscoped_calls(document: &Document) -> Result<(), String> {
+    if document.nodes().any(|node| node.call.is_some()) || !document.dependencies.is_empty() {
+        return Err("Callable Blueprints require Team-scoped authority".into());
+    }
+    Ok(())
+}
+
+pub(crate) fn pin_document(
+    service: &codeterm_service_core::service::ServiceContext,
+    caller: &crate::service_adapter::SentinelCaller,
+    document: Document,
+) -> Result<Document, String> {
+    if let Some(team) = caller.team.as_deref() {
+        return service.mem.pin_blueprint_calls(
+            &format!("blueprints:{}", caller.workspace),
+            team,
+            document,
+        );
+    }
+    refuse_unscoped_calls(&document)?;
+    Ok(document)
+}
+
+pub(crate) fn call_drift(
+    service: &codeterm_service_core::service::ServiceContext,
+    caller: &crate::service_adapter::SentinelCaller,
+    document: Document,
+) -> Result<Vec<calls::Drift>, String> {
+    if let Some(team) = caller.team.as_deref() {
+        return service.mem.blueprint_call_drift(
+            &format!("blueprints:{}", caller.workspace),
+            team,
+            document,
+        );
+    }
+    refuse_unscoped_calls(&document)?;
+    Ok(Vec::new())
 }
 
 pub fn pin_bundle(
@@ -527,6 +571,13 @@ pub fn pin_bundle(
     document: Document,
     local_callees: &[calls::LocalCallee],
 ) -> Result<Document, String> {
+    if caller.team.is_none() {
+        refuse_unscoped_calls(&document)?;
+        if !local_callees.is_empty() {
+            return Err("Callable Blueprint imports require Team-scoped authority".into());
+        }
+        return Ok(document);
+    }
     service.mem.pin_blueprint_bundle(
         &format!("blueprints:{}", caller.workspace),
         caller.team.as_deref().ok_or("Call requires a Team")?,
@@ -550,7 +601,11 @@ pub fn show_callable(
     let mut body = document.clone();
     body.dependencies.clear();
     let hash = codeterm_blueprint_types::blueprint_document::projection::identity(&body)?;
-    let mut value = project(&document, &[])?;
+    let mut value = project(
+        &document,
+        &[],
+        &service.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
+    )?;
     value["id"] = json!(id);
     value["hash"] = json!(hash);
     value["name"] = json!(document.name);

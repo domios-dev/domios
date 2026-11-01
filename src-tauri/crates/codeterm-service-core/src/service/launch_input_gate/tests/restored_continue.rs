@@ -161,8 +161,8 @@ fn restored_retained_session_composer_evidence_releases_one_queued_send() {
             false,
             crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
         ),
-        false,
-        "the retained session does not wait for a first user turn to bind",
+        true,
+        "the retained lazy launch still requires structural first-turn input readiness",
     );
 
     fixture

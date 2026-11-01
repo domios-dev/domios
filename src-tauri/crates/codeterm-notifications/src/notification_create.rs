@@ -148,6 +148,7 @@ use admission::{destination, NoticeDestination, NoticeSource};
 
 #[derive(Debug)]
 pub enum NotificationAdmission {
+    LocalEvent,
     Diagnostic,
     UserConsent,
     /// Admitted through the agent notify-send boundary.
@@ -179,6 +180,7 @@ pub fn create_notification_with_delivery(
     emit: impl FnOnce(serde_json::Value),
 ) -> String {
     let source = match admission {
+        NotificationAdmission::LocalEvent => NoticeSource::OwnerEvent,
         NotificationAdmission::Diagnostic => NoticeSource::System,
         NotificationAdmission::UserConsent => NoticeSource::UserConsent,
         NotificationAdmission::Explicit => NoticeSource::AgentNotifySend,
@@ -202,7 +204,9 @@ pub fn create_notification_with_delivery(
     };
     let explicit = matches!(
         admission,
-        NotificationAdmission::Explicit | NotificationAdmission::UserConsent
+        NotificationAdmission::Explicit
+            | NotificationAdmission::UserConsent
+            | NotificationAdmission::LocalEvent
     );
     let parsed_severity = notification_severity(severity);
     let severity_str = match &parsed_severity {
@@ -212,6 +216,15 @@ pub fn create_notification_with_delivery(
     };
     let id = match admission {
         NotificationAdmission::Diagnostic => unreachable!(),
+        NotificationAdmission::LocalEvent => store.lock().add_ext(
+            title.clone(),
+            body.clone(),
+            parsed_severity,
+            provenance.clone(),
+            ask,
+            sticky,
+            surfaces.declared,
+        ),
         NotificationAdmission::Explicit | NotificationAdmission::UserConsent => {
             match push.intent.level {
                 // An identical live message is the same message: it keeps its record and reaches neither the native sink nor the panel again.

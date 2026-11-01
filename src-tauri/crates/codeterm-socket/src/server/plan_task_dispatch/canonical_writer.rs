@@ -69,6 +69,40 @@ pub(super) fn dispatch_worker_placement(
     Ok(WorkerPlacement::CanonicalWriter)
 }
 
+pub(super) fn resolve_placement(
+    p: Option<&Value>,
+    intent: &ExecutionIntent,
+    task: &Task,
+    plan: &Plan,
+    plans: &[Plan],
+) -> Result<(WorkerPlacement, String), JsonRpcError> {
+    let requested = p
+        .and_then(|params| params.get("placement"))
+        .and_then(Value::as_str);
+    if p.and_then(|params| params.get("placement"))
+        .is_some_and(|value| !value.is_null() && !value.is_string())
+    {
+        return Err(invalid_dispatch(
+            "placement must be shared, lane or canonical_writer",
+        ));
+    }
+    if *intent == ExecutionIntent::Mutating
+        && task.execution_intent.requires_repository()
+        && requested != Some(PLACEMENT_CANONICAL_WRITER)
+    {
+        return codeterm_service_core::service::plan::shared_checkout::choose_placement(
+            plans, plan, task, requested,
+        )
+        .map_err(invalid_dispatch);
+    }
+    dispatch_worker_placement(p, intent, task).map(|placement| {
+        (
+            placement,
+            "explicit canonical writer or read-only task".into(),
+        )
+    })
+}
+
 /// A canonical writer commits on the integration branch, so a detached HEAD is refused.
 pub(super) fn verify_canonical_writer_checkout(canonical_cwd: &str) -> Result<(), JsonRpcError> {
     verify_worker_lane(
@@ -86,6 +120,7 @@ pub(super) fn compose_dispatch_brief(brief: String, placement: WorkerPlacement) 
     match placement {
         WorkerPlacement::IsolatedLane => brief,
         WorkerPlacement::CanonicalWriter => format!("{brief}{CANONICAL_WRITER_BRIEF}"),
+        WorkerPlacement::Shared => format!("{brief}## Placement: shared checkout\nUse only your task's declared edit paths. Request additional paths with `domios plan task extend-files --edit-file PATH`. Commit only owned paths with `git commit -- <paths>` in one task commit; report that literal SHA. Never change branches, merge, reset or sweep another Worker's changes. Keep the checkout compiling; report compiler failures in foreign paths to the Orchestrator.\n\n"),
     }
 }
 
@@ -114,7 +149,7 @@ pub(crate) fn refuse_lane_integration_while_canonical_held(
     }
     let reason = format!(
         "lane integration refused: live attempt '{holder_attempt_id}' of task \
-         '{holder_task_id}' holds the canonical checkout as its exclusive writer, so lane task \
+         '{holder_task_id}' holds the canonical checkout for source work, so lane task \
          '{task_id}' cannot be accepted into it yet."
     );
     let safe_alternative = format!(

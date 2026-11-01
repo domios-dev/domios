@@ -114,10 +114,10 @@ pub fn spawn(
     cap: &AgentRuntimeCapability,
     cwd: &str,
     env: HashMap<String, String>,
-    tab: &str,
+    _tab: &str,
 ) -> Result<Process, RuntimeFailure> {
     #[cfg(test)]
-    if let Some(factory) = test_ports::factory(tab) {
+    if let Some(factory) = test_ports::factory(_tab) {
         return Ok(factory());
     }
     if cap.runtime != codeterm_plugin::agent_runtime::AgentRuntimeProtocol::StdioJsonrpc {
@@ -197,7 +197,7 @@ pub fn spawn(
     })?;
     #[cfg(windows)]
     let job = Arc::new(
-        crate::service::windows_job::Job::attach(&child)
+        crate::service::windows_job::Job::contain(&child)
             .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?,
     );
     let boundary = Arc::new(super::process_boundary::Boundary::new(
@@ -205,6 +205,9 @@ pub fn spawn(
         #[cfg(windows)]
         job.clone(),
     )?);
+    #[cfg(windows)]
+    crate::service::windows_job::resume(&child)
+        .map_err(|reason| RuntimeFailure::SpawnFailed { reason })?;
     let writer = child.stdin.take().ok_or(RuntimeFailure::PipeEof)?;
     let reader = child.stdout.take().ok_or(RuntimeFailure::PipeEof)?;
     let mut stderr = child.stderr.take().ok_or(RuntimeFailure::PipeEof)?;
@@ -223,7 +226,8 @@ pub fn spawn(
     let dying = client.clone();
     let (stop, mut stopping) = watch::channel(false);
     let (ended, exit) = watch::channel(None);
-    let process_tab = tab.to_string();
+    #[cfg(debug_assertions)]
+    let process_tab = _tab.to_string();
     #[cfg(unix)]
     let mut witnessed = tokio::task::spawn_blocking(move || {
         let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
@@ -286,7 +290,12 @@ pub fn spawn(
                 },
             }
         };
-        log::debug!("[agent-runtime] tab={process_tab} pid={pid} end={end:?}");
+        #[cfg(debug_assertions)]
+        match &end {
+            RuntimeFailure::ProcessExited { code, signal, requested, .. } =>
+                log::debug!("[runtime-policy] phase=child_exit tab={process_tab} pid={pid} requested={requested} code={code:?} signal={signal:?}"),
+            _ => log::debug!("[runtime-policy] phase=child_exit tab={process_tab} pid={pid} outcome=retirement_or_wait_failure"),
+        }
         dying.close(end.clone());
         ended.send_replace(Some(end));
     });

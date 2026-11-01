@@ -72,8 +72,8 @@ impl RunWatcherRegistry {
                     .ok_or("cron binding missing")?,
             )
         };
-        let messages = if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
-            crate::service::codex_rpc::transcript::snapshot(svc, tab_id)?.0
+        let messages = if matches!(&state.kind, AgentRunKind::StepRun { .. }) {
+            vec![]
         } else {
             crate::service::tab_chat::session_chat_snapshot(svc, &provider, &cwd, &session, 0)?.0
         };
@@ -125,7 +125,11 @@ impl RunWatcherRegistry {
         *state.cron_completion.lock() = Some(PendingCompletion {
             barrier: CompletionBarrier {
                 stopped: false,
-                assistant_ids: messages.iter().map(|message| message.id.clone()).collect(),
+                assistant_ids: if matches!(&state.kind, AgentRunKind::StepRun { .. }) {
+                    Default::default()
+                } else {
+                    messages.iter().map(|message| message.id.clone()).collect()
+                },
             },
             summary: summary.into(),
             provider,
@@ -149,7 +153,7 @@ impl RunWatcherRegistry {
         run_id: &str,
     ) -> Result<std::sync::Arc<super::RunState>, String> {
         let existing = self.runs.lock().values().find(|state| state.tab_id == tab_id
-            && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } if own == run_id)).cloned();
+            && matches!(&state.kind, AgentRunKind::Cron { run_id: own, .. } | AgentRunKind::StepRun { run_id: own } if own == run_id)).cloned();
         if let Some(state) = existing {
             return Ok(state);
         }
@@ -204,6 +208,16 @@ impl RunWatcherRegistry {
         let Some(state) = state else {
             return false;
         };
+        if let AgentRunKind::StepRun { run_id } = &state.kind {
+            if state.cron_completion.lock().is_none() {
+                if let Err(error) =
+                    self.request_cron_completion(svc, tab_id, run_id, "agent turn completed")
+                {
+                    self.fail_now(svc, &state.pty_id, error);
+                    return true;
+                }
+            }
+        }
         {
             let mut pending = state.cron_completion.lock();
             let Some(pending) = pending.as_mut() else {
@@ -239,27 +253,7 @@ impl RunWatcherRegistry {
         };
         let service = svc.clone();
         crate::async_runtime::spawn(async move {
-            let messages = if let Some(sidecar) =
-                crate::service::codex_rpc::lifecycle::for_tab(&state.tab_id)
-            {
-                match crate::service::codex_rpc::transcript::history(&sidecar.client, &scope.2)
-                    .await
-                {
-                    Ok(history)
-                        if history.active_turn.is_none() && !history.completed_turns.is_empty() =>
-                    {
-                        history
-                            .messages
-                            .into_iter()
-                            .filter(|message| {
-                                message.kind != "assistant"
-                                    || history.final_assistant_ids.contains(&message.id)
-                            })
-                            .collect()
-                    }
-                    _ => return,
-                }
-            } else {
+            let messages = {
                 let reader = service.clone();
                 let (provider, cwd, session) = (scope.0.clone(), scope.1.clone(), scope.2.clone());
                 match crate::async_runtime::spawn_blocking(move || {

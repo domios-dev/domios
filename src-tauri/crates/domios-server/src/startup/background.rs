@@ -57,15 +57,15 @@ pub(crate) fn start_background_tasks(
                             let signed_token = signed_token.clone();
                             let port = peer.api_port;
                             let ip = addr.ip.clone();
-                            let mesh = mesh.clone();
-                            let peer_id = peer.instance_id.clone();
                             async move {
-                                let client = if let Some(ref tok) = signed_token {
-                                    mesh::transport::PeerClient::new_signed(&ip, port, tok)
-                                } else {
-                                    mesh::transport::PeerClient::new_unauthenticated(&ip, port)
+                                let Some(ref token) = signed_token else {
+                                    return mesh::transport::TryNext::Retry(
+                                        "missing mesh signing key".to_owned(),
+                                    );
                                 };
-                                if mesh::disconnect::ping_peer(&mesh, &peer_id, &client).await {
+                                let client =
+                                    mesh::transport::PeerClient::new_signed(&ip, port, token);
+                                if client.ping_reply().await.is_ok() {
                                     mesh::transport::TryNext::Success(client)
                                 } else {
                                     mesh::transport::TryNext::Retry("ping failed".to_string())
@@ -110,6 +110,9 @@ pub(crate) fn start_background_tasks(
                                 (false, false)
                             }
                         };
+                        if online != was_online {
+                            mesh.lock().notify_connection_change();
+                        }
                         let now_secs = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()
@@ -165,9 +168,18 @@ pub(crate) fn start_background_tasks(
                 .expect("Failed to create mesh announce runtime");
             rt.block_on(async {
                 use std::time::Duration;
+                use super::mesh_announce::Readiness;
+                let mut gate_changes = mesh.lock().gate_watch();
+                let mut readiness;
                 // Startup burst runs only while mesh is enabled.
-                if cfg.lock().mesh.enabled {
+                let startup_enabled = cfg.lock().mesh.enabled;
+                if startup_enabled {
                     let _ = mesh::refresh_local_addresses(&mesh).await;
+                    readiness = {
+                        let manager = mesh.lock();
+                        gate_changes.borrow_and_update();
+                        Readiness::snapshot(&manager, true)
+                    };
                     let report = mesh::broadcast_announce(&mesh, None).await;
                     log::info!(
                         "[mesh/announce.startup] sent={} ok={} stale={} errors={}",
@@ -176,28 +188,51 @@ pub(crate) fn start_background_tasks(
                         report.stale_peers.len(),
                         report.errors.len()
                     );
+                } else {
+                    readiness = Readiness::snapshot(&mesh.lock(), false);
                 }
 
                 let mut last_heartbeat = std::time::Instant::now();
+                let refresh_tick = tokio::time::sleep(announce_refresh_delay());
+                tokio::pin!(refresh_tick);
                 loop {
-                    let jitter = (std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .subsec_nanos()
-                        % 5) as u64;
-                    tokio::time::sleep(Duration::from_secs(15 + jitter)).await;
+                    let periodic = tokio::select! {
+                        changed = gate_changes.changed() => {
+                            if changed.is_err() {
+                                return;
+                            }
+                            false
+                        }
+                        _ = &mut refresh_tick => {
+                            refresh_tick.as_mut().reset(tokio::time::Instant::now() + announce_refresh_delay());
+                            true
+                        }
+                    };
                     // Re-check mesh toggle each tick; offline skips refresh.
-                    if !cfg.lock().mesh.enabled {
+                    let enabled = cfg.lock().mesh.enabled;
+                    if !enabled {
+                        readiness.update(Readiness::snapshot(&mesh.lock(), false));
                         continue;
                     }
-                    let changed = mesh::refresh_local_addresses(&mesh).await;
-                    let heartbeat_due = last_heartbeat.elapsed() >= Duration::from_secs(90);
-                    if !changed && !heartbeat_due {
+                    let changed = periodic && mesh::refresh_local_addresses(&mesh).await;
+                    let became_ready = {
+                        let manager = mesh.lock();
+                        gate_changes.borrow_and_update();
+                        readiness.update(Readiness::snapshot(&manager, true))
+                    };
+                    let heartbeat_due = periodic && last_heartbeat.elapsed() >= Duration::from_secs(90);
+                    if !changed && !heartbeat_due && !became_ready {
                         continue;
                     }
                     let report = mesh::broadcast_announce(&mesh, None).await;
                     last_heartbeat = std::time::Instant::now();
-                    let kind = if changed { "addr-change" } else { "heartbeat" };
+                    let kind = if became_ready {
+                        "readiness"
+                    } else if changed {
+                        "addr-change"
+                    } else {
+                        "heartbeat"
+                    };
                     if report.sent > 0 {
                         // Periodic heartbeat is debug; addr-change or any send error is INFO.
                         if changed || !report.errors.is_empty() {
@@ -253,21 +288,12 @@ pub(crate) fn start_background_tasks(
         codeterm_util::named_thread::spawn("agent-idle-poll", move || {
             loop {
                 std::thread::sleep(poll_interval);
-                let structured_ptys: std::collections::HashSet<_> = mux
-                    .read()
-                    .all_tabs()
-                    .filter(|tab| tab.structured_control_active)
-                    .filter_map(|tab| tab.pty_id.clone())
-                    .collect();
                 // Hold tracker lock for collect, then unlock before mux updates.
                 let changed = {
                     let mut t = tracker.lock();
                     let pty_ids = t.all_ids();
                     let mut changes = Vec::new();
                     for pty_id in pty_ids {
-                        if structured_ptys.contains(&pty_id) {
-                            continue;
-                        }
                         let prev = t.get_status(&pty_id);
                         t.check_idle(&pty_id, idle_timeout);
                         let now = t.get_status(&pty_id);
@@ -320,4 +346,13 @@ pub(crate) fn start_background_tasks(
             }
         });
     }
+}
+
+fn announce_refresh_delay() -> std::time::Duration {
+    let jitter = (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .subsec_nanos()
+        % 5) as u64;
+    std::time::Duration::from_secs(15 + jitter)
 }

@@ -28,7 +28,7 @@ mod subagents;
 mod usage;
 
 #[cfg(test)]
-pub(crate) use schemas::manifest_defaults;
+pub(crate) use schemas::{install_bridge_rule_at, manifest_defaults};
 #[cfg(test)]
 pub(crate) use sessions::{enumerate_sessions_under, find_session_under};
 
@@ -393,6 +393,10 @@ impl AgentProvider for ClaudeProvider {
 
     fn build_resume_command(&self, session_id: &str, skip_permissions: bool) -> Option<String> {
         launch::build_resume_command(session_id, skip_permissions)
+    }
+
+    fn supports_initial_prompt_update_on_resume(&self) -> bool {
+        true
     }
 
     fn supports_exact_session_resume(&self) -> bool {

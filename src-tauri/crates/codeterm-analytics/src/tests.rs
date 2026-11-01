@@ -27,7 +27,12 @@ fn config() -> Config {
     }
 }
 fn engine(dir: &tempfile::TempDir, server: &mockito::ServerGuard) -> Engine {
-    let mut engine = Engine::open(dir.path().join("analytics-settings.json"), config()).unwrap();
+    let path = dir.path().join("analytics-settings.json");
+    let fresh = !path.exists();
+    let mut engine = Engine::open(path, config()).unwrap();
+    if fresh {
+        engine.consent(Consent::Off).unwrap();
+    }
     engine.destination(format!("{}/2/httpapi", server.url()));
     engine
 }
@@ -298,6 +303,7 @@ fn fake_sink_shares_consent_and_retry_policy() {
         .results
         .extend([DeliveryResult::Retry, DeliveryResult::Delivered]);
     let mut engine = Engine::open(dir.path().join("analytics-settings.json"), config()).unwrap();
+    engine.consent(Consent::Off).unwrap();
     engine.sink = Box::new(sinks::fake::Fake {
         recording: recording.clone(),
     });
@@ -477,6 +483,7 @@ fn daily_events_with_consent_off_never_emit_or_save_days() {
     let dir = tempfile::tempdir().unwrap();
     let recording = std::sync::Arc::new(std::sync::Mutex::new(sinks::fake::Recording::default()));
     let mut engine = Engine::open(dir.path().join("analytics-settings.json"), config()).unwrap();
+    engine.consent(Consent::Off).unwrap();
     engine.sink = Box::new(sinks::fake::Fake {
         recording: recording.clone(),
     });
@@ -531,6 +538,7 @@ async fn catalog_worker_identity_follows_sign_in_opt_in_and_sign_out() {
         }),
     )
     .unwrap();
+    worker.set_consent(Consent::Off).await.unwrap();
     worker
         .set_user_id(Some("account-uid".into()))
         .await
@@ -634,6 +642,7 @@ async fn activity_fast_path_consent_off_skips_count_callback() {
         }),
     )
     .unwrap();
+    worker.set_consent(Consent::Off).await.unwrap();
     assert!(!worker
         .record_activity_nowait(|| panic!("consent off must not count"))
         .unwrap());

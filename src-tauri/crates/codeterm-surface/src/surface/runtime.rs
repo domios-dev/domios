@@ -116,6 +116,7 @@ pub type SurfaceEvents = Pin<Box<dyn Stream<Item = SurfaceEvent> + Send>>;
 pub struct SurfaceCallCtx {
     pub host: Arc<dyn crate::host::SurfaceHost>,
     pub owner_tab_id: Option<String>,
+    pub caller_tab_id: Option<String>,
     pub data_dir: PathBuf,
     /// The calling agent's name when it is not the owner.
     pub actor: Option<String>,

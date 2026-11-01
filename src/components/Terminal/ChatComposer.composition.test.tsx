@@ -8,7 +8,8 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
 import type { ChatSendStatus } from "./chatSendStatus";
-import { test } from "vitest";
+import { test, vi } from "vitest";
+import type { Tab } from "../../lib/types";
 import { formatAttachmentMarker } from "@codeterm/chat-core";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -38,7 +39,7 @@ function emptyMuxState(): ExtendedState {
   };
 }
 
-type SendCall = { tabId: string; text: string; clientToken: string };
+type SendCall = { tabId: string; text: string; clientToken: string; startupOverrideNonce?: string };
 type BridgeListener = (event: { payload: unknown }) => void;
 
 interface Harness {
@@ -56,6 +57,7 @@ interface Harness {
 }
 
 interface HarnessOptions {
+  tab?: Tab;
   attachments?: string[];
   send?: (call: SendCall) => Promise<ChatSendStatus>;
 }
@@ -111,7 +113,9 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  const store = createMuxStateStore(emptyMuxState);
+  const state = emptyMuxState();
+  if (options.tab) state.tabs[tabId] = options.tab;
+  const store = createMuxStateStore(() => state);
   function ComposerHarness() {
     const [attachments, setAttachments] = useState(options.attachments ?? []);
     attachmentState.current = attachments;
@@ -159,6 +163,43 @@ async function teardown(h: Harness): Promise<void> {
   __setInvokeForTest(null);
   __setListenForTest(null);
 }
+
+test("starting composer preserves its draft before five seconds and explicitly overrides on Send afterwards", async () => {
+  let now = 1_000;
+  const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+  const due: Array<() => void> = [];
+  const schedule = window.setTimeout.bind(window);
+  const timer = vi.spyOn(window, "setTimeout").mockImplementation((callback, delay, ...args): ReturnType<typeof setTimeout> => {
+    if (delay === 5_000 && typeof callback === "function") {
+      due.push(() => callback(...args));
+      return 0 as unknown as ReturnType<typeof setTimeout>;
+    }
+    return schedule(callback, delay, ...args) as unknown as ReturnType<typeof setTimeout>;
+  });
+  const h = await renderComposer("starting-override", { tab: {
+    id: "starting-override", agent_type: "opaque-provider", agent_booting: true,
+    boot_stage: "launch_written", pty_id: "opaque-pty", session_binding_nonce: "own-launch",
+  } as Tab });
+  try {
+    setDomValue(h.el, "opaque-payload");
+    await fire(h.el, inputEvent({ isComposing: false }));
+    await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
+    assert(h.sendCalls.length === 0 && h.el.value === "opaque-payload", "early input remains editable and unwritten");
+    now += 5_000;
+    assert(due.length > 0, "startup schedules one control-enablement deadline");
+    await act(async () => { due.splice(0).forEach(callback => callback()); });
+    assert(h.sendCalls.length === 0, "elapsed time alone never sends");
+    await fire(h.el, keydownEvent({ key: "Enter", keyCode: 13 }));
+    await flush();
+    assert((h.sendCalls.length as number) === 1, "one explicit Enter creates one admission");
+    assert(h.sendCalls[0].startupOverrideNonce === "own-launch", "send authorizes only the observed launch");
+    assert((h.el.value as string) === "", "accepted draft clears immediately");
+  } finally {
+    await teardown(h);
+    timer.mockRestore();
+    clock.mockRestore();
+  }
+});
 
 function setDomValue(el: HTMLTextAreaElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, "value")?.set;

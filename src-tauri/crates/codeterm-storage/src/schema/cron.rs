@@ -81,6 +81,15 @@ CREATE TABLE cron_last_run_mirrors (
 ) STRICT;
 "#;
 
+pub(crate) const CANCEL_REASON_SCHEMA: &str = r#"
+ALTER TABLE cron_runs ADD COLUMN cancel_reason TEXT
+    CHECK (cancel_reason IS NULL OR (status = 'cancelled' AND cancel_reason IN
+        ('user_cancel', 'superseded', 'restart_reconcile', 'timeout', 'owner_closed')));
+ALTER TABLE cron_last_run_mirrors ADD COLUMN cancel_reason TEXT
+    CHECK (cancel_reason IS NULL OR (status = 'cancelled' AND cancel_reason IN
+        ('user_cancel', 'superseded', 'restart_reconcile', 'timeout', 'owner_closed')));
+"#;
+
 #[cfg(feature = "test-support")]
 pub(crate) use seed::seed_before_cron;
 

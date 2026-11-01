@@ -18,12 +18,9 @@ function client(snapshot: Partial<AccountMeshSnapshot>) {
     enroll: async () => ({ ok: true as const }),
     list: async () => ({ ok: true as const }),
     subscribe: () => () => undefined,
-    link: async () => undefined,
-    answerLink: async () => undefined,
     renameSelf: async () => ({ ok: true as const }),
     revokeSession: async () => ({ ok: true as const }),
     revoke: async () => ({ ok: true as const }),
-    unpair: async () => undefined,
     acknowledgeLimit: async (requestId: string) => {
       acknowledged.push(requestId);
     },

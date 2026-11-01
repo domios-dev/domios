@@ -1,7 +1,7 @@
 import type { Notice } from "../../lib/notices";
 import { describeError } from "../../lib/describeError";
 import type { SignInFailure } from "./accountModel";
-import { SubscriptionServiceUnavailable } from "./accountPlanModel";
+import { NoBillingCustomer, SubscriptionServiceUnavailable } from "./accountPlanModel";
 import { signInFailureToastMessage } from "./useAccount";
 
 
@@ -37,6 +37,9 @@ export function billingFailureToast(
   retry: () => void | Promise<void>,
 ): Notice {
   const details = describeError(error, { operation });
+  if (error instanceof NoBillingCustomer) return { kind: "toast", id: "account-billing-action-failure",
+    title: "No paid subscription to manage", detail: error.message, severity: "Warning",
+    tabId: null, workspaceId: null, actions: [] };
   if (error instanceof SubscriptionServiceUnavailable) return { kind: "toast", id: "account-billing-action-failure",
     title: "Subscription service unavailable",
     detail: "The subscription service is unavailable right now. Try again later.",

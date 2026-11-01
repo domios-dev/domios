@@ -27,7 +27,7 @@ pub(crate) use preparation::resolved_effort_provenance;
 use preparation::{
     apply_startup_handshake, bootstrap_bound_team_id, build_or_refuse_orchestrated_launch_command,
     compose_chatbackend_system_prompt, planner_startup_payload, prepare_manager_bootstrap,
-    prepare_standard_starter_prompt, team_bootstrap_payload,
+    prepare_standard_starter_prompt, spawn_fallback_spec, team_bootstrap_payload,
 };
 
 impl ServiceContext {
@@ -67,7 +67,9 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         runtime_fork: Option<crate::service::spawn::RuntimeForkLaunch>,
     ) -> Result<SpawnResult, String> {
+        self.inherit_neighbor_agent_spawn_sync(&mut params)?;
         self.validate_remote_spawn(&params)?;
+        crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
             params.title.as_deref(),
@@ -206,7 +208,9 @@ impl ServiceContext {
         ready_tx: Option<tokio::sync::oneshot::Sender<Result<(), String>>>,
         emit_state_change: bool,
     ) -> Result<SpawnResult, String> {
+        self.inherit_neighbor_agent_spawn(&mut params).await?;
         self.validate_remote_spawn(&params)?;
+        crate::service::execution_sandbox::enforce_delegation_ceiling(self, &params, None)?;
         params.title = spawn_title::normalize_agent_title(params.title.take());
         spawn_title::validate_agent_tab_title(
             params.title.as_deref(),
@@ -554,12 +558,8 @@ impl ServiceContext {
             .get_tab(&tab_id)
             .is_some_and(|tab| tab.role == Some(crate::multiplexer::types::AgentRole::Worker));
         let permission_bypass_authorization =
-            crate::service::permission_policy::spawn_permission_bypass_for(
-                self,
-                &self.agent_registry,
-                &agent_cmd,
-                worker,
-                params.sandbox.is_some(),
+            crate::service::permission_policy::spawn_permission_bypass_for_params(
+                self, &agent_cmd, worker, &params,
             )?;
         let permission_bypass = permission_bypass_authorization.is_some();
         params.skip_permissions = Some(permission_bypass);
@@ -689,13 +689,7 @@ impl ServiceContext {
             .with_provider(&agent_cmd, |provider| provider.is_tool_less())
             .unwrap_or(false)
         {
-            let carries_startup_attempt =
-                crate::service::codex_rpc::launch::carries_startup_attempt(
-                    self,
-                    &agent_cmd,
-                    params.args.as_ref().is_some_and(|args| !args.is_empty()),
-                );
-            apply_startup_handshake(&mut params, startup_supervised, carries_startup_attempt);
+            apply_startup_handshake(&mut params, startup_supervised, true);
         }
         let fallback_bootstrap =
             fallback_bootstrap.map(|body| team_bootstrap_payload(system_prompt_capable, body));
@@ -806,7 +800,9 @@ impl ServiceContext {
         };
         self.bind_worker_plan_task_or_rollback_tab_async(&params, &tab_id)
             .await?;
-        let fallback_spec = spawn_input.fallback_spec(
+        let fallback_spec = spawn_fallback_spec(
+            &spawn_input,
+            is_planner,
             fallback_bootstrap.as_deref(),
             bg_task.as_deref(),
             self.agent_registry
@@ -1027,9 +1023,16 @@ impl ServiceContext {
         if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
+        let friend = self.neighbor_spawn_friend_name(target_tab);
         let (text, pending) = self
             .ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
-            .spawn_task_message(&self.mux.read(), &self.agent_registry, target_tab, body)?;
+            .spawn_task_message(
+                &self.mux.read(),
+                &self.agent_registry,
+                target_tab,
+                body,
+                friend.as_deref(),
+            )?;
         if let Some(pending) = pending {
             self.trace_spawn_reply_relay(target_tab, &pending);
         }
@@ -1080,6 +1083,14 @@ impl ServiceContext {
             params.system_prompt = compose_runtime_system_prompt(params);
             return Ok(());
         }
+        if params.role_kind() == Some(builtins::PLANNER)
+            && self
+                .chatbackend_registry
+                .get(agent)
+                .is_some_and(|backend| backend.spawnable())
+        {
+            runtime_prompt::prepare_runtime_identity(self, params);
+        }
         move_chatbackend_task_to_system_prompt(self.chatbackend_registry.as_ref(), agent, params);
         Ok(())
     }
@@ -1091,6 +1102,9 @@ pub(crate) fn initialize_ordinary_pty_agent_tab(
     tab: &mut crate::multiplexer::types::Tab,
     params: &SpawnAgentParams,
 ) {
+    if tab.neighbor_authority.is_none() {
+        tab.neighbor_authority = params.neighbor_authority.clone();
+    }
     tab.role_profile = params.role_profile.clone();
     tab.audience = params.audience;
     if params.description.is_some() {

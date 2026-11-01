@@ -31,9 +31,9 @@
       "name": "file-backed-html-render",
       "response_mode": "text",
       "prompt": "You created C:\\Users\\dev\\Desktop\\design-system.html and the user wants that exact file to be the single source rendered in the current CodeTerm reply. Show the minimal reply syntax. Do not copy the file contents.",
-      "expected_output": "Uses the file-backed HTML fence rather than duplicating the file or asking the user to pick it.",
+      "expected_output": "Uses a complete canonical ds-page tag naming the existing file without duplicating it or asking the user to pick it.",
       "expectations": [
-        "Renders the file through a standalone file-backed directive naming the exact absolute path C:\\Users\\dev\\Desktop\\design-system.html (either @ds-page or the still-supported @file html fence)",
+        "Renders the file through a standalone file-backed directive naming the exact absolute path C:\\Users\\dev\\Desktop\\design-system.html (a complete canonical <ds-page src=\"ABSOLUTE_PATH\" /> tag)",
         "Does NOT copy or paraphrase the HTML file contents",
         "Does NOT use ct.file.pick() or ct.file.renderHtml() for a known file path"
       ]
@@ -89,9 +89,9 @@
       "name": "opens-known-guide-section-with-native-directive",
       "response_mode": "text",
       "prompt": "The user wants to open the existing supporter-agent section of CodeTerm's Guide from your chat reply. Give only the minimal native reply syntax for that known section id. Do not run a shell command or invent a URL.",
-      "expected_output": "A standalone @ds-guide directive carries the known section id.",
+      "expected_output": "A complete standalone ds-guide tag carries the known section id.",
       "expectations": [
-        "Emits @ds-guide supporter-agent as a standalone paragraph outside a code fence",
+        "Emits <ds-guide section=\"supporter-agent\" /> at a block boundary outside a code fence",
         "Does not use a URL fragment, filesystem path or shell command to navigate to the Guide"
       ]
     },

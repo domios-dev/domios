@@ -11,9 +11,23 @@ struct ReadyUserLaunch {
 #[derive(Default)]
 pub(super) struct ReadyLaunchLatch {
     ready: Option<ReadyUserLaunch>,
+    dispatched: Option<ReadyUserLaunch>,
 }
 
 impl ReadyLaunchLatch {
+    pub(super) fn mark_dispatched(&mut self, authority: &UserSendAuthority) -> bool {
+        let Some(key) = ReadyUserLaunch::from_authority(authority) else {
+            return false;
+        };
+        self.dispatched = Some(key);
+        true
+    }
+
+    pub(super) fn was_dispatched(&self, authority: &UserSendAuthority) -> bool {
+        ReadyUserLaunch::from_authority(authority)
+            .is_some_and(|key| self.dispatched.as_ref() == Some(&key))
+    }
+
     pub(super) fn mark_ready(&mut self, authority: &UserSendAuthority) -> bool {
         let Some(key) = ReadyUserLaunch::from_authority(authority) else {
             return false;

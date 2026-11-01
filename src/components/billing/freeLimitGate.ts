@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { recordProductEvent } from "../../lib/productAnalytics";
 import { localFetch } from "../../lib/webApi";
 import { checkoutTheme } from "./checkoutTheme";
 import { reachedLimit, refusedLimit, type FreeLimitKey, type FreeLimits, type LimitCounts, type LocalLimitKey, type LockedView, type MeshMachinesLimit } from "./freeLimitModel";
@@ -19,6 +20,9 @@ const listeners = new Set<() => void>();
 function setPrompt(next: FreeLimitPrompt | null) {
   if (prompt === next || (prompt && next && prompt.key === next.key && next.key !== "mesh.machines")) return;
   prompt = next;
+  if (next) void recordProductEvent({ event_type: "limit_reached_shown", event_properties: {
+    resource: next.key === "agent.tabs" ? "agent_tabs" : next.key === "mesh.machines" ? "mesh_machines" : next.key,
+  } });
   for (const listener of listeners) listener();
 }
 
@@ -84,6 +88,7 @@ export async function guardFreeLimit<T>(keys: readonly [LocalLimitKey, ...LocalL
 }
 
 export async function upgradePlan(planKey: string = UPGRADE_PLAN_KEY): Promise<void> {
+  void recordProductEvent({ event_type: "upgrade_clicked", event_properties: { source: prompt ? "limit_dialog" : "account_settings" } });
   const response = await localFetch("/api/account/upgrade", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

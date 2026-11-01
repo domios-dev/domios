@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { assignedCommand, parseShellComposition, toolCommandLabel, unwrapShellLauncher } from "./shellComposition";
+import { shellFileOperations, SHELL_FILE_LIMITS } from "./shellFileOperations";
+import * as shellLexer from "./shellLexer";
 
 const operators = (command: string, argv?: string[]) => parseShellComposition(command, argv)?.segments.map((segment) => segment.operator);
 
@@ -168,5 +170,180 @@ describe("command display labels", () => {
     expect(toolCommandLabel({ message: { id: "parsed", type: "tool_call", content: "", toolInput: {
       command: "wrapper --encoded opaque", commandActions: [{ type: "unknown", command: 'Write-Output "hello world"' }],
     } } })).toBe('Write-Output "hello world"');
+  });
+});
+
+describe("bounded intended shell file operations", () => {
+  it("previews literal written content without inventing previous file contents", () => {
+    const append = shellFileOperations("Add-Content -LiteralPath 'notes.txt' -Value 'second line'");
+    expect(append.operations).toEqual([{ action: "append", path: "notes.txt", content: "second line" }]);
+    expect(shellFileOperations("Set-Content 'new.txt' ''").operations).toEqual([{ action: "write", path: "new.txt", content: "" }]);
+    expect(shellFileOperations("Add-Content 'notes.txt' $unknown").operations[0].content).toBeUndefined();
+    const large = shellFileOperations(`Add-Content 'notes.txt' '${"x".repeat(SHELL_FILE_LIMITS.fragmentBytes + 1)}'`);
+    expect(large.operations[0].content).toBeUndefined();
+    expect(large.limited).toBe(true);
+  });
+  it("resolves a same-command PowerShell literal path without treating Replace as diff evidence", () => {
+    const command = "$p='C:/work/CommandTree.tsx'; $s=Get-Content $p -Raw; $s=$s.Replace('missing','next'); Set-Content $p $s";
+    const expected = { operations: [{ action: "write", path: "C:/work/CommandTree.tsx", replacement: {
+      path: "C:/work/CommandTree.tsx", fragments: [{ before: "missing", after: "next" }], unsupported: false,
+    } }], limited: false };
+    expect(shellFileOperations(command)).toEqual(expected);
+    expect(shellFileOperations(command, ["pwsh", "-Command", command])).toEqual(expected);
+  });
+
+  it("keeps the Snake path and literal fragments through quoted JavaScript and a dynamic remainder", () => {
+    const command = `$p='C:/games/snake.html'; $s=Get-Content $p -Raw; $nl=[Environment]::NewLine; $s=$s.Replace('<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>'); $s=$s.Replace('function tick() { $p=1; }', 'function tick() {' + $nl + 'save();}'); Set-Content -LiteralPath $p $s`;
+    const result = shellFileOperations(command);
+    expect(result).toEqual({ operations: [{ action: "write", path: "C:/games/snake.html", replacement: {
+      path: "C:/games/snake.html", fragments: [{ before: '<div id="score">Score: <span>0</span></div>', after: '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>' }], unsupported: true,
+    } }], limited: false });
+    expect(shellFileOperations(command)).toBe(result);
+  });
+
+  it("decodes only literal pairs including doubled apostrophes and preserves exact order", () => {
+    const command = `$p='literal.txt'; $s=Get-Content -LiteralPath $p -Raw; $s=$s.Replace('it''s { $p=1 }','ok'); $s=$s.Replace("old", "two '' quotes"); Set-Content -LiteralPath $p -Value $s`;
+    expect(shellFileOperations(command).operations[0].replacement?.fragments).toEqual([
+      { before: "it's { $p=1 }", after: "ok" }, { before: "old", after: "two '' quotes" },
+    ]);
+  });
+
+  it("requires the same local read, self replacement, data variable and final destination", () => {
+    const prefix = "$p='same.txt'; $s=Get-Content $p -Raw; $s=$s.Replace('old','new');";
+    for (const command of [
+      "$p='same.txt'; $s=$s.Replace('old','new'); Set-Content $p $s",
+      "$p='same.txt'; $s=Get-Content $p; $s=$s.Replace('old','new'); Set-Content $p $s",
+      `${prefix} Set-Content other.txt $s`, `${prefix} Set-Content $p '$s'`,
+      `${prefix} Set-Content -Value $p -Path $s`, `${prefix} Set-Content $p $outside`,
+      `${prefix} $s='reset'; Set-Content $p $s`, `${prefix} $s=$s.Replace('x','y') + 'tail'; Set-Content $p $s`,
+      `${prefix} $s=$other.Replace('x','y'); Set-Content $p $s`, `${prefix} Invoke-Unknown; Set-Content $p $s`,
+      `${prefix} $other=Invoke-Unknown; Set-Content $p $s`,
+      `${prefix} $s=$s.Replace('x',$(Get-Value)); Set-Content $p $s`,
+      `${prefix} $s=$s.Replace('x',"$($p='other')"); Set-Content $p $s`,
+      `${prefix} Set-Content $p $s -WhatIf`,
+    ]) expect(shellFileOperations(command).operations.every(operation => !operation.replacement), command).toBe(true);
+    expect(shellFileOperations(`${prefix} Set-Content $p $s`).operations[0].replacement?.fragments).toEqual([{ before: "old", after: "new" }]);
+  });
+
+  it("does not preview dynamic-only replacements, noops or a read without a writer", () => {
+    for (const expression of ["$s.Replace('x',$new)", "$s.Replace('x' + $nl,'y')", '$s.Replace("$old","new")', "$s.Replace('x','x')"]) {
+      const result = shellFileOperations(`$p='noop.txt'; $s=Get-Content $p -Raw; $s=${expression}; Set-Content $p $s`);
+      expect(result.operations).toEqual([{ action: "write", path: "noop.txt" }]);
+    }
+    expect(shellFileOperations("$p='read.txt'; $s=Get-Content $p -Raw; $s=$s.Replace('old','new')").operations).toEqual([]);
+  });
+
+  it("bounds replacement count and UTF-8 fragments while retaining a useful partial prefix", () => {
+    const prefix = "$p='bounded.txt'; $s=Get-Content $p -Raw; $s=$s.Replace('first','next');";
+    const count = shellFileOperations(`${prefix}${"$s=$s.Replace('a','b');".repeat(SHELL_FILE_LIMITS.replacements)}Set-Content $p $s`);
+    expect(count.operations[0].replacement?.fragments).toHaveLength(SHELL_FILE_LIMITS.replacements);
+    expect(count.operations[0].replacement?.unsupported).toBe(true);
+    expect(count.limited).toBe(true);
+    const fragment = shellFileOperations(`${prefix}$s=$s.Replace('${"界".repeat(700)}','x'); Set-Content $p $s`);
+    expect(fragment.operations[0].replacement?.fragments).toEqual([{ before: "first", after: "next" }]);
+    expect(fragment.operations[0].replacement?.unsupported).toBe(true);
+    expect(fragment.limited).toBe(true);
+    const total = shellFileOperations(`${prefix}${Array.from({ length: 3 }, (_, index) => `$s=$s.Replace('${"a".repeat(1500)}','${index}${"b".repeat(1499)}');`).join("")}Set-Content $p $s`);
+    expect(total.operations[0].replacement?.fragments).toHaveLength(3);
+    expect(total.operations[0].replacement?.unsupported).toBe(true);
+    expect(total.limited).toBe(true);
+  });
+
+  it("preserves single-quoted variable targets as literal filenames", () => {
+    const command = "$p='resolved.txt'; Set-Content '$p' 'value'; Set-Content $P 'value'";
+    expect(shellFileOperations(command).operations).toEqual([
+      { action: "write", path: "$p", content: "value" }, { action: "write", path: "resolved.txt", content: "value" },
+    ]);
+    expect(shellLexer.lexShell("echo hi", "posix")?.[0].rawArgv).toBeUndefined();
+  });
+
+  it("recognizes literal writes, appends and file redirects while excluding stream duplication", () => {
+    expect(shellFileOperations("Set-Content -LiteralPath 'a b.txt' -Value x; Add-Content notes.txt x; echo x | Out-File -FilePath out.txt -Append").operations).toEqual([
+      { action: "write", path: "a b.txt" }, { action: "append", path: "notes.txt" }, { action: "append", path: "out.txt" },
+    ]);
+    expect(shellFileOperations("printf x > out.txt; printf y >> log.txt; echo x 2>&1; echo x >/dev/null").operations).toEqual([
+      { action: "write", path: "out.txt" }, { action: "append", path: "log.txt" },
+    ]);
+    expect(shellFileOperations("p='local.txt'; printf x > $p").operations).toEqual([{ action: "write", path: "local.txt" }]);
+  });
+
+  it("keeps dynamic, stale, wildcard and substitution targets unknown", () => {
+    for (const command of [
+      "Set-Content $outside x",
+      "$p='old.txt'; $p=Get-Path; Set-Content $p x",
+      "$p=Get-Path; Set-Content $p x",
+      "$p='a'+'b'; Set-Content $p x",
+      "$p='old.txt'; Set-Variable p changed.txt; Set-Content $p x",
+      "$p='old.txt' && Set-Content $p x",
+      "$p='old.txt'; Set-Content -Value $(Get-Value) -Path $p",
+      "Set-Content '*.txt' x",
+      "Set-Content -Unknown guess.txt x",
+      "echo x > $(target)",
+    ]) {
+      expect(shellFileOperations(command).operations).toEqual([{ action: "write", path: null }]);
+    }
+    expect(shellFileOperations("Set-Content $p x").operations[0].path).toBeNull();
+  });
+
+  it("makes no write claim for reads, replacement expressions or unsupported embedded programs", () => {
+    for (const command of ["Get-Content a.txt -Raw", "cat a.txt", "$s=$s.Replace('x','y')", "python -c \"from pathlib import Path; Path('a').write_text('x')\"", "node -e \"require('fs').writeFileSync('a','x')\"", "if test x; then echo x > a; fi"]) {
+      expect(shellFileOperations(command).operations).toEqual([]);
+    }
+  });
+
+  it("caps input bytes and argv before parsing or retaining a key", () => {
+    const lexer = vi.spyOn(shellLexer, "lexShell");
+    try {
+      for (const command of ["x".repeat(SHELL_FILE_LIMITS.inputBytes + 1), "界".repeat(SHELL_FILE_LIMITS.inputBytes / 2)]) {
+        expect(shellFileOperations(command)).toEqual({ operations: [], limited: true });
+      }
+      expect(shellFileOperations("echo", Array(SHELL_FILE_LIMITS.argv + 1).fill("x")).limited).toBe(true);
+      expect(shellFileOperations("echo", ["x".repeat(SHELL_FILE_LIMITS.inputBytes)]).limited).toBe(true);
+      expect(lexer).not.toHaveBeenCalled();
+    } finally { lexer.mockRestore(); }
+  });
+
+  it("caps operations, variables, paths, tokens and segments", () => {
+    const writes = Array.from({ length: 12 }, (_, index) => `Set-Content file${index}.txt x`).join(";");
+    expect(shellFileOperations(writes).operations).toHaveLength(SHELL_FILE_LIMITS.operations);
+    expect(shellFileOperations(writes).limited).toBe(true);
+    const variables = Array.from({ length: 17 }, (_, index) => `$p${index}='file${index}.txt'`).join(";");
+    const result = shellFileOperations(`${variables}; Set-Content $p16 x`);
+    expect(result.operations).toEqual([{ action: "write", path: null }]);
+    expect(result.limited).toBe(true);
+    expect(shellFileOperations(`Set-Content '${"a".repeat(SHELL_FILE_LIMITS.path + 1)}' x`).operations[0].path).toBeNull();
+    expect(shellFileOperations(`echo ${"x ".repeat(SHELL_FILE_LIMITS.tokens)} > tail.txt`).operations).toEqual([]);
+    expect(shellFileOperations(`${"echo x;".repeat(SHELL_FILE_LIMITS.segments)}echo x > tail.txt`)).toEqual({ operations: [], limited: true });
+  });
+
+  it("reuses immutable bounded analyses and evicts old command keys", () => {
+    const command = "echo cache > reusable-file.txt";
+    const lexer = vi.spyOn(shellLexer, "lexShell");
+    try {
+      const first = shellFileOperations(command);
+      const parses = lexer.mock.calls.filter(call => call[2] === true).length;
+      expect(parses).toBe(1);
+      expect(shellFileOperations(command)).toBe(first);
+      expect(lexer.mock.calls.filter(call => call[2] === true)).toHaveLength(parses);
+      expect(Object.isFrozen(first.operations)).toBe(true);
+      for (let index = 0; index < SHELL_FILE_LIMITS.cache; index++) shellFileOperations(`echo ${index} > eviction-${index}.txt`);
+      expect(shellFileOperations(command)).not.toBe(first);
+      const large = `echo '${"x".repeat(4000)}' > byte-budget.txt`;
+      const retained = shellFileOperations(large);
+      for (let index = 0; index < 40; index++) shellFileOperations(`echo '${"y".repeat(4000)}' > budget-${index}.txt`);
+      expect(shellFileOperations(large)).not.toBe(retained);
+    } finally { lexer.mockRestore(); }
+  });
+
+  it("accounts replacement fragment strings in the cache budget", () => {
+    const pairs = ["ab", "cd"].map(pair => `$s=$s.Replace('${pair[0].repeat(1500)}','${pair[1].repeat(1500)}');`).join("");
+    const command = (index: number) => `$p='fragment-cache-${index}.txt'; $s=Get-Content $p -Raw; ${pairs} Set-Content $p $s`;
+    const first = shellFileOperations(command(0));
+    expect(first.operations[0].replacement?.fragments).toHaveLength(2);
+    expect(Object.isFrozen(first.operations[0].replacement?.fragments)).toBe(true);
+    expect(Object.isFrozen(first.operations[0].replacement?.fragments[0])).toBe(true);
+    expect(shellFileOperations(command(0))).toBe(first);
+    for (let index = 1; index <= 12; index++) shellFileOperations(command(index));
+    expect(shellFileOperations(command(0))).not.toBe(first);
   });
 });

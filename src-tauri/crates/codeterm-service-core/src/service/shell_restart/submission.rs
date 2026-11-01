@@ -2,14 +2,14 @@ use std::cell::Cell;
 
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum SubmissionStatus {
     Submitted,
     SubmitUnconfirmed,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct ShellCommandSubmission {
     status: SubmissionStatus,
     pub pty_id: String,
@@ -45,7 +45,11 @@ impl ShellCommandSubmission {
             pty_id: pty_id.into(),
             bytes_written: true,
             bytes_queued: bytes_queued.get(),
-            evidence: "pty_write_queue",
+            evidence: if result.is_ok() {
+                "shell_command_start"
+            } else {
+                "pty_write_queue"
+            },
             detail: result.err(),
         })
     }

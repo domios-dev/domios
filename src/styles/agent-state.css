@@ -314,15 +314,7 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Spinner affordance (BusySpinner). The bare ring form draws its own circle;
-   the icon form just borrows .ct-busy-spinner for the reduced-motion opt-out. */
-.ct-busy-ring {
-  display: inline-block;
-  border: 2px solid color-mix(in srgb, var(--ct-accent, #58a6ff) 30%, transparent);
-  border-top-color: var(--ct-accent, #58a6ff);
-  border-radius: 50%;
-  box-sizing: border-box;
-}
+/* BusySpinner spins a control's own icon; .ct-busy-spinner carries its reduced-motion opt-out. */
 
 @media (prefers-reduced-motion: reduce) {
   .ct-agent-cursor-work,

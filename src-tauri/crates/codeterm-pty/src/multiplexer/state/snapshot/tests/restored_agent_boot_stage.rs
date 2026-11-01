@@ -2,6 +2,26 @@ use super::*;
 use codeterm_types::pty::BootStage;
 
 #[test]
+fn restored_chat_backend_waits_for_runtime_instead_of_a_pty() {
+    let (mut state, tab_id) = MultiplexerState::new();
+    let tab = state.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("fixture-runtime".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.backing = TabBacking::ChatBackend {
+        plugin_id: "fixture-runtime".into(),
+        session_id: "saved-thread".into(),
+    };
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_runtime_state = Some(serde_json::json!({"state":"loaded"}));
+
+    let restored = MultiplexerState::from_session_snapshot(&state.to_session_snapshot());
+    let tab = restored.get_tab(&tab_id).unwrap();
+    assert!(matches!(tab.backing, TabBacking::ChatBackend { .. }));
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentLaunching));
+    assert!(tab.pty_id.is_none());
+}
+
+#[test]
 fn restoring_agent_identity_does_not_restore_stale_input_readiness() {
     let (mut state, tab_id) = MultiplexerState::new();
     let tab = state.get_tab_mut(&tab_id).unwrap();

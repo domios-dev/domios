@@ -1,7 +1,27 @@
 use super::{
-    classify_continuation, continuation_withdraw_action, resolve_local_install_continuation,
-    session_save_action, ContinuationRegistration, DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
+    check_item_line, classify_continuation, continuation_withdraw_action,
+    resolve_local_install_continuation, session_save_action, ContinuationRegistration,
+    DEFAULT_LOCAL_INSTALL_CONTINUE_PROMPT,
 };
+
+#[test]
+fn container_update_refusal_preserves_typed_data_and_tag_recovery() {
+    assert_eq!(super::container_update_error(false), None);
+    let error = super::container_update_error(true).unwrap();
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    crate::cmd::print::write_cli_error(true, &error, &mut stdout, &mut stderr);
+    let body: serde_json::Value = serde_json::from_slice(&stdout).unwrap();
+    assert_eq!(body["ok"], false);
+    assert!(String::from_utf8(stdout)
+        .unwrap()
+        .contains("container_managed_update"));
+    assert!(body["error"]["message"]
+        .as_str()
+        .unwrap()
+        .contains("Pull a newer image tag"));
+    assert!(stderr.is_empty());
+}
 
 #[test]
 fn continuation_registration_reads_the_daemon_answer() {
@@ -182,4 +202,23 @@ fn install_refusal_is_printed_in_human_and_json_modes() {
             assert!(text.contains("native_capability_unavailable: Install the official file."));
         }
     }
+}
+
+#[test]
+fn failed_checks_never_print_unknown_up_to_date() {
+    let item = serde_json::json!({"id":"app", "kind":"app", "installed":"1.17.0", "latest":null, "state":"up_to_date"});
+    let errors = serde_json::json!({"app":"GitHub rate limit, retry at 14:30"});
+    assert_eq!(
+        check_item_line(&item, &errors),
+        "app: check failed: GitHub rate limit, retry at 14:30"
+    );
+    let cached = serde_json::json!({"id":"app", "kind":"app", "installed":"1.17.0", "latest":"1.17.1", "state":"update_available", "reason":"cached_manifest"});
+    assert_eq!(
+        check_item_line(&cached, &errors),
+        "app: check failed: GitHub rate limit, retry at 14:30 (cached update usable)"
+    );
+    assert_eq!(
+        check_item_line(&cached, &serde_json::json!({})),
+        "app: 1.17.0 → 1.17.1 (update_available)"
+    );
 }

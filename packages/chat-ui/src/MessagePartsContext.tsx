@@ -13,13 +13,16 @@ export const MessagePartsContext = createContext<{
 export function MessagePartView({ node: _node, ...props }: ComponentProps<"div"> & { node?: unknown }) {
   const context = useContext(MessagePartsContext);
   const id = (props as Record<string, unknown>)["data-message-part-id"];
-  if (typeof id !== "string" || !context) return <div {...props} />;
-  const selected = context.selected?.(id);
-  return <div {...props} role="group" aria-label="Message part" tabIndex={context.cursor?.(id) ? 0 : -1}
-    data-selected={selected || undefined} data-preview={context.preview === id || undefined}>
-    {context.selecting && <span className="ct-part-gutter" data-message-gutter="" aria-hidden="true">
+  const part = typeof id === "string" && context ? { context, id } : null;
+  const selected = part?.context.selected?.(part.id);
+  const attributes = part ? {
+    role: "group", "aria-label": "Message part", tabIndex: part.context.cursor?.(part.id) ? 0 : -1,
+    "data-selected": selected || undefined, "data-preview": part.context.preview === part.id || undefined,
+  } : {};
+  return <div {...props} {...attributes}>
+    {part?.context.selecting && <span className="ct-part-gutter" data-message-gutter="" aria-hidden="true">
       <span className="ct-msg-bead" data-selected={selected || undefined} />
-      {context.joinNext?.(id) && <span className="ct-part-thread" />}
+      {part.context.joinNext?.(part.id) && <span className="ct-part-thread" />}
     </span>}
     {props.children}
   </div>;

@@ -139,9 +139,9 @@ fn early_send_nonce_survives_initial_launch_registration() {
             let tab = mux.get_tab(&tab_id).unwrap();
             assert_eq!(
                 tab.boot_stage,
-                Some(crate::service::boot_stage::BootStage::LaunchBindingUnconfirmed)
+                Some(crate::service::boot_stage::BootStage::ProviderReady)
             );
-            assert!(tab.boot_failure_reason.is_some());
+            assert!(tab.boot_failure_reason.is_none());
             assert_eq!(tab.session_binding_nonce.as_deref(), Some(nonce.as_str()));
             assert!(tab.agent_session_id.is_none());
             assert!(!tab.launch_session_authenticated());
@@ -242,7 +242,7 @@ fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned
         Some(reserved.as_str())
     );
     assert_eq!(
-        super::super::deferred_launch_nonce(&fixture.service, &tab_id, Some(&reserved), false,),
+        fixture.service.ensure_session_binding_nonce(&tab_id),
         reserved
     );
     fixture
@@ -269,10 +269,10 @@ fn deferred_structured_preparation_adopts_the_restored_reservation_a_send_pinned
         .agent_delivery_binding_matches(&tab_id, &payload));
     assert!(LAUNCH_REGISTRY.lock().finish(&launch));
     assert_eq!(
-        super::super::deferred_launch_nonce(&fixture.service, &tab_id, None, true),
+        fixture.service.ensure_session_binding_nonce(&tab_id),
         reserved
     );
-    let unreserved = super::super::deferred_launch_nonce(&fixture.service, &tab_id, None, false);
+    let unreserved = fixture.service.rotate_session_binding_nonce(&tab_id);
     assert_ne!(unreserved, reserved);
     assert!(!fixture
         .service

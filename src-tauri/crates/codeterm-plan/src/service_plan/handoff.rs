@@ -277,6 +277,14 @@ fn element_has_active_reseed_for_tab(element: &crate::plan::CanvasElement, tab_i
         && reseed_state(&element.content).is_some_and(active_reseed_state)
 }
 
+/// Plans holding a handoff element whose reseed is pending for this tab.
+fn reseed_candidates(tab_id: &str) -> super::PlanMatch {
+    super::PlanMatch::Element {
+        kind: "handoff".into(),
+        fields: vec![("$.content.reseed_pending.tab_id", tab_id.to_string())],
+    }
+}
+
 fn plan_has_active_reseed_for_tab(plan: &Plan, tab_id: &str) -> bool {
     plan.elements
         .iter()
@@ -514,11 +522,11 @@ impl PlanStore {
         if force {
             return Ok(());
         }
-        for entry in self.list_index() {
-            if except_plan_id == Some(entry.plan_id.as_str()) {
+        for plan_id in self.plan_ids_matching(&reseed_candidates(tab_id)) {
+            if except_plan_id == Some(plan_id.as_str()) {
                 continue;
             }
-            if let Some(plan) = self.get(&entry.plan_id) {
+            if let Some(plan) = self.get(&plan_id) {
                 if plan_has_active_reseed_for_tab(&plan, tab_id) {
                     return Err(PlanError::Io(format!(
                         "handoff reseed already pending for tab {tab_id}; use --force to override"
@@ -535,10 +543,7 @@ impl PlanStore {
         new_session_id: &str,
         now_ms: u64,
     ) -> Result<Option<HandoffResumeSend>, PlanError> {
-        for entry in self.list_index() {
-            let Some(plan_snapshot) = self.get(&entry.plan_id) else {
-                continue;
-            };
+        for plan_snapshot in self.plans_matching(&reseed_candidates(tab_id)) {
             let candidate = plan_snapshot
                 .elements
                 .iter()
@@ -558,7 +563,7 @@ impl PlanStore {
                 continue;
             };
             let mut out = None;
-            self.with_plan(&entry.plan_id, now_ms, |plan| {
+            self.with_plan(&plan_snapshot.id, now_ms, |plan| {
                 let heartbeat_plan_id = plan.id.clone();
                 let heartbeat = plan.heartbeat.clone();
                 let Some(element) = plan

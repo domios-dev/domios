@@ -43,7 +43,7 @@ fn checking_bound_is_a_deadline() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn idle_driver_refreshes_at_refresh_after_and_locks_at_lease_end_without_focus() {
+async fn idle_driver_refreshes_and_announces_expiry_without_inventing_free_locks() {
     let store = Arc::new(MemoryGrants::default());
     store_verified(&store, &paid_grant().grant.unwrap());
     let start = tokio::time::Instant::now();
@@ -85,6 +85,7 @@ async fn idle_driver_refreshes_at_refresh_after_and_locks_at_lease_end_without_f
         gate.workspaces,
         codeterm_entitlements::COMPILED_FREE_LIMITS.workspaces.max
     );
+    assert!(!gate.enforcing);
     assert!(store.4.lock().as_ref().unwrap().observed_at >= ISSUED + 86_400);
     task.abort();
 }
@@ -126,7 +127,7 @@ async fn a_new_grant_rearms_the_driver() {
 }
 
 #[test]
-fn captured_mux_gate_expires_on_wall_jump_without_a_deadline_tick() {
+fn captured_paid_mux_gate_does_not_invent_free_on_wall_jump() {
     let store = Arc::new(MemoryGrants::default());
     store_verified(&store, &paid_grant().grant.unwrap());
     let (wall, clock) = clock(ISSUED + 60);
@@ -136,11 +137,11 @@ fn captured_mux_gate_expires_on_wall_jump_without_a_deadline_tick() {
     wall.store(ISSUED + 3_600, Ordering::SeqCst);
     assert_eq!(gate.summary().workspaces, None);
     wall.store(ISSUED + 86_400, Ordering::SeqCst);
-    assert_eq!(gate.summary().workspaces, Some(2));
+    assert_eq!(gate.summary().workspaces, None);
 }
 
 #[test]
-fn gate_captures_access_and_its_deadline_at_the_same_instant() {
+fn paid_gate_captures_access_without_expiry_derived_free_locks() {
     let store = Arc::new(MemoryGrants::default());
     store_verified(&store, &paid_grant().grant.unwrap());
     let time = Arc::new(std::sync::atomic::AtomicU64::new(ISSUED + 3_600));
@@ -150,5 +151,5 @@ fn gate_captures_access_and_its_deadline_at_the_same_instant() {
         Arc::new(move || clock.fetch_add(1, Ordering::SeqCst)),
     );
     time.store(ISSUED + 86_399, Ordering::SeqCst);
-    assert_eq!(billing.limit_gate().summary().workspaces, Some(2));
+    assert_eq!(billing.limit_gate().summary().workspaces, None);
 }

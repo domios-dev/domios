@@ -172,8 +172,8 @@ impl ServiceContext {
     }
 
     pub(crate) fn finish_tab_close(&self, tab_id: &str) -> Result<(), String> {
+        self.revoke_tab_credential(tab_id);
         super::supporter_tab_state::forget_observations(tab_id);
-        crate::service::codex_rpc::lifecycle::stop_tab(tab_id);
         self.release_managed_tabs(tab_id);
         self.ext::<std::sync::Arc<crate::service::reply_relay::ReplyRelayRegistry>>()
             .close(tab_id);
@@ -194,7 +194,14 @@ impl ServiceContext {
         self.remote_workers.forget_orchestrator(tab_id);
         self.forget_receiver_targets_for_tab(tab_id);
         self.dispose_closed_surface_runtimes();
-        pad_result
+        let payload_result = if self.mux.read().get_tab(tab_id).is_none() {
+            self.pending_delivery_payloads
+                .user_sends
+                .purge_closed_tab(tab_id)
+        } else {
+            Ok(())
+        };
+        payload_result.and(pad_result)
     }
 
     /// True when `tab_id` is a coordinator (Orchestrator role, plan owner, or
@@ -210,7 +217,7 @@ impl ServiceContext {
         if is_coordinator(role, role_profile.as_deref(), false, false) {
             return true;
         }
-        for plan in self.plan_store.list_full() {
+        for plan in self.plan_store.plans_owned_or_planned_by(tab_id) {
             let is_owner = plan.owner.tab_id.as_deref() == Some(tab_id);
             let is_planner =
                 match resolve_planner_ref(&plan.planner, &plan.owner, |p| self.tab_probe(p)) {
@@ -315,6 +322,20 @@ impl ServiceContext {
         reason: TabCloseReason,
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
     ) -> Result<(), String> {
+        self.close_tab_with_teardown(tab_id, reason, validate, || Ok(()), |_, _| Ok(()))
+    }
+
+    pub(crate) fn close_tab_with_teardown(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+        validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
+        teardown: impl FnOnce() -> Result<(), String>,
+        validate_commit: impl FnOnce(
+            &crate::multiplexer::state::MultiplexerState,
+            &str,
+        ) -> Result<(), String>,
+    ) -> Result<(), String> {
         let (pre_focus, reservation, provider_id, canonical_tab_id, session_id) = {
             let mut mux = self.mux.write();
             let canonical_tab_id = mux
@@ -335,7 +356,14 @@ impl ServiceContext {
             )
         };
         let role_policy = self.role_policy_for_tab(&canonical_tab_id);
-        if let Err(error) = self.prepare_tab_close(tab_id, reason) {
+        let _neighbor_mutation = match self.prepare_neighbor_root_close(&canonical_tab_id) {
+            Ok(mutation) => mutation,
+            Err(error) => {
+                self.mux.write().abort_tab_close(&reservation);
+                return Err(error);
+            }
+        };
+        if let Err(error) = teardown().and_then(|()| self.prepare_tab_close(tab_id, reason)) {
             self.mux.write().abort_tab_close(&reservation);
             return Err(error);
         }
@@ -348,6 +376,10 @@ impl ServiceContext {
         }
         let (close_result, history_batch) = {
             let mut mux = self.mux.write();
+            if let Err(error) = validate_commit(&mux, &canonical_tab_id) {
+                mux.abort_tab_close(&reservation);
+                return Err(error);
+            }
             let result = mux.close_reserved_tab_with_reason(reservation, reason);
             (result, mux.take_closed_history_batch())
         };
@@ -383,7 +415,7 @@ impl ServiceContext {
         if let Some(provider_id) = provider_id {
             self.release_tab_launch_artifacts(&canonical_tab_id, &provider_id);
         }
-        self.finish_tab_close(tab_id)?;
+        self.finish_tab_close(&canonical_tab_id)?;
         self.retire_public_send_launch(&canonical_tab_id);
         self.reap_orphaned_startup_teams();
         let resolved = {
@@ -494,7 +526,23 @@ impl ServiceContext {
             tab_id,
             |focused| self.emit_tab_focus_changed(focused),
             || self.schedule_focused_tab_model_refresh(),
-        )
+        )?;
+        let target = {
+            let mux = self.mux.read();
+            mux.resolve_tab_id(tab_id).filter(|id| {
+                mux.get_tab(id)
+                    .is_some_and(|tab| super::lazy_restore::wake_eligible(tab, true))
+            })
+        };
+        if let Some(target) = target {
+            let service = self.clone();
+            crate::async_runtime::spawn_blocking(move || {
+                if let Err(reason) = service.wake_tab_on_request(&target) {
+                    log::warn!("[tab-focus] wake failed tab={target}: {reason}");
+                }
+            });
+        }
+        Ok(())
     }
 
     pub fn link_pty(&self, tab_id: &str, pty_id: String) -> String {
@@ -853,16 +901,18 @@ impl ServiceContext {
             }
         }
         let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
-        if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
+        if tab
+            .pending_prompt_kind
+            .is_some_and(|kind| kind.is_structured())
             && structured_prompt.is_none()
         {
             return Ok(RespondPromptOutcome::StalePrompt);
         }
         if let Some(expected) = expected_identity {
-            if expected.kind == codeterm_types::pty::PromptKind::Structured {
+            if expected.kind.is_structured() {
                 let current_identity = structured_prompt.as_ref().map(|prompt| {
                     codeterm_types::pty::PromptIdentity::new(
-                        codeterm_types::pty::PromptKind::Structured,
+                        crate::service::structured_prompt::kind_for_tab(tab_id),
                         prompt,
                     )
                 });
@@ -1006,7 +1056,7 @@ impl ServiceContext {
     ) {
         if let Some(identity) = identity {
             self.answer_prompt_notifications(tab_id, identity, option_index, "tab_respond");
-            if identity.kind == codeterm_types::pty::PromptKind::Structured {
+            if identity.kind.is_structured() {
                 self.push_structured_prompt(tab_id, None);
             }
         }

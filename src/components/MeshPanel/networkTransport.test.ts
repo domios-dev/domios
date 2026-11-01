@@ -8,7 +8,7 @@ const status = (state: NetworkTransportStatus["state"]): NetworkTransportStatus 
 
 describe("network transport projection", () => {
   it("keeps actionable states distinct", () => {
-    for (const state of ["not_installed", "not_running", "signed_out", "unknown"] as const) {
+    for (const state of ["not_installed", "not_running", "permission_needed", "signed_out", "unknown"] as const) {
       expect(transportState(status(state))).toEqual({ kind: state });
     }
     expect(transportState(status("starting"))).toEqual({ kind: "checking" });

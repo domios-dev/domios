@@ -4,7 +4,7 @@ use std::{fs, path::Path};
 use codeterm_plugin::agent_verbs::{AgentVerbCatalog, PLUGIN_SKILL_SOURCE_PREFIX};
 use codeterm_plugin::js_runtime::{catalog_from_manifest, PluginManifest};
 use codeterm_plugin::plugin_index::{
-    entries_from_manifest, plan_plugin_index_sync, ExistingPluginIndexEntry, PluginIndexEntry,
+    entries_from_catalog, plan_plugin_index_sync, ExistingPluginIndexEntry, PluginIndexEntry,
 };
 
 use crate::agent_commands::AgentCommandRegistry;
@@ -41,63 +41,75 @@ fn to_new_item(item: PluginIndexEntry) -> NewMemItem {
     }
 }
 
-pub fn sync(mem: &MemManager) {
-    let _serial = SYNC_LOCK.lock();
-    let desired = match installed_plugin_entries() {
-        Ok(entries) => entries,
-        Err(error) => {
-            log::warn!("[plugin-index] load installed manifests failed: {error}");
-            return;
-        }
-    };
-    let existing =
-        match mem.list_by_source_prefix(MemKind::Skill.as_str(), PLUGIN_SKILL_SOURCE_PREFIX) {
-            Ok(items) => items
-                .into_iter()
-                .map(|item| ExistingPluginIndexEntry {
-                    mem_id: item.id,
-                    title: item.title,
-                    source: item.source.unwrap_or_default(),
-                    body: item.body,
-                })
-                .collect::<Vec<_>>(),
+pub fn sync(mem: &MemManager, registry: &AgentCommandRegistry) {
+    let root = codeterm_paths::data_dir().join("plugins");
+    sync_at(mem, registry, &root);
+}
+
+fn sync_at(mem: &MemManager, registry: &AgentCommandRegistry, root: &Path) {
+    crate::mem::store::with_default_system_author("plugin-skills", || {
+        let _serial = SYNC_LOCK.lock();
+        let desired = match installed_plugin_entries_at(root, registry) {
+            Ok(entries) => entries,
             Err(error) => {
-                log::warn!("[plugin-index] list existing items failed: {error}");
+                log::warn!("[plugin-index] load installed manifests failed: {error}");
                 return;
             }
         };
-    let plan = plan_plugin_index_sync(&desired, &existing);
-    for item in plan.upserts {
-        let plugin_id = item.plugin_id.clone();
-        match mem.save_with_outcome(to_new_item(item), true) {
-            Ok(outcome) => log::info!(
-                "[plugin-index] {plugin_id}: {} {}",
-                outcome.outcome,
-                outcome.id
-            ),
-            Err(error) => log::warn!("[plugin-index] {plugin_id}: save failed: {error}"),
+        let existing =
+            match mem.list_by_source_prefix(MemKind::Skill.as_str(), PLUGIN_SKILL_SOURCE_PREFIX) {
+                Ok(items) => items
+                    .into_iter()
+                    .map(|item| ExistingPluginIndexEntry {
+                        mem_id: item.id,
+                        title: item.title,
+                        source: item.source.unwrap_or_default(),
+                        body: item.body,
+                    })
+                    .collect::<Vec<_>>(),
+                Err(error) => {
+                    log::warn!("[plugin-index] list existing items failed: {error}");
+                    return;
+                }
+            };
+        let plan = plan_plugin_index_sync(&desired, &existing);
+        for item in plan.upserts {
+            let plugin_id = item.plugin_id.clone();
+            match mem.save_with_outcome(to_new_item(item), true) {
+                Ok(outcome) => log::info!(
+                    "[plugin-index] {plugin_id}: {} {}",
+                    outcome.outcome,
+                    outcome.id
+                ),
+                Err(error) => log::warn!("[plugin-index] {plugin_id}: save failed: {error}"),
+            }
         }
-    }
-    for id in plan.removals {
-        match mem.delete(&id) {
-            Ok(_) => log::info!("[plugin-index] removed {id}"),
-            Err(error) => log::warn!("[plugin-index] remove {id} failed: {error}"),
+        for id in plan.removals {
+            match mem.delete(&id) {
+                Ok(_) => log::info!("[plugin-index] removed {id}"),
+                Err(error) => log::warn!("[plugin-index] remove {id} failed: {error}"),
+            }
         }
-    }
+    })
 }
 
 /// Off the caller's thread: mem writes block, and callers include the async runtime.
-pub fn spawn_sync(mem: Arc<MemManager>) {
-    crate::async_runtime::spawn_blocking(move || sync(&mem));
+pub fn spawn_sync(
+    mem: Arc<MemManager>,
+    registry: crate::agent_commands::AgentCommandRegistryHandle,
+) {
+    crate::async_runtime::spawn_blocking(move || sync(&mem, &registry));
 }
 
-fn installed_plugin_entries() -> Result<Vec<PluginIndexEntry>, String> {
-    let root = codeterm_paths::data_dir().join("plugins");
+fn installed_plugin_entries_at(
+    root: &Path,
+    registry: &AgentCommandRegistry,
+) -> Result<Vec<PluginIndexEntry>, String> {
     if !root.exists() {
         return Ok(Vec::new());
     }
     let entries =
-        fs::read_dir(&root).map_err(|error| format!("read {}: {error}", root.display()))?;
+        fs::read_dir(root).map_err(|error| format!("read {}: {error}", root.display()))?;
     let mut indexed = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|error| format!("read plugin entry: {error}"))?;
@@ -119,12 +131,17 @@ fn installed_plugin_entries() -> Result<Vec<PluginIndexEntry>, String> {
                 continue;
             }
         };
-        let catalog = catalog_from_manifest(&manifest, false);
+        let catalog = registry
+            .get(&manifest.id)
+            .filter(|handler| handler.granted())
+            .and_then(|handler| handler.catalog())
+            .unwrap_or_else(|| catalog_from_manifest(&manifest, false));
         let settings_schema = load_settings_schema(&manifest);
-        indexed.extend(entries_from_manifest(
+        indexed.extend(entries_from_catalog(
             &manifest,
             settings_schema.as_ref(),
             catalog.guide.as_deref(),
+            &catalog,
         ));
     }
     Ok(indexed)

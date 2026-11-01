@@ -7,7 +7,6 @@ import { JOB_KIND_LABEL, JOB_STATE_TONE, jobActionPlan, jobScheduleLine, type Jo
 
 const LOADING: JobBlockState = { kind: "loading" };
 
-/** `@ds-job <id>`: a live Cron or Blueprint card; Run now, Pause/Resume and Stop run only from the user's click. */
 export function JobBlock({ jobRef, source }: { jobRef: string; source: string }) {
   const host = useChatBlockHost().jobs;
   const state = useLiveBinding(host?.binding, jobRef, LOADING);

@@ -39,7 +39,9 @@ impl WallDeadline {
         }
         let runtime = crate::async_runtime::handle();
         let _entered = runtime.enter();
-        let fd = tokio::io::unix::AsyncFd::new(fd).map_err(|error| error.to_string())?;
+        // SAFETY: OwnedFd keeps the same descriptor open until AsyncFd releases it.
+        let fd =
+            unsafe { tokio::io::unix::AsyncFd::register(fd) }.map_err(|error| error.to_string())?;
         let task = crate::async_runtime::spawn(async move {
             if fd.readable().await.is_ok() {
                 callback();

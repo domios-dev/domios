@@ -24,6 +24,18 @@ const tabs = { self: tab("self", "team1", "ws1", "Composer"), peer: tab("peer", 
 const workspaces = [{ id: "ws1", tabs: ["self", "peer", "shell"], name: "One" }, { id: "ws2", tabs: ["far"], name: "Two" }] as Workspace[];
 const tests: Array<[string, () => void | Promise<void>]> = [];
 const test = (name: string, fn: () => void | Promise<void>) => tests.push([name, fn]);
+test("source presentation metadata carries typed kind and provider identity", async () => {
+  const tabRows = await tabMentionSource(() => ({ tabs, workspaces })).search("", ctx);
+  assert.equal(tabRows.find(row => row.id === "tabs:self")?.providerId, "fixture");
+  assert.equal(tabRows.find(row => row.id === "tabs:shell")?.providerId, null);
+  assert.ok(tabRows.every(row => row.kind === "tab"));
+  const tasks = await taskMentionSource(() => plans).search("COD-3", ctx);
+  assert.equal(tasks.find(row => row.label === "COD-3")?.kind, "task");
+  assert.equal(tasks.find(row => row.label === "COD-3")?.status, "in_progress");
+  assert.ok((await planMentionSource(() => plans).search("", ctx)).every(row => row.kind === "plan"));
+  const files = await fileMentionSource(async () => [{ name: "readme", path: "/project1/readme" }]).search("", ctx);
+  assert.equal(files[0].kind, "file");
+});
 test("project identity preserves case-sensitive project boundaries", () => {
   assert.notEqual(projectIdentity("/project/A"), projectIdentity("/project/a"));
   assert.equal(projectIdentity("C:\\Project\\Repo\\"), projectIdentity("c:/project/repo"));

@@ -55,6 +55,11 @@ macro_rules! agent_provider_session_usage {
             false
         }
 
+        /// Can resume a session while replacing its initial instructions.
+        fn supports_initial_prompt_update_on_resume(&self) -> bool {
+            false
+        }
+
         /// Resume command carrying the full launch context: trailing `args` plus
         /// `system_prompt` re-applied through this provider's own system-prompt
         /// channel. Overriding declares "my resume drops the launch-time prompt";

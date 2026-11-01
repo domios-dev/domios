@@ -1,0 +1,8 @@
+# Workspace Radar replaces the hidden Inbox plan; each Inbox oracle maps to the Radar oracle that now owns its contract.
+cmd::task::tests::error_contract_tests::inbox_add_rejection_reaches_the_contract -> cmd::radar::tests::radar_daemon_rejection_reaches_the_caller
+cmd::task::tests::error_contract_tests::inbox_add_unreadable_body_file_is_rejected_before_any_rpc -> cmd::radar::tests::radar_add_unreadable_body_file_is_rejected_before_any_rpc
+subcommand_contract_tests::standalone_task_add_parses_qa_plan_file -> subcommand_contract_tests::radar_add_parses_repeated_tags_and_source_identity
+service_plan::tests::public_inbox_mutation_cannot_create_active_teamless_plan -> service_plan::radar::tests::radar_item_persists_without_creating_a_plan
+service_plan::tests::public_task_add_lands_in_archived_inbox_artifact -> service_plan::radar::tests::radar_pull_creates_one_linked_plan_task
+service_plan::watcher::tests::plan_id_maps_inbox_stem -> service_plan::radar::tests::legacy_hidden_inbox_plan_becomes_radar_items_and_is_removed
+server::plan_task_rpc::tests::standalone_task_add_does_not_require_an_existing_task_owner -> server::radar::tests::radar_rpc_adds_lists_edits_and_drops_a_workspace_item

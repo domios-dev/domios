@@ -8,6 +8,53 @@ use std::path::PathBuf;
 
 const ORIGINS: [QuitOrigin; 2] = [QuitOrigin::Local, QuitOrigin::Remote];
 
+#[test]
+fn exact_quit_wires_confirmed_ticket_before_client_exit_and_rejects_stale_ticket() {
+    use std::cell::RefCell;
+    let result = ExactServerShutdownResult::Confirmed {
+        server: ready(),
+        client_generation: 7,
+    };
+    let calls = RefCell::new(Vec::new());
+    finish_quit(
+        QuitOrigin::Remote,
+        &result,
+        || {
+            calls.borrow_mut().push("confirm");
+            true
+        },
+        |resolution| {
+            assert_eq!(resolution, QuitResolution::ExitClient);
+            calls.borrow_mut().push("exit");
+        },
+    );
+    assert_eq!(*calls.borrow(), ["confirm", "exit"]);
+    finish_quit(
+        QuitOrigin::Remote,
+        &result,
+        || false,
+        |_| panic!("A stale ticket cannot exit the client"),
+    );
+}
+
+#[test]
+fn exact_quit_uncertainty_keeps_client_open_without_confirming_exit() {
+    let result = ExactServerShutdownResult::UncertainAfterDispatch(
+        ExactServerShutdownUncertainty::HelperOutcomeUnknown,
+    );
+    let resolution = std::cell::Cell::new(None);
+    finish_quit(
+        QuitOrigin::Remote,
+        &result,
+        || panic!("An uncertain helper cannot confirm the exit ticket"),
+        |next| resolution.set(Some(next)),
+    );
+    assert_eq!(
+        resolution.get(),
+        Some(QuitResolution::Feedback(QuitFeedback::Uncertain))
+    );
+}
+
 fn ready() -> ServerReady {
     ServerReady {
         protocol: BOOTSTRAP_PROTOCOL,

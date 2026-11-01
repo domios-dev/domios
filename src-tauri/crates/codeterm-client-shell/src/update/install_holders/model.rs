@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 // Restart Manager keeps registrations in a size-limited registry key; foreign trees in the install folder overflow it.
@@ -39,6 +40,8 @@ pub(super) enum HolderDisposition {
     UpdatingApp,
     OwnedHelper,
     OwnedTab,
+    #[cfg(windows)]
+    OwnedServer,
     Foreign,
 }
 
@@ -50,16 +53,7 @@ pub(super) struct Holder {
     pub owned_tab: Option<String>,
 }
 
-pub(super) fn same_windows_path(left: &Path, right: &Path) -> bool {
-    fn normalized(path: &Path) -> String {
-        let value = path.to_string_lossy().replace('/', "\\");
-        value
-            .strip_prefix(r"\\?\")
-            .unwrap_or(&value)
-            .to_ascii_lowercase()
-    }
-    normalized(left) == normalized(right)
-}
+pub(super) use codeterm_util::process_tree::{same_windows_path, ProcessRecord};
 
 pub(super) fn classify_holder(
     holder: &Holder,
@@ -111,6 +105,32 @@ pub(super) fn is_attached_server(
     created: u64,
 ) -> bool {
     server.is_some_and(|server| server.pid == pid && server.created == created.to_string())
+}
+
+pub(super) fn is_owned_server_holder(
+    server: &crate::application_host::AttachedServerIdentity,
+    pid: u32,
+    created: u64,
+    executable: Option<&Path>,
+    owned_images: &[PathBuf],
+    processes: &HashMap<u32, ProcessRecord>,
+) -> bool {
+    if !executable.is_some_and(|path| {
+        owned_images
+            .iter()
+            .any(|owned| same_windows_path(path, owned))
+    }) {
+        return false;
+    }
+    let Ok(server_created) = server.created.parse::<u64>() else {
+        return false;
+    };
+    codeterm_util::process_tree::is_owned_descendant(
+        (server.pid, server_created),
+        (pid, created),
+        owned_images,
+        processes,
+    )
 }
 
 #[cfg(test)]

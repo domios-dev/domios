@@ -40,6 +40,10 @@ impl ListenerPublication {
         self.state.lock().remote_bind
     }
 
+    pub(crate) fn primary_ready(&self) -> Vec<SocketAddr> {
+        self.state.lock().ready.clone()
+    }
+
     pub fn ready(&self) -> Vec<SocketAddr> {
         let state = self.state.lock();
         combined_ready(&state)

@@ -35,7 +35,7 @@ pub fn promote_high_confidence_lessons(
     let candidates: Vec<(String, String)> = {
         let mut stmt = tx.prepare(
             "SELECT id, tags_json FROM mem_items \
-             WHERE kind = 'lesson' \
+             WHERE kind = 'lesson' AND author_kind != 'neighbor' \
                AND false_fire_count = 0 \
                AND evidence_count >= COALESCE(promotion_threshold, ?1)",
         )?;

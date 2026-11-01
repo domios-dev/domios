@@ -8,6 +8,7 @@ export function planOversight(plan: Pick<Plan, "mode" | "status" | "pause_operat
     mode: loop?.mode ?? "curator",
     heartbeat_interval_ms: loop?.heartbeat_interval_secs == null ? null : loop.heartbeat_interval_secs * 1000,
     next_at: loop?.next_at ?? null,
+    running_round: loop?.running?.number ?? null,
     last_round_at: loop?.last_round?.ended_at ?? null,
     fallback_reason: loop?.fallback_reason?.replace(/_/g, " ") ?? null,
     paused: plan.mode === "paused",

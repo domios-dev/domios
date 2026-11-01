@@ -1,3 +1,4 @@
+mod automatic_permission;
 mod live_model_switch;
 pub mod opencode_sse;
 mod questions;
@@ -11,6 +12,7 @@ mod subscription;
 mod tests;
 mod tool_diffs;
 
+pub(crate) use automatic_permission::Reply as AutomaticPermissionReply;
 pub(crate) use live_model_switch::{live_switch_for_tab, same_model_id, LiveModelSwitchResult};
 
 use std::collections::{HashMap, HashSet};
@@ -33,6 +35,7 @@ struct Active {
     prompt: PendingPrompt,
     route: ResponseRoute,
     in_flight: bool,
+    automatic_nonce: Option<String>,
 }
 
 #[derive(Default)]
@@ -96,8 +99,30 @@ pub fn pending_for_tab(tab_id: &str) -> Option<PendingPrompt> {
     if let Some(prompt) = crate::service::permission_decision::pending_for_tab(tab_id) {
         return Some(prompt);
     }
-    crate::service::codex_rpc::approvals::pending(tab_id)
-        .or_else(|| ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone()))
+    ACTIVE.lock().get(tab_id).map(|a| a.prompt.clone())
+}
+
+pub(crate) fn kind_for_tab(tab_id: &str) -> codeterm_types::pty::PromptKind {
+    kind_for_prompt(tab_id, pending_for_tab(tab_id).as_ref())
+}
+
+pub(crate) fn kind_for_prompt(
+    tab_id: &str,
+    prompt: Option<&PendingPrompt>,
+) -> codeterm_types::pty::PromptKind {
+    automatic_permission::kind(
+        ACTIVE
+            .lock()
+            .get(tab_id)
+            .filter(|entry| Some(&entry.prompt) == prompt),
+    )
+}
+
+pub(crate) fn claim_automatic_permission(
+    svc: &ServiceContext,
+    tab_id: &str,
+) -> Option<automatic_permission::Reply> {
+    automatic_permission::claim(svc, tab_id)
 }
 
 #[cfg(test)]
@@ -119,15 +144,13 @@ fn clear_request(active: &mut HashMap<String, Active>, tab_id: &str, request_id:
 
 /// Drop all structured-prompt state for a tab (tab closed / agent exited).
 pub fn clear_tab(tab_id: &str) {
+    automatic_permission::clear(tab_id);
     crate::service::permission_decision::clear_tab(tab_id);
-    crate::service::codex_rpc::launch::clear_tab(tab_id);
     let subscriber = SUBSCRIBED.lock().remove(tab_id);
     if let Some(subscriber) = subscriber {
         *subscriber.live.lock() = false;
     }
-    if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_none() {
-        super::structured_endpoint::remove(tab_id);
-    }
+    super::structured_endpoint::remove(tab_id);
     ACTIVE.lock().remove(tab_id);
     QUEUED.lock().remove(tab_id);
 }
@@ -221,9 +244,6 @@ pub(crate) fn respond(
     {
         return Some(result.map(|()| StructuredResponse::Advanced));
     }
-    if let Some(result) = crate::service::codex_rpc::approvals::respond(svc, tab_id, value) {
-        return Some(result);
-    }
     let mut active = ACTIVE.lock();
     let entry = active.get_mut(tab_id)?;
     if entry.in_flight {
@@ -235,6 +255,8 @@ pub(crate) fn respond(
     };
     let (body, option_index) = match decision {
         questions::Answer::Next { route, prompt } => {
+            let mut prompt = prompt;
+            prompt.request_id = Some(route.request_id.clone());
             entry.route = route;
             entry.prompt = prompt.clone();
             drop(active);
@@ -246,6 +268,16 @@ pub(crate) fn respond(
     let route = entry.route.clone();
     entry.in_flight = true;
     drop(active);
+    send_claimed_response(svc, tab_id, route, body, option_index)
+}
+
+fn send_claimed_response(
+    svc: &ServiceContext,
+    tab_id: &str,
+    route: ResponseRoute,
+    body: serde_json::Value,
+    option_index: usize,
+) -> Option<Result<StructuredResponse, String>> {
     let Some((base_url, cwd)) = endpoint_for_tab(tab_id) else {
         if let Some(entry) = ACTIVE.lock().get_mut(tab_id) {
             entry.in_flight = false;
@@ -253,8 +285,24 @@ pub(crate) fn respond(
         return Some(Err("structured endpoint disappeared".into()));
     };
     let result = send_reply(&base_url, &cwd, &route, &body);
+    finish_response(svc, tab_id, &route, None, result, option_index)
+}
+
+fn finish_response(
+    svc: &ServiceContext,
+    tab_id: &str,
+    route: &ResponseRoute,
+    automatic_nonce: Option<&str>,
+    result: Result<(), String>,
+    option_index: usize,
+) -> Option<Result<StructuredResponse, String>> {
     let mut active = ACTIVE.lock();
-    let unchanged = active.get(tab_id).is_some_and(|entry| entry.route == route);
+    let unchanged = active.get(tab_id).is_some_and(|entry| {
+        &entry.route == route
+            && automatic_nonce.is_none_or(|nonce| {
+                entry.in_flight && entry.automatic_nonce.as_deref() == Some(nonce)
+            })
+    });
     if unchanged {
         if result.is_ok() {
             active.remove(tab_id);
@@ -265,8 +313,10 @@ pub(crate) fn respond(
     drop(active);
     if unchanged && result.is_ok() {
         svc.push_structured_prompt(tab_id, promote_prompt(tab_id));
+    } else if unchanged {
+        svc.push_structured_prompt(tab_id, pending_for_tab(tab_id));
     }
-    if result.is_ok() {
+    if result.is_ok() && (unchanged || automatic_nonce.is_none()) {
         request_reconcile(tab_id);
     }
     Some(result.map(|()| StructuredResponse::Answered { option_index }))
@@ -388,10 +438,11 @@ fn handle_event(
         ParsedEvent::PartUpdated { update } => {
             emit_chat_part(svc, tab_id, &update, chat_state);
         }
-        ParsedEvent::Prompt { prompt, route } => {
+        ParsedEvent::Prompt { mut prompt, route } => {
             if !owns_session(svc, tab_id, &route.session_id) {
                 return;
             }
+            prompt.request_id = Some(route.request_id.clone());
             let mut active = ACTIVE.lock();
             let mut queued = QUEUED.lock();
             let duplicate = active
@@ -409,6 +460,7 @@ fn handle_event(
                 prompt: prompt.clone(),
                 route,
                 in_flight: false,
+                automatic_nonce: None,
             };
             if active.contains_key(tab_id) {
                 queued.entry(tab_id.into()).or_default().push(entry);

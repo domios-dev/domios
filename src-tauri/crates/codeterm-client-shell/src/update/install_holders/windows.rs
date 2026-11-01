@@ -1,21 +1,22 @@
 use super::model::{
-    classify_holder, foreign_notice, install_binaries, same_process_identity, Holder,
-    HolderDisposition, INSTALL_BINARY_DIRS,
+    classify_holder, foreign_notice, install_binaries, is_owned_server_holder,
+    same_process_identity, Holder, HolderDisposition, ProcessRecord, INSTALL_BINARY_DIRS,
 };
+use codeterm_util::process_tree::{process_table, OwnedProcessTree};
 use std::collections::HashMap;
 use std::os::windows::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 use std::ptr;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA, ERROR_NO_MORE_FILES, FILETIME, HANDLE,
-    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    CloseHandle, ERROR_INVALID_PARAMETER, ERROR_MORE_DATA, FILETIME, HANDLE, WAIT_OBJECT_0,
 };
 use windows_sys::Win32::Storage::FileSystem::SYNCHRONIZE;
-use windows_sys::Win32::System::Diagnostics::ToolHelp::*;
 use windows_sys::Win32::System::RestartManager::*;
 use windows_sys::Win32::System::Threading::*;
 
 struct Handle(HANDLE);
+// Kernel process handles may be waited on and closed from another thread.
+unsafe impl Send for Handle {}
 impl Drop for Handle {
     fn drop(&mut self) {
         unsafe {
@@ -125,9 +126,38 @@ struct PinnedHolder {
     disposition: HolderDisposition,
 }
 
+pub(super) struct OwnedServerHolders {
+    holders: Vec<PinnedHolder>,
+    tree: OwnedProcessTree,
+}
+
+impl OwnedServerHolders {
+    pub(super) fn confirm_exited(self) -> Result<(), String> {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        self.tree
+            .terminate_remaining(std::time::Duration::from_secs(30))
+            .map_err(|error| error.to_string())?;
+        for holder in self.holders {
+            let handle = holder
+                .handle
+                .ok_or("owned server holder has no exit handle")?;
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if unsafe { WaitForSingleObject(handle.0, remaining.as_millis() as u32) }
+                != WAIT_OBJECT_0
+            {
+                return Err(format!(
+                    "{} (PID {}) did not exit with the attached server; installer launch cancelled",
+                    holder.holder.name, holder.holder.pid
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
 pub(super) fn preflight(
     server: crate::application_host::AttachedServerIdentity,
-) -> Result<(), String> {
+) -> Result<OwnedServerHolders, String> {
     let executable = std::env::current_exe().map_err(|error| error.to_string())?;
     let root = executable.parent().ok_or("install directory unresolved")?;
     inspect_directory_with_server(root, false, Some(&server))
@@ -142,14 +172,14 @@ pub(super) fn inspect(release: bool) -> Result<(), String> {
 }
 
 fn inspect_directory(root: &Path, release: bool) -> Result<(), String> {
-    inspect_directory_with_server(root, release, None)
+    inspect_directory_with_server(root, release, None).map(|_| ())
 }
 
 fn inspect_directory_with_server(
     root: &Path,
     release: bool,
     server: Option<&crate::application_host::AttachedServerIdentity>,
-) -> Result<(), String> {
+) -> Result<OwnedServerHolders, String> {
     let files = collect_install_binaries(root)?;
     let mut clis = files
         .iter()
@@ -173,9 +203,12 @@ fn inspect_directory_with_server(
         root.join("conpty/x64/OpenConsole.exe"),
         root.join("conpty/arm64/OpenConsole.exe"),
     ];
+    let mut server_images = helpers.to_vec();
+    server_images.push(root.join("domios-server/domios-server.exe"));
     let session = Session::register(&files)?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        let parents = process_parents()?;
+        let processes = process_table().map_err(|error| error.to_string())?;
         let mut pinned = Vec::new();
         for info in session.holders()? {
             let created = ((info.Process.ProcessStartTime.dwHighDateTime as u64) << 32)
@@ -186,16 +219,30 @@ fn inspect_directory_with_server(
             {
                 continue;
             }
-            if let Some(holder) = pin_holder(&info, &parents, &clis, &helpers)? {
+            if let Some(mut holder) = pin_holder(&info, &processes, &clis, &helpers)? {
+                if server.is_some_and(|server| {
+                    is_owned_server_holder(
+                        server,
+                        holder.holder.pid,
+                        created,
+                        holder.holder.executable.as_deref(),
+                        &server_images,
+                        &processes,
+                    )
+                }) {
+                    holder.disposition = HolderDisposition::OwnedServer;
+                }
                 pinned.push(holder);
             }
         }
         let mut foreign = Vec::new();
         let mut owned = Vec::new();
+        let mut owned_server = Vec::new();
         for holder in pinned {
             match holder.disposition {
                 HolderDisposition::Foreign => foreign.push(holder.holder),
                 HolderDisposition::OwnedHelper => owned.push(holder),
+                HolderDisposition::OwnedServer => owned_server.push(holder),
                 HolderDisposition::OwnedTab => {
                     if release {
                         return Err(format!(
@@ -211,7 +258,24 @@ fn inspect_directory_with_server(
             return Err(foreign_notice(&foreign));
         }
         if !release || owned.is_empty() {
-            return Ok(());
+            let tree = match server {
+                Some(server) => OwnedProcessTree::capture(
+                    (
+                        server.pid,
+                        server
+                            .created
+                            .parse()
+                            .map_err(|_| "invalid attached server creation time")?,
+                    ),
+                    &server_images,
+                )
+                .map_err(|error| error.to_string())?,
+                None => OwnedProcessTree::default(),
+            };
+            return Ok(OwnedServerHolders {
+                holders: owned_server,
+                tree,
+            });
         }
         for holder in &owned {
             terminate(holder)?;
@@ -221,7 +285,10 @@ fn inspect_directory_with_server(
                 .handle
                 .as_ref()
                 .ok_or("owned install holder has no exit handle")?;
-            if unsafe { WaitForSingleObject(handle.0, INFINITE) } != WAIT_OBJECT_0 {
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            if unsafe { WaitForSingleObject(handle.0, remaining.as_millis() as u32) }
+                != WAIT_OBJECT_0
+            {
                 return Err(last_error(&format!(
                     "waiting for {} (PID {})",
                     holder.holder.name, holder.holder.pid
@@ -233,12 +300,15 @@ fn inspect_directory_with_server(
                 holder.holder.pid
             );
         }
+        if std::time::Instant::now() >= deadline {
+            return Err("install-holder release deadline".into());
+        }
     }
 }
 
 fn pin_holder(
     info: &RM_PROCESS_INFO,
-    parents: &HashMap<u32, u32>,
+    processes: &HashMap<u32, ProcessRecord>,
     clis: &[PathBuf],
     helpers: &[PathBuf],
 ) -> Result<Option<PinnedHolder>, String> {
@@ -247,13 +317,19 @@ fn pin_holder(
         pid,
         name: wide_name(&info.strAppName),
         executable: None,
-        parent_pid: parents.get(&pid).copied(),
+        parent_pid: processes.get(&pid).map(|process| process.parent_pid),
         owned_tab: None,
     };
     if holder.name.is_empty() {
         holder.name = "Unknown process".into();
     }
-    let raw = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, 0, pid) };
+    let raw = unsafe {
+        OpenProcess(
+            PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE | PROCESS_TERMINATE,
+            0,
+            pid,
+        )
+    };
     if raw.is_null() {
         if std::io::Error::last_os_error().raw_os_error() == Some(ERROR_INVALID_PARAMETER as i32) {
             return Ok(None);
@@ -308,18 +384,7 @@ fn terminate(holder: &PinnedHolder) -> Result<(), String> {
         .handle
         .as_ref()
         .ok_or("owned holder has no pinned identity")?;
-    let raw = unsafe { OpenProcess(PROCESS_TERMINATE, 0, holder.holder.pid) };
-    if raw.is_null() {
-        if unsafe { WaitForSingleObject(process.0, 0) } == WAIT_OBJECT_0 {
-            return Ok(());
-        }
-        return Err(last_error(&format!(
-            "terminating {} (PID {})",
-            holder.holder.name, holder.holder.pid
-        )));
-    }
-    let terminate_handle = Handle(raw);
-    if unsafe { TerminateProcess(terminate_handle.0, 1) } == 0
+    if unsafe { TerminateProcess(process.0, 1) } == 0
         && unsafe { WaitForSingleObject(process.0, 0) } != WAIT_OBJECT_0
     {
         return Err(last_error(&format!(
@@ -355,29 +420,6 @@ fn collect_install_binaries(root: &Path) -> Result<Vec<PathBuf>, String> {
         }
     }
     Ok(install_binaries(root, listing))
-}
-
-fn process_parents() -> Result<HashMap<u32, u32>, String> {
-    let raw = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
-    if raw == INVALID_HANDLE_VALUE {
-        return Err(last_error("enumerating install-holder parents"));
-    }
-    let snapshot = Handle(raw);
-    let mut entry = PROCESSENTRY32W::default();
-    entry.dwSize = std::mem::size_of_val(&entry) as u32;
-    if unsafe { Process32FirstW(snapshot.0, &mut entry) } == 0 {
-        return Err(last_error("reading install-holder parents"));
-    }
-    let mut parents = HashMap::new();
-    loop {
-        parents.insert(entry.th32ProcessID, entry.th32ParentProcessID);
-        if unsafe { Process32NextW(snapshot.0, &mut entry) } == 0 {
-            if std::io::Error::last_os_error().raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
-                return Ok(parents);
-            }
-            return Err(last_error("advancing install-holder parents"));
-        }
-    }
 }
 
 fn wide_name(value: &[u16]) -> String {

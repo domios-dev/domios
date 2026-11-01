@@ -52,7 +52,7 @@ pub(crate) fn run_mem_tail(
     match fetch_tail(client, since.as_deref(), limit) {
         Ok(rows) => {
             if json_mode {
-                println!("{}", serde_json::to_string_pretty(&rows).unwrap());
+                println!("{}", crate::cmd::output::encode(&rows).unwrap());
             } else if rows.is_empty() {
                 println!("(no recent writes)");
             } else {

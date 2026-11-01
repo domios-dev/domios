@@ -32,7 +32,8 @@ pub(super) fn should_end_on_blocking_prompt(
             Some(codeterm_types::pty::PromptKind::DirectoryTrust) => !trust_has_provenance,
             Some(
                 codeterm_types::pty::PromptKind::Provider
-                | codeterm_types::pty::PromptKind::Structured,
+                | codeterm_types::pty::PromptKind::Structured
+                | codeterm_types::pty::PromptKind::Permission,
             ) => provider_prompt_pending,
             _ => false,
         }

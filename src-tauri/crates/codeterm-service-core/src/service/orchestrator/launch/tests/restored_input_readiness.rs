@@ -91,8 +91,8 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
     {
         let mux = harness.service.mux.read();
         let tab = mux.get_tab(&tab_id).unwrap();
-        assert_eq!(tab.boot_stage, Some(BootStage::LaunchBindingUnconfirmed));
-        assert!(tab.boot_failure_reason.is_some());
+        assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
+        assert!(tab.boot_failure_reason.is_none());
         assert!(!tab.launch_session_authenticated());
         assert!(tab.provisional_launch.is_some());
     }
@@ -119,7 +119,7 @@ fn fresh_lazy_session_accepts_input_at_provider_ready() {
 }
 
 #[test]
-fn restored_retained_session_does_not_wait_for_a_lazy_first_turn() {
+fn restored_retained_session_accepts_composer_before_binding() {
     use crate::agent::provider::ProviderReadinessStrategy;
     use crate::agent::test_provider::MockProvider;
     use codeterm_types::pty::{TabVerdict, TimelineState};
@@ -146,26 +146,8 @@ fn restored_retained_session_does_not_wait_for_a_lazy_first_turn() {
             }),
     ));
 
-    assert!(!first_turn_binding_required(true, false, true));
-    assert!(
-        !super::startup_readiness::launch_waits_for_first_turn_binding_with_resume_session(
-            &harness.service,
-            "resume-first-turn-fixture",
-            false,
-            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
-            Some("01a1507e-4cd1-7603-b5ad-2c14efde0072"),
-        )
-    );
-    assert!(
-        super::startup_readiness::launch_waits_for_first_turn_binding_with_resume_session(
-            &harness.service,
-            "resume-first-turn-fixture",
-            false,
-            crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
-            None,
-        )
-    );
-    assert!(!launch_waits_for_first_turn_binding(
+    assert!(first_turn_binding_required(true, false));
+    assert!(launch_waits_for_first_turn_binding(
         &harness.service,
         &tab_id,
         "resume-first-turn-fixture",
@@ -190,4 +172,45 @@ fn restored_retained_session_does_not_wait_for_a_lazy_first_turn() {
         "resume-first-turn-fixture",
         &tab_id,
     ));
+}
+
+#[test]
+fn restored_lazy_restart_finishes_ready_without_synthesizing_a_binding_turn() {
+    for session in [None, Some("own-resume-session")] {
+        let (mut mux, tab_id) = MultiplexerState::new();
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_type = Some("lazy-restart-fixture".into());
+        tab.agent_session_id = session.map(str::to_string);
+        tab.pty_id = Some("restart-pty".into());
+        tab.session_binding_nonce = Some("restart-nonce".into());
+        tab.boot_stage = Some(BootStage::ProviderReady);
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+        let mut launch = LaunchGeneration::begin(&tab_id, "restart-pty".into());
+        launch
+            .capture_binding_nonce(
+                &fixture.service,
+                None,
+                None,
+                crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+                None,
+                Some("restart-nonce".into()),
+            )
+            .unwrap();
+        assert!(launch.emit_first_turn_input_ready(&fixture.service));
+        assert_eq!(
+            super::startup_readiness::finish_waiting_for_first_turn(
+                &mut launch,
+                &crate::service::launch_readiness::LaunchSettlement::AwaitingFirstTurn,
+                &fixture.service,
+                crate::service::launch_diagnostics::AgentLaunchOrigin::RestoredSnapshot,
+            ),
+            Some(true)
+        );
+        let tab = fixture.service.mux.read().get_tab(&tab_id).unwrap().clone();
+        assert_eq!(tab.boot_stage, Some(BootStage::ProviderReady));
+        assert!(tab.boot_failure_reason.is_none());
+        assert!(tab.pending_delivery.is_none());
+        assert_eq!(tab.agent_session_id.as_deref(), session);
+        assert!(crate::service::boot_stage::first_turn_input_is_ready(&tab));
+    }
 }

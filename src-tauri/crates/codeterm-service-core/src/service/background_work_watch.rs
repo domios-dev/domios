@@ -1,7 +1,7 @@
+use super::tab_chat::file_events::{self, WatchGuard};
 use super::ServiceContext;
 use crate::service::MuxEmitCause;
 use codeterm_types::agent::chat_types::RichMessage;
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use parking_lot::Mutex;
 use std::{
     collections::HashMap,
@@ -11,7 +11,7 @@ use std::{
 };
 struct Watch {
     identity: (String, String),
-    _watcher: Option<RecommendedWatcher>,
+    _watcher: Option<WatchGuard>,
 }
 fn watches() -> &'static Mutex<HashMap<String, Watch>> {
     static WATCHES: OnceLock<Mutex<HashMap<String, Watch>>> = OnceLock::new();
@@ -80,43 +80,10 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
             let Some(path) = path else {
                 return;
             };
-            let Some(directory) = path
-                .ancestors()
-                .skip(1)
-                .take(3)
-                .find(|path| path.is_dir())
-                .map(Path::to_path_buf)
-            else {
-                return;
-            };
             let (tx, rx) = mpsc::sync_channel(1);
-            let watched = path.clone();
-            let events = tx.clone();
-            let watcher =
-                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                    if event.is_ok_and(|event| {
-                        if !matches!(
-                            event.kind,
-                            notify::EventKind::Create(_)
-                                | notify::EventKind::Modify(_)
-                                | notify::EventKind::Remove(_)
-                        ) {
-                            return false;
-                        }
-                        event
-                            .paths
-                            .iter()
-                            .any(|path| path == &watched || watched.starts_with(path))
-                    }) {
-                        let _ = events.try_send(());
-                    }
-                });
-            let Ok(mut watcher) = watcher else {
+            let Ok(watcher) = file_events::watch(&path, tx.clone()) else {
                 return;
             };
-            if watcher.watch(&directory, RecursiveMode::Recursive).is_err() {
-                return;
-            }
             {
                 let mut watches = watches().lock();
                 let Some(entry) = watches

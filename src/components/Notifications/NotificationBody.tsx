@@ -9,5 +9,5 @@ export function NotificationBody({ text, tabId, failure = false, operation, prev
   }
   return tabId
     ? <LocalArtifactScope tabId={tabId}><RichMarkdown text={text} /></LocalArtifactScope>
-    : <RichMarkdown text={text} localArtifacts={false} />;
+    : <RichMarkdown text={text} localArtifacts={false} interactivePreviews={false} />;
 }

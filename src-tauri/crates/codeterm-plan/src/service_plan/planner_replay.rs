@@ -39,10 +39,9 @@ pub fn planner_replay_candidate(plan: &Plan, tab_id: &str) -> Option<PlannerRepl
 impl PlanStore {
     /// Borrows each plan under the store read lock; only matching plans contribute small projections.
     pub fn planner_replay_candidates(&self, tab_id: &str) -> Vec<PlannerReplayCandidate> {
-        self.plans
-            .read()
-            .values()
-            .filter_map(|plan| planner_replay_candidate(&plan.lock(), tab_id))
+        self.plans_matching(&super::PlanMatch::Planner(tab_id.to_string()))
+            .iter()
+            .filter_map(|plan| planner_replay_candidate(plan, tab_id))
             .collect()
     }
 }

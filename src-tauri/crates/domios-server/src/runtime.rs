@@ -5,6 +5,7 @@ use crate::{
     },
     launch::LaunchOptions,
 };
+use codeterm_paths::instance_identity::ownership_registry;
 use codeterm_service_core::{
     ports::host::{NoShell, ProcessPaths, ProcessShell, UiEvents},
     PathOwnership, ResolvedInstancePaths,
@@ -42,13 +43,6 @@ impl UiEvents for ServerEvents {
     }
 }
 
-pub fn ownership_registry() -> io::Result<std::path::PathBuf> {
-    let home = dirs::home_dir().ok_or_else(|| io::Error::other("Home directory unavailable"))?;
-    let root = home.join(".codeterm-instance-lifetimes");
-    std::fs::create_dir_all(&root)?;
-    Ok(root.join("path-owners"))
-}
-
 fn ownership_registry_for(
     options: &LaunchOptions,
     identity: &ResolvedInstancePaths,
@@ -68,6 +62,9 @@ pub fn run(
     acknowledge: impl FnOnce(&ServerReady, Option<&str>) -> io::Result<()>,
 ) -> io::Result<()> {
     let boot_started = std::time::Instant::now();
+    options.validate(cfg!(debug_assertions))?;
+    let development_owner =
+        crate::launch_ownership::watch_owner(options.development_owner.as_ref())?;
     let job = if matches!(
         &options.instance,
         codeterm_types::server_bootstrap::InstanceSelector::IsolatedVerification { .. }
@@ -102,16 +99,18 @@ pub fn run(
         },
         native: Arc::new(NoShell),
     });
-    let frontend_dev_url = development_frontend_origin(
+    let (frontend_dev_url, frontend_identifier) = development_frontend_configuration(
         cfg!(debug_assertions),
         matches!(
             &options.instance,
             codeterm_types::server_bootstrap::InstanceSelector::Development { .. }
         ),
-        env!("SERVER_DEV_FRONTEND_ORIGIN"),
+        &std::env::var("CODETERM_VITE_PORT").unwrap_or_default(),
+        &std::env::var("CODETERM_DEV_IDENTIFIER").unwrap_or_default(),
     )?;
     codeterm_build_info::install(env!("BUILD_SHA"), env!("BUILD_HASH"));
     codeterm_build_info::install_version(env!("DOMIOS_VERSION"));
+    crate::headless_update::register_if_managed();
     crate::bundle::install();
     codeterm_orchestration::register_orchestration();
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -152,11 +151,7 @@ pub fn run(
     let frontend_native = native_events.clone();
     let frontend_identity = codeterm_api::health_routes::NativeFrontendIdentity {
         port: Arc::new(move || frontend_native.read().as_ref()?.frontend_port()),
-        identifier: if frontend_dev_url.is_some() {
-            env!("SERVER_DEV_IDENTIFIER").to_owned()
-        } else {
-            String::new()
-        },
+        identifier: frontend_identifier,
     };
     let prepared = crate::startup::early_api::PreparedStartup::new(
         frontend_dev_url.as_ref(),
@@ -222,6 +217,7 @@ pub fn run(
         }
     };
     log::debug!("[bootstrap] native listener binding completed");
+    let attached_once = native_server.as_ref().map(NativeServer::attached_once);
     let worker_cli =
         match crate::resources::pin_worker_cli(shell.as_ref(), env!("SERVER_CLI_SHA256")) {
             Ok(worker_cli) => worker_cli,
@@ -331,6 +327,19 @@ pub fn run(
             tokio::pin!(control);
             let native = serve_native(native_server, native_events);
             tokio::pin!(native);
+            let orphaned = async {
+                if let Some(owner) = development_owner {
+                    owner.await.map_err(io::Error::other)??;
+                    let attached = attached_once.as_ref().is_some_and(|value| {
+                        value.load(std::sync::atomic::Ordering::Acquire)
+                    });
+                    if crate::launch_ownership::retire_unattached(true, attached) {
+                        return Ok::<(), io::Error>(());
+                    }
+                }
+                std::future::pending::<io::Result<()>>().await
+            };
+            tokio::pin!(orphaned);
             loop { tokio::select! {
                 result = &mut initializing, if running.is_none() => {
                     running = Some(result.map_err(io::Error::other).and_then(|result| result.map_err(io::Error::other)));
@@ -346,6 +355,7 @@ pub fn run(
                     std::future::pending::<()>().await;
                 } => return Ok(Some(QuitControl::Headless)),
                 result = shutdown_signal() => return result.map(|_| None),
+                result = &mut orphaned => return result.map(|_| None),
                 result = &mut native => return result.map(|_| None),
             } }
         })
@@ -406,6 +416,26 @@ fn finish_server_control<T>(
     }
 }
 
+fn development_frontend_configuration(
+    debug: bool,
+    development: bool,
+    port: &str,
+    identifier: &str,
+) -> io::Result<(Option<url::Url>, String)> {
+    match codeterm_frontend_shell::development_runtime_frontend(
+        debug,
+        development,
+        port,
+        identifier,
+    )
+    .map_err(io::Error::other)?
+    {
+        Some(frontend) => Ok((Some(frontend.origin), frontend.identifier)),
+        None => Ok((None, String::new())),
+    }
+}
+
+#[cfg(test)]
 fn development_frontend_origin(
     debug: bool,
     development: bool,
@@ -474,10 +504,16 @@ async fn shutdown_signal() -> io::Result<()> {
 fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     use codeterm_service_core::{crash, service::session_persist, startup};
     crash::shutdown::mark_shutting_down_for(crash::shutdown::ShutdownReason::Signal);
-    let sidecars = crash::exit::begin_sidecar_shutdown();
+    let spawn_gate = running.states.pty.lock().spawn_gate();
+    spawn_gate.quiesce();
     let surfaces =
         codeterm_service_core::service::surface::begin_surface_shutdown(&running.service);
     let mut errors = Vec::new();
+    if let Err(error) =
+        spawn_gate.wait_for_idle(std::time::Instant::now() + std::time::Duration::from_secs(6))
+    {
+        errors.push(error);
+    }
     match session_persist::write_session_snapshot(&running.service, &running.service.mux) {
         Ok(codeterm_service_core::session::store::SaveOutcome::Saved) => {}
         Ok(outcome) => errors.push(format!("Shutdown snapshot refused: {outcome:?}")),
@@ -486,7 +522,22 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
     if let Err(error) = session_persist::stop_worker(&running.service) {
         errors.push(error);
     }
+    if let Err(error) =
+        codeterm_service_core::service::agent_runtime::engine::shutdown_blocking(&running.service)
+    {
+        errors.push(format!("Agent runtime shutdown failed: {error}"));
+    }
+    #[cfg(windows)]
+    let owned_tree = codeterm_util::process_tree::OwnedProcessTree::capture_current_server()
+        .map_err(|error| io::Error::other(format!("Owned process tree capture failed: {error}")));
     let reapers = running.states.pty.lock().begin_shutdown();
+    #[cfg(windows)]
+    if let Err(error) = owned_tree.and_then(|tree| {
+        tree.terminate_remaining(std::time::Duration::from_secs(6))
+            .map_err(|error| io::Error::other(format!("Owned process tree exit failed: {error}")))
+    }) {
+        errors.push(error.to_string());
+    }
     match reapers {
         Ok(reapers) => {
             for reaper in reapers {
@@ -498,7 +549,6 @@ fn shutdown(running: &crate::ComposedService) -> io::Result<()> {
         Err(error) => errors.push(error.to_string()),
     }
     surfaces.wait();
-    sidecars.wait();
     let stopped_git = codeterm_plugins::stop_live_git_children();
     if stopped_git > 0 {
         log::info!(

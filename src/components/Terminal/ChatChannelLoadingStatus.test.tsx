@@ -10,7 +10,7 @@ import type { JsonValue, RuntimeContext, RuntimeFrame } from "@codeterm/plugin-s
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-it("hosts the accessible waiting icon in the existing model row without an extra row", async () => {
+it("hosts the accessible waiting dots in the existing model row without an extra row", async () => {
   const host = document.createElement("div");
   const root = createRoot(host);
   const label = "Fixture channel pending";
@@ -33,9 +33,9 @@ it("hosts the accessible waiting icon in the existing model row without an extra
     const picker = host.querySelector<HTMLButtonElement>('button[aria-label="Choose fixture model"]');
     expect(host.childElementCount).toBe(1);
     await render(true);
-    const icon = host.querySelector('[role="img"]');
-    expect(icon?.getAttribute("aria-label")).toBe(label);
-    expect(icon?.getAttribute("title")).toBe(label);
+    // The shared activity dots, not a separate clock: one loader everywhere.
+    const icon = host.querySelector(`[role="status"][aria-label="${label}"]`);
+    expect(icon?.querySelector(".activity-dots")).not.toBeNull();
     expect(modelRow?.contains(icon)).toBe(true);
     expect(host.querySelector('button[aria-label="Choose fixture model"]')).toBe(picker);
     await act(async () => picker?.click());
@@ -45,7 +45,7 @@ it("hosts the accessible waiting icon in the existing model row without an extra
     expect(host.querySelector('button[aria-label="Choose fixture model"]')).toBe(picker);
     expect(host.querySelectorAll("div")).toHaveLength(1);
     await render(false);
-    expect(host.querySelector('[role="img"]')).toBeNull();
+    expect(host.querySelector(`[aria-label="${label}"]`)).toBeNull();
     expect(host.firstElementChild).toBe(modelRow);
     expect(host.childElementCount).toBe(1);
   } finally {

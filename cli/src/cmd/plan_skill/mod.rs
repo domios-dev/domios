@@ -47,7 +47,7 @@ fn record_stride(
         "plan_id": plan_id,
         "kind": "skill",
         "text": text,
-        "from": { "tab_id": std::env::var("CODETERM_TAB_ID").ok() },
+        "from": { "tab_id": crate::nonempty_env("CODETERM_TAB_ID") },
     });
     match client.call("plan.stride.add", Some(params)) {
         Ok(_) => true,
@@ -83,13 +83,7 @@ fn resolve_local(
     let plan_id = plan_dir
         .file_name()
         .and_then(|name| name.to_str())
-        .map(|name| {
-            if name == "_inbox" {
-                "inbox".to_string()
-            } else {
-                name.to_string()
-            }
-        })
+        .map(str::to_string)
         .ok_or_else(|| "could not determine authoritative plan id".to_string())?;
     Ok((plan_id, plan_dir))
 }
@@ -195,7 +189,8 @@ fn edit_skill(
         ));
     }
     if let Some(path) = body_file {
-        let body = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
+        let body = crate::local_admission::read_local_text(&path)
+            .map_err(|e| format!("read {path}: {e}"))?;
         std::fs::write(&skill_md, body).map_err(|e| e.to_string())?;
     }
     let entry = ledger::append_entry(&plan_dir, &slug, &verdict, &rationale)?;
@@ -255,7 +250,7 @@ fn render_skill_list(response: &Value) -> Result<String, String> {
 }
 
 fn identity_env(key: &str) -> Option<String> {
-    std::env::var(key).ok().filter(|v| !v.trim().is_empty())
+    crate::nonempty_env(key)
 }
 
 // Every launched tab (owner, Planner, or task-bound Worker) exports a

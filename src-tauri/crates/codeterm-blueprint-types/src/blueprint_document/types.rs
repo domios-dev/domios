@@ -151,9 +151,11 @@ pub enum NodeKind {
     RespondPrompt,
     Escalate,
     Stop,
+    #[serde(untagged)]
+    Plugin(String),
 }
 impl NodeKind {
-    pub fn name(&self) -> &'static str {
+    pub fn name(&self) -> &str {
         match self {
             Self::Schedule => "schedule",
             Self::Event => "event",
@@ -176,7 +178,11 @@ impl NodeKind {
             Self::RespondPrompt => "respond_prompt",
             Self::Escalate => "escalate",
             Self::Stop => "stop",
+            Self::Plugin(id) => id,
         }
+    }
+    pub fn plugin(&self) -> bool {
+        matches!(self, Self::Plugin(_))
     }
     pub fn effect(&self) -> bool {
         matches!(
@@ -307,6 +313,20 @@ pub struct Node {
     pub session: bool,
     #[serde(default, skip_serializing_if = "is_default")]
     pub paused: bool,
+}
+
+pub fn namespaced_plugin_step(id: &str) -> bool {
+    let parts = id.split('.').collect::<Vec<_>>();
+    id.len() <= 128
+        && parts.len() >= 2
+        && parts.iter().all(|part| {
+            !part.is_empty()
+                && part.len() <= 64
+                && part.as_bytes()[0].is_ascii_lowercase()
+                && part.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'_' | b'-')
+                })
+        })
 }
 impl Node {
     pub fn kind(&self) -> &str {

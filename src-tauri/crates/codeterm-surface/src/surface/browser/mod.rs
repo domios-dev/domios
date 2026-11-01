@@ -1,11 +1,18 @@
+mod accessible_wait;
+mod atomic;
 mod calls;
+mod domios_instance;
 mod grab;
 mod heuristics;
 mod inbox;
 mod input;
+mod metrics;
+mod output;
 mod page;
 mod redaction;
 mod resume;
+mod sessions;
+mod snapshots;
 mod snip;
 mod stream;
 mod verbs;
@@ -326,6 +333,20 @@ impl BrowserRuntime {
         Ok(())
     }
 
+    fn remember_secret(&self, secret: &str) -> Result<(), String> {
+        if secret.is_empty() {
+            return Err("empty_browser_secret".into());
+        }
+        let mut secrets = self.secrets.lock();
+        if !secrets.iter().any(|known| known == secret) {
+            if secrets.len() >= 128 {
+                return Err("Browser secret limit reached; reopen the Browser".into());
+            }
+            secrets.push(secret.to_string());
+        }
+        Ok(())
+    }
+
     fn next_grab_id(&self) -> String {
         let mut grabs = self.grabs.lock();
         grabs.seq += 1;
@@ -390,20 +411,14 @@ impl SurfaceRuntime for BrowserRuntime {
         verb: &str,
         args: &[String],
     ) -> Result<String, String> {
-        if verb == "type-secret" {
+        if matches!(verb, "type-secret" | "connect-secret") {
             let secret = args
                 .last()
                 .ok_or("Secret typing needs a target and stdin text")?;
             if secret.is_empty() || args.len() < 2 {
                 return Err("Secret typing needs a target and nonempty stdin text".into());
             }
-            let mut secrets = self.secrets.lock();
-            if !secrets.contains(secret) {
-                if secrets.len() >= 128 {
-                    return Err("Secret typing limit reached; reopen the Browser".into());
-                }
-                secrets.push(secret.clone());
-            }
+            self.remember_secret(secret)?;
         }
         self.run_verb(ctx, verb, args)
             .await
@@ -445,26 +460,4 @@ impl SurfaceRuntime for BrowserRuntime {
 }
 
 #[cfg(test)]
-mod profile_policy_tests {
-    use super::*;
-
-    #[tokio::test]
-    async fn agent_browser_defaults_to_temporary_and_rejects_missing_profiles() {
-        let root = tempfile::tempdir().unwrap();
-        let runtime = BrowserRuntime::new(
-            BrowserHostConfig::under_data_dir(root.path()),
-            "Agent",
-            "tab-id",
-            Arc::new(tokio::sync::OnceCell::new()),
-            SurfaceResume::default(),
-        );
-        assert_eq!(*runtime.profile_request.lock(), "");
-        assert!(runtime.use_profile("Invented").await.is_err());
-        assert!(!runtime.layout.profiles_dir().exists());
-        assert_eq!(*runtime.profile_request.lock(), "");
-        assert_eq!(
-            runtime.view_only_methods(),
-            ["profiles.create", "profiles.delete"]
-        );
-    }
-}
+mod profile_policy_tests;

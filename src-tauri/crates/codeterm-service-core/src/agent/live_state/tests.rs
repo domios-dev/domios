@@ -373,6 +373,7 @@ fn restore_classifier_counts_failed_and_unbound_launches_as_observed() {
             evidence: evidence(stage, in_flight, pty_live),
             snapshot_pending,
             authenticated,
+            first_turn_ready: false,
             binding_deadline_elapsed: deadline,
         });
         assert_eq!(

@@ -3,6 +3,7 @@ import { Clock3, X } from "lucide-react";
 import type { CronJob, Tab } from "../../lib/types";
 import { invoke } from "../../lib/bridge";
 import { cronSelectionStore } from "../Cron/cronSelectionStore";
+import { cronState, jobStateLabel } from "../Jobs/jobsModel";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { RowMenuButton } from "../shared/RowMenuButton";
 import { cronRowMenu } from "./cronRowMenu";
@@ -25,7 +26,7 @@ export function SidebarResourceRow({ name, state, icon, title, accessibleName, o
 export function SidebarCronRow({ job, tabs, onBeforeOpen, onDeleted }: {
   job: CronJob; tabs: Record<string, Tab>; onBeforeOpen?: () => void; onDeleted: () => void;
 }) {
-  return <SidebarResourceRow name={job.name} state={job.enabled ? "active" : "paused"} accessibleName={`Open job ${job.name}`}
+  return <SidebarResourceRow name={job.name} state={jobStateLabel(cronState(job))} accessibleName={`Open job ${job.name}`}
     icon={<Clock3 size={11} aria-hidden="true" />}
     title={cronReportTitle(job.report_target_tab_id, job.report_target_tab_id ? tabs[job.report_target_tab_id]?.title : null)}
     onOpen={() => {

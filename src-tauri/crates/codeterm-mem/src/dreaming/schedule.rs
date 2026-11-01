@@ -26,10 +26,23 @@ pub fn ensure_dreaming_cron(
     mem_cfg: &MemoryConfig,
     default_agent: &str,
     compat: &dyn BackgroundModelPort,
+    general_workspace: &str,
 ) -> Result<bool, String> {
+    if general_workspace.is_empty() {
+        return Err("Dreaming cron requires the General workspace".into());
+    }
+    let desired_agent = resolve_worker_agent(None, &mem_cfg.dreaming_agent, default_agent);
+    let (model, _) = resolve_worker_model(
+        &mem_cfg.dreaming_model,
+        &mem_cfg.worker_model,
+        &desired_agent,
+        compat,
+    );
+    let desired_model = (!model.is_empty()).then_some(model);
     if let Some(job) = cron_store.find_job_by_name(DREAMING_CRON_NAME) {
-        let desired_agent = resolve_worker_agent(None, &mem_cfg.dreaming_agent, default_agent);
         let agent_changed = job.agent != desired_agent;
+        let model_changed = job.model != desired_model;
+        let scope_changed = job.workspace_id != general_workspace;
         let legacy_schedule_match = matches!(job.schedule.as_str(), "0 3 * * *");
         let legacy_jitter_match = job.jitter_max_ms == Some(5_400_000);
         // Self-heal a stale command left by an older CLI shape (e.g. bare
@@ -38,6 +51,8 @@ pub fn ensure_dreaming_cron(
 
         if !job.protected
             || agent_changed
+            || model_changed
+            || scope_changed
             || legacy_schedule_match
             || legacy_jitter_match
             || task_changed
@@ -74,9 +89,9 @@ pub fn ensure_dreaming_cron(
             }
             cron_store.update_job(&job_id, &mut |j| {
                 j.protected = true;
-                if agent_changed {
-                    j.agent = desired_agent.clone();
-                }
+                j.agent = desired_agent.clone();
+                j.model = desired_model.clone();
+                j.workspace_id = general_workspace.to_string();
                 if task_changed {
                     j.task = DREAMING_TASK.to_string();
                 }
@@ -89,30 +104,14 @@ pub fn ensure_dreaming_cron(
         return Ok(false);
     }
 
-    // Deferred default: `None` here means "pick the default agent at fire time", not "no agent" — deliberately NOT resolved eagerly, unlike the update path above.
-    let agent = if mem_cfg.dreaming_agent.is_empty() {
-        None
-    } else {
-        Some(mem_cfg.dreaming_agent.clone())
-    };
-    let provider_hint = resolve_worker_agent(None, &mem_cfg.dreaming_agent, default_agent);
-
-    let (model, _fell_back) = resolve_worker_model(
-        &mem_cfg.dreaming_model,
-        &mem_cfg.worker_model,
-        &provider_hint,
-        compat,
-    );
-    let model = (!model.is_empty()).then_some(model);
-
     cron_store.create_job(MemCronCreateParams {
         name: DREAMING_CRON_NAME.into(),
-        workspace_id: String::new(),
+        workspace_id: general_workspace.to_string(),
         schedule: "0 6 * * *".into(),
         task: DREAMING_TASK.into(),
         description: Some("Memory optimizer. Runs nightly as a graph worker inside Memory Panel. Toggle on/off in settings. Cannot be deleted.".into()),
-        agent,
-        model,
+        agent: Some(desired_agent),
+        model: desired_model,
         cwd: None,
         role: None,
         creator_tab_id: None,

@@ -568,12 +568,20 @@ impl AgentDeliveryStore {
     }
 
     pub(crate) fn persisted_tab_ids(&self) -> Result<Vec<String>, String> {
+        self.discover_tab_ids(|failures, error| {
+            log::error!("[agent-delivery] outbox discovery failed for {failures} entries: {error}");
+        })
+    }
+
+    fn discover_tab_ids(&self, report: impl FnOnce(usize, &str)) -> Result<Vec<String>, String> {
         let entries = match fs::read_dir(&self.root) {
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(error) => return Err(error.to_string()),
         };
         let mut tabs = Vec::new();
+        let mut failures = 0usize;
+        let mut first_error = None;
         for entry in entries {
             let result = (|| -> Result<Option<String>, String> {
                 let entry = entry.map_err(|error| error.to_string())?;
@@ -584,11 +592,15 @@ impl AgentDeliveryStore {
                 {
                     return Ok(None);
                 }
-                let index: AgentDeliveryIndex = serde_json::from_slice(&read_bounded(
-                    &entry.path().join("index.json"),
-                    MAX_INDEX_BYTES,
-                )?)
-                .map_err(|error| error.to_string())?;
+                let path = entry.path().join("index.json");
+                match fs::symlink_metadata(&path) {
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+                    Err(error) => return Err(error.to_string()),
+                    Ok(_) => {}
+                }
+                let index: AgentDeliveryIndex =
+                    serde_json::from_slice(&read_bounded(&path, MAX_INDEX_BYTES)?)
+                        .map_err(|error| error.to_string())?;
                 self.validate(&index)?;
                 if index.tab_id.is_empty() {
                     return Ok(None);
@@ -601,8 +613,14 @@ impl AgentDeliveryStore {
             match result {
                 Ok(Some(tab)) => tabs.push(tab),
                 Ok(None) => {}
-                Err(error) => log::error!("[agent-delivery] outbox discovery failed: {error}"),
+                Err(error) => {
+                    failures += 1;
+                    first_error.get_or_insert(error);
+                }
             }
+        }
+        if let Some(error) = first_error {
+            report(failures, &error);
         }
         Ok(tabs)
     }

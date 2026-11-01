@@ -1,4 +1,5 @@
 pub mod activity;
+pub use async_trait::async_trait;
 pub mod agent_claude;
 pub mod agent_commands;
 pub mod agent_prompt_lines;
@@ -6,6 +7,7 @@ pub mod agent_runtime;
 pub mod agent_task;
 pub mod agent_verbs;
 pub mod audit;
+pub mod blueprint_step;
 pub mod bubble;
 pub mod bundle_access;
 pub mod bundle_hash;
@@ -30,9 +32,11 @@ pub mod js_runtime;
 pub(crate) mod json_boolean_record;
 pub mod jsonl_window;
 pub mod local_recording;
+pub mod media_delivery;
 pub mod model_catalog;
 pub mod model_providers;
 pub mod permission_prompt;
+pub mod plugin_connection;
 pub mod plugin_icon;
 pub mod plugin_index;
 pub mod plugin_lifecycle;
@@ -79,3 +83,7 @@ pub use webhook::{
 
 #[cfg(any(test, feature = "test-support"))]
 mod test_support;
+
+pub mod binary_transfer;
+pub mod plugin_id;
+pub mod surface_invocation;

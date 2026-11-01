@@ -12,6 +12,7 @@ export type ChatBodyView =
   | { kind: "failed"; reason: ChatUnavailableReason };
 
 export interface ChatBodyInput {
+  firstTurnReady?: boolean;
   snapshotReady?: boolean;
   hasHeldWindow?: boolean;
   hasTranscript: boolean;
@@ -26,6 +27,7 @@ export function chatBodyView(input: ChatBodyInput): ChatBodyView {
   if (input.locked) return { kind: "locked" };
   if (input.bootView.kind === "launch_failed") return input.bootView;
   if (input.attachmentError) return { kind: "attach_failed", reason: input.attachmentError };
+  if (input.firstTurnReady && !input.unavailable) return { kind: "none" };
   if (input.hasHeldWindow) return { kind: "none" };
   if (input.snapshotReady === false) {
     return input.unavailable ? { kind: "failed", reason: input.unavailable } : { kind: "starting", label: "Loading conversation" };

@@ -63,7 +63,8 @@ async fn startup_reaches_ready_while_embedder_and_pending_memory_work_are_stalle
         .unwrap();
         let embedding_mem = mem.clone();
         let embedding = tokio::task::spawn_blocking(move || {
-            embedding_mem.with_conn(|_| active.passage("a fixture memory awaiting embedding"))
+            embedding_mem
+                .with_storage_lock(|| active.passage("a fixture memory awaiting embedding"))
         });
         embedding_entered.await.unwrap();
 

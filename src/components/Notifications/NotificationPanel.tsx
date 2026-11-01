@@ -1,8 +1,8 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { NotificationBody } from "./NotificationBody";
 import type { Notification } from "../../lib/types";
-import { runNotificationAction } from "../../lib/notificationActions";
+import { neighborNotificationTarget, runNotificationAction } from "../../lib/notificationActions";
 import { Bell, Check, ChevronDown, Trash2, X } from "lucide-react";
 import { timeAgo } from "../../lib/formatters";
 import { isAnswerUndeliverable, isAnswerUndelivered } from "../../lib/notificationAnswer";
@@ -13,6 +13,7 @@ import { Skeleton, SkeletonBlock } from "../shared/Skeleton";
 const NOTIFICATION_SKELETON_ROWS = [78, 64, 70];
 
 interface NotificationPanelProps {
+  questionId?: string;
   notifications: Notification[];
   /** History has not answered yet: an empty list means unknown, not none. */
   loading?: boolean;
@@ -26,6 +27,7 @@ interface NotificationPanelProps {
 }
 
 export function NotificationPanel({
+  questionId,
   notifications,
   loading = false,
   onMarkRead,
@@ -41,11 +43,21 @@ export function NotificationPanel({
     const newestWithBody = sorted.find((notification) => notification.body);
     return newestWithBody ? new Set([newestWithBody.id]) : new Set();
   });
+  const pendingId = questionId ?? sorted.find(n => !n.resolved && n.answer && !n.answer.answered)?.id;
+  const pendingRow = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (pendingId) {
+      setExpandedIds(ids => new Set([...ids, pendingId]));
+      pendingRow.current?.scrollIntoView?.({ block: "nearest" });
+    }
+  }, [pendingId]);
 
   const handleClick = useCallback(
     (notif: Notification) => {
       if (!notif.read) onMarkRead(notif.id);
-      if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
+      const neighbor = notif.actions?.find((action) => action.type === "url" && action.value && neighborNotificationTarget(action.value));
+      if (neighbor) void runNotificationAction(neighbor);
+      else if (notif.tab_id) onJumpToTab(notif.tab_id, notif.workspace_id);
     },
     [onJumpToTab, onMarkRead],
   );
@@ -129,6 +141,7 @@ export function NotificationPanel({
               key={notif.id}
               data-testid="notification-row"
               data-notification-id={notif.id}
+              ref={notif.id === pendingId ? pendingRow : undefined}
               onClick={() => handleClick(notif)}
               className={rowClass}
             >

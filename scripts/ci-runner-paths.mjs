@@ -126,7 +126,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.ar
   for (const directory of directories) console.log('Job-local tool directory: ' + directory);
   } catch(error) {
     console.error(error.stack||error.message);
-    console.error(reproLine(process.env.CI_STEP||'node-script-tests',{profile:inferRunnerProfile()}));
+    console.error(reproLine(process.env.CI_STEP||'test-catalogue',{profile:inferRunnerProfile()}));
     process.exitCode=1;
   }
 

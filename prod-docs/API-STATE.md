@@ -51,9 +51,10 @@ filler histories, size evidence and hidden-tab metadata. CLI:
 
 #### Web Mirror
 
+The daemon root serves the static web mirror through its fallback when the frontend is available. API requests remain authenticated. `?a11y=1` enables the screen-reader terminal DOM.
+
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| GET | `/` | — | The Domios web mirror: the same React bundle as the desktop app, served static at the daemon root (public route; every API call it makes stays token-gated). `?a11y=1` enables the screen-reader terminal DOM. |
 | GET | `/api/mux/state` | — | Published multiplexer snapshot (workspaces/tabs + focus). Writers and rebuilds do not delay reads or cause 503. Genuine storage unavailability still returns 503. Publication sends `mux-state-changed`; callers must not poll. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/focus` | — | Switch active tab. |
 | POST | `/api/workspaces/{id}/tabs/{tab_id}/close` | — | Close a tab. |
@@ -194,13 +195,13 @@ After restart, valid recorded provider sessions resume; stale or missing session
 **Outcomes:** HTTP 200: `updating`, `up_to_date`/`no_update`, `command` (Homebrew/Scoop), `browser_opened`, `already_in_flight`, `blocked` or `elevation_required`. The last two include an action reason. Applying is single flight across the process; `already_in_flight` differs from `no_update`. Debian staging contention returns 409.
 **Errors:** 400: invalid/disabled continuation, missing caller/prior check, or malformed channel; 500: blocking-worker or `update_handoff_write_failed`; 502: discovery, signature verification or staging failure; 503 `native_capability_unavailable`: no attached updater. Authentication/protocol middleware can refuse earlier. Install refusals log route, status and reason.
 
-**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/rollacode/codeterm-releases/releases/latest with `domios update install --from-file <installer-path>`. Debian uses the verified staging flow above.
+**Recovery:** use desktop Settings > Updates on macOS/Windows, or the official installer at https://github.com/domios-dev/domios/releases/latest with `domios update install --from-file <installer-path>`. Debian uses the verified staging flow above.
 
 ### Tab-scoped local previews
 
 The browser mirror uses `POST /api/tabs/{id}/preview/read` with `{ "path": "/absolute/file.md", "kind": "document" }` and `POST /api/tabs/{id}/preview/check` with `{ "paths": ["/absolute/file.md"] }`. Both require the normal Bearer authentication and an exact live tab ID. Peer access follows the tab's read permissions and ownership policy.
 
-A file must be referenced by that tab's own transcript: a full-line `@ds-image`, `@ds-document`, `@ds-page` (or `@ct-*`/`@file`) directive, an attachment, a recorded edit/diff path, or an image result path. Client-supplied paths do not grant access. Prose mentions, fenced examples and another tab's references grant nothing. Unavailable and refused reads return the same `404` JSON error; batch checks omit refused paths without exposing their existence.
+A file must be referenced by that tab's own transcript: a complete canonical `<ds-image src="…" />`, `<ds-document src="…" />` or `<ds-page src="…" />` tag, an attachment, a recorded edit/diff path, or an image result path. Client-supplied paths do not grant access. Prose mentions, incomplete/malformed tags, legacy aliases, code, quoted/list/context/handoff examples and another tab's references grant nothing. A gallery uses a JSON `sources` attribute with at most 32 paths. Unavailable and refused reads return the same `404` JSON error; batch checks omit refused paths without exposing their existence.
 
 Read returns `{ "data": "...", "media_type": "..." }`; images use a base64 data URL. Batch returns `{ "paths": [...], "home": "..." }`. Allowed extensions and byte limits are shared with desktop: HTML pages 200,000 bytes, UTF-8 documents 1,000,000 bytes, images 10 MiB. Symlinks/junctions, hardlinks, traversal, UNC/device paths and alternate streams are refused. CodeTerm data directories, SSH/cloud credential directories and credential/token filenames are denied. Additional absolute file or directory roots can be denied with `api.preview_secret_paths = ["/absolute/private"]`; invalid roots fail closed.
 
@@ -208,4 +209,4 @@ Responses carry `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, an
 
 Related documents — service registration, health, and activity: `domios docs API-SERVICES`. Bridge and cron integrations: `domios docs API-INTEGRATIONS`.
 
-<!-- revision: 36 -->
+<!-- revision: 39 -->

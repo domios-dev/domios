@@ -152,12 +152,13 @@ async function main() {
     assert(!host.querySelector('[aria-label="Node invoke"]'));
 
     const calls: string[] = [];
-    await act(async () => root.render(<BlueprintProjectList workspaceId="workspace" api={{ list: async (workspace) => { calls.push(workspace); return [{ path: ".domios/blueprints/viewer-fixture.yaml", name: source.name, intent: source.intent ?? null, error: null }, { path: ".domios/blueprints/bad.yaml", name: null, intent: null, error: "mismatch" }]; }, show: async (_, path) => { calls.push(path); return { path, document: source }; } }} />));
-    assert.equal(calls.length, 0);
-    await act(async () => button("List repository Blueprints").click());
+    // Opened from the Jobs Import menu, the list reads the selected workspaces at once and shows each source as a job-style row.
+    const projectApi = { list: async (workspace: string) => { calls.push(workspace); return [{ path: ".domios/blueprints/viewer-fixture.yaml", name: source.name, intent: source.intent ?? null, error: null }, { path: ".domios/blueprints/bad.yaml", name: null, intent: null, error: "mismatch" }]; }, show: async (_: string, path: string) => { calls.push(path); return { path, document: source }; } };
+    await act(async () => root.render(<BlueprintProjectList workspaceIds={["workspace"]} api={projectApi} />));
     assert.deepEqual(calls, ["workspace"]);
-    assert(!host.querySelector('[aria-label="View .domios/blueprints/bad.yaml"]'));
-    await act(async () => button("View .domios/blueprints/viewer-fixture.yaml").click());
+    await act(async () => button(".domios/blueprints/bad.yaml, Repository Blueprint, Unreadable").click());
+    assert.deepEqual(calls, ["workspace"], "an unreadable source does not open");
+    await act(async () => button(`${source.name}, Repository Blueprint, Source`).click());
     assert(host.querySelector('[aria-label="Repository source .domios/blueprints/viewer-fixture.yaml"]'));
     assert(![...host.querySelectorAll("button")].some((button) => /^(apply|run|approve|stop blueprint)$/i.test(button.getAttribute("aria-label") ?? button.textContent ?? "")), "a repository source is read-only");
 
@@ -236,7 +237,19 @@ async function main() {
     assert(journal()?.textContent?.includes("failed"));
     assert(journal()?.textContent?.includes("deadline"));
     assert(host.querySelector('[aria-label="Recorded stop"]')?.textContent?.includes("deadline"), "a deadline is a visible failure on the canvas");
-    assert(!button("Node Stop").textContent?.includes("Target unavailable"));
+    assert(!host.querySelector('[aria-label="Node Stop"]'), "stop routes terminate at the port");
+    await act(async () => { window.happyDOM.setWindowSize({ width: 380, height: 844 }); root.render(<BlueprintView key="phone" pipeline={viewerPipeline()} history={false} />); });
+    await waitForNode("Node probe");
+    const phoneNode = button("Node probe");
+    await act(async () => { phoneNode.focus(); phoneNode.click(); });
+    const sheet = host.querySelector('[role="dialog"][aria-modal="true"]');
+    assert(sheet, "phone details are a modal dialog");
+    const canvas = host.querySelector('[aria-label="viewer-fixture graph"]');
+    assert(canvas?.closest('[inert][aria-hidden="true"]'), "the graph is inert and hidden from assistive technology behind the sheet");
+    await act(async () => button("Close details").click());
+    assert(!host.querySelector('[role="dialog"][aria-modal="true"]'), "close dismisses the sheet");
+    assert.equal(document.activeElement, phoneNode, "close restores focus to the node that opened the sheet");
+    assert(!canvas?.closest("[inert]"), "closing releases the graph");
     console.log(`BlueprintView: accessible interactions passed; 24 root calls + expanded callee; headless maxReactRender=${maxRender.toFixed(3)}ms inputDispatch=${inputLatency.toFixed(3)}ms scrollDispatch=${scrollLatency.toFixed(3)}ms`);
   } finally { await act(async () => root.unmount()); host.remove(); await window.happyDOM.close(); Object.defineProperty(globalThis, "MessageChannel", { configurable: true, value: nativeMessageChannel }); }
 }

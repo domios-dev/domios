@@ -12,6 +12,11 @@ export interface UpdateItem {
   targetVersion: string;
   channel?: string;
   channelError?: string;
+  sourceWarning?: string;
+}
+
+export function updateSourceMessage(error: string): string {
+  return error.match(/GitHub rate limit, retry at \d{2}:\d{2}/)?.[0] ?? error;
 }
 
 export function groupUpdates(items: readonly UpdateItem[]) {
@@ -51,6 +56,12 @@ export function nextUpdateStep(intent: UpdateIntent, hostVersion: string, items:
   return { kind: "complete" };
 }
 
+export function restoredAppIntentInterrupted(intent: UpdateIntent, hostVersion: string,
+  native: { observed: boolean; phase: string; installing: boolean }): boolean {
+  return intent.stage === "app" && intent.appTarget !== null && hostVersion !== intent.appTarget
+    && native.observed && native.phase === "idle" && !native.installing;
+}
+
 export function readUpdateIntent(value: string | null): UpdateIntent | null {
   if (!value) return null;
   try {
@@ -76,14 +87,15 @@ export function updateableItems(
   items: readonly UpdateAvailabilityItem[],
   channelErrors: Readonly<Record<string, string>>,
 ): UpdateAvailabilityItem[] {
-  return items.filter(item => item.kind !== "plugin" || !item.channel || !channelErrors[item.channel]);
+  return items.filter(item => item.kind === "plugin" ? !item.channel || !channelErrors[item.channel]
+    : !channelErrors[item.id] || (item.kind === "app" && item.reason === "cached_manifest"));
 }
 
 export function panelItems(
   items: readonly UpdateAvailabilityItem[],
   channelErrors: Readonly<Record<string, string>> = {},
 ): UpdateItem[] {
-  return items.filter(item => hasUpdateBadge(item) || (item.kind === "plugin" && item.installed !== null && item.state !== "core_silent"
+  return items.filter(item => hasUpdateBadge(item) || (item.kind !== "plugin" && Boolean(channelErrors[item.id])) || (item.kind === "plugin" && item.installed !== null && item.state !== "core_silent"
     && item.channel !== null && Boolean(channelErrors[item.channel])))
     .map(item => ({
     id: item.id,
@@ -91,7 +103,9 @@ export function panelItems(
     name: item.kind === "app" ? "Domios" : item.kind === "frontend" ? "Interface" : item.id,
     currentVersion: item.installed ?? "Bundled", targetVersion: item.latest ?? item.installed ?? "Unknown",
     channel: item.channel ?? undefined,
-    channelError: item.kind === "plugin" && item.channel ? channelErrors[item.channel] : undefined,
+    channelError: item.kind === "plugin" && item.channel ? channelErrors[item.channel]
+      : item.kind !== "plugin" && item.reason !== "cached_manifest" ? channelErrors[item.id] : undefined,
+    sourceWarning: item.reason === "cached_manifest" ? channelErrors[item.id] : undefined,
   }));
 }
 

@@ -2,7 +2,19 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { chatScrollBookmark, chatScrollRestoreTarget } from "./chatScrollMemory";
 import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerDriftAfterShift, chatSpacerFold, chatSpacerHeight, shouldAbsorbChatShift,
-  chatSpacerTranslation } from "./chatSpacerDrift";
+  chatSpacerTranslation, unrecordedRowsAbove } from "./chatSpacerDrift";
+
+test("a row above the anchor that grew before its resize notification landed is still owed its shift", () => {
+  // A command card above the view grew 420px while the finger moved and new rows arrived below; its notification was
+  // deferred a frame, and it now reaches into the view itself. Every row up to the previous anchor is checked.
+  const rows = [{ id: "a", top: 0 }, { id: "card", top: 100 }, { id: "anchor", top: 840 }, { id: "below", top: 1200 }];
+  const measured = [100, 740, 360, 200];
+  const recorded = new Map([["a", 100], ["card", 320], ["anchor", 360], ["below", 140]]);
+  assert.deepEqual(unrecordedRowsAbove(rows, measured, 2, recorded), [1], "the card's growth is pending, the row below the view is not");
+  assert.deepEqual(unrecordedRowsAbove(rows, measured, 1, recorded), [], "only rows above the given anchor count");
+  assert.deepEqual(unrecordedRowsAbove(rows, [100, 320, 360, 200], 2, recorded), [], "recorded heights owe nothing");
+  assert.deepEqual(unrecordedRowsAbove(rows, measured, 2, new Map()), [], "a row never measured is placed by its first measurement, not here");
+});
 
 test("absorbs a detached owned scroll on every engine", () => {
   assert.equal(shouldAbsorbChatShift({ pinned: false, userScrolling: true }), true);

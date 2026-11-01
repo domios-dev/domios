@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection};
 
-pub(super) fn init(conn: &Connection) -> Result<(), String> {
+pub(crate) fn init(conn: &Connection) -> Result<(), String> {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS mem_vector_pending (
             mem_id TEXT PRIMARY KEY,

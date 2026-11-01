@@ -20,7 +20,7 @@ test("a lazy provider's ready composer ends Starting before a session exists", (
   expect(tabActivity({ ...tab, boot_stage: "agent_ready", pending_prompt: { question: "opaque", options: [] } }).kind).toBe("waiting-on-user");
   const composerReady = {
     ...tab,
-    boot_stage: "launch_binding_unconfirmed" as const,
+    boot_stage: "provider_ready" as const,
     provisional_launch: {
       pty_id: "own-pty", binding_nonce: "own-nonce", reason: "opaque",
       awaiting_binding_ack: true, first_turn_input_ready: true,

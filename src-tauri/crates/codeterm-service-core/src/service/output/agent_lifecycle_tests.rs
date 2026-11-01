@@ -469,7 +469,10 @@ fn restore_contract_provider_exit_during_shutdown_keeps_the_resume_identity() {
 fn pty_classifier_cannot_overwrite_structured_turn_state() {
     let (mut mux, tab_id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&tab_id).unwrap();
-    tab.structured_control_active = true;
+    tab.backing = crate::multiplexer::types::TabBacking::ChatBackend {
+        plugin_id: "opaque-provider".into(),
+        session_id: "own-thread".into(),
+    };
     let working = crate::agent::state_verdict::live_state_for(
         crate::agent::provider::ProviderStateVerdict::Working,
     );

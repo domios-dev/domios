@@ -76,7 +76,7 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
     }
     if runtime_inner.is_none() {
         timing.enter("initialize");
-        let context = create_runtime_context(vm, deadline, now.clone());
+        let context = create_runtime_context(vm, method, deadline, now.clone());
         if now() >= deadline {
             return Err(failure(
                 RuntimeFailureCode::Deadline,
@@ -86,36 +86,37 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
         *runtime_inner = Some(context?);
     }
     timing.enter("execute");
-    let inner = runtime_inner
-        .as_ref()
-        .ok_or_else(|| failure(RuntimeFailureCode::HookFailed, "runtime context missing"))?;
+    let inner = runtime_inner.as_ref().ok_or_else(|| {
+        failure(
+            RuntimeFailureCode::HookFailed,
+            format!("{method}: runtime context missing"),
+        )
+    })?;
     let interrupt_now = now.clone();
     inner
         ._rt
         .set_interrupt_handler(Some(Box::new(move || interrupt_now() >= deadline)));
-    let mut context_unusable = false;
     let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         inner._ctx.with(|ctx| -> Result<String, RuntimeFailure> {
             let globals = ctx.globals();
-            let mut setup = |e: rquickjs::CaughtError<'_>| {
-                context_unusable = true;
+            let setup = |e: rquickjs::CaughtError<'_>| {
                 failure(
                     RuntimeFailureCode::HookFailed,
-                    format!("{method} setup: {e:?}"),
+                    format!("{method} setup: {}", caught_message(e)),
                 )
             };
             globals
                 .set("__ct_runtime_method__", method)
                 .catch(&ctx)
-                .map_err(&mut setup)?;
+                .map_err(setup)?;
             globals
                 .set("__ct_runtime_args__", args_json)
                 .catch(&ctx)
-                .map_err(&mut setup)?;
+                .map_err(setup)?;
             globals
                 .set("__ct_runtime_limit__", MAX_RUNTIME_VALUE_BYTES as u32)
                 .catch(&ctx)
-                .map_err(&mut setup)?;
+                .map_err(setup)?;
             let result = eval_source::<String, _>(&ctx, INVOKE)
                 .catch(&ctx)
                 .map_err(|e| {
@@ -130,7 +131,10 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                             );
                         }
                     }
-                    failure(RuntimeFailureCode::HookFailed, format!("{method}: {e:?}"))
+                    failure(
+                        RuntimeFailureCode::HookFailed,
+                        format!("{method}: {}", caught_message(e)),
+                    )
                 });
             let _ = globals.remove("__ct_runtime_args__");
             result
@@ -138,35 +142,71 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
     }));
     inner._rt.set_interrupt_handler(None);
     inner._rt.set_gc_threshold(RUNTIME_GC_THRESHOLD);
-    if context_unusable {
+    let result = outcome
+        .map_err(|_| {
+            failure(
+                RuntimeFailureCode::HookFailed,
+                format!("{method}: runtime hook panicked"),
+            )
+        })
+        .and_then(|result| result);
+    let result = if now() >= deadline {
+        Err(failure(
+            RuntimeFailureCode::Deadline,
+            match result {
+                Err(error) => format!(
+                    "{method}: runtime hook execution deadline: {}",
+                    error.message
+                ),
+                Ok(_) => format!("{method}: runtime hook execution deadline"),
+            },
+        ))
+    } else {
+        result.and_then(|result| {
+            timing.enter("decode");
+            if result.len() > MAX_RUNTIME_VALUE_BYTES {
+                return Err(failure(
+                    RuntimeFailureCode::SizeLimit,
+                    format!("{method}: runtime hook output too large"),
+                ));
+            }
+            serde_json::from_str(&result)
+                .map_err(|e| failure(RuntimeFailureCode::InvalidSchema, format!("{method}: {e}")))
+        })
+    };
+    if let Err(error) = &result {
         let usage = inner._rt.memory_usage();
-        if let Ok(Err(error)) = &outcome {
-            log::warn!(
-                "[runtime-hook] plugin={} method={method} context reset: {} heap={}/{}",
-                vm.plugin_id(),
-                error.message,
-                usage.malloc_size,
-                usage.malloc_limit
-            );
-        }
+        log::debug!(
+            "[runtime-hook] plugin={} method={method} context reset: {} heap={}/{}",
+            vm.plugin_id(),
+            error.message,
+            usage.malloc_size,
+            usage.malloc_limit
+        );
         *runtime_inner = None;
     }
-    if now() >= deadline {
-        return Err(failure(
-            RuntimeFailureCode::Deadline,
-            "runtime hook execution deadline",
-        ));
+    result
+}
+
+fn caught_message(error: rquickjs::CaughtError<'_>) -> String {
+    if let rquickjs::CaughtError::Exception(exception) = &error {
+        if let Some(message) = exception.message().filter(|message| !message.is_empty()) {
+            return message;
+        }
+        if let Ok(Some(name)) = exception.as_object().get::<_, Option<String>>("name") {
+            if !name.is_empty() {
+                return name;
+            }
+        }
     }
-    let result =
-        outcome.map_err(|_| failure(RuntimeFailureCode::HookFailed, "runtime hook panicked"))??;
-    timing.enter("decode");
-    if result.len() > MAX_RUNTIME_VALUE_BYTES {
-        return Err(failure(
-            RuntimeFailureCode::SizeLimit,
-            "runtime hook output too large",
-        ));
+    if let rquickjs::CaughtError::Value(value) = &error {
+        if let Some(object) = value.as_object() {
+            if let Ok(Some(message)) = object.get::<_, Option<String>>("message") {
+                return message;
+            }
+        }
     }
-    serde_json::from_str(&result).map_err(|e| failure(RuntimeFailureCode::InvalidSchema, e))
+    format!("{error:?}")
 }
 
 fn failure(code: RuntimeFailureCode, message: impl std::fmt::Display) -> RuntimeFailure {
@@ -175,6 +215,7 @@ fn failure(code: RuntimeFailureCode, message: impl std::fmt::Display) -> Runtime
 
 fn create_runtime_context(
     vm: &PluginVm,
+    method: &'static str,
     deadline: std::time::Instant,
     now: HookClock,
 ) -> Result<Inner, RuntimeFailure> {
@@ -185,11 +226,17 @@ fn create_runtime_context(
     let bundle_source = source.bundle_source.clone();
     let manifest_json = source.manifest_json.clone();
     drop(source);
-    let rt = Runtime::new().map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+    let initialization_error = |e| {
+        failure(
+            RuntimeFailureCode::HookFailed,
+            format!("{method} initialization: {e}"),
+        )
+    };
+    let rt = Runtime::new().map_err(initialization_error)?;
     rt.set_memory_limit(RUNTIME_MEMORY_LIMIT);
     rt.set_max_stack_size(1024 * 1024);
     rt.set_interrupt_handler(Some(Box::new(move || now() >= deadline)));
-    let ctx = Context::full(&rt).map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+    let ctx = Context::full(&rt).map_err(initialization_error)?;
     let manifest_literal = serde_json::to_string(&manifest_json.as_deref().unwrap_or("null"))
         .map_err(|e| failure(RuntimeFailureCode::InvalidSchema, e))?;
     let platform_literal = serde_json::to_string(crate::provider::current_platform_tag())
@@ -198,38 +245,58 @@ fn create_runtime_context(
         r#"globalThis.host = (function(){{let denied;Object.defineProperty(globalThis,'__ct_runtime_denied_binding__',{{get:()=>denied}});return new Proxy(Object.freeze({{manifest:()=>JSON.parse({manifest_literal}),platform:()=>{platform_literal}}}),{{get:(target,key)=>{{if(key in target)return target[key];denied=String(key);throw new Error('runtime hook host binding unavailable: '+denied);}}}});}})();
         globalThis.__plugin__=(function(){{const module={{exports:{{}}}};const exports=module.exports;{bundle_source};return module.exports.default || module.exports;}})();"#
     );
-    ctx.with(|ctx| -> Result<(), RuntimeFailure> {
+    let initialized = ctx.with(|ctx| -> Result<(), RuntimeFailure> {
         eval_source::<(), _>(&ctx, bootstrap)
             .catch(&ctx)
             .map_err(|e| {
                 failure(
                     RuntimeFailureCode::HookFailed,
-                    format!("runtime bundle: {e:?}"),
+                    format!("{method} runtime bundle: {}", caught_message(e)),
                 )
             })?;
         let denied: Option<String> = ctx
             .globals()
             .get("__ct_runtime_denied_binding__")
-            .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+            .catch(&ctx)
+            .map_err(|e| {
+                failure(
+                    RuntimeFailureCode::HookFailed,
+                    format!("{method} runtime bundle: {}", caught_message(e)),
+                )
+            })?;
         if let Some(binding) = denied {
             return Err(failure(
                 RuntimeFailureCode::HookFailed,
-                format!("runtime bundle host binding unavailable: {binding}"),
+                format!("{method} runtime bundle host binding unavailable: {binding}"),
             ));
         }
         #[cfg(test)]
         {
-            let gates = rquickjs::Object::new(ctx.clone())
-                .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
-            super::super::call_gate::install(&gates, &vm.sandbox)
-                .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+            let gates = rquickjs::Object::new(ctx.clone()).map_err(initialization_error)?;
+            super::super::call_gate::install(&gates, &vm.sandbox).map_err(|e| {
+                failure(
+                    RuntimeFailureCode::HookFailed,
+                    format!("{method} initialization: {e}"),
+                )
+            })?;
             ctx.globals()
                 .set("__runtime_test_gate__", gates)
-                .map_err(|e| failure(RuntimeFailureCode::HookFailed, e))?;
+                .map_err(initialization_error)?;
         }
         Ok(())
-    })?;
+    });
     rt.set_interrupt_handler(None);
+    if let Err(error) = &initialized {
+        let usage = rt.memory_usage();
+        log::debug!(
+            "[runtime-hook] plugin={} method={method} initialization failed: {} heap={}/{}",
+            vm.plugin_id(),
+            error.message,
+            usage.malloc_size,
+            usage.malloc_limit
+        );
+    }
+    initialized?;
     Ok(Inner {
         _ctx: ctx,
         _rt: rt,

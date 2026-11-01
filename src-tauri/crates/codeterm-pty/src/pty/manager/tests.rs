@@ -29,8 +29,8 @@ fn direct_launch_applies_cwd_and_removes_environment_without_shell_integration()
 }
 #[cfg(target_os = "windows")]
 use crate::pty::windows_test_support::{
-    conpty_host_children_of_current_process, exclusive_conpty_test, legacy_conhost_children,
-    new_conpty_hosts, wait_for_processes_gone,
+    capture_conpty_host_exits, conpty_host_children_of_current_process, exclusive_conpty_test,
+    legacy_conhost_children, new_conpty_hosts, wait_for_processes_exit, ProcessExitWitness,
 };
 
 #[test]
@@ -371,35 +371,26 @@ fn kill_reaps_conpty_host_before_next_spawn() {
             .map(|built| manager.register_session(None, built))
     }
     .expect("spawn old pty");
-    let old_child = old_session
-        .child
-        .lock()
-        .expect("old child mutex")
-        .process_id()
-        .expect("old child pid");
+    let old_child =
+        ProcessExitWitness::for_child(old_session.child.lock().expect("old child mutex").as_ref())
+            .expect("capture original old child process handle");
     let old_hosts = new_conpty_hosts(&before).expect("observe old ConPTY host");
     assert_eq!(
         old_hosts.len(),
         1,
         "old PTY should create exactly one ConPTY host; got {old_hosts:?}"
     );
+    let mut old_processes =
+        capture_conpty_host_exits(&old_hosts).expect("capture original old ConPTY host handles");
+    old_processes.push(old_child);
 
     manager
         .begin_kill(&old_pty)
         .expect("begin old pty kill")
         .wait_bounded(std::time::Duration::from_secs(5))
         .expect("old PTY process tree must reap before retry");
-    assert!(
-        wait_for_processes_gone(
-            old_hosts
-                .iter()
-                .copied()
-                .chain(std::iter::once(old_child))
-                .collect(),
-            std::time::Duration::from_secs(5),
-        ),
-        "old child {old_child} and ConPTY hosts {old_hosts:?} must exit after kill"
-    );
+    wait_for_processes_exit(old_processes, std::time::Duration::from_secs(5))
+        .expect("original old child and ConPTY hosts must exit after kill");
 
     let after_old =
         conpty_host_children_of_current_process().expect("observe ConPTY hosts after kill");
@@ -415,28 +406,19 @@ fn kill_reaps_conpty_host_before_next_spawn() {
         1,
         "new PTY should own exactly one ConPTY host; got {new_hosts:?}"
     );
-    let new_child = new_session
-        .child
-        .lock()
-        .expect("new child mutex")
-        .process_id()
-        .expect("new child pid");
+    let new_child =
+        ProcessExitWitness::for_child(new_session.child.lock().expect("new child mutex").as_ref())
+            .expect("capture original new child process handle");
+    let mut new_processes =
+        capture_conpty_host_exits(&new_hosts).expect("capture original new ConPTY host handles");
+    new_processes.push(new_child);
     manager
         .begin_kill(&new_pty)
         .expect("begin new pty kill")
         .wait_bounded(std::time::Duration::from_secs(5))
         .expect("new PTY process tree must reap");
-    assert!(
-        wait_for_processes_gone(
-            new_hosts
-                .iter()
-                .copied()
-                .chain(std::iter::once(new_child))
-                .collect(),
-            std::time::Duration::from_secs(5),
-        ),
-        "new child {new_child} and ConPTY hosts {new_hosts:?} must exit after kill"
-    );
+    wait_for_processes_exit(new_processes, std::time::Duration::from_secs(5))
+        .expect("original new child and ConPTY hosts must exit after kill");
 }
 
 #[cfg(target_os = "windows")]
@@ -445,7 +427,7 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
     let _guard = exclusive_conpty_test();
     let mut manager = PtyManager::new();
     let before = conpty_host_children_of_current_process().expect("observe ConPTY hosts before");
-    let mut child_pids = Vec::new();
+    let mut child_exits = Vec::new();
     let mut first_session = None;
     for _ in 0..2 {
         let (_, session) = {
@@ -455,17 +437,16 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
         }
         .expect("spawn owned pty");
         first_session.get_or_insert_with(|| session.clone());
-        child_pids.push(
-            session
-                .child
-                .lock()
-                .expect("child mutex")
-                .process_id()
-                .expect("child pid"),
+        child_exits.push(
+            ProcessExitWitness::for_child(session.child.lock().expect("child mutex").as_ref())
+                .expect("capture original owned child process handle"),
         );
     }
     let hosts = new_conpty_hosts(&before).expect("observe owned ConPTY hosts");
     assert_eq!(hosts.len(), 2, "each owned PTY must have a tracked host");
+    let mut process_exits =
+        capture_conpty_host_exits(&hosts).expect("capture original owned ConPTY host handles");
+    process_exits.extend(child_exits);
     let first_session = first_session.expect("first session");
     first_session
         .child
@@ -491,13 +472,8 @@ fn shutdown_reaps_every_owned_pty_and_conpty_host() {
             .expect("owned PTY must reap");
     }
 
-    assert!(
-        wait_for_processes_gone(
-            hosts.into_iter().chain(child_pids).collect(),
-            std::time::Duration::from_secs(5),
-        ),
-        "owned PTY children and ConPTY hosts must all exit"
-    );
+    wait_for_processes_exit(process_exits, std::time::Duration::from_secs(5))
+        .expect("original owned PTY children and ConPTY hosts must all exit");
 }
 
 #[test]
@@ -563,14 +539,16 @@ fn shell_exit_ends_the_pty_stream_with_its_exit_code() {
 
     let stream_end = eof_rx.recv_timeout(std::time::Duration::from_secs(30));
     eprintln!(
-        "PTY stream end={stream_end:?}, child_exit={:?}",
-        session.child_exit.resolved()
+        "PTY stream end={stream_end:?}, child_exit={:?}, pair_release={}",
+        session.child_exit.resolved(),
+        session.child_exit.release_diagnostic()
     );
     assert!(
         stream_end.is_ok(),
-        "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, child_status={:?}, output={:?}",
+        "PTY stream end={stream_end:?}, shell={}, child_exit={:?}, pair_release={}, child_status={:?}, output={:?}",
         detect_default_shell(),
         session.child_exit.resolved(),
+        session.child_exit.release_diagnostic(),
         session.child.lock().unwrap().try_wait(),
         String::from_utf8_lossy(&output.lock().unwrap())
     );
@@ -965,5 +943,30 @@ fn windows_pty_wrapper_preserves_exact_target_and_environment() {
     assert_eq!(
         command.get_env("OPAQUE_KEY"),
         Some(std::ffi::OsStr::new("opaque-value"))
+    );
+}
+
+#[test]
+fn child_launch_uses_only_its_explicit_tab_credential() {
+    let mut command = CommandBuilder::new("opaque-shell");
+    command.env("CODETERM_API_TOKEN", "inherited-host-secret");
+    command.env("CODETERM_TAB_ID", "inherited-tab");
+    apply_pty_env(&mut command, &HashMap::new());
+    assert_eq!(command.get_env("CODETERM_API_TOKEN"), None);
+    assert_eq!(command.get_env("CODETERM_TAB_ID"), None);
+    apply_pty_env(
+        &mut command,
+        &HashMap::from([
+            ("CODETERM_API_TOKEN".into(), "own-launch-token".into()),
+            ("CODETERM_TAB_ID".into(), "own-tab".into()),
+        ]),
+    );
+    assert_eq!(
+        command.get_env("CODETERM_API_TOKEN"),
+        Some(std::ffi::OsStr::new("own-launch-token"))
+    );
+    assert_eq!(
+        command.get_env("CODETERM_TAB_ID"),
+        Some(std::ffi::OsStr::new("own-tab"))
     );
 }

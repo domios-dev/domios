@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use rusqlite::{params, Connection};
 
 use super::*;
+mod replace_guard;
 
 fn fresh() -> (Connection, PathBuf) {
     let conn = Connection::open_in_memory().unwrap();
@@ -700,3 +701,6 @@ fn graph_full_returns_nodes_and_edges() {
 
 mod more;
 mod skills;
+
+mod authorship;
+mod migrations;

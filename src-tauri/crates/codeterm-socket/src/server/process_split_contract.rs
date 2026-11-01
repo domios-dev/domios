@@ -21,6 +21,12 @@ fn process_split_contract_socket_and_local_api_share_service_authority() {
     let response = respond_to_request(
         JsonRpcRequest {
             jsonrpc: "2.0".into(),
+            credential: fixture
+                .service
+                .configuration()
+                .api
+                .token
+                .unwrap_or_default(),
             id: Some(serde_json::json!(71)),
             protocol_version: Some(serde_json::json!(protocol::PROTOCOL_VERSION)),
             method: "workspace.rename".into(),

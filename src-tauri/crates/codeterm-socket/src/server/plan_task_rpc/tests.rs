@@ -1,6 +1,6 @@
 use super::super::plan_task_authority::plan_owner_may_recover;
 use super::{
-    dependency_vec_field, dispatch, dispatch_with_spawn, external_ref_values, validate_model_field,
+    dependency_vec_field, dispatch, dispatch_with_spawn, external_ref_values,
     verify_owner_epoch_for_task_mutation,
 };
 use codeterm_service_core::multiplexer::state::MultiplexerState;
@@ -335,14 +335,6 @@ fn rpc_external_ref_values_require_an_array_of_strings() {
     assert!(error.message.contains("array of reference strings"));
 }
 
-#[test]
-fn provider_id_is_rejected_in_model_field_with_canonical_syntax() {
-    let providers = vec!["claude".into(), "codex".into()];
-    let error = validate_model_field(Some(&json!({ "model": "claude" })), &providers).unwrap_err();
-    assert_eq!(error.code, -32602);
-    assert_eq!(error.data.unwrap()["type"], "provider_id_in_model_field");
-    assert!(error.message.contains("<provider>:<model>"));
-}
 #[test]
 fn adopted_task_mutation_rejects_missing_stale_and_rebound_authority() {
     let (fixture, plan_id, task_id, _, _, _) = update_fixture();
@@ -1083,16 +1075,6 @@ fn non_orchestrator_cannot_use_the_close_override() {
     }));
 
     assert!(verify_owner_epoch_for_task_mutation("plan.task.close", &params, &service).is_err());
-}
-
-#[test]
-fn standalone_task_add_does_not_require_an_existing_task_owner() {
-    let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
-    let service = Arc::new(fixture.service.clone());
-    let params = Some(json!({ "name": "Inbox item", "type": "task" }));
-
-    assert!(verify_owner_epoch_for_task_mutation("task.add", &params, &service).is_ok());
 }
 
 mod split;

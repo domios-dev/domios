@@ -3,6 +3,7 @@ import type { ApiConfig, Workspace } from "../../lib/types";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import type { JobsTarget } from "../Jobs/JobsView";
 import { GeneralInventory } from "./GeneralInventory";
+import { useNeighborGatewayIds } from "../Neighbors/neighborGateways";
 import { GeneralWorkspaceTabs } from "./GeneralWorkspaceTabs";
 import { SidebarDisclosure } from "./SidebarDisclosure";
 import { SpinalCordButton } from "./SpinalCord";
@@ -11,8 +12,9 @@ import {
   type SidebarWorkspaceDetailActions,
   type SidebarWorkspaceDetailData,
 } from "./SidebarWorkspaceDetail";
-import { isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
-import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
+import { isGeneralSectionTab, tabsInWorkspace } from "./workspaceTabs";
+import { projectUtilityShells } from "../General/generalOverviewModel";
+import { isSurfaceTab, surfaceOwnerId } from "../../lib/surfaceTab";
 
 /** The protected General workspace: its agents and the machine-wide inventory below them. */
 export function SidebarGeneralSection({ workspace, expanded, onToggle, providerId, api, data, actions, workspaces, onOpenJobs }: {
@@ -28,6 +30,13 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
 }) {
   const workspaceId = workspace.id;
   const sortedTabs = useMemo(() => tabsInWorkspace(workspace.tabs, data.tabs), [workspace.tabs, data.tabs]);
+  const conciergeIds = useNeighborGatewayIds();
+  const sessionTabs = useMemo(() => {
+    const utilityIds = new Set(projectUtilityShells(workspaces, data.tabs, data.teams, workspaceId).map(({ tab }) => tab.id));
+    const sessions = sortedTabs.filter((tab) => !utilityIds.has(tab.id)
+      && !(isSurfaceTab(tab) && utilityIds.has(surfaceOwnerId(tab) ?? "")) && !conciergeIds.has(tab.id));
+    return [...sessions.filter(isGeneralSectionTab), ...sessions.filter((tab) => !isGeneralSectionTab(tab))];
+  }, [sortedTabs, workspaces, data.tabs, data.teams, workspaceId, conciergeIds]);
   const generalCwd = workspace.cwd ?? sortedTabs.find((tab) => tab.protected)?.cwd ?? null;
   const isActiveVisual = workspaceId === data.activeWorkspaceId && data.isWorkspaceMode;
   const { activate, activateTab, closeTab, renameTab, openRemoteTab, openSentinelJob, closeTeam } =
@@ -43,7 +52,6 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
   }), [data]);
 
   return (
-    <>
     <section data-testid="general-section" className="sidebar-general-section" role="region" aria-label={`${workspace.name} workspace contents`}>
       <div className="sidebar-structural-header sidebar-general-header w-full">
         <SidebarDisclosure data-testid="general-section-toggle" className="sidebar-structural-toggle min-w-0" expanded={expanded} onClick={onToggle}>
@@ -56,7 +64,7 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         providerId={providerId}
         generalCwd={generalCwd}
         activeTabId={data.activeTabIds[workspaceId] ?? null}
-        sortedTabs={sortedTabs.filter(isGeneralSectionTab)}
+        sortedTabs={sessionTabs}
         tabs={data.tabs}
         tabStatuses={data.tabStatuses}
         tabAttentionByTab={data.attention}
@@ -100,15 +108,5 @@ export function SidebarGeneralSection({ workspace, expanded, onToggle, providerI
         onNavigate={actions.activateTab}
       />}
     </section>
-    {expanded && sortedTabs.some((tab) => !isGeneralSectionTab(tab) && isSidebarTabVisible(tab)) && <section aria-label="Other sessions">
-      <SidebarWorkspaceTabs workspace={workspace} activeTabId={data.activeTabIds[workspaceId] ?? null}
-        sortedTabs={sortedTabs.filter((tab) => !isGeneralSectionTab(tab))} tabs={data.tabs}
-        tabStatuses={data.tabStatuses} teams={data.teams} planIndex={data.planIndex} plans={data.plans}
-        providers={data.providers} closingTabIds={data.closingTabIds} appearingTabIds={data.appearingTabIds}
-        isActiveVisual={isActiveVisual} workspaceCanvasActive={data.workspaceCanvasActive} touchMode={data.touchMode}
-        compact={false} sidebarActionText={data.sidebarActionText} orchestrators={data.orchestrators}
-        onBeforeOpenPlan={activate} onActivateTab={activateTab} onCloseTab={closeTab} onRenameTab={renameTab} />
-    </section>}
-    </>
   );
 }

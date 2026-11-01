@@ -51,7 +51,10 @@ public static class DevAppProcess {
                         key.StartsWith("CT_", StringComparison.OrdinalIgnoreCase) ||
                         key == "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS") inherited.Add(key);
                 foreach (string key in inherited) child.StartInfo.EnvironmentVariables.Remove(key);
-                foreach (var item in environment) child.StartInfo.EnvironmentVariables[item.Key] = item.Value;
+                foreach (var item in environment) {
+                    if (String.IsNullOrEmpty(item.Value)) child.StartInfo.EnvironmentVariables.Remove(item.Key);
+                    else child.StartInfo.EnvironmentVariables[item.Key] = item.Value;
+                }
                 child.StartInfo.WorkingDirectory = cwd;
             }
             cancellation.ThrowIfCancellationRequested();

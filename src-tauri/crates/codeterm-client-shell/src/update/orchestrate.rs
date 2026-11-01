@@ -15,7 +15,7 @@ use super::failure_report::{UpdateAbort, UpdateFailureSink};
 ///
 /// `shutdown` returns the tab ids it tore down so the abort artifact can name
 /// them.
-pub async fn install_after_shutdown<V, VF, S, SF, I, IF>(
+pub async fn install_after_shutdown<P, V, VF, S, SF, I, IF>(
     verified_bytes: Vec<u8>,
     viability: V,
     shutdown: S,
@@ -24,18 +24,21 @@ pub async fn install_after_shutdown<V, VF, S, SF, I, IF>(
 ) -> Result<(), String>
 where
     V: FnOnce() -> VF,
-    VF: Future<Output = Result<(), String>>,
-    S: FnOnce() -> SF,
+    VF: Future<Output = Result<P, String>>,
+    S: FnOnce(P) -> SF,
     SF: Future<Output = Result<Vec<String>, String>>,
     I: FnOnce(Vec<u8>) -> IF,
     IF: Future<Output = Result<(), String>>,
 {
-    if let Err(cause) = viability().await {
-        sink.abort(&UpdateAbort::new("preflight", &cause, Vec::new()));
-        return Err(cause);
-    }
+    let prepared = match viability().await {
+        Ok(prepared) => prepared,
+        Err(cause) => {
+            sink.abort(&UpdateAbort::new("preflight", &cause, Vec::new()));
+            return Err(cause);
+        }
+    };
 
-    let torn_down = match shutdown().await {
+    let torn_down = match shutdown(prepared).await {
         Ok(tabs) => tabs,
         Err(cause) => {
             sink.abort(&UpdateAbort::new("shutdown", &cause, Vec::new()));

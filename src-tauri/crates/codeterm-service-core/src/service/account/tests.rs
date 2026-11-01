@@ -54,7 +54,10 @@ async fn account_login_disconnect_still_publishes_settled_status() {
                 credentials.clone(),
                 Duration::from_secs(1),
             )
-            .with_identity_observer(Arc::new(AccountIdentity(Arc::downgrade(&service)))),
+            .with_identity_observer(Arc::new(AccountIdentity(
+                Arc::downgrade(&service),
+                "local".into(),
+            ))),
         );
         assert!(service.ext::<AccountCell>().0.set(account.clone()).is_ok());
         let mut events = service.events.subscribe();
@@ -94,7 +97,7 @@ async fn account_identity_changes_reach_the_frontend_event_stream() {
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = Arc::new(fixture.service.clone());
-    let observer = AccountIdentity(Arc::downgrade(&service));
+    let observer = AccountIdentity(Arc::downgrade(&service), "fixture".into());
     let mut events = service.events.subscribe();
     for identity in [
         Some(codeterm_account::Identity {

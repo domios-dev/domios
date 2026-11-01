@@ -157,6 +157,61 @@ fn non_utf8_environment_keys_and_values_survive_cleaning() {
 }
 
 #[test]
+fn application_development_restart_preserves_runtime_identity_only_in_debug() {
+    let env = vec![
+        ("CODETERM_DEV_INSTANCE".into(), "harbor".into()),
+        ("CODETERM_DEV_API_PORT".into(), "17686".into()),
+        ("CODETERM_VITE_PORT".into(), "1821".into()),
+        (
+            "CODETERM_DEV_IDENTIFIER".into(),
+            "com.domios.dev.harbor".into(),
+        ),
+        ("CODETERM_CDP_PORT".into(), "9321".into()),
+        ("CODETERM_API_TOKEN".into(), "old-token".into()),
+        ("CODETERM_TAB_ID".into(), "old-tab".into()),
+    ];
+    assert_eq!(application_relaunch_env_for(env.clone(), false), env[..2]);
+    let captured = ApplicationRelaunchEnv(application_relaunch_env_for(env.clone(), true));
+    let mut command = std::process::Command::new("domios");
+    captured.apply(&mut command);
+    for (key, value) in &env[..5] {
+        assert!(command
+            .get_envs()
+            .any(|(actual, set)| actual == key && set == Some(value.as_os_str())));
+    }
+    assert_eq!(command.get_envs().count(), 5);
+}
+
+#[test]
+fn application_production_restart_keeps_previous_filtering() {
+    let env = vec![
+        ("CODETERM_VITE_PORT".into(), "1821".into()),
+        (
+            "CODETERM_DEV_IDENTIFIER".into(),
+            "com.domios.dev.harbor".into(),
+        ),
+        ("CODETERM_CDP_PORT".into(), "9321".into()),
+        ("CODETERM_API_PORT".into(), "7685".into()),
+        ("CODETERM_API_TOKEN".into(), "old-token".into()),
+        ("PATH".into(), "opaque-path".into()),
+    ];
+    let expected = vec![("PATH".into(), "opaque-path".into())];
+    assert_eq!(application_relaunch_env_for(env.clone(), false), expected);
+    assert_eq!(application_relaunch_env_for(env, true), expected);
+    let invalid = vec![
+        ("CODETERM_DEV_API_PORT".into(), "7685".into()),
+        (
+            "CODETERM_DEV_IDENTIFIER".into(),
+            "com.domios.dev.harbor".into(),
+        ),
+    ];
+    assert_eq!(
+        application_relaunch_env_for(invalid.clone(), true),
+        invalid[..1]
+    );
+}
+
+#[test]
 fn captured_application_environment_outlives_startup_scrubbing() {
     let captured = ApplicationRelaunchEnv(application_relaunch_env_from(vec![
         ("CODETERM_DEV_INSTANCE".into(), "harbor".into()),

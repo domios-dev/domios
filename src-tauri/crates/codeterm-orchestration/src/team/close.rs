@@ -134,7 +134,11 @@ where
     F: FnMut(&mut MultiplexerState, &str) -> Result<Vec<String>, String>,
 {
     let initial = stage_team_close(mux, team_id, caller, &mut close_member)?;
-    let lanes = team_close_lanes(&plan_store.list_full(), team_id, &initial.member_tab_ids);
+    let lanes = team_close_lanes(
+        &plan_store.team_close_plans(team_id, &initial.member_tab_ids),
+        team_id,
+        &initial.member_tab_ids,
+    );
     let transaction = plan_store
         .close_team_task_attempts_transaction(team_id, &initial.member_tab_ids, now_ms)
         .map_err(|error| error.to_string())?;
@@ -836,5 +840,42 @@ mod lane_safety_tests {
     #[test]
     fn team_close_refuses_to_delete_non_lane_branches() {
         assert!(cleanup_lane(&lane("release/retained", "base")).is_err());
+    }
+}
+
+#[cfg(test)]
+mod consumer_load_tests {
+    use super::*;
+    use codeterm_service_core::plan::TaskStatus;
+    use codeterm_service_core::service::plan::load_audit::{
+        assert_never_loaded, attempt, execution_plan, seed, start, task,
+    };
+
+    #[test]
+    fn team_close_lanes_never_loads_unmatched_plans() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = PlanStore::new_for_test(dir.path());
+        let mut member_task = task("task_m", TaskStatus::Done, None);
+        let mut lane_attempt = attempt("att_m", "member-tab");
+        lane_attempt.branch = Some("lane/member".into());
+        member_task.lane.branch = Some("lane/member".into());
+        member_task.execution_attempts.push(lane_attempt);
+        let member = seed(
+            &store,
+            execution_plan(dir.path(), "member", "owner", vec![member_task]),
+        );
+        let mut unrelated = execution_plan(dir.path(), "unrelated", "owner", vec![]);
+        unrelated.team_id = Some("team-other".into());
+        let unrelated = seed(&store, unrelated);
+        start(&store);
+
+        let members = vec!["member-tab".to_string()];
+        let lanes = team_close_lanes(
+            &store.team_close_plans("team-closing", &members),
+            "team-closing",
+            &members,
+        );
+        assert!(lanes.iter().all(|lane| lane.plan_id == member));
+        assert_never_loaded(&store, &[&unrelated]);
     }
 }

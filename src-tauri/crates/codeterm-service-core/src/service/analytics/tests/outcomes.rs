@@ -75,10 +75,19 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
     let unsigned = billing
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
-    assert_eq!(unsigned.entitlements.plan, Plan::Free);
+    assert_eq!(unsigned.entitlements.plan, Plan::Pro);
+    assert!(unsigned.checking);
+    assert!(!billing.limit_gate().summary().enforcing);
+    assert_eq!(
+        unsigned.access.unwrap().authority,
+        codeterm_billing::Authority::Free
+    );
     assert_eq!(
         sink.events().await,
-        vec![subscription_event(Plan::Free, Status::Active)]
+        vec![
+            subscription_event(Plan::Free, Status::Active),
+            subscription_event(Plan::Pro, Status::Active)
+        ]
     );
     *provider.value.lock() = Err("offline".into());
     billing
@@ -92,7 +101,8 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
     let result = billing
         .refresh(Some(&session), RefreshEvent::CheckoutReturned, now)
         .await;
-    assert_eq!(result.entitlements.plan, Plan::Free);
+    assert_eq!(result.entitlements.plan, Plan::Pro);
+    assert!(result.checking);
     assert_eq!(
         result.access.unwrap().authority,
         codeterm_billing::Authority::Free
@@ -101,7 +111,8 @@ async fn product_subscription_changed_uses_authoritative_refresh_and_closed_enum
         sink.events().await,
         vec![
             subscription_event(Plan::Free, Status::Active),
-            subscription_event(Plan::Free, Status::PastDue)
+            subscription_event(Plan::Pro, Status::Active),
+            subscription_event(Plan::Pro, Status::PastDue)
         ]
     );
 }
@@ -133,9 +144,14 @@ async fn product_checkout_started_records_browser_open_with_closed_plan_only() {
     billing.checkout_browser_opened(&session, codeterm_billing::Plan::Pro);
     assert_eq!(
         sink.events().await,
-        vec![Event::CheckoutStarted {
-            plan: codeterm_analytics::PlanKey::Pro
-        }]
+        vec![
+            Event::CheckoutOpened {
+                outcome: codeterm_analytics::CheckoutOutcome::Opened
+            },
+            Event::CheckoutStarted {
+                plan: codeterm_analytics::PlanKey::Pro
+            }
+        ]
     );
 }
 #[test]
@@ -143,8 +159,8 @@ fn product_billing_enum_contract_matches_serialized_authority() {
     use codeterm_billing::{Plan, Status};
     for plan in [Plan::Free, Plan::Pro] {
         assert_eq!(
-            serde_json::to_value(plan).unwrap(),
-            serde_json::to_value(billing_plan(plan)).unwrap()
+            serde_json::to_value(&plan).unwrap(),
+            serde_json::to_value(billing_plan(plan.clone())).unwrap()
         );
         for status in [
             Status::Active,
@@ -156,7 +172,7 @@ fn product_billing_enum_contract_matches_serialized_authority() {
             Status::Unpaid,
             Status::Paused,
         ] {
-            let payload = serde_json::to_value(subscription_event(plan, status)).unwrap();
+            let payload = serde_json::to_value(subscription_event(plan.clone(), status)).unwrap();
             assert_eq!(
                 payload["event_properties"]["status"],
                 serde_json::to_value(status).unwrap()
@@ -211,7 +227,7 @@ async fn product_mesh_peer_paired_requires_successful_save_and_deduplicates() {
     );
     let machines = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let cache = machines.clone();
-    mesh.bind_pairing_observers(
+    mesh.bind_connection_observers(
         mesh_observer(sink.worker.clone()),
         Arc::new(move |count| {
             cache.store(count, std::sync::atomic::Ordering::Relaxed);
@@ -432,4 +448,43 @@ async fn product_feature_boundary_uses_fake_sink_and_consent_gate() {
         };
         assert_eq!(sink.events().await, expected);
     }
+}
+
+#[tokio::test]
+async fn product_consent_is_local_and_never_initializes_the_account() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = &fixture.service;
+    let sink = Sink::new(Consent::On).await;
+    assert!(service
+        .ext::<AnalyticsCell>()
+        .0
+        .set(sink.worker.clone())
+        .is_ok());
+    assert!(service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .get()
+        .is_none());
+    let status = service
+        .set_product_analytics_consent(Consent::Off)
+        .await
+        .unwrap();
+    assert_eq!(status.consent, Consent::Off);
+    service.record_product_event(Event::PlanViewed {});
+    assert!(sink.events().await.is_empty());
+    service
+        .set_product_analytics_consent(Consent::On)
+        .await
+        .unwrap();
+    service.record_product_event(Event::PlanViewed {});
+    assert_eq!(
+        sink.events().await,
+        vec![Event::AnalyticsOptedIn {}, Event::PlanViewed {}]
+    );
+    assert!(service
+        .ext::<crate::service::account::AccountCell>()
+        .0
+        .get()
+        .is_none());
 }

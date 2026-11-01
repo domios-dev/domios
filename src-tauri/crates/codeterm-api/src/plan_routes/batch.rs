@@ -86,6 +86,26 @@ pub async fn batch(
     Json(body): Json<Value>,
 ) -> BatchRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
+    let mut params = Some(body);
+    if crate::auth::tab_caller(&state, &headers)
+        .map_err(|(status, message)| text_err(status, message))?
+        .is_some()
+    {
+        let credential = headers
+            .get("authorization")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.strip_prefix("Bearer "))
+            .unwrap_or_default();
+        state
+            .svc
+            .bind_local_rpc(credential, "plan.batch", &mut params)
+            .map_err(|error| text_err(StatusCode::FORBIDDEN, error))?;
+    }
+    let body = params.unwrap_or_default();
+    state
+        .svc
+        .authorize_batch_completions(&id, &body)
+        .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
     let result = apply_authorized_batch(&state.svc.plan_store, &id, &body, epoch_ms())?;
     emit_plan_changed(&state, &id);
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))

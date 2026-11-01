@@ -146,6 +146,11 @@ pub enum PlanError {
         reason: String,
     },
     Validation(String),
+    /// The plan's stored rows do not parse; the source is left untouched.
+    Quarantined {
+        plan_id: String,
+        reason: String,
+    },
     Io(String),
 }
 
@@ -429,6 +434,9 @@ impl fmt::Display for PlanError {
                 write!(f, "same-attempt binding restoration refused ({kind:?}): {reason}")
             }
             PlanError::Validation(message) => write!(f, "{message}"),
+            PlanError::Quarantined { plan_id, reason } => {
+                write!(f, "plan {plan_id} is quarantined: {reason}")
+            }
             PlanError::Io(e) => write!(f, "io error: {e}"),
         }
     }
@@ -699,6 +707,9 @@ impl PlanError {
             PlanError::Validation(message) => {
                 serde_json::json!({ "type": "validation", "message": message })
             }
+            PlanError::Quarantined { plan_id, reason } => serde_json::json!({
+                "type": "quarantined", "plan_id": plan_id, "reason": reason,
+            }),
             PlanError::Io(message) => serde_json::json!({ "type": "io", "message": message }),
         }
     }

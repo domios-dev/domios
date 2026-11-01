@@ -12,7 +12,9 @@
 //! - `orchestrator` — agent spawn, batch commands
 //! - `notification` — create notification with OS toast
 
+pub mod cli_local_admission;
 mod construct;
+mod provider_refresh;
 pub use construct::build_service_context;
 pub mod account;
 pub mod account_mesh;
@@ -25,6 +27,7 @@ pub mod agent_runtime;
 pub mod agent_transition;
 pub(crate) mod ai_helper_spawn;
 pub mod lazy_restore;
+pub mod tab_mutation_authority;
 pub mod tab_sleep_policy;
 pub mod tab_todos;
 pub use ai_helper_spawn::AiHelperRequest;
@@ -37,6 +40,8 @@ pub(crate) mod boot_owner_prompt;
 pub mod boot_stage;
 pub(crate) mod boot_wait;
 pub(crate) mod bridge_threads;
+pub mod gift_redemption;
+pub mod neighbors;
 pub use codeterm_browser as browser;
 pub(crate) mod capability_probe;
 pub use capability_probe::refresh as capability_probe_refresh;
@@ -45,7 +50,6 @@ pub(crate) mod chat_send_evidence;
 pub mod chat_send_transaction;
 mod close_history;
 pub use close_history::close_inventory_error_data;
-pub mod codex_rpc;
 mod command_port_impl;
 pub mod context_feed;
 pub mod cron;
@@ -86,6 +90,7 @@ pub mod notification;
 mod notification_desktop;
 pub(crate) mod notification_push;
 mod paired_planner;
+mod plan_projects;
 pub mod role_policy;
 mod tab_input_policy;
 pub use paired_planner::{bind_pending_paired_planner, tab_has_pending_paired_planner};
@@ -105,7 +110,7 @@ pub use mux_emit_stats::{MuxEmitCause, MuxEmitCauseStats};
 pub mod provider_cli;
 mod published_mux_state;
 pub use provider_cli::provider_cli_status as provider_cli_provider_cli_status;
-use published_mux_state::PublishedMuxState;
+pub(crate) use published_mux_state::PublishedMuxState;
 pub mod provider_cli_actions;
 pub mod provider_hooks;
 pub(crate) mod provider_signals;
@@ -127,6 +132,10 @@ pub use orchestrator::tab_relink_signal::{await_relink, await_relink_async};
 mod directory_pre_trust;
 pub(crate) mod directory_trust;
 pub(crate) mod execution_sandbox;
+pub use execution_sandbox::{
+    enforce_delegation_ceiling as execution_sandbox_enforce_delegation_ceiling,
+    refuse_confined_mesh_delegation as execution_sandbox_refuse_confined_mesh_delegation,
+};
 mod folder_trust_carryover;
 pub mod orchestrator_digests;
 mod output;
@@ -153,6 +162,7 @@ pub mod managed_tabs;
 pub mod plugin_host;
 pub mod plugin_prompt;
 pub mod plugin_skills;
+mod plugin_step_host;
 pub mod provider_identity;
 pub(crate) mod pty_activation;
 pub mod pty_io;
@@ -191,6 +201,7 @@ mod spawn_chatbackend;
 mod spawn_cli;
 pub mod spawn_cwd;
 pub mod spawn_speed;
+pub mod step_agent_run;
 pub use spawn_cwd::CwdRefusal;
 mod remote_execution;
 pub mod spawn_factory;
@@ -222,7 +233,6 @@ pub mod blocking;
 pub use blocking::run as blocking_run;
 pub(crate) mod restored_launch;
 pub mod store;
-pub(crate) mod stream_preview;
 pub(crate) mod structured_endpoint;
 pub mod structured_prompt;
 pub mod supporter;
@@ -235,6 +245,7 @@ pub mod tab_adopt;
 pub mod tab_budget;
 pub mod tab_chat;
 pub(crate) mod tab_conditions;
+pub mod tab_credentials;
 pub(crate) mod tab_lifecycle;
 pub mod tab_repair;
 pub(crate) mod tab_session_binding;
@@ -251,6 +262,8 @@ pub use task_lane_guard::{
 // ServiceContext wrapper instead.
 #[cfg(any(test, feature = "test-support"))]
 pub use task_lane_guard::refuse_unsafe_task_bound_mutating_lane;
+#[cfg(test)]
+mod consumer_load_tests;
 #[cfg(test)]
 mod persistence_roundtrip_tests;
 #[cfg(any(test, feature = "test-support"))]
@@ -353,6 +366,7 @@ pub use extensions::ExtensionsBuilder;
 /// Both API routes, Tauri commands, and Socket server hold a clone of this.
 #[derive(Clone)]
 pub struct ServiceContext {
+    pub(crate) tab_credentials: Arc<tab_credentials::TabCredentials>,
     pub lifecycle_journal: Arc<crate::session::lifecycle::TabLifecycleJournal>,
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) ready_user_send_tasks: Arc<test_fixture::TestReadySendTasks>,
@@ -444,12 +458,6 @@ pub struct MuxEmitPending(pub Arc<AtomicBool>);
 
 pub(crate) struct PublishedTabStatuses(
     pub(crate) Arc<parking_lot::Mutex<HashMap<String, crate::agent::status::TabStatus>>>,
-);
-
-pub struct PlanWatchers(
-    pub  Arc<
-        parking_lot::Mutex<HashMap<std::path::PathBuf, crate::service::plan::watcher::PlanWatcher>>,
-    >,
 );
 
 pub struct LoadedPlanProjects(
@@ -783,50 +791,6 @@ impl ServiceContext {
         for id in pty_ids {
             let _ = manager.kill(id);
         }
-    }
-
-    pub fn ensure_plan_project_loaded(
-        &self,
-        project_path: &std::path::Path,
-    ) -> Result<std::path::PathBuf, crate::service::plan::PlanError> {
-        let project_root = crate::service::plan::paths::project_root(project_path);
-        let should_scan = {
-            let loaded = self.ext::<crate::service::LoadedPlanProjects>().0.lock();
-            !loaded.contains(&project_root)
-        };
-        if should_scan {
-            self.plan_store.scan_project(&project_root)?;
-            self.ext::<crate::service::LoadedPlanProjects>()
-                .0
-                .lock()
-                .insert(project_root.clone());
-            let live_team_ids = team_core::live_team_ids(self);
-            team_core::reconcile_dangling_team_plan_bindings_and_emit(
-                self,
-                &live_team_ids,
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .as_millis() as u64,
-            )?;
-        }
-        let legacy_plans_dir = project_root.join(".domios").join("plans");
-        let mut watchers = self.ext::<crate::service::PlanWatchers>().0.lock();
-        if legacy_plans_dir.is_dir() && !watchers.contains_key(&project_root) {
-            match crate::service::plan::watcher::PlanWatcher::watch_project(
-                &project_root,
-                self.plan_store.clone(),
-                std::sync::Arc::new(crate::service::plan::sink_impl::TauriPlanEventSink::new(
-                    self.ui.clone(),
-                )),
-            ) {
-                Ok(watcher) => {
-                    watchers.insert(project_root.clone(), watcher);
-                }
-                Err(e) => log::warn!("[plan] failed to watch {}: {}", project_root.display(), e),
-            }
-        }
-        Ok(project_root)
     }
 
     pub fn plans_startup_loaded(&self) -> bool {

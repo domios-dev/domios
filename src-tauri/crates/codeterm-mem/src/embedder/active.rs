@@ -62,7 +62,7 @@ impl ActiveEmbedder {
         self.emit(&EmbedderEvent::Switched(identity));
     }
 
-    pub(crate) fn replace_silent(&self, provider: SharedProvider) -> EmbedderIdentity {
+    pub fn replace_silent(&self, provider: SharedProvider) -> EmbedderIdentity {
         let identity = provider.identity();
         *self.provider.write() = provider;
         self.available.store(true, Ordering::SeqCst);

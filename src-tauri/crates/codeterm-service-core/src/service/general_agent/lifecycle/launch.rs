@@ -89,7 +89,6 @@ pub(super) fn start(
     }
     let cols = 120u16;
     let rows = 40u16;
-    crate::service::codex_rpc::lifecycle::stop_tab(&tab_id);
     let pad = match svc.ensure_agent_pad(&tab_id) {
         Ok(pad) => pad,
         Err(error) => {
@@ -97,12 +96,9 @@ pub(super) fn start(
             return;
         }
     };
-    let mut env_vars = general_agent_env_vars(
-        &tab_id,
-        pad.env_value(),
-        svc.rotate_session_binding_nonce(&tab_id),
-        config,
-    );
+    let nonce = svc.rotate_session_binding_nonce(&tab_id);
+    let credential = svc.mint_tab_credential(&tab_id, &nonce);
+    let mut env_vars = general_agent_env_vars(&tab_id, pad.env_value(), nonce, config, credential);
     match svc.model_provider_launch_env(provider_name) {
         Ok(keys) => env_vars.extend(keys),
         Err(error) => {
@@ -110,12 +106,7 @@ pub(super) fn start(
             return;
         }
     }
-    crate::service::codex_rpc::lifecycle::launch_env_for_provider(
-        svc,
-        &tab_id,
-        provider_name,
-        &mut env_vars,
-    );
+    env_vars.extend(svc.tab_env(&tab_id));
     crate::service::launch_diagnostics::log_launch_environment("general_agent", &tab_id, &env_vars);
 
     let pty_claim = svc.pty_ownership.acquire(&tab_id);
@@ -217,7 +208,7 @@ pub(super) fn start(
 
     let use_resume = session_id.is_some();
     let mut startup_message = None;
-    let mut structured_starter = None;
+    let mut first_turn_planned = false;
     let cmd = if use_resume {
         let sid = session_id.as_ref().unwrap();
         match super::super::launch_files::command(
@@ -291,6 +282,9 @@ pub(super) fn start(
             .flatten();
         let launch_instructions =
             compose_launch_instructions(system_prompt, bootstrap_message, &system_prompt_delivery);
+        first_turn_planned = launch_instructions.starter_prompt
+            != crate::agent::provider::StarterPrompt::NoStarter
+            || launch_instructions.startup_message.is_some();
         startup_message = launch_instructions.startup_message;
         if let Some(message) = startup_message.as_deref() {
             if let Err(error) = svc.create_pending_delivery(
@@ -321,20 +315,13 @@ pub(super) fn start(
             launch_marker: None,
             instance_id: Some(crate::paths::codeterm_instance_id().to_string()),
         };
-        structured_starter =
-            super::super::launch_files::starter(svc, provider_name, params.starter_prompt);
-        let command = match super::super::launch_files::command_with_selection(
+        let command = match super::super::launch_files::command(
             svc,
             &tab_id,
             provider_name,
             &ga_cwd,
             &mut params,
-            crate::ports::transport::Selection {
-                model: model_resolution
-                    .as_ref()
-                    .and_then(|resolution| resolution.model.clone()),
-                ..Default::default()
-            },
+            None,
         ) {
             Some(cmd) => cmd,
             None => {
@@ -386,20 +373,11 @@ pub(super) fn start(
         return;
     }
 
-    match super::super::launch_files::finish_structured(
-        svc,
-        &tab_id,
-        &pty_id,
-        startup_message.as_deref().or(structured_starter.as_deref()),
-    ) {
-        Ok(true) => startup_message = None,
-        Ok(false) => {}
-        Err(error) => {
-            fail_general_agent_start(svc, mux, &tab_id, &error);
-            return;
-        }
-    }
-
+    let Some(readiness_attempt) =
+        crate::service::launch_readiness::LaunchAttempt::current(mux, &tab_id, &pty_id)
+    else {
+        return;
+    };
     let launched = await_agent_launch_evidence(
         screen_state,
         &svc.agent_registry,
@@ -408,7 +386,9 @@ pub(super) fn start(
         &pty_id,
         std::time::Duration::from_secs(15),
     );
-    if !tab_still_owns_pty(mux, &tab_id, &pty_id) {
+    if crate::service::launch_readiness::LaunchAttempt::current(mux, &tab_id, &pty_id).as_ref()
+        != Some(&readiness_attempt)
+    {
         log::info!(
             "[general-agent] Launch on stale PTY {} for Tab {} ignored; Tab moved on",
             pty_id,
@@ -421,6 +401,15 @@ pub(super) fn start(
         return;
     }
     svc.emit_boot_stage(&tab_id, BootStage::ProviderReady, None);
+    if super::first_turn::prepare(
+        svc,
+        &readiness_attempt,
+        provider_name,
+        use_resume,
+        first_turn_planned,
+    ) {
+        return;
+    }
     let bound_session = match deliver_before_binding(
         || {
             if let Some(message) = startup_message {

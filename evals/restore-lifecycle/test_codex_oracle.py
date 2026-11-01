@@ -2,6 +2,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -30,7 +31,17 @@ class EvidenceTests(unittest.TestCase):
 
     def row(self, sid='own'):
         return dict(agent_type='codex', agent_session_id=sid, session_binding_nonce='n',
-                    reported_session_binding_nonce='n', boot_stage='agent_ready', structured_control_active=True)
+                    reported_session_binding_nonce='n', boot_stage='agent_ready', backing={"kind": "chat_backend", "session_id": sid},
+                    agent_runtime_state={"state": "loaded"})
+
+    def test_runtime_requires_loaded_own_thread_and_explicit_backing(self):
+        for mutation in ({'agent_runtime_state': None},
+                         {'agent_runtime_state': {'state': 'loading', 'thread_id': 'own'}},
+                         {'backing': {'kind': 'chat_backend', 'session_id': 'foreign'}},
+                         {'backing': {}}):
+            with self.subTest(mutation=mutation), self.assertRaises(AssertionError):
+                oracle.bindings({'a': {**self.row(), **mutation}})
+        oracle.bindings({'a': {**self.row(), 'backing': {'kind': 'pty'}, 'agent_runtime_state': None}})
 
     def test_duplicate_and_foreign_nonce_refused(self):
         with self.assertRaisesRegex(AssertionError, 'duplicate'):
@@ -136,11 +147,11 @@ class EvidenceTests(unittest.TestCase):
     def test_observer_uses_dev_run_url_and_refuses_prod(self):
         root = pathlib.Path(__file__).parent
         env = {**os.environ, 'PYTHONPATH': str(root), 'CODETERM_API_URL': 'http://127.0.0.1:7692'}
-        result = subprocess.run(['python3', '-c', 'import observe; print(observe.BASE)'], env=env, capture_output=True, text=True)
+        result = subprocess.run([sys.executable, '-c', 'import observe; print(observe.BASE)'], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0)
         self.assertEqual(result.stdout.strip(), env['CODETERM_API_URL'])
         env['CODETERM_API_URL'] = 'http://127.0.0.1:7685'
-        result = subprocess.run(['python3', '-c', 'import observe'], env=env, capture_output=True)
+        result = subprocess.run([sys.executable, '-c', 'import observe'], env=env, capture_output=True)
         self.assertNotEqual(result.returncode, 0)
 
     def test_selected_phases_require_setup_and_complete_groups(self):

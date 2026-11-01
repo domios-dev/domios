@@ -128,7 +128,6 @@ pub(super) fn dispatch_split(
                 data: Some(json!({"type":"invalid_task_split"})),
             });
         }
-        validate_model_field(Some(&child_params), &svc.agent_registry.provider_ids())?;
         additions.push(child_params);
     }
     let mut new_children = Vec::with_capacity(additions.len());

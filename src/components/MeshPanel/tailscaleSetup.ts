@@ -10,6 +10,7 @@ export type TailscaleState =
   | { kind: "not_installed" }
   | { kind: "not_connected" }
   | { kind: "not_running" }
+  | { kind: "permission_needed" }
   | { kind: "signed_out" }
   | { kind: "connected"; tailnet: string | null };
 
@@ -24,6 +25,8 @@ export function tailscalePrompt(state: TailscaleState): TailscalePrompt | null {
       return { title: "Connect this computer", message: "Domios links your computers through a free, encrypted private network called Tailscale. Nothing is exposed to your Wi-Fi or the internet." };
     case "not_running":
       return { title: "Private network is off", message: "Tailscale is installed but not running on this computer, so your other machines can't reach it." };
+    case "permission_needed":
+      return { title: "Permission needed", message: "Domios could not read the Tailscale connection because access was denied. Allow Domios to access Tailscale data in macOS Privacy & Security settings, then check again." };
     case "signed_out":
     case "not_connected":
       return { title: "Sign in to your private network", message: "Sign in to Tailscale with the same account you use on your other computers." };
@@ -63,6 +66,7 @@ export function tailscaleSetupRequest(machine: string | null): string {
     "Otherwise explain in one or two plain sentences what Tailscale is and why Domios uses it, without networking jargon.",
     "If it is missing, offer to install it with the platform's package manager (winget on Windows, Homebrew on macOS, the official package or script on Linux) and ask before installing anything.",
     "Walk me through signing in, remind me to use the same Tailscale account on every machine, and finish by confirming that Domios Mesh sees the Tailscale connection.",
+    "After setup, run `domios mesh refresh --json`. Read back its transport and web_ui fields, then `domios mesh status --json`, and verify the Mesh card reloads the connected state and offers Open, Copy and QR for a verified endpoint. Do not claim completion from Tailscale output alone; report any remaining card or endpoint failure.",
     "Reply in my language.",
   ].join(" ");
 }

@@ -259,7 +259,7 @@ mod tests {
             })
             .unwrap();
 
-        store.plans.write().clear();
+        store.forget_all_plans_for_test();
         store.reload_from_disk(&plan.id).unwrap();
         let task = store.show_task(&task_id).unwrap().task;
         assert_eq!(task.name, "Renamed task");

@@ -6,7 +6,7 @@ use codeterm_account::{
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 const MESH_INSTALLATION_KEY: &str = "domios-account-mesh-installation-key";
-fn credential_name(provider: &str) -> String {
+pub(super) fn credential_name(provider: &str) -> String {
     format!("domios-account-{provider}-refresh")
 }
 
@@ -71,14 +71,26 @@ impl AccountCredentials {
             .await
             .map_err(|_| Error::Credentials)?
     }
-    async fn load_named(&self, name: String) -> codeterm_account::Result<Option<Secret>> {
+    pub(super) async fn load_named(
+        &self,
+        name: String,
+    ) -> codeterm_account::Result<Option<Secret>> {
         self.blocking(move |local| local.load(&name)).await
     }
     async fn save_named(&self, name: String, token: &Secret) -> codeterm_account::Result<()> {
         let token = token.clone();
         self.blocking(move |local| local.save(&name, &token)).await
     }
-    async fn delete_named(&self, name: String) -> codeterm_account::Result<()> {
+    pub(super) async fn save_persistent(
+        &self,
+        name: String,
+        token: &Secret,
+    ) -> codeterm_account::Result<()> {
+        let token = token.clone();
+        self.blocking(move |local| local.save_persistent(&name, &token))
+            .await
+    }
+    pub(super) async fn delete_named(&self, name: String) -> codeterm_account::Result<()> {
         self.blocking(move |local| local.delete(&name)).await
     }
     pub fn start_migration(

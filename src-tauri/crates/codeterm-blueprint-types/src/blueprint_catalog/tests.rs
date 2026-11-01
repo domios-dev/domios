@@ -33,6 +33,7 @@ fn blueprint_catalog_equals_enum_names_and_shared_golden_fixture() {
             to: MediaKind::Text,
         },
         StepKind::Agent {
+            review: false,
             provider: "fixture".into(),
             profile: "reader".into(),
             task: "inspect".into(),

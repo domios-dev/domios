@@ -31,6 +31,18 @@ pub(crate) const SPAWN_REFUSAL_CLASS_UNCLASSIFIED: &str = "unknown";
 
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
+        if let Some((code, _)) = message.split_once(':') {
+            if matches!(
+                code,
+                "neighbor_capability_denied"
+                    | "neighbor_forbidden"
+                    | "neighbor_paused"
+                    | "tab_requests_not_allowed"
+                    | "neighbor_machine_access_unsupported"
+            ) {
+                return Self::new(StatusCode::FORBIDDEN, code, message.clone());
+            }
+        }
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             body: serde_json::json!({

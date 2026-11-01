@@ -3,6 +3,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 mod close_fixture;
+mod sql_candidates;
 
 const CANONICAL: &str = "/repo";
 

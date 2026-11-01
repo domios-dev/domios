@@ -11,6 +11,7 @@ use rusqlite::limits::Limit;
 use rusqlite::types::ValueRef;
 
 mod pool;
+mod readonly;
 
 use pool::ConnectionPool;
 pub use pool::PluginSqliteLease;
@@ -204,6 +205,9 @@ fn open_read_only(db_path: &str) -> Option<rusqlite::Connection> {
         log::debug!("[sqlite-session-probe] stage=busy_timeout db={db_path} error={error}");
         return None;
     }
+    if !readonly::install(&conn) {
+        return None;
+    }
     Some(conn)
 }
 
@@ -241,10 +245,14 @@ fn query_connection(
         Ok(stmt) => stmt,
         Err(error) => {
             log::debug!("[sqlite-session-probe] stage=prepare db={db_path} error={error}");
-            *faulted = is_connection_fault(&error);
+            *faulted = is_connection_fault(&error) || readonly::denied(&error);
             return Ok(None);
         }
     };
+    if !stmt.readonly() {
+        *faulted = true;
+        return Ok(None);
+    }
     let col_names: Vec<String> = (0..stmt.column_count())
         .map(|i| {
             stmt.column_name(i)
@@ -258,7 +266,7 @@ fn query_connection(
         Ok(rows) => rows,
         Err(error) => {
             log::debug!("[sqlite-session-probe] stage=query db={db_path} error={error}");
-            *faulted = is_connection_fault(&error);
+            *faulted = is_connection_fault(&error) || readonly::denied(&error);
             return Ok(None);
         }
     };
@@ -271,7 +279,7 @@ fn query_connection(
             Err(error) if is_too_big(&error) => return Err(value_too_big(max_bytes)),
             Err(error) => {
                 log::debug!("[sqlite-session-probe] stage=row db={db_path} error={error}");
-                *faulted = is_connection_fault(&error);
+                *faulted = is_connection_fault(&error) || readonly::denied(&error);
                 return Ok(None);
             }
         };
@@ -369,5 +377,7 @@ fn value_too_big(max_bytes: usize) -> String {
 
 #[cfg(test)]
 mod async_query_tests;
+#[cfg(test)]
+mod effects_tests;
 #[cfg(test)]
 mod tests;

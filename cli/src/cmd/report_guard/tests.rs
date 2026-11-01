@@ -6,11 +6,7 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 fn run(dir: &Path, args: &[&str]) {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .unwrap();
+    let out = git_command(dir).args(args).output().unwrap();
     assert!(
         out.status.success(),
         "git {} failed: {}",
@@ -20,9 +16,8 @@ fn run(dir: &Path, args: &[&str]) {
 }
 
 fn head(dir: &Path) -> String {
-    let out = Command::new("git")
+    let out = git_command(dir)
         .args(["rev-parse", "HEAD"])
-        .current_dir(dir)
         .output()
         .unwrap();
     assert!(out.status.success());
@@ -611,6 +606,7 @@ fn lane_owned_sha_validates_against_the_lane_worktree_not_the_pane_cwd() {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&lane),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -648,6 +644,7 @@ fn dev_bound_lane_worktree_ignores_foreign_vision_outside_owned_interval() {
             pane_cwd: dir.path(),
             lane_worktree: Some(&lane),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -675,6 +672,7 @@ fn another_repository_sha_is_preserved_for_lane_readiness() {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&lane),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -703,6 +701,7 @@ fn lane_anchor_resolves_through_a_symlinked_recorded_path() {
             pane_cwd: foreign.path(),
             lane_worktree: Some(&link),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -727,6 +726,7 @@ fn declared_lane_worktree_that_is_not_a_repo_refuses_instead_of_using_the_pane()
             pane_cwd: foreign.path(),
             lane_worktree: Some(&absent),
             canonical_writer: false,
+            recorded_checkout: false,
         },
         Some(ReportStatusArg::InReview),
         None,
@@ -888,4 +888,168 @@ fn caller_not_the_plans_bound_planner_is_still_refused() {
         "a plan with no Planner bound must refuse every caller"
     );
     assert!(!worker_binding_resolved(false, true, bound));
+}
+
+#[test]
+fn recorded_checkout_requires_a_resolved_matching_sha() {
+    assert!(!report_sha_mismatches_head(
+        Some("own-head"),
+        "own-head",
+        true
+    ));
+    assert!(report_sha_mismatches_head(
+        Some("foreign-head"),
+        "own-head",
+        true
+    ));
+    assert!(report_sha_mismatches_head(None, "own-head", true));
+    assert!(!report_sha_mismatches_head(None, "own-head", false));
+}
+
+#[test]
+fn missing_checkout_refusal_only_offers_applicable_recovery() {
+    let error = unresolved_lane_refusal();
+    let message = error.message();
+    assert!(message.contains("Ask the Orchestrator"));
+    assert!(message.contains("--status partial"));
+    assert!(!message.contains("--status in_review"));
+    assert!(!message.contains("--plan"));
+    assert!(!message.contains("--task"));
+}
+
+#[test]
+fn recorded_checkout_never_scopes_or_acknowledges_dirt() {
+    let checkout = crate::cmd::report_lane::TaskReadinessScope {
+        worktree_path: Some("/integration".into()),
+        recorded_checkout: true,
+        base: Some("stale-lane-base".into()),
+        ..Default::default()
+    };
+    assert_eq!(
+        readiness_validation_options(Some(&checkout), ReportBase::typed("explicit-base"), true),
+        (None, false)
+    );
+    let lane = crate::cmd::report_lane::TaskReadinessScope {
+        recorded_checkout: false,
+        ..checkout
+    };
+    assert_eq!(
+        readiness_validation_options(Some(&lane), ReportBase::typed("explicit-base"), true),
+        (Some("explicit-base".into()), true)
+    );
+}
+
+#[test]
+fn repository_scope_without_any_binding_refuses_even_without_sha() {
+    let scope = crate::cmd::report_lane::TaskReadinessScope::default();
+    let error = enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .unwrap_err();
+    assert_eq!(error, unresolved_lane_refusal());
+}
+
+#[test]
+fn recorded_nested_directory_cannot_borrow_parent_repository() {
+    let foreign = repo();
+    let recorded = foreign.path().join("integration");
+    fs::create_dir(&recorded).unwrap();
+    let scope = crate::cmd::report_lane::TaskReadinessScope {
+        worktree_path: Some(recorded.clone()),
+        recorded_checkout: true,
+        ..Default::default()
+    };
+    for lost_marker in [false, true] {
+        if lost_marker {
+            run(&recorded, &["init", "--initial-branch", "integration"]);
+            fs::remove_dir_all(recorded.join(".git")).unwrap();
+        }
+        assert!(git_lines(foreign.path(), &["status", "--porcelain"])
+            .unwrap()
+            .is_empty());
+        for sha in [Some(head(foreign.path())), None] {
+            let error = enrich_ready_report(
+                Some(&scope),
+                Some(ReportStatusArg::InReview),
+                None,
+                sha,
+                ReportBase::default(),
+                None,
+                false,
+            )
+            .unwrap_err();
+            assert!(error.reason.contains("is not a git worktree root"));
+            assert!(error.message().contains("repair the recorded checkout"));
+            assert_eq!(
+                error.next_commands(),
+                vec!["domios agent report --status partial --from-pad report.md"]
+            );
+            assert!(!error.message().contains("git commit"));
+        }
+    }
+}
+
+#[test]
+fn report_git_commands_remove_repository_and_index_overrides() {
+    let own = repo();
+    let foreign = repo();
+    fs::write(foreign.path().join("foreign.txt"), "foreign commit").unwrap();
+    run(foreign.path(), &["add", "foreign.txt"]);
+    run(foreign.path(), &["commit", "-m", "foreign"]);
+    let mut command = git_command(own.path());
+    for (key, value) in [
+        ("GIT_DIR", foreign.path().join(".git")),
+        ("GIT_COMMON_DIR", foreign.path().join(".git")),
+        ("GIT_WORK_TREE", foreign.path().to_path_buf()),
+        ("GIT_INDEX_FILE", foreign.path().join(".git/index")),
+        ("GIT_OBJECT_DIRECTORY", foreign.path().join(".git/objects")),
+        ("GIT_CONFIG", foreign.path().join(".git/config")),
+    ] {
+        command.env(key, value);
+    }
+    command.env("GIT_CONFIG_COUNT", "1");
+    command.env("GIT_CONFIG_KEY_0", "core.worktree");
+    command.env("GIT_CONFIG_VALUE_0", foreign.path());
+    sanitize_git_environment(&mut command);
+    assert!(command
+        .get_envs()
+        .all(|(key, value)| { !key.to_string_lossy().starts_with("GIT_") || value.is_none() }));
+    let output = command.args(["rev-parse", "HEAD"]).output().unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout).trim(),
+        head(own.path())
+    );
+    assert_ne!(head(own.path()), head(foreign.path()));
+}
+
+#[cfg(unix)]
+#[test]
+fn recorded_checkout_accepts_a_symlink_to_its_own_root() {
+    let own = repo();
+    let links = tempfile::tempdir().unwrap();
+    let link = links.path().join("checkout-link");
+    std::os::unix::fs::symlink(own.path(), &link).unwrap();
+    let scope = crate::cmd::report_lane::TaskReadinessScope {
+        worktree_path: Some(link),
+        recorded_checkout: true,
+        ..Default::default()
+    };
+    let (_, sha, _) = enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        Some(head(own.path())),
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(sha, Some(head(own.path())));
 }

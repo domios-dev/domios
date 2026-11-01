@@ -6,7 +6,9 @@ pub(crate) fn clear_planner_bindings_for_lifecycle_exit(
     now_ms: u64,
 ) -> usize {
     let bindings: Vec<_> = plan_store
-        .list_full()
+        .plans_matching(&crate::service::plan::PlanMatch::Planner(
+            tab_id.to_string(),
+        ))
         .into_iter()
         .filter_map(|plan| {
             let Some(crate::plan::PlannerRef::Tab {

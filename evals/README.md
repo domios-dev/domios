@@ -1,9 +1,13 @@
-# Behaviour benches
+# Test families and benches
 
-All behavioural verification (system prompts, session restore, recall
-quality, agent routing) lives under `evals/<name>/`. Cross-platform
-helpers in `evals/_lib/lib.sh` keep individual benches short and
-portable across mac, linux, and Windows-bash.
+Start with the test family, not this folder name.
+
+- **Curated owner journeys:** [QA catalogue](qa/README.md) and its [required preread](qa/REPEATABLE-QA.md). Built-in Browser scenarios reuse reviewed actions and oracles from the suspended Playwright archive; archive inventory is not current coverage.
+- **Deterministic unit/contract/API tests:** [testing procedure](../.agents/skills/testing/SKILL.md), without real models. Offline helper tests under `evals/` belong here too.
+- **Load/performance:** measure latency, throughput, growth and stability under a specified workload; retain environment and measurements.
+- **Agent evals:** measure behavior/quality, operationally beside load benches with explicit model/data/version pins and time/token budgets. A single quality task need not be a load test.
+
+[`tests/catalogue.json`](../tests/catalogue.json) indexes runners; [`qa/catalogue.json`](qa/catalogue.json) indexes curated cases and its existing matrix records results. A procedure never authorizes a restart, model spend, sign-in or external action. Bench fixture actions use [`_lib/lib.sh`](_lib/lib.sh) through `dc`, `dev_get`, `dev_post` or `dev_run`; Browser management uses its own host connection.
 
 ## Existing sets
 
@@ -11,10 +15,11 @@ portable across mac, linux, and Windows-bash.
 |--------|---------------|--------|
 | `cli-agent/` | real-daemon LLM benchmark: drives claude/codex/opencode in the dev console through every CLI command; model-judged (see its `SKILL.md`). Replaces the old headless `-p` general-agent / mem-protocol prompt evals. | `bash cli-agent/run-suite.sh` + model judge |
 | `mem-recall/` | mem search engine quality (Recall@K / MRR / latency) | `cargo run -p codeterm-devtools --features dev-tools --bin mem-bench` |
-| `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging (5 cases) | `prompt-evaluator` skill |
+| `dreaming/` | REM-phase prompt — Stage A.1 hub decomposition (RED ZONE rule), Stage A.2 island bridging | `prompt-evaluator` skill |
 | `browser-discovery/` | a fresh agent with a plain web task picks the built-in browser plugin, not a provider browser extension | `bash browser-discovery/run.sh [provider[:model]...]` |
 | `session-restore/` | kill+restart preserves workspaces / tabs / agent_type / titles | `bash session-restore/run.sh` |
 | `core-journeys/` | release blocker: per-provider spawn/send/reply/stop, Team start from the dialog with agent tabs selected, chat_backend dispatch/ACK/report/review, DEV restart restore | `bash core-journeys/run.sh all` |
+| `neighbor-friend-receiving/` | Opt-in named QA peers: move one friend, preserve another, reset and cold-restart the nonreceiver; requires four provisioned peers and a private manifest | `bash neighbor-friend-receiving/run.sh --help` |
 
 ### mem-recall baseline protocol
 
@@ -31,7 +36,7 @@ mem-recall behavior, and keep both diff and intent explicit in the PR.
 
 ### session-restore baseline protocol
 
-`evals/session-restore/` keeps a committed `baseline.json` for the six `WS-*`
+`evals/session-restore/` keeps a committed `baseline.json` for the `WS-*`
 restore scenarios. Dynamic tab ids and agent session ids are excluded.
 
 - Normal update: `bash evals/session-restore/run.sh` → inspect
@@ -65,12 +70,13 @@ sockets) inside individual benches that then drift across platforms.
 
 - `dev_resolve` (alias `dev_env`) — resolves the dev connection (port, token, socket path) into lib-private state; exports nothing
 - `dev_run <cmd...>` — runs one child process with the dev connection composed into *its* environment
+- `dc --as-tab <id> ...`, `dev_run --as-tab <id> ...`, `dev_post_as_tab <id> <path> [json]` — run with that DEV tab's own scoped launch credential, never the instance token plus an asserted tab ID
 - `dev_auth_header` / `dev_data_dir` — the resolved values, for shell code that used to read an exported variable
 - `dev_pid` / `dev_alive` — find the dev process via `lsof` (Unix) or `netstat` (Win)
 - `dev_kill_hard` — `kill -9` (Unix) or `taskkill /F` (Win) → simulates Windows reboot / OOM
-- `dev_wait_ready` — polls `/api/health` until dev is up
+- `dev_wait_ready` — consumes the startup acknowledgement and delegates bounded health readiness to `scripts/server-readiness.mjs`
 - `dev_start_bg` — starts `./build.sh dev` in the background
-- `snapshot <label>` — saves `ws.json` + `tabs.json` + `last.json` to `target-check/evals/<label>/`
+- `snapshot <label>` — saves `ws.json` + `tabs.json` to `target-check/evals/<label>/`
 - `diff_snapshots <pre> <post>` — PASS/FAIL table over workspace + tab metadata
 - `cleanup_test_workspaces [prefix]` — closes leftover `WS-*` workspaces from prior runs
 - `assert_atomic_save_clean` — guards against corrupt `last.json` or leftover `.tmp`
@@ -81,31 +87,24 @@ OS detection is via `$OSTYPE` (works in git bash on Windows). All
 commands are POSIX-portable; Windows-only branches are isolated to
 `is_windows` guards.
 
+Tab-scoped probes must run inside the selected DEV tab's launch environment,
+with its `CODETERM_API_TOKEN`, tab ID, API URL/port and socket path intact before
+sourcing the library. The requested tab must match that environment; its session
+ID and binding nonce are retained for the child. An owner shell or a production
+tab cannot impersonate an arbitrary DEV tab: the helpers refuse with exit 7.
+Use owner `dc tab exec --tab <shell-tab> '<probe command>'` to start a probe inside a DEV shell
+tab; for an agent tab, have the agent execute the probe with its own tool.
+`tab exec` intentionally refuses agent tabs. Never print or copy credentials
+through terminal output, inspect metadata, or substitute an instance token.
+Omitting `--as-tab` still runs setup/owner operations against verified DEV only.
+
+The mocked helper regression check is `bash evals/_lib/test-source-purity.sh`;
+it contacts no daemon and covers scoped credentials, foreign/missing credential
+refusals, unchanged caller environment and production target isolation.
+
 ## Writing a new bench
 
-```bash
-#!/usr/bin/env bash
-set -u
-source "$(git rev-parse --show-toplevel)/evals/_lib/lib.sh"
-dev_resolve || exit 1
-dev_alive || { echo "start dev first"; exit 1; }
-
-# 1. set up the scenario
-WS=$(new_workspace WS-myfeature C:/temp/myfeature)
-P=$(new_claude_tab $WS C:/temp/myfeature my-tab "initial task")
-
-# 2. snap, kill, restart
-sleep 35
-PRE=$(snapshot myfeature-pre)
-dev_kill_hard
-assert_atomic_save_clean || exit 1
-dev_start_bg
-dev_wait_ready
-POST=$(snapshot myfeature-post)
-
-# 3. verify
-diff_snapshots "$PRE" "$POST"
-```
+Use the maintained [curated case procedure](qa/README.md), [core journeys](core-journeys/README.md) or [startup matrix](startup-matrix/README.md) appropriate to the behavior. Declare target/build/boot/session identity, owned resources, budget, final oracle and cleanup before action. Restart drills require their own grant. Wait on events, DOM state, protocol acknowledgements or exact process exit under a failure deadline; elapsed time never proves readiness.
 
 Three notes for new benches:
 
@@ -120,8 +119,7 @@ Three notes for new benches:
 
 ## Running from a Claude session
 
-Each helper is one tool call with clean output. A full restore drill
-is six tool calls instead of thirty:
+Helpers keep connection handling in the shared library. Run the maintained restore drill with its required grant:
 
 ```bash
 bash evals/session-restore/run.sh

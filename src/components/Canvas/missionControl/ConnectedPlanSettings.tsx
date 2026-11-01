@@ -7,6 +7,7 @@ import { PlanSettingsPanel } from "./PlanSettingsPanel";
 import { planOversight } from "./planOversightAdapter";
 import { usePlanControlLoop } from "./usePlanControlLoop";
 import { usePlanSettingsClock } from "./usePlanSettingsClock";
+import { openNotificationCenter } from "../../Notifications/openNotificationCenter";
 
 export function ConnectedPlanSettings({ plan, api, initial, now }: {
   plan: TeamPlanSummary;
@@ -26,6 +27,7 @@ export function ConnectedPlanSettings({ plan, api, initial, now }: {
       onRunNow={() => void runNow()}
       runPending={Boolean(value?.running || value?.manual_run_requested)}
       onOpenGuide={guide ? () => guide.onOpen("curator") : undefined} />
+    {oversight.suspended_reason === "waiting_on_human" && <button type="button" className="mc-board-more" onClick={() => openNotificationCenter()}>Open pending questions</button>}
     {loadError && <InlineErrorNotice role="alert" error={loadError} operation="loading plan settings" />}
     {actionError && <InlineErrorNotice role="alert" description={{ title: "Curator could not run", cause: actionError, raw: actionError, actions: [] }} />}
   </>;

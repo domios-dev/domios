@@ -20,11 +20,31 @@ pub async fn account_presence(
     let sender = authorize_notice(&mut state.mesh.lock(), token)?;
     let nonce = crown::nonce_from_token(token)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid peer notice".into()))?;
-    let refreshed = state
-        .svc
-        .account_mesh_presence_notice(&sender, &nonce, notice.metadata_revision)
-        .await
-        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
+    let refreshed = match notice {
+        PresenceNotice::Presence { metadata_revision } => {
+            state
+                .svc
+                .account_mesh_presence_notice(&sender, &nonce, metadata_revision)
+                .await
+        }
+        PresenceNotice::Registry {
+            account_id,
+            registry_revision,
+            security_digest,
+        } => {
+            state
+                .svc
+                .account_mesh_registry_hint(
+                    &sender,
+                    &nonce,
+                    &account_id,
+                    registry_revision,
+                    security_digest.as_deref(),
+                )
+                .await
+        }
+    }
+    .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error))?;
     Ok(Json(serde_json::json!({"ok":true,"refreshed":refreshed})))
 }
 
@@ -34,7 +54,7 @@ fn authorize_notice(mesh: &mut MeshManager, token: &str) -> Result<String, (Stat
     }
     let sender = crown::verify_signed_request(token, &mesh.paired_identity_keys())
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid peer signature".into()))?;
-    if mesh.is_revoked(&sender) || mesh.is_blocked(&sender) {
+    if mesh.account_peer_revoked(&sender) {
         return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
     }
     mesh.check_and_record_nonce(token)

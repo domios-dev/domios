@@ -108,6 +108,7 @@ pub(super) fn dispatch(
                 "tab.focus",
                 "tab.close",
                 "tab.send_text",
+                "tab.send_status",
                 "tab.get_output",
                 "tab.rename",
                 "tab.resize",
@@ -115,6 +116,7 @@ pub(super) fn dispatch(
                 "notification.create",
                 "notification.list",
                 "notification.clear",
+                "notification.resolve",
                 "mesh.status",
                 "mesh.peers",
                 "model_provider.add",
@@ -190,6 +192,7 @@ pub(super) fn dispatch(
                 "plan.task.split",
                 "plan.review.authorize-reporter",
                 "plan.task.update",
+                "plan.task.extend_files",
                 "plan.task.attach",
                 "plan.task.close",
                 "plan.task.assign",
@@ -242,7 +245,12 @@ pub(super) fn dispatch(
                 "task.show",
                 "task.take",
                 "task.drop",
-                "task.add",
+                "radar.add",
+                "radar.list",
+                "radar.show",
+                "radar.update",
+                "radar.drop",
+                "radar.pull",
                 "canvas.focus",
                 "canvas.filter",
                 "blueprint.export",
@@ -338,6 +346,7 @@ pub(super) fn dispatch(
                 "mem.graph.repair.collapse_synonym_edges",
                 "mem.graph.repair.prune_dream_hub_edges",
                 "mem.graph.repair.orphan_blobs",
+                "mem.secret.authorize",
                 // Credential-bearing mem.secret.* stays on bearer-authenticated HTTP.
             ];
             let plugins = codeterm_service_core::service::plugin_skills::granted_catalogs(
@@ -385,6 +394,7 @@ pub(super) fn dispatch(
             "task.take"
                 | "task.drop"
                 | "plan.task.update"
+                | "plan.task.extend_files"
                 | "plan.task.attach"
                 | "plan.task.close"
                 | "plan.task.assign"
@@ -422,6 +432,7 @@ pub(super) fn dispatch(
         "persona" => persona::dispatch(method, &params),
         "plan" if plan_mode::handles(method) => plan_mode::dispatch(method, &params, svc),
         "plan" | "task" => plan::dispatch(method, &params, svc),
+        "radar" => radar::dispatch(method, &params, svc),
         "canvas" => canvas::dispatch(method, &params, svc),
         "spec" | "effort" => spec::dispatch(method, &params, svc),
         "plugin" if receiver_target::handles(method) => {
@@ -478,6 +489,13 @@ pub(crate) fn dispatch_mesh_rpc(
             "authenticated_mesh_peer_id".into(),
             serde_json::Value::String(peer_id.into()),
         );
+    }
+    if method == "api.request" {
+        return Err(JsonRpcError {
+            code: -32003,
+            message: "Local API forwarding is unavailable to mesh callers".into(),
+            data: None,
+        });
     }
     if method.starts_with("model_provider.") || method.starts_with("rest_api.") {
         return Err(JsonRpcError {

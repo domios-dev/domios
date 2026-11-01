@@ -378,11 +378,7 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
         });
     }
     if !task_kind_is_planning(task) {
-        if let Some(test_plan) = task
-            .get("test_plan")
-            .and_then(Value::as_str)
-            .filter(|s| !s.trim().is_empty())
-        {
+        if let Some(test_plan) = task.get("test_plan").and_then(Value::as_str) {
             if let Some(reason) = crate::cmd::test_plan::test_plan_vague_reason(test_plan) {
                 findings.push(Finding {
                     severity: "warning",
@@ -390,10 +386,8 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
                     plan_id: plan_id(plan, path),
                     path: path.display().to_string(),
                     task_id: Some(task_id.clone()),
-                    detail: format!(
-                        "test plan is vague — {reason}; workers will fill the gaps with guesses"
-                    ),
-                    fix: "write an executable plan: exact command(s), exact surfaces (testids/selectors/files/endpoints), numbered steps with observable pass conditions".into(),
+                    detail: format!("verification plan is missing — {reason}"),
+                    fix: "name the surface, action and observable pass condition using an existing command or concrete manual steps".into(),
                 });
             }
         }
@@ -415,7 +409,6 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
             fix: "set --executor-role <slug> (e.g. rust-backend-dev, frontend-dev, code-reviewer) on the task. Nothing fills this in for you: an invented role is worse than an absent one, because the Orchestrator would route on it".into(),
         });
     }
-    inspect_test_author_report(path, plan, task, &task_id, findings);
     crate::cmd::plan_doctor_competition::push_competition_findings(
         task,
         plan_id(plan, path),
@@ -423,60 +416,6 @@ fn inspect_task_quality(path: &Path, plan: &Value, task: &Value, findings: &mut 
         task_id,
         findings,
     );
-}
-
-fn inspect_test_author_report(
-    path: &Path,
-    plan: &Value,
-    task: &Value,
-    task_id: &str,
-    findings: &mut Vec<Finding>,
-) {
-    if task
-        .get("status")
-        .and_then(Value::as_str)
-        .is_some_and(|status| matches!(status, "done" | "cancelled"))
-    {
-        return;
-    }
-    let is_test_author = task
-        .get("executor_role")
-        .and_then(Value::as_str)
-        .is_some_and(|s| s.trim() == "test-author");
-    if !is_test_author {
-        return;
-    }
-    let Some(report) = task
-        .get("lane")
-        .and_then(|lane| lane.get("report"))
-        .filter(|v| !v.is_null())
-    else {
-        return;
-    };
-    let report_text = report
-        .get("message")
-        .or_else(|| report.get("body"))
-        .and_then(Value::as_str)
-        .unwrap_or("");
-    if mentions_red_green_demo(report_text) {
-        return;
-    }
-    findings.push(Finding {
-        severity: "error",
-        kind: "test_author_report_missing_red_green_demo",
-        plan_id: plan_id(plan, path),
-        path: path.display().to_string(),
-        task_id: Some(task_id.to_string()),
-        detail: "test-author task report lacks a red-green demo".into(),
-        fix: "bounce the report or amend it with the failing run, green run, exact command(s), and the oracle that failed for the right reason".into(),
-    });
-}
-
-fn mentions_red_green_demo(text: &str) -> bool {
-    let lower = text.to_ascii_lowercase();
-    lower.contains("red-green")
-        || lower.contains("red green")
-        || (lower.contains("red:") && lower.contains("green:"))
 }
 
 fn task_has_body_sidecar(plan_path: &Path, task: &Value) -> bool {

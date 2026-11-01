@@ -4,29 +4,6 @@ fn unused(config: &Value, thread: &str) -> bool {
     config["unusedThreadId"].as_str() == Some(thread)
 }
 
-pub(super) fn mark_unused(
-    svc: &ServiceContext,
-    session: &Session,
-    thread: &str,
-) -> Result<(), RuntimeFailure> {
-    validate_binding(svc, session)?;
-    let context = session.context.lock().clone();
-    let mut mux = svc.mux.write();
-    let tab = mux
-        .get_tab_mut(&context.tab_id)
-        .ok_or(RuntimeFailure::Superseded)?;
-    if tab.agent_session_id.as_deref() != Some(thread)
-        || tab.session_binding_nonce.as_deref() != Some(&context.binding_nonce)
-    {
-        return Err(RuntimeFailure::Superseded);
-    }
-    let config = tab
-        .agent_runtime_config
-        .get_or_insert_with(|| serde_json::json!({}));
-    config["unusedThreadId"] = Value::String(thread.into());
-    Ok(())
-}
-
 pub(super) async fn before_turn(
     svc: &ServiceContext,
     session: &Session,

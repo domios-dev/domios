@@ -2,7 +2,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
 import { invoke, listen } from "../../lib/bridge";
-import { BusySpinner } from "../shared/BusyState";
+import { BusySpinner, BusyState } from "../shared/BusyState";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import type { MeshTab } from "./types";
 import type { RecentPush } from "./MeshCanvas";
@@ -12,7 +12,7 @@ import { ServiceDrawer, type DrawerState } from "./ServiceDrawer";
 import { useMeshData } from "./useMeshData";
 import { meshDataUnavailable, meshHeaderState } from "./meshProjection";
 import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { NetworkTab } from "./NetworkTab";
 import { ActivityTab } from "./ActivityTab";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
@@ -58,11 +58,11 @@ function normalizeTab(t: unknown): MeshTab {
   return "inventory";
 }
 
-export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
+export function MeshPanel({ config, onClose }: Props) {
   const touchUi = useTouchOptimizedUi();
   const goOnline = useCallback(async () => {
-    await onConfigUpdate({ ...config, mesh: { ...config.mesh, enabled: true } });
-  }, [config, onConfigUpdate]);
+    await invoke("mesh_set_enabled", { enabled: true });
+  }, []);
   const [activeTab, setActiveTab] = useState<MeshTab>(() => normalizeTab("map"));
   const [refreshKey, setRefreshKey] = useState(0);
   const [registryRefreshKey, setRegistryRefreshKey] = useState(0);
@@ -78,10 +78,11 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     setRegistryRefreshKey((key) => key + 1);
   }, [triggerRefresh]);
   const header = useMemo(
-    () => meshHeaderState({ error: data.error, loaded: data.loaded, peers: data.peers }, activeTab === "inventory"),
-    [data.error, data.loaded, data.peers, activeTab],
+    () => meshHeaderState({ error: data.error, loaded: data.loaded, peers: data.peers }, activeTab === "inventory", config.mesh.enabled),
+    [data.error, data.loaded, data.peers, activeTab, config.mesh.enabled],
   );
-  const unavailable = meshDataUnavailable(data);
+  const meshOff = !config.mesh.enabled;
+  const unavailable = !meshOff && meshDataUnavailable(data);
   const graphReady = data.loaded;
 
   useEffect(() => {
@@ -106,25 +107,25 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
     };
   }, [triggerRefresh]);
 
-  const loadServe = useCallback(async () => {
+  const loadServe = useCallback(async (accept: () => boolean = () => true) => {
     const [status, networkInfo] = await Promise.all([
       invoke<ServeStatus>("get_serve_status").catch(() => null),
       invoke<NetworkInfo>("get_network_info").catch(() => null),
     ]);
-    setNetwork(networkInfo);
-    setServe(status);
-    setServeLoading(false);
+    if (accept()) {
+      setNetwork(networkInfo);
+      setServe(status);
+      setServeLoading(false);
+    }
     return status;
   }, []);
 
   useEffect(() => {
-    void loadServe();
     let active = true;
     const refresh = () => {
-      void invoke<NetworkInfo>("get_network_info").then((info) => {
-        if (active) setNetwork(info);
-      }).catch(() => undefined);
+      void loadServe(() => active);
     };
+    refresh();
     let stop: (() => void) | undefined;
     void listen("mesh-state-changed", refresh).then((unlisten) => {
       if (active) stop = unlisten; else unlisten();
@@ -225,10 +226,12 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         <div className="ct-section-toolbar__identity flex items-center gap-3 mr-4 shrink-0">
           <strong>Mesh</strong>
           <div className={`${UI_TEXT.meta} opacity-70`}>
-            {header.kind === "unavailable"
+            {header.kind === "off"
+              ? <span role="status">Mesh is off.</span>
+              : header.kind === "unavailable"
               ? <span role="status">Mesh data is unavailable.</span>
               : header.kind === "loading"
-                ? <DeferredLoader state="present" aria-busy="true">Loading peers</DeferredLoader>
+                ? <DeferredLoader state="present" aria-busy="true"><BusyState inline label="Loading peers" phase="work" /></DeferredLoader>
                 : `${header.count} peer${header.count === 1 ? "" : "s"}`}
           </div>
           {activeTab !== "inventory" && <button
@@ -252,6 +255,18 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
         </div>
       </div>
       <div className="relative flex-1 min-h-0 overflow-hidden">
+        {activeTab === "inventory" && meshOff && (
+          <section aria-label="Mesh inventory" className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[var(--ct-muted-fg)]">
+            <p>Mesh is off.</p>
+            <button
+              type="button"
+              onClick={() => { void goOnline(); }}
+              className="flex items-center gap-2 rounded-md border border-[var(--ct-border)] px-3 py-1.5 text-[var(--ct-fg)] transition-colors hover:bg-[var(--ct-hover)]"
+            >
+              Turn on Mesh
+            </button>
+          </section>
+        )}
         {activeTab === "inventory" && unavailable && (
           <section aria-label="Mesh inventory" className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[var(--ct-muted-fg)]">
             <p>Mesh data is unavailable.</p>
@@ -266,12 +281,12 @@ export function MeshPanel({ config, onConfigUpdate, onClose }: Props) {
             </button>
           </section>
         )}
-        {activeTab === "inventory" && !graphReady && !unavailable && (
+        {activeTab === "inventory" && !meshOff && !graphReady && !unavailable && (
           <section aria-label="Mesh inventory" aria-busy="true" className="absolute inset-0 flex items-center justify-center">
-            <RegionLoader label="Loading mesh" />
+            <Loader label="Loading mesh" />
           </section>
         )}
-        {activeTab === "inventory" && graphReady && (
+        {activeTab === "inventory" && !meshOff && graphReady && (
           <div ref={mapRef} className="absolute inset-0">
             <AccountMeshCanvas
               registryRefreshKey={registryRefreshKey}

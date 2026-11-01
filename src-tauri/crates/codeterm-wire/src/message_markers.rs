@@ -1,11 +1,11 @@
-//! Legacy non-routing CodeTerm markers for attachments and hook metadata.
+//! Non-routing CodeTerm markers for current attachments and hook metadata.
 //! Routed messages use `crate::domios`.
 //!
 //! ```text
 //! -=-codeterm:<kind> k=v k=v …-=-<payload>
 //! ```
 //!
-//! Routed XML frames are never parsed through this legacy marker grammar.
+//! Routed XML frames are parsed separately from non-routing markers.
 //!
 //! Attribute values are percent-encoded for the structural characters
 //! (`%`, space, `=`, newline, tab, `"`) so payloads/labels never break the
@@ -147,7 +147,7 @@ pub fn provenance(text: &str) -> Provenance {
     }
     let head = text.strip_prefix(BRACKETED_PASTE_START).unwrap_or(text);
     if head.starts_with(OPEN)
-        && parse(text).is_some_and(|marker| !is_legacy_route_kind(&marker.kind))
+        && parse(text).is_some_and(|marker| !is_retired_marker_kind(&marker.kind))
     {
         Provenance::HostInjected
     } else {
@@ -169,16 +169,24 @@ pub fn parse_host_injected(text: &str) -> Option<ParsedMarker> {
     }
     match provenance(text) {
         Provenance::HostInjected => {
-            parse(text).filter(|marker| !is_legacy_route_kind(&marker.kind))
+            parse(text).filter(|marker| !is_retired_marker_kind(&marker.kind))
         }
         Provenance::StreamContent => None,
     }
 }
 
-fn is_legacy_route_kind(kind: &str) -> bool {
+fn is_retired_marker_kind(kind: &str) -> bool {
     matches!(
         kind,
-        "tab" | "report" | "system" | "reminder" | "mesh" | "telegram" | "pebble" | "inbound"
+        "tab"
+            | "report"
+            | "system"
+            | "reminder"
+            | "mesh"
+            | "telegram"
+            | "pebble"
+            | "inbound"
+            | "voice"
     )
 }
 
@@ -220,8 +228,16 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
             .unwrap_or(body);
         return Some(ParsedMarker {
             kind: "voice".into(),
+            payload: if attrs
+                .get("status")
+                .is_some_and(|status| status == "untranscribed")
+                || payload.is_empty()
+            {
+                payload.to_string()
+            } else {
+                voice_payload(payload)?
+            },
             attrs,
-            payload: voice_payload(payload),
         });
     }
     let rest = normalized.strip_prefix(OPEN)?;
@@ -238,7 +254,7 @@ pub fn parse(text: &str) -> Option<ParsedMarker> {
 
     let mut tokens = head.split(' ');
     let kind = tokens.next()?.to_string();
-    if kind.is_empty() || is_legacy_route_kind(&kind) {
+    if kind.is_empty() || is_retired_marker_kind(&kind) {
         return None;
     }
     let mut attrs = HashMap::new();
@@ -299,18 +315,14 @@ fn unescape_transcript(value: &str) -> String {
     decoded
 }
 
-fn voice_payload(payload: &str) -> String {
-    let Some(inner) = payload.strip_prefix(TRANSCRIPT_OPEN) else {
-        return payload.to_string();
-    };
-    let Some(end) = inner.find(TRANSCRIPT_CLOSE) else {
-        return payload.to_string();
-    };
+fn voice_payload(payload: &str) -> Option<String> {
+    let inner = payload.strip_prefix(TRANSCRIPT_OPEN)?;
+    let end = inner.find(TRANSCRIPT_CLOSE)?;
     let tail = &inner[end + TRANSCRIPT_CLOSE.len()..];
     if !tail.trim().is_empty() {
-        return payload.to_string();
+        return None;
     }
-    unescape_transcript(&inner[..end])
+    Some(unescape_transcript(&inner[..end]))
 }
 
 /// Transcribed speech follows the frame in one `<transcript>` element.

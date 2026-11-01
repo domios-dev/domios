@@ -42,6 +42,7 @@ fn apply_mesh_enabled_with<R, F>(
         }
     }
 
+    mesh.lock().notify_connection_change();
     sink.emit_mesh_state_changed();
 }
 

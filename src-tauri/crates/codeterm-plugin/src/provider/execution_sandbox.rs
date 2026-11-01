@@ -6,6 +6,7 @@ use serde::{Deserialize, Serialize};
 pub struct ExecutionSandboxCapability {
     pub platforms: Vec<String>,
     pub read_only: Option<ExecutionSandboxMode>,
+    pub runtime_read_only_writable_roots_mode: Option<String>,
     pub mutating: Option<ExecutionSandboxMode>,
     pub unsupported_reason: Option<String>,
     pub forbidden_argument_prefixes: Vec<String>,

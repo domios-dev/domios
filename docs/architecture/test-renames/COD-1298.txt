@@ -1,0 +1,1 @@
+js_runtime::manifest::tests::expand_home_keeps_the_legacy_plugin_data_prefix_inside_the_instance_data_dir -> js_runtime::manifest::tests::expand_home_treats_the_former_data_prefix_as_an_ordinary_home_path

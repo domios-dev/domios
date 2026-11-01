@@ -57,6 +57,7 @@ pub struct JsProvider {
     /// provider.
     usage_parser_cell: std::sync::OnceLock<Option<VmUsageParser>>,
     descriptor_snapshot: Option<descriptor::DescriptorSnapshot>,
+    session_delta_failure: parking_lot::Mutex<Option<session_delta::Failure>>,
 }
 
 impl JsProvider {
@@ -111,6 +112,7 @@ impl JsProvider {
             has_reply_relay,
             usage_parser_cell: std::sync::OnceLock::new(),
             descriptor_snapshot: None,
+            session_delta_failure: parking_lot::Mutex::new(None),
         };
         provider.refresh_descriptor();
         provider

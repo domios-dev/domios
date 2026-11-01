@@ -1,7 +1,26 @@
 {
   "agentRuntime": {
+    "restrictedCli": {"kind":"execpolicy-service-operations","metadataDirectory":".codex"},
     "storedHistory": true,
     "runtime": "stdio-jsonrpc",
+    "runtimeModes": [
+      {
+        "id": "approval-required",
+        "displayName": "Approval required"
+      },
+      {
+        "id": "auto-accept-edits",
+        "displayName": "Auto accept edits"
+      },
+      {
+        "id": "auto",
+        "displayName": "Auto"
+      },
+      {
+        "id": "full-access",
+        "displayName": "Full access"
+      }
+    ],
     "command": {
       "binary": "codex",
       "args": [
@@ -20,10 +39,14 @@
         "account/rateLimits/read"
       ],
       "openThread": [
+        "config/read",
+        "configRequirements/read",
         "thread/start",
         "thread/inject_items"
       ],
       "resumeThread": [
+        "config/read",
+        "configRequirements/read",
         "thread/resume",
         "thread/read",
         "thread/unarchive"

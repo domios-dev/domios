@@ -40,6 +40,37 @@ fn server_events_keep_native_audiences_off_web() {
 }
 
 #[test]
+fn development_frontend_runtime_identity_is_validated_and_gated() {
+    for (debug, development) in [(false, true), (true, false), (false, false)] {
+        assert_eq!(
+            development_frontend_configuration(debug, development, "invalid", "com.domios.app")
+                .unwrap(),
+            (None, String::new())
+        );
+    }
+    for (port, identifier) in [
+        ("1821", "com.domios.dev.first"),
+        ("1822", "com.domios.dev.second"),
+    ] {
+        let (origin, actual) =
+            development_frontend_configuration(true, true, port, identifier).unwrap();
+        assert_eq!(
+            origin.unwrap().as_str(),
+            format!("http://127.0.0.1:{port}/")
+        );
+        assert_eq!(actual, identifier);
+    }
+    for port in ["0", "65536", "-1", "1821/path", " 1821"] {
+        assert!(
+            development_frontend_configuration(true, true, port, "com.domios.dev.first").is_err()
+        );
+    }
+    for identifier in ["", "com.domios.app", "foreign", "com.domios.dev.bad/path"] {
+        assert!(development_frontend_configuration(true, true, "1821", identifier).is_err());
+    }
+}
+
+#[test]
 fn development_frontend_requires_a_debug_development_server_and_loopback_origin() {
     let value = "http://127.0.0.1:1420";
     assert!(development_frontend_origin(false, true, value)

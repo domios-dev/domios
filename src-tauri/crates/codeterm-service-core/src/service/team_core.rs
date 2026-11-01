@@ -107,6 +107,13 @@ pub fn reconcile_dangling_team_plan_bindings_and_emit(
     Ok(changed_plan_ids)
 }
 
+/// Reconciles against the Teams live right now.
+pub fn reconcile_dangling_team_plan_bindings_now(
+    svc: &ServiceContext,
+) -> Result<Vec<String>, crate::service::plan::PlanError> {
+    reconcile_dangling_team_plan_bindings_and_emit(svc, &live_team_ids(svc), now_ms())
+}
+
 pub fn valid_live_plan_team(
     svc: &ServiceContext,
     mux: &MultiplexerState,

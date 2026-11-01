@@ -1,6 +1,8 @@
 import { useLayoutEffect, useEffect, useRef, type RefObject } from "react";
 import { createLatestWins } from "./latestWins";
-import type { DecodedFrame, FrameDecoder, FrameFeed } from "./frameFeed";
+import { decodeJpegFrame, JPEG_DECODE_BACKEND, type DecodedFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
+import { DEV_BUILD } from "../../lib/devBuild";
+import { createStreamFrameCapture } from "./streamFrameCapture";
 import {
   canvasToPage,
   letterboxRect,
@@ -49,24 +51,36 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
   const frame = useRef<DecodedFrame | null>(null);
   const meta = useRef<FrameMetadata | null>(null);
   const reported = useRef<StreamViewport | null>(null);
+  const capture = useRef<ReturnType<typeof createStreamFrameCapture> | null>(null);
   const callbacks = useRef({ onViewport, onHidden, onError });
   callbacks.current = { onViewport, onHidden, onError };
 
-  const paint = () => {
+  const paint = (): boolean => {
     const canvas = canvasRef.current;
     const decoded = frame.current;
-    if (!canvas) return;
+    if (!canvas) return false;
     drawCss.current = letterboxRect(decoded ?? { width: 0, height: 0 }, css.current);
-    if (!decoded) return;
+    if (!decoded) return false;
     if (canvas.width !== decoded.width) canvas.width = decoded.width;
     if (canvas.height !== decoded.height) canvas.height = decoded.height;
     const context = canvas.getContext("2d");
-    if (!context) return;
+    if (!context) return false;
     context.imageSmoothingQuality = "high";
     context.drawImage(decoded.image, 0, 0, decoded.width, decoded.height);
+    return true;
   };
   const paintRef = useRef(paint);
   paintRef.current = paint;
+
+  useEffect(() => {
+    if (!DEV_BUILD || !canvasRef.current || !stageRef.current) return;
+    const local = createStreamFrameCapture(canvasRef.current, stageRef.current, decode === decodeJpegFrame ? JPEG_DECODE_BACKEND : "custom");
+    capture.current = local;
+    return () => {
+      capture.current = null;
+      local.dispose();
+    };
+  }, [canvasRef, stageRef, decode]);
 
   useEffect(() => {
     let active = true;
@@ -79,7 +93,8 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
       frame.current?.close();
       frame.current = decoded;
       meta.current = next.metadata;
-      paintRef.current();
+      const drawn = paintRef.current();
+      if (DEV_BUILD && drawn) capture.current?.capture(next, decoded, css.current, reported.current, dpr.current);
     }, (error) => callbacks.current.onError(error));
     const unsubscribe = frames.subscribe((next) => queue.push(next));
     return () => {

@@ -97,6 +97,57 @@ fn valid_verdict_is_paid() {
 }
 
 #[test]
+fn activation_admits_current_policy_and_refuses_old_policy_with_other_pins_intact() {
+    let signer = LocalSigner::new();
+    let mut activation = authority_for(&signer).activation();
+    activation.policy_version = PRODUCTION.policy_version;
+    let authority = PinnedAuthority::new(activation);
+    for version in [1, 2] {
+        let mut payload = enforced(paid());
+        payload["policy_version"] = json!(version);
+        if version == 2 {
+            payload["limits"]["teams"] = json!({"max":null,"scope":"installation"});
+            payload["limits"]["agent.tabs"] = json!({"max":null,"scope":"installation"});
+        }
+        let grant = signer.sign(&payload);
+        assert_eq!(
+            access_of(&authority, Some(&grant), T),
+            if version == activation.policy_version {
+                Authority::Billing
+            } else {
+                Authority::Free
+            }
+        );
+        if version != activation.policy_version {
+            assert_eq!(
+                authority
+                    .verify(&grant, &binding(), None, T)
+                    .unwrap_err()
+                    .refusal,
+                Refusal::PolicyVersion
+            );
+        }
+        for patch in [
+            json!({"policy_epoch":"wrong"}),
+            json!({"aud":{"project":PROJECT,"env":"live"}}),
+            json!({"policy_version":3}),
+        ] {
+            assert_eq!(
+                access_of(
+                    &authority,
+                    Some(&signer.sign(&with(payload.clone(), patch))),
+                    T
+                ),
+                Authority::Free
+            );
+        }
+        let mut wrong_key = grant;
+        wrong_key.key_id = "unknown".into();
+        assert_eq!(access_of(&authority, Some(&wrong_key), T), Authority::Free);
+    }
+}
+
+#[test]
 fn flipped_signature_byte_is_free() {
     let signer = LocalSigner::new();
     let mut grant = signer.sign(&enforced(paid()));

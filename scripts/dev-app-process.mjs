@@ -93,7 +93,7 @@ export function nativeLocatorRecord(line,record,app,attachment) {
   const image = value => typeof value === 'string' ? value.replaceAll('\\','/').replace(/^\/\/\?\//,'').toLowerCase() : null;
   if (record.schema !== 3 || !attachment || attachment.client_pid !== process?.pid ||
       attachment.epoch !== snapshot?.connection?.server_epoch ||
-      typeof process?.created !== 'string' || !/^[0-9]+$/.test(process.created) ||
+      typeof process?.created !== 'string' || !/^[0-9]+(:[0-9]+)?$/.test(process.created) ||
       image(process.executable) !== image(app) ||
       !Number.isSafeInteger(event.navigation_generation) || event.navigation_generation < 1)
     throw Error('Native DEV locator identity mismatch');

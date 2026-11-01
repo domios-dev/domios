@@ -18,12 +18,12 @@ fn capacity_error(turn: &str, metadata: serde_json::Value) -> AgentRuntimeEvent 
     }
 }
 
-fn failed(turn: &str) -> AgentRuntimeEvent {
+fn finished(turn: &str, detail: Option<RuntimeTurnDetail>) -> AgentRuntimeEvent {
     AgentRuntimeEvent::TurnState {
         thread_id: "thread".into(),
         turn_id: Some(turn.into()),
         state: RuntimeTurnState::Idle,
-        detail: Some(RuntimeTurnDetail::Failed),
+        detail,
         status_line: None,
         started_at: None,
         completed_at: None,
@@ -31,212 +31,227 @@ fn failed(turn: &str) -> AgentRuntimeEvent {
     }
 }
 
-#[tokio::test]
-async fn capacity_retry_runtime_fixture_schedules_one_visible_exact_turn_message() {
-    let scene = fixtures::scene();
-    let context = scene.session.context.lock().clone();
-    scene
-        .session
-        .capacity_retry
-        .lock()
-        .begin("original", "opaque user payload");
-    scene.session.capacity_retry.lock().bind("original", "turn");
-    let error = capacity_error(
-        "turn",
-        json!({"retryableKind":"transient","retryable":false}),
-    );
+async fn fail(scene: &fixtures::Scene, turn: &str, metadata: serde_json::Value, at: u64) {
+    let epoch = scene.session.context.lock().epoch;
     publish_events(
         &scene.fixture.service,
         &scene.session,
-        context.epoch,
-        vec![error.clone(), error, failed("turn"), failed("turn")],
-        123,
+        epoch,
+        vec![
+            capacity_error(turn, metadata),
+            finished(turn, Some(RuntimeTurnDetail::Failed)),
+        ],
+        at,
     )
     .await
     .unwrap();
-    let messages =
-        crate::delayed_send::list_views(&scene.fixture.service, Some(context.tab_id.clone()))
-            .unwrap();
-    assert_eq!(messages.len(), 1);
-    let msg = &messages[0].message;
-    assert_eq!(msg.text, "opaque user payload");
-    assert_eq!(msg.scheduled_at_ms, 10_123);
-    assert_eq!(msg.turn_retry.as_ref().unwrap().attempt, 1);
-    assert!(scene
-        .fixture
-        .service
-        .ext::<DelayedSendQueue>()
-        .claim_due(10_122)
-        .unwrap()
-        .is_empty());
-    assert!(scene
-        .session
-        .cache
-        .lock()
-        .snapshot()
-        .iter()
-        .any(|item| item.id == "turn:error"));
-    crate::delayed_send::delete_message(&scene.fixture.service, msg.id.clone()).unwrap();
-    assert!(scene
-        .fixture
-        .service
-        .ext::<DelayedSendQueue>()
-        .claim_due(10_123)
-        .unwrap()
-        .is_empty());
+}
+
+fn transient() -> serde_json::Value {
+    json!({"retryableKind":"transient","retryable":false})
 }
 
 #[tokio::test]
-async fn capacity_retry_ignores_unknown_transient_foreign_and_unbound_errors() {
-    for (bound_turn, error_turn, metadata) in [
-        (
-            Some("turn"),
-            "turn",
-            json!({"retryableKind":"rate_limited_until","retryable":false}),
-        ),
-        (
-            Some("turn"),
-            "turn",
-            json!({"retryableKind":"rate_limited_until","retryAtMs":0,"retryable":false}),
-        ),
-        (
-            Some("turn"),
-            "turn",
-            json!({"class":"server_overloaded","retryable":false}),
-        ),
-        (
-            Some("turn"),
-            "turn",
-            json!({"retryableKind":"transient","retryable":true}),
-        ),
-        (
-            Some("turn"),
-            "foreign",
-            json!({"retryableKind":"transient","retryable":false}),
-        ),
-        (
-            None,
-            "turn",
-            json!({"retryableKind":"transient","retryable":false}),
-        ),
-    ] {
-        let scene = fixtures::scene();
-        let context = scene.session.context.lock().clone();
-        scene
-            .session
-            .capacity_retry
-            .lock()
-            .begin("original", "opaque user payload");
-        if let Some(turn) = bound_turn {
-            scene.session.capacity_retry.lock().bind("original", turn);
-        }
-        publish_events(
-            &scene.fixture.service,
-            &scene.session,
-            context.epoch,
-            vec![capacity_error(error_turn, metadata), failed("turn")],
-            1,
-        )
-        .await
-        .unwrap();
-        assert!(scene
-            .fixture
-            .service
-            .ext::<DelayedSendQueue>()
-            .list(Some(&context.tab_id))
-            .is_empty());
-    }
-}
-
-#[tokio::test]
-async fn capacity_retry_limit_publishes_final_error_and_has_no_eleventh_message() {
+async fn capacity_retry_schedules_one_ordinary_continue_at_ten_seconds() {
     let scene = fixtures::scene();
-    let context = scene.session.context.lock().clone();
-    scene
-        .session
-        .capacity_retry
-        .lock()
-        .begin("original", "opaque payload");
-    for attempt in 0..=10 {
-        let turn = format!("turn-{attempt}");
-        let send = scene.session.capacity_retry.lock().send_id.clone();
-        scene.session.capacity_retry.lock().bind(&send, &turn);
-        publish_events(
-            &scene.fixture.service,
-            &scene.session,
-            context.epoch,
-            vec![
-                capacity_error(
-                    &turn,
-                    json!({"retryableKind":"transient","retryable":false}),
-                ),
-                failed(&turn),
-            ],
-            123,
-        )
-        .await
-        .unwrap();
-        let queue = scene.fixture.service.ext::<DelayedSendQueue>();
-        let messages = queue.list(Some(&context.tab_id));
-        if attempt == 10 {
-            assert!(messages.is_empty());
-            let rows = scene.session.cache.lock().snapshot();
-            let final_error = rows
-                .iter()
-                .find(|row| row.id.ends_with(":exhausted"))
-                .expect("visible final error");
-            assert_eq!(final_error.system_subtype.as_deref(), Some("api_error"));
-            assert!(final_error.content.contains("10 attempts"));
-        } else {
-            assert_eq!(messages.len(), 1);
-            let msg = queue.delete(&messages[0].id).unwrap();
-            assert!(scene
-                .session
-                .capacity_retry
-                .lock()
-                .claim(&msg.id, &format!("retry-{}", attempt + 1))
-                .is_some());
-        }
-    }
-}
-
-#[tokio::test]
-async fn capacity_retry_rate_limit_uses_one_visible_reset_time_message() {
-    let scene = fixtures::scene();
-    let context = scene.session.context.lock().clone();
-    scene
-        .session
-        .capacity_retry
-        .lock()
-        .begin("original", "opaque payload");
-    scene.session.capacity_retry.lock().bind("original", "turn");
+    fail(&scene, "turn", transient(), 123).await;
+    let epoch = scene.session.context.lock().epoch;
     publish_events(
         &scene.fixture.service,
         &scene.session,
-        context.epoch,
+        epoch,
         vec![
-            capacity_error(
-                "turn",
-                json!({"retryableKind":"rate_limited_until","retryAtMs":900_000,"retryable":false}),
-            ),
-            failed("turn"),
+            capacity_error("turn", transient()),
+            finished("turn", Some(RuntimeTurnDetail::Failed)),
         ],
         123,
     )
     .await
     .unwrap();
     let queue = scene.fixture.service.ext::<DelayedSendQueue>();
-    let messages =
-        crate::delayed_send::list_views(&scene.fixture.service, Some(context.tab_id.clone()))
-            .unwrap();
+    let messages = queue.list(None);
     assert_eq!(messages.len(), 1);
-    let msg = &messages[0].message;
-    assert_eq!(msg.scheduled_at_ms, 900_000);
+    assert_eq!(messages[0].text, "continue");
+    assert_eq!(messages[0].scheduled_at_ms, 10_123);
+    assert!(queue.claim_due(10_122).unwrap().is_empty());
+    assert_eq!(queue.claim_due(10_123).unwrap().len(), 1);
+    assert!(queue.claim_due(10_123).unwrap().is_empty());
     assert_eq!(
-        msg.turn_retry.as_ref().unwrap().kind,
-        RuntimeRetryableErrorKind::RateLimitedUntil
+        scene
+            .session
+            .cache
+            .lock()
+            .snapshot()
+            .iter()
+            .filter(|item| item.content == "Automatic retry: attempt 1/10")
+            .count(),
+        1
     );
-    assert!(queue.claim_due(899_999).unwrap().is_empty());
-    crate::delayed_send::delete_message(&scene.fixture.service, msg.id.clone()).unwrap();
-    assert!(queue.claim_due(900_000).unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn capacity_retry_rate_limit_schedules_at_reset_and_can_repeat() {
+    let scene = fixtures::scene();
+    for (turn, reset) in [("first", 900_000), ("second", 1_800_000)] {
+        fail(
+            &scene,
+            turn,
+            json!({"retryableKind":"rate_limited_until","retryAtMs":reset,"retryable":false}),
+            123,
+        )
+        .await;
+        let queue = scene.fixture.service.ext::<DelayedSendQueue>();
+        let messages = queue.list(None);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].text, "continue");
+        assert_eq!(messages[0].scheduled_at_ms, reset);
+        queue.delete(&messages[0].id).unwrap();
+    }
+    assert!(scene
+        .session
+        .cache
+        .lock()
+        .snapshot()
+        .iter()
+        .any(|item| item.content == "Automatic retry: attempt 2/10"));
+}
+
+#[tokio::test]
+async fn capacity_retry_repeat_failure_increments_and_success_resets_per_tab() {
+    let scene = fixtures::scene();
+    let other = fixtures::scene();
+    fail(&scene, "first", transient(), 1).await;
+    fail(&scene, "second", transient(), 2).await;
+    fail(&other, "other", transient(), 3).await;
+    assert!(scene
+        .session
+        .cache
+        .lock()
+        .snapshot()
+        .iter()
+        .any(|item| item.content == "Automatic retry: attempt 2/10"));
+    assert!(other
+        .session
+        .cache
+        .lock()
+        .snapshot()
+        .iter()
+        .any(|item| item.content == "Automatic retry: attempt 1/10"));
+    let epoch = scene.session.context.lock().epoch;
+    publish_events(
+        &scene.fixture.service,
+        &scene.session,
+        epoch,
+        vec![finished("success", None)],
+        4,
+    )
+    .await
+    .unwrap();
+    assert!(scene
+        .fixture
+        .service
+        .ext::<DelayedSendQueue>()
+        .list(None)
+        .is_empty());
+    fail(&scene, "after-success", transient(), 5).await;
+    assert_eq!(
+        scene
+            .session
+            .cache
+            .lock()
+            .snapshot()
+            .iter()
+            .filter(|item| item.content == "Automatic retry: attempt 1/10")
+            .count(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn capacity_retry_tenth_failure_stops_with_one_system_line() {
+    let scene = fixtures::scene();
+    for attempt in 1..=12 {
+        fail(&scene, &format!("turn-{attempt}"), transient(), attempt).await;
+        let messages = scene.fixture.service.ext::<DelayedSendQueue>().list(None);
+        assert_eq!(messages.len(), usize::from(attempt < 10));
+    }
+    assert_eq!(scene.session.cache.lock().snapshot().iter().filter(|item| {
+        item.content == "Automatic retry stopped after 10 attempts. Choose another model or send a new turn."
+    }).count(), 1);
+}
+
+#[tokio::test]
+async fn capacity_retry_ignores_unclassified_foreign_and_provider_managed_errors() {
+    for metadata in [
+        json!({"retryableKind":"rate_limited_until","retryable":false}),
+        json!({"retryableKind":"rate_limited_until","retryAtMs":0,"retryable":false}),
+        json!({"class":"server_overloaded","retryable":false}),
+        json!({"retryableKind":"transient","retryable":true}),
+    ] {
+        let scene = fixtures::scene();
+        fail(&scene, "turn", metadata, 1).await;
+        assert!(scene
+            .fixture
+            .service
+            .ext::<DelayedSendQueue>()
+            .list(None)
+            .is_empty());
+    }
+    let scene = fixtures::scene();
+    let epoch = scene.session.context.lock().epoch;
+    publish_events(
+        &scene.fixture.service,
+        &scene.session,
+        epoch,
+        vec![
+            capacity_error("foreign", transient()),
+            finished("own", Some(RuntimeTurnDetail::Failed)),
+        ],
+        1,
+    )
+    .await
+    .unwrap();
+    assert!(scene
+        .fixture
+        .service
+        .ext::<DelayedSendQueue>()
+        .list(None)
+        .is_empty());
+}
+
+#[tokio::test]
+async fn capacity_retry_persistence_refusal_still_records_completion_once() {
+    let scene = fixtures::scene();
+    let epoch = scene.session.context.lock().epoch;
+    let before = scene.session.completions.lock().sequence();
+    let changes = scene.session.control_changes.subscribe();
+    let queue = scene.fixture.service.ext::<DelayedSendQueue>();
+    queue.refuse_persistence(Some("injected queue persistence refusal"));
+    let events = vec![
+        capacity_error("turn", transient()),
+        finished("turn", Some(RuntimeTurnDetail::Failed)),
+    ];
+    let result = publish_events(
+        &scene.fixture.service,
+        &scene.session,
+        epoch,
+        events.clone(),
+        123,
+    )
+    .await;
+    assert!(
+        matches!(result, Err(super::super::model::RuntimeFailure::HookFailed(reason))
+        if reason == "injected queue persistence refusal")
+    );
+    assert!(scene.session.completions.lock().contains("thread", "turn"));
+    assert_eq!(scene.session.completions.lock().sequence(), before + 1);
+    assert!(changes.has_changed().unwrap());
+    let queued = queue.list(None);
+    assert_eq!(queued.len(), 1);
+    queue.refuse_persistence(None);
+    publish_events(&scene.fixture.service, &scene.session, epoch, events, 124)
+        .await
+        .unwrap();
+    assert_eq!(queue.list(None).len(), 1);
+    assert_eq!(queue.list(None)[0].id, queued[0].id);
 }

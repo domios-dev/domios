@@ -55,7 +55,7 @@ fn show_or_create_with(
                 .0
                 .lock()
                 .created(result.is_ok());
-            result.map(|_| super::frontend_shell::reveal_after_deadline(app.clone()))
+            result.map(|_| ())
         }
     }
 }
@@ -82,7 +82,6 @@ fn create(
         return Err(error);
     }
     crate::webview_watchdog::spawn(window.clone());
-    super::frontend_shell::window_created(app);
     log::debug!("[desktop] main frontend created");
     Ok(window)
 }
@@ -95,6 +94,7 @@ pub(crate) fn close_requested(window: &Window) -> bool {
         .lock()
         .close();
     if close {
+        super::frontend_shell::cancel_recovery(window.app_handle());
         super::frontend_shell::window_destroying(window.app_handle());
         log::debug!("[desktop] main frontend closing; daemon retained");
     }

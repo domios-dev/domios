@@ -40,7 +40,13 @@ pub(super) fn dispatch(
 ) -> Result<Value, JsonRpcError> {
     match method {
         "team.list" => {
-            let plans = svc.plan_store.list_full();
+            let team_ids: Vec<String> = mux
+                .read()
+                .list_teams()
+                .into_iter()
+                .map(|team| team.id)
+                .collect();
+            let plans = active_team_plans(svc, team_ids);
             let mux = mux.read();
             let teams = mux
                 .list_teams()
@@ -54,7 +60,7 @@ pub(super) fn dispatch(
         }
         "team.show" => {
             let team_id = get_string_param(params, "team_id")?;
-            let plans = svc.plan_store.list_full();
+            let plans = active_team_plans(svc, vec![team_id.clone()]);
             let mux = mux.read();
             let mut team = mux.get_team(&team_id).cloned().ok_or(JsonRpcError {
                 code: -32602,
@@ -219,6 +225,16 @@ pub(super) fn dispatch(
             data: None,
         }),
     }
+}
+
+/// Only active plans bound to these Teams can make a Team's lifecycle active.
+fn active_team_plans(
+    svc: &ServiceState,
+    team_ids: Vec<String>,
+) -> Vec<codeterm_service_core::plan::Plan> {
+    use codeterm_service_core::service::plan::PlanMatch;
+    svc.plan_store
+        .plans_matching(&PlanMatch::active().and(PlanMatch::Teams(team_ids)))
 }
 
 fn lifecycle_for_team(

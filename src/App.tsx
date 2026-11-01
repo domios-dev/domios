@@ -1,10 +1,9 @@
 import { WorkspacePaneState } from "./components/shared/FolderPaneState";
 import { firstRunLocked, firstRunSelection } from "./lib/firstRunGate";
 import { FirstRunGeneralPicker } from "./components/AgentPicker/FirstRunGeneralPicker";
-import { BrandState } from "./components/brand/BrandState";
+import { Loader } from "./components/shared/Loader";
 import { DeferredPresence } from "./components/shared/DeferredPresence";
 import { releaseBootCover } from "./lib/bootCover";
-import { brandStateModel } from "./components/brand/brandStateModel";
 import { ServerConnectionLayer } from "./components/brand/ServerConnectionLayer";
 import { initialRouteReady } from "./store/multiplexer/pageSelection";
 import { useAppNavigation } from "./hooks/useAppNavigation";
@@ -94,6 +93,7 @@ import { FreeLimitPlansModal } from "./components/billing/FreeLimitPlansModal";
 import { useSessionRevocationScreen } from "./components/Settings/useSessionRevocationScreen";
 import { useAccountMeshLimitNotice } from "./components/MeshPanel/accountMeshLimitNotice";
 import { precheckFreeLimit } from "./components/billing/freeLimitGate";
+import { neighborsEnabled } from "./components/Neighbors/neighborsSwitch";
 // TODO: Agent Swarm Visualization — future feature import { SwarmOverlay } from "./components/Swarm/SwarmOverlay";
 
 /** One stable empty list, so a config still loading does not hand the chime a
@@ -103,6 +103,8 @@ const EMPTY_LEVELS: AgentLevelChoice[] = [];
 const SettingsPanel = deferredComponent(async () => ({ default: (await import("./components/Settings/SettingsPanel")).SettingsPanel }));
 const MemoryPanel = deferredComponent(async () => ({ default: (await import("./components/MemoryPanel/MemoryPanel")).MemoryPanel }));
 const MeshPanel = deferredComponent(async () => ({ default: (await import("./components/MeshPanel/MeshPanel")).MeshPanel }));
+const NeighborsView = deferredComponent(async () => ({ default: (await import("./components/Neighbors/NeighborsView")).NeighborsView }));
+const NeighborConversationView = deferredComponent(async () => ({ default: (await import("./components/Neighbors/NeighborConversationView")).NeighborConversationView }));
 const ExtensionsView = deferredComponent(async () => ({ default: (await import("./components/Extensions/ExtensionsView")).ExtensionsView }));
 const AnalyticsSupporterSection = deferredComponent(async () => ({ default: (await import("./components/Supporter/AnalyticsSupporterSection")).AnalyticsSupporterSection }));
 const CanvasView = deferredComponent(async () => ({ default: (await import("./components/Canvas/CanvasView")).CanvasView }));
@@ -162,10 +164,11 @@ function AppInner() {
   const { config, updateConfig, theme, loading: configLoading } = useConfig();
   const locked = firstRunLocked(configLoading ? undefined : config.general_agent);
   const state = firstRunSelection(locked, backendState);
+  const interfaceReady = !configLoading && (initialRouteReady(state.generation) || state.storageUnavailable);
   const lockedRef = useRef(locked);
   lockedRef.current = locked;
-  const { providers: firstRunProviders } = useAgentProviders();
-  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
+  const { providers: firstRunProviders, loading: firstRunProvidersLoading, error: firstRunProvidersError } = useAgentProviders();
+  const { navigationReady, mainView: savedMainView, setMainView, automationWorkspaceId, setAutomationWorkspaceId, jobsScope, setJobsScope, workspaceMapWorkspaceId, setWorkspaceMapWorkspaceId, neighborChat, setNeighborChat } = useAppNavigation(state.generation, state.focused_tab_id, state.workspaces);
   const mainView = locked ? "workspace" : savedMainView;
   const automationOpener = useRef<HTMLElement | null>(null);
   const [jobsTarget, setJobsTarget] = useState<(JobsTarget & { request: number; returnTo?: ReturnTo }) | null>(null);
@@ -173,18 +176,21 @@ function AppInner() {
   const [pluginViewCwd, setPluginViewCwd] = useState<string | null>(null);
   const [pluginViewOwner, setPluginViewOwner] = useState<PluginViewScope | null>(null);
   const [settingsSection, setSettingsSection] = useState<SettingsLinkId | undefined>(undefined);
+  const [firstRunSettings, setFirstRunSettings] = useState(false);
   const [requestedGuide, setRequestedGuide] = useState<GuideRequest | undefined>(undefined);
   const [memoryInitial, setMemoryInitial] = useState<MemoryInitialState | undefined>(undefined);
   // Lazy-mount panels: mount once on first open, stay mounted for instant switching.
   const [mountedSettings, setMountedSettings] = useState(false);
   const [mountedMemory, setMountedMemory] = useState(false);
   const [mountedMesh, setMountedMesh] = useState(false);
+  const [mountedNeighbors, setMountedNeighbors] = useState(false);
   const [mountedExtensions, setMountedExtensions] = useState(false);
   const [mountedAnalytics, setMountedAnalytics] = useState(false);
   useEffect(() => {
     if (mainView === "settings") setMountedSettings(true);
     if (mainView === "memory") setMountedMemory(true);
     if (mainView === "mesh") setMountedMesh(true);
+    if (mainView === "neighbors") setMountedNeighbors(true);
     if (mainView === "extensions") setMountedExtensions(true);
     if (mainView === "analytics") setMountedAnalytics(true);
   }, [mainView]);
@@ -279,7 +285,9 @@ function AppInner() {
   const larkReadyRef = useRef(larkCapture.ready);
   larkReadyRef.current = larkCapture.ready;
   useEffect(() => {
+    if (!interfaceReady) return;
     if (IS_WEB || !("__TAURI_INTERNALS__" in window)) return;
+    releaseBootCover();
     const injectedView = (window as Window & {
       __CODETERM_CLIENT_VIEW_GENERATION__?: {
         viewGeneration: number;
@@ -334,8 +342,8 @@ function AppInner() {
       frontendBootDiagnostic("ready-failed");
       console.warn("Unable to report frontend readiness", error);
     });
-  }, []);
-  const routeRestored = useFrontendApp({
+  }, [interfaceReady]);
+  useFrontendApp({
     pageSnapshot: IS_WEB ? { workspaces: state.workspaces, tabs: state.tabs, active_workspace_id: state.active_workspace_id } : undefined,
     generation: state.generation,
     workspaceId: state.active_workspace_id,
@@ -345,7 +353,6 @@ function AppInner() {
     selectWorkspace: setActiveWorkspace,
     selectTab: setActiveTab,
   });
-  const interfaceReady = routeRestored || state.storageUnavailable;
   useEffect(() => {
     if (!interfaceReady) return;
     // Release after the restored interface has painted, so the cover hands over to a complete frame.
@@ -382,13 +389,16 @@ function AppInner() {
   // (e.g. the Git plugin's "Open Git" button, or a glance's "Open settings").
   useEffect(() => {
     const onOpenPanel = (e: Event) => {
-      if (lockedRef.current) return;
       const detail = (e as CustomEvent<{
         panel?: string;
         cwd?: string | null;
         memoryState?: MemoryInitialState;
       }>).detail;
       const panel = detail?.panel;
+      if (lockedRef.current) {
+        if (panel === "settings:general") setFirstRunSettings(true);
+        return;
+      }
       if (panel?.startsWith("view:")) {
         const fp = stateRef.current.focused_tab_id
           ? stateRef.current.tabs[stateRef.current.focused_tab_id]
@@ -401,6 +411,13 @@ function AppInner() {
       } else if (panel?.startsWith("settings:") && isSettingsLinkId(panel.slice("settings:".length))) {
         setSettingsSection(panel.slice("settings:".length) as SettingsLinkId);
         setSettingsOpen(true);
+      } else if (panel === "neighbors") {
+        setMainView("neighbors");
+        closeSidebarOnMobile();
+      } else if (panel?.startsWith("neighbor:")) {
+        setNeighborChat(panel.slice("neighbor:".length));
+        setMainView("neighbor");
+        closeSidebarOnMobile();
       } else if (panel === "memory") {
         if (DEV_BUILD && import.meta.env.VITE_CODETERM_TEST === "1") setMemoryInitial(detail?.memoryState);
         setMemoryOpen(true);
@@ -408,7 +425,7 @@ function AppInner() {
     };
     window.addEventListener("codeterm:open-panel", onOpenPanel);
     return () => window.removeEventListener("codeterm:open-panel", onOpenPanel);
-  }, [setExtensionsOpen]);
+  }, [closeSidebarOnMobile, setExtensionsOpen]);
 
   // dismiss any covering Extensions/glance overlay and focus the new tab.
   useEffect(() => {
@@ -553,7 +570,7 @@ function AppInner() {
   }, [closePluginView, closeSidebarOnMobile, setActiveWorkspace]);
   const openMemoryFromSidebar = useCallback(() => { setMemoryOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMemoryOpen]);
   const openMeshFromSidebar = useCallback(() => { setMeshOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMeshOpen]);
-  const openExtensionsFromSidebar = useCallback(() => { setExtensionsOpen(true); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setExtensionsOpen]);
+  const openNeighborsFromSidebar = useCallback(() => { setMainView("neighbors"); closeSidebarOnMobile(); }, [closeSidebarOnMobile, setMainView]);
   const handleNavigateToTab = useCallback(() => {
     setAutomationWorkspaceId(null);
     closeWorkspaceMap();
@@ -807,12 +824,14 @@ function AppInner() {
             />
             <SidebarDrawer phone={phoneViewport} shown={sidebarShown}>
               <Sidebar
+                firstRunActive={locked}
                 onCollapse={closeSidebar}
                 onCollapsedChange={setSidebarRailCollapsed}
                 expandRequest={sidebarExpandRequest}
                 onOpenMemory={openMemoryFromSidebar}
                 onOpenMesh={openMeshFromSidebar}
-                onOpenExtensions={openExtensionsFromSidebar}
+                onOpenNeighbors={openNeighborsFromSidebar}
+                activeNeighborChat={mainView === "neighbor" ? neighborChat : null}
                 onNavigateToTab={handleNavigateToTab}
                 mainView={mainView}
                 config={config}
@@ -829,11 +848,12 @@ function AppInner() {
 
         <div className="flex-1 min-w-0 min-h-0 flex flex-col">
         <main className="flex-1 min-w-0 min-h-0 relative overflow-hidden">
-          {locked ? (configLoading ? <BrandState model={brandStateModel({ loading: true, label: "Loading settings" })} />
-            : <FirstRunGeneralPicker providers={firstRunProviders} home={state.active_workspace_id && state.focused_tab_id
-              ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !routeRestored && !state.storageUnavailable ? (
+          {locked ? (configLoading ? <Loader label="Loading settings" deferred={false} />
+            : firstRunSettings ? <SettingsPanel config={config} onUpdateConfig={updateConfig} initialSection="general" onClose={() => setFirstRunSettings(false)} />
+            : <FirstRunGeneralPicker providers={firstRunProviders} providersLoading={firstRunProvidersLoading} providersError={firstRunProvidersError} home={state.active_workspace_id && state.focused_tab_id
+              ? { workspaceId: state.active_workspace_id, tabId: state.focused_tab_id } : undefined} />) : !interfaceReady ? (
             <DeferredPresence present className="absolute inset-0">
-              <BrandState model={brandStateModel({ loading: true, label: "Restoring workspace" })} />
+              <Loader label="Restoring workspace" deferred={false} />
             </DeferredPresence>
           ) : <>
           {/* All panels stay mounted — switching mainView only changes visibility.
@@ -886,6 +906,21 @@ function AppInner() {
                 onConfigUpdate={updateConfig}
                 onClose={closeMesh}
               />
+            </div>
+          )}
+          {mainView === "neighbor" && neighborChat && (
+            <div className="absolute inset-0">
+              <NeighborConversationView key={neighborChat} friendship={neighborChat} enabled={neighborsEnabled(config)} />
+            </div>
+          )}
+          {mountedNeighbors && (
+            <div
+              className="absolute inset-0"
+              style={viewLayerStyle(mainView === "neighbors")}
+              aria-hidden={mainView !== "neighbors"}
+              inert={mainView !== "neighbors" || undefined}
+            >
+              <NeighborsView config={config} />
             </div>
           )}
           {mountedExtensions && (

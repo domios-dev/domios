@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { reduceToolEvents, type FileDiff, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../../../packages/chat-ui/src/ToolCallBubble";
 import { MessageBubble } from "../../../packages/chat-ui/src/MessageBubble";
+import { ChatBlockHostProvider } from "../../../packages/chat-ui/src/blocks/ChatBlockHost";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -64,7 +65,7 @@ async function render(messages: NormalizedChatMessage[]): Promise<HTMLElement> {
     root = createRoot(host);
   }
   const mounted = root as Root;
-  await act(async () => mounted.render(<Timeline messages={messages} />));
+  await act(async () => mounted.render(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><Timeline messages={messages} /></ChatBlockHostProvider>));
   return host;
 }
 
@@ -135,7 +136,7 @@ describe("Claude tool activity", () => {
     const card = stream.querySelector<HTMLElement>('[data-testid="chat-tool-call"]');
     expect(card?.querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("Lint sources");
     expect(card?.querySelector('[data-testid="toolcard-result"]')?.textContent).toContain("no warnings");
-    await click([...(card?.querySelectorAll("button") ?? [])].find((button) => button.textContent?.includes("Raw command")));
+    await click([...(card?.querySelectorAll("button") ?? [])].find((button) => button.textContent === "Details"));
     expect(card?.querySelector('[data-testid="message-raw-content"]')?.textContent).toBe("npm run lint");
 
     const member = streamEvent(messages).stream?.members[1];

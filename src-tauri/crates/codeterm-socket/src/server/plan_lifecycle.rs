@@ -24,44 +24,30 @@ pub(super) fn dispatch(
             let result = p
                 .and_then(|value| value.get("result"))
                 .and_then(Value::as_str);
-            let orchestrator_override =
-                super::plan_task_authority::plan_orchestrator_close_override(
-                    method, params, svc, &id,
-                );
-            let owner_epoch = store
-                .show_task(&tid)
-                .map(|detail| detail.task.interruption.owner_epoch)
-                .unwrap_or(0);
-            if orchestrator_override {
-                store
-                    .close_task(&id, &tid, result, from_param(p), now)
-                    .map_err(plan_rpc_err)?;
-            } else if owner_epoch > 0 {
-                let authority = super::plan_task_authority::task_mutation_authority(params, svc)?;
-                let mux = svc.mux.read();
-                let authenticated = mux.get_tab(&authority.tab_id).is_some_and(|tab| {
-                    tab.agent_session_id.as_deref() == Some(&authority.session_id)
-                        && tab.session_binding_nonce.as_deref()
-                            == Some(&authority.session_binding_nonce)
-                        && tab.reported_session_binding_nonce.as_deref()
-                            == Some(&authority.session_binding_nonce)
-                });
-                if !authenticated {
-                    return Err(JsonRpcError {
-                        code: -32603,
-                        message: "task mutation caller binding is stale or rebound".into(),
-                        data: None,
-                    });
-                }
-                store
-                    .close_task_authorized(&id, &tid, result, from_param(p), &authority, now)
-                    .map_err(plan_rpc_err)?;
-                drop(mux);
-            } else {
-                store
-                    .close_task(&id, &tid, result, from_param(p), now)
-                    .map_err(plan_rpc_err)?;
-            }
+            let field = |key| {
+                p.and_then(|body| body.get(key))
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            };
+            let caller = codeterm_service_core::service::AuthenticatedPlanCaller {
+                tab_id: field("caller_tab_id"),
+                session_id: field("session_id"),
+                binding_nonce: field("session_binding_nonce"),
+            };
+            svc.authorize_task_completion(&id, &caller, result)
+                .map_err(|message| JsonRpcError {
+                    code: -32003,
+                    message,
+                    data: None,
+                })?;
+            let from = AgentRef {
+                tab_id: caller.tab_id,
+                session_id: caller.session_id,
+                title: None,
+            };
+            store
+                .close_task(&id, &tid, result, from, now)
+                .map_err(plan_rpc_err)?;
             svc.reconcile_time_reminder_eligibility();
             emit_plan_changed(svc, &id);
             let mut resp = json!({ "ok": true });
@@ -101,12 +87,6 @@ pub(super) fn dispatch(
     }
 }
 
-fn from_param(p: Option<&Value>) -> AgentRef {
-    p.and_then(|x| x.get("from"))
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_else(|| AgentRef::from_tab("unknown"))
-}
-
 fn epoch_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -138,13 +118,4 @@ fn push_hints(value: &mut Value, hints: Vec<String>) {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::handles;
-
-    #[test]
-    fn task_pause_transport_removed() {
-        assert!(!handles("plan.task.pause"));
-        assert!(!handles("plan.task.resume"));
-        assert!(handles("plan.task.close"));
-    }
-}
+mod tests;

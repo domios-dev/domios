@@ -7,6 +7,7 @@ impl ReplyRelayRegistry {
         registry: &crate::agent::registry::AgentRegistry,
         target_tab: &str,
         body: &str,
+        friend: Option<&str>,
     ) -> Option<(String, Option<PendingReplyRelay>)> {
         let (src, label, model, from_agent) = {
             let target = mux.get_tab(target_tab)?;
@@ -25,16 +26,31 @@ impl ReplyRelayRegistry {
                 source.is_some_and(|tab| tab.agent_type.is_some() || tab.agent_booting),
             )
         };
-        let text = crate::service::messenger::delivery_message(
-            true,
-            &src,
-            target_tab,
-            &label,
-            model.as_deref(),
-            None,
-            from_agent,
-            body,
-        )?;
+        let text = match mux
+            .get_tab(&src)
+            .and_then(|tab| tab.neighbor_authority.as_ref())
+        {
+            Some(authority) => {
+                let envelope = crate::service::messenger::MessageEnvelope {
+                    from_neighbor: Some(authority.friendship_id.clone()),
+                    neighbor_friend: Some(friend.unwrap_or("Neighbor").to_owned()),
+                    ..crate::service::messenger::MessageEnvelope::tab(label.clone(), src.clone())
+                        .model(model.clone())
+                        .from_agent(Some(from_agent))
+                };
+                crate::service::messenger::Messenger::from(envelope).wrap(body)
+            }
+            None => crate::service::messenger::delivery_message(
+                true,
+                &src,
+                target_tab,
+                &label,
+                model.as_deref(),
+                None,
+                from_agent,
+                body,
+            )?,
+        };
         let pending = from_agent
             .then(|| self.stage_spawn_reply_relay(mux, registry, target_tab, &src, &text))
             .flatten();

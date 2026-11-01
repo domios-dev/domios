@@ -7,6 +7,9 @@ import { isChatViewportAtBottom, type ChatViewportGeometry } from "./chatViewpor
 import { chatScrollGestureAfterEvent, idleChatScrollGesture, isChatUserScrolling, type ChatScrollGestureEvent } from "./chatScrollGesture";
 import { chatScrollDiagnostic } from "./chatScrollDiagnostic";
 
+/** A touch shorter than this is a tap; a longer one holds the view. */
+export const CHAT_TAP_MS = 300;
+
 export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>, active: boolean, sessionKey: string,
   onEnd: MutableRefObject<() => void>, onStart: MutableRefObject<() => void>, sharedUserScrolling?: MutableRefObject<boolean>) {
   const gesture = useRef(idleChatScrollGesture());
@@ -14,6 +17,11 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
   const ownUserScrolling = useRef(false);
   const userScrolling = sharedUserScrolling ?? ownUserScrolling;
   const supportsScrollEnd = useRef(true);
+  // When the current touch began, and how long the last one lasted: a hold, unlike a tap, keeps the view where it is.
+  const touchStartedAt = useRef<number | null>(null);
+  const lastTouchMs = useRef(0);
+  const holding = useCallback(() => touchStartedAt.current != null && performance.now() - touchStartedAt.current > CHAT_TAP_MS, []);
+  const held = useCallback(() => lastTouchMs.current > CHAT_TAP_MS, []);
   const reset = useCallback(() => {
     gesture.current = idleChatScrollGesture();
     userScrolling.current = false;
@@ -70,9 +78,12 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
     const start = () => {
       if (DEV_BUILD) { stopTrace?.(); stopTrace = startChatGestureTrace(sessionKey, el, () => gesture.current); }
       touchStartViewport = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight };
+      touchStartedAt.current = performance.now();
       transition("touchstart");
     };
     const end = () => {
+      lastTouchMs.current = touchStartedAt.current == null ? 0 : performance.now() - touchStartedAt.current;
+      touchStartedAt.current = null;
       transition("touchend", touchStartViewport != null && chatUserScrollChanged(touchStartViewport, el));
       touchStartViewport = null;
       watchMotion();
@@ -87,6 +98,7 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
         const overflow = view.getComputedStyle(target).overflowY;
         if ((overflow === "auto" || overflow === "scroll") && chatInnerScrollConsumesWheel(target, event.deltaY)) return;
       }
+      lastTouchMs.current = 0;
       transition("wheel", false, event.deltaY > 0, chatInnerScrollConsumesWheel(el, event.deltaY));
       watchMotion();
     };
@@ -108,5 +120,5 @@ export function useChatScrollGesture(scrollRef: RefObject<HTMLDivElement | null>
     };
   }, [active, onEnd, onStart, reset, scrollRef, sessionKey, userScrolling]);
 
-  return { userScrolling, owned, reset, recordScroll };
+  return { userScrolling, owned, reset, recordScroll, holding, held };
 }

@@ -4,13 +4,14 @@ import { ChevronRight } from "lucide-react";
 
 interface Props {
   raw: string;
+  label?: string;
   children?: React.ReactNode;
   /** Shown with the raw command, and hidden with it. */
   details?: React.ReactNode;
   initiallyExpanded?: boolean;
 }
 
-export function RawCommandDisclosure({ raw, children, details, initiallyExpanded = false }: Props) {
+export function RawCommandDisclosure({ raw, children, details, initiallyExpanded = false, label = "Raw command" }: Props) {
   const [open, setOpen] = React.useState(initiallyExpanded);
   const detailsId = React.useId();
 
@@ -25,19 +26,20 @@ export function RawCommandDisclosure({ raw, children, details, initiallyExpanded
         style={{ color: "var(--ct-muted-fg)", background: "transparent" }}
       >
         <ChevronRight aria-hidden="true" size={12} strokeWidth={1.8} className={open ? "rotate-90" : ""} />
-        Raw command
+        {label}
       </button>
-      {open && (
-        <BoundedMessageContent collapsedHeight={"12rem"} as="pre"
-          id={detailsId}
-          data-testid="message-raw-content"
-          className="m-0 whitespace-pre-wrap break-words font-mono text-xs"
-          style={{ color: "var(--ct-fg)" }}
-        >
-          {raw}
-        </BoundedMessageContent>
-      )}
-      {open && details}
+      <div id={detailsId} hidden={!open}>
+        {open && (
+          <BoundedMessageContent collapsedHeight={"12rem"} as="pre"
+            data-testid="message-raw-content"
+            className="m-0 whitespace-pre-wrap break-words font-mono text-xs"
+            style={{ color: "var(--ct-fg)" }}
+          >
+            {raw}
+          </BoundedMessageContent>
+        )}
+        {open && details}
+      </div>
       {children}
     </div>
   );

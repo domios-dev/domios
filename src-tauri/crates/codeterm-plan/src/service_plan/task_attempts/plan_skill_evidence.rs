@@ -1,4 +1,17 @@
-use super::super::{PlanError, PlanStore};
+use super::super::plan_match::NON_TERMINAL_TASK_STATUSES;
+use super::super::{AttemptMatch, AttemptState, PlanError, PlanMatch, PlanStore, TaskMatch};
+
+/// Active plans where the tab executes an open attempt or holds an unfinished assignment.
+pub(super) fn tab_work_candidates(tab_id: &str) -> PlanMatch {
+    PlanMatch::active().and(PlanMatch::Any(vec![
+        AttemptMatch {
+            task_statuses: Some(NON_TERMINAL_TASK_STATUSES.to_vec()),
+            ..AttemptMatch::executor(tab_id, AttemptState::Open)
+        }
+        .into_match(),
+        TaskMatch::assigned(tab_id, &NON_TERMINAL_TASK_STATUSES),
+    ]))
+}
 
 impl PlanStore {
     pub fn record_plan_skill_load(
@@ -90,7 +103,7 @@ impl PlanStore {
         }
         let mut current = None;
         for plan in self
-            .list_full()
+            .stored_plans_matching(&tab_work_candidates(tab_id))
             .into_iter()
             .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
         {

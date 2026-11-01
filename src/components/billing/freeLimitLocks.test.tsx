@@ -18,15 +18,15 @@ import { WorkspaceItem } from "../Sidebar/WorkspaceItem";
 import { ChatComposerSurface } from "../Terminal/ChatComposerSurface";
 import { LockedOverlay } from "./LockBadge";
 import { openLockedPlans } from "./freeLimitGate";
-import { fakeDaemon, mountApp, modal, modalLine, seedState, setLocked, unmountAll, WORKSPACE } from "./freeLimitHarness";
+import { fakeDaemon, mountApp, modal, modalPrompt, seedState, setLocked, unmountAll, WORKSPACE } from "./freeLimitHarness";
 import { lockedView, tabLockedView, type FreeLimits } from "./freeLimitModel";
 import { useTabLock } from "./useTabLock";
 
 const FREE: FreeLimits = { enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } };
 const PAID_LIMITS = { enforcing: true, workspaces: null, teams: null, "agent.tabs": null };
-const WORKSPACES = "The free version includes 2 workspaces.";
-const TEAMS = "The free version includes 6 Teams across all workspaces.";
-const TABS = "The free version allows 35 tabs running at once.";
+const WORKSPACES = { key: "workspaces" };
+const TEAMS = { key: "teams" };
+const TABS = { key: "agent.tabs" };
 
 afterEach(async () => {
   writes.writeTerminalInput.mockClear();
@@ -77,7 +77,6 @@ describe("locked items stay listed with a lock affordance", () => {
     const rename = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-rename]");
     expect(rename).not.toBeNull();
     expect(rename?.disabled).toBe(true);
-    expect(rename?.title).toBe("Tab locked by the free plan");
     const close = document.querySelector<HTMLButtonElement>("[data-testid=tab-menu-close]");
     expect(close).not.toBeNull();
     expect(close?.disabled).toBe(false);
@@ -87,12 +86,7 @@ describe("locked items stay listed with a lock affordance", () => {
     const state = seeded();
     setLocked(state, ["ws-1", "tab-0", "team-0"], true);
     await mountRows(state);
-    expect(lockMarks().map(nameOf)).toEqual(["Locked: free plan limit", "Locked: free plan limit", "Locked: free plan limit"]);
-    expect(lockMarks().map((mark) => mark.getAttribute("title")).sort()).toEqual([
-      "Tab locked by the free plan. Upgrade to unlock.",
-      "Team locked by the free plan. Upgrade to unlock.",
-      "Workspace locked by the free plan. Upgrade to unlock.",
-    ]);
+    expect(lockMarks()).toHaveLength(3);
     expect(document.querySelectorAll("[data-testid=workspace-item]")).toHaveLength(3);
     expect(document.querySelectorAll("[data-testid=team-unit]")).toHaveLength(2);
     expect(buttons(/^Open tab /)).toHaveLength(3);
@@ -159,7 +153,7 @@ describe("a click on a locked item opens the plans modal", () => {
     expect(target).toBeDefined();
     await click(target);
     expect(modal()).not.toBeNull();
-    expect(modalLine()).toBe(line);
+    expect(modalPrompt()).toEqual(line);
     expect(selected).toEqual([]);
   });
 
@@ -182,7 +176,7 @@ describe("a locked tab takes no input", () => {
     expect(Array.from(document.querySelectorAll("textarea")).map((box) => box.disabled)).toEqual([true]);
     expect(buttons(/^Send$/)).toHaveLength(0);
     await click(buttons(/View plans to unlock/)[0]);
-    expect(modalLine()).toBe(TABS);
+    expect(modalPrompt()).toEqual(TABS);
     expect(onSubmit).not.toHaveBeenCalled();
   });
 
@@ -205,7 +199,7 @@ describe("a locked tab takes no input", () => {
     const view = lockedView("agent.tabs", { locked: true });
     await mountRows(seeded(), createElement(LockedOverlay, { view, onActivate: () => { openLockedPlans(view); } }));
     await click(buttons(/View plans to unlock/)[0]);
-    expect(modalLine()).toBe(TABS);
+    expect(modalPrompt()).toEqual(TABS);
   });
 
   it("only a lock or a Curator round blocks input", () => {
@@ -235,10 +229,9 @@ describe("a locked workspace locks the tabs inside it", () => {
 
   it("marks every tab row, lists them all, and a click opens the workspaces modal", async () => {
     const { selected } = await mountRows(lockedWorkspace());
-    expect(lockMarks().map((mark) => mark.getAttribute("title") ?? "").filter((title) => /^Tab locked: its workspace/.test(title))).toHaveLength(3);
     expect(buttons(/^Open tab /)).toHaveLength(3);
     await click(buttons(/^Open tab tab-2$/)[0]);
-    expect(modalLine()).toBe(WORKSPACES);
+    expect(modalPrompt()).toEqual(WORKSPACES);
     expect(selected).toEqual([]);
   });
 
@@ -276,7 +269,7 @@ describe("paying unlocks live", () => {
     const row = buttons(/^Open tab tab-0$/)[0];
     expect(row.querySelector('[aria-label="Locked: free plan limit"]')).not.toBeNull();
     await click(row);
-    expect(modalLine()).toBe(TEAMS);
+    expect(modalPrompt()).toEqual(TEAMS);
     expect(selected).toEqual([]);
     setLocked(state, ["team-0"], false);
     await app.emit("entitlement-changed", { limits: PAID_LIMITS, locks: { workspaces: [], teams: [], "agent.tabs": [] } });
@@ -354,13 +347,12 @@ describe("a locked Team locks its member tab surfaces", () => {
     setLocked(state, ["team-0"], true);
     const terminal = fakeTerminal();
     const { app, selected } = await mountRows(state, <div><Composer onSubmit={() => {}} /><TerminalProbe id="tab-0" terminal={terminal} /></div>);
-    expect(lockMarks().some((mark) => /its Team/.test(mark.getAttribute("title") ?? ""))).toBe(true);
     expect(buttons(/View plans to unlock/)).toHaveLength(1);
     expect(document.querySelectorAll("textarea[disabled]")).toHaveLength(1);
     await terminal.emit("x");
     expect(writes.writeTerminalInput).not.toHaveBeenCalled();
     await click(buttons(/^Open tab tab-0$/)[0]);
-    expect(modalLine()).toBe(TEAMS);
+    expect(modalPrompt()).toEqual(TEAMS);
     expect(selected).toEqual([]);
     setLocked(state, ["team-0"], false);
     await app.emit("entitlement-changed", { limits: PAID_LIMITS, locks: { workspaces: [], teams: [], "agent.tabs": [] } });

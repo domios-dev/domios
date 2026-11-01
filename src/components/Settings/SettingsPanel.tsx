@@ -15,6 +15,7 @@ import {
   Keyboard,
 } from "lucide-react";
 import { BackPill } from "../shared/BackPill";
+import { Loader } from "../shared/Loader";
 
 import { Toggle, SettingsPage, SettingsCard } from "./shared";
 import { KeybindGroup } from "./KeybindGroup";
@@ -29,7 +30,7 @@ import { NotificationsOverview } from "./NotificationsTab";
 import { MessengersCard } from "./MessengersCard";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import { AccountTab } from "./AccountTab";
-import { PrivacyTab } from "./PrivacyTab";
+import { AnalyticsToggle } from "./AnalyticsToggle";
 import { SecretsTab } from "./SecretsTab";
 import { LogsTab } from "./LogsTab";
 import { JobsView } from "../Jobs/JobsView";
@@ -64,7 +65,7 @@ function MachineJobsView({ onClose }: { onClose: () => void }) {
   const tabs = useMuxSelector(selectTabs);
   const teams = useMuxSelector(selectTeams);
   const ready = useMuxSelector(selectNavigationReady);
-  return ready ? <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} /> : <p role="status">Reading jobs…</p>;
+  return ready ? <JobsView workspaces={workspaces} teams={teams} tabs={tabs} initialFilter={jobsEntryFilter({ kind: "machine" })} onClose={onClose} /> : <Loader label="Reading jobs…" />;
 }
 
 /** Names the settings dialog from its live header — one panel is mounted at a time. */
@@ -226,6 +227,7 @@ export function SettingsPanel({
 
             {top.kind === "section" && top.id === "general" && (
               <SettingsPage title="General">
+                <AnalyticsToggle />
                 <ShellDiagnosticsBanner onDismissSettings={onClose} />
 
                 <SettingsCard
@@ -439,10 +441,6 @@ export function SettingsPanel({
                   onProviderGone={pop}
                 />
               </div>
-            )}
-
-            {top.kind === "section" && top.id === "privacy" && (
-              <SettingsPage title="Privacy"><PrivacyTab /></SettingsPage>
             )}
 
             {top.kind === "section" && top.id === "secrets" && (

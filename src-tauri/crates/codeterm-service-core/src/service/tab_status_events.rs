@@ -48,6 +48,13 @@ impl ServiceContext {
                 .emit_state_changed_when_snapshot_readable(MuxEmitCause::TabStatus);
             return;
         };
+        let transitioned: Vec<String> = statuses
+            .iter()
+            .filter(|(tab_id, status)| {
+                status_transition(published.get(*tab_id).copied(), **status).is_some()
+            })
+            .map(|(tab_id, _)| tab_id.clone())
+            .collect();
         let mut idle_tabs = Vec::new();
         publish_statuses(
             &mut published,
@@ -64,6 +71,10 @@ impl ServiceContext {
             },
         );
         drop(published);
+        // A turn boundary follows its transcript write; re-read without waiting on FSEvents.
+        for tab_id in &transitioned {
+            self.chat_registry.wake(tab_id);
+        }
         for tab_id in idle_tabs {
             log::debug!("[agent-delivery] tab={tab_id} wake=authoritative_idle");
             // A finished turn proves the agent is live; it recovers a launch whose binding

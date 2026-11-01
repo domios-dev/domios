@@ -89,7 +89,7 @@ pub const STEPS: &[NodeDescriptor] = &[
         kind: "step",
         name: "agent",
         title: "Pipeline step: bounded agent task",
-        metadata: r#"{"params_schema":{"provider":"agent-task capable provider id","profile":"profile id","task":"bounded instruction","deadline_ms":"1..3600000","max_tokens":"1..1000000","max_turns":"1..100"}}"#,
+        metadata: r#"{"params_schema":{"provider":"agent-task capable provider id","profile":"profile id","task":"bounded instruction","deadline_ms":"1..3600000","max_tokens":"1..1000000","max_turns":"1..100","review":"optional boolean; typed pass/retry/choose verdict"}}"#,
     },
     NodeDescriptor {
         role: "source",

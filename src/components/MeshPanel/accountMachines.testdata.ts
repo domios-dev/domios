@@ -37,11 +37,12 @@ export const lenovoRow = machine("inst-lenovo-c", "Lenovo");
 export const airRow = machine("inst-air-d", "Air", { endpoint: null });
 
 export function pair(instanceId: string, name: string, patch: Partial<LocalPairFact> = {}): LocalPairFact {
-  return { instance_id: instanceId, installation_id: null, admission: "adopted", online: true, name, ...patch };
+  return { instance_id: instanceId, installation_id: instanceId, admission: "account", online: true, name, ...patch };
 }
 
 export function snapshot(patch: Partial<AccountMeshSnapshot> = {}): AccountMeshSnapshot {
   return {
+    local_installation_id: selfRow.installation_id,
     account_epoch: 1,
     binding: "current",
     traffic: "open",
@@ -83,15 +84,11 @@ export class FakeAccountMeshClient implements AccountMeshClient {
   listOutcome: AccountMeshOutcome = { ok: true };
   enrollCalls = 0;
   enrollOutcome: AccountMeshOutcome = { ok: true };
-  linkCalls: MeshTarget[] = [];
   revokeCalls: MeshTarget[] = [];
   renameCalls: Array<[number, string]> = [];
   peerRenameCalls: Array<[string, number, string]> = [];
-  unpairCalls: string[] = [];
-  linkOutcome = deferred<void>();
   revokeOutcomes: AccountMeshOutcome[] = [];
   renameOutcomes: AccountMeshOutcome[] = [];
-  unpairFailure: Error | null = null;
   private listeners = new Set<() => void>();
 
   constructor(state: AccountMeshSnapshot) {
@@ -126,11 +123,6 @@ export class FakeAccountMeshClient implements AccountMeshClient {
     for (const listener of this.listeners) listener();
   }
 
-  link(target: MeshTarget): Promise<void> {
-    this.linkCalls.push(target);
-    return this.linkOutcome.promise;
-  }
-
   async renameSelf(expectedMetadataRevision: number, displayName: string): Promise<AccountMeshOutcome> {
     this.renameCalls.push([expectedMetadataRevision, displayName]);
     const result = this.renameOutcomes.shift() ?? { ok: true as const };
@@ -160,22 +152,9 @@ export class FakeAccountMeshClient implements AccountMeshClient {
     return this.revokeOutcomes.shift() ?? { ok: true };
   }
 
-  async unpair(instanceId: string): Promise<void> {
-    this.unpairCalls.push(instanceId);
-    if (this.unpairFailure) throw this.unpairFailure;
-  }
-
-  answeredLinks: Array<[string, boolean]> = [];
-  async answerLink(id: string, approve: boolean): Promise<void> { this.answeredLinks.push([id, approve]); }
-
   acknowledgedLimits: string[] = [];
 
   async acknowledgeLimit(requestId: string): Promise<void> {
     this.acknowledgedLimits.push(requestId);
   }
-}
-
-export function linkRequest(patch: Partial<import("./accountMeshClient").AccountLinkRequest> = {}): import("./accountMeshClient").AccountLinkRequest {
-  return { request_id: "request-1", installation_id: macRow.installation_id, name: macRow.display_name!, incoming: false,
-    decision: "waiting", expires_at: NOW + 600, notification_id: null, failure: null, ...patch };
 }

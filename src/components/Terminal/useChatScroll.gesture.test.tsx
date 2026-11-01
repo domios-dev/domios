@@ -5,6 +5,7 @@ import { Window } from "happy-dom";
 import { ScrollToLatestButton } from "./ScrollToLatestButton";
 import { clearPersistedChatScrollState } from "./chatViewport";
 import { useChatScroll, type UseChatScrollResult } from "./useChatScroll";
+import { CHAT_TAP_MS } from "./useChatScrollGesture";
 
 const testWindow = new Window({ url: "http://localhost/" });
 for (const [key, value] of Object.entries({ window: testWindow, document: testWindow.document,
@@ -21,6 +22,10 @@ class TestResizeObserver {
   static deliver() { for (const observer of this.observers) observer.callback(); }
 }
 Object.defineProperty(globalThis, "ResizeObserver", { configurable: true, value: TestResizeObserver });
+// The gesture tells a tap from a hold by how long the finger stayed down. The clock only moves when a case says so,
+// so a slow machine never turns a tap into a hold.
+let clock = 0;
+Object.defineProperty(performance, "now", { configurable: true, value: () => clock });
 
 let hook: UseChatScrollResult;
 let drift = 0;
@@ -120,6 +125,24 @@ async function main() {
     await act(async () => fire("touchend"));
     assert.equal(writes, 1, "a tap without movement releases a deferred pinned repair");
     assert.equal(followTail.current, true);
+    {
+      // A hold, unlike a tap: content arriving under a finger held longer than a tap leaves the view where it is.
+      // The case keeps its own geometry and puts the sequence's back afterwards, so later cases see their arrivals.
+      const heightBefore = height;
+      writes = 0;
+      await act(async () => fire("touchstart"));
+      clock += CHAT_TAP_MS + 50;
+      height += 200;
+      await act(async () => { repair(); root.render(<Fixture active revision={41} />); });
+      assert.equal(followTail.current, false, "content arriving under a held finger detaches the view");
+      await act(async () => fire("touchend"));
+      assert.equal(writes, 0, "releasing a hold does not snap to the new bottom");
+      assert.equal(followTail.current, false, "the held view stays detached and offers the jump");
+      await act(async () => hook.scrollToBottom());
+      assert.equal(followTail.current, true, "the jump re-pins the view");
+      height = heightBefore;
+      nativeTop = heightBefore - 400;
+    }
     await act(async () => root.render(<Fixture active={false} revision={5} />));
     for (let proto: object | null = scroll; proto; proto = Object.getPrototypeOf(proto)) {
       if (Object.getOwnPropertyDescriptor(proto, "onscrollend")?.configurable) Reflect.deleteProperty(proto, "onscrollend");

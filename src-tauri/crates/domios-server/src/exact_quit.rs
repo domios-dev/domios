@@ -61,9 +61,12 @@ impl ExactQuitCoordinator {
                     expected: Box::new(pending.expected),
                     shutdown_completion: QuitCompletion::default(),
                 },
-                Err(_) => QuitApiReply::Uncertain {
-                    reason: QuitUncertainty::InvalidCompletion,
-                },
+                Err(error) => {
+                    log::debug!("[exact-quit] shutdown completion failed: {error}");
+                    QuitApiReply::Uncertain {
+                        reason: QuitUncertainty::InvalidCompletion,
+                    }
+                }
             };
             if pending.response.send(reply).is_ok() && result.is_ok() {
                 self.completion_sent.store(true, Ordering::Release);

@@ -251,6 +251,17 @@ pub fn make_orchestrator(svc: &ServiceContext, tab_id: &str) -> Result<(), Strin
     Ok(())
 }
 
+pub fn make_orchestrator_as_tab(
+    svc: &ServiceContext,
+    tab_id: &str,
+    caller: &codeterm_service_core::service::tab_credentials::TabCaller,
+) -> Result<(), String> {
+    caller.validate_claim(Some(tab_id))?;
+    svc.promote_standalone_agent(caller)?;
+    maybe_deliver_orchestrator_promotion_onboarding(svc, tab_id, false);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,7 +307,8 @@ mod tests {
             pending_model_selection: None,
             agent_planned_model: None,
             agent_requested_model: None,
-            structured_control_active: false,
+            neighbor_authority: None,
+
             structured_runtime_mode: None,
             agent_provider_resolved_model: None,
             model_fallback: None,
@@ -523,6 +535,7 @@ mod tests {
         use codeterm_service_core::mem::store::MemItem;
         SearchHit {
             item: MemItem {
+                author: Default::default(),
                 id: "id".into(),
                 uid: "uid".into(),
                 kind: "preference".into(),

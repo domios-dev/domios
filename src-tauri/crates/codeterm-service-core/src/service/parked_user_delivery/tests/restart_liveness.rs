@@ -15,6 +15,143 @@ fn admit_without_dispatch(fixture: &ServiceFixture, tab: &str, payload: &str) ->
 }
 
 #[test]
+fn ease_retained_status_reads_wake_only_held_input_without_readmitting_or_replaying() {
+    use std::collections::BTreeSet;
+
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    let store = &fixture.service.pending_delivery_payloads.user_sends;
+    let written = admit_without_dispatch(&fixture, &tab, "opaque-written");
+    let uncertain = admit_without_dispatch(&fixture, &tab, "opaque-uncertain");
+    let held = admit_without_dispatch(&fixture, &tab, "opaque-held");
+    for record in [&written, &uncertain] {
+        assert!(store.claim(record, "opaque-session").unwrap());
+        fixture
+            .service
+            .chat_send_ledger
+            .mark_user_written(&record.send_id)
+            .unwrap();
+        store.finish_handoff(record, false).unwrap();
+    }
+    fixture
+        .service
+        .chat_send_ledger
+        .finish(
+            &uncertain.send_id,
+            Err("submit_unconfirmed: opaque evidence pending".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&written.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Written
+    );
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&uncertain.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&held.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Pending
+    );
+    let identities = [
+        written.send_id.clone(),
+        uncertain.send_id.clone(),
+        held.send_id.clone(),
+    ]
+    .into_iter()
+    .collect::<BTreeSet<_>>();
+    let sequences = fixture
+        .service
+        .chat_send_ledger
+        .reconcile(&tab)
+        .into_iter()
+        .map(|status| (status.send_id, status.sequence))
+        .collect::<std::collections::BTreeMap<_, _>>();
+    let writes = Arc::new(Mutex::new(Vec::new()));
+    let observed = writes.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, _| {
+            observed.lock().push(record.send_id.clone());
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: record.authority.tab_id.clone(),
+                detail: "opaque evidence pending".into(),
+            })
+        }),
+    );
+    for id in &identities {
+        assert_eq!(
+            fixture
+                .service
+                .inspect_retained_send(id)
+                .unwrap()
+                .unwrap()
+                .send_id,
+            *id
+        );
+    }
+    await_owner_idle(&fixture, &tab);
+    assert!(writes.lock().is_empty());
+    mark_ready(&fixture, &tab);
+    fixture
+        .service
+        .inspect_retained_send(&held.send_id)
+        .unwrap();
+    await_owner_idle(&fixture, &tab);
+    for _ in 0..3 {
+        for id in &identities {
+            fixture.service.inspect_retained_send(id).unwrap();
+        }
+        assert!(fixture
+            .service
+            .inspect_retained_send("not-admitted")
+            .unwrap()
+            .is_none());
+        await_owner_idle(&fixture, &tab);
+    }
+    assert_eq!(*writes.lock(), vec![held.send_id.clone()]);
+    let retained_ids = store
+        .records(&tab)
+        .unwrap()
+        .into_iter()
+        .map(|record| record.send_id)
+        .chain(
+            store
+                .receipts(&tab)
+                .unwrap()
+                .into_iter()
+                .map(|receipt| receipt.send_id),
+        )
+        .collect::<BTreeSet<_>>();
+    assert_eq!(retained_ids, identities);
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .reconcile(&tab)
+            .into_iter()
+            .map(|status| (status.send_id, status.sequence))
+            .collect::<std::collections::BTreeMap<_, _>>(),
+        sequences
+    );
+}
+
+#[test]
 fn restored_claim_settles_as_uncertainty_without_blocking_later_sends() {
     let (fixture, tab) = queue_fixture(true, None);
     mark_ready(&fixture, &tab);

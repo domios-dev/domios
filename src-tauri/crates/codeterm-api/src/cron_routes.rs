@@ -66,9 +66,8 @@ pub async fn cron_create(
     Json(mut body): Json<codeterm_service_core::cron::store::CronCreateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
-    if body.creator_tab_id.is_none() {
-        body.creator_tab_id = crate::tab_routes::caller_tab_header(&headers);
-    }
+    body.creator_tab_id =
+        crate::auth::caller_claim(&state, &headers, body.creator_tab_id.as_deref())?;
     let job = off_runtime(&state, move |svc, cron, wake| {
         svc.cron_create(cron, wake, body)
     })
@@ -180,7 +179,11 @@ pub async fn cron_cancel(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
     let cancelled = off_runtime(&state, move |svc, cron, _| {
-        svc.cron_cancel_running(cron, &id)
+        svc.cron_cancel_running(
+            cron,
+            &id,
+            codeterm_service_core::cron::store::CronCancelReason::UserCancel,
+        )
     })
     .await
     .map_err(worker_failed)?

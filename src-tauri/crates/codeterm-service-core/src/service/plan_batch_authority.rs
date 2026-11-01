@@ -14,6 +14,8 @@ use crate::service::hierarchy::report_plan_ctx::{tab_holds, STALE_TASK_HINT_REFU
 use crate::service::plan::batch::{BatchOp, BatchRequest, BatchResult};
 use crate::service::plan::{PlanError, PlanStore};
 
+mod completion;
+
 /// Machine-readable discriminant for the one refusal class, carried as
 /// `data.type` on the socket and `plan_error.type` over HTTP.
 pub const STALE_TASK_BINDING_TYPE: &str = "stale_task_binding";

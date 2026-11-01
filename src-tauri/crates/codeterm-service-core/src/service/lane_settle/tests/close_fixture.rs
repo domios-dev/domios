@@ -6,7 +6,9 @@ use crate::service::test_fixture::ServiceFixture;
 
 fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
     let root = tempfile::tempdir().unwrap();
-    let canonical = root.path().join("project");
+    let root_path =
+        std::path::PathBuf::from(codeterm_paths::canonical_cwd(root.path().to_str().unwrap()));
+    let canonical = root_path.join("project");
     std::fs::create_dir(&canonical).unwrap();
     git(&canonical, &["init", "-q", "-b", "main"]);
     git(&canonical, &["config", "user.name", "Test"]);
@@ -17,7 +19,7 @@ fn close_case(cancelled: bool, unmerged: bool, dirty: bool) {
     std::fs::write(canonical.join(".gitignore"), "target/\nnode_modules/\n").unwrap();
     git(&canonical, &["add", ".gitignore"]);
     git(&canonical, &["commit", "-qm", "fixture"]);
-    let lane = root.path().join("project-worktrees/worker");
+    let lane = root_path.join("project-worktrees/worker");
     git(
         &canonical,
         &[

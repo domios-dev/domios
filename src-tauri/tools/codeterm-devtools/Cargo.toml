@@ -27,7 +27,7 @@ serde_json = "1"
 codeterm-service-core = { path = "../../crates/codeterm-service-core", default-features = false, features = ["test-support"] }
 codeterm-bridge = { path = "../../crates/codeterm-bridge" }
 axum = { version = "0.8", features = ["multipart"] }
-base64 = "0.22"
+base64 = "0.23"
 tokio = { version = "1", features = ["full", "test-util"] }
 
 # Cross-domain integration tests that belong to no single domain crate.
@@ -61,15 +61,4 @@ required-features = ["dev-tools"]
 [[bin]]
 name = "parser-eval"
 path = "src/bin/parser_eval.rs"
-required-features = ["dev-tools"]
-
-[[bin]]
-name = "storage-verify"
-path = "src/bin/storage-verify.rs"
-required-features = ["dev-tools"]
-
-# One-off legacy plan.json to store_v2 yaml migration. Rehearse on a project copy with --dry-run first.
-[[bin]]
-name = "convert-plan-storage"
-path = "src/bin/convert-plan-storage.rs"
 required-features = ["dev-tools"]

@@ -6,7 +6,7 @@ import { useUpdatePanel } from "../../hooks/useUpdatePanel";
 import { useMultiplexer } from "../../store/multiplexer/context";
 import { describeError } from "../../lib/describeError";
 import { UpdatePanel } from "../UpdatePanel";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 
 export function UpdateTray() {
   const update = useUpdatePanel();
@@ -50,7 +50,7 @@ export function UpdateTray() {
     <button ref={trigger} type="button" data-testid="settings-update-action" aria-label="Update" aria-haspopup="dialog" aria-expanded={open} aria-busy={update.busy}
       onClick={() => setOpen(!open)} title={offers ? "Updates available" : "Update history"}
       className={`group inline-flex h-6 items-center gap-1 rounded-full ${quiet ? "bg-[var(--ct-surface)] text-[var(--ct-muted-fg)]" : "bg-[var(--ct-accent)] text-[var(--ct-on-accent)]"} pl-1.5 pr-2 text-[11px] font-medium hover:brightness-110`}>
-      {update.busy ? <BusySpinner size={12} /> : <ArrowDownToLine size={12} />}
+      {update.busy ? <BusyState inline hideLabel label="Updating" phase="work" dotSize="micro" /> : <ArrowDownToLine size={12} />}
     </button>
     <AnchoredPopover open={open} anchor={trigger} placement="bottom-end" onClose={close}>
       <div ref={panel} role="dialog" aria-label="Updates" className="w-[400px] max-w-[calc(100vw-24px)] max-h-[min(640px,80vh)] overflow-y-auto">

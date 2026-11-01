@@ -35,6 +35,21 @@ for (const [attrs, origin] of [
   eq(framePrefix(attrs, "opaque body"), { origin, body: "opaque body" }, `structured origin ${attrs.from}`);
 }
 eq(framePrefix({ from: "tab" }, "opaque"), null, "missing Tab identity stays unknown");
+eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", via: "concierge", label: "uid-ada" }, "Host instruction for Ada.\n\nIs 2 &lt; 3 &amp;&amp; true?\n\nThanks"),
+  { origin: { kind: "neighbor", friendshipId: "f1", friend: "Ada", sender: "uid-ada", instruction: "Host instruction for Ada." }, body: "Is 2 < 3 && true?\n\nThanks" },
+  "a named friend's frame folds the host instruction away and shows their words as written");
+eq(framePrefix({ from: "neighbor", friendship: "f1" }, "Plain\n\nwords"), { origin: { kind: "neighbor", friendshipId: "f1" }, body: "Plain\n\nwords" },
+  "an unnamed friend's frame carries no instruction to split off");
+eq(framePrefix({ from: "neighbor", friendship: "f1", friend: "Ada", message: "m2", kind: "answer", in_reply_to: "m1" }, "Yes,\n\nall green &amp; merged", "opaque-no-reply-tip-7f9"),
+  { origin: { kind: "neighbor", friendshipId: "f1", message: "m2", friend: "Ada", messageKind: "answer", inReplyTo: "m1", instruction: "opaque-no-reply-tip-7f9" },
+    body: "Yes,\n\nall green & merged" },
+  "the routed envelope keeps the whole body and takes the reply instruction from the tip");
+eq(framePrefix({ from: "neighbor", friendship: "f1", label: "uid-ada", tab: "" },
+  "Friend: \"QA Peer\"\nFriendship: f1\nMessage: m2\nKind: \"answer\"\nIn reply to: m1\nReply through the encrypted Neighbor channel.\n\nAll &lt;green&gt;"),
+  { origin: { kind: "neighbor", friendshipId: "f1", message: "m2", friend: "QA Peer", sender: "uid-ada", messageKind: "answer", inReplyTo: "m1",
+    instruction: "Reply through the encrypted Neighbor channel." }, body: "All <green>" },
+  "a header-block frame names the friend, kind and ids from its header and shows only the words");
+eq(labelFor({ kind: "neighbor", friendshipId: "f1", friend: "Ada" }), "From Ada via Neighbors", "neighbor label names the friend");
 eq(labelFor({ kind: "system", context: "  SyStEm  " }), "System", "duplicate System context is omitted");
 eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw strings are never routed by TS");
 
@@ -60,7 +75,7 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<command-name>/model</command-name><command-message>model</command-message><command-args></command-args>";
+    "\n/model\n";
   const r = detectChatPrefix(c);
   eq(
     r?.origin,
@@ -72,8 +87,7 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<command-name>/add-dir</command-name><command-message>add-dir</command-message>" +
-    "<command-args></command-args><local-command-stdout>Did not add a working directory.</local-command-stdout>";
+    "/add-dir\n<local-command-stdout>Did not add a working directory.</local-command-stdout>";
   const r = detectChatPrefix(c);
   eq(
     r?.origin,
@@ -84,9 +98,9 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<command-name>/model</command-name><command-args></command-args>" +
+    "\n/model\n" +
     "<local-command-stdout>Set model to Sonnet 4.6 for this session</local-command-stdout>" +
-    "<command-name>/model</command-name><command-args>opus</command-args>";
+    "\n/model opus\n";
   const r = detectChatPrefix(c);
   assert(r?.origin.kind === "command", "multiple commands: kind is command");
   if (r?.origin.kind === "command") {
@@ -102,7 +116,7 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<local-command-caveat>some claude meta</local-command-caveat><command-name>/foo</command-name>";
+    "<local-command-caveat>some claude meta</local-command-caveat>\n/foo\n";
   const r = detectChatPrefix(c);
   assert(r?.origin.kind === "command", "caveat stripped: kind is command");
   if (r?.origin.kind === "command") {
@@ -184,5 +198,10 @@ No response requested.
   eq(r, null, "plain /path message returns null (no tags, not a cmd-only line)");
 }
 
+eq(
+  detectChatPrefix("<command-name>/effort</command-name><command-message>effort</command-message><command-args>low</command-args>"),
+  { origin: { kind: "command", commands: [{ name: "/effort", args: "low" }] }, body: "" },
+  "current multi-tag command keeps its name and args",
+);
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

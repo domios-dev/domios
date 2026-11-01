@@ -16,7 +16,6 @@ const LOADING: PluginBlockState = { kind: "loading" };
 
 const STATUS_TONE = { installed: "ok", update: "warn", "not-installed": "muted" } as const;
 
-/** `@ds-plugin <id>`: a live plugin card whose Install/Update runs only from the user's click. */
 export function PluginBlock({ pluginId, source }: { pluginId: string; source: string }) {
   const host = useChatBlockHost().plugins;
   const state = useLiveBinding(host?.binding, pluginId, LOADING);

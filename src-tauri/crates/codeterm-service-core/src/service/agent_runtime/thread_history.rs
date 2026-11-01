@@ -178,6 +178,13 @@ async fn fork(
             .clone(),
         activate: Some(false),
         user_created: true,
+        sandbox: source_tab
+            .restorable_launch
+            .execution_sandbox
+            .as_ref()
+            .map(|policy| {
+                crate::service::execution_sandbox::requested_label(&policy.intent).into()
+            }),
         spawned_by_tab_id: Some(source_tab.id.clone()),
         ..Default::default()
     };

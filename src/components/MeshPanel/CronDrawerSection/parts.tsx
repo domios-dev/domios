@@ -1,6 +1,7 @@
 import { useId, type CSSProperties, type ReactNode } from "react";
 import { AUTOMATION_LABEL, AUTOMATION_PRIMARY, AUTOMATION_TONE, AUTOMATION_TOOL } from "../../Automation/styles";
 import type { InventoryOperation } from "../types";
+import type { CronCancelReason, CronRunInfo } from "../../../lib/types";
 
 export const CRON_LABEL = AUTOMATION_LABEL;
 export const CRON_PRIMARY = AUTOMATION_PRIMARY;
@@ -35,6 +36,16 @@ export function runTone(status: string): string {
 export function runStatusLabel(status: string): string {
   if (status.toLowerCase() === "awaitingownerprompt") return "Awaiting owner";
   return status.charAt(0).toUpperCase() + status.slice(1).toLowerCase();
+}
+
+const CANCEL_REASON_LABEL: Record<CronCancelReason, string> = {
+  user_cancel: "Cancelled by you", superseded: "Superseded by a newer run", restart_reconcile: "Cancelled on restart",
+  timeout: "Timed out", owner_closed: "Owner closed",
+};
+
+/** A run's outcome in words; a cancelled run says why when its record knows. */
+export function runOutcomeLabel(run: Pick<CronRunInfo, "status" | "cancel_reason">): string {
+  return run.status === "Cancelled" && run.cancel_reason ? CANCEL_REASON_LABEL[run.cancel_reason] : runStatusLabel(run.status);
 }
 
 export function formatRunDuration(ms: number): string {

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { ArrowUp, Loader2 } from "lucide-react";
+import { ArrowUp } from "lucide-react";
 import { sendTrackedChatMessage } from "../Terminal/chatSendStatus";
 import { AnchoredPopover } from "./AnchoredPopover";
-import { BusySpinner } from "./BusyState";
+import { BusyState } from "./BusyState";
 
 export interface SelectionAskOwner {
   tabId: string;
@@ -126,7 +126,7 @@ export function SelectionAsk({ subject, owner, onJump, children, className }: {
               {/* biome-ignore lint/a11y/noAutofocus: the popover opens on an explicit click to type a question */}
               <textarea autoFocus rows={2} value={question} placeholder={`Ask ${owner.name} about this…`} aria-label={`Question for ${owner.name}`} onChange={(e) => setQuestion(e.target.value)} onKeyDown={onKey} />
               <button type="button" className="ct-sel-ask__send" aria-label={`Send to ${owner.name}`} disabled={!question.trim() || sending} onClick={() => void send()}>
-                {sending ? <BusySpinner icon={Loader2} size={14} /> : <ArrowUp size={14} aria-hidden="true" />}
+                {sending ? <BusyState inline hideLabel label="Sending" phase="work" dotSize="micro" /> : <ArrowUp size={14} aria-hidden="true" />}
               </button>
             </div>
             <p className="ct-sel-ask__hint">{failed ? `${owner.name} is not reachable right now.` : `Sends to ${owner.name} and opens the chat`}</p>

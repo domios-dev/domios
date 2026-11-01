@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type AnimationEvent as ReactAnimationEvent
 
 export type ActivityDotsSize = "micro" | "small" | "medium";
 export type ActivityDotsTone = "accent" | "thinking" | "muted" | "on-accent";
-export type ActivityDotsRhythm = "work" | "thinking" | "streaming";
+export type ActivityDotsRhythm = "work" | "thinking" | "streaming" | "compacting";
 export type ActivityDotsVariant = "workspace-badge";
 export type ActivityDotsPresentationState = "active" | "cooling" | "still" | "reactivated";
 
@@ -53,7 +53,7 @@ export function ActivityDots({
         "ct-phase-dots",
         `activity-dots--${size}`,
         `activity-dots--${tone}`,
-        `activity-dots--${rhythm}`,
+        `activity-dots--${rhythm === "compacting" ? "work" : rhythm}`,
         variant ? `activity-dots--${variant}` : "",
         `activity-dots--${presentationState}`,
         className ?? "",

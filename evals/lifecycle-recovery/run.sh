@@ -56,7 +56,7 @@ cleanup() {
   fi
 }
 WORKSPACE_JSON="$(dc --json workspace create "lifecycle-recovery-$RUN_ID")"
-WORKSPACE="$(json_field "$WORKSPACE_JSON" '.id // .workspace_id')"
+WORKSPACE="$(json_field "$WORKSPACE_JSON" '.result.id')"
 [ -n "$WORKSPACE" ] && [ "$WORKSPACE" != null ] || fail "workspace creation"
 
 EXIT_TITLE="LR-exit-$RUN_ID"
@@ -66,7 +66,7 @@ EXIT_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "exit observer readiness"
 EXIT_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$EXIT_TITLE" --role Orchestrator --non-user-facing --args --lifecycle-exit-fixture --stub-session "$EXIT_SESSION")"
-EXIT_TAB="$(json_field "$EXIT_SPAWN" '.tab_id')"
+EXIT_TAB="$(json_field "$EXIT_SPAWN" '.result.tab_id')"
 read -r EXIT_OBSERVED <&8
 wait "$EXIT_WAIT_PROCESS"
 [ "$(json_field "$EXIT_OBSERVED" '.tab_id')" = "$EXIT_TAB" ] || fail "exit observation targeted spawned tab"
@@ -93,7 +93,7 @@ EXIT_RECOVERY_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "exited-shell replacement observer readiness"
 EXIT_REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$EXIT_TEAM_ID" --role Orchestrator)"
-EXIT_REPLACEMENT="$(json_field "$EXIT_REPLACEMENT_SPAWN" '.tab_id')"
+EXIT_REPLACEMENT="$(json_field "$EXIT_REPLACEMENT_SPAWN" '.result.tab_id')"
 read -r EXIT_RECOVERED <&8
 wait "$EXIT_RECOVERY_WAIT_PROCESS"
 [ "$(json_field "$EXIT_RECOVERED" '.owner_tab_id')" = "$EXIT_REPLACEMENT" ] || fail "exited-shell replacement observation"
@@ -132,7 +132,7 @@ ready=""
 read -r ready <&8 || true
 [ "$ready" = READY ] || fail "exited provider observer readiness"
 RELAUNCH_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --cwd "$RELAUNCH_CWD_NATIVE" --title "$RELAUNCH_TITLE" --non-user-facing --args --lifecycle-relaunch-fixture --stub-session "$RELAUNCH_SESSION" --stub-session-record)"
-RELAUNCH_TAB="$(json_field "$RELAUNCH_SPAWN" '.tab_id')"
+RELAUNCH_TAB="$(json_field "$RELAUNCH_SPAWN" '.result.tab_id')"
 RELAUNCH_EXITED=""
 read -r RELAUNCH_EXITED <&8 || true
 wait "$RELAUNCH_EXIT_WAIT_PROCESS" || fail "exited provider observer"
@@ -181,14 +181,14 @@ OWNER_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "owner observer readiness"
 OWNER_SPAWN="$(dc --json agent spawn claude --workspace "$WORKSPACE" --title "$ORCH_TITLE" --role Orchestrator --non-user-facing)"
-OLD_ORCHESTRATOR="$(json_field "$OWNER_SPAWN" '.tab_id')"
+OLD_ORCHESTRATOR="$(json_field "$OWNER_SPAWN" '.result.tab_id')"
 read -r OWNER_OBSERVED <&8
 wait "$OWNER_WAIT_PROCESS"
 [ "$(json_field "$OWNER_OBSERVED" '.tab_id')" = "$OLD_ORCHESTRATOR" ] || fail "owner live observation"
 
 PLAN_CREATE="$(dc --as-tab "$OLD_ORCHESTRATOR" --json plan create --title "LR-plan-$RUN_ID" --project "$ROOT")"
-PLAN_ID="$(json_field "$PLAN_CREATE" '.data.plan_id // .data.plan.id // .plan_id // .plan.id')"
-TEAM_ID="$(json_field "$PLAN_CREATE" '.data.team_id // .data.plan.team_id // .team_id // .plan.team_id')"
+PLAN_ID="$(json_field "$PLAN_CREATE" '.result.plan_id // .result.plan.id // .result.id')"
+TEAM_ID="$(json_field "$PLAN_CREATE" '.result.team_id // .result.plan.team_id')"
 [ -n "$PLAN_ID" ] && [ "$PLAN_ID" != null ] || fail "plan creation: $PLAN_CREATE"
 [ -n "$TEAM_ID" ] && [ "$TEAM_ID" != null ] || fail "team binding: $PLAN_CREATE"
 
@@ -205,7 +205,7 @@ RECOVERY_WAIT_PROCESS=$BENCH_STREAM_PID
 read -r ready <&8
 [ "$ready" = READY ] || fail "recovery observer readiness"
 REPLACEMENT_SPAWN="$(dc --json agent spawn claude --team "$TEAM_ID" --role Orchestrator)"
-REPLACEMENT="$(json_field "$REPLACEMENT_SPAWN" '.tab_id')"
+REPLACEMENT="$(json_field "$REPLACEMENT_SPAWN" '.result.tab_id')"
 read -r RECOVERED <&8
 wait "$RECOVERY_WAIT_PROCESS"
 [ "$(json_field "$RECOVERED" '.owner_tab_id')" = "$REPLACEMENT" ] || fail "replacement owner observation"

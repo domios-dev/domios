@@ -25,7 +25,7 @@ describe("Tailscale state on this machine", () => {
   });
 
   it("asks the user for something only when this machine needs it", () => {
-    for (const kind of ["not_installed", "not_running", "signed_out", "not_connected"] as const) expect(tailscalePrompt({ kind })).not.toBeNull();
+    for (const kind of ["not_installed", "not_running", "permission_needed", "signed_out", "not_connected"] as const) expect(tailscalePrompt({ kind })).not.toBeNull();
     expect(tailscalePrompt({ kind: "connected", tailnet: null })).toBeNull();
     expect(tailscalePrompt({ kind: "checking" })).toBeNull();
     expect(tailscalePrompt({ kind: "unknown" })).toBeNull();

@@ -7,6 +7,37 @@ Changelog](https://keepachangelog.com/), versioning is
 This file starts at the v1.0.1 → v1.1.0 cutover; pre-v1.0.1 history
 lives in `git log` with no aggregated narrative.
 
+## [1.17.3]
+
+### Fixed
+
+- Windows installer failed to run (exit 2) on Windows PowerShell 5.1; fixed.
+
+## [1.17.2]
+
+This update improves startup and session restoration, terminal input, mesh recovery, and update handling.
+
+- Restore working tabs and OpenCode sessions more reliably, with clearer startup progress and fewer loading-state flashes.
+- Improve streaming tool cards and terminal/chat continuity.
+- Fix mesh admission and recovery. Machines removed from your mesh stop retrying and ask you to sign in again.
+- While the plan cannot be verified, Domios keeps you unlocked and shows checking; paid features still require a verified plan.
+- Improve updater recovery, platform packaging and signed macOS update archives.
+- Include the DECRQSS terminal fix.
+
+### Update notes and known limitations
+
+- Updating from 1.17.1 may require closing tabs or using the installer.
+- Adoption with 1.17.x peers stays on legacy links.
+- The stray terminal "m" has not yet been attributed to a cause; the DECRQSS fix does not establish that it is resolved.
+- The mimo provider key error is upstream.
+
+## [1.17.1]
+
+### Fixed
+
+- Restore Enter submission in Terminal view on Windows and macOS by retaining the xterm input textarea after each Enter; disable inline predictive text on macOS. Fixes rollacode/codeterm-releases#99.
+- Added update-restart cleanup regression tests. The main-thread cleanup fix already shipped in 1.17.0; this release adds coverage (Refs rollacode/codeterm-releases#98).
+
 ## [Unreleased]
 
 ### Added
@@ -72,6 +103,78 @@ lives in `git log` with no aggregated narrative.
   Planner surface prices every later message the same way, so a bare
   acknowledgement or restatement is not sent at all. Two prompt-surface
   regression tests guard the wake-up and the standing rule.
+
+## [1.17.0] — 2026-10-28
+
+Domios 1.17.0 gives each friend a receiving machine and a concierge whose
+access follows the friendship's grants, with clearer conversation status
+and controls throughout the app. Changes since v1.16.0:
+
+### Neighbors
+
+- **Choose where each friend is received.** Receive one friend on this
+  machine from the sidebar, concierge row or conversation, with explicit
+  takeover confirmation. Other friends can keep receiving on their current
+  machines. The all-friends control identifies this machine and the number
+  of friends affected. Moving receiving away retires that friend's local
+  concierge and its delegated access.
+- **Concierge access follows the friendship grant.** Scope, memory,
+  workspace, file and machine-access permissions govern the concierge and
+  its delegated agents. Applying permissions starts a fresh concierge
+  session with the new instructions; the friend's conversation remains.
+  Restoring an unchanged grant resumes the existing session.
+- **General can edit the complete grant.** Partial changes preserve other
+  fields, including memory enabled/disabled, allowed memory areas,
+  workspace access, files, tab requests, interactive content, machine
+  access and folder scope. Memory can be turned off explicitly.
+- **Empty messages are refused before sending.** Empty or whitespace-only
+  text returns `empty_body` without queueing a submission. File-only
+  messages remain supported. Receiver-takeover and non-receiving-machine
+  errors explain why the operation was refused.
+- **Read receipts reflect actual reading or handling.** A visible incoming
+  message or confirmed concierge handling advances the read state after
+  delivery acknowledgement is committed. Delivery alone does not mark a
+  message read; reconnects preserve newer read status.
+- **See and stop concierge work.** Conversations show incoming handling
+  status and provide Stop for the friend's active concierge. Replies to an
+  owner-stopped request are refused before sending and are not offered as
+  retryable submissions.
+- **Flag suspicious incoming messages.** Owners and authorized agents can
+  flag instructions, requests for private data, malicious links, spam or
+  other concerns. Flags stay local and appear with the message; they are
+  not sent to the friend or forwarded to bridges.
+- **Choose concierge model, effort and speed** from the providers and
+  options that support concierge work. The selected model appears below
+  the concierge in the sidebar.
+
+### Agents and interface
+
+- **Codex Cloud is available in the new-session picker.** Environment
+  discovery refreshes after sign-in and on request, so the picker can
+  offer the available Cloud environments and execution modes.
+- **The bundled control skill is now named `domios`.** Agent guidance and
+  skill mirroring use the new name.
+- **Consistent loading states** across the app, including terminal boot,
+  with shared activity indicators and a Mesh card that keeps its size
+  while loading.
+- **Clearer session controls:** readable program names in command lines,
+  and improved model and destination pickers. After a connection drops,
+  the loaded app stays usable with a quiet reconnect pill while updates
+  are paused; initial connection still has a loading state.
+- **Mesh discovery improvements** include passive detection of macOS
+  system-extension Tailscale and framed LocalAPI response handling.
+- **Jobs is easier to navigate.** Import Blueprints from a file or
+  repository through a dialog with a drop area; select General, a
+  workspace or a Team with the shared destination picker. Jobs show as
+  working only while a run executes, and an empty list has a clear empty
+  state.
+
+### Upgrade note
+
+- **Upgrade both ends of a Mesh connection to 1.17.0.** The running app's
+  version is the peer minimum, so a 1.17.0 installation refuses older
+  peers. Official plugins keep their independently managed versions and
+  minimum-host requirements; the app version bump does not bump plugins.
 
 ## [1.1.14] — 2026-05-05
 

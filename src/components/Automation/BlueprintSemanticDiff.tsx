@@ -4,6 +4,7 @@ import type { BlueprintViewerHistory } from "../../lib/blueprintApi";
 import { blueprintDiffModel } from "./blueprintDiffModel";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_INPUT } from "../shared/design";
+import { Loader } from "../shared/Loader";
 
 export function BlueprintSemanticDiff({ load }: { load: () => Promise<BlueprintViewerHistory> }) {
   const [history, setHistory] = useState<BlueprintViewerHistory | null>(null);
@@ -18,7 +19,7 @@ export function BlueprintSemanticDiff({ load }: { load: () => Promise<BlueprintV
   const rows = selected?.diff ? blueprintDiffModel(selected.diff) : [];
   return <section aria-label="Semantic diff" className="ct-card ct-card--static bp-panel">
     {error != null && <InlineErrorNotice error={error} operation="reading Blueprint definition history" blocking />}
-    {!history && !error && <p role="status" className="ct-job-note">Reading definition history…</p>}
+    {!history && !error && <Loader variant="compact" label="Reading definition history…" />}
     {history && <>
       <label className="ct-job-note flex items-center gap-2">Definition version <select aria-label="Definition version" className={UI_INPUT.select} value={version ?? ""} onChange={(event) => setVersion(Number(event.target.value))}>{history.versions.map((entry) => <option key={entry.version} value={entry.version}>{entry.version}</option>)}</select></label>
       {history.history_truncated && <p role="status" className="ct-job-note">Earlier definition history is unavailable.</p>}

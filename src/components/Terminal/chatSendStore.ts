@@ -398,7 +398,7 @@ export function __setChatSendRepositoryForTest(next: ChatSendRepositoryPort | nu
   forgetChatSendsInMemory();
 }
 
-export function addChatSend(tabId: string, send: ChatSend): void {
+export function addChatSend(tabId: string, send: DeliverySend): void {
   if (readChatSends(tabId).some((existing) => existing.id === send.id)) return;
   publish(tabId, [...readChatSends(tabId), send]);
 }

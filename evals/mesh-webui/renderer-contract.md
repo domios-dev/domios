@@ -106,13 +106,9 @@ Deferred canonical oracles (no browser launch or Rust compile):
 
 ```bash
 node --test evals/mesh-webui/*.test.mjs
-node --test scripts/tests/dev-wait.test.mjs
 ```
 
-The provenance fixtures include a hidden `46137477` root before the requested
-fixture, exact mesh identities and rejection paths. The existing dev-wait
-suite now guards both platform watcher commands and the unchanged release
-frontend command. Runtime acceptance still requires the rebuilt DEV browser's
+Runtime acceptance still requires the rebuilt DEV browser's
 hook and capture metadata `selectedTabId` equal to the requested fixture, with
 `terminalVisible` true for the terminal leg, followed by coherent buffer and
 screenshot evidence under the existing capture contract.

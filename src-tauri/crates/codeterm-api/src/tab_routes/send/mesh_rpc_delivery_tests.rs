@@ -1,7 +1,6 @@
 use super::{route_send_origin, run_programmatic_delivery, SendTextBody};
 use axum::http::StatusCode;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
-use codeterm_service_core::service::codex_rpc::send::route_or_pty;
 use codeterm_service_core::service::delivery_error::{DeliveryError, SendOrigin};
 use parking_lot::Mutex;
 use std::sync::Arc;
@@ -24,13 +23,8 @@ async fn local_and_mesh_rpc_delivery_resolve_target_and_write_once() {
         let captured = writes.clone();
         let result = run_programmatic_delivery(&tab, move || {
             let provider = mux.get_tab(&target).unwrap().agent_type.clone().unwrap();
-            route_or_pty(
-                Some(codeterm_service_core::async_runtime::block_on(async move {
-                    captured.lock().push((provider, body.text.unwrap()));
-                    Ok::<_, String>(())
-                })),
-                || panic!("RPC selection must not fall back to PTY"),
-            )
+            captured.lock().push((provider, body.text.unwrap()));
+            Ok::<_, String>(())
         })
         .await;
         assert!(result.is_ok(), "RPC delivery failed");

@@ -47,9 +47,7 @@ pub(super) fn windows_target(task: &str) -> Option<PathBuf> {
     if !command.eq_ignore_ascii_case("powershell.exe") {
         return None;
     }
-    let regex = regex::Regex::new(
-        r"Start-Process -WindowStyle Hidden -FilePath '((?:[^']|'')*)' -ArgumentList @\('system','supervise','--binary',",
-    ).ok()?;
+    let regex = regex::Regex::new(r"& '((?:[^']|'')*)' system supervise --binary ").ok()?;
     Some(
         regex
             .captures(&arguments)?

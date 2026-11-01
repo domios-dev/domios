@@ -6,6 +6,7 @@ import { COMMAND_TREE_CAP, CommandTree, commandCallKey, rememberOpenSegment } fr
 import { MemberBranches } from "./MemberBranches";
 import { ThoughtLine } from "./ThoughtLine";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
+import { shellFileOperationPreview } from "./ShellFileOperations";
 
 const MINI_VIEW_MAX_PX = 200;
 const MINI_VIEW_ROWS = 6;
@@ -95,6 +96,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
                 <span className="min-w-0 truncate">{actionLabel(member)}</span>
                 <ToolOutcomeFacts event={member} />
               </button>
+              {shellFileOperationPreview(member)}
               {!rows && <MemberBranches member={member} label={`Details of ${actionLabel(member)}`} />}
               {rows && (
                 <CommandTree

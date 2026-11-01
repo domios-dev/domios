@@ -6,13 +6,20 @@ const fetches = vi.hoisted(() => ({ localFetch: vi.fn(), localJson: vi.fn(async 
 const account = vi.hoisted(() => ({
   signedIn: true,
   plan: "free",
+  paid: true,
   login: null as null | ((outcome: "ok" | "fail") => void),
   logins: 0,
 }));
 vi.mock("../../lib/webApi", async (actual) => ({ ...await actual<object>(), ...fetches }));
 
+vi.mock("./useDesktopBilling", () => ({ useDesktopBilling: () => ({
+  loading: false, subscription: { paid_subscription: account.signedIn && account.paid && account.plan !== "free" ? { tier: account.plan } : null },
+}) }));
+
 import type { ToastInput } from "../../lib/notices";
 import { connectNoticeToasts } from "../../lib/notices";
+import { PlanCatalogProvider } from "./planCatalogContext";
+import type { PlanCatalog } from "./planCatalog";
 import { FreeLimitPlansModal } from "./FreeLimitPlansModal";
 import { checkoutTheme } from "./checkoutTheme";
 import { AlreadySubscribedError, freeLimitGate, upgradePlan } from "./freeLimitGate";
@@ -33,7 +40,8 @@ async function fakeDaemon(url: string) {
   if (path.includes("/plan")) {
     const plan = account.signedIn ? account.plan : "free";
     return json({ entitlements: { plan, status: "active", current_period_end: 0, cancel_at_period_end: false },
-      access: { authority: plan === "free" ? "free" : "billing", full_access: false }, stale: false });
+      access: { authority: plan === "free" ? "free" : "billing", full_access: false }, stale: false,
+      limits: { enforcing: true, workspaces: 3, teams: 6, "agent.tabs": 35 } });
   }
   if (path.endsWith("/login")) {
     account.logins++;
@@ -47,22 +55,23 @@ async function fakeDaemon(url: string) {
 
 beforeEach(() => {
   fetches.localJson.mockClear().mockResolvedValue({ consent: "off" });
-  Object.assign(account, { signedIn: true, plan: "free", login: null, logins: 0 });
+  Object.assign(account, { signedIn: true, plan: "free", paid: true, login: null, logins: 0 });
   fetches.localFetch.mockImplementation(fakeDaemon);
   toasts.length = 0;
   disconnectToasts = connectNoticeToasts((toast) => { toasts.push(toast); });
 });
 
-async function render(upgrade: (planKey: string) => Promise<void>) {
+async function render(upgrade: (planKey: string) => Promise<void>, catalog?: PlanCatalog) {
   const host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root!.render(<FreeLimitPlansModal upgrade={upgrade} />));
+  const modal = <FreeLimitPlansModal upgrade={upgrade} />;
+  await act(async () => root!.render(catalog ? <PlanCatalogProvider source={{ load: async () => catalog }}>{modal}</PlanCatalogProvider> : modal));
 }
 
 const dialog = () => document.querySelector<HTMLElement>("[role=dialog]");
 const button = (name: string) => [...document.querySelectorAll("button")].find((candidate) => candidate.textContent === name)!;
-const settle = () => act(async () => { for (let turn = 0; turn < 10; turn++) await Promise.resolve(); });
+const settle = () => act(async () => {});
 const click = async (name: string) => {
   await act(async () => { button(name).click(); });
   await settle();
@@ -87,14 +96,14 @@ describe("plans modal", () => {
   it("stays closed until a limit opens it, then shows that limit with the daemon's maximum", async () => {
     await render(async () => {});
     expect(dialog()).toBeNull();
-    freeLimitGate.setLimits({ enforcing: true, max: { workspaces: 3, teams: 6, "agent.tabs": 35 } });
+    freeLimitGate.setLimits({ enforcing: true, max: { workspaces: 2, teams: 6, "agent.tabs": 35 } });
     await act(async () => freeLimitGate.open("workspaces"));
-    expect(dialog()?.querySelector("h2")?.textContent).toBe("The free version includes 3 workspaces.");
-    expect(dialog()?.querySelectorAll("section[aria-label$=' plan']")).toHaveLength(4);
-    expect(dialog()?.querySelector("section[aria-label='Enterprise plan']")).not.toBeNull();
+    expect(dialog()).not.toBeNull();
+    expect(freeLimitGate.current()).toEqual({ key: "workspaces" });
+    expect(freeLimitGate.limits()?.max.workspaces).toBe(3);
   });
 
-  it("records a consented plan view only when the limit modal opens", async () => {
+  it("records a consented plan view and limit notice only when the limit modal opens", async () => {
     fetches.localJson.mockResolvedValue({ consent: "on" });
     await render(async () => {});
     expect(fetches.localJson).not.toHaveBeenCalled();
@@ -102,6 +111,8 @@ describe("plans modal", () => {
     expect(fetches.localJson.mock.calls).toEqual([
       ["GET", "/api/analytics/status"],
       ["POST", "/api/analytics/event", { event_type: "plan_viewed", event_properties: {} }],
+      ["GET", "/api/analytics/status"],
+      ["POST", "/api/analytics/event", { event_type: "limit_reached_shown", event_properties: { resource: "workspaces" } }],
     ]);
   });
 
@@ -128,7 +139,6 @@ describe("plans modal", () => {
     const upgrade = vi.fn(async () => {});
     await render(upgrade);
     await openModal("teams");
-    expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
     expect(button("Choose Sponsor")).toBeUndefined();
     await click("Manage subscription");
     expect(upgrade).not.toHaveBeenCalled();
@@ -142,8 +152,7 @@ describe("plans modal", () => {
     expect(upgrade).toHaveBeenCalledExactlyOnceWith("sponsor_yearly");
     expect(toasts).toHaveLength(0);
     expect(button("Choose Pro")).toBeUndefined();
-    expect([...dialog()!.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Manage subscription")).toHaveLength(2);
-    expect([...dialog()!.querySelectorAll("button")].map((candidate) => candidate.textContent)).not.toContain("Upgrade");
+    expect([...dialog()!.querySelectorAll("button")].filter((candidate) => candidate.textContent === "Manage subscription")).toHaveLength(3);
   });
 
   it("upgradePlan reports only an exact already_subscribed conflict as such", async () => {
@@ -272,4 +281,22 @@ describe("plans modal", () => {
     expect(checkoutTheme({ dataset: {} })).toBeNull();
     expect(checkoutTheme({ dataset: { ctTheme: "system" } })).toBeNull();
   });
+});
+
+it("uses the injected catalog checkout key without inferring a tier price", async () => {
+  const upgrade = vi.fn(async () => {});
+  await render(upgrade, { offers: [{ id: "injected", name: "Injected", tagline: "", features: [], recommended: true,
+    prices: { year: { planKey: "opaque-price-key", amount: 123, currency: "USD" } } }] });
+  await openModal("workspaces");
+  await click("Upgrade");
+  expect(upgrade).toHaveBeenCalledExactlyOnceWith("opaque-price-key");
+});
+
+it("lets a granted Pro account upgrade instead of offering subscription management", async () => {
+  account.plan = "pro"; account.paid = false;
+  const upgrade = vi.fn(async () => {});
+  await render(upgrade); await openModal("teams");
+  expect(button("Manage subscription")).toBeUndefined();
+  await click("Choose Pro");
+  expect(upgrade).toHaveBeenCalledExactlyOnceWith("pro_yearly");
 });

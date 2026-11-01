@@ -9,8 +9,8 @@
 
 use serde::{Deserialize, Serialize};
 
-mod area_candidates;
-mod curator_candidates;
+pub(crate) mod area_candidates;
+pub(crate) mod curator_candidates;
 pub mod recluster;
 mod rem;
 mod schedule;

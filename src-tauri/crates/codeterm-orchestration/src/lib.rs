@@ -23,7 +23,8 @@ pub use orchestrator::{
 #[cfg(test)]
 pub(crate) use orchestrator_onboard::deliver_orchestrator_onboarding;
 pub use orchestrator_onboard::{
-    admit_anchor_promotion, make_orchestrator, maybe_deliver_orchestrator_promotion_onboarding,
+    admit_anchor_promotion, make_orchestrator, make_orchestrator_as_tab,
+    maybe_deliver_orchestrator_promotion_onboarding,
 };
 pub use team::{
     add_team_member, adopt_agent_for_team, adopt_plan_for_team, resume_team_plan,

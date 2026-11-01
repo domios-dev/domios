@@ -95,5 +95,18 @@ pub(super) fn plan_quit_result(origin: QuitOrigin, outcome: ShutdownOutcome) -> 
     }
 }
 
+pub(super) fn finish_quit(
+    origin: QuitOrigin,
+    result: &ExactServerShutdownResult,
+    confirm_ticket: impl FnOnce() -> bool,
+    resolve: impl FnOnce(QuitResolution),
+) {
+    let outcome = classify_shutdown(result);
+    if outcome == ShutdownOutcome::Confirmed && !confirm_ticket() {
+        return;
+    }
+    resolve(plan_quit_result(origin, outcome));
+}
+
 #[cfg(test)]
 mod tests;

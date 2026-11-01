@@ -6,7 +6,6 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Presence {
-    /// No explicit sign-out ever happened here; legacy continuity stays with transport.
     #[default]
     NeverSignedIn,
     SignedIn {
@@ -37,7 +36,7 @@ pub enum Traffic {
     #[default]
     Open,
     BlockedSignedOut,
-    /// Signed in but refused a slot by the account's machine limit; pairings stay listed.
+    /// Signed in but refused a slot by the account's machine limit; account installations stay listed.
     #[serde(rename = "plan_limit_locked")]
     PlanLimitLocked,
 }
@@ -74,6 +73,10 @@ pub enum Enrollment {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "reason")]
 pub enum AccountMeshRefusal {
+    #[serde(rename = "installation_unverified")]
+    InstallationUnverified,
+    #[serde(rename = "cutoff_after_current_session")]
+    CutoffAfterCurrentSession,
     #[serde(rename = "invalid")]
     Invalid,
     #[serde(rename = "unauthenticated")]
@@ -86,6 +89,19 @@ pub enum AccountMeshRefusal {
     Forbidden,
     #[serde(rename = "conflict")]
     Conflict,
+    #[serde(rename = "key_conflict")]
+    KeyConflict,
+    #[serde(rename = "generation_mismatch")]
+    GenerationMismatch,
+    #[serde(rename = "challenge_invalid")]
+    ChallengeInvalid,
+    #[serde(rename = "enrollment_budget")]
+    EnrollmentBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after_seconds: Option<u64>,
+    },
+    #[serde(rename = "proof_invalid")]
+    ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
     #[serde(rename = "mesh.machines")]
@@ -112,12 +128,25 @@ pub enum AccountMeshRefusal {
 impl From<RegistryRefusal> for AccountMeshRefusal {
     fn from(value: RegistryRefusal) -> Self {
         match value {
+            RegistryRefusal::Cancelled => Self::Cancelled,
+            RegistryRefusal::Revoked => Self::Revoked,
+            RegistryRefusal::InstallationUnverified => Self::InstallationUnverified,
+            RegistryRefusal::CutoffAfterCurrentSession => Self::CutoffAfterCurrentSession,
             RegistryRefusal::Invalid => Self::Invalid,
             RegistryRefusal::Unauthenticated => Self::Unauthenticated,
             RegistryRefusal::ReauthRequired => Self::ReauthRequired,
             RegistryRefusal::AppCheck => Self::AppCheck,
             RegistryRefusal::Forbidden => Self::Forbidden,
             RegistryRefusal::Conflict => Self::Conflict,
+            RegistryRefusal::KeyConflict => Self::KeyConflict,
+            RegistryRefusal::GenerationMismatch => Self::GenerationMismatch,
+            RegistryRefusal::ChallengeInvalid => Self::ChallengeInvalid,
+            RegistryRefusal::EnrollmentBudget {
+                retry_after_seconds,
+            } => Self::EnrollmentBudget {
+                retry_after_seconds,
+            },
+            RegistryRefusal::ProofInvalid => Self::ProofInvalid,
             RegistryRefusal::RateLimited {
                 retry_after_seconds,
             } => Self::RateLimited {
@@ -156,7 +185,7 @@ pub struct LimitNotice {
     pub trigger: EnrollTrigger,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SelfInstallation {
     pub installation_id: String,
     pub key_id: String,
@@ -167,12 +196,41 @@ pub struct SelfInstallation {
 }
 
 /// A registry read is a stale observation for display, never link authority.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RegistryObservation {
     pub observed_at: u64,
     pub registry_revision: u64,
     pub rows: Vec<MeshManagementRow>,
     pub cursor: Option<super::wire::MeshCursor>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RegistrySecurity {
+    pub revision: u64,
+    pub digest: String,
+}
+
+impl RegistryObservation {
+    pub fn security_view(&self) -> Option<RegistrySecurity> {
+        if self.cursor.is_some() {
+            return None;
+        }
+        let rows: BTreeMap<_, _> = self
+            .rows
+            .iter()
+            .map(|row| {
+                (
+                    &row.installation_id,
+                    (row.active, &row.key_id, row.key_generation, row.presence),
+                )
+            })
+            .collect();
+        let bytes = serde_json::to_vec(&rows).ok()?;
+        Some(RegistrySecurity {
+            revision: self.registry_revision,
+            digest: super::key::sha256_hex(&bytes),
+        })
+    }
 }
 
 /// Immutable lifecycle snapshot; every change is a new value with explicit epochs.
@@ -186,6 +244,8 @@ pub struct LifecycleState {
     #[serde(skip)]
     pub membership: Option<SignedMembership>,
     pub revoked_installations: BTreeSet<String>,
+    #[serde(skip)]
+    pub unavailable_installations: BTreeSet<String>,
     pub cleanup: Cleanup,
     pub publication: Publication,
     pub publication_failure: Option<AccountMeshRefusal>,
@@ -195,6 +255,8 @@ pub struct LifecycleState {
     pub limit_notice: Option<LimitNotice>,
     pub self_installation: Option<SelfInstallation>,
     pub registry: Option<RegistryObservation>,
+    #[serde(skip)]
+    pub registry_security: Option<RegistrySecurity>,
     pub registry_failure: Option<AccountMeshRefusal>,
 }
 
@@ -232,7 +294,7 @@ impl LifecycleState {
         }
     }
 
-    /// Only a membership of the signed-in account, current at `now`, admits adopted traffic.
+    /// Only a membership of the signed-in account, current at `now`, admits account mesh traffic.
     pub fn current_membership(&self, now: u64) -> Option<&SignedMembership> {
         let account = self.signed_in_account()?;
         self.membership
@@ -287,12 +349,24 @@ pub struct KeyBinding {
     pub generation: u64,
 }
 
-/// Durable lifecycle facts keyed by opaque account id. Holds no token, uid or endpoint.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistryPresenceBinding {
+    pub generation: u64,
+    pub metadata_revision: u64,
+    pub presence: super::wire::RegistryPresence,
+}
+
+/// Durable lifecycle facts keyed by opaque account id; holds no token, uid or endpoint.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
+    #[serde(skip_serializing_if = "BTreeSet::is_empty")]
+    pub reauth_required_accounts: BTreeSet<String>,
     /// First account association; an account switch never rebinds saved pairs.
     pub owner: Option<String>,
+    #[serde(default, skip_serializing)]
+    pub admission_cache: Option<super::cache::AdmissionCache>,
     pub signed_out: bool,
     pub cleanup_pending: bool,
     pub published: bool,
@@ -304,4 +378,8 @@ pub struct AccountMeshRecord {
     pub revoked_generations: BTreeMap<String, u64>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub peer_keys: BTreeMap<String, KeyBinding>,
+    #[serde(default, skip_serializing)]
+    pub peer_presence: BTreeMap<String, RegistryPresenceBinding>,
+    #[serde(skip)]
+    pub peer_presence_refresh: bool,
 }

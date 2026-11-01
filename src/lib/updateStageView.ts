@@ -1,4 +1,5 @@
 import type { RestoreStageView } from "./restoreStageView";
+import { updatePresentation } from "./updatePresentation";
 
 export type UpdateStage = "downloading" | "applying" | "restarting";
 
@@ -24,7 +25,7 @@ export function updateStageView(stage: UpdateStage, version: string | null, down
     : stage === "restarting" ? "Domios reopens by itself with your sessions." : null;
   return {
     phase: "restoring",
-    label: version ? `Updating to v${version}` : "Updating Domios",
+    label: stage === "downloading" ? "Downloading and preparing update" : updatePresentation(stage, true, version).title,
     detail: null,
     hint,
     current,

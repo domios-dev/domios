@@ -16,6 +16,8 @@ pub const ROUTE_ADMISSION: &str = "accountMeshAdmission";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 pub enum ProofEndpoint {
+    #[serde(rename = "getEntitlements")]
+    GetEntitlements,
     #[serde(rename = "enrollInstallation")]
     EnrollInstallation,
     #[serde(rename = "meshAdmission")]
@@ -81,6 +83,8 @@ pub struct MeshAdmissionBody {
     pub schema_version: u8,
     pub installation_id: String,
     pub request_id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requested_membership_seconds: Option<u64>,
     #[serde(flatten)]
     pub operation: MeshOperation,
 }
@@ -106,7 +110,9 @@ pub enum MeshOperation {
         target: SessionTarget,
     },
     Recover {
-        target: MeshTarget,
+        target: RecoveryTarget,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_policy: Option<OwnTargetPolicy>,
     },
     List {
         cursor: Option<MeshCursor>,
@@ -166,6 +172,27 @@ pub struct InstallationKeyBody {
     pub public_key_spki_base64: String,
     pub operation: KeyOperation,
     pub expected_generation: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_policy: Option<GenerationPolicy>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationPolicy {
+    Assign,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum RecoveryTarget {
+    Exact(MeshTarget),
+    Own { installation_id: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnTargetPolicy {
+    Own,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -211,6 +238,21 @@ pub struct SessionTarget {
 pub struct SessionRevokedResult {
     pub target_installation_id: String,
     pub revoked_at: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorSessionsTarget {
+    pub installation_id: String,
+    pub cutoff: u64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PriorSessionsRevokedResult {
+    pub schema_version: u32,
+    pub revoked_count: u32,
+    pub receiver_disabled: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
@@ -442,6 +484,14 @@ fn tailnet(ip: IpAddr) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason", deny_unknown_fields)]
 pub enum RegistryRefusal {
+    #[serde(rename = "cancelled")]
+    Cancelled,
+    #[serde(rename = "revoked")]
+    Revoked,
+    #[serde(rename = "installation_unverified")]
+    InstallationUnverified,
+    #[serde(rename = "cutoff_after_current_session")]
+    CutoffAfterCurrentSession,
     #[serde(rename = "invalid")]
     Invalid,
     #[serde(rename = "unauthenticated")]
@@ -454,6 +504,19 @@ pub enum RegistryRefusal {
     Forbidden,
     #[serde(rename = "conflict")]
     Conflict,
+    #[serde(rename = "key_conflict")]
+    KeyConflict,
+    #[serde(rename = "generation_mismatch")]
+    GenerationMismatch,
+    #[serde(rename = "challenge_invalid")]
+    ChallengeInvalid,
+    #[serde(rename = "enrollment_budget")]
+    EnrollmentBudget {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        retry_after_seconds: Option<u64>,
+    },
+    #[serde(rename = "proof_invalid")]
+    ProofInvalid,
     #[serde(rename = "rate-limited")]
     RateLimited { retry_after_seconds: u64 },
     #[serde(rename = "mesh.machines")]
@@ -469,6 +532,22 @@ pub enum RegistryRefusal {
 impl RegistryRefusal {
     /// Unknown or malformed details are an outage, never a plan-limit refusal.
     pub fn from_details(details: &serde_json::Value) -> Self {
+        if details.get("reason").and_then(serde_json::Value::as_str) == Some("enrollment_budget") {
+            let seconds = details
+                .get("retry_after_seconds")
+                .and_then(|value| {
+                    value
+                        .as_f64()
+                        .or_else(|| value.as_str()?.trim().parse::<f64>().ok())
+                })
+                .filter(|seconds| {
+                    seconds.is_finite() && *seconds > 0.0 && *seconds <= u64::MAX as f64
+                })
+                .map(|seconds| seconds.ceil() as u64);
+            return Self::EnrollmentBudget {
+                retry_after_seconds: seconds,
+            };
+        }
         match serde_json::from_value::<Self>(details.clone()) {
             Ok(Self::Offline) | Err(_) => Self::Unavailable,
             Ok(Self::MachineLimit { limit: 0, .. }) => Self::Unavailable,

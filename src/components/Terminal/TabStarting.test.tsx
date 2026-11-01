@@ -17,36 +17,45 @@ function parsed(element: React.ReactNode) {
   host.innerHTML = renderToStaticMarkup(element);
   return host;
 }
-function assertLoading(host: ReturnType<typeof parsed>, label?: string, role = "status") {
-  const mark = host.querySelector('[data-testid="tab-loading-mark"]');
+function assertLoading(host: ReturnType<typeof parsed>, label: string) {
+  const mark = host.querySelector('[role="status"][aria-label]');
   assert.ok(mark);
-  assert.equal(mark.getAttribute("role"), role);
   assert.ok(mark.getAttribute("aria-label"));
-  if (label) assert.equal(mark.getAttribute("aria-label"), label);
-  assert.equal(host.querySelector('[data-activity-state]'), null);
+  assert.equal(mark.getAttribute("aria-label"), label);
+}
+/** A starting terminal is a whole area waiting: the shared branded Loader, not the small starting mark. */
+function assertAreaLoader(host: ReturnType<typeof parsed>, label: string) {
+  const status = host.querySelector(`[role="status"][aria-label="${label}"]`);
+  assert.ok(status, `the branded loader names ${label}`);
+  assert.ok(status.querySelector("canvas"), "with its dot matrix");
+  assert.equal(host.querySelector('[data-testid="tab-loading-mark"]'), null);
 }
 for (const boot_stage of ["agent_launching", "launch_binding_unconfirmed"] as const) {
   const starting = { ...tab, boot_stage };
   const attention = tabAttention(starting, "Working", []);
   const mark = tabStatusMark(tab.title, attention)!;
   const row = parsed(<TabItem tab={starting} status="Working" hasAgent index={0} isActive={false} onClick={() => {}} onClose={() => {}} canClose={false} workspaceId="ws" />);
-  assertLoading(row, mark.label, "img");
+  assertLoading(row, mark.label);
+  const titleLine = row.querySelector('[data-testid="tab-title"]')?.parentElement;
+  assert.ok(titleLine?.querySelector(`[role="status"][aria-label="${mark.label}"]`), "starting status follows the title in its line");
+  assert.equal(row.querySelector('[data-testid="tab-tab-icon"] [role="status"]'), null, "starting status does not overlap the icon");
+  assert.equal(row.querySelectorAll(`[role="status"][aria-label="${mark.label}"]`).length, 1, "starting status appears once");
   assert.equal(row.querySelector('[data-testid="tab-working-activity"]'), null);
   const rail = parsed(<SidebarCompactRail groups={[{ workspaceId: "ws", label: "group-token", tabs: [starting], activeTabId: null }]} tabStatuses={{ [tab.id]: "Working" }} attentionByTab={{ [tab.id]: attention }} onActivate={() => {}} />);
-  assertLoading(rail, mark.label, "img");
+  assertLoading(rail, mark.label);
   const chat = parsed(<ChatSetupState tab={starting} view={chatSetupView(starting)} providerName="provider-token" />);
   assert.ok(chat.querySelector('[role="progressbar"][aria-valuetext]'));
   assert.ok(chat.querySelector('[role="status"][aria-label]'));
-  assertLoading(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), mark.label);
+  assertAreaLoader(parsed(<TabBootOverlay view={tabBootOverlayView(starting)} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), mark.label);
   const composer = parsed(<AgentStateIndicator tab={starting} activity={tabActivity(starting, "Working")} />);
   assert.ok(composer.querySelector('[data-testid="agent-activity-slot"] [data-testid="tab-loading-mark"]'), "the starting mark sits in the fixed activity slot, so the model capsule never shifts");
 }
-assertLoading(parsed(<TabBootOverlay view={{ kind: "none" }} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />));
+assertAreaLoader(parsed(<TabBootOverlay view={{ kind: "none" }} shellReady={false} overlayVisible onRetry={() => {}} onStartFreshAgent={() => {}} onStartNewSession={() => {}} onKeepShell={() => {}} />), "Terminal starting");
 const lazyComposerReady: Tab = {
   ...tab,
   pty_id: "own-pty",
   session_binding_nonce: "own-nonce",
-  boot_stage: "launch_binding_unconfirmed",
+  boot_stage: "provider_ready",
   provisional_launch: {
     pty_id: "own-pty",
     binding_nonce: "own-nonce",

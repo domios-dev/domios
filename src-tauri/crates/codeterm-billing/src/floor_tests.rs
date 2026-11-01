@@ -48,7 +48,7 @@ async fn restored_older_grant_after_restart_is_refused_by_the_durable_floor() {
     );
     billing.prime(&user);
     billing
-        .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
+        .refresh(Some(&user), RefreshEvent::PlanChanged, Instant::now())
         .await;
     assert_eq!(authority(&billing), Authority::Free);
     assert_eq!(
@@ -212,7 +212,7 @@ fn prime_uses_observed_floor_before_deciding_checking_and_its_deadline() {
 
 #[tokio::test]
 async fn issued_in_future_raises_observed_and_expires_cached_grant() {
-    let (activation, newer, older) = signed_paid_revisions_at(ISSUED + 86_400, ISSUED);
+    let (activation, newer, older) = signed_paid_revisions_at(ISSUED + 86_400, ISSUED, "pro");
     let store = Arc::new(MemoryGrants::default());
     let (_, clock) = clock(ISSUED + 60);
     let billing = Billing::new(GrantReplies::new(vec![Ok(older), Ok(newer)])).with_test_grants(
@@ -254,7 +254,7 @@ async fn clock_two_minutes_behind_refresh_keeps_paid_access() {
 }
 
 #[tokio::test]
-async fn explicit_and_checkout_refresh_bypass_focus_throttle() {
+async fn explicit_refresh_is_bounded_checkout_bypasses() {
     let provider = GrantReplies::new(vec![Ok(paid_grant()), Ok(paid_grant()), Ok(paid_grant())]);
     let (_, clock) = clock(ISSUED + 60);
     let billing = Billing::new(provider.clone()).with_test_grants(
@@ -275,9 +275,9 @@ async fn explicit_and_checkout_refresh_bypass_focus_throttle() {
     billing
         .refresh(Some(&user), RefreshEvent::Explicit, instant)
         .await;
-    assert_eq!(provider.count(), 2);
+    assert_eq!(provider.count(), 1);
     billing
         .refresh(Some(&user), RefreshEvent::CheckoutReturned, instant)
         .await;
-    assert_eq!(provider.count(), 3);
+    assert_eq!(provider.count(), 2);
 }

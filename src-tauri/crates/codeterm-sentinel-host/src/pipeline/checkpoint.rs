@@ -61,6 +61,26 @@ pub(super) fn hold(
     text: &str,
     _input_run: Option<&InputRun>,
 ) -> Result<(), JournalReason> {
+    persist(ctx, state, envelope, text, None)
+}
+
+pub(super) fn hold_plugin(
+    ctx: &RunCtx<'_>,
+    state: &RunnerState,
+    envelope: &ExecutionEnvelope,
+    text: &str,
+    hold: codeterm_sentinel::admission::PluginHold,
+) -> Result<(), JournalReason> {
+    persist(ctx, state, envelope, text, Some(hold))
+}
+
+fn persist(
+    ctx: &RunCtx<'_>,
+    state: &RunnerState,
+    envelope: &ExecutionEnvelope,
+    text: &str,
+    plugin: Option<codeterm_sentinel::admission::PluginHold>,
+) -> Result<(), JournalReason> {
     let saved = serde_json::to_value(Checkpoint {
         run_id: ctx.run_id.into(),
         current_step: state.current_step,
@@ -88,7 +108,11 @@ pub(super) fn hold(
         {
             return storage::Staged::ready(Ok(false));
         }
-        job.admission.reconcile(true, false);
+        if let Some(plugin) = plugin {
+            job.admission.plugin_hold = Some(plugin);
+        } else {
+            job.admission.reconcile(true, false);
+        }
         job.admission.continuation = Some(saved);
         store.stage_admission(&job.id, job.admission)
     })
@@ -100,6 +124,27 @@ pub(super) fn hold(
         cleanup.retain();
     }
     ctx.handle.notify();
+    let held = {
+        ctx.handle
+            .store
+            .lock()
+            .get(&ctx.lease.job.id)
+            .and_then(|job| job.admission.plugin_hold.clone())
+    };
+    if let Some(held) = held {
+        if let Ok(ledger) = super::plugin::ledger(ctx.service) {
+            if let Ok(Some(record)) = ledger.get(&held.operation) {
+                let _ = ctx.service.invalidate_plugin_owner_views(
+                    &codeterm_plugin::view_host::ViewOwnerScope {
+                        plugin: record.plugin,
+                        workspace: ctx.lease.job.workspace_id.clone(),
+                        team: ctx.lease.job.team_id.clone(),
+                        owner: ctx.lease.job.creator_tab_id.clone(),
+                    },
+                );
+            }
+        }
+    }
     Ok(())
 }
 

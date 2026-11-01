@@ -1,6 +1,7 @@
 // Run: npx tsx src/lib/chatBlocks/blockHosts.test.ts
 
 import { Window } from "happy-dom";
+import { parseDsBlocks } from "@codeterm/chat-core";
 import { FIXTURE_TASK } from "../../components/Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../../components/Canvas/types";
 import type { AutomationGraph, BlueprintSnapshot } from "../../components/Automation/types";
@@ -193,6 +194,11 @@ test("checklist_signals_tick_from_real_state", () => {
   const info = checklistInfo(GETTING_STARTED, { agentSpawned: true, phoneConnected: false, pluginInstalled: null, blueprintCreated: false, memorySaved: true });
   assert(info.items.map((item) => item.done).join(",") === "true,false,,false,true", `done ${info.items.map((item) => item.done).join(",")}`);
   assert(GETTING_STARTED.items.every((item) => item.action.label.length > 0), "every item has a one-click action");
+  for (const item of GETTING_STARTED.items) {
+    if (item.action.kind !== "block") continue;
+    const segments = parseDsBlocks(item.action.source);
+    assert(segments.length === 1 && segments[0].type === "block", "nested checklist source must roundtrip through the canonical scanner");
+  }
 });
 
 test("checklist_host_follows_sources_and_opens_links", async () => {
@@ -229,7 +235,7 @@ test("choice_replies_and_single_claim", async () => {
   const replies = choiceRepliesByMessage([
     { id: "a1", type: "assistant", content: "Ship?" },
     { id: "t1", type: "tool_call", content: "" },
-    { id: "a2", type: "assistant", content: "@ds-choice Yes | No" },
+    { id: "a2", type: "assistant", content: "<ds-choice options='[\"Yes\",\"No\"]' />" },
     { id: "r1", type: "user", content: "report", inboundKind: "report" },
     { id: "u1", type: "user", content: " Yes " },
     { id: "a3", type: "assistant", content: "Later question" },

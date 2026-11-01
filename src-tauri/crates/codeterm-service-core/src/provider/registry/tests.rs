@@ -37,7 +37,6 @@ fn bundled_cloud_runtime_is_one_unavailable_execution_mode() {
     let runtime = provider
         .agent_runtime()
         .expect("Bundled runtime capability");
-    let structured_control = provider.structured_control();
     let provider_id = provider.id().to_owned();
     agents.register_provider(Box::new(provider));
     let registry = ProviderRegistry::new(agents, Arc::new(ChatBackendRegistry::new()));
@@ -45,7 +44,6 @@ fn bundled_cloud_runtime_is_one_unavailable_execution_mode() {
     assert_eq!(descriptors.len(), 1);
     assert_eq!(descriptors[0].id, provider_id);
     assert_eq!(descriptors[0].agent_runtime.as_ref(), Some(&runtime));
-    assert_eq!(descriptors[0].structured_control, structured_control);
     assert_eq!(descriptors[0].transport, ProviderTransport::ChatBackend);
     assert_eq!(
         registry.transport_of(&provider_id),

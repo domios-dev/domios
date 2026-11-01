@@ -5,7 +5,7 @@ use std::time::Duration;
 const TURN_START_DEADLINE: Duration = Duration::from_secs(60);
 
 pub(crate) struct BoundSession {
-    tab_id: String,
+    pub(super) tab_id: String,
     pub(super) provider: Arc<dyn ChatBackendProvider>,
     state: Mutex<Health>,
 }
@@ -73,7 +73,7 @@ impl BoundSession {
         }
     }
 
-    fn fail(&self, reason: &str) -> bool {
+    pub(super) fn fail(&self, reason: &str) -> bool {
         let mut state = self.state.lock();
         if state.failure.is_some() {
             return false;

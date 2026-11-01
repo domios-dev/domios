@@ -1,0 +1,61 @@
+.ct-plan-row-frame {
+  container-type: inline-size;
+  position: relative;
+  min-width: 0;
+}
+
+.ct-plan-row {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 12px;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.ct-plan-row::-webkit-scrollbar {
+  display: none;
+}
+
+.ct-plan-row > section {
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.ct-plan-row-edge {
+  position: absolute;
+  inset-block: 0;
+  width: 36px;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  z-index: 1;
+}
+
+.ct-plan-row-edge button {
+  pointer-events: auto;
+}
+
+.ct-plan-row-edge-start {
+  left: 0;
+  background: linear-gradient(to right, var(--ct-surface), transparent);
+}
+
+.ct-plan-row-edge-end {
+  right: 0;
+  justify-content: flex-end;
+  background: linear-gradient(to left, var(--ct-surface), transparent);
+}
+
+@container (width < 940px) {
+  .ct-plan-row { grid-auto-columns: calc((100% - 64px) / 3); }
+}
+
+@container (width < 720px) {
+  .ct-plan-row { grid-auto-columns: calc((100% - 52px) / 2); }
+}
+
+@container (width < 480px) {
+  .ct-plan-row { grid-auto-columns: calc(100% - 40px); }
+}

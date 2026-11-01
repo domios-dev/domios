@@ -1,4 +1,4 @@
-// Caller: CI/release workflows; scripts/tests/ci-checkout.test.mjs and ci-git-history.test.mjs
+// Caller: CI/release workflows
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 

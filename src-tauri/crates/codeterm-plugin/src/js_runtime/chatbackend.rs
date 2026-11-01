@@ -80,7 +80,7 @@ impl JsChatBackend {
             agent_runtime: manifest.capabilities.agent_runtime.clone(),
             model_catalogue: manifest.model_catalogue.clone(),
             model_catalogue_input_files: manifest.model_catalogue.fingerprint_files(
-                super::host_credentials::declared_files(&manifest.credentials),
+                super::host_credentials::resolved_files(&manifest.credentials),
             ),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }
@@ -411,6 +411,31 @@ impl ChatBackendProvider for JsChatBackend {
         let _guard = self.exec_env_scope(session_id);
         // Optional export; a missing `closeSession` is not an error.
         let _ = call_json::<serde_json::Value>(&self.vm, "closeSession", &[json!(session_id)]);
+        self.session_exec_env.lock().remove(session_id);
+        Ok(())
+    }
+
+    fn close_session_confirmed(
+        &self,
+        session_id: &str,
+        deadline: std::time::Instant,
+    ) -> Result<(), ChatBackendError> {
+        let _guard = self.exec_env_scope(session_id);
+        let receipt = super::vm::call_json_interruptible::<
+            crate::chatbackend_provider::ChatBackendCloseReceipt,
+        >(
+            &self.vm,
+            "closeSession",
+            &[json!(session_id)],
+            crate::converter::ConversionCancellation::default(),
+            deadline,
+        )
+        .map_err(|error| map_err("closeSession", error))?;
+        if receipt.session_id != session_id || !receipt.process_exited {
+            return Err(ChatBackendError::Call(
+                "closeSession did not confirm the owned session process exit".into(),
+            ));
+        }
         self.session_exec_env.lock().remove(session_id);
         Ok(())
     }

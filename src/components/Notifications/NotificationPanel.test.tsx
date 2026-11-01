@@ -4,6 +4,7 @@ import { Window } from "happy-dom";
 import type { Notification } from "../../lib/types";
 import { __setInvokeForTest } from "../../lib/bridge";
 import { NotificationPanel } from "./NotificationPanel";
+import { takeNeighborFocus } from "../Neighbors/neighborFocus";
 
 let checked = 0;
 
@@ -20,6 +21,7 @@ Object.defineProperty(globalThis, "HTMLElement", { value: window.HTMLElement, co
 Object.defineProperty(globalThis, "SVGElement", { value: window.SVGElement, configurable: true });
 Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
 Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
+Object.defineProperty(globalThis, "CustomEvent", { value: window.CustomEvent, configurable: true });
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const asked: Notification = {
@@ -207,6 +209,19 @@ async function run() {
   const failedPanel = await render({ ...asked, answer_error: "Tab unavailable" });
   assert(failedPanel.querySelector('[role="alert"] details pre')?.textContent === "Tab unavailable", "delivery errors are readable");
   assert(Array.from(failedPanel.querySelectorAll<HTMLButtonElement>("button")).filter((button) => ["Rebase", "Merge"].includes(button.textContent ?? "")).every((button) => !button.disabled), "failed delivery re-enables choices");
+
+  const friendship = "f".repeat(64);
+  const opened: string[] = [];
+  const onPanel = (event: Event) => opened.push((event as CustomEvent<{ panel: string }>).detail.panel);
+  window.addEventListener("codeterm:open-panel", onPanel as unknown as Parameters<typeof window.addEventListener>[1]);
+  const neighborPanel = await render({ ...asked, id: "neighbor-1", answer: undefined, actions: [{ type: "url", label: "Open", value: `domios://neighbor/${friendship}` }] });
+  await act(async () => (neighborPanel.querySelector('[data-testid="notification-row"]') as HTMLElement).click());
+  assert(opened.includes(`neighbor:${friendship}`), "a Neighbor notification row opens the friend conversation, not the concierge tab");
+  const settingsPanel = await render({ ...asked, id: "neighbor-settings", answer: undefined, actions: [{ type: "url", label: "Review", value: `domios://neighbor/${friendship}/permissions` }] });
+  await act(async () => (settingsPanel.querySelector('[data-testid="notification-row"]') as HTMLElement).click());
+  const focus = takeNeighborFocus();
+  assert(opened.includes("neighbors") && focus?.id === friendship && focus.section === "permissions", "a settings notice opens the exact friend's permissions");
+  window.removeEventListener("codeterm:open-panel", onPanel as unknown as Parameters<typeof window.removeEventListener>[1]);
 
   await act(async () => root.unmount());
   __setInvokeForTest(null);

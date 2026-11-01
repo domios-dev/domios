@@ -1,9 +1,10 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent } from "react";
-import { Trash2, Check, Copy, Hash, ListChecks, MessageSquarePlus, GitBranch, RotateCcw } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType, type KeyboardEvent, type ReactNode } from "react";
+import { Trash2, Check, Copy, Hash, ListChecks, MessageSquarePlus, GitBranch, RotateCcw, ArrowBigUp, MousePointer2 } from "lucide-react";
 import { messageClipboard, messageMarkdownClipboard, sourceDiffersFromVisible, type ClipMessage } from "@codeterm/chat-core";
 import { writeClipboardFlavours } from "@codeterm/chat-ui";
 import { createPortal } from "react-dom";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
+import { useMessageHoverBridge, useMessageHoverIntent } from "./useMessageHoverBridge";
 
 export type DotSide = "start" | "end";
 type OpenedBy = "hover" | "focus" | "click";
@@ -20,7 +21,7 @@ export interface MessageMenuActions {
 function MenuItem({ label, icon: Icon, hint, done, onSelect }: {
   label: string;
   icon: ComponentType<{ size?: number; "aria-hidden"?: boolean }>;
-  hint?: string;
+  hint?: ReactNode;
   done?: boolean;
   onSelect: () => void;
 }) {
@@ -62,8 +63,10 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
   const openedBy = useRef<OpenedBy | null>(null);
   const focusItem = useRef<"first" | "last" | null>(null);
   const [copied, setCopied] = useState<"copy" | "markdown" | null>(null);
+  const hoverIntent = useMessageHoverIntent(() => show("hover"));
 
   const show = (by: OpenedBy, item: "first" | "last" | null = null) => {
+    hoverIntent.cancel();
     if (!open) {
       openedBy.current = by;
       onOpenChange(true);
@@ -74,11 +77,13 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
     if (open && item) focusMenuItem(item);
   };
   const hide = (refocus = false) => {
+    hoverIntent.cancel();
     openedBy.current = null;
     setCopied(null);
     onOpenChange(false);
     if (refocus) (touch ? wrapRef.current?.closest<HTMLElement>("[data-message-id]") : buttonRef.current)?.focus({ preventScroll: true });
   };
+  const onHoverLeave = useMessageHoverBridge({ open: open && !touch, anchor: buttonRef, menu: menuRef, isHover: () => openedBy.current === "hover", onClose: hide });
 
   const items = () => Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role='menuitem'], [role='menuitemradio']") ?? []);
   const focusMenuItem = (which: "first" | "last") => {
@@ -99,7 +104,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
       if (!wrapRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) hide();
     };
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (!touch || event.code !== "Escape" || event.defaultPrevented) return;
+      if (event.code !== "Escape" || event.defaultPrevented) return;
       event.preventDefault();
       hide(true);
     };
@@ -159,7 +164,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
             <div role="separator" className="ct-menu-separator" />
             <MenuItem label="Ask about this" icon={MessageSquarePlus} onSelect={() => { hide(); actions.quote(clip); }} />
             <div role="separator" className="ct-menu-separator" />
-            <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : "Shift-click"} onSelect={() => { hide(); actions.select(); }} />
+            <MenuItem label="Select" icon={ListChecks} hint={touch ? undefined : <span className="inline-flex items-center gap-1"><kbd className="inline-flex items-center rounded border px-1 py-0.5" style={{ borderColor: "var(--ct-border)" }}><ArrowBigUp size={12} /></kbd><span>+</span><MousePointer2 size={13} /></span>} onSelect={() => { hide(); actions.select(); }} />
             {actions.fork && <MenuItem label="Fork from here" icon={GitBranch} onSelect={() => { hide(); actions.fork?.(); }} />}
             {actions.revert && <MenuItem label="Revert to here" icon={RotateCcw} onSelect={() => { hide(); actions.revert?.(); }} />}
             {actions.delete && <MenuItem label="Delete" icon={Trash2} hint="Delete" onSelect={() => { hide(); actions.delete?.(); }} />}
@@ -174,11 +179,8 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
       data-side={side}
       data-open={open || undefined}
       data-hint={hint || undefined}
-      onPointerEnter={(event) => { if (event.pointerType === "mouse") show("hover"); }}
-      onPointerLeave={(event) => {
-        if (event.pointerType === "mouse" && openedBy.current === "hover"
-          && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
-      }}
+      onPointerEnter={(event) => { if (event.pointerType === "mouse" && !open) hoverIntent.start(); }}
+      onPointerLeave={(event) => { hoverIntent.cancel(); onHoverLeave(event); }}
       onBlur={(event) => {
         if (touch) return;
         if (openedBy.current !== "hover" && !wrapRef.current?.contains(event.relatedTarget as Node | null) && !menuRef.current?.contains(event.relatedTarget as Node | null)) hide();
@@ -196,6 +198,7 @@ export function MessageActionsDot({ metadata, clip, touch = false, whole = false
         onKeyDown={onDotKey}
       >
         <span aria-hidden="true" className="ct-msg-dot__more" onAnimationEnd={onHintEnd}><i /><i /><i /></span>
+        {hoverIntent.pending && !open && <svg aria-hidden="true" className="ct-msg-dot__progress" viewBox="0 0 20 20"><circle cx="10" cy="10" r="8" pathLength="1" /></svg>}
       </button>
       {touch
         ? open && createPortal(<div className="ct-msg-sheet-wrap">{menu}</div>, document.body)

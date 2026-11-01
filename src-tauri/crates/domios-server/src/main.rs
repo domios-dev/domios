@@ -12,7 +12,16 @@ use std::io::{self, BufRead, Read, Write};
 
 fn main() {
     if let Err(error) = execute() {
-        eprintln!("domios-server refused: {error}");
+        if std::env::args().nth(1).as_deref() == Some("memory-migrate")
+            && std::env::args().any(|arg| arg == "--json")
+        {
+            println!(
+                "{}",
+                serde_json::json!({"ok":false,"error":{"code":"memory_migration_refused","message":error.to_string()}})
+            );
+        } else {
+            eprintln!("domios-server refused: {error}");
+        }
         std::process::exit(channel::helper_exit_code(&error));
     }
 }
@@ -23,6 +32,26 @@ fn execute() -> io::Result<()> {
         std::process::exit(exit);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if matches!(args.as_slice(), [arg] if arg == "headless-update" || arg == "headless-update-recover")
+    {
+        return domios_server::headless_update::run_helper(args[0] == "headless-update-recover");
+    }
+    if args.first().map(String::as_str) == Some("memory-migrate") {
+        let options =
+            domios_server::mem_backend::migrate::parse(&args[1..]).map_err(io::Error::other)?;
+        let summary =
+            domios_server::mem_backend::migrate::execute(&options).map_err(io::Error::other)?;
+        if options.json {
+            println!("{summary}");
+        } else {
+            println!("Memory migration {} -> {} verified across all 21 tables (reembedded: {}). Source unchanged. Set memory.backend to {} before starting the daemon.", summary["from"], summary["to"], summary["reembedded"], summary["to"]);
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&summary).map_err(io::Error::other)?
+            );
+        }
+        return Ok(());
+    }
     if matches!(args.as_slice(), [arg] if arg == "--help" || arg == "help")
         || matches!(args.as_slice(), [command, arg] if command == "start" && arg == "--help")
     {
@@ -35,7 +64,15 @@ fn execute() -> io::Result<()> {
         if start.mode == HumanStartMode::IsolatedVerification {
             return run_isolated_verification(&executable, &start.options);
         }
+        let pid_file = start
+            .pid_file
+            .as_deref()
+            .map(domios_server::launch::pid_file::PidFile::prepare)
+            .transpose()?;
         let reply = launch_service(&executable, &start.options)?;
+        if let Some(pid_file) = pid_file {
+            pid_file.publish(reply.ready.process.pid)?;
+        }
         return write_human_ready(&mut io::stdout().lock(), &reply.ready, start.json);
     }
     if !private_stdio()? {

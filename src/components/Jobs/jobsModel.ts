@@ -36,8 +36,13 @@ export type MergedJob =
   | { kind: "blueprint"; blueprint: BlueprintJob; title: string; active: boolean; state: string }
   | { kind: "sentinel"; sentinel: BlueprintScenarioJob; title: string; active: boolean; state: string };
 
+/** A Cron works only while one of its runs is in progress; being enabled is only waiting for its schedule. */
+export function isCronRunning(job: Pick<CronJob, "last_run">): boolean {
+  return job.last_run?.status === "Running" || job.last_run?.status === "AwaitingOwnerPrompt";
+}
+
 export function cronState(job: CronJob): string {
-  if (job.last_run && (job.last_run.status === "Running" || job.last_run.status === "AwaitingOwnerPrompt")) return "Running";
+  if (isCronRunning(job)) return "Running";
   return job.enabled ? "Enabled" : "Paused";
 }
 
@@ -84,8 +89,10 @@ export interface JobsIndicator {
 }
 
 /** A running Cron run or a live Blueprint graph; an enabled Cron waiting for its schedule is not running. */
+/** The one rule every working count and dot follows: a run executes right now.
+ *  A Cron run in progress, or a Blueprint or Sentinel running or finishing; an enabled Cron or a watching Sentinel is calm. */
 export function isJobRunning(job: MergedJob): boolean {
-  return job.kind === "cron" ? job.state === "Running" : job.active;
+  return job.kind === "cron" ? isCronRunning(job.cron) : ["running", "finishing"].includes(job.state.toLowerCase());
 }
 
 export function jobsIndicator(jobs: { crons: readonly CronJob[]; sentinels: readonly BlueprintScenarioJob[]; blueprints?: readonly BlueprintJob[] }, scope: JobsFilter): JobsIndicator {
@@ -107,7 +114,8 @@ export function canStopJob(job: MergedJob): boolean {
 
 export function jobStateLabel(state: string): string {
   const value = state.toLowerCase();
-  if (["active", "running", "finishing"].includes(value)) return "active";
+  if (["running", "finishing"].includes(value)) return "running";
+  if (value === "active") return "active";
   if (["stopped", "paused", "expired", "finished"].includes(value)) return "stopped";
   if (value === "enabled") return "scheduled";
   if (value === "awaitingownerprompt") return "waiting on you";
@@ -136,7 +144,7 @@ function boundTabIds(job: MergedJob): (string | null | undefined)[] {
 
 export function tabJobState(job: MergedJob): TabJobState {
   if (job.kind === "cron" && job.cron.last_run?.status === "AwaitingOwnerPrompt") return "waiting on you";
-  if (isJobRunning(job)) return "active";
+  if (isJobRunning(job) || (job.kind !== "cron" && job.state.toLowerCase() === "active")) return "active";
   return (job.kind === "cron" && job.cron.enabled) || (job.kind === "blueprint" && job.state === "idle") ? "scheduled" : "stopped";
 }
 

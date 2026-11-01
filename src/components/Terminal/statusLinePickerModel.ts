@@ -40,7 +40,7 @@ export function pickerSelection(descriptor: ProviderDescriptor, model: string, e
     model,
     effort,
     ...(descriptor.agent_runtime?.serviceTiers && serviceTier !== undefined ? { serviceTier } : {}),
-    ...(descriptor.structured_control?.runtimeModes?.length && runtimeMode !== undefined ? { runtimeMode } : {}),
+    ...(descriptor.agent_runtime?.runtimeModes?.length && runtimeMode !== undefined ? { runtimeMode } : {}),
   };
 }
 

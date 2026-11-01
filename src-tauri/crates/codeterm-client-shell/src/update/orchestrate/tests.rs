@@ -19,9 +19,10 @@ async fn viability_precedes_shutdown_and_install() {
         vec![1, 2, 3],
         move || async move {
             v.lock().unwrap().push("viability");
-            Ok(())
+            Ok(vec![42, 73])
         },
-        move || async move {
+        move |holders| async move {
+            assert_eq!(holders, [42, 73]);
             s.lock().unwrap().push("shutdown");
             Ok(vec!["w-1".to_string()])
         },
@@ -52,7 +53,7 @@ async fn failed_viability_never_tears_down_panes() {
     let err = install_after_shutdown(
         vec![1],
         || async { Err("viability: install target not writable".to_string()) },
-        move || {
+        move |(): ()| {
             let s = s.clone();
             async move {
                 *s.lock().unwrap() = true;
@@ -87,7 +88,7 @@ async fn install_failure_after_teardown_raises_signal_with_torn_down_tabs() {
     let err = install_after_shutdown(
         vec![1],
         || async { Ok(()) },
-        || async { Ok(vec!["w-1".to_string(), "w-2".to_string()]) },
+        |_| async { Ok(vec!["w-1".to_string(), "w-2".to_string()]) },
         |_| async { Err("installer launch failed: exit 1".to_string()) },
         &sink,
     )
@@ -110,7 +111,7 @@ async fn shutdown_failure_raises_signal() {
     let err = install_after_shutdown(
         vec![1],
         || async { Ok(()) },
-        || async { Err("PTY reap failed".to_string()) },
+        |_| async { Err("PTY reap failed".to_string()) },
         move |_| async move {
             *i.lock().unwrap() = true;
             Ok(())

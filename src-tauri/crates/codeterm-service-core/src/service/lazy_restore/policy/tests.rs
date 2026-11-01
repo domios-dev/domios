@@ -6,6 +6,24 @@ use crate::{
 use RestoreDecision::{Freeze, Start};
 
 #[test]
+fn an_owned_pty_cannot_be_frozen_by_stale_idle_hook_state() {
+    let (mut mux, id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("fixture".into());
+    tab.pty_id = Some("own-live-pty".into());
+    tab.agent_state = Some(
+        codeterm_types::pty::TabVerdict {
+            state: TimelineState::Idle,
+            subtype: None,
+        }
+        .into(),
+    );
+    assert_eq!(decision(tab, false, Freeze), Start);
+    tab.agent_type = None;
+    assert_eq!(decision(tab, false, Freeze), Start);
+}
+
+#[test]
 fn idle_agents_ignore_recent_activity_and_general_workspace_start_decisions() {
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();

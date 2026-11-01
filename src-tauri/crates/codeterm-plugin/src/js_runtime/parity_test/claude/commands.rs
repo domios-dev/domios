@@ -189,3 +189,32 @@ fn needs_structured_prompt_server_native_js_parity() {
         "Claude is a pull-handle provider — no host-bound server"
     );
 }
+
+#[test]
+fn initial_prompt_update_on_resume_native_js_parity() {
+    let (native, bundled) = pair();
+    let declared = load_inline_js(
+        "prompt-resume",
+        "module.exports = {buildResumeCommandWithContext: () => 'opaque-command'};",
+    );
+    let undeclared = load_inline_js("prompt-resume", "module.exports = {};");
+    assert!(native.supports_initial_prompt_update_on_resume());
+    assert_eq!(
+        native.supports_initial_prompt_update_on_resume(),
+        declared.supports_initial_prompt_update_on_resume()
+    );
+    assert_eq!(
+        native.supports_initial_prompt_update_on_resume(),
+        bundled.supports_initial_prompt_update_on_resume()
+    );
+    assert!(!undeclared.supports_initial_prompt_update_on_resume());
+}
+
+#[test]
+fn neighbor_concierge_native_js_descriptor_parity() {
+    let (native, js) = pair();
+    let native = native.describe().neighbor_concierge;
+    assert!(native.supported);
+    assert_eq!(native.machine_access, ["read_only", "folder", "full"]);
+    assert_eq!(native, js.describe().neighbor_concierge);
+}

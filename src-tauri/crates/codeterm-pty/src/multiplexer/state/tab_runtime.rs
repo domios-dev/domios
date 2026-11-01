@@ -53,7 +53,7 @@ impl MultiplexerState {
             pending_model_selection: None,
             agent_planned_model: None,
             agent_requested_model: None,
-            structured_control_active: false,
+
             agent_runtime_state: None,
             agent_runtime_config: None,
             agent_runtime_questions: None,
@@ -86,6 +86,7 @@ impl MultiplexerState {
             report_target_tab_id: None,
             report_target_mesh_peer: None,
             spawned_by_tab_id: None,
+            neighbor_authority: None,
             ownership: None,
             title_level: TitleLevel::Default,
             chat_view: false,

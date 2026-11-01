@@ -89,12 +89,20 @@ pub(super) fn dispatch(
                 message: "params required".to_string(),
                 data: None,
             })?;
-            let spawn_params = codeterm_service_core::service::SpawnAgentParams::from_json(p)
+            let mut spawn_params = codeterm_service_core::service::SpawnAgentParams::from_json(p)
                 .map_err(|e| JsonRpcError {
-                    code: -32602,
-                    message: e,
-                    data: None,
-                })?;
+                code: -32602,
+                message: e,
+                data: None,
+            })?;
+            codeterm_service_core::async_runtime::block_on(
+                svc.inherit_neighbor_agent_spawn(&mut spawn_params),
+            )
+            .map_err(|message| JsonRpcError {
+                code: -32003,
+                message,
+                data: None,
+            })?;
             codeterm_service_core::service::spawn::validate_agent_model(
                 &svc.agent_registry,
                 spawn_params.agent.as_deref().unwrap_or_default(),

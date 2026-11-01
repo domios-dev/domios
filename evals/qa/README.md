@@ -1,5 +1,7 @@
 # Curated live QA catalogue
 
+**Before executing a case, read [Repeatable curated QA](REPEATABLE-QA.md), then the selected `case.md`.** [Test-family navigation](../README.md) distinguishes curated journeys, deterministic tests, load/performance and agent evals.
+
 This is a rerunnable operator catalogue, not an automatic build gate. The testing skill owns test-layer policy; each case defines the live oracle and required evidence. A case never authorizes a restart, production mutation, remote pairing, reset consumption, account action, or external message by itself.
 
 ## Catalogue workflow

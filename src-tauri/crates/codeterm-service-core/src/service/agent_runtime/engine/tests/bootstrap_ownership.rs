@@ -4,6 +4,9 @@ use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryState};
 use crate::service::chat_send_transaction::ChatSendState;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
+#[path = "bootstrap_ownership/overlap.rs"]
+mod overlap;
+
 #[test]
 fn fresh_runtime_bootstrap_survives_identical_sibling_completion_before_launch() {
     const PAYLOAD: &str = "\topaque-bootstrap-\u{03bb}\r\n";

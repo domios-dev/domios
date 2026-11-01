@@ -43,6 +43,9 @@ impl ServiceContext {
         let mut changed = false;
         if let Some(tab) = mux.get_tab_mut(tab_id) {
             changed = tab.agent_session_id != session_id;
+            if changed {
+                self.tab_credential_session_changed(tab_id, session_id.as_deref());
+            }
             if changed && session_id.is_none() && tab.agent_session_id.is_some() {
                 tab.remember_superseded_binding_nonce();
             }
@@ -110,6 +113,7 @@ impl ServiceContext {
     /// or belongs to an earlier launch. A proof no live agent stands behind
     /// must never outrank an honest spawn failure.
     pub(crate) fn void_launch_session_proof(&self, tab_id: &str) {
+        self.retire_launch_credential_file(tab_id);
         if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {
             tab.reported_session_binding_nonce = None;
         }
@@ -135,6 +139,7 @@ impl ServiceContext {
         resume_target: Option<&str>,
         launch_starting: bool,
     ) -> String {
+        self.revoke_tab_credential(tab_id);
         self.invalidate_guarded_agent_input(tab_id);
         self.open_lifecycle_epoch(tab_id);
         let nonce = uuid::Uuid::new_v4().to_string();

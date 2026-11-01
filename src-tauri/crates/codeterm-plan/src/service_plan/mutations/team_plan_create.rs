@@ -50,7 +50,7 @@ impl PlanStore {
         observed: bool,
     ) -> Result<Plan, PlanError> {
         crate::service_plan::text_bounds::validate_plan_label("plan title", &title)?;
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let team_id = team_id.trim().to_string();
         if team_id.is_empty() {
             return Err(PlanError::ActivePlanRequiresTeam {
@@ -92,9 +92,8 @@ pass an absolute path with --project, or omit --project to use the current worki
         }
         plan.team_id = Some(team_id);
         plan.milestone_kinds = kinds;
-        if let Err(error) = self.save_in_writer(&mut plan, now_ms) {
-            self.plans.write().remove(&plan.id);
-            self.index.write().remove(&plan.id);
+        if let Err(error) = self.save_in_writer(&writer_turn, &mut plan, now_ms) {
+            self.forget_plan(&plan.id);
             return Err(PlanError::Io(error.to_string()));
         }
         if observed {
@@ -108,10 +107,9 @@ pass an absolute path with --project, or omit --project to use the current worki
         if team_id.is_empty() {
             return None;
         }
-        self.plans.read().values().find_map(|arc| {
-            let plan = arc.lock();
-            (plan.status == PlanStatus::Active && plan.team_id.as_deref() == Some(team_id))
-                .then(|| (plan.id.clone(), plan.title.clone()))
+        self.index.read().values().find_map(|row| {
+            (row.status == PlanStatus::Active && row.team_id.as_deref() == Some(team_id))
+                .then(|| (row.id.clone(), row.title.clone()))
         })
     }
 
@@ -128,7 +126,7 @@ pass an absolute path with --project, or omit --project to use the current worki
                 plan_id: plan_id.into(),
             });
         }
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
             if existing_plan_id != plan_id {
                 return Err(PlanError::TeamAlreadyHasActivePlan {
@@ -138,7 +136,7 @@ pass an absolute path with --project, or omit --project to use the current worki
                 });
             }
         }
-        self.with_plan_in_writer(plan_id, now_ms, |plan| {
+        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             if let Some(bound_team_id) = plan.team_id.as_deref() {
                 if bound_team_id != team_id {
                     return Err(PlanError::PlanAlreadyBoundToTeam {
@@ -165,7 +163,7 @@ pass an absolute path with --project, or omit --project to use the current worki
                 plan_id: plan_id.into(),
             });
         }
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
             if existing_plan_id != plan_id {
                 return Err(PlanError::TeamAlreadyHasActivePlan {
@@ -175,7 +173,7 @@ pass an absolute path with --project, or omit --project to use the current worki
                 });
             }
         }
-        self.with_plan_in_writer(plan_id, now_ms, |plan| {
+        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             if let Some(bound_team_id) = plan.team_id.as_deref() {
                 if bound_team_id != team_id {
                     return Err(PlanError::PlanAlreadyBoundToTeam {
@@ -215,7 +213,7 @@ pass an absolute path with --project, or omit --project to use the current worki
                 plan_id: plan_id.into(),
             });
         }
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         if let Some((existing_plan_id, existing_title)) = self.active_plan_for_team(team_id) {
             if existing_plan_id != plan_id {
                 return Err(PlanError::TeamAlreadyHasActivePlan {
@@ -225,7 +223,7 @@ pass an absolute path with --project, or omit --project to use the current worki
                 });
             }
         }
-        self.with_plan_in_writer(plan_id, now_ms, |plan| {
+        self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             plan.owner_history.push(TransferRecord {
                 from: plan.owner.clone(),
                 to: to.clone(),

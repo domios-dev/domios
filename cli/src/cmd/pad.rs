@@ -23,7 +23,7 @@ pub fn handle_pad(json: bool, action: PadAction) {
         }),
     };
     match result {
-        Ok(value) if json => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Ok(value) if json => println!("{}", crate::cmd::output::encode(&value).unwrap()),
         Ok(serde_json::Value::String(value)) => println!("{value}"),
         Ok(serde_json::Value::Array(values)) => {
             for value in values {

@@ -37,7 +37,7 @@ each failed run. An untested proposal must not become an established recipe.
 
 ## Public repository policy
 
-Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only owner release/X.Y.Z pushes, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Non-release jobs use no environment. All PR checks run hosted and secret-free; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
+Follow [the public repository handoff](../../../docs/release/public-repo.md) before enabling public Actions. Only trusted owner release/X.Y.Z PRs, admitted master merge publication and reviewed release dispatches may acquire release runners and secrets, behind the `release` environment approval. Non-release jobs use no environment. Side PR checks into develop run hosted and secret-free; trusted owner release PRs into master retain their existing heavy graph and runner policy; repository-level runners must be removed or replaced with workflow-restricted organization runners before public Actions is enabled.
 
 ## Choose the release kind
 
@@ -85,12 +85,11 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    that committed head and `git diff --check`.
    Keep the release branch separate from moving `develop`. Commit release fixes on that line,
    then real-merge the release into `develop`; never pull unrelated dev work into the release.
-   Push release/X.Y.Z and open its PR into master. The push's single tests.yml
-   run checks out its exact SHA for full CI, records qualification, then calls
+   Push release/X.Y.Z and open its PR into master. The release PR's tests.yml
+   run checks out its exact head SHA for full CI, records qualification, then calls
    release.yml with dry_run=true to build and sign every platform and retain bytes.
-   New branch pushes cancel the previous run through per-ref concurrency. All PR
-   runs remain hosted and secret-free; they never duplicate full CI or packaging.
-   Develop skips a SHA already owned by a release push run with a clear notice.
+   New PR pushes cancel the previous run through per-PR concurrency. Side PR
+   runs into develop remain hosted and secret-free; they never run full CI or packaging.
    With publication GO, an admin squash-merges the green PR; publication checks that master carries the qualified tree.
    The master push discovers that merged release PR, verifies both merge parents,
    and publishes the exact head's retained green push run through promote_run_id.
@@ -123,6 +122,20 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    the admin merges with `gh pr merge <n> --merge --admin` (never squash or rebase). Merge within
    three days of the green run: its qualification artifact expires after that. Synchronize develop
    through an admin merge PR. A later correction takes a new version.
+
+## PR CI tiers
+
+All PRs into develop, including forks and Dependabot, use tests-side.yml:
+repository guards, fmt-check, TS static/unit/Vitest, plugin bundles/tests and
+one cargo check --workspace --all-targets --locked. Every job is pinned to
+ubuntu-24.04 with read-only permissions and no repository/environment secrets.
+Compilation uses hosted sccache; forks require no private store access.
+CI result requires every light job to succeed. No Rust suites, qualification
+receipt or packaging run on this path. Require that aggregate in develop's
+rules as an owner operation and inspect the first Dependabot run's actual
+runners after merge. Trusted release/X.Y.Z PRs into master retain tests.yml
+and its existing heavy graph; other master PRs remain refused.
+See [CI admission](../../../docs/release/ci.md).
 
 ## Dry runs and narrow diagnostics
 
@@ -349,7 +362,15 @@ key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-en
 certificate is provisioned as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` release environment secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
 
+Windows installer hooks run in Windows PowerShell 5.1, not pwsh. Verify installer
+preflight against an empty isolated install directory during native installer QA.
+
 ### Runner map
+
+Release workflows verify the compiled server's production analytics fingerprint with
+`scripts/check-release-analytics-key.mjs` before uploads. The analytics build script tracks both
+key variables and emits non-secret hash cfgs so sccache cannot reuse a keyless build; never
+replace the binary check with a secret-presence check or print the keys.
 
 Workflows select runners by label, never by name. Heavy lanes combine a role with `host-<machine>` to retain warm per-runner targets.
 `./build.sh runner-pause` keeps host labels and never lends them; a pinned lane stays unavailable
@@ -360,8 +381,11 @@ until its own host is restored.
 | `codeterm-builder-2` (`eight-macos-arm64`) | eight, macOS arm64 | `codeterm-builder`, `heavy`, `light`, `host-eight` | builds: macOS arm64 and x64, Linux arm64 Docker signing; quick checks |
 | `air-macos` (`air-macos-arm64`) | air, macOS arm64 | `macos-ci`, `rust-shard`, `light`, `host-air` | tests: macOS Rust platform, then embeddings |
 | `ROG-windows-build` (`rog-windows-x64`) | ROG, Windows x64 | `windows-build`, `windows-x64-build`, `medium`, `host-rog` | builds: Windows x64 NSIS, arm64 handoff signing; tests: native Windows |
-| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: release prepare, frontend bundle, Linux x64, dry-run manifest, publication |
-| `ubunta-light-1/2` (`ubunta-linux-x64-light-1/2`) | ubunta, Linux x64 | `light`, `host-ubunta` | quick checks and qualification receipt handling |
+| `ubunta-linux-build` (`ubunta-linux-x64`) | ubunta, Linux x64 | `linux-build`, `host-ubunta` | builds: Linux x64, dry-run manifest, release evidence promotion; tests: full Rust suite. The only runner on ubunta |
+
+Publication (manifests, notes, un-drafting, issue closure) runs on hosted `ubuntu-24.04`, so a
+lost ubunta never strands a draft. If ubunta is down during promotion, set
+`CI_RELEASE_EVIDENCE_RUNNER=hosted` and re-run the failed jobs.
 
 Arm64 compiles run on GitHub-hosted arm64 runners without signing or cache credentials; the
 self-hosted rows above sign their handoff. All self-hosted runners except `ubunta-linux-build`
@@ -381,8 +405,8 @@ Use the existing sccache policy and named cache-verify/cache-stats operations. C
 counters do not prove a live cache or reuse. Container evidence comes from its own cache server,
 not host statistics. Recovery/image baking follows the build-machine skill and assigned authority;
 no automatic reboots, pruning, runner provisioning or global configuration changes.
-Rust warning reports must be complete and zero-new-warning. Fix owning-platform warnings; never
-increase baseline allowances or treat missing/cancelled reports as clean. Retrieve CI report evidence
+Rust warning findings are advisory; cleanup follows the release on the owning platform.
+Reports must remain complete: never inflate baselines or treat missing/cancelled reports as clean. Retrieve CI report evidence
 through the existing ci-artifact tooling rather than assuming GitHub artifact storage.
 
 ## Monitoring and failure recovery
@@ -417,18 +441,17 @@ unsigned diagnostics cannot be called signed releases. No file swaps or process-
 Every release-branch push restarts the full graph, so a fix must not introduce the next failure:
 
 - Collect every failed job of the run first and fix them as one batch.
-- A change to `build.sh`, a workflow or a script also runs the whole `scripts/tests` suite
-  (`node --test scripts/tests/*.test.mjs scripts/*.test.mjs`), not only the touched files: contract
-  tests pin build.sh functions, runner routing and job permissions. Windows hosts show known
-  build-gateway and DEV-tooling flakes in that suite; judge those on Linux.
+- For changes to build tooling, run the affected product entrypoint and its source guards.
 - A behaviour change updates the tests that encode the old behaviour in the same commit.
 - An environmental failure on unchanged source reruns only the failed jobs (`gh run rerun <id> --failed`).
+  A rerun raises the run attempt, and publication refuses a qualification receipt from an older
+  attempt: after it goes green, rerun the `qualification receipt` job alone (`gh run rerun --job <id>`).
 
 ### Known traps
 
 - rustc hides link.exe progress output (`Creating library ...`) only when the linker is the bare
-  name `link.exe`; an absolute linker path turns it into `linker_messages` warnings that fail the
-  zero-warning ratchet. Put the native MSVC tool directory first on PATH instead.
+  name `link.exe`; an absolute linker path produces advisory `linker_messages` warnings.
+  Put the native MSVC tool directory first on PATH during warning cleanup.
 - Windows `tar.exe` fails with `GetVolumePathName failed: 123` on the gateway's subst drive; run it
   from the real path (`realpathSync.native`).
 - Tauri leaves its AppImage `*.AppDir` staging tree, which contains links, under the bundle
@@ -438,7 +461,7 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
 
 ## Publication, notes and issue closure
 
-Private source: `rollacode/codeterm`. Public updater mirror: `rollacode/codeterm-releases`.
+Public source and desktop downloads: `domios-dev/domios`. Retained updater/plugin mirror: `rollacode/codeterm-releases`.
 Manifest URLs must be anonymously reachable public assets. macOS updater uses arch-specific
 .app.tar.gz, Linux AppImage, Windows NSIS .exe; a DMG is not a macOS updater archive.
 Keep signatures/fragments paired to the exact bytes from their producing run.
@@ -453,6 +476,10 @@ Served bytes are not the whole proof: on a host still running the previous versi
 `domios update install --auto` must install this release and come back on the new pair with
 sessions restored. A published defect ships as the next patch version through this same train;
 never move a tag or re-upload changed bytes under a published version.
+
+Sign macOS updater archives with `tauri signer sign --app-version "$VER"`, like Linux and Windows.
+Manifest verification authenticates every trusted comment and requires exactly one matching `version:`
+binding, including entries outside a selected artifact check; an unsigned or stale comment refuses release.
 
 `sync-release-notes.mjs` maintains one substantive notes body across both repositories. Historical
 backfill mutates published notes and needs explicit authorization.
@@ -469,8 +496,16 @@ Integration PRs use metadata; the final master PR gets generated closing keyword
 and deferred issues with reasons; do not invent fixes or handwrite a second closing set.
 Public issues close only after this version's complete served-byte verification passes
 `check-release-closure.mjs`. The closure boundary records validator run ID/repository/URL and source
-SHA; readers confirm that successful run through Actions. Missing/unverifiable boundaries are
-refused, never inferred from asset presence or release ownership.
+SHA; readers confirm that run through Actions. A failed/cancelled run qualifies only when its
+exact-attempt jobs prove public-mirror verification, Debian verification and boundary minting
+succeeded in one job before any failure/cancellation. Missing/unverifiable boundaries are refused,
+never inferred from asset presence or release ownership.
+Set repository variable `RELEASE_CLOSE_PUBLIC_ISSUES=false` when the owner closes public issues
+manually; this skips only automatic closure, preserving publication verification and boundary evidence.
+Included-history resolution prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
+alias of the same version, resolves fully qualified tag refs, and still requires verified publication boundaries.
+Associated PRs come from closed PRs sorted by update time, filtered by included merge SHA.
+The scan ends at history exhaustion or two days before the boundary commit date; hitting its page bound first refuses.
 
 ## Handoff and closeout
 
@@ -487,4 +522,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 13 -->
+<!-- revision: 19 -->

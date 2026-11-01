@@ -1,3 +1,4 @@
+import { REMOVED_COPY } from "./accountMachines";
 import { peerInventoryModel } from "./peerInventoryModel";
 import type { Service } from "./types";
 import { memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
@@ -9,7 +10,7 @@ import { formatAge } from "../../lib/timeLabels";
 import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
 import { CanvasToolbar } from "@codeterm/chat-ui";
-import { useCanvasViewport, formatLayerTransform } from "@codeterm/canvas-camera";
+import { useCanvasViewport, formatLayerTransform, AUTO_FIT_MAX_SCALE } from "@codeterm/canvas-camera";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";
 import { webGraphLayout, webGraphInitialView, WEB_CARD_SCALE, MACHINE_CARD_SCALE, MACHINE_CARD_WIDTH } from "./webGraphLayout";
@@ -59,6 +60,7 @@ export interface CanvasAccount {
   actions: MachineNodeActions;
   onSignIn: () => void;
   onRetry: () => void;
+  onRetryEnrollment?: () => void;
 }
 
 interface Props {
@@ -221,7 +223,7 @@ export const MeshCanvas = memo(function MeshCanvas({
     const initial = webGraphInitialView(width, height, contentBounds, userAdjustedRef.current);
     if (!initial || fittedBoundsRef.current === key) return;
     fittedBoundsRef.current = key;
-    fitToView(initial.bounds);
+    fitToView(initial.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
   }, [fitToView, contentBounds, width, height]);
 
   const reset = () => {
@@ -251,14 +253,16 @@ export const MeshCanvas = memo(function MeshCanvas({
       onTouchStartCapture={() => { userAdjustedRef.current = true; }}
       style={{
         minHeight: height,
-        background:
-          "radial-gradient(ellipse at center, var(--ct-titlebar-bg) 0%, var(--ct-bg) 100%)",
+        background: "var(--ct-bg)",
         cursor: isDragging ? "grabbing" : "grab",
         userSelect: "none",
         touchAction: "none",
       }}
     >
       {account && <AccountNotes notes={account.canvas.notes} />}
+      {account?.onRetryEnrollment && <button type="button" onMouseDown={(event) => event.stopPropagation()}
+        disabled={account.busy !== null} aria-busy={account.busy === "enrollment"}
+        onClick={account.onRetryEnrollment} className="ct-btn ct-btn-compact absolute bottom-3 right-3 z-10">Retry enrollment</button>}
       {account?.moreMachines && <button type="button" onMouseDown={(event) => event.stopPropagation()}
         onClick={account.onRetry} className="ct-btn ct-btn-compact absolute bottom-3 left-3 z-10">Load more machines</button>}
       <CanvasToolbar label="Mesh graph controls" onRefresh={onRefresh} onFit={() => { userAdjustedRef.current = true; reset(); }} onZoomOut={() => { userAdjustedRef.current = true; zoomBy(-ZOOM_STEP); }} onZoomIn={() => { userAdjustedRef.current = true; zoomBy(ZOOM_STEP); }} />
@@ -339,7 +343,7 @@ export const MeshCanvas = memo(function MeshCanvas({
                 footer={p.isThisMachine ? <>
                   {account?.limitMachines && <MachineLimitPaywall machines={account.limitMachines} />}
                   {account?.removed && <div role="group" aria-label="Rejoin your mesh" onClick={(event) => event.stopPropagation()} className="px-3.5 py-2.5">
-                    <p role="status">This machine was removed from your mesh</p>
+                    <p role="status">{REMOVED_COPY}</p>
                     <button type="button" disabled={!!account.busy || account.signingIn} onClick={account.onRejoin}>Sign in and rejoin</button>
                   </div>}
                   {account?.reauthRequired && !account.removed && <MachineReauthentication signingIn={account.signingIn} onSignIn={account.onSignIn} />}

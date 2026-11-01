@@ -8,6 +8,8 @@ use crate::MemManager;
 
 #[derive(Debug, Clone)]
 pub struct MemCronJob {
+    pub workspace_id: String,
+    pub model: Option<String>,
     pub id: String,
     pub name: String,
     pub agent: String,

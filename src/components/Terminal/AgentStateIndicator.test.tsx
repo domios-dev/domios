@@ -24,6 +24,16 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 }
 
 async function main(): Promise<void> {
+  const phaseRow = await render(<AgentStateIndicator activity={tabActivity({ agent_session_id: "session", agent_state: { state: "working", status_line: "opaque previous activity" } })} />);
+  for (const phase of ["compacting", undefined, "compacting", "streaming"] as const) {
+    const activity = tabActivity({ agent_session_id: "session", agent_state: { state: "working", phase } });
+    await act(async () => phaseRow.root.render(<AgentStateIndicator activity={activity} activeTool={phase === "compacting" ? { toolKind: "command", toolDetail: "opaque previous command" } : undefined} />));
+    const status = phaseRow.host.querySelector('[role="status"]');
+    assert(status?.getAttribute("data-agent-phase") === activity.phase, "reported phase reaches the status view");
+    assert(status?.textContent === (phase === "compacting" ? "" : activity.label), "phase transitions replace stale activity while inline compaction keeps the composer clear");
+  }
+  await act(async () => phaseRow.root.unmount());
+  phaseRow.host.remove();
   const background = { auth: null, api_error: null, permission_mode: null, background: { running: { task: "shell" }, overflow: false, history_incomplete: false, history_initialized: true } };
   for (const [state, expected] of [["idle", "idle"], ["working", "working"]] as const) {
     const row = await render(

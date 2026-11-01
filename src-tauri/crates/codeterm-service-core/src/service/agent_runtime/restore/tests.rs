@@ -9,8 +9,7 @@ fn register_runtime(svc: &ServiceContext) {
             "reasoningEfforts":[{"id":"low","displayName":"Low"},{"id":"medium","displayName":"Medium"}],
             "capabilities":{"agentProvider":true,
                 "chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
-                "structuredControl":{"protocol":"fixture","minVersion":"1.0.0","runtimeModes":[{"id":"auto","displayName":"Auto"}]},
-                "agentRuntime":{
+                    "agentRuntime":{"runtimeModes":[{"id":"auto","displayName":"Auto"}],
                 "runtime":"stdio-jsonrpc", "command":{"binary":"fixture-cli","args":[]},
                 "requestMethods":{"initialize":["handshake"]},"notificationMethods":[]}},
             "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},"executionSandbox":{"platforms":["windows","linux","macos"],
@@ -32,6 +31,67 @@ fn register_runtime(svc: &ServiceContext) {
         .register_provider(Box::new(codeterm_plugin::js_runtime::JsProvider::new(
             manifest, vm,
         )));
+}
+
+#[test]
+fn restored_loaded_runtime_projects_ready_only_with_live_own_binding() {
+    use codeterm_types::pty::BootStage;
+
+    let (mut mux, id) = MultiplexerState::new();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.agent_type = Some("restore-runtime".into());
+    tab.agent_session_id = Some("saved-thread".into());
+    tab.session_binding_nonce = Some(nonce.clone());
+    tab.reported_session_binding_nonce = Some(nonce.clone());
+    tab.agent_runtime_state = Some(serde_json::json!({"state":"loaded"}));
+    let fixture = ServiceFixture::new(MultiplexerState::from_session_snapshot(
+        &mux.to_session_snapshot(),
+    ));
+    register_runtime(&fixture.service);
+
+    assert!(super::tab(&fixture.service, &id).unwrap());
+    let prepared = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    assert_eq!(prepared.boot_stage, Some(BootStage::AgentLaunching));
+    assert!(prepared.agent_booting);
+    assert!(matches!(prepared.backing, TabBacking::ChatBackend { .. }));
+    let _live = super::super::engine::test_support::live_runtime(&prepared);
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .reported_session_binding_nonce = Some("foreign-binding".into());
+    assert!(super::tab(&fixture.service, &id).unwrap());
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&id).unwrap().boot_stage,
+        Some(BootStage::AgentLaunching)
+    );
+
+    let events = Arc::new(parking_lot::Mutex::new(Vec::new()));
+    let captured = events.clone();
+    fixture.ui.listen("tab-boot-stage", move |value| {
+        captured.lock().push(value.clone());
+    });
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&id)
+        .unwrap()
+        .reported_session_binding_nonce = Some(nonce);
+    assert!(super::tab(&fixture.service, &id).unwrap());
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert!(!tab.agent_booting);
+    assert!(tab.pty_id.is_none());
+    let events = events.lock();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["stage"], "agent_ready");
+    assert_eq!(events[0]["session_bound"], true);
+    assert_eq!(events[0]["agent_booting"], false);
 }
 
 #[test]

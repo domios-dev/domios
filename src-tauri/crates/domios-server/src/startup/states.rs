@@ -468,19 +468,6 @@ pub(crate) fn init_states(
     let mut duplicate_generals_closed = 0usize;
     if storage.storage().is_some() && general_config.enabled {
         service::general_agent::ensure_directories();
-        let mut general_config = general_config;
-        if !general_config.first_run_complete
-            && service::general_agent::snapshot_has_protected_main(&mux_state_inner)
-        {
-            general_config.first_run_complete = true;
-            let mut cfg = config_state.lock();
-            cfg.general_agent.first_run_complete = true;
-            let snapshot = cfg.clone();
-            drop(cfg);
-            if let Err(e) = codeterm_service_core::config::save_config_pub(&snapshot) {
-                log::warn!("[general-agent] first_run migration save failed: {}", e);
-            }
-        }
         if general_config.first_run_complete {
             service::general_agent::generate_instructions(
                 general_config.capability_hints,
@@ -522,9 +509,14 @@ pub(crate) fn init_states(
             ws.cwd_missing = missing;
         }
     }
+    mux_state_inner.set_limit_gate(codeterm_service_core::service::billing::pending_limit_gate());
     let mux_state: MuxState = Arc::new(TimedRwLock::new("mux", mux_state_inner));
 
     AppStates {
+        startup_desk: codeterm_service_core::startup::desk::StartupDesk::new(
+            mux_state.clone(),
+            event_broadcaster.clone(),
+        ),
         storage,
         boot_resync,
         config: config_state,

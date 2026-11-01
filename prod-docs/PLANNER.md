@@ -55,7 +55,7 @@ domios plan section add <plan> --title "..." --body "..."   # HOW / phases
 domios plan task add <plan> --name "..." --why "..." \      # YOU cut tasks
     --body "..." --criterion "..." --test-plan "..." --correctness "..." \
     --sections <sec_id> --model <provider>:<model> \
-    --executor-role <role> --personality <name> --role-guidance "You are ..."   # all three required
+    --executor-role <role> --personality <name> --role-guidance "You are ..."   # persona is optional
 domios plan doctor <plan> --kind quality          # self-review before handing back
 domios plan get <plan> --sections                 # structure only, cheap
 domios task show <task_id>                         # one task, cheap
@@ -87,11 +87,10 @@ WHAT/WHY lives only in the Spec, HOW only in plan sections; mixing them is the c
 
 The plan-shape contract in your role brief sets how work is cut into tasks.
 
-`test_plan_vague` is the doctor warning for task test plans that are too loose
-for a worker handoff. A concrete test plan is at least 120 characters and names
-a runnable oracle, currently a backticked command or one of `npx`, `cargo`,
-`domios`, `bash`, or `curl`. "Manual check" or prose-only verification stays
-vague even when it is long.
+`test_plan_vague` warns when the verification plan is empty. Review its meaning:
+name the surface, action and observable pass condition through an existing
+command or concrete manual steps. Length and command syntax do not establish
+quality; visual changes need no new automated test merely for handoff.
 
 Effort lineage links use `domios effort link --from <plan> --to <plan> --rel
 <rel>`. The accepted `rel` values are `follows` and `supersedes`.
@@ -165,4 +164,6 @@ Never require a lane in a task; checkout placement is the Orchestrator's call.
 When blocked or unclear on intent, ask the Orchestrator with what you already
 tried; uncertainty routed early is planning working.
 
-<!-- revision: 32 -->
+Task creation reports required-field errors together. Supply name, executor role and role guidance. Omit personality to derive it from the task name; the sole plan section is the default when no area matches. A missing work tag is inferred with a warning. Correctness remains optional with a quality warning. A bare provider such as `--model codex` is resolved at dispatch.
+
+<!-- revision: 34 -->

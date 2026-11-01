@@ -131,6 +131,7 @@ impl ServiceContext {
         SurfaceCallCtx {
             host: Arc::new(self.clone()),
             owner_tab_id: binding.owner_tab_id.clone(),
+            caller_tab_id: None,
             data_dir: self.agent_pad_data_dir.clone(),
             actor: None,
         }
@@ -271,6 +272,8 @@ mod tests {
             runtime: runtime.map(str::to_string),
             chrome: None,
             icon: None,
+            agent_verbs: Vec::new(),
+            state_invalidation: false,
         }
     }
 

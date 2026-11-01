@@ -7,7 +7,7 @@ import { MultiplexerProvider, useMultiplexer, useMuxState } from "../../store/mu
 import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const { signIn, signOut, manage, openPlans, openUrl, state } = vi.hoisted(() => ({
   signIn: vi.fn(), signOut: vi.fn(), manage: vi.fn(), openPlans: vi.fn(), openUrl: vi.fn(),
-  state: { signedIn: false, sessionOnly: false, billingPending: false, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null },
+  state: { signedIn: false, sessionOnly: false, billingPending: false, paidSubscription: true, planStatus: "active", planAuthority: "billing", fullAccess: false, useRealPlan: false, photoUrl: null as string | null },
 }));
 const localFetch = vi.hoisted(() => vi.fn());
 vi.mock("../Settings/useAccount", async (importOriginal) => ({
@@ -25,6 +25,9 @@ vi.mock("../Settings/useAccountPlan", async (importOriginal) => {
       pending:state.billingPending,
     }) };
 });
+vi.mock("../billing/useDesktopBilling", () => ({ useDesktopBilling: () => ({
+  subscription: state.paidSubscription ? { paid_subscription: { tier: "pro" } } : { paid_subscription: null },
+}) }));
 vi.mock("../../lib/webApi", async (importOriginal) => ({
   ...await importOriginal<typeof import("../../lib/webApi")>(),
   localFetch,
@@ -32,6 +35,7 @@ vi.mock("../../lib/webApi", async (importOriginal) => ({
 vi.mock("../../lib/nativeBridge", () => ({nativeBridge:{openUrl}}));
 import { siteLinks } from "../../../shared/siteLinks";
 import { AccountTray } from "./AccountTray";
+import { SelfSessionSignOut } from "./SelfSessionSignOut";
 import { AccountMeshClientProvider } from "../MeshPanel/accountMeshClient";
 import { FakeAccountMeshClient, snapshot } from "../MeshPanel/accountMachines.testdata";
 import { accountInitials } from "../Settings/accountModel";
@@ -279,14 +283,13 @@ it("shows identity and plan and wires subscription and sign out", async () => {
     const head = menu!.querySelector<HTMLElement>('[data-testid="account-menu-head"]')!;
     expect(head.textContent).toContain("ada@example.test");
     expect(head.querySelector(".ct-plan-badge")?.textContent).toBe("Pro");
-    expect(head.querySelector(".ct-plan-status")?.textContent).toBe("active");
     expect(menu?.getAttribute("aria-label")).toBe("Account: Ada, Pro · active");
     expect(head.closest('[role="menuitem"], button')).toBeNull();
     expect(head.querySelector('[role="menuitem"], button, [tabindex]')).toBeNull();
     expect(Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).some((item) => item.textContent?.includes("ada@example.test"))).toBe(false);
     const manageItem = Array.from(menu!.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent?.includes("Manage subscription"));
     await act(async () => manageItem!.click());
-    expect(manage).toHaveBeenCalledExactlyOnceWith(openPlans);
+    expect(manage).toHaveBeenCalledExactlyOnceWith();
     await act(async () => button!.dispatchEvent(new KeyboardEvent("keydown", {key:"Enter",bubbles:true})));
     const signOutItem = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]')).find(item => item.textContent === "Sign out");
     await act(async () => signOutItem!.click());
@@ -459,5 +462,45 @@ it("keeps normal sign-out and confirms self session revocation separately", asyn
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   } finally {
     await act(async () => root.unmount()); host.remove(); state.signedIn = false;
+  }
+});
+
+it("keeps local sign-out final and explains an unconfirmed machine revocation", async () => {
+  const client = new FakeAccountMeshClient(snapshot());
+  client.sessionRevokeOutcomes.push({ ok: false, failure: { reason: "offline" }, local_signed_out: true });
+  const closed = vi.fn();
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountMeshClientProvider value={client}><SelfSessionSignOut onClose={closed} /></AccountMeshClientProvider>));
+    const dialog = document.querySelector('[role="dialog"]')!;
+    await act(async () => dialog.querySelector<HTMLButtonElement>('button[type="submit"]')!.click());
+    expect(dialog.querySelector('[role="status"]')?.textContent).toContain("You are signed out.");
+    expect(dialog.querySelector('[role="status"]')?.textContent).toContain("Account > machines");
+    expect(dialog.querySelector('button[type="submit"]')).toBeNull();
+    expect(client.sessionRevokeCalls).toEqual([undefined]);
+    await act(async () => dialog.querySelector<HTMLButtonElement>("button")!.click());
+    expect(closed).toHaveBeenCalledOnce();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("offers Upgrade for granted access without a paid subscription", async () => {
+  state.signedIn = true;
+  state.paidSubscription = false;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<AccountTrayWithActions />));
+    await act(async () => host.querySelector("button")!.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    const items = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'));
+    expect(items.find(item => item.textContent?.includes("Manage subscription"))).toBeUndefined();
+    const upgrade = items.find(item => item.textContent?.includes("Upgrade"));
+    expect(upgrade).toBeDefined();
+    await act(async () => upgrade!.click());
+    expect(openPlans).toHaveBeenCalledOnce();
+    expect(manage).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    state.signedIn = false; state.paidSubscription = true;
   }
 });

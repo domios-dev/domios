@@ -81,6 +81,25 @@ fn caller_context_round_trips_supplied_values() {
 }
 
 #[test]
+fn blank_caller_environment_yields_no_claims() {
+    for blank in ["", " \t "] {
+        let fields = CONTEXT_ENV.map(|key| (key, blank));
+        with_env(&fields, || {
+            let context = CallerContext::from_env();
+            let mut params = json!({});
+            context.apply_caller_tab(&mut params);
+            context.apply_trusted_session(&mut params);
+            assert_eq!(params, json!({}));
+            assert_eq!(context.owner(), frozen_owner_absent());
+            assert_eq!(context.tab_id(), None);
+            let body = context.report_body("explicit-tab", "opaque-report".into());
+            assert!(body.get("caller_session_id").is_none());
+            assert!(body.get("session_binding_nonce").is_none());
+        });
+    }
+}
+
+#[test]
 fn context_injection_matches_pre_change_params() {
     let (caller_tab, trusted, owner) = with_env(&full_env(), || {
         let ctx = CallerContext::from_env();
@@ -404,8 +423,6 @@ fn no_method_allowlist_was_introduced() {
     }
 }
 
-/// D1-D5 are preserved by explicit decision, not normalized. Each assertion
-/// pins the disagreement so a later "tidy-up" has to argue with a red test.
 #[test]
 fn trust_disagreements_are_preserved() {
     // D1: `task take` refuses over mesh; `task drop` ships trust ungated.
@@ -460,10 +477,16 @@ fn trust_disagreements_are_preserved() {
         "D3: the session_id-named helper must survive alongside it"
     );
 
-    // D4: two owner shapes coexist.
+    let take_arm = task_rs()
+        .split("TaskAction::Take { task_id } => {")
+        .nth(1)
+        .expect("task take arm must exist");
+    let take_arm = &take_arm[..take_arm.find("TaskAction::Drop").unwrap()];
     assert!(
-        task_rs().contains("params[\"owner\"] = json!({ \"tab_id\": caller });"),
-        "D4: task.rs must keep its tab_id-only owner shape"
+        take_arm.contains("\"caller_tab_id\": caller")
+            && take_arm.contains("inject_trusted_session(&mut params)")
+            && !take_arm.contains("\"owner\""),
+        "task take must authenticate its caller without supplying an owner"
     );
     assert_eq!(
         with_env(&full_env(), owner_from_env),

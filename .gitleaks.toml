@@ -7,6 +7,13 @@ useDefault = true
 # Historic one-off findings live in .gitleaksignore (commit-pinned fingerprints).
 
 [[allowlists]]
+description = "Deterministic Neighbor crypto golden vector derived from the public RFC 7748 test seeds; never a live channel key"
+targetRules = ["generic-api-key"]
+condition = "AND"
+paths = ['''^src-tauri/crates/codeterm-neighbors/test/golden-v2\.json$''']
+regexes = ['''^917f2d9d15daa0fd54bf18fa7aff65eefea99489513c8e410093a9d06139c77a$''']
+
+[[allowlists]]
 description = "Intentionally public TEST ONLY Ed25519 key; its public half appears only in tests, never in a shipped verifier (see scripts/frontend-release/README.md)"
 targetRules = ["private-key"]
 paths = ['''^scripts/frontend-release/fixtures/frontend-test\.pem$''']

@@ -11,6 +11,7 @@ import {
 } from "react";
 import { DEV_BUILD } from "../lib/devBuild";
 import { classifyUpdateFailure } from "../lib/updateStatusModel";
+import { updatePresentation, updateStatusForPhase } from "../lib/updatePresentation";
 import { listen } from "../lib/bridge";
 import { useConfig } from "./useConfig";
 import { checkForUpdate, getUpdateStatus, installAppUpdate, requestUpdateChannel } from "./updateTransport";
@@ -101,6 +102,7 @@ interface UpdateContextValue {
   toastOpen: boolean;
   blocking: boolean;
   installing: boolean;
+  nativeStatusObserved: boolean;
   setChannel: (next: UpdateChannel) => Promise<void>;
   refresh: (force?: boolean, opts?: { silent?: boolean }) => Promise<void>;
   applyUpdate: (opts?: { failureSurface: "inline" | "toast" }) => Promise<InstallResponse | null>;
@@ -215,23 +217,6 @@ function progressForRuntime(next: RuntimeStatus, previous: number): number {
   }
 }
 
-function phaseToStatus(phase: UpdatePhase, installing: boolean): UpdateStatus | null {
-  switch (phase) {
-    case "checking":
-      return installing ? "checking" : null;
-    case "downloading":
-      return "downloading";
-    case "applying":
-      return "applying";
-    case "success":
-      return "restarting";
-    case "error":
-      return "error";
-    case "idle":
-      return null;
-  }
-}
-
 export function UpdateProvider({ children }: { children: ReactNode }) {
   const { config } = useConfig();
   const api = config.api;
@@ -247,6 +232,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [channelSupported, setChannelSupported] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [installing, setInstalling] = useState(false);
+  const [nativeStatusObserved, setNativeStatusObserved] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
   const [progress, setProgress] = useState(0);
   const [downloadedBytes, setDownloadedBytes] = useState(0);
@@ -255,6 +241,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const userInstallRef = useRef(false);
   const activeInstallPhaseRef = useRef(false);
   const installCallReturnedRef = useRef(false);
+  const installFailureRef = useRef(false);
 
   useEffect(() => {
     installingRef.current = installing;
@@ -262,7 +249,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   const handleInfo = useCallback((next: UpdateInfo) => {
     setInfo(next);
-    if (installingRef.current) return;
+    if (installingRef.current || installFailureRef.current) return;
     setStatus(next.update_available ? "available" : "up-to-date");
   }, []);
 
@@ -270,13 +257,16 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     async (force = false, opts?: { silent?: boolean }): Promise<void> => {
       if (installingRef.current) return;
       const silent = opts?.silent ?? false;
-      if (!silent) setStatus("checking");
-      setError(null);
+      if (!installFailureRef.current) {
+        if (!silent) setStatus("checking");
+        setError(null);
+      }
       try {
         const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined);
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         handleInfo(data);
       } catch (e) {
+        if (installFailureRef.current) return;
         if (!classifyUpdateFailure(silent ? "background" : "check", e)) {
           if (DEV_BUILD) console.debug("Background update check failed", e);
           return;
@@ -324,6 +314,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const applyRuntimeStatus = useCallback(
     (raw: RuntimeStatus, opts?: { adopt?: boolean }) => {
       const next = normalizeRuntimeStatus(raw);
+      setNativeStatusObserved(true);
+      if (next.phase === "idle" && installFailureRef.current) return;
       const observation = observeInstallPhase(
         next.phase,
         activeInstallPhaseRef.current,
@@ -336,6 +328,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const nextInstalling = installingRef.current || shouldAdopt;
 
       if (shouldAdopt) {
+        installFailureRef.current = false;
+        if (!installingRef.current) setToastOpen(true);
         installingRef.current = true;
       }
 
@@ -367,17 +361,14 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "error") {
         const message = next.last_error || "Update failed";
-        if (!classifyUpdateFailure(installingRef.current ? "update" : "background", message)) {
-          if (DEV_BUILD) console.debug("Background update status failed", message);
-          return;
-        }
+        installFailureRef.current = true;
         installingRef.current = false;
         activeInstallPhaseRef.current = false;
         installCallReturnedRef.current = true;
         setError(message);
         setStatus("error");
         setInstalling(false);
-        setToastOpen(userInstallRef.current);
+        setToastOpen(userInstallRef.current || opts?.adopt === true);
         userInstallRef.current = false;
         return;
       }
@@ -385,7 +376,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       setError(null);
       setProgress((prev) => progressForRuntime(next, prev));
 
-      const runtimeStatus = phaseToStatus(next.phase, nextInstalling);
+      const runtimeStatus = updateStatusForPhase(next.phase, nextInstalling);
       if (runtimeStatus) {
         setStatus(runtimeStatus);
         return;
@@ -418,11 +409,13 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const applyUpdate = useCallback(async (opts?: { failureSurface: "inline" | "toast" }): Promise<InstallResponse | null> => {
     if (installingRef.current) return { status: "already_in_flight" };
     installingRef.current = true;
+    setNativeStatusObserved(false);
     userInstallRef.current = opts?.failureSurface !== "inline";
     activeInstallPhaseRef.current = false;
     installCallReturnedRef.current = false;
+    installFailureRef.current = false;
     setInstalling(true);
-    setToastOpen(false);
+    setToastOpen(true);
     setStatus("checking");
     setPhase("checking");
     setProgress((prev) => Math.max(prev, 8));
@@ -434,6 +427,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       await fetchRuntimeStatus();
       return response;
     } catch (e) {
+      installFailureRef.current = true;
       installingRef.current = false;
       activeInstallPhaseRef.current = false;
       installCallReturnedRef.current = true;
@@ -490,9 +484,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     };
   }, [handleInfo]);
 
-  // A user-started install owns the window from download through restart.
-  const blocking = status === "applying" || status === "restarting"
-    || (installing && (status === "checking" || status === "downloading"));
+  const blocking = updatePresentation(status, installing, info?.latest_version ?? null).blocking;
 
   const value = useMemo<UpdateContextValue>(
     () => ({
@@ -511,6 +503,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       toastOpen,
       blocking,
       installing,
+      nativeStatusObserved,
       setChannel,
       refresh,
       applyUpdate,
@@ -528,6 +521,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       error,
       info,
       installing,
+      nativeStatusObserved,
       phase,
       progress,
       refresh,

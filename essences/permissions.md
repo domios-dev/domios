@@ -4,7 +4,7 @@ Domios keeps execution access, role authority, plugin grants, folder trust and m
 
 ## Agent execution access
 
-Workers launch with full machine access by default. Execution intent governs plan and report authority independently of the OS sandbox. A launch may explicitly request read-only or workspace-write confinement; restore never widens its saved policy. Unavailable or redirected recorded writable roots are dropped with a warning; host-owned cache directories may be recreated at the recorded path. Read-only confinement and the working root remain unchanged. Other agents follow the global `agent.full_access` choice; until the owner has chosen, their spawn is refused before a tab is created.
+Workers launch with full machine access by default. Execution intent governs plan and report authority independently of the OS sandbox. A launch may explicitly request read-only or workspace-write confinement; restore never widens its saved policy. Unavailable or redirected recorded writable roots are dropped with a warning; host-owned cache directories may be recreated at the recorded path. Read-only confinement and the working root remain unchanged. Delegation never exceeds an explicit ceiling: a spawn whose caller tab has a recorded sandbox, or that runs while the owner sets `agent.sandbox_ceiling`, must request that sandbox or a narrower one, and omitting `--sandbox` counts as full access; a delegated workspace-write launch must start inside the confined caller's writable roots, and a confined caller cannot delegate to a mesh peer. Restore and restart keep the policy recorded at launch. Other agents follow the global `agent.full_access` choice; until the owner has chosen, their spawn is refused before a tab is created.
 
 Without full access, a model whose provider declares no unattended permission mode receives launch-scoped grants for its role's Domios commands. Launching an Orchestrator or Planner on such a model is refused before tab creation, with the model named; Team pairing checks both members first. Provider capabilities determine this behavior, not provider identity.
 
@@ -13,6 +13,8 @@ Command and tool permission prompts follow the tab's own permission policy. At a
 ## Operator and role authority
 
 The owner's execution-access choice is separate from authority over Teams, plans, tasks and reports. A role or task grants its defined scope through the [orchestration contract](orchestration.md); a provider execution mode does not confer another role. An agent cannot claim the owner's identity merely by supplying a command or request field. Human confirmation and agent role checks remain distinct at the operation that requires them.
+
+API and local-socket callers from tabs authenticate with credentials bound to their current launch. Tab close, launch or bound-session replacement, and daemon restart end that credential's authority. A supplied tab id or omitted caller field cannot impersonate another tab or select the human path. The owner Web UI and internal host services retain a separate host credential; trusted owner context selection remains subject to the operation's existing checks. These credentials govern API identity and do not replace execution-access policy or OS confinement.
 
 ## Folder trust and provenance
 

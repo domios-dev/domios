@@ -142,12 +142,26 @@ if grep -q "127.0.0.1:$PROD_PORT" "$FIXTURE/poisoned-curl.log"; then
   fail "dc probed the prod port"
 fi
 
-# --- 5. --as-tab is the only way a tab id reaches the CLI ------------
+# --- 5. --as-tab requires the matching DEV launch credential ---------
 CURL_LOG="$FIXTURE/as-tab-curl.log"
-as_tab_output="$(probe "$POISON"'source "$1"; dc --as-tab dev-tab whoami')"
-if ! grep -q "tab=dev-tab$" <<<"$as_tab_output"; then
-  fail "--as-tab did not reach the CLI: $as_tab_output"
+DEV_TAB='export CODETERM_API_PORT=7686 CODETERM_API_URL=http://127.0.0.1:7686 CODETERM_SOCKET_PATH=domios-dev.sock CODETERM_TAB_ID=dev-tab CODETERM_API_TOKEN=tab-launch-token CODETERM_SESSION_ID=dev-session CODETERM_SESSION_BINDING_NONCE=dev-nonce; '
+as_tab_output="$(probe "$DEV_TAB"'source "$1"; dc --as-tab dev-tab whoami')"
+if ! grep -Fqx "CLI_SAW port=$DEV_PORT api_url=http://127.0.0.1:$DEV_PORT data_dir=$FIXTURE/home/.domios-dev vite=1420 token=tab-launch-token socket=domios-dev.sock tab=dev-tab" <<<"$as_tab_output"; then
+  fail "--as-tab did not use its own scoped launch credential: $as_tab_output"
 fi
+as_tab_child="$(probe "$DEV_TAB"'source "$1"; dev_run --as-tab dev-tab bash -c '\''printf "%s|%s|%s" "$CODETERM_API_TOKEN" "$CODETERM_SESSION_ID" "$CODETERM_SESSION_BINDING_NONCE"'\''')"
+[ "$as_tab_child" = 'tab-launch-token|dev-session|dev-nonce' ] || fail "dev_run lost the tab launch binding"
+for setup in "$POISON" "$DEV_TAB"'export CODETERM_TAB_ID=other-tab; ' "$DEV_TAB"'unset CODETERM_API_TOKEN; ' "$DEV_TAB"'export CODETERM_API_TOKEN=dev-token; '; do
+  set +e
+  refused="$(probe "$setup"'source "$1"; dc --as-tab dev-tab whoami' 2>&1)"
+  refused_status=$?
+  set -e
+  [ "$refused_status" = 7 ] && ! grep -q CLI_SAW <<<"$refused" && grep -Fq 'ERROR [dev-tab]' <<<"$refused" || fail "foreign/missing/owner credential was not refused"
+done
+as_tab_post="$(probe "$DEV_TAB"'source "$1"; dev_post_as_tab dev-tab /api/probe '\''{"opaque":"$literal"}'\''')"
+grep -Fq 'Authorization: Bearer tab-launch-token' "$CURL_LOG" || fail "tab POST did not use its scoped credential"
+grep -Fq -- '--data {"opaque":"$literal"} http://127.0.0.1:7686/api/probe' "$CURL_LOG" || fail "tab POST changed the JSON body"
+if grep -q "127.0.0.1:$PROD_PORT" "$CURL_LOG"; then fail "tab probes contacted prod"; fi
 
 # --- 6. dc refuses to invoke the CLI when dev is not answering -------
 CURL_LOG="$FIXTURE/down-curl.log"

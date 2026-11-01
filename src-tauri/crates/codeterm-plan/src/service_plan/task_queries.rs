@@ -4,11 +4,8 @@ use std::path::Path;
 
 use super::readback::pending_after_verified;
 use super::state::{dependency_waits, DependencyWait, TaskPresentation};
-use super::{NewTask, PlanError, PlanStore};
-use crate::plan::{
-    OrchestratorRef, Plan, PlanMode, PlanStatus, Section, Task, TaskStatus, INBOX_PLAN_ID,
-    INBOX_PLAN_TITLE,
-};
+use super::{PlanError, PlanMatch, PlanStore, TaskMatch};
+use crate::plan::{OrchestratorRef, Plan, PlanMode, PlanStatus, Section, Task, TaskStatus};
 
 #[derive(Debug, Clone, Default)]
 pub struct TaskListFilter {
@@ -96,7 +93,7 @@ pub struct TaskListResult {
     pub empty_reason: Option<TaskListEmptyReason>,
 }
 
-fn canonical_project(project_path: &str) -> String {
+pub(super) fn canonical_project(project_path: &str) -> String {
     super::paths::project_root(Path::new(project_path))
         .display()
         .to_string()
@@ -230,37 +227,28 @@ fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
     true
 }
 
+/// Unarchived plans holding a task this reference may name; callers confirm with `find_task`.
+fn task_ref_candidates(task_ref: &str) -> PlanMatch {
+    PlanMatch::active().and(TaskMatch::reference(task_ref))
+}
+
 impl PlanStore {
-    pub fn ensure_inbox_plan(
-        &self,
-        project_path: &str,
-        owner: OrchestratorRef,
-        now_ms: u64,
-    ) -> Result<Plan, PlanError> {
-        let project_path = canonical_project(project_path);
-        if let Some(plan) = self.get(INBOX_PLAN_ID) {
-            if plan.project_path == project_path {
-                return Ok(plan);
+    /// The plans in the filter's scope, plus the named plan itself so an empty list can say why.
+    fn task_list_plans(&self, filter: &TaskListFilter) -> Vec<Plan> {
+        let mut scope = vec![PlanMatch::active()];
+        if let Some(project) = filter.project_path.as_deref() {
+            scope.push(PlanMatch::Project(project.to_string()));
+        }
+        if let Some(plan_id) = filter.plan_id.as_deref() {
+            scope.push(PlanMatch::Ids(vec![plan_id.to_string()]));
+        }
+        let mut plans = self.plans_matching(&PlanMatch::All(scope));
+        if let Some(plan_id) = filter.plan_id.as_deref() {
+            if !plans.iter().any(|plan| plan.id == plan_id) {
+                plans.extend(self.get(plan_id));
             }
         }
-        let mut plan = Plan::new(INBOX_PLAN_TITLE.into(), project_path, owner);
-        plan.id = INBOX_PLAN_ID.into();
-        plan.status = PlanStatus::Archived;
-        self.save(&mut plan, now_ms)
-            .map_err(|e| PlanError::Io(e.to_string()))?;
-        Ok(plan)
-    }
-
-    pub fn add_inbox_task(
-        &self,
-        project_path: &str,
-        owner: OrchestratorRef,
-        new: NewTask,
-        now_ms: u64,
-    ) -> Result<(String, String), PlanError> {
-        let plan = self.ensure_inbox_plan(project_path, owner, now_ms)?;
-        let task_id = self.add_task(&plan.id, new, now_ms)?;
-        Ok((plan.id, task_id))
+        plans
     }
 
     pub fn list_tasks(&self, filter: TaskListFilter) -> Vec<TaskSummary> {
@@ -269,7 +257,7 @@ impl PlanStore {
 
     pub fn list_tasks_with_reason(&self, mut filter: TaskListFilter) -> TaskListResult {
         filter.project_path = filter.project_path.map(|p| canonical_project(&p));
-        let plans = self.list_full();
+        let plans = self.task_list_plans(&filter);
         let mut tasks = vec![];
         for plan in plans.iter().filter(|plan| plan_in_scope(&filter, plan)) {
             for task in &plan.tasks {
@@ -300,7 +288,7 @@ impl PlanStore {
     }
 
     pub fn show_task(&self, task_id: &str) -> Option<TaskDetail> {
-        for plan in self.list_full() {
+        for plan in self.plans_matching(&task_ref_candidates(task_id)) {
             if plan.status == PlanStatus::Archived {
                 continue;
             }
@@ -350,7 +338,8 @@ impl PlanStore {
         taken_by_role: Option<&str>,
         now_ms: u64,
     ) -> Result<String, PlanError> {
-        let Some((plan_id, canonical_task_id)) = self.list_full().into_iter().find_map(|plan| {
+        let candidates = self.plans_matching(&task_ref_candidates(task_id));
+        let Some((plan_id, canonical_task_id)) = candidates.into_iter().find_map(|plan| {
             if plan.status == PlanStatus::Archived {
                 return None;
             }

@@ -9,7 +9,7 @@ use windows_sys::Win32::Storage::FileSystem::{
     FILE_FLAG_OPEN_REPARSE_POINT, FILE_NAME_NORMALIZED, FILE_SHARE_READ,
 };
 
-pub fn read_bounded(directory: &Path, relative: &str, max: usize) -> Result<String, &'static str> {
+pub fn open_file(directory: &Path, relative: &str) -> Result<File, &'static str> {
     let parts = Path::new(relative)
         .components()
         .map(|component| {
@@ -22,8 +22,8 @@ pub fn read_bounded(directory: &Path, relative: &str, max: usize) -> Result<Stri
     if parts.is_empty() {
         return Err("contract_violation");
     }
-    let mut path = directory.canonicalize().map_err(|_| "contract_violation")?;
-    let root_handle = open(&path)?;
+    let mut path = directory.to_path_buf();
+    let root_handle = open_directory(&path)?;
     if !root_handle
         .metadata()
         .is_ok_and(|metadata| metadata.is_dir())
@@ -51,15 +51,15 @@ pub fn read_bounded(directory: &Path, relative: &str, max: usize) -> Result<Stri
         }
         handles.push(handle);
     }
-    let file = handles.pop().ok_or("contract_violation")?;
-    let mut text = String::new();
-    file.take(max as u64 + 1)
-        .read_to_string(&mut text)
-        .map_err(|_| "contract_violation")?;
-    if text.len() > max {
-        return Err("budget_exhausted");
+    handles.pop().ok_or("contract_violation")
+}
+
+pub fn open_directory(path: &Path) -> Result<File, &'static str> {
+    let file = open(path)?;
+    if !file.metadata().is_ok_and(|value| value.is_dir()) {
+        return Err("contract_violation");
     }
-    Ok(text)
+    Ok(file)
 }
 
 fn open(path: &Path) -> Result<File, &'static str> {

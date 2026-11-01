@@ -1,4 +1,4 @@
-# Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe|gateway-log-probe; scripts check-windows-dev-cleanup-selection.ps1
+# Caller: build.sh gateway-fake|gateway-sleep|gateway-status|gateway-cancel|gateway-policy-probe; scripts check-windows-dev-cleanup-selection.ps1
 param(
   [Parameter(Mandatory = $true)][string] $Root,
   [Parameter(Mandatory = $true)][string] $TargetDebug,
@@ -8,7 +8,7 @@ param(
   [Parameter(Mandatory = $true)][int] $VitePort,
   [Parameter(Mandatory = $true)][int] $ApiPort,
   [Parameter(Mandatory = $true)][int] $CdpPort,
-  [Parameter(Mandatory = $false)][int[]] $OwnedProcessIds = @(),
+  [Parameter(Mandatory = $false)][string[]] $OwnedProcessRecords = @(),
   [switch] $OwnedOnly,
   [switch] $KeepVite,
   [string] $FixturePath,
@@ -16,6 +16,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+if (@($ApiPort, $VitePort, $CdpPort) -contains 7685) { throw 'Refusing production port 7685' }
 function Remove-VerbatimPrefix([string] $path) {
   # Win32_Process can report image paths with the \\?\ prefix, which breaks prefix matching.
   if ($path.StartsWith('\\?\')) { return $path.Substring(4) }
@@ -26,8 +27,12 @@ $rootPath = [IO.Path]::GetFullPath($Root)
 $targetDebugPath = [IO.Path]::GetFullPath($TargetDebug)
 $dataDirPath = [IO.Path]::GetFullPath($DataDir)
 $nodeModules = Join-Path $rootPath "node_modules"
+$runtimeImages = @('domios-app.exe', 'domios-dev-app.exe', 'domios-server.exe', 'codeterm.exe',
+  'domios-server/domios-server.exe', 'cli/codeterm.exe', 'conpty/x64/OpenConsole.exe', 'conpty/arm64/OpenConsole.exe') |
+  ForEach-Object { [IO.Path]::GetFullPath((Join-Path $targetDebugPath $_)) }
 
 if ($FixturePath) {
+  if (-not $PlanOnly) { throw 'Process fixtures require PlanOnly; refusing live cleanup' }
   $fixture = Get-Content -Raw -LiteralPath $FixturePath | ConvertFrom-Json
   $all = @($fixture.processes)
   $listeners = @($fixture.listeners)
@@ -72,9 +77,52 @@ while ($cursorPid -gt 0 -and $selfAncestry.Add($cursorPid)) {
 }
 
 $victimRoots = New-Object System.Collections.Generic.HashSet[int]
-foreach ($procId in @($OwnedProcessIds)) {
-  if ($procId -gt 0 -and -not $selfAncestry.Contains($procId) -and $parentByPid.ContainsKey($procId)) {
+$pinned = @{}
+$identities = @{}
+$skipped = New-Object System.Collections.Generic.List[string]
+if (-not $FixturePath) {
+  Add-Type -Path (Join-Path $PSScriptRoot 'windows-dev-rebuild-process.cs')
+}
+function Get-ProcessIdentity($row) {
+  $procId = [int]$row.ProcessId
+  if ($identities.ContainsKey($procId)) { return $identities[$procId] }
+  if ($FixturePath) {
+    $identity = @{ pid = $procId; created = [string]$row.created; executable = [string]$row.ExecutablePath }
+  } else {
+    $process = [DevRebuildProcess]::Open($procId)
+    if ($null -eq $process) { throw 'process already exited' }
+    try {
+      $identity = @{ pid = $procId; created = $process.Created; executable = $process.Executable }
+      if (-not (Remove-VerbatimPrefix $identity.executable).Equals((Remove-VerbatimPrefix ([string]$row.ExecutablePath)), [StringComparison]::OrdinalIgnoreCase) -or
+          [decimal]::Truncate([decimal]$identity.created / 10) -ne [decimal]::Truncate(([datetime]$row.CreationDate).ToUniversalTime().ToFileTimeUtc() / [decimal]10)) {
+        throw 'process changed since snapshot'
+      }
+      $pinned[$procId] = $process
+    } catch { $process.Dispose(); throw }
+  }
+  if (-not $identity.executable -or $identity.created -notmatch '^\d+$') { throw 'process identity unavailable' }
+  $identities[$procId] = $identity
+  return $identity
+}
+function Skip-Process([string]$reason) {
+  $skipped.Add($reason)
+  Write-Warning "DEV cleanup skipped: $reason"
+}
+foreach ($recordPath in $OwnedProcessRecords) {
+  try {
+    $record = Get-Content -Raw -LiteralPath $recordPath | ConvertFrom-Json
+    $procId = [int]$record.pid
+    if ($procId -le 0 -or $selfAncestry.Contains($procId)) { throw 'invalid or ancestor PID' }
+    $row = $all | Where-Object { [int]$_.ProcessId -eq $procId } | Select-Object -First 1
+    if (-not $row) { throw 'recorded process exited' }
+    $identity = Get-ProcessIdentity $row
+    if ($identity.created -cne [string]$record.created -or -not $record.executable -or
+        -not (Remove-VerbatimPrefix $identity.executable).Equals((Remove-VerbatimPrefix ([string]$record.executable)), [StringComparison]::OrdinalIgnoreCase)) {
+      throw 'recorded PID identity mismatch'
+    }
     [void]$victimRoots.Add($procId)
+  } catch {
+    Skip-Process "identity record '$recordPath': $($_.Exception.Message)"
   }
 }
 if (-not $OwnedOnly) {
@@ -89,6 +137,7 @@ if (-not $OwnedOnly) {
     $procPorts = if ($portsByPid.ContainsKey($procId)) { @($portsByPid[$procId]) } else { @() }
     $rawTarget = ($exe -and $exe.StartsWith($targetDebugPath, [StringComparison]::OrdinalIgnoreCase)) -or
       ($cmd -and $cmd.IndexOf($targetDebugPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)
+    if ($Instance -eq '') { $rawTarget = $exe -and $exe -in $runtimeImages }
     $instanceConptyRoot = Join-Path $dataDirPath "target\debug\conpty"
     $instanceConptyPath = $name.Equals("OpenConsole.exe", [StringComparison]::OrdinalIgnoreCase) -and
       (($exe -and $exe.StartsWith($instanceConptyRoot, [StringComparison]::OrdinalIgnoreCase)) -or
@@ -110,17 +159,12 @@ if (-not $OwnedOnly) {
         $cmd.IndexOf("--port $VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
         $cmd.IndexOf("CODETERM_VITE_PORT=$VitePort", [StringComparison]::OrdinalIgnoreCase) -ge 0)
     $matchesCdp = $cmd -and
-      $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0
+      $cmd.IndexOf("--remote-debugging-port=$CdpPort", [StringComparison]::OrdinalIgnoreCase) -ge 0 -and
+      $name.Equals('msedgewebview2.exe', [StringComparison]::OrdinalIgnoreCase) -and
+      $cmd.IndexOf("$Identifier\EBWebView", [StringComparison]::OrdinalIgnoreCase) -ge 0
 
     if ($matchesTarget -or $matchesInstanceConpty -or $matchesWebView -or $matchesVite -or $matchesCdp) {
       [void]$victimRoots.Add($procId)
-    }
-  }
-  # dev-back owns only the API and CDP ports; dev-front keeps its Vite port.
-  $ownedPorts = if ($KeepVite) { @($ApiPort, $CdpPort) } else { @($ApiPort, $VitePort, $CdpPort) }
-  foreach ($port in $ownedPorts) {
-    foreach ($listener in @($listeners | Where-Object { [int]$_.port -eq $port })) {
-      [void]$victimRoots.Add([int]$listener.process_id)
     }
   }
 }
@@ -155,13 +199,24 @@ if (-not $OwnedOnly) {
 
 $selected = New-Object System.Collections.Generic.HashSet[int]
 function Add-ProcessTree {
-  param([int] $ProcessId)
-  if ($ProcessId -le 0 -or -not $selected.Add($ProcessId)) {
+  param([int] $ProcessId, [long] $ParentCreated = 0)
+  if ($ProcessId -le 0 -or $selfAncestry.Contains($ProcessId) -or $selected.Contains($ProcessId)) {
     return
   }
+  if ($portsByPid.ContainsKey($ProcessId) -and $portsByPid[$ProcessId].Contains(7685)) {
+    Skip-Process "PID ${ProcessId}: production listener"
+    return
+  }
+  try {
+    $row = $all | Where-Object { [int]$_.ProcessId -eq $ProcessId } | Select-Object -First 1
+    if (-not $row) { throw 'process exited' }
+    $identity = Get-ProcessIdentity $row
+    if ([long]$identity.created -lt $ParentCreated) { throw 'child predates parent incarnation' }
+  } catch { Skip-Process "PID ${ProcessId}: $($_.Exception.Message)"; return }
+  [void]$selected.Add($ProcessId)
   if ($childrenByParent.ContainsKey($ProcessId)) {
     foreach ($child in $childrenByParent[$ProcessId]) {
-      Add-ProcessTree -ProcessId ([int]$child.ProcessId)
+      Add-ProcessTree -ProcessId ([int]$child.ProcessId) -ParentCreated ([long]$identity.created)
     }
   }
 }
@@ -170,6 +225,7 @@ foreach ($procId in @($victimRoots)) {
 }
 
 if ($PlanOnly) {
+  foreach ($process in $pinned.Values) { $process.Dispose() }
   [pscustomobject]@{
     instance = $Instance
     identifier = $Identifier
@@ -178,6 +234,7 @@ if ($PlanOnly) {
     cdp_port = $CdpPort
     victim_roots = @($victimRoots | Sort-Object)
     selected_processes = @($selected | Sort-Object)
+    skipped = @($skipped)
   } | ConvertTo-Json -Depth 4
   exit 0
 }
@@ -185,7 +242,7 @@ if ($PlanOnly) {
 $seen = @{}
 function Stop-ProcessTree {
   param([int] $ProcessId)
-  if ($ProcessId -le 0 -or $seen.ContainsKey($ProcessId)) {
+  if ($ProcessId -le 0 -or $seen.ContainsKey($ProcessId) -or -not $selected.Contains($ProcessId)) {
     return
   }
   $seen[$ProcessId] = $true
@@ -194,8 +251,13 @@ function Stop-ProcessTree {
       Stop-ProcessTree -ProcessId ([int]$child.ProcessId)
     }
   }
-  Stop-Process -Id $ProcessId -Force -Confirm:$false -ErrorAction SilentlyContinue
+  try { [DevRebuildProcess]::Stop($pinned[$ProcessId], 10000) }
+  catch { Skip-Process "PID ${ProcessId}: $($_.Exception.Message)" }
 }
-foreach ($procId in @($victimRoots)) {
-  Stop-ProcessTree -ProcessId $procId
+try {
+  foreach ($procId in @($victimRoots)) {
+    Stop-ProcessTree -ProcessId $procId
+  }
+} finally {
+  foreach ($process in $pinned.Values) { $process.Dispose() }
 }

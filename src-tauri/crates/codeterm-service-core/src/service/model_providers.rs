@@ -19,6 +19,28 @@ pub(crate) mod presets;
 #[cfg(test)]
 mod tests;
 
+pub trait ModelProviderClient: Send + Sync {
+    fn models(
+        &self,
+        provider: &ModelProviderDefinition,
+        key: &SecretString,
+    ) -> Result<Vec<String>, ModelProviderError>;
+}
+
+pub struct ModelProviderClientState(pub Arc<dyn ModelProviderClient>);
+
+struct HttpModelProviderClient;
+
+impl ModelProviderClient for HttpModelProviderClient {
+    fn models(
+        &self,
+        provider: &ModelProviderDefinition,
+        key: &SecretString,
+    ) -> Result<Vec<String>, ModelProviderError> {
+        connection::test(provider, key)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ModelProviderError {
@@ -287,6 +309,7 @@ fn valid_models(models: &[String]) -> bool {
 }
 
 fn discover(
+    client: &dyn ModelProviderClient,
     store: &SecretStoreState,
     kind: EndpointKind,
     base_url: String,
@@ -307,7 +330,7 @@ fn discover(
         name: None,
         secret_name: None,
     };
-    Ok(json!({ "models": connection::test(&probe, &key)? }))
+    Ok(json!({ "models": client.models(&probe, &key)? }))
 }
 
 fn valid_id(id: &str) -> bool {
@@ -343,6 +366,16 @@ pub fn execute(
     adapter: &dyn ModelProviderConfig,
     request: ModelProviderRequest,
 ) -> Result<Value, ModelProviderError> {
+    execute_with_client(store, owner, adapter, request, &HttpModelProviderClient)
+}
+
+fn execute_with_client(
+    store: &SecretStoreState,
+    owner: &str,
+    adapter: &dyn ModelProviderConfig,
+    request: ModelProviderRequest,
+    client: &dyn ModelProviderClient,
+) -> Result<Value, ModelProviderError> {
     let request = match request {
         ModelProviderRequest::AddFromSecret {
             mut provider,
@@ -360,7 +393,7 @@ pub fn execute(
             base_url,
             value,
             source_secret,
-        } => return discover(store, kind, base_url, value, source_secret),
+        } => return discover(client, store, kind, base_url, value, source_secret),
         request => request,
     };
     let path = adapter.path().map_err(|_| ModelProviderError::Config)?;
@@ -390,7 +423,7 @@ pub fn execute(
                 .find(|p| p.id == name)
                 .ok_or(ModelProviderError::NotFound)?;
             let key = get_secret(store, owner, provider)?;
-            let models = connection::test(provider, &key.value)?;
+            let models = client.models(provider, &key.value)?;
             Ok(json!({ "models": models }))
         }
         ModelProviderRequest::Add {
@@ -416,7 +449,7 @@ pub fn execute(
                 return Err(ModelProviderError::Conflict);
             }
             if provider.models.is_empty() {
-                provider.models = connection::test(&provider, &value)?;
+                provider.models = client.models(&provider, &value)?;
             }
             if !valid_models(&provider.models) {
                 return Err(ModelProviderError::InvalidRequest);
@@ -474,7 +507,7 @@ pub fn execute(
                 ..current.clone()
             };
             if next.models.is_empty() {
-                next.models = connection::test(&next, value.as_ref().unwrap_or(&stored.value))?;
+                next.models = client.models(&next, value.as_ref().unwrap_or(&stored.value))?;
             }
             if !valid_models(&next.models) {
                 return Err(ModelProviderError::InvalidRequest);
@@ -577,7 +610,12 @@ impl ServiceContext {
                 | ModelProviderRequest::Remove { .. }
         );
         let preset_list = matches!(&request, ModelProviderRequest::PresetList);
-        let mut result = execute(&self.secrets, owner.id(), &*adapter, request)?;
+        let client = self.try_ext::<ModelProviderClientState>();
+        let client: &dyn ModelProviderClient = client
+            .map(|state| state.0.as_ref())
+            .unwrap_or(&HttpModelProviderClient);
+        let mut result =
+            execute_with_client(&self.secrets, owner.id(), &*adapter, request, client)?;
         if preset_list {
             result["provider"] = json!(owner.id());
         }

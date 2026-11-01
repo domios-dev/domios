@@ -73,7 +73,7 @@ function fakeHost(initial: ConnectBlockState) {
     document.body.appendChild(element);
     const root = createRoot(element);
     try {
-      await act(async () => root.render(<ChatBlockHostProvider value={value}><RichMarkdown text="@ds-connect telegram" /></ChatBlockHostProvider>));
+      await act(async () => root.render(<ChatBlockHostProvider value={value}><RichMarkdown text={"<ds-connect bridge=\"telegram\" />"} /></ChatBlockHostProvider>));
       await run(element);
     } finally {
       await act(async () => root.unmount());

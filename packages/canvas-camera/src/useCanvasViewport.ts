@@ -25,6 +25,11 @@ export interface UseCanvasViewportOptions {
   constrainToFit?: boolean;
 }
 
+export interface FitOptions {
+  /** A lower ceiling for this fit than the canvas's own maximum scale. */
+  maxScale?: number;
+}
+
 export interface CanvasViewportHandlers {
   onMouseDown: (e: React.MouseEvent) => void;
 }
@@ -37,7 +42,8 @@ export interface UseCanvasViewportResult {
   /** Ease the camera so `bounds` fits the viewport (fly-to a node bbox). */
   animateToView: (bounds: ViewportBox, durationMs?: number) => void;
   handlers: CanvasViewportHandlers;
-  fitToView: (bounds: ViewportBox) => void;
+  /** Fits `bounds`; an automatic fit passes `{ maxScale: AUTO_FIT_MAX_SCALE }` so it never zooms in. */
+  fitToView: (bounds: ViewportBox, options?: FitOptions) => void;
   zoomBy: (delta: number) => void;
   isDragging: boolean;
   containerRef: React.MutableRefObject<HTMLDivElement | null>;
@@ -118,8 +124,8 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   }, [cancelAnim]);
 
   const fitTransform = useCallback(
-    (bounds: ViewportBox): ViewportTransform | null => {
-      const t = computeFitTransform(bounds, width, height, { fitPadding, minScale, maxScale });
+    (bounds: ViewportBox, cap = maxScale): ViewportTransform | null => {
+      const t = computeFitTransform(bounds, width, height, { fitPadding, minScale, maxScale: Math.min(maxScale, cap) });
       if (t) fitContentScaleRef.current = t.scale;
       return t;
     },
@@ -127,8 +133,8 @@ export function useCanvasViewport(opts: UseCanvasViewportOptions): UseCanvasView
   );
 
   const fitToView = useCallback(
-    (bounds: ViewportBox) => {
-      const t = fitTransform(bounds);
+    (bounds: ViewportBox, options?: FitOptions) => {
+      const t = fitTransform(bounds, options?.maxScale);
       if (t) setTransform(t);
     },
     [fitTransform, setTransform],

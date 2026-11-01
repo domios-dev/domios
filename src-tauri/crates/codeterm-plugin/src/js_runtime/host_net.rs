@@ -10,6 +10,8 @@ use codeterm_decision::physical;
 use futures_util::StreamExt;
 use parking_lot::Mutex;
 use serde::Deserialize;
+#[cfg(test)]
+mod observation_tests;
 
 const MAX_STREAM_JOBS: usize = 128;
 const MAX_STREAM_JOB_BUFFERED_BYTES: usize = 4 * 1024 * 1024;

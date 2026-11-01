@@ -137,10 +137,10 @@ fn surface_agent_call_targets_the_first_stream_declaration() {
         serde_json::from_value(json!({ "id": "board", "title": "Board", "renderer": "view" }))
             .unwrap();
     assert_eq!(
-        plugin_stream_surface(&[view.clone(), browser_decl()]).map(|s| s.id.as_str()),
+        plugin_agent_surface(&[view.clone(), browser_decl()]).map(|s| s.id.as_str()),
         Some("browser")
     );
-    assert!(plugin_stream_surface(&[view]).is_none());
+    assert!(plugin_agent_surface(&[view]).is_none());
 }
 
 #[test]

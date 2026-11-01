@@ -7,6 +7,7 @@ pub mod boot_timing;
 mod bridge;
 mod cli_install;
 pub(crate) mod conpty_cleanup;
+pub mod desk;
 pub(crate) mod frontend_bundles;
 pub use frontend_bundles::check as frontend_bundles_check;
 mod frontend_origins;

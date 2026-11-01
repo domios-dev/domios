@@ -24,7 +24,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
         return;
     }
     let caller_tab_id = (!client.is_remote())
-        .then(|| std::env::var("CODETERM_TAB_ID").ok())
+        .then(|| crate::nonempty_env("CODETERM_TAB_ID"))
         .flatten();
     let result = match action {
         TeamAction::List => client.call_detailed("team.list", None),
@@ -91,7 +91,7 @@ pub fn handle(client: &mut dyn RpcClient, json_output: bool, action: TeamAction)
             if json_output {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
+                    crate::cmd::output::encode(&value).unwrap_or_else(|_| "null".into())
                 );
             } else {
                 print_human(&value);
@@ -126,7 +126,7 @@ fn handle_pair(
             if json_output {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&value).unwrap_or_else(|_| "null".into())
+                    crate::cmd::output::encode(&value).unwrap_or_else(|_| "null".into())
                 );
             } else {
                 print_pair(&value);
@@ -178,7 +178,7 @@ pub(crate) fn pair_params(
     if let Some(t) = title {
         params["title"] = json!(t);
     }
-    if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(spawner) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !spawner.is_empty() {
             params["spawned_by_tab_id"] = json!(spawner);
         }

@@ -1,5 +1,7 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
+#[path = "support/json_output.rs"]
+mod json_output;
 
 use std::process::Command;
 
@@ -32,7 +34,7 @@ fn blueprint_v2_project_offline_list_view_and_refusals() {
         "{}",
         String::from_utf8_lossy(&list.stderr)
     );
-    let rows: serde_json::Value = serde_json::from_slice(&list.stdout).unwrap();
+    let rows = json_output::result(&list.stdout);
     assert_eq!(rows.as_array().unwrap().len(), 2);
     assert!(rows
         .as_array()
@@ -43,7 +45,7 @@ fn blueprint_v2_project_offline_list_view_and_refusals() {
             && row["intent"] == "inspect source without execution"));
     let shown = call(&["show", ".domios/blueprints/valid.yaml"]);
     assert!(shown.status.success());
-    let shown: serde_json::Value = serde_json::from_slice(&shown.stdout).unwrap();
+    let shown = json_output::result(&shown.stdout);
     assert_eq!(shown["document"]["name"], "valid");
     for path in [
         ".domios/blueprints/mismatch.yaml",

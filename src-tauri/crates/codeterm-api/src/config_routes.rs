@@ -97,7 +97,7 @@ fn api_listener_value(
     })
 }
 
-fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
+pub(crate) fn redact_rest_config(mut config: serde_json::Value) -> serde_json::Value {
     if let Some(api) = config
         .get_mut("api")
         .and_then(serde_json::Value::as_object_mut)
@@ -241,6 +241,7 @@ pub async fn patch_config_api(
     // Detect rename so can sync mesh state + push the new name to peers. Mirror of the same logic in the Tauri update_config command.
     let prev_name = state.config.lock().mesh.instance_name.clone();
     let prev_mesh_enabled = state.config.lock().mesh.enabled;
+    let neighbors_changed = cfg.neighbors.enabled != new_cfg.neighbors.enabled;
     let new_name = new_cfg.mesh.instance_name.clone();
     let new_mesh_enabled = new_cfg.mesh.enabled;
     let renamed = !new_name.is_empty() && new_name != prev_name;
@@ -275,6 +276,9 @@ pub async fn patch_config_api(
         "config-changed",
         serde_json::to_value(&new_cfg).unwrap_or_default(),
     );
+    if neighbors_changed {
+        state.svc.neighbors_config_changed();
+    }
 
     if mesh_disabled {
         log::info!("[mesh] disabled mid-session — marking peers offline");
@@ -363,6 +367,8 @@ pub async fn bridge_send_api(
         .ok_or((StatusCode::BAD_REQUEST, "text required"))?;
     let chat_id = body.get("chat_id").and_then(|v| v.as_i64());
 
+    let buttons = codeterm_service_core::bridge::manager::caller_buttons(body.get("buttons"))
+        .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
     let tx = state.svc.bridge_outbound.lock();
     let tx = tx
         .as_ref()
@@ -371,9 +377,6 @@ pub async fn bridge_send_api(
         .get("append")
         .and_then(|v| v.as_bool())
         .unwrap_or(false);
-    let buttons: Option<codeterm_service_core::bridge::traits::InlineKeyboard> = body
-        .get("buttons")
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
     tx.send(codeterm_service_core::bridge::manager::OutboundMessage {
         user_id: chat_id,
         content: codeterm_service_core::bridge::traits::OutboundContent::Text {

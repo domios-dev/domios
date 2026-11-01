@@ -8,6 +8,7 @@ import { findTaskByReference, taskDisplayKey } from "../taskDisplayKey";
 import type { PlanTarget } from "../teamViewNavigation";
 import type { Plan, Task } from "../types";
 import { SelectionAsk, type SelectionAskOwner } from "../../shared/SelectionAsk";
+import { Loader } from "../../shared/Loader";
 import { resolvePlanAskOwner } from "./planAskModel";
 import type { PresenceState } from "../usePresence";
 import { competitionForTask } from "./competitionForTask";
@@ -121,6 +122,8 @@ export function PlanSidePanel({
               onSectionClick={openFullPlan}
             />
           </SelectionAsk>
+        ) : loading ? (
+          <Loader variant="compact" label={missing} />
         ) : (
           <p data-testid="plan-side-panel-missing" className="plan-task-segment__note">
             {missing}

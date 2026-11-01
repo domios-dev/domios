@@ -5,6 +5,30 @@ fn write_item(json: Value) -> AgentTodoWriteItem {
     serde_json::from_value(json).expect("todo write item")
 }
 
+#[test]
+fn ease_todo_schema_reports_all_fields_and_defaults_active_form() {
+    let error = parse_write_items(json!([
+        {"title":"Wrong", "state":"open", "status":"bad", "activeForm":7},
+        {"content":"Second", "status":false, "link":42}
+    ]))
+    .err()
+    .unwrap();
+    for field in [
+        "title",
+        "state",
+        "status",
+        "activeForm",
+        "link",
+        "content",
+        "Accepted schema",
+    ] {
+        assert!(error.contains(field), "{error}");
+    }
+    let items = parse_write_items(json!([{ "content":"Survey", "status":"pending" }])).unwrap();
+    let entries = write_entries(items).unwrap();
+    assert_eq!(entries[0].content, "Survey");
+}
+
 fn item(id: &str, state: TabTodoState) -> TabTodoItem {
     TabTodoItem {
         id: id.into(),

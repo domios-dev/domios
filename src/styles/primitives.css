@@ -183,6 +183,6 @@
   }
 
   .ct-deferred-loader[data-transition-state="present"] {
-    animation: none;
+    animation: ct-deferred-loader-reveal 1ms linear var(--ct-duration-normal) both;
   }
 }

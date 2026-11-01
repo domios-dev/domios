@@ -1,12 +1,14 @@
 //! Memory operations shared by the HTTP routes and the socket RPC surface.
 
 pub mod area_merge;
+pub mod author;
 pub mod calibration;
 pub mod dream;
 pub mod embedder;
 pub mod graph;
 pub mod items;
 pub mod mem_merge;
+pub mod neighbor_save;
 pub mod search;
 pub mod sync;
 

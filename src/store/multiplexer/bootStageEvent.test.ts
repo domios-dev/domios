@@ -49,7 +49,7 @@ test("lazy first-turn event forwards its launch-scoped composer evidence", () =>
   };
   const action = tabBootStageEventAction({
     tab_id: "lazy",
-    stage: "launch_binding_unconfirmed",
+    stage: "provider_ready",
     provisional_launch: launch,
   });
   assert(action.type === "UPDATE_BOOT_STAGE", "action type");

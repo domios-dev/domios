@@ -11,6 +11,7 @@ use codeterm_update::UpdateStateHandle;
 
 /// All shared application states, grouped for easier passing between init functions.
 pub struct AppStates {
+    pub startup_desk: super::desk::StartupDesk,
     pub storage: StorageAuthority,
     pub boot_resync: bool,
     pub config: ConfigState,

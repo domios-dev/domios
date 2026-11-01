@@ -105,30 +105,4 @@ impl ServiceContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn host_identity_wins_and_absent_roles_cannot_leak_from_extra_env() {
-        let extra = HashMap::from([
-            ("CODETERM_TASK_ID".into(), "foreign".into()),
-            ("CODETERM_ROLE".into(), "foreign".into()),
-            ("CODETERM_API_TOKEN".into(), "foreign".into()),
-            ("PATH".into(), "owned-path".into()),
-            ("CODETERM_CLI_PATH".into(), "owned-cli".into()),
-            ("HIDDEN_WORKER_CONTEXT".into(), "owned-context".into()),
-        ]);
-        let owned = HashMap::from([
-            ("CODETERM_TASK_ID".into(), "own-task".into()),
-            ("CODETERM_API_TOKEN".into(), "own-token".into()),
-            ("CODETERM_WORKER_ID".into(), "own-worker".into()),
-        ]);
-        let env = compose_owned_environment(extra, owned);
-        assert_eq!(env.get("CODETERM_TASK_ID").unwrap(), "own-task");
-        assert_eq!(env.get("CODETERM_API_TOKEN").unwrap(), "own-token");
-        assert_eq!(env.get("CODETERM_WORKER_ID").unwrap(), "own-worker");
-        assert!(!env.contains_key("CODETERM_ROLE"));
-        assert_eq!(env.get("PATH").unwrap(), "owned-path");
-        assert_eq!(env.get("CODETERM_CLI_PATH").unwrap(), "owned-cli");
-        assert_eq!(env.get("HIDDEN_WORKER_CONTEXT").unwrap(), "owned-context");
-    }
-}
+mod tests;

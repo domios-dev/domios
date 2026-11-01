@@ -80,17 +80,25 @@ pub async fn consent(
     Ok(Json(
         state
             .svc
-            .analytics_worker()
-            .await
-            .map_err(unavailable)?
-            .set_consent(body.consent)
+            .set_product_analytics_consent(body.consent)
             .await
             .map_err(unavailable)?,
     ))
 }
 
 fn admit_client_event(event: &Event) -> Result<(), Error> {
-    if matches!(event, Event::PlanViewed {} | Event::FeatureUsed { .. }) {
+    if matches!(
+        event,
+        Event::PlanViewed {}
+            | Event::FeatureUsed { .. }
+            | Event::LimitReachedShown { .. }
+            | Event::UpgradeClicked { .. }
+            | Event::FriendAdded { .. }
+            | Event::NeighborMessageSent { .. }
+            | Event::FileShared { .. }
+            | Event::ReadReceiptShown { .. }
+            | Event::SettingsViewed { .. }
+    ) {
         Ok(())
     } else {
         Err((

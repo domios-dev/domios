@@ -10,10 +10,10 @@ for (const key of ["window", "document", "localStorage", "sessionStorage", "DOME
   });
 }
 
-const sourceImage = "C:\\Users\\blackstar\\.domios\\uploads\\5e6f7a8b-pasted-image-1.png";
-const sourceVoice = "C:\\Users\\blackstar\\.domios\\uploads\\1a2b3c4d-voice-note-1.webm";
-const peerImage = "/Users/air/.domios/uploads/0a1b2c3d-5e6f7a8b-pasted-image-1.png";
-const peerVoice = "/Users/air/.domios/uploads/9f8e7d6c-1a2b3c4d-voice-note-1.webm";
+const sourceImage = "C:\\Users\\source-user\\.domios\\uploads\\5e6f7a8b-pasted-image-1.png";
+const sourceVoice = "C:\\Users\\source-user\\.domios\\uploads\\1a2b3c4d-voice-note-1.webm";
+const peerImage = "/Users/peer-user/.domios/uploads/0a1b2c3d-5e6f7a8b-pasted-image-1.png";
+const peerVoice = "/Users/peer-user/.domios/uploads/9f8e7d6c-1a2b3c4d-voice-note-1.webm";
 
 type Call = { url: string; body: Record<string, unknown> | null };
 
@@ -62,7 +62,7 @@ async function main() {
     "the serving daemon that holds the bytes runs the handoff; nothing rides relay-to",
   );
   assert.equal(relayed.composed, `look ${formatAttachmentMarker(peerImage)} [voice ${peerVoice}: peer transcript]`);
-  assert.ok(!relayed.composed.includes("blackstar"));
+  assert.ok(!relayed.composed.includes("source-user"));
 
   calls.length = 0;
   clearRelayTarget();

@@ -138,6 +138,7 @@ fn graph_mux_snapshot_includes_cron_workers_and_excludes_foreign_tabs() {
             runs: [worker.clone(), foreign.clone()]
                 .into_iter()
                 .map(|tab| codeterm_service_core::cron::store::CronRunInfo {
+                    cancel_reason: None,
                     run_id: tab.clone(),
                     started_at: 1000,
                     finished_at: None,

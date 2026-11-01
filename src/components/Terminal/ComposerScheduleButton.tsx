@@ -19,7 +19,7 @@ export function ComposerScheduleButton({ onSchedule }: { onSchedule: () => void 
         border: "1px solid color-mix(in srgb, var(--ct-muted-fg, #8b949e) 18%, transparent)",
       }}
     >
-      <Clock3 size={14} strokeWidth={2.2} />
+      <Clock3 size={15} strokeWidth={2.2} />
     </button>
   );
 }

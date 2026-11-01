@@ -13,7 +13,7 @@ fn admit_user_sends(fixture: &ServiceFixture, tab_id: &str, texts: &[&str]) -> V
         .tab(tab_id)
         .running
         .store(true, Ordering::Release);
-    bind(&fixture.service, &session, "own-thread").unwrap();
+    bind(&fixture.service, &session, "own-thread", false).unwrap();
     texts
         .iter()
         .enumerate()

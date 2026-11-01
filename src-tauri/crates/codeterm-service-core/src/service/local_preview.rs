@@ -76,7 +76,12 @@ pub(super) fn artifact_policy(
         references,
         codeterm_local_preview::PreviewRoots {
             configured: configured.iter().map(PathBuf::from).collect(),
-            private: vec![crate::paths::data_dir(), svc.agent_pad_data_dir.clone()],
+            private: [crate::paths::data_dir(), svc.agent_pad_data_dir.clone()]
+                .iter()
+                .map(|path| {
+                    PathBuf::from(crate::paths::strip_verbatim_prefix(&path.to_string_lossy()))
+                })
+                .collect(),
             uploads: std::iter::once(crate::service::web_access::uploads_dir())
                 .chain(["chat", "images", "files"].map(crate::attachments::bucket_dir))
                 .collect(),

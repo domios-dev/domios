@@ -8,6 +8,7 @@ import {
   chatSetupView,
 } from "./ChatSetupState";
 import type { Tab } from "../../lib/types";
+import { __setInvokeForTest } from "../../lib/bridge";
 
 const win = new Window({ url: "http://localhost/chat-setup" });
 Object.defineProperty(globalThis, "window", { value: win, configurable: true });
@@ -52,6 +53,24 @@ async function render(element: React.ReactElement): Promise<HTMLElement> {
 }
 
 async function main() {
+  await test("unconfirmed launch offers a session-preserving restart", async () => {
+    const requests: Array<{ command: string; args: unknown }> = [];
+    __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+      requests.push({ command, args });
+      return undefined as T;
+    });
+    try {
+      const p = tab("launch_binding_unconfirmed", "opaque-binding-failure");
+      const host = await render(<ChatSetupState tab={p} view={chatSetupView(p)} providerName="fixture" />);
+      const restart = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Restart agent");
+      assert(restart, "unconfirmed launch exposes Restart");
+      await act(async () => restart.click());
+      assert(requests.length === 1 && requests[0].command === "restart_agent_tab", "restart reaches the generic backend once");
+      assert(JSON.stringify(requests[0].args) === JSON.stringify({ tabId: p.id }), "restart preserves the session without a fresh flag");
+    } finally {
+      __setInvokeForTest(null);
+    }
+  });
   await test("view resolves ready to none and launching to starting", () => {
     assert(chatSetupView(tab("agent_ready")).kind === "none", "ready is none");
     assert(chatSetupView(tab("preparing_role_instructions")).kind === "starting", "preparing is starting");
@@ -65,7 +84,7 @@ async function main() {
 
   await test("live lazy composer ends startup overlay while binding is pending", () => {
     const composer = {
-      ...tab("launch_binding_unconfirmed"),
+      ...tab("provider_ready"),
       pty_id: "own-pty",
       session_binding_nonce: "own-nonce",
       provisional_launch: {

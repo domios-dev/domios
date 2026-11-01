@@ -71,7 +71,6 @@ fn instance_env() -> InstanceEnv {
         socket_path: "/tmp/domios-test.sock".into(),
         api_url: "http://127.0.0.1:7686".into(),
         api_port: "7686".into(),
-        api_token: Some("test-token".into()),
         cli_path: None,
     }
 }
@@ -120,6 +119,7 @@ fn env_compose_both_launch_paths_agree_for_one_tab_record() {
         pad_dir: Some("/pads/tab-a".into()),
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity: agent_identity(),
         task: tab_task_env(&store, AGENT_TAB_ID),
     };
@@ -158,6 +158,7 @@ fn env_compose_restore_path_carries_plan_task_team_lane_and_pad() {
         pad_dir: Some("/pads/tab-a".into()),
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity: agent_identity(),
         task: tab_task_env(&store, AGENT_TAB_ID),
     };
@@ -198,6 +199,7 @@ fn env_compose_absent_identity_omits_variables_instead_of_blanking_them() {
         pad_dir: None,
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity,
         task: tab_task_env(&store, "plain-tab"),
     };
@@ -242,6 +244,7 @@ fn env_compose_service_surface_matches_todays_agent_launch_map() {
         pad_dir: Some("/pads/tab-a".into()),
         session_binding_nonce: "nonce-binding".into(),
         shell_nonce: "nonce-shell".into(),
+        api_token: Some("tab-credential".into()),
         identity: agent_identity(),
         task: tab_task_env(&store, AGENT_TAB_ID),
     };
@@ -288,7 +291,6 @@ fn env_compose_frontend_spawn_without_tab_record_stamps_no_identity() {
 
     let expected: BTreeSet<String> = [
         "CODETERM_API_PORT",
-        "CODETERM_API_TOKEN",
         "CODETERM_API_URL",
         "CODETERM_SOCKET_PATH",
     ]
@@ -395,6 +397,7 @@ fn launch_env_composes_task_identity_in_gui_and_normal_path_modes() {
                 pad_dir: None,
                 session_binding_nonce: "binding".into(),
                 shell_nonce: "shell".into(),
+                api_token: Some("tab-credential".into()),
                 identity: HashMap::from([("PATH".into(), path.into())]),
                 task: if task_bound {
                     compose_task_env(
@@ -449,6 +452,7 @@ fn agents_and_shells_receive_the_owning_instance_cli_with_restricted_path() {
                 pad_dir: None,
                 session_binding_nonce: "binding".into(),
                 shell_nonce: "shell".into(),
+                api_token: Some("tab-credential".into()),
                 identity,
                 task: HashMap::new(),
             };
@@ -468,5 +472,38 @@ fn agents_and_shells_receive_the_owning_instance_cli_with_restricted_path() {
                 std::env::split_paths(&inherited).collect::<Vec<_>>()
             );
         }
+    }
+}
+
+#[test]
+fn isolated_named_verification_child_environment_keeps_socket_port_and_tab_identity() {
+    let instance = InstanceEnv {
+        socket_path: codeterm_paths::namespaced_socket_display_path(
+            "domios-dev-verification-a.sock",
+        ),
+        api_url: "http://127.0.0.1:7798".into(),
+        api_port: "7798".into(),
+        cli_path: None,
+    };
+    let tab = TabLaunchEnv {
+        tab_id: "verification-general".into(),
+        pad_dir: None,
+        session_binding_nonce: "opaque-binding".into(),
+        shell_nonce: "opaque-shell".into(),
+        api_token: Some("opaque-tab-credential".into()),
+        identity: HashMap::new(),
+        task: HashMap::new(),
+    };
+    for surface in [LaunchSurface::Service, LaunchSurface::Frontend] {
+        let env = compose_launch_env(&instance, Some(&tab), surface);
+        assert_eq!(env["CODETERM_SOCKET_PATH"], instance.socket_path);
+        assert_eq!(env["CODETERM_API_URL"], instance.api_url);
+        assert_eq!(env["CODETERM_API_PORT"], "7798");
+        assert_eq!(env["CODETERM_TAB_ID"], tab.tab_id);
+        assert_eq!(
+            env["CODETERM_SESSION_BINDING_NONCE"],
+            tab.session_binding_nonce
+        );
+        assert_eq!(env["CODETERM_API_TOKEN"], "opaque-tab-credential");
     }
 }

@@ -32,6 +32,16 @@ test('capture rejects silently truncated history', () => {
   assert.throws(() => validateCapture(document), /history_bytes changed/);
 });
 
+test('capture keeps unavailable transcripts explicit and replay refuses missing evidence', () => {
+  const document = fixture();
+  const history = document.histories[0];
+  history.messages = [];
+  history.transcript = {status: 'unavailable', backing_kind: 'chat_backend', provider: 'fixture-provider'};
+  document.measurements = measurements(document.snapshot, document.histories);
+  assert.equal(validateCapture(document).length, 6);
+  assert.throws(() => requireBackings(document), /transcript unavailable \(backing=chat_backend, provider=fixture-provider\)/);
+});
+
 test('capture refuses missing plan backing for a legacy plan/task-only Worker', () => {
   const document = fixture();
   document.plans = [];

@@ -6,15 +6,36 @@ def canonical(text):
     return text.replace("\r\n", "\n").replace("\r", "\n").strip()
 
 
-def text_values(value, path=""):
-    if isinstance(value, str):
-        yield path, value
-    elif isinstance(value, dict):
-        for key, child in value.items():
-            yield from text_values(child, f"{path}.{key}".lstrip("."))
-    elif isinstance(value, list):
-        for index, child in enumerate(value):
-            yield from text_values(child, f"{path}[{index}]")
+def text_segments(content, path):
+    if isinstance(content, str):
+        yield path, content
+    elif isinstance(content, list):
+        for index, part in enumerate(content):
+            if isinstance(part, dict) and part.get("type") in ("text", "input_text") and isinstance(part.get("text"), str):
+                yield f"{path}[{index}].text", part["text"]
+
+
+def consumed_text_values(record):
+    attachment = record.get("attachment") or {}
+    if record.get("type") == "attachment" and attachment.get("type") == "queued_command":
+        prompt = attachment.get("prompt")
+        if isinstance(prompt, str) and attachment.get("commandMode") != "task-notification":
+            yield "attachment.prompt", prompt
+        return
+    message = record.get("message") if record.get("type") in ("user", "assistant") else None
+    path = "message.content"
+    if record.get("type") == "response_item":
+        message = record.get("payload")
+        path = "payload.content"
+    if not isinstance(message, dict) or record.get("isMeta"):
+        return
+    content = message.get("content")
+    if message.get("role") == "user":
+        yield from text_segments(content, path)
+    if isinstance(content, list):
+        for index, part in enumerate(content):
+            if isinstance(part, dict) and part.get("type") == "tool_result":
+                yield from text_segments(part.get("content"), f"{path}[{index}].content")
 
 
 def matching_records(transcript, anchor, session_id, payload):
@@ -33,7 +54,7 @@ def matching_records(transcript, anchor, session_id, payload):
             declared = record.get("sessionId", record.get("session_id"))
             if declared is not None and declared != session_id:
                 continue
-            for field, text in text_values(record):
+            for field, text in consumed_text_values(record):
                 if expected in canonical(text):
                     matches.append({"offset": offset, "field": field,
                                     "record_id": record.get("uuid", record.get("id")),
@@ -52,8 +73,8 @@ def summarize(rows):
                                       "received_unconfirmed": 0, "states": {}})
         state = row["state"]
         group["total"] += 1
-        group["confirmed"] += state == "delivered" and bool(row["evidence"])
-        group["received_unconfirmed"] += state != "delivered" and bool(row["evidence"])
+        group["confirmed"] += state == "delivered" and len(row["evidence"]) == 1
+        group["received_unconfirmed"] += state != "delivered" and len(row["evidence"]) == 1
         group["states"][state] = group["states"].get(state, 0) + 1
     return [{**group, "confirmation_rate": group["confirmed"] / group["total"]}
             for group in groups.values()]

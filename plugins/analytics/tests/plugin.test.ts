@@ -2,9 +2,14 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HostAnalytics } from "@codeterm/plugin-sdk";
+import type { HostAnalytics, ViewCallContext } from "@codeterm/plugin-sdk";
 import plugin, { runQuery } from "../src/plugin";
 import { snapshotFor } from "../ui/src/model/fixtures.testdata";
+
+const VIEW_CONTEXT: ViewCallContext = {
+  plugin: "analytics", origin: "document", surface: null, instance: null, tab: null,
+  owner: null, workspace: null, team: null, actor: {kind: "local"}, frame: "a".repeat(32),
+};
 
 const QUERY = { range: { from: "2026-09-09", to: "2026-09-15", tz: "UTC" }, bucket: "day", group_by: "workspace" };
 
@@ -51,8 +56,8 @@ describe("analytics plugin viewCall", () => {
     const snapshot = snapshotFor("provider_model");
     (globalThis as { host?: unknown }).host = { analytics: analytics(snapshot) };
     const viewCall = plugin.viewCall!;
-    expect(viewCall("query", { query: QUERY })).toEqual({ kind: "snapshot", snapshot });
-    expect(viewCall("readLedger", {})).toEqual({ kind: "refused", message: "unknown method: readLedger" });
+    expect(viewCall("query", { query: QUERY }, VIEW_CONTEXT)).toEqual({ kind: "snapshot", snapshot });
+    expect(viewCall("readLedger", {}, VIEW_CONTEXT)).toEqual({ kind: "refused", message: "unknown method: readLedger" });
   });
 
   it("keeps plugin and view code free of provider ids, raw storage and ledger paths", () => {

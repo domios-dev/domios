@@ -10,6 +10,8 @@ fn board(agent_bound: bool) -> SurfaceDecl {
         runtime: None,
         chrome: None,
         icon: None,
+        agent_verbs: Vec::new(),
+        state_invalidation: false,
     }
 }
 
@@ -23,6 +25,8 @@ fn browser_stream() -> SurfaceDecl {
         runtime: Some("browser".into()),
         chrome: Some(serde_json::json!({ "items": [] })),
         icon: Some("globe".into()),
+        agent_verbs: Vec::new(),
+        state_invalidation: false,
     }
 }
 

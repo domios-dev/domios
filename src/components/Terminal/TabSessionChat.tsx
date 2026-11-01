@@ -1,3 +1,4 @@
+import { DEV_BUILD } from "../../lib/devBuild";
 import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
@@ -11,19 +12,20 @@ import { useComposerPresentation } from "./useComposerPresentation";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { runtimeResponseDeadlinePending, runtimeStatusPresentation } from "../../lib/agentRuntimeState";
 import { useAgentRuntimeState } from "./useAgentRuntimeState";
-import { promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
+import { manualPendingPrompt, promptMessagePart, promptResponseArgs } from "../../lib/promptAnswers";
 import { CHAT_ERROR_TOAST_LIFETIME_MS } from "../Notifications/toastLifetime";
 import { ThreadRevertConfirmation } from "./ThreadRevertConfirmation";
 import { forkableTurnEnds } from "./messageForkModel";
 import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowContext, type OutboundReportEntry } from "./ChatTranscriptRow";
 import { chatWindowRows } from "./chatWindowRowsModel";
-import { chatLiveOperationLabel, projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
+import { ChatLiveOperation } from "./ChatLiveOperation";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { documentsFromTranscript } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
-import { useDeferredValue, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { invoke } from "../../lib/bridge";
 import {
   chatDaySeparators,
@@ -59,7 +61,7 @@ import type { ApiConfig, Notification, PendingPrompt } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
 import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
-import { TabLoadingIndicator } from "../shared/TabLoadingIndicator";
+import { BusyState } from "../shared/BusyState";
 import { PendingPromptCard } from "./PendingPromptCard";
 import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
@@ -68,7 +70,7 @@ import { useTabActivity } from "../../lib/useTabActivity";
 import { ComposerBackgroundWorkProvider } from "./ComposerBackgroundWorkContext";
 import { useAttachments } from "./useAttachments";
 import { useChatSession, isCodeTermFrontendTestMode, paintTailSignature } from "./useChatSession";
-import { chatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
+import { chatProjectionMonitor, chatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { ChatModelBubble } from "../Extensions/ChatModelBubble";
 import { ChatPresetBubble } from "../Extensions/ChatPresetBubble";
 import { PluginIcon } from "../Extensions/PluginIcon";
@@ -90,6 +92,8 @@ import { useMeshPeerNameResolver } from "./useMeshPeerNameResolver";
 import { useAgentReportProjection } from "./agentReportProjection";
 import { readTranscriptWindow, transcriptWindowKey } from "./transcriptStore";
 import { chatBodyView, chatChannelLoadingRow, chatRailsVisible, placeChatRails } from "./chatBodyVisibility";
+import { lazyFirstTurnComposerIsLive } from "../../lib/tabActivity";
+import { firstTurnLocalSends, isFirstTurnLocalRow } from "./firstTurnLocalRows";
 import { messageTimeMs, normalizeEpochMs } from "./outboundReportPlacement";
 import { useChatMessageReveal } from "./useChatMessageReveal";
 import { useSessionBindingSurface } from "./useSessionBindingSurface";
@@ -246,7 +250,7 @@ function TabSessionChatBody({
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
-  const pendingPrompt: PendingPrompt | null = tab?.pending_prompt ?? null;
+  const pendingPrompt: PendingPrompt | null = manualPendingPrompt(tab);
   const descriptor = getAgentDescriptor(tabProvider);
   const promptAnswers = descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
@@ -302,6 +306,8 @@ function TabSessionChatBody({
     retainAttachment: true,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
+    localAttempt: lazyFirstTurnComposerIsLive(tab) && tab?.pty_id && tab.session_binding_nonce
+      ? { ptyId: tab.pty_id, bindingNonce: tab.session_binding_nonce } : undefined,
     followTailRef: chatFollowTailRef,
     history: runtime.state?.history,
     live: isActive || awaitsTranscriptEcho(deliverySends),
@@ -330,6 +336,10 @@ function TabSessionChatBody({
   }, [tabId, allMessages, isActive]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
+  const localFirstTurnSends = useMemo(() => firstTurnLocalSends(deliverySends, tab?.pty_id, tab?.session_binding_nonce),
+    [deliverySends, tab?.pty_id, tab?.session_binding_nonce]);
+  const firstTurnReady = lazyFirstTurnComposerIsLive(tab) || (!snapshotReady && !tab?.frozen
+    && !tab?.agent_booting && tab?.boot_stage !== "spawn_failed" && localFirstTurnSends.length > 0);
   const forkableMessages = useMemo(() => forkableTurnEnds(
     allMessages,
     descriptor?.agent_runtime?.threadHistory?.actions.includes("fork") === true,
@@ -349,9 +359,10 @@ function TabSessionChatBody({
   const runtimeReplacement = runtimeUnavailable ? runtimeBadge : undefined;
   const runtimeFailed = runtime.state?.state === "unloaded" || runtime.state?.state === "degraded";
   const remoteChatReconnecting = tab?.remote_channels?.chat === "reconnecting";
-  const chatChannelLoading = !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
+  const chatChannelLoading = !firstTurnReady && !tabLock.locked && attachmentState !== "failed" && !runtimeFailed && (loading || recovering || (!hasTranscript && remoteChatReconnecting));
   const chatLoading = chatChannelLoading;
   const setupView = runtimeUnavailable && snapshotReady && !tabLock.locked && attachmentState !== "failed" && bootSetupView.kind !== "launch_failed" ? { kind: "none" as const } : chatBodyView({
+    firstTurnReady,
     hasTranscript,
     hasHeldWindow,
     snapshotReady,
@@ -363,8 +374,9 @@ function TabSessionChatBody({
   });
 
   const renderedEnrichedMessages = useMemo(
-    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) => !isSessionIntentOnlyMessage(msg))),
-    [enrichedMessages, setupView.kind],
+    () => setupView.kind !== "none" ? [] : chatWindowRows(enrichedMessages.filter(({ msg }) =>
+      !isSessionIntentOnlyMessage(msg) && (snapshotReady || !firstTurnReady || isFirstTurnLocalRow(msg, localFirstTurnSends)))),
+    [enrichedMessages, setupView.kind, snapshotReady, firstTurnReady, localFirstTurnSends],
   );
   const transcriptActivityAvailable = setupView.kind === "none" && !chatLoading;
   const chatTranscriptActivity = useMemo(
@@ -378,6 +390,7 @@ function TabSessionChatBody({
     [agentActivity.kind, descriptor, effectiveChatBackend, renderedEnrichedMessages, tab?.backing, transcriptActivityAvailable],
   );
   const sharedScrollRef = useRef<HTMLDivElement | null>(null);
+  const liveOperation = renderedEnrichedMessages.find(({ msg }) => msg.id === chatTranscriptActivity.liveToolId)?.msg ?? null;
   const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
     active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
@@ -465,7 +478,7 @@ function TabSessionChatBody({
       promptResponseInFlight.current = true;
       if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       try {
-        await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt));
+        await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt, tab?.pending_prompt_kind ?? "structured"));
       } catch (error) {
         setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
@@ -474,7 +487,7 @@ function TabSessionChatBody({
         promptResponseInFlight.current = false;
       }
     },
-    [pendingPrompt, structuredPrompts, tabId, showComposerError],
+    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useLatestCallback((command: string) => {
@@ -659,6 +672,36 @@ function TabSessionChatBody({
     const tail = paintTailSignature(renderedEnrichedMessages[renderedEnrichedMessages.length - 1]?.msg);
     return scheduleAfterPaint(() => chatProjectionMonitor.recordPaint(tabId, tail));
   }, [tabId, renderedEnrichedMessages]);
+  const traceMountGeneration = useRef(0);
+  useLayoutEffect(() => {
+    if (!DEV_BUILD) return;
+    const authority = { tab: tabId, session: agentSessionId, nonce: tab?.session_binding_nonce ?? null, epoch: runtime.state?.epoch };
+    chatResponsivenessTrace.bind(authority);
+    if (!chatResponsivenessTrace.eligible(authority)) return;
+    const generation = ++traceMountGeneration.current;
+    const start = mountedWindow.range.start;
+    const end = mountedWindow.range.end;
+    const rowsRef = mountedWindow.rowsRef;
+    const active = isActive && setupView.kind === "none" && !chatLoading && !tabLock.locked;
+    const cancel = chatResponsivenessTrace.rendered(authority, renderedEnrichedMessages, {
+      active, start, end, revision: mountedWindow.revision,
+      isMounted: (id, index) => {
+        if (generation !== traceMountGeneration.current || !active || index < start || index >= end) return false;
+        const root = chatRootRef.current;
+        const rows = rowsRef.current;
+        if (!root?.isConnected || root.dataset.chatReady !== "true" || !rows?.isConnected) return false;
+        const mounted = rows.querySelectorAll<HTMLElement>("[data-message-id]");
+        for (let position = 0; position < Math.min(1024, mounted.length); position++) {
+          if (mounted[position].dataset.messageId === id) return true;
+        }
+        return false;
+      },
+    });
+    return () => { traceMountGeneration.current++; cancel(); };
+  }, [tabId, agentSessionId, tab?.session_binding_nonce, runtime.state?.epoch, renderedEnrichedMessages,
+    mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision, mountedWindow.rowsRef,
+    isActive, setupView.kind, chatLoading, tabLock.locked]);
+  useEffect(() => () => { if (DEV_BUILD) chatResponsivenessTrace.release(tabId); }, [tabId]);
   // Drop torn-down tab diagnostics immediately instead of waiting for LRU eviction.
   useEffect(() => () => chatProjectionMonitor.forget(tabId), [tabId]);
   const latestFailedToolCallId = useMemo(() => {
@@ -858,9 +901,10 @@ function TabSessionChatBody({
       data-testid="tab-session-chat"
       data-tab-id={tabId}
       data-snapshot-ready={snapshotReady}
+      data-chat-ready={!tabLock.locked && (snapshotReady || firstTurnReady) && !chatChannelLoading && setupView.kind === "none"}
       role="region"
       aria-label={`Tab chat: ${tab?.title ?? tabId}`}
-      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && (!snapshotReady || chatChannelLoading)}
+      aria-busy={setupView.kind !== "failed" && setupView.kind !== "launch_failed" && ((!snapshotReady && !firstTurnReady) || chatChannelLoading)}
       style={{
         ...chatLayoutTokens().variables,
         background: "var(--ct-bg, #0d1117)",
@@ -930,7 +974,7 @@ function TabSessionChatBody({
               }}
             >
               {backfillLoading
-                ? <TabLoadingIndicator label="Searching older messages" compact deferred={false} />
+                ? <BusyState inline hideLabel label="Searching older messages" phase="work" />
                 : olderMessageLabel}
             </button>
           </div>
@@ -957,11 +1001,11 @@ function TabSessionChatBody({
             <ChatTranscriptRow
               key={msg.id}
               entry={entry}
+              hideMessage={msg.id === liveOperation?.id}
               daySeparator={daySeparators.get(messageIndex)}
               originProps={originPropsById.get(msg.id)}
               reports={following.length ? following.map((index) => outboundReports[index]).filter(Boolean) : NO_REPORTS}
               asks={followingAsks.length ? followingAsks.map((index) => asks[index]).filter(Boolean) : NO_ASKS}
-              liveActivityLabel={msg.id === chatTranscriptActivity.liveToolId ? chatLiveOperationLabel(msg) : undefined}
               deliverySend={deliverySend}
               deliveryView={deliverySend ? deliveryPresentation(deliverySend, agentActivity.kind) : undefined}
               sourceOrdinal={mountedWindow.identities[messageIndex].ordinal}
@@ -998,6 +1042,7 @@ function TabSessionChatBody({
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
         <AutoConfirmedPromptRows records={autoConfirmations} />
+        <ChatLiveOperation message={liveOperation} />
         </div>
       </div>
         <ChatSetupState

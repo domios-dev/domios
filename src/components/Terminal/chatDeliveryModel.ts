@@ -13,7 +13,7 @@ export interface DeliveryDraft {
   capsules: CapsuleRegistry;
   reply: ComposerReply | null;
 }
-export type DeliverySend = ChatSend & { droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft };
+export type DeliverySend = ChatSend & { localAttempt?: { ptyId: string; bindingNonce: string }; droppedUploads?: string[]; dismissed?: boolean; status?: ChatSendStatus; requestFailed?: boolean; requestUncertain?: boolean; requestHadResponse?: boolean; admissionSettled?: boolean; draft?: DeliveryDraft };
 
 function sameMatchedRow(left: ChatSendStatus["matched_row"], right: ChatSendStatus["matched_row"]): boolean {
   if (left == null || right == null) return left === right;

@@ -17,14 +17,21 @@ struct Sender {
 }
 
 #[derive(PartialEq, Eq, Debug)]
-enum Claim {
+pub(super) enum Claim {
     Ignore,
     Queued,
     Run,
 }
 
 impl RegistryNotices {
-    fn claim(&mut self, epoch: u64, sender: &str, notice: &str, revision: u64, now: u64) -> Claim {
+    pub(super) fn claim(
+        &mut self,
+        epoch: u64,
+        sender: &str,
+        notice: &str,
+        revision: u64,
+        now: u64,
+    ) -> Claim {
         if self.epoch != epoch {
             *self = Self {
                 epoch,
@@ -88,7 +95,7 @@ impl RegistryNotices {
         }
     }
 
-    fn stop(&mut self, epoch: u64) {
+    pub(super) fn stop(&mut self, epoch: u64) {
         if self.epoch == epoch {
             self.running = false;
             self.pending = false;

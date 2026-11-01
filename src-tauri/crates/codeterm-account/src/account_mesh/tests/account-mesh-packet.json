@@ -55,6 +55,11 @@
     "conflict": {"code": "aborted", "details": {"reason": "conflict"}},
     "rate-limited": {"code": "resource-exhausted", "details": {"reason": "rate-limited", "retry_after_seconds": 300}},
     "mesh.machines": {"code": "failed-precondition", "details": {"reason": "mesh.machines", "limit": 2, "active_count": 2}},
+    "key_conflict": {"code": "failed-precondition", "details": {"reason": "key_conflict"}},
+    "generation_mismatch": {"code": "failed-precondition", "details": {"reason": "generation_mismatch"}},
+    "challenge_invalid": {"code": "failed-precondition", "details": {"reason": "challenge_invalid"}},
+    "proof_invalid": {"code": "failed-precondition", "details": {"reason": "proof_invalid"}},
+    "enrollment_budget": {"code": "resource-exhausted", "details": {"reason": "enrollment_budget"}},
     "authority-unavailable": {"code": "unavailable", "details": {"reason": "authority-unavailable"}},
     "unavailable": {"code": "unavailable", "details": {"reason": "unavailable"}}
   },

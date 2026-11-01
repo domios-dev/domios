@@ -1,5 +1,5 @@
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
-import { activityLabel } from "../../../packages/plugin-sdk/src/activityLabel";
+import { activityCommand, activityLabel } from "../../../packages/plugin-sdk/src/activityLabel";
 import type { TabActivity } from "../../lib/tabActivity";
 import type { ProviderDescriptor, TabBacking } from "../../lib/types";
 
@@ -41,4 +41,16 @@ export function projectChatTranscriptActivity(
 export function chatLiveOperationLabel(message: NormalizedChatMessage): string {
   const label = activityLabel(message);
   return label === "Working" ? message.toolSummary?.trim() || "Tool activity" : label;
+}
+
+export function chatLiveOperationFullLabel(message: NormalizedChatMessage): string {
+  const input = message.toolInput;
+  const fields = input && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  if (message.toolKind === "command" || fields.cmd !== undefined || fields.command !== undefined) {
+    const command = activityCommand(message);
+    if (command) return command;
+  }
+  const target = fields.file_path ?? fields.path ?? fields.url ?? fields.query;
+  return message.toolDetail?.trim() || (typeof target === "string" ? target : "")
+    || message.toolSummary?.trim() || message.toolTitle || message.toolName || "Tool activity";
 }

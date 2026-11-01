@@ -187,9 +187,11 @@ pub async fn stop(
             "peer-origin automation stop is unavailable".into(),
         )));
     }
+    let caller = crate::auth::caller_claim(&state, &headers, body.caller_tab_id.as_deref())
+        .map_err(failure)?;
     let team = explicit_team(&body.team_id).map_err(|e| failure((StatusCode::BAD_REQUEST, e)))?;
     let result = tokio::task::spawn_blocking(move || {
-        if let Some(tab) = body.caller_tab_id {
+        if let Some(tab) = caller {
             state.svc.automation_graph_stop_tab(
                 &body.workspace_id,
                 team.as_deref(),
@@ -622,7 +624,7 @@ mod tests {
                 .contains("fixture-nonce"));
             let (private_key, public_key) =
                 codeterm_service_core::mesh::crown::generate_peer_keypair();
-            fixture.state.mesh.lock().insert_legacy_pair_for_test(
+            fixture.state.mesh.lock().insert_account_peer_for_test(
                 codeterm_service_core::mesh::types::PairedPeer {
                     instance_id: "fixture-peer".into(),
                     instance_name: "Peer".into(),
@@ -748,32 +750,22 @@ mod tests {
         }
 
         #[tokio::test]
-        async fn legacy_sentinel_rest_alias_deletes_the_persisted_blueprint() {
+        async fn retired_sentinel_routes_do_not_mutate_the_persisted_blueprint() {
             let fixture = Fixture::new(None);
             let job = fixture.create();
-            let path = format!("/api/automation/sentinels/{}", job.id);
-            let body = json!({"workspace_id":fixture.workspace,"team_id":null});
-            assert_eq!(
-                fixture
-                    .request(Method::DELETE, &path, Some("fixture-instance-bearer"), body,)
-                    .await
-                    .0,
-                StatusCode::NO_CONTENT
-            );
-            let (status, graph) = fixture
-                .request(
-                    Method::GET,
-                    &format!(
-                        "/api/automation/graph?workspace_id={}&team_id=",
-                        fixture.workspace
-                    ),
-                    Some("fixture-instance-bearer"),
-                    Value::Null,
-                )
-                .await;
-            assert_eq!(status, StatusCode::OK);
-            assert!(graph["scenarios"].as_array().unwrap().is_empty());
-            assert!(fixture.restored_store().list().is_empty());
+            let was_stopped = fixture.stopped(&job.id);
+            for base in ["/api/automation/sentinels", "/api/sentinels"] {
+                for (method, suffix) in [(Method::POST, "/stop"), (Method::DELETE, "")] {
+                    let path = format!("{base}/{}{suffix}", job.id);
+                    let body = json!({"workspace_id":fixture.workspace,"team_id":null});
+                    let (status, _) = fixture
+                        .request(method, &path, Some("fixture-instance-bearer"), body)
+                        .await;
+                    assert_eq!(status, StatusCode::NOT_FOUND);
+                    assert_eq!(fixture.stopped(&job.id), was_stopped);
+                    assert!(fixture.restored_store().get(&job.id).is_some());
+                }
+            }
         }
 
         #[tokio::test]

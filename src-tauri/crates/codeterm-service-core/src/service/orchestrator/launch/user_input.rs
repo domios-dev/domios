@@ -1,4 +1,3 @@
-use crate::service::codex_rpc::lifecycle::{self, DeliveryState};
 use crate::service::launch_input_gate::LaunchInputEvidence;
 use crate::service::launch_readiness::LaunchAttempt;
 use crate::service::ServiceContext;
@@ -25,8 +24,11 @@ pub(super) fn requires_composer(svc: &ServiceContext, provider: &str, tab: &str)
         })
         .unwrap_or(false)
         && !has_resume_session
-        && lifecycle::delivery_state(tab) == DeliveryState::Plain
-        && lifecycle::for_tab(tab).is_none()
+        && svc
+            .mux
+            .read()
+            .get_tab(tab)
+            .is_some_and(|tab| matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty))
 }
 
 pub(super) fn observe(
@@ -44,8 +46,11 @@ pub(super) fn observe(
     let current_launch = LaunchAttempt::current(&svc.mux, &attempt.tab_id, &attempt.pty_id)
         .as_ref()
         == Some(attempt);
-    let plain = lifecycle::delivery_state(&attempt.tab_id) == DeliveryState::Plain
-        && lifecycle::for_tab(&attempt.tab_id).is_none();
+    let plain = svc
+        .mux
+        .read()
+        .get_tab(&attempt.tab_id)
+        .is_some_and(|tab| matches!(tab.backing, crate::multiplexer::types::TabBacking::Pty));
     if !should_latch_user_input(lazy_session, evidence, current_launch, plain) {
         return;
     }

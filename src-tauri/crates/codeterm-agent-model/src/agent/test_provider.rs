@@ -63,6 +63,7 @@ pub struct MockProvider {
     launch_artifact_sweep_log: Option<Arc<Mutex<Vec<LaunchArtifactSweepRequest>>>>,
     launch_artifact_release_log: Option<Arc<Mutex<Vec<(String, String)>>>>,
     resume_context_log: Option<Arc<Mutex<Vec<AgentResumeParams>>>>,
+    initial_prompt_resume: bool,
     structured_prompt_launch_log: Option<Arc<Mutex<Vec<AgentLaunchParams>>>>,
     paste_limit_bytes: Option<usize>,
     additional_writable_dir_flag: Option<String>,
@@ -124,6 +125,7 @@ impl MockProvider {
             launch_artifact_sweep_log: None,
             launch_artifact_release_log: None,
             resume_context_log: None,
+            initial_prompt_resume: false,
             structured_prompt_launch_log: None,
             paste_limit_bytes: None,
             additional_writable_dir_flag: None,
@@ -158,6 +160,11 @@ impl MockProvider {
     ) -> Self {
         self.launch_artifact_sweep_log = Some(sweep_log);
         self.launch_artifact_release_log = Some(release_log);
+        self
+    }
+
+    pub fn with_initial_prompt_resume(mut self) -> Self {
+        self.initial_prompt_resume = true;
         self
     }
 
@@ -632,6 +639,10 @@ impl AgentProvider for MockProvider {
     fn build_resume_command(&self, session_id: &str, _skip_permissions: bool) -> Option<String> {
         Some(format!("{}-cli --resume {session_id}", self.id))
     }
+    fn supports_initial_prompt_update_on_resume(&self) -> bool {
+        self.initial_prompt_resume
+    }
+
     fn build_resume_command_with_context(&self, params: &AgentResumeParams) -> Option<String> {
         if let Some(log) = &self.resume_context_log {
             log.lock().push(params.clone());

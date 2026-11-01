@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { recordProductEvent } from "../lib/productAnalytics";
 import type { HelpSectionId } from "../help/types";
 import { GUIDE_SECTIONS, type GuideRequest } from "../help/guideNavigation";
 import { SECTION_ICONS, resolveSettingsLink, type SectionId, type SettingsLinkId, type SettingsCardAnchorId } from "../components/Settings/sections";
@@ -33,6 +34,14 @@ export function settingsStack(value: unknown): SettingsRoute[] | undefined {
 export function useSettingsNavigation(link: SettingsLinkId | undefined, guide: GuideRequest | undefined) {
   const [stack, setStack] = useViewerNavigation<SettingsRoute[]>("settings", () => initialStack(link, guide), settingsStack, link === undefined);
   const previous = useRef({ link, guide });
+  const route = stack[stack.length - 1];
+  const section = route.kind === "section" ? route.id : route.kind === "agent-provider" ? "agent_provider" : "root";
+  const viewedSection = useRef<string | null>(null);
+  useEffect(() => {
+    if (viewedSection.current === section) return;
+    viewedSection.current = section;
+    void recordProductEvent({ event_type: "settings_viewed", event_properties: { section } });
+  }, [section]);
   useEffect(() => {
     if (previous.current.link !== link || previous.current.guide !== guide) setStack(initialStack(link, guide));
     previous.current = { link, guide };

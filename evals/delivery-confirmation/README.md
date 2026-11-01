@@ -7,7 +7,8 @@ an API POST for the UI. `cli` invokes the bench lib's `dc` wrapper. No payload i
 retried. Readiness/settlement waits subscribe to daemon events with failure
 deadlines, without sleeps or polling intervals.
 
-Run on canonical DEV after merging the lane and verifying its build SHA.
+Run on canonical DEV after merging the lane. The runner refuses a dirty checkout
+or a DEV build SHA different from the execution SHA and records both on every receipt.
 Use dedicated tabs with no other sender. Resolve each tab's exact bound session,
 launch nonce and append-only JSONL path; do not choose a latest/global session.
 `--caller` is a DEV tab with a private Agent Pad, where the drill writes its
@@ -38,6 +39,12 @@ session/nonce, send-time byte anchor, exact full payload, hash, matching record
 UUID, record byte offset, JSON field path and complete matching own-session
 record. Matching only examines complete records appended after the anchor.
 A truncated payload or foreign declared session cannot supply evidence.
+Consumed user-message content, queued-command prompts and individual tool-result
+text segments are eligible; ordinary assistant text and arbitrary metadata cannot
+confirm input. Separate partial blocks are never joined. Full-payload
+containment in an eligible consumed row retains the glued
+message oracle. Exactly one eligible matching record is required; duplicate
+records never count as confirmed.
 The daemon's ledger is authoritative; a transcript match never fabricates a
 `delivered` state. Pending/written/absent at a failure deadline is recorded as
 such and makes the run fail. Group summaries distinguish received-but-unconfirmed
@@ -50,6 +57,15 @@ The model tests are source-only fixtures, not live-provider confirmation rates:
 python3 -m unittest discover -s evals/delivery-confirmation -p 'test_*.py' -v
 bash -n evals/delivery-confirmation/run.sh
 ```
+
+Canonical red/green: run
+`EvidenceTests.test_assistant_and_metadata_quotes_cannot_confirm` with
+`model.py` from the parent commit, then with this change. The parent matcher
+must fail by accepting the quoted records. Likewise run
+`EvidenceTests.test_duplicate_consumption_is_not_counted_as_confirmation`
+against the parent's summary function, then this change. Finally run the full
+file, retaining the original glued-row fixture case. These demonstrations and
+all live confirmation rates remain unexecuted in the Worker lane.
 
 Canonical Rust selectors (one shared app compile, focused executions):
 

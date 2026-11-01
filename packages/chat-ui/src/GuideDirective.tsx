@@ -1,5 +1,6 @@
 import React, { createContext, useContext } from "react";
 import { BookOpen } from "lucide-react";
+import { parseDsBlocks, serializeDsBlock } from "@codeterm/chat-core";
 import { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 
 interface GuideSection {
@@ -32,7 +33,9 @@ export function GuideNavigationProvider({
 }
 
 export function parseGuideDirective(source: string): string | null {
-  return /^[\t ]*@ds-guide[\t ]+([a-z0-9][a-z0-9-]*)[\t ]*$/i.exec(source.replace(/\r/g, ""))?.[1] ?? null;
+  const segments = parseDsBlocks(source).filter((segment) => segment.type !== "markdown" || segment.text.trim());
+  const block = segments.length === 1 && segments[0].type === "block" ? segments[0].block : null;
+  return block?.kind === "guide" ? block.section : null;
 }
 
 export function GuideDirective({ sectionId }: { sectionId: string }) {
@@ -48,7 +51,7 @@ export function GuideDirective({ sectionId }: { sectionId: string }) {
     <div data-testid="chat-ds-guide" data-guide-section={sectionId}>
       <ChatBlockFrame
         name="guide"
-        source={`@ds-guide ${sectionId}`}
+        source={serializeDsBlock({ kind: "guide", section: sectionId })}
         title={destination?.title ?? "Guide"}
         icon={<BookOpen size={18} aria-hidden="true" />}
         summary={notice ?? destination?.subtitle}

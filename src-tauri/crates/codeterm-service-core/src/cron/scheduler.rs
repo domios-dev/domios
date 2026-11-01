@@ -471,6 +471,7 @@ fn record_role_launch_failure(
         run_id,
         CronRunStatus::Failed,
         "failed",
+        None,
     ) {
         Ok(true) => crate::cron::notify::notify_on_consecutive_failure(service, cron, &job.id),
         Ok(false) => {}
@@ -482,6 +483,7 @@ fn record_role_launch_failure(
 /// refused or unconfirmed record is never promoted to a launched run.
 pub(crate) fn record_fire_start(cron_state: &CronState, job_id: &str, run_id: &str) -> FireStart {
     let run = CronRunInfo {
+        cancel_reason: None,
         run_id: run_id.to_string(),
         started_at: cron_state.lock().now_ms(),
         finished_at: None,

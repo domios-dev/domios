@@ -83,7 +83,10 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
         let message = value
             .get("send_id")
             .and_then(serde_json::Value::as_str)
-            .map_or_else(|| message.clone(), |id| format!("send_id={id}: {message}"));
+            .map_or_else(
+                || message.clone(),
+                |id| format!("send_id={id}: {message}\ninspect: domios tab send-status {id}"),
+            );
         return SendTextOutcome::Error {
             msg: message,
             exit_code: crate::cmd::print::CLI_ERROR_EXIT_CODE,
@@ -183,7 +186,7 @@ pub fn handle_send_text_result(
             }
             if json {
                 let value = send_text_json_response(value, &outcome, resolved_text);
-                println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                println!("{}", crate::cmd::output::encode(&value).unwrap());
                 return;
             }
             let pad_file = pad_file_path(&value);
@@ -318,15 +321,21 @@ fn refuse_raw_shell_message(require_agent: bool) -> String {
     }
 }
 
-fn probe_tab_kind(client: &mut SocketClient, tab_id: &str) -> TabKind {
+fn probe_tab_kind(
+    client: &mut impl crate::client::RpcClient,
+    tab_id: &str,
+) -> Result<TabKind, crate::cmd::print::CliError> {
     let params = serde_json::json!({ "focused_workspace": false });
-    match client.call("tab.list", Some(params)) {
-        Ok(value) => value
+    match client.call_detailed("tab.list", Some(params)) {
+        Ok(value) => Ok(value
             .as_array()
             .and_then(|tabs| find_target_record(tabs, tab_id))
             .map(classify_tab_kind)
-            .unwrap_or(TabKind::Unknown),
-        Err(_) => TabKind::Unknown,
+            .unwrap_or(TabKind::Unknown)),
+        Err(error) => {
+            let error = crate::cmd::print::CliError::from(error);
+            Err(error.neighbor_refusal().unwrap_or(error))
+        }
     }
 }
 
@@ -402,12 +411,16 @@ fn send_text_to_targets(
     let mut pending: Vec<String> = Vec::new();
     let mut pending_written: Vec<String> = Vec::new();
     let mut pad_files: Vec<serde_json::Value> = Vec::new();
-    let source_tab = std::env::var("CODETERM_TAB_ID")
-        .ok()
-        .filter(|t| !t.is_empty());
+    let source_tab = crate::nonempty_env("CODETERM_TAB_ID");
     for tab_id in targets {
         if !resolved_text.trim().is_empty() {
-            let kind = probe_tab_kind(client, tab_id);
+            let kind = match probe_tab_kind(client, tab_id) {
+                Ok(kind) => kind,
+                Err(error) => {
+                    failures.push((tab_id.clone(), error.message));
+                    continue;
+                }
+            };
             if let SendEligibility::Refuse(msg) =
                 decide_send_eligibility(kind, resolved_text, require_agent, to_shell)
             {
@@ -475,7 +488,7 @@ fn send_text_to_targets(
                 Some(&serde_json::json!({ "code": "refused" })),
             );
         }
-        println!("{}", serde_json::to_string_pretty(&report).unwrap());
+        println!("{}", crate::cmd::output::encode(&report).unwrap());
     } else {
         for tab_id in &delivered {
             println!("OK (sent) {tab_id}");
@@ -595,7 +608,8 @@ pub fn handle_send_text(
     }
     let tab_id = resolve_tab(client, tab);
     if !resolved_text.trim().is_empty() {
-        let kind = probe_tab_kind(client, &tab_id);
+        let kind = probe_tab_kind(client, &tab_id)
+            .unwrap_or_else(|error| crate::cmd::print::exit_with_cli_error(json, &error));
         if let SendEligibility::Refuse(msg) =
             decide_send_eligibility(kind, &resolved_text, require_agent, to_shell)
         {
@@ -612,7 +626,7 @@ pub fn handle_send_text(
         "text": resolved_text,
     });
 
-    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(my_tab) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !my_tab.is_empty() {
             params["source_tab"] = serde_json::json!(my_tab);
         }
@@ -730,7 +744,7 @@ fn send_composite_over_mesh(
         );
         return;
     }
-    let source_tab = std::env::var("CODETERM_TAB_ID").ok();
+    let source_tab = crate::nonempty_env("CODETERM_TAB_ID");
     let mut body = remote_send_body(
         &resolved_text,
         parsed_actions.as_deref(),
@@ -944,7 +958,7 @@ fn send_actions_via_socket(
     if !text.is_empty() {
         body["text"] = serde_json::json!(text);
     }
-    if let Ok(my_tab) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(my_tab) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !my_tab.is_empty() {
             body["source_tab"] = serde_json::json!(my_tab);
         }

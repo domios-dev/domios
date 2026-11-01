@@ -1,7 +1,7 @@
 # Caller: skill build-machine
 [CmdletBinding()]
 param(
-    [string]$RepoUrl = "https://github.com/rollacode/codeterm",
+    [string]$RepoUrl = "https://github.com/domios-dev/domios",
     [string]$RunnerName = "ROG-windows-build",
     [string]$Labels = "self-hosted,Windows,X64,rog,windows-build,codeterm,tauri,msvc,windows-ci,rust-shard",
     [string]$RunnerRoot = "$env:USERPROFILE\actions-runner",

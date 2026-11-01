@@ -1,5 +1,0 @@
-[package]
-name = "fixture-app"
-
-[workspace]
-members = [".", "crates/fixture-core"]

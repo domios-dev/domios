@@ -174,26 +174,6 @@ impl AgentTransport for PtyTransport {
                 ctx.tab_id,
                 &cwd,
                 &mut params,
-                crate::ports::transport::Selection {
-                    model: model_resolution.model.clone(),
-                    effort: ctx
-                        .reasoning_effort
-                        .filter(|effort| {
-                            svc.agent_registry
-                                .with_provider(ctx.provider_id, |provider| {
-                                    provider
-                                        .reasoning_efforts_for_model(
-                                            model_resolution.model.as_deref(),
-                                        )
-                                        .iter()
-                                        .any(|level| level.id == *effort)
-                                })
-                                .unwrap_or(false)
-                        })
-                        .map(str::to_owned),
-                    resume: None,
-                    extra_args: !ctx.preset_args.is_empty(),
-                },
             )
             .ok_or_else(|| format!("Unknown agent provider: {}", ctx.provider_id))?;
         Ok(backend_owned_pty_launch(launch_command, |launch_command| {

@@ -3,7 +3,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
-import { useCanvasViewport, CANVAS_ZOOM_INTENSITY, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, formatLayerTransform } from "@codeterm/canvas-camera";
+import { useCanvasViewport, AUTO_FIT_MAX_SCALE, CANVAS_ZOOM_INTENSITY, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, formatLayerTransform } from "@codeterm/canvas-camera";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -222,6 +222,26 @@ test("zoom cannot exceed CANVAS_MAX_SCALE ceiling", async () => {
   for (let i = 0; i < 60; i++) wheel(vp, { deltaY: -200, ctrlKey: true });
   await flush();
   assert(last.scale <= CANVAS_MAX_SCALE + 1e-6, `scale clamped at ceiling ${CANVAS_MAX_SCALE}, got ${last.scale}`);
+  await act(async () => root.unmount());
+});
+
+test("an automatic fit of small content never zooms in past 100%; a fit the viewer asks for still may", async () => {
+  let fit: ((bounds: { x: number; y: number; width: number; height: number }, options?: { maxScale?: number }) => void) | null = null;
+  function FitHarness() {
+    const viewport = useCanvasViewport({ width: 800, height: 600, maxScale: 2.5 });
+    fit = viewport.fitToView;
+    last = viewport.transform;
+    return <div ref={viewport.containerRef} style={{ width: 800, height: 600 }}><div ref={viewport.layerRef} /></div>;
+  }
+  const { root } = await render(<FitHarness />);
+  // A card still loading: a layout far smaller than the viewport.
+  const small = { x: 0, y: 0, width: 200, height: 120 };
+  await act(async () => fit!(small, { maxScale: AUTO_FIT_MAX_SCALE }));
+  assert(last.scale === 1, `auto fit should hold at 100%, got ${last.scale}`);
+  await act(async () => fit!(small));
+  assert(last.scale > 1, `an explicit fit may zoom in, got ${last.scale}`);
+  await act(async () => fit!({ x: 0, y: 0, width: 4000, height: 3000 }, { maxScale: AUTO_FIT_MAX_SCALE }));
+  assert(last.scale < 1, `auto fit still zooms out to fit, got ${last.scale}`);
   await act(async () => root.unmount());
 });
 

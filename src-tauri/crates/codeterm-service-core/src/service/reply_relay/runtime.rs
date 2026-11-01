@@ -4,8 +4,8 @@ use super::model::{
 };
 use super::watcher;
 use crate::service::messenger::{MessageEnvelope, MessageKind};
+use crate::service::tab_chat::file_events::WatchGuard;
 use crate::service::ServiceContext;
-use notify::RecommendedWatcher;
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,7 +38,7 @@ pub(super) struct ActiveRelay {
     model: Mutex<ReplyRelayModel>,
     worker: Mutex<super::worker::WorkerTurnState>,
     signal: SyncSender<()>,
-    _watcher: Mutex<Option<RecommendedWatcher>>,
+    _watcher: Mutex<Option<Vec<WatchGuard>>>,
 }
 
 #[derive(Default)]

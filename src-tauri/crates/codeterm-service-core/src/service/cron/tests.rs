@@ -562,6 +562,7 @@ fn started_job(cron: &crate::CronState, oneshot: bool, report_target: Option<&st
         .record_run(
             &job.id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: "settle-run".into(),
                 started_at: 1,
                 finished_at: None,
@@ -700,6 +701,7 @@ fn cron_complete_requires_run_owner() {
             .record_run(
                 &job.id,
                 CronRunInfo {
+                    cancel_reason: None,
                     run_id: run_id.into(),
                     started_at: 1,
                     finished_at: None,
@@ -806,6 +808,7 @@ fn cron_settle_refused_trigger_record_never_dispatches() {
         .wait(Duration::from_secs(30))
         .expect("arm commit fault");
     let run = CronRunInfo {
+        cancel_reason: None,
         run_id: "refused-trigger-run".into(),
         started_at: 1,
         finished_at: None,
@@ -852,6 +855,7 @@ fn runtime_cron_owner_binding_is_exact_and_idempotent_before_launch() {
         .record_run(
             &job.id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: "run-exact".into(),
                 started_at: 1,
                 finished_at: None,

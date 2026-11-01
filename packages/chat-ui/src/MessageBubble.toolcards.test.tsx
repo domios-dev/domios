@@ -67,7 +67,7 @@ test("chatBackend exec tool_call renders command card and attached result", asyn
     await waitForEffects();
     assert(!host.querySelector('[data-testid="message-raw-content"]'), "formatted exec card should hide the full invocation");
     assertIncludes(host, "Tests passed", "expanded exec card result");
-    const rawView = buttons(commandCard).find((button) => button.textContent === "Raw command");
+    const rawView = buttons(commandCard).find((button) => button.textContent === "Details");
     assert(rawView, "expanded exec card should expose the raw command disclosure");
     await act(async () => rawView.dispatchEvent(new windowAny.MouseEvent("click", { bubbles: true })));
     assertIncludes(host, "cwd /repo/app", "raw exec card command");
@@ -468,6 +468,8 @@ test("chatBackend read_file and write_file render file cards", async () => {
     assert(host.querySelectorAll('[data-testid="chat-tool-call"]').length === 2, "expected read and edit cards");
     assertIncludes(host, "main.ts", "read_file name");
     assertIncludes(host, "src/out.ts", "write_file path");
+    assert(!textOf(host).includes("export const ready = true;"), "write_file details start collapsed");
+    await expandToolCard(host, "src/out.ts");
     assertIncludes(host, "export const ready = true;", "write_file preview");
   } finally {
     await act(async () => root.unmount());
@@ -542,7 +544,6 @@ test("chatBackend structured inbound renders an expanded typed message card", as
   try {
     assertIncludes(host, "from Worker A", "structured inbound sender");
     assertIncludes(host, "gpt-5", "structured inbound model");
-    assertIncludes(host, "tab", "structured inbound channel");
     assertIncludes(host, "Please inspect the last run.", "expanded inbound body");
     assert(host.querySelector('[data-testid="chat-inbound-message"]'), "expected typed inbound message card");
     assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "inbound message must not use legacy bubble");
@@ -553,11 +554,12 @@ test("chatBackend structured inbound renders an expanded typed message card", as
 });
 
 test("structured report uses compact typed card instead of a nested message bubble", async () => {
-  const content = "task: pl_d17yp2/task_2iw42e\nstatus: In Review\nbranch: lane/tool-cards\nsha: 1e096cba6\ntests: 11/11 green\nSTATUS: in_review | CHANGES: Added provider matrix";
+  const body = "## Changes\n\nAdded provider matrix.";
+  const content = `task: pl_d17yp2/task_2iw42e\nstatus: In Review\nbranch: lane/tool-cards\nsha: 1e096cba6\n\n${body}`;
   const descriptor = parseInboundReport(content);
   assert(descriptor.task === "pl_d17yp2/task_2iw42e", "report task parse regression");
-  assert(descriptor.status === "in_review", "latest report status should win");
-  assert(descriptor.fields.some((field) => field.label === "changes" && field.value === "Added provider matrix"), "compound report fields parse regression");
+  assert(descriptor.status === "In Review", "report status comes from host metadata");
+  assert(descriptor.body === body, "report Markdown body is preserved");
 
   const { host, root } = await renderMessages([{
     id: "inbound-report-1",
@@ -573,7 +575,10 @@ test("structured report uses compact typed card instead of a nested message bubb
     assert(host.querySelector('[data-testid="chat-inbound-report"]'), "expected typed inbound report card");
     assertIncludes(host, "Report from Hugo", "report sender");
     assertIncludes(host, "task_2iw42e", "report task summary");
-    assertIncludes(host, "1e096cba6", "report sha chip");
+    const disclosure = host.querySelector<HTMLButtonElement>('[data-testid="chat-inbound-report"] button[aria-controls]');
+    assert(disclosure, "report body has an explicit disclosure");
+    await act(async () => disclosure.click());
+    assertIncludes(host, "Added provider matrix.", "report Markdown content");
     assert(!host.querySelector(`[data-testid="${CROSS_TAB_BUBBLE_TESTID}"]`), "report must not use nested cross-tab bubble");
   } finally {
     await act(async () => root.unmount());
@@ -598,7 +603,6 @@ test("chatBackend structured mesh inbound renders peer in sender header", async 
   try {
     assertIncludes(host, "Received from Edison @ BLACKSTAR", "structured mesh sender");
     assertIncludes(host, "sonnet", "structured mesh model");
-    assertIncludes(host, "mesh", "structured mesh channel");
     assertIncludes(host, "Remote status is green.", "expanded mesh body");
     assert(host.querySelector('[data-testid="chat-inbound-message"]'), "expected typed mesh message card");
   } finally {

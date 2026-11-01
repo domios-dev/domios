@@ -55,26 +55,8 @@
 .mc-underway-segment[aria-expanded="true"]::after { content: ""; position: absolute; bottom: 0; left: calc(50% - 2px); width: 4px; height: 4px; border-radius: 50%; background: var(--ct-fg); }
 .mc-underway-empty { padding: 20px 6px; color: var(--ct-muted-fg); font-size: 13px; }
 .mc-underway-empty p + p { margin-top: 8px; font-size: 11px; }
-/* The resize grip is the card's own bottom-left corner: an arc that traces the 16px radius, shown on hover, focus and drag. */
-.mc-underway-resize { position: absolute; left: 0; bottom: 0; width: 30px; height: 30px; padding: 0; border: 0; background: transparent; cursor: nesw-resize; touch-action: none; }
-.mc-underway-resize::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 0;
-  width: 22px;
-  height: 22px;
-  border-left: 3px solid var(--ct-muted-fg);
-  border-bottom: 3px solid var(--ct-muted-fg);
-  border-bottom-left-radius: 16px;
-  opacity: 0;
-  transition: opacity 150ms ease, border-color 150ms ease;
-}
-.mc-underway-resize--right { left: auto; right: 0; cursor: nwse-resize; }
-.mc-underway-resize--right::before { left: auto; right: 0; border-left: 0; border-right: 3px solid var(--ct-muted-fg); border-bottom-left-radius: 0; border-bottom-right-radius: 16px; }
+/* The resize grips are the shared corner arc (shared/cornerGrip.css); the cards reveal them on hover. */
 .mc-underway-frame:hover .mc-underway-resize::before, .mc-reflexes-frame:hover .mc-underway-resize::before { opacity: 0.55; }
-.mc-underway-resize:hover::before, .mc-underway-resize:active::before, .mc-underway-resize:focus-visible::before { opacity: 1; border-color: var(--ct-accent); }
-.mc-underway-resize:focus-visible { outline: none; }
 .mc-underway-row button:focus-visible { outline: 2px solid var(--ct-accent); outline-offset: 2px; }
 @container underway (max-width: 560px) {
   .mc-underway-row { grid-template-columns: minmax(48px, 1fr) minmax(0, 104px) 68px 40px; min-height: 50px; }

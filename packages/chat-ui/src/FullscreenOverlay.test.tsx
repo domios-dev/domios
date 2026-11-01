@@ -5,6 +5,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { FullscreenOverlay } from "./FullscreenOverlay";
 import { HtmlPreviewBlock } from "./HtmlPreviewBlock";
+import { AnchoredPopover } from "./AnchoredPopover";
+import { CodeBlock } from "./CodeBlock";
+import { LocalArtifactBlock } from "./LocalArtifactBlock";
+import { configureLocalArtifactLoader } from "./localArtifactLoader";
 
 const window = new Window({ url: "http://localhost/viewer" });
 for (const key of ["window", "document", "navigator", "HTMLElement", "Element", "Node", "KeyboardEvent", "MouseEvent"] as const) {
@@ -22,6 +26,7 @@ async function mount(content: React.ReactNode) {
 afterEach(async () => {
   await act(async () => root?.unmount());
   host?.remove();
+  configureLocalArtifactLoader(null);
 });
 function Harness() {
   const [open, setOpen] = useState(false);
@@ -71,13 +76,110 @@ test("only the viewer's own HTML frame may forward Escape", async () => {
 });
 test("HTML fullscreen uses the shared viewport viewer and restores its trigger", async () => {
   await mount(<HtmlPreviewBlock text="<h1>Window preview</h1>" />);
+  const frame = host.querySelector("iframe")!;
+  assert(frame);
+  const frameWindow = frame.contentWindow;
   const opener = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Fullscreen")!;
   await act(async () => { opener.focus(); opener.click(); });
   const dialog = document.querySelector('[role="dialog"][aria-label="Fullscreen HTML page"]')!;
-  assert.equal(dialog.parentElement, document.body);
-  assert(dialog.querySelector("iframe"));
-  await act(async () => dialog.querySelector<HTMLButtonElement>('button[title="Close fullscreen"]')!.click());
+  assert.equal(dialog.closest("dialog")?.open, true);
+  assert.equal(document.querySelectorAll('[role="dialog"][aria-modal="true"]').length, 1);
+  assert.equal(dialog.querySelector("iframe"), frame);
+  assert.equal(document.querySelectorAll("iframe").length, 1);
+  assert.equal(frame.contentWindow, frameWindow);
+  assert.equal(dialog.querySelectorAll('[aria-label^="Close fullscreen"]').length, 1);
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Close fullscreen viewer"]')!.click());
   assert.equal(document.activeElement, opener);
+  assert.equal(host.querySelector("iframe"), frame);
+  assert.equal(frame.contentWindow, frameWindow);
+});
+
+test("persistent viewer retains child state through backdrop and native cancel dismissal", async () => {
+  let mounts = 0;
+  function Content() {
+    const [count, setCount] = useState(() => { mounts += 1; return 0; });
+    return <button type="button" onClick={() => setCount(value => value + 1)}>Count {count}</button>;
+  }
+  function PersistentHarness() {
+    const [open, setOpen] = useState(false);
+    const panel = useRef<HTMLDivElement>(null);
+    return <><button type="button" onClick={() => setOpen(true)}>Open viewer</button>
+      <FullscreenOverlay panelRef={panel} open={open} label="Persistent" onClose={() => setOpen(false)}><Content /></FullscreenOverlay></>;
+  }
+  await mount(<PersistentHarness />);
+  const opener = host.querySelector("button")!;
+  const content = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Count 0")!;
+  await act(async () => content.click());
+  for (const dismissal of ["backdrop", "cancel"]) {
+    await act(async () => { opener.focus(); opener.click(); });
+    const dialog = document.querySelector<HTMLElement>('[role="dialog"]')!;
+    assert.equal(dialog.contains(content), true);
+    assert.equal(content.textContent, "Count 1");
+    await act(async () => dismissal === "backdrop" ? dialog.click() : dialog.closest("dialog")!.dispatchEvent(new window.Event("cancel", { cancelable: true })));
+    assert.equal(document.querySelector('[role="dialog"]'), null);
+    assert.equal(document.activeElement, opener);
+  }
+  assert.equal(mounts, 1);
+});
+
+test("expanding a local document reuses its rendered content and never reloads or renders it twice", async () => {
+  let loads = 0;
+  let renders = 0;
+  configureLocalArtifactLoader(async () => { loads += 1; return { data: "document", media_type: "text/markdown" }; });
+  const renderMarkdown = (text: string) => { renders += 1; return <article>{text}</article>; };
+  await mount(<LocalArtifactBlock directive={{ kind: "document", path: "/document.md" }} renderMarkdown={renderMarkdown} />);
+  const content = host.querySelector("article")!;
+  assert(content);
+  const opener = host.querySelector<HTMLButtonElement>('[aria-label="Fullscreen document.md"]')!;
+  await act(async () => { opener.focus(); opener.click(); });
+  assert.equal(document.querySelector('[role="dialog"] article'), content);
+  assert.equal(document.querySelectorAll("article").length, 1);
+  await act(async () => document.querySelector<HTMLButtonElement>('[aria-label="Close fullscreen viewer"]')!.click());
+  assert.equal(host.querySelector("article"), content);
+  assert.equal(document.activeElement, opener);
+  assert.equal(loads, 1);
+  assert.equal(renders, 1);
+});
+
+test("only an active content viewer owns nested code and anchored menus, and Escape dismisses its menu first", async () => {
+  function Menu({ name }: { name: string }) {
+    const [open, setOpen] = useState(false);
+    const anchor = useRef<HTMLButtonElement>(null);
+    return <><button ref={anchor} type="button" onClick={() => setOpen(true)}>{name}</button>
+      <AnchoredPopover open={open} anchor={anchor} onClose={() => setOpen(false)}><button type="button" role="menuitem" onClick={() => setOpen(false)}>Action {name}</button></AnchoredPopover></>;
+  }
+  function Viewer() {
+    const [open, setOpen] = useState(false);
+    const panel = useRef<HTMLDivElement>(null);
+    return <><section aria-label="Ordinary code"><CodeBlock text="outside" /></section><Menu name="Outside menu" />
+      <button type="button" onClick={() => setOpen(true)}>Open viewer</button>
+      <FullscreenOverlay panelRef={panel} open={open} label="Content" onClose={() => setOpen(false)}><CodeBlock text="inside" /><Menu name="Inside menu" /></FullscreenOverlay></>;
+  }
+  const find = (text: string) => Array.from(document.querySelectorAll("button")).find(button => button.textContent === text)!;
+  await mount(<Viewer />);
+  const outsideFullscreen = host.querySelector<HTMLButtonElement>('[aria-label="Ordinary code"] [title="Open in fullscreen"]')!;
+  assert.equal(outsideFullscreen.hidden, false);
+  await act(async () => find("Outside menu").click());
+  assert.equal(document.querySelector("[data-anchored-popover]")?.parentElement, document.body);
+  await act(async () => document.body.dispatchEvent(new window.PointerEvent("pointerdown", { bubbles: true })));
+  assert.equal(document.querySelector("[data-anchored-popover]"), null);
+  const opener = find("Open viewer");
+  await act(async () => { opener.focus(); opener.click(); });
+  const viewer = document.querySelector('[role="dialog"]')!;
+  assert.equal(viewer.querySelector<HTMLButtonElement>('[title="Open in fullscreen"]')?.hidden, true);
+  assert.equal(outsideFullscreen.hidden, false);
+  const menuTrigger = find("Inside menu");
+  await act(async () => { menuTrigger.focus(); menuTrigger.click(); });
+  assert.equal(document.querySelector("[data-anchored-popover]")?.parentElement, viewer);
+  await act(async () => find("Action Inside menu").focus());
+  await act(async () => find("Action Inside menu").dispatchEvent(new window.KeyboardEvent("keydown", { code: "Escape", key: "Escape", bubbles: true, cancelable: true })));
+  assert.equal(document.querySelector("[data-anchored-popover]"), null);
+  assert.equal(document.querySelector('[role="dialog"]'), viewer);
+  assert.equal(document.activeElement, menuTrigger);
+  await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Escape", key: "Escape", cancelable: true })));
+  assert.equal(document.querySelector('[role="dialog"]'), null);
+  assert.equal(document.activeElement, opener);
+  assert.equal(host.querySelector<HTMLButtonElement>('dialog [title="Open in fullscreen"]')?.hidden, false);
 });
 test("closing nested viewers restores page scrolling and the original opener", async () => {
   function NestedHarness() {

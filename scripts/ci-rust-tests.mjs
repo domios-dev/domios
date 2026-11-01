@@ -252,7 +252,7 @@ async function run(mode, { compileOnly = false } = {}) {
   const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
   const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
   const start = performance.now();
-  const receipt = { mode, os, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1), producer: process.env.GITHUB_JOB, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
+  const receipt = { mode, os, run_id: process.env.GITHUB_RUN_ID, repository: process.env.GITHUB_REPOSITORY, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1), producer: process.env.GITHUB_JOB, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
   const directory = path.resolve('ci-rust-receipts');
   fs.mkdirSync(directory, { recursive: true });
   const targetEnv = { ...env };

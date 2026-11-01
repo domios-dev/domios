@@ -1,3 +1,9 @@
+"""Test confirmation evidence with isolated append-only fixtures.
+
+Only consumed content can confirm a send; quoted assistant text and metadata
+must fail while the original queued-command and glued-row oracle stays intact.
+"""
+
 import json
 from pathlib import Path
 import tempfile
@@ -34,10 +40,47 @@ class EvidenceTests(unittest.TestCase):
     def test_incomplete_append_is_not_a_committed_record(self):
         with tempfile.TemporaryDirectory() as root:
             transcript = Path(root) / "own.jsonl"
-            transcript.write_text(json.dumps({"sessionId": "own", "message": "opaque"}))
+            transcript.write_text(json.dumps({"sessionId": "own", "type": "user",
+                                              "message": {"role": "user", "content": "opaque"}}))
             self.assertEqual(matching_records(transcript, 0, "own", "opaque"), [])
             transcript.write_text(transcript.read_text() + "\n")
             self.assertEqual(len(matching_records(transcript, 0, "own", "opaque")), 1)
+
+    def test_assistant_and_metadata_quotes_cannot_confirm(self):
+        records = [
+            {"type": "assistant", "message": {"role": "assistant", "content": "opaque"}},
+            {"type": "user", "message": {"role": "user", "content": "different"}, "metadata": "opaque"},
+            {"type": "user", "isMeta": True, "message": {"role": "user", "content": "opaque"}},
+        ]
+        with tempfile.TemporaryDirectory() as root:
+            transcript = Path(root) / "own.jsonl"
+            transcript.write_text("".join(json.dumps(row) + "\n" for row in records))
+            self.assertEqual(matching_records(transcript, 0, "own", "opaque"), [])
+
+    def test_tool_result_keeps_whole_payload_without_joining_partial_blocks(self):
+        record = {"type": "user", "message": {"role": "user", "content": [
+            {"type": "tool_result", "content": [
+                {"type": "text", "text": "prefix\nopaque\nwhole\nsuffix"},
+                {"type": "text", "text": "partial"}, {"type": "text", "text": "other"}]}]}}
+        with tempfile.TemporaryDirectory() as root:
+            transcript = Path(root) / "own.jsonl"
+            transcript.write_text(json.dumps(record) + "\n")
+            self.assertEqual(len(matching_records(transcript, 0, "own", "opaque\nwhole")), 1)
+            self.assertEqual(matching_records(transcript, 0, "own", "partial\nother"), [])
+
+    def test_structured_user_content_can_confirm_without_provider_identity_branch(self):
+        record = {"type": "response_item", "payload": {"type": "message", "role": "user",
+                  "content": [{"type": "input_text", "text": "opaque"}]}}
+        with tempfile.TemporaryDirectory() as root:
+            transcript = Path(root) / "own.jsonl"
+            transcript.write_text(json.dumps(record) + "\n")
+            self.assertEqual(len(matching_records(transcript, 0, "own", "opaque")), 1)
+
+    def test_duplicate_consumption_is_not_counted_as_confirmation(self):
+        group = summarize([{"provider": "fixture", "path": "cli", "mode": "idle",
+                            "state": "delivered", "evidence": [{}, {}]}])[0]
+        self.assertEqual(group["confirmed"], 0)
+        self.assertEqual(group["confirmation_rate"], 0)
 
     def test_rates_require_delivered_ledger_and_exact_record_per_provider_path_mode(self):
         rows = []

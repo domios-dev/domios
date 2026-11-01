@@ -49,7 +49,9 @@ impl PlanStore {
             }
             let mut owners = Vec::new();
             for active in self
-                .list_full()
+                .stored_plans_matching(&super::plan_skill_evidence::tab_work_candidates(
+                    &request.tab_id,
+                ))
                 .into_iter()
                 .filter(|plan| plan.status == PlanStatus::Active)
             {

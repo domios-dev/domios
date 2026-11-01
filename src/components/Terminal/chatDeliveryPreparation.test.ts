@@ -13,8 +13,8 @@ import { MemoryChatSendRepository } from "./chatSendRepository.testSupport";
 Object.defineProperty(globalThis, "localStorage", { value: window.localStorage, configurable: true });
 __setChatSendRepositoryForTest(new MemoryChatSendRepository());
 
-const path = "C:\\Users\\blackstar\\voice-note.webm";
-const peerPath = "/Users/eight/voice-note.webm";
+const path = "C:\\Users\\source-user\\voice-note.webm";
+const peerPath = "/Users/peer-user/voice-note.webm";
 const expansion = () => ({ kind: "none" as const });
 
 function draft(tab: string) {

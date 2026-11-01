@@ -88,6 +88,7 @@ impl ServiceContext {
         {
             return Err("Runtime launch capability or provider changed".into());
         }
+        self.prepare_neighbor_restore_grant(tab_id, &provider, params)?;
         let policy =
             crate::service::execution_sandbox::for_launch(self, tab_id, &provider, params, true)?;
         let skip = policy.is_none() && params.permission_bypass_requested(&provider);
@@ -98,11 +99,18 @@ impl ServiceContext {
                 .ok_or("Execution sandbox runtime mapping absent")?,
             None => authorized_mode(params.skip_permissions, skip)?,
         };
-        self.ensure_agent_pad(tab_id)?;
+        let pad = self.ensure_agent_pad(tab_id)?;
         let project =
             launch_session_detection::canonical_project_for_launch(self, tab_id, params, &cwd);
         let roots = if let Some(policy) = &policy {
             policy.writable_roots.iter().map(PathBuf::from).collect()
+        } else if self
+            .mux
+            .read()
+            .get_tab(tab_id)
+            .is_some_and(|tab| tab.neighbor_authority.is_some())
+        {
+            vec![pad.path().to_path_buf()]
         } else {
             launch_session_detection::host_writable_roots(
                 &self.agent_registry,
@@ -222,12 +230,13 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
             tab.restorable_launch.structured_runtime_mode.clone(),
         )
     };
-    let worker = svc
-        .mux
-        .read()
-        .get_tab(tab_id)
-        .is_some_and(|tab| tab.role == Some(crate::multiplexer::types::AgentRole::Worker));
-    let requested = requested && (worker || permission_policy::configured_full_access_for(&svc)?);
+    svc.require_neighbor_restore_grant(tab_id, requested)?;
+    let independently_authorized = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
+        tab.role == Some(crate::multiplexer::types::AgentRole::Worker)
+            || tab.neighbor_authority.is_some()
+    });
+    let requested = requested
+        && (independently_authorized || permission_policy::configured_full_access_for(&svc)?);
     let sandbox = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         tab.restorable_launch
             .execution_sandbox

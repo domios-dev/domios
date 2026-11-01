@@ -6,6 +6,7 @@ use crate::service::{
 
 #[derive(Default)]
 pub(super) struct RuntimeAdmission {
+    pub(super) provenance: crate::service::messenger::InputProvenance,
     pub(super) question: Option<runtime_questions::QuestionResolution>,
     pub(super) capture_required: bool,
     pub(super) observer: Option<DeliveryWriteObserver>,
@@ -68,6 +69,7 @@ impl UserSendStore {
         reservation: &UserReservation,
         input: &str,
         observer: Option<DeliveryWriteObserver>,
+        provenance: crate::service::messenger::InputProvenance,
     ) -> Result<UserSendRecord, String> {
         self.admit_with_question(
             reservation,
@@ -78,6 +80,7 @@ impl UserSendStore {
             false,
             RuntimeAdmission {
                 observer,
+                provenance,
                 ..Default::default()
             },
         )
@@ -131,7 +134,12 @@ mod tests {
             complete_wrapup_plan_id: Some("plan".into()),
         };
         let record = store
-            .admit_runtime_envelope(&reservation, "opaque", Some(observer.clone()))
+            .admit_runtime_envelope(
+                &reservation,
+                "opaque",
+                Some(observer.clone()),
+                crate::service::messenger::InputProvenance::Local,
+            )
             .unwrap();
         let status = ledger.admit_user(&record);
         drop(reservation);

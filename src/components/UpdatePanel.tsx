@@ -1,12 +1,11 @@
 import { InlineErrorNotice } from "./shared/ErrorNotice";
 import { Download, RotateCw } from "lucide-react";
 import { useUpdatePanel } from "../hooks/useUpdatePanel";
-import { groupUpdates, summarizeUpdatePanel, type UpdateRow } from "../lib/updatePanelModel";
+import { groupUpdates, summarizeUpdatePanel, updateSourceMessage, type UpdateRow } from "../lib/updatePanelModel";
 import { ComponentStatus } from "./shared/ComponentStatus";
 import { UpdateChannelNotice } from "./shared/UpdateChannelNotice";
 import { SettingsCard } from "./Settings/shared";
 import type { ReactNode } from "react";
-import { BusySpinner } from "./shared/BusyState";
 import { Button } from "./shared/Button";
 import { BrandMark } from "./brand/BrandMark";
 import { DotMatrixCanvas } from "./brand/DotMatrixCanvas";
@@ -80,6 +79,12 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
                     {canApply && <Button variant="accent" size="compact" disabled={update.busy || update.checking} aria-label={`Update ${item.name}`} onClick={() => void update.applyItem(item.id)}>Update</Button>}
                   </div>
                   {row.state === "active" && <progress aria-label={`${item.name} update progress`} max={100} value={item.group === "App" ? update.appProgress ?? undefined : undefined} className="ct-progress col-span-2" />}
+                  {((row.channelError && !row.channel) || row.sourceWarning) && <div className="col-span-2"><InlineErrorNotice description={{
+                    title: row.sourceWarning ? "Cached update remains available" : `${item.name} updates unavailable`,
+                    cause: updateSourceMessage(row.channelError ?? row.sourceWarning!),
+                    raw: row.channelError ?? row.sourceWarning!,
+                    actions: [],
+                  }} /></div>}
                 </div>;
               })}
             </div>
@@ -93,7 +98,7 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
         {children}
         <div className="flex items-center justify-between gap-2 border-t border-[var(--ct-border)] pt-3">
           <Button variant="ghost" size="compact" className="-ml-3 gap-1.5" disabled={update.checking || (update.busy && !update.error)} onClick={() => void update.retry()}><RotateCw size={13} aria-hidden="true" />Check again</Button>
-          <Button variant="primary" size="compact" className="gap-1.5" aria-label="Update all" disabled={update.busy || update.checking || update.awaitingRetry || !update.rows.some(item => !item.channelError && item.state !== "completed" && update.items.some(offer => offer.id === item.id))} onClick={() => void update.updateAll()}>{update.busy && <BusySpinner size={13} />}{update.busy ? "Updating components" : "Update all"}</Button>
+          <Button variant="primary" size="compact" className="gap-1.5" aria-label="Update all" disabled={update.busy || update.checking || update.awaitingRetry || !update.rows.some(item => !item.channelError && item.state !== "completed" && update.items.some(offer => offer.id === item.id))} loading={update.busy} onClick={() => void update.updateAll()}>{update.busy ? "Updating components" : "Update all"}</Button>
         </div>
       </div>
   );

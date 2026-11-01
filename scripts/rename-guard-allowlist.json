@@ -2,6 +2,36 @@
   "version": 1,
   "rules": [
     {
+      "path": "src-tauri/crates/codeterm-paths/src/relaunch_env.rs",
+      "literal": "\"CODETERM\"",
+      "reason": "The frozen base environment marker and former TERM_PROGRAM value must still be scrubbed on relaunch."
+    },
+    {
+      "path": "src-tauri/crates/codeterm-paths/src/relaunch_env.rs",
+      "literal": "\"CODETERM_\"",
+      "reason": "The frozen environment prefix is removed from inherited relaunch state; it is not a rename candidate."
+    },
+    {
+      "path": "src-tauri/crates/codeterm-paths/src/relaunch_env.rs",
+      "literal": "\".codeterm\"",
+      "reason": "Former shell-integration paths remain rejection inputs so relaunch cannot inherit an old instance integration."
+    },
+    {
+      "path": "src-tauri/crates/codeterm-paths/src/relaunch_env.rs",
+      "literal": "\".codeterm-dev\"",
+      "reason": "Former development shell-integration prefixes remain rejection inputs; this does not remap or read old data."
+    },
+    {
+      "path": "src-tauri/crates/codeterm-paths/src/relaunch_env/tests.rs",
+      "literal": "\"CODETERM\"",
+      "reason": "Fixtures prove removal of the frozen base marker and former TERM_PROGRAM value from inherited relaunch state."
+    },
+    {
+      "path": "src-tauri/crates/codeterm-paths/src/relaunch_env/tests.rs",
+      "literal": "\"CODETERMINAL\"",
+      "reason": "An opaque negative fixture proves similarly prefixed user variables survive relaunch filtering."
+    },
+    {
       "path": "**",
       "literal": "rollacode/code\u0074erm",
       "reason": "The upstream repository is the product's canonical source location."

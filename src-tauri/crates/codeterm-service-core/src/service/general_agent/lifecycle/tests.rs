@@ -16,6 +16,8 @@ use std::cell::Cell;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod session_start;
+
 #[test]
 fn disabled_session_resume_skips_snapshot_and_discovered_session_candidates() {
     use super::{general_agent_session_plan, GeneralAgentSessionPlan};
@@ -530,6 +532,7 @@ fn general_agent_env_uses_configured_api_port_not_parent_env() {
         "C:/tmp/pad".to_string(),
         "nonce-1".to_string(),
         &config,
+        Some("tab-credential".into()),
     );
     assert_eq!(
         env.get("CODETERM_API_PORT").map(String::as_str),
@@ -542,7 +545,7 @@ fn general_agent_env_uses_configured_api_port_not_parent_env() {
     );
     assert_eq!(
         env.get("CODETERM_API_TOKEN").map(String::as_str),
-        Some("test-token")
+        Some("tab-credential")
     );
     assert_eq!(
         env.get("CODETERM_MACHINE_AGENT_IDENTITY")

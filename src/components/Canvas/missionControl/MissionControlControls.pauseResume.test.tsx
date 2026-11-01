@@ -115,11 +115,17 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/** Some test environments leave window.confirm undefined; a stub gives the spy a function to watch. */
+function spyOnWindowConfirm() {
+  if (typeof window.confirm !== "function") Object.defineProperty(window, "confirm", { configurable: true, writable: true, value: () => false });
+  return vi.spyOn(window, "confirm");
+}
+
 describe("Mission Control plan pause and resume dialogs", () => {
   it("renders the pause preview in a body portal and keeps cancel and Escape inert", async () => {
     const loadPreview = vi.fn(async () => PAUSE_PREVIEW);
     const confirmLifecycle = vi.fn(async () => undefined);
-    const windowConfirm = vi.spyOn(window, "confirm");
+    const windowConfirm = spyOnWindowConfirm();
     const { host, unmount } = await render(
       <MissionControlControls
         scope="board"
@@ -282,7 +288,7 @@ describe("Mission Control plan pause and resume dialogs", () => {
     const approve = vi.fn();
     const clear = vi.fn();
     const confirmLifecycle = vi.fn(async () => undefined);
-    const windowConfirm = vi.spyOn(window, "confirm");
+    const windowConfirm = spyOnWindowConfirm();
     const { host, unmount } = await render(
       <MissionControlControls
         scope="board"

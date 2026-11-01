@@ -7,12 +7,12 @@ for (const [legacy, wire, expected] of [
   ["-=-codeterm:voice file=/u/v.webm status=untranscribed-=-\nmissing engine", markVoice("/u/v.webm", null, "missing engine"), null],
 ] as const) {
   const parsed = parseVoiceMessage(wire);
-  assert.deepEqual(parsed, parseVoiceMessage(legacy));
+  assert.equal(parseVoiceMessage(legacy), null);
   assert.equal(parsed?.transcript, expected);
   assert.equal(parsed?.fileUrl, "/u/v.webm");
 }
 const persisted = '<domios type="attachment" kind="voice" path="/u/v.webm" label="voice" />\nspoken token';
-assert.deepEqual(parseVoiceMessage(persisted), parseVoiceMessage(markVoice("/u/v.webm", "spoken token")));
+assert.equal(parseVoiceMessage(persisted), null);
 const delimited = 'say </transcript> and <domios from="tab">no</domios>';
 assert.equal(parseVoiceMessage(markVoice("/u/v.webm", delimited))?.transcript, delimited);
-console.log("voice card parser: 4 parity cases passed");
+console.log("voice card parser: current voice cases passed; obsolete formats rejected");

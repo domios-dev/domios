@@ -10,6 +10,7 @@ fn app_state(fixture: &ServiceFixture) -> AppState {
         .ext::<codeterm_service_core::config::ConfigState>()
         .clone();
     config.lock().utility_tabs.max_per_team.build = Some(1);
+    config.lock().api.token = Some("utility-fixture-token".into());
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("utility-tabs-test".into(), 0);
     mesh.disk_persist = false;
     AppState {
@@ -62,7 +63,7 @@ async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
     let before = state.svc.mux.read().snapshot().tabs.len();
     let invalid = create_shell_tab(
         AxumState(state.clone()),
-        HeaderMap::new(),
+        local_headers(),
         Json(body("Invalid", "missing-icon")),
     )
     .await
@@ -71,7 +72,7 @@ async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
     assert_eq!(state.svc.mux.read().snapshot().tabs.len(), before);
     let first = create_shell_tab(
         AxumState(state.clone()),
-        HeaderMap::new(),
+        local_headers(),
         Json(body("First build", "hammer")),
     )
     .await
@@ -97,7 +98,7 @@ async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
             .activity = activity;
         let refused = create_shell_tab(
             AxumState(state.clone()),
-            HeaderMap::new(),
+            local_headers(),
             Json(body("Busy", "hammer")),
         )
         .await
@@ -115,7 +116,7 @@ async fn utility_tabs_api_description_icon_reuse_and_busy_refusal() {
         .activity = ShellActivity::Idle;
     let reused = create_shell_tab(
         AxumState(state.clone()),
-        HeaderMap::new(),
+        local_headers(),
         Json(body("Second build", "flask-conical")),
     )
     .await
@@ -150,10 +151,16 @@ async fn authenticated_tab_header_owns_a_team_utility_shell() {
     let fixture = ServiceFixture::new(mux);
     let state = app_state(&fixture);
     let mut headers = HeaderMap::new();
+    let token = state
+        .svc
+        .frontend_pty_env(Some(&worker))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
     headers.insert("x-codeterm-tab-id", worker.parse().unwrap());
     let body = serde_json::from_value::<CreateShellTabBody>(serde_json::json!({
         "workspace_id": workspace,
-        "creator_tab_id": orchestrator,
+        "creator_tab_id": worker,
         "team_id": team,
         "purpose": "qa"
     }))
@@ -170,4 +177,13 @@ async fn authenticated_tab_header_owns_a_team_utility_shell() {
     assert_eq!(tab.spawned_by_tab_id.as_deref(), Some(worker.as_str()));
     assert_eq!(tab.team_id.as_deref(), Some(team.as_str()));
     assert_eq!(tab.role, None);
+}
+
+fn local_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        "authorization",
+        "Bearer utility-fixture-token".parse().unwrap(),
+    );
+    headers
 }

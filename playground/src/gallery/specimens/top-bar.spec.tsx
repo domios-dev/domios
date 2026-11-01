@@ -23,7 +23,7 @@ mockCommand("plugin_manager_snapshot", () => ({
 }));
 mockCommand("plugin_bubble", () => ({ label: "master", tone: "accent", tooltip: "Git · master · clean", action: "openPanel:git" }));
 mockCommand("repo_watch_subscribe", (args) => ({ status: "watching", token: `watch-${String(args?.cwd)}`, identity: String(args?.cwd) }));
-mockCommand("check_local_preview_files", (args) => ({ paths: (args?.paths as string[]) ?? [], home: "/Users/andrey" }));
+mockCommand("check_local_preview_files", (args) => ({ paths: (args?.paths as string[]) ?? [], home: "/Users/example" }));
 
 function usage(provider: string, session: number, weekly: number): UsageSnapshot {
   const now = Date.now();

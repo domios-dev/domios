@@ -170,14 +170,6 @@ fn chat_start_inner(
             source_missing: false,
         });
     }
-    if codeterm_service_core::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
-        let result = codeterm_service_core::service::codex_rpc::transcript::start(
-            svc,
-            &tab_id,
-            subscription_id,
-        )?;
-        return Ok(result);
-    }
     let started = std::time::Instant::now();
     let initial_authority = tab_chat_authority(svc, &tab_id);
     if codeterm_service_core::service::structured_endpoint_sse(&tab_id).is_some()
@@ -755,13 +747,6 @@ pub fn chat_backfill_core(
             source_session_id: context.thread_id,
             session_binding_nonce: Some(context.binding_nonce),
         });
-    }
-    if codeterm_service_core::service::codex_rpc::lifecycle::for_tab(&tab_id).is_some() {
-        return codeterm_service_core::service::codex_rpc::transcript::backfill(
-            svc,
-            &tab_id,
-            before_offset,
-        );
     }
     let (provider_id, cwd, session_id, session_binding_nonce) = {
         let m = svc.mux.read();

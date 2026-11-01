@@ -396,17 +396,21 @@ fn agent_spawn_unplanned_parses_reason() {
         "--unplanned",
         "--reason",
         "urgent probe",
+        "--tag",
+        "work:qa",
     ])
     .expect("unplanned Worker spawn parses");
     match action {
         AgentAction::Spawn {
             role,
             unplanned,
+            tags,
             reason,
             ..
         } => {
             assert!(matches!(role, Some(SpawnRole::Worker)));
             assert!(unplanned);
+            assert_eq!(tags, vec!["work:qa"]);
             assert_eq!(reason.as_deref(), Some("urgent probe"));
         }
         _ => panic!("expected agent spawn"),
@@ -718,6 +722,10 @@ fn set_orchestrator_help_mentions_workers_not_leads() {
         .render_long_help()
         .to_string();
     assert!(help.contains("workers"), "{help}");
+    assert!(
+        help.contains("own live roleless, team-less agent"),
+        "{help}"
+    );
     assert!(!help.to_ascii_lowercase().contains("lead"), "{help}");
 }
 

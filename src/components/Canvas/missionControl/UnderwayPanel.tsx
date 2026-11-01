@@ -14,6 +14,7 @@ import { BoardPanel } from "./BoardPanel";
 import type { BoardRefs } from "./BoardRefText";
 import { checklistProgress, underwayRows } from "./underwayModel";
 import { useUnderwayResize } from "./useUnderwayResize";
+import { CornerResizeGrip } from "../../shared/CornerResizeGrip";
 
 function Segment({ item, index, total, plans, tabId }: { item: AgentChecklistItem; index: number; total: number; plans: readonly Plan[]; tabId: string }) {
   const [open, setOpen] = useState(false);
@@ -68,7 +69,7 @@ export function UnderwayBoardRow({ api, teamId, plans, refs, deepLinks }: {
   return <div className="mc-board-live-row">
     {api && <div className="mc-reflexes-frame" style={{ height: size ? `${size.height}px` : undefined }}>
       <BoardPanel testId="mc-board-reflexes" title="Spinal-cord activity" className="mc-board-reflexes"><div className="mc-board-sub mc-reflexes-list"><ActivityFeed api={api} teamId={teamId} embedded /></div></BoardPanel>
-      <button type="button" className="mc-underway-resize mc-underway-resize--right" aria-label="Resize activity and Underway; use arrow keys" title="Drag to resize" {...handle} />
+      <CornerResizeGrip className="mc-underway-resize" aria-label="Resize activity and Underway; use arrow keys" {...handle} />
     </div>}
     <div className="mc-underway-frame" style={{ flexBasis: size ? `${size.width}px` : undefined, height: size ? `${size.height}px` : undefined }}>
       <BoardPanel testId="mc-board-underway" title="Underway" meta={<span className="inline-flex items-center gap-1.5">{rows.length ? `${rows.length} with checklists` : "none"}<ActivityDots size="small" tone="muted" active={rows.some(({ tab }) => tab.agent_state?.state === "working")} /></span>}>
@@ -76,7 +77,7 @@ export function UnderwayBoardRow({ api, teamId, plans, refs, deepLinks }: {
           {rows.length ? <ol aria-label="Working agents">{rows.map(({ tab, task }) => <UnderwayRow key={tab.id} tab={tab} task={task} view={views.get(tab.id)} plans={plans} refs={refs} deepLinks={deepLinks} />)}</ol>
             : <div className="mc-underway-empty"><p>No agent in this team has a checklist yet.</p><p>Agents appear here as soon as they keep one.</p></div>}
         </div>
-        <button type="button" className="mc-underway-resize" aria-label="Resize Underway; use arrow keys to change width and height" title="Drag to resize" {...handle} />
+        <CornerResizeGrip side="left" className="mc-underway-resize" aria-label="Resize Underway; use arrow keys to change width and height" {...handle} />
       </BoardPanel>
     </div>
   </div>;

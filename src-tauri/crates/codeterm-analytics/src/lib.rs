@@ -8,6 +8,10 @@ pub mod sinks;
 mod state;
 mod worker;
 
+#[cfg(test)]
+mod key_fingerprint;
+
+pub use build_config::{AMPLITUDE_PROD_KEY_FINGERPRINT, AMPLITUDE_TEST_KEY_FINGERPRINT};
 pub use catalog::*;
 pub use config::{Config, Mode, Project, Zone};
 pub use engine::Status;

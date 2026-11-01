@@ -135,7 +135,11 @@ pub(super) fn validate_team_spawn_role(role: Option<&SpawnRole>) -> Result<(), S
         Some(other) => Err(format!(
             "{}: --team accepts --role Orchestrator only, got {}. A role-bound agent takes its Team from that binding.",
             team_codes::TEAM_SPAWN_ROLE_MUST_ANCHOR,
-            other.as_str()
+            match other {
+                SpawnRole::Planner => "Planner",
+                SpawnRole::Watcher => "Watcher",
+                _ => other.as_str(),
+            }
         )),
     }
 }
@@ -210,6 +214,7 @@ pub(super) fn handle(
         bound_task,
         plan_task,
         unplanned,
+        tags,
         reason,
         team,
         execution_intent,
@@ -378,9 +383,10 @@ pub(super) fn handle(
             "reason": reason.expect("validated above"),
             "brief": task.unwrap_or_default(),
             "execution_intent": "mutating",
-            "caller_tab_id": std::env::var("CODETERM_TAB_ID").ok(),
-            "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-            "session_binding_nonce": std::env::var("CODETERM_SESSION_BINDING_NONCE").ok(),
+            "tags": tags,
+            "caller_tab_id": crate::nonempty_env("CODETERM_TAB_ID"),
+            "session_id": crate::nonempty_env("CODETERM_SESSION_ID"),
+            "session_binding_nonce": crate::nonempty_env("CODETERM_SESSION_BINDING_NONCE"),
         });
         if let Some(sandbox) = sandbox {
             params["sandbox"] = serde_json::json!(sandbox);
@@ -403,6 +409,11 @@ pub(super) fn handle(
                     crate::cmd::print::print_json(&value);
                 } else {
                     println!("Dispatched unplanned Worker task {}", value["task_id"]);
+                    if let Some(warnings) = value["warnings"].as_array() {
+                        for warning in warnings.iter().filter_map(serde_json::Value::as_str) {
+                            eprintln!("{warning}");
+                        }
+                    }
                 }
             }
             Err(error) => crate::cmd::model_error::exit_with_socket_error(json, error),
@@ -549,7 +560,7 @@ pub(super) fn handle(
         body["plan_task"] = serde_json::json!(pt);
     }
     if let Some(team_id) = team.as_deref() {
-        match team_spawn_fields(team_id, std::env::var("CODETERM_TAB_ID").ok().as_deref()) {
+        match team_spawn_fields(team_id, crate::nonempty_env("CODETERM_TAB_ID").as_deref()) {
             Ok((team_id, creator_tab_id)) => {
                 body["team_id"] = serde_json::json!(team_id);
                 body["creator_tab_id"] = serde_json::json!(creator_tab_id);
@@ -570,7 +581,7 @@ pub(super) fn handle(
         body["audience"] = serde_json::json!("automation");
     }
     // Record the spawner's tab for report-routing fallback.
-    if let Ok(spawner) = std::env::var("CODETERM_TAB_ID") {
+    if let Some(spawner) = crate::nonempty_env("CODETERM_TAB_ID") {
         if !spawner.is_empty() {
             body["spawned_by_tab_id"] = serde_json::json!(spawner);
         }
@@ -925,6 +936,9 @@ mod tests {
                 error.starts_with(team_codes::TEAM_SPAWN_ROLE_MUST_ANCHOR),
                 "the refusal must lead with its code, got: {error}"
             );
+            if matches!(role, SpawnRole::Planner) {
+                assert!(error.contains("got Planner"));
+            }
         }
     }
 

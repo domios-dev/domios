@@ -281,10 +281,7 @@ fn attach_manager_bootstrap(
     };
     let plan_id = svc
         .plan_store
-        .list_full()
-        .into_iter()
-        .find(|plan| plan.team_id.as_deref() == Some(team_id))
-        .map(|plan| plan.id)
+        .plan_id_for_team(team_id)
         .unwrap_or_else(|| "no bound plan yet".into());
     // A caller-less add is the bootstrap door and can only place an anchoring role, so there is no counterpart to name and nothing to introduce.
     let coordination = caller_tab_id
@@ -347,9 +344,13 @@ async fn close_team_inner(
     let (prepared, storage_teardown) =
         storage_teardown::prepare_storage_team_teardown(svc, team_id, &caller).await?;
     let lane_plan_store = std::sync::Arc::clone(&svc.plan_store);
-    let plans = tokio::task::spawn_blocking(move || lane_plan_store.list_full())
-        .await
-        .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
+    let lane_team_id = team_id.to_string();
+    let lane_member_ids = prepared.member_tab_ids.clone();
+    let plans = tokio::task::spawn_blocking(move || {
+        lane_plan_store.team_close_plans(&lane_team_id, &lane_member_ids)
+    })
+    .await
+    .map_err(|error| format!("Team lane inventory task failed: {error}"))?;
     let lanes = team_close_lanes(&plans, team_id, &prepared.member_tab_ids);
     let busy = {
         let mux = svc.mux.read();

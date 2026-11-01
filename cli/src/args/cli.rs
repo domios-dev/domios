@@ -16,7 +16,6 @@ use super::debug::DebugAction;
 use super::delayed::DelayedAction;
 use super::effort::EffortAction;
 use super::essence_map::EssenceMapAction;
-use super::inbox::InboxAction;
 use super::integration::IntegrationAction;
 use super::mem::MemAction;
 use super::misc::{
@@ -28,6 +27,7 @@ use super::pad::PadAction;
 use super::persona::PersonaAction;
 use super::plan::PlanAction;
 use super::plugin::PluginAction;
+use super::radar::RadarAction;
 use super::service::ServiceAction;
 use super::sessions::SessionsAction;
 use super::spec::SpecAction;
@@ -49,9 +49,13 @@ use super::usage::UsageAction;
     after_help = "Plugin management is available via `domios plugin --help`."
 )]
 pub struct Cli {
-    /// Output raw JSON instead of human-readable text
+    /// Output JSON with the payload under result
     #[arg(long, global = true)]
     pub json: bool,
+
+    /// Include detailed diagnostics, scores and warnings
+    #[arg(long, global = true)]
+    pub verbose: bool,
 
     /// Execute command on a remote mesh peer instead of locally
     #[arg(long, global = true)]
@@ -82,7 +86,7 @@ pub enum Commands {
         #[command(subcommand)]
         action: super::account::AccountAction,
     },
-    /// Manage local opt-in product analytics
+    /// Manage local product analytics (on by default)
     Analytics {
         #[command(subcommand)]
         action: super::analytics::AnalyticsAction,
@@ -366,7 +370,7 @@ pub enum Commands {
         action: BridgeAction,
     },
 
-    /// Mesh networking — peer discovery, pairing, relay
+    /// Account mesh — installations, status and authenticated relay
     Mesh {
         #[command(subcommand)]
         action: MeshAction,
@@ -416,10 +420,10 @@ pub enum Commands {
         action: TaskAction,
     },
 
-    /// Workspace Inbox — standalone tasks with no plan
-    Inbox {
+    /// Workspace Radar — items noticed above plans, pulled into a plan as tasks
+    Radar {
         #[command(subcommand)]
-        action: InboxAction,
+        action: RadarAction,
     },
 
     /// Canvas control commands

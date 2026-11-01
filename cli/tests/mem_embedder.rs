@@ -1,5 +1,7 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
+#[path = "support/json_output.rs"]
+mod json_output;
 
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
@@ -57,7 +59,7 @@ fn mem_embedder_key_set_is_offline_atomic_owner_only_and_never_echoes_the_key() 
         assert!(!String::from_utf8_lossy(&output.stderr).contains(key));
         let canonical = path.canonicalize().unwrap();
         if json {
-            let value: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+            let value = json_output::result(stdout.as_bytes());
             assert_eq!(
                 value,
                 serde_json::json!({"ok":true,"provider":"openai","path":canonical})

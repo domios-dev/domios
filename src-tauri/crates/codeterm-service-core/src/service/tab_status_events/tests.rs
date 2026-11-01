@@ -186,7 +186,6 @@ fn rpc_tab() -> (MultiplexerState, String) {
     tab.agent_type = Some("codex".into());
     tab.agent_session_id = Some("own-rpc-thread".into());
     tab.boot_stage = Some(BootStage::AgentReady);
-    tab.structured_control_active = true;
     tab.agent_state = Some(crate::agent::state_verdict::live_state_for(
         crate::agent::provider::ProviderStateVerdict::Idle,
     ));
@@ -240,41 +239,6 @@ fn rpc_declared_turns_publish_once_and_reconcile_pty_idle() {
         }
         assert_status(&mut receiver, &tab_id, &format!("{expected:?}"), None);
         assert!(status_payloads(&mut receiver, None).is_empty());
-    }
-}
-
-#[test]
-fn rpc_turn_status_owner_updates_api_and_publishes_once() {
-    let (mux, tab_id) = rpc_tab();
-    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
-    let service = &fixture.service;
-
-    service
-        .agent_registry
-        .register_provider(Box::new(rpc_provider()));
-    service.agent_tracker.lock().set_idle("rpc-status-pty");
-    service.publish_authoritative_tab_statuses();
-    let mut receiver = service.events.subscribe();
-    let mux_rx = mux_snapshots(&fixture);
-    for (event, expected) in [("turn/started", "Working"), ("turn/completed", "Idle")] {
-        super::super::codex_rpc::status::observe_event(service, &tab_id, "own-rpc-thread", event);
-        let statuses = status_payloads(&mut receiver, Some(service));
-        assert_eq!(
-            statuses,
-            [serde_json::json!({"tab_id":tab_id,"status":expected})]
-        );
-        assert_eq!(
-            service.get_tab_status(&tab_id).unwrap().status,
-            expected.to_lowercase()
-        );
-        wait_for_mux_snapshot(&mux_rx);
-        assert!(status_payloads(&mut receiver, Some(service)).is_empty());
-        if event == "turn/started" {
-            service.agent_tracker.lock().set_idle("rpc-status-pty");
-            service.publish_authoritative_tab_statuses();
-            assert_eq!(service.get_tab_status(&tab_id).unwrap().status, "working");
-            assert!(status_payloads(&mut receiver, Some(service)).is_empty());
-        }
     }
 }
 

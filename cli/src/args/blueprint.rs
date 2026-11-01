@@ -85,9 +85,12 @@ pub enum BlueprintAction {
         #[arg(long)]
         out: Option<std::path::PathBuf>,
     },
-    /// Import a native v2 recipe into the caller's Team (stopped by default)
+    /// Import a native v2 recipe into the caller's scope (stopped by default)
     Import {
         file: std::path::PathBuf,
+        /// Destination: general, workspace:<id>, or team:<id>; caller must belong to it
+        #[arg(long)]
+        scope: Option<String>,
         #[arg(long = "set")]
         set: Vec<String>,
         #[arg(long, conflicts_with = "start")]
@@ -98,8 +101,12 @@ pub enum BlueprintAction {
     },
     /// List trigger, step, converter and event-source capabilities
     Nodes,
-    /// List blueprints scoped to the calling tab and its Team
-    List,
+    /// List blueprints; Orchestrators and the owner may inspect all Teams and workspaces
+    List {
+        /// Require authority to read across Teams and workspaces
+        #[arg(long)]
+        all: bool,
+    },
     /// Show one blueprint
     Show { id: String },
     /// Deliver a text body to a running text input stage

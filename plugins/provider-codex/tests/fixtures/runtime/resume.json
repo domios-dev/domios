@@ -41,6 +41,20 @@
         "kind": "readHistory",
         "threadId": "thread-fixture"
       }
+    },
+    {
+      "operation": {
+        "kind": "resumeThread",
+        "threadId": "thread-fixture",
+        "instructions": "scoped-resume-instructions",
+        "settings": {
+          "model": "fixture-model",
+          "effort": "high",
+          "mode": "workspace-write",
+          "additionalDirectories": ["/work/agent-pad"],
+          "networkAccess": false
+        }
+      }
     }
   ],
   "rpc": [
@@ -395,6 +409,59 @@
           "message": "thread/items/list is not supported yet"
         }
       }
+    },
+    {
+      "direction": "outbound", "operation": 3,
+      "action": {"kind": "request", "call": {"method": "config/read", "params": {"includeLayers": false, "cwd": "/work/project"}}}
+    },
+    {
+      "direction": "inbound", "operation": 3,
+      "reply": {"kind": "success", "value": {"config": {}}}
+    },
+    {
+      "direction": "outbound", "operation": 3,
+      "action": {"kind": "request", "call": {"method": "configRequirements/read", "params": null}}
+    },
+    {
+      "direction": "inbound", "operation": 3,
+      "reply": {"kind": "success", "value": {"requirements": null}}
+    },
+    {
+      "direction": "outbound", "operation": 3,
+      "action": {
+        "kind": "request",
+        "call": {
+          "method": "thread/resume",
+          "params": {
+            "cwd": "/work/project", "model": "fixture-model", "threadSource": "user",
+            "config": {
+              "check_for_update_on_startup": false, "project_doc_max_bytes": 65536,
+              "sandbox_workspace_write.writable_roots": ["/work/agent-pad"],
+              "sandbox_workspace_write.exclude_tmpdir_env_var": true,
+              "sandbox_workspace_write.exclude_slash_tmp": true,
+              "sandbox_workspace_write.network_access": false,
+              "model_reasoning_effort": "high", "windows.sandbox": "mxc"
+            },
+            "approvalPolicy": "never", "approvalsReviewer": "user", "sandbox": "workspace-write",
+            "developerInstructions": "scoped-resume-instructions", "threadId": "thread-fixture", "excludeTurns": true
+          }
+        }
+      }
+    },
+    {
+      "direction": "inbound", "operation": 3,
+      "reply": {"kind": "success", "value": {
+        "thread": {"id": "thread-fixture"}, "approvalPolicy": "never", "approvalsReviewer": "user",
+        "sandbox": {"type": "workspaceWrite", "networkAccess": false, "writableRoots": ["/work/agent-pad"], "excludeTmpdirEnvVar": true, "excludeSlashTmp": true}
+      }}
+    },
+    {
+      "direction": "outbound", "operation": 3,
+      "action": {"kind": "request", "call": {"method": "thread/read", "params": {"threadId": "thread-fixture", "includeTurns": false}}}
+    },
+    {
+      "direction": "inbound", "operation": 3,
+      "reply": {"kind": "success", "value": {"thread": {"id": "thread-fixture"}}}
     }
   ],
   "expected": {
@@ -564,6 +631,16 @@
             "threadId": "thread-fixture",
             "items": [],
             "openItems": []
+          }
+        }
+      },
+      {
+        "operation": 3,
+        "step": {
+          "kind": "complete",
+          "result": {
+            "kind": "threadLoaded", "threadId": "thread-fixture",
+            "settings": {"model": "fixture-model", "effort": "high", "mode": "workspace-write", "additionalDirectories": ["/work/agent-pad"], "networkAccess": false}
           }
         }
       }

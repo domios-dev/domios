@@ -323,6 +323,7 @@ impl ChatRegistry {
         let mut g = self.inner.lock();
         match g.get(tab_id) {
             Some(entry) if entry.usable(session_id, session_binding_nonce) => {
+                entry.handle.reattach();
                 g.get_mut(tab_id)
                     .unwrap()
                     .subscribers
@@ -338,6 +339,14 @@ impl ChatRegistry {
                 false
             }
             None => false,
+        }
+    }
+
+    /// Re-read this tab's transcript without touching its subscription. Host events
+    /// (status transitions, provider hooks) call it so delivery never waits on FSEvents.
+    pub fn wake(&self, tab_id: &str) {
+        if let Some(entry) = self.inner.lock().get(tab_id) {
+            entry.handle.wake();
         }
     }
 

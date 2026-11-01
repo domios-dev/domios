@@ -44,4 +44,8 @@ function resolveBuildIdentity(options = {}) {
   return identity;
 }
 
-module.exports = { gitExecutable, gitOutput, requireBuildIdentity, resolveBuildIdentity };
+function isDevelopmentFrontendBuild(command, env) {
+  return command === "serve" || env.CODETERM_FRONTEND_DEV === "1";
+}
+
+module.exports = { gitExecutable, gitOutput, requireBuildIdentity, resolveBuildIdentity, isDevelopmentFrontendBuild };

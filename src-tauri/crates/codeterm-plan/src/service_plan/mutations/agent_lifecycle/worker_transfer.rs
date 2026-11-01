@@ -31,7 +31,17 @@ impl PlanStore {
         F: FnOnce(),
     {
         let _writer_turn = self.mutation_writer.enter();
-        let plans = self.list_full();
+        let tab_id = expected.worker_tab_id.as_str();
+        let plans = self.plans_matching(&PlanMatch::Any(vec![
+            TaskMatch::bound_to(tab_id),
+            PlanMatch::Task(TaskMatch {
+                statuses: Some(NON_TERMINAL_TASK_STATUSES.to_vec()),
+                lane_worktree: Some(expected.worktree_path.clone()),
+                ..Default::default()
+            }),
+            AttemptMatch::executor(tab_id, AttemptState::Open).into_match(),
+            PlanMatch::Ids(vec![expected.plan_id.clone()]),
+        ]));
         let mut assignments = 0;
         let mut lanes = 0;
         let mut worktrees = 0;

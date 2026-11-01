@@ -120,13 +120,9 @@ function safeObject(value: string | undefined, fallback: string): string {
 }
 
 function collectionLength(value: unknown): number | undefined {
-  if (Array.isArray(value)) return value.length;
   if (!value || typeof value !== "object") return undefined;
   const record = value as Record<string, unknown>;
-  for (const key of ["items", "tabs", "workspaces", "results", "data"]) {
-    if (Array.isArray(record[key])) return record[key].length;
-  }
-  return undefined;
+  return Array.isArray(record.result) ? record.result.length : undefined;
 }
 
 function balancedJsonEnd(text: string, start: number): number | undefined {
@@ -282,12 +278,13 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
   }
   if (inv.path[0] === "plan" && inv.path[1] === "task") {
     const task = firstRef(TASK_RE, inv, result);
-    const name = flagText(inv, "name", "title") ?? firstMeaningful(inv, "task", "add", "update", "close");
     const action = inv.path[2];
+    const name = flagText(inv, "name", "title");
+    const target = action === "add" ? undefined : inv.positionals[1] ?? inv.positionals[0] ?? task;
     const changingDeps = action === "update" && (inv.flags["clear-dependencies"] === true || inv.flags["depends-on"] != null);
     const lead = changingDeps ? "task deps" : action === "update" ? "task edit" : action === "close" ? "close" : action === "dispatch" ? "dispatch" : "plan task";
     const model = flagText(inv, "model");
-    return { lead, object: safeObject(name, task ? "Task" : "New task"), chips: [model, action === "close" ? "done" : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "test-plan", "criterion", "correctness", "why"), fields: model ? [{ label: "model", value: model }] : undefined };
+    return { lead, object: name ?? target ?? (action === "add" ? "New task" : "Task"), chips: [model, action === "close" ? "done" : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "test-plan", "criterion", "correctness", "why"), fields: model ? [{ label: "model", value: model }] : undefined };
   }
   if (inv.path[0] === "plan" && inv.path[1] === "section") {
     const section = firstRef(SECTION_RE, inv, result) ?? flagText(inv, "handle");
@@ -395,7 +392,8 @@ function sentTitle(inv: CodetermInvocation, resolve?: TabNameResolver): string {
 function deliveredStatus(result?: string): CardStatus | undefined {
   if (!result) return undefined;
   try {
-    const parsed = JSON.parse(result);
+    const envelope = JSON.parse(result);
+    const parsed = envelope.ok === false ? envelope : envelope.result;
     if (parsed?.delivery === "pending" || parsed?.pending?.length) return { ok: false, label: "pending", pending: true };
     if (parsed?.delivery === "sent" || parsed?.delivered?.length) return { ok: true, label: "sent" };
     if (parsed?.ok === true) return { ok: false, label: "pending", pending: true };
@@ -488,7 +486,7 @@ function resolvedSendText(result?: string): { text: string; truncated: boolean }
     } catch {}
   }
   try {
-    const evidence = JSON.parse(result ?? "")?.sent_message;
+    const evidence = JSON.parse(result ?? "")?.result?.sent_message;
     if (typeof evidence?.text === "string") return { text: evidence.text.slice(0, 16_384), truncated: evidence.truncated === true || evidence.text.length > 16_384 };
   } catch {}
   return undefined;

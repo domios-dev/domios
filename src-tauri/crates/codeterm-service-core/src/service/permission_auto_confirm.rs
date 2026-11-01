@@ -119,7 +119,7 @@ pub(crate) struct TabFacts {
 impl TabFacts {
     pub(crate) fn of(tab: &Tab, has_lifecycle: bool) -> Self {
         Self {
-            enabled: tab.permission_auto_confirm,
+            enabled: tab.auto_approve || tab.permission_auto_confirm,
             agent_type: tab.agent_type.clone(),
             pty_id: tab.pty_id.clone(),
             session_id: tab.agent_session_id.clone(),
@@ -403,6 +403,11 @@ impl ServiceContext {
         tab_id: &str,
         screen_text: Option<&str>,
     ) -> Verdict {
+        if super::structured_endpoint::sse(tab_id).is_some()
+            || super::permission_decision::pending_for_tab(tab_id).is_some()
+        {
+            return Verdict::NotApplicable;
+        }
         let Some(facts) = self.permission_auto_confirm_facts(tab_id) else {
             return Verdict::NotApplicable;
         };

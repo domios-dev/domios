@@ -1,7 +1,7 @@
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use super::tab_chat::file_events::{self, WatchGuard};
 use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -24,7 +24,7 @@ pub(crate) struct RefusedSessionBinding {
 
 struct WatchedBinding {
     binding: DeferredSessionBinding,
-    _watcher: RecommendedWatcher,
+    _watcher: WatchGuard,
 }
 
 #[derive(Default)]
@@ -53,27 +53,19 @@ impl DeferredSessionBindingRegistry {
             previous_session_id: previous_session_id.to_string(),
             transcript_path: transcript_path.clone(),
         };
-        let watch_root = nearest_existing_ancestor(&transcript_path).ok_or_else(|| {
-            format!(
-                "no existing directory can signal transcript materialization at {}",
-                transcript_path.display()
-            )
-        })?;
+        let (wake, changes) = std::sync::mpsc::sync_channel(1);
+        let watcher = file_events::watch(&transcript_path, wake)?;
         let callback_tab = tab_id.to_string();
-        let callback_path = transcript_path.clone();
-        let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
-            let Ok(event) = event else { return };
-            if !matches!(event.kind, EventKind::Create(_) | EventKind::Modify(_)) {
-                return;
-            }
-            if callback_path.is_file() {
-                on_materialized(callback_tab.clone(), generation);
-            }
-        })
-        .map_err(|error| format!("could not create transcript watcher: {error}"))?;
-        watcher
-            .watch(&watch_root, RecursiveMode::Recursive)
-            .map_err(|error| format!("could not watch {}: {error}", watch_root.display()))?;
+        std::thread::Builder::new()
+            .name("deferred-session-binding".into())
+            .spawn(move || {
+                while changes.recv().is_ok() {
+                    if transcript_path.is_file() {
+                        on_materialized(callback_tab.clone(), generation);
+                    }
+                }
+            })
+            .map_err(|error| error.to_string())?;
         self.entries.lock().insert(
             tab_id.to_string(),
             WatchedBinding {
@@ -166,15 +158,4 @@ impl DeferredSessionBindingRegistry {
     pub(crate) fn refused(&self, tab_id: &str) -> Option<RefusedSessionBinding> {
         self.refusals.lock().get(tab_id).cloned()
     }
-}
-
-fn nearest_existing_ancestor(path: &Path) -> Option<PathBuf> {
-    let mut candidate = path.parent();
-    while let Some(current) = candidate {
-        if current.is_dir() {
-            return Some(current.to_path_buf());
-        }
-        candidate = current.parent();
-    }
-    None
 }

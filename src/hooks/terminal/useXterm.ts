@@ -99,6 +99,8 @@ export function useXterm({
         screenReaderMode: E2E_TEST_MODE,
         ...terminalXtermOptions(viewerLocalGeometryRef.current, winBuildNumber),
       });
+      // Renderer status queries must not become input on a shared PTY.
+      term.parser.registerDcsHandler({ intermediates: "$", final: "q" }, () => true);
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
@@ -117,6 +119,7 @@ export function useXterm({
       term.unicode.activeVersion = "11";
 
       term.open(containerRef.current);
+      term.textarea?.setAttribute("writingsuggestions", "false");
       if (DEV_BUILD) {
         (containerRef.current as HTMLDivElement & { __codetermTerminal?: Terminal }).__codetermTerminal = term;
       }

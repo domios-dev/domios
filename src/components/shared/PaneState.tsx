@@ -5,6 +5,7 @@ import { paneStateModel, type PaneStateContext } from "./paneStateModel";
 import type { ErrorNoticeAction } from "./ErrorNotice";
 import { BrandState } from "../brand/BrandState";
 import { brandStateModel } from "../brand/brandStateModel";
+import { Loader } from "./Loader";
 
 function stopActivation(event: KeyboardEvent<HTMLElement>) {
   if (event.code === "Enter" || event.code === "Space") event.stopPropagation();
@@ -28,7 +29,7 @@ export function PaneState({ error, context = {}, actions = [], secondaryActions 
     try { await navigator.clipboard.writeText(path ?? ""); setCopyStatus("Path copied"); }
     catch { setCopyStatus("Could not copy the path"); }
   };
-  if (view.pending) return <BrandState model={brandStateModel({ loading: true, label: view.title, detail: view.sentence })} className="mx-auto my-2 min-h-48" />;
+  if (view.pending) return <Loader label={view.title} detail={view.sentence} className="my-2" />;
   return <BrandState model={brandStateModel({ error: { title: view.title, sentence: view.sentence } })} className="h-full">
     <div className="grid w-full min-w-0 max-w-md grid-cols-[minmax(0,1fr)_auto] items-center gap-3 text-center">
       {path && <div title={path} className="col-start-1 row-start-1 flex max-w-full min-w-0 rounded-md bg-[var(--ct-surface)] px-3 py-2 font-mono text-xs text-[var(--ct-muted-fg)]">

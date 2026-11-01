@@ -22,7 +22,7 @@ impl Drop for WakeRequest {
     }
 }
 
-fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
+pub(crate) fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
     tab.frozen
         || explicit
             && !tab.protected
@@ -38,7 +38,10 @@ fn wake_eligible(tab: &Tab, explicit: bool) -> bool {
 }
 
 pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
-    let continuing = policy::continuing_tabs(&svc.plan_store.list_full());
+    let continuing = policy::continuing_tabs(
+        &svc.plan_store
+            .plans_matching(&policy::continuing_candidates()),
+    );
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()
@@ -70,6 +73,10 @@ pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
 }
 
 impl ServiceContext {
+    pub(crate) fn thaw_tab_for_restart(&self, tab_id: &str) -> Result<(), String> {
+        wake_with(self, tab_id, false, |_, _| Ok(()))
+    }
+
     pub fn wake_frozen_tab(&self, tab_id: &str) -> Result<(), String> {
         self.wake_tab(tab_id, false)
     }
@@ -147,6 +154,12 @@ fn wake_with(
         return Ok(());
     }
     let _request = WakeRequest(id.clone());
+    let bypass = svc
+        .mux
+        .read()
+        .get_tab(&id)
+        .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
+    svc.require_neighbor_restore_grant(&id, bypass)?;
     let retry_started_agent = {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;

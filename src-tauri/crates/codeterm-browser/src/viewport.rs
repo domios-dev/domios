@@ -10,6 +10,7 @@ pub struct Viewport {
     pub width: u32,
     pub height: u32,
     pub dpr: f64,
+    pub mobile: bool,
 }
 
 impl Default for Viewport {
@@ -18,6 +19,7 @@ impl Default for Viewport {
             width: 1600,
             height: 900,
             dpr: 1.0,
+            mobile: false,
         }
     }
 }
@@ -68,6 +70,7 @@ pub fn clamp(request: ViewportRequest) -> Option<Viewport> {
         width: (request.width.round() as u32).clamp(MIN_WIDTH, MAX_WIDTH),
         height: (request.height.round() as u32).clamp(MIN_HEIGHT, MAX_HEIGHT),
         dpr,
+        mobile: false,
     })
 }
 
@@ -95,12 +98,17 @@ impl ViewportModel {
 
     /// An attached app owns its own window, so viewer sizes never resize or emulate it.
     pub fn apply(&mut self, request: ViewportRequest) -> ViewportDecision {
+        self.apply_device(request, self.current.mobile)
+    }
+
+    pub fn apply_device(&mut self, request: ViewportRequest, mobile: bool) -> ViewportDecision {
         if self.mode == ViewportMode::Attached {
             return ViewportDecision::RefusedAttached;
         }
-        let Some(next) = clamp(request) else {
+        let Some(mut next) = clamp(request) else {
             return ViewportDecision::Invalid;
         };
+        next.mobile = mobile;
         if next == self.current {
             return ViewportDecision::Unchanged;
         }

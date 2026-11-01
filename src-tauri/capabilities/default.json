@@ -5,6 +5,7 @@
     "main"
   ],
   "permissions": [
+    "allow-native-shell",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "core:window:allow-start-dragging",

@@ -195,7 +195,7 @@ export function serveSetupTask(status: ServeStatus | null, apiPort: number): str
     `Context: tailscale installed = ${installed}, platform = ${platform}, Domios API port = ${apiPort}.`,
     "If Tailscale isn't installed, install it and run `tailscale up` so I'm logged into my tailnet.",
     `Then expose this daemon: \`tailscale serve --bg --https=443 http://127.0.0.1:${apiPort}\` (on macOS provision the cert first with \`tailscale cert <my-magicdns-name>\`).`,
-    "Finally verify the HTTPS URL actually responds, then reply with the clean link I can scan.",
+    "Verify the HTTPS URL serves this Domios, then run `domios mesh refresh --json`. Read back its transport and web_ui fields and `domios mesh status --json`; verify the Mesh card reloads the endpoint with Open, Copy and QR. A verified HTTP endpoint remains usable without HTTPS; label features that require HTTPS. Report any remaining failure instead of claiming setup succeeded. Reply with the clean link without its API token.",
   ].join(" ");
 }
 

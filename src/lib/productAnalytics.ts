@@ -31,6 +31,14 @@ export async function emitProductEvent(endpoint: AnalyticsEndpoint, consent: "of
 
 export type FeatureEndpoint = <T>(method: string, path: string, body?: unknown) => Promise<T>;
 
+export async function recordProductEvent(event: ProductEvent): Promise<void> {
+  try {
+    const { localJson } = await import("./webApi");
+    const status = await localJson<{ consent: "off" | "on" }>("GET", "/api/analytics/status");
+    await emitProductEvent(localJson, status.consent, event);
+  } catch { /* Analytics cannot interrupt a product action. */ }
+}
+
 export async function emitFeatureUsed(endpoint: FeatureEndpoint, feature: Feature): Promise<void> {
   try {
     const status = await endpoint<{ consent: "off" | "on" }>("GET", "/api/analytics/status");

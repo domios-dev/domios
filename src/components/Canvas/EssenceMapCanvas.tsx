@@ -1,9 +1,9 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { List, Network, RefreshCw, X } from "lucide-react";
+import { List, Network, X } from "lucide-react";
 import { CanvasToolbar } from "@codeterm/chat-ui";
 import { DropdownSelect } from "../shared/DropdownMenu";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import { useMultiplexer, useMuxState } from "../../store/multiplexer";
 import type { ProviderDescriptor, Tab, Workspace } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
@@ -17,7 +17,7 @@ import { fetchEssenceSource, fetchWorkspaceEssenceMaps } from "./essenceMapApi";
 import { extractEssenceSection } from "./essenceSourceSection";
 import { EssenceMapProjectView, projectName } from "./EssenceMapProjectView";
 import { layoutEssenceMapWorld, parseEssenceMapProject, projectPathsForWorkspace, type EssenceMapFile, type EssenceMapNode, type EssenceMapProject } from "./essenceMapModel";
-import { formatLayerTransform, useCanvasViewport } from "@codeterm/canvas-camera";
+import { AUTO_FIT_MAX_SCALE, formatLayerTransform, useCanvasViewport } from "@codeterm/canvas-camera";
 import { EssenceDocumentTree, type EssenceDocumentEntry } from "./essenceDocumentTree";
 import { EssenceMapEmptyState } from "./EssenceMapEmptyState";
 import { askOrchestratorToBuildMap, findWorkspaceOrchestrator, type MapOrchestrator } from "./essenceMapOrchestrator";
@@ -34,7 +34,7 @@ function displayPath(path: string): string { return path.replace(/^\\\\\?\\/, ""
 function EssenceSourcePanel({ source, onClose }: { source: SourcePanelState; onClose: () => void }) {
   const panelRef = useRef<HTMLElement>(null);
   useLayoutEffect(() => { panelRef.current?.focus(); }, []);
-  return <aside ref={panelRef} className="absolute inset-y-0 right-0 z-30 flex w-[min(36rem,100%)] min-w-0 flex-col bg-[var(--ct-bg)] p-4 shadow-[var(--ct-shadow-capsule)] outline-none" data-testid="essence-source-panel" role="dialog" aria-labelledby="essence-source-panel-title" tabIndex={-1}><div className="ct-jobs-header flex min-w-0 items-start justify-between gap-3 pb-3"><div className="min-w-0"><p className={UI_TEXT.sectionLabel}>Referenced essence</p><h2 id="essence-source-panel-title" className="truncate text-sm font-semibold text-[var(--ct-fg)]">{source.node.label}</h2><button type="button" data-testid="essence-source-open" className={`${UI_TEXT.detailMuted} block max-w-full truncate text-left hover:text-[var(--ct-accent)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]`} title={`Open ${displayPath(source.projectPath)}/${source.node.source.path}`} onClick={() => { void nativeBridge.openFolder(`${displayPath(source.projectPath)}/${source.node.source.path}`); }}>{displayPath(source.projectPath)} · {source.node.source.path} · {source.node.source.anchor}</button><p className="sr-only">Owner vector or essence: {source.node.vector ?? source.node.id}</p></div><button type="button" className={UI_PANEL.drawerClose} aria-label="Close referenced essence" onClick={onClose}><X size={14} aria-hidden="true" /></button></div><div className="min-h-0 flex-1 overflow-auto pt-3">{source.state === "loading" && <div className="flex items-center gap-2 text-xs text-[var(--ct-muted-fg)]" role="status"><BusySpinner icon={RefreshCw} size={13} />Reading referenced essence…</div>}{source.state === "error" && <InlineErrorNotice error={source.error} operation="reading the referenced essence" />}{source.state === "ready" && <MarkdownDescription markdown={extractEssenceSection(source.content ?? "", source.node.source.anchor)} />}</div></aside>;
+  return <aside ref={panelRef} className="absolute inset-y-0 right-0 z-30 flex w-[min(36rem,100%)] min-w-0 flex-col bg-[var(--ct-bg)] p-4 shadow-[var(--ct-shadow-capsule)] outline-none" data-testid="essence-source-panel" role="dialog" aria-labelledby="essence-source-panel-title" tabIndex={-1}><div className="ct-jobs-header flex min-w-0 items-start justify-between gap-3 pb-3"><div className="min-w-0"><p className={UI_TEXT.sectionLabel}>Referenced essence</p><h2 id="essence-source-panel-title" className="truncate text-sm font-semibold text-[var(--ct-fg)]">{source.node.label}</h2><button type="button" data-testid="essence-source-open" className={`${UI_TEXT.detailMuted} block max-w-full truncate text-left hover:text-[var(--ct-accent)] hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]`} title={`Open ${displayPath(source.projectPath)}/${source.node.source.path}`} onClick={() => { void nativeBridge.openFolder(`${displayPath(source.projectPath)}/${source.node.source.path}`); }}>{displayPath(source.projectPath)} · {source.node.source.path} · {source.node.source.anchor}</button><p className="sr-only">Owner vector or essence: {source.node.vector ?? source.node.id}</p></div><button type="button" className={UI_PANEL.drawerClose} aria-label="Close referenced essence" onClick={onClose}><X size={14} aria-hidden="true" /></button></div><div className="min-h-0 flex-1 overflow-auto pt-3">{source.state === "loading" && <BusyState inline label="Reading referenced essence" phase="work" className="text-xs text-[var(--ct-muted-fg)]" />}{source.state === "error" && <InlineErrorNotice error={source.error} operation="reading the referenced essence" />}{source.state === "ready" && <MarkdownDescription markdown={extractEssenceSection(source.content ?? "", source.node.source.anchor)} />}</div></aside>;
 }
 
 
@@ -59,8 +59,8 @@ function EssenceMapCanvasInnerBase({ workspace, mapFiles, loading = false, error
     const key = world.projects.map((project) => project.file.project_path).join("|");
     if (fittedKey.current === key) return;
     fittedKey.current = key;
-    fitAll();
-  }, [fitAll, size.height, size.width, world.projects]);
+    fitToView({ x: 0, y: 0, width: world.width, height: world.height }, { maxScale: AUTO_FIT_MAX_SCALE });
+  }, [fitToView, size.height, size.width, world.projects, world.width, world.height]);
   useEffect(() => {
     if (!source) return;
     const mapNodeStillExists = projects.some((project) => project.nodes.some((node) => node.id === source.node.id));

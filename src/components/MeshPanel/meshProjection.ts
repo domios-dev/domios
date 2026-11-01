@@ -7,12 +7,15 @@ export function meshDataUnavailable(data: Pick<MeshData, "error" | "loaded">): b
 }
 
 export type MeshHeaderState =
+  | { kind: "off" }
   | { kind: "unavailable" }
   | { kind: "loading" }
   | { kind: "peers"; count: number };
 
 /** The header renders from live or cached data only; the defaults are never shown as "0 peers". */
-export function meshHeaderState(data: Pick<MeshData, "error" | "loaded" | "peers">, onInventory: boolean): MeshHeaderState {
+/** A disabled mesh refuses every route by design, so it is "off", never a failure to retry. */
+export function meshHeaderState(data: Pick<MeshData, "error" | "loaded" | "peers">, onInventory: boolean, meshEnabled = true): MeshHeaderState {
+  if (!meshEnabled) return { kind: "off" };
   if (meshDataUnavailable(data)) return { kind: "unavailable" };
   if (!data.loaded) return { kind: "loading" };
   const count = pairedPeers(data.peers).length;

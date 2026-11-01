@@ -110,7 +110,7 @@ Response (one of):
 
 ### Graph nodes (plugin declarations)
 
-A plugin contributes graph nodes through `capabilities.graphNodes` in its manifest: media `converters` and typed `eventSources`. Both lists are optional, and a declared block must name at least one node.
+A plugin contributes graph nodes through `capabilities.graphNodes` in its manifest: media `converters`, typed `eventSources`, and typed `steps`. The lists are optional, and a declared block must name at least one node.
 
 ```json
 "capabilities": {
@@ -128,6 +128,21 @@ A plugin contributes graph nodes through `capabilities.graphNodes` in its manife
 
 - **converters** declare which media kinds (`text`, `audio`, `video`, `image`) the plugin turns into which (`from` differs from `to`, at most 16). The plugin exports `convert(request)` returning `{ text }`, `{ path }` (a file inside the request's `outputDir`), or `{ error }`. The host chains conversion steps across plugins from the declarations alone, so a plan never depends on which plugin serves a step. A `transcriber` capability is registered as `audio -> text` automatically.
 - **eventSources** declare up to 16 event kinds per plugin (`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`, at most 64 bytes, unique per plugin) with a 1-128 byte title and typed `params`/`payload` schemas. The schema subset is an object of scalar or one-level scalar-array properties (at most 32; `maxLength` <= 65536, `maxItems` <= 256) with optional `description` and `enum`; `$ref`, combinators (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
+Plugin `steps` declare 1..32 namespaced nodes with versioned closed parameter
+schemas, named text/JSON/file/image/audio/video ports, cardinality, outcomes and
+submit/reconcile/cancel lifecycle methods. Duplicate ids are refused.
+`domios blueprint nodes` lists the installed descriptors. Authors use only
+`uses: <plugin>.<step>` and `with:`; apply pins the installed descriptor revision.
+A later revision change or removal holds the run with `plugin_step_unavailable`.
+A built-in code or command node can select a declared output using
+`bind: {in: read.out.text}`. It receives the plain string, JSON value or confined
+file path; multi-item ports yield arrays. Commands bound to plugin ports receive
+that plain value on stdin (JSON values as JSON). Plugin-to-plugin bindings retain
+confined run-media handles. Holds preserve the cursor, outputs and exact job id;
+the durable Blueprint monitor reconciles that job and resumes the run.
+`unknown` and `canceled` are host-reserved outcomes. A persisted submitting
+operation becomes unknown after restart and is never submitted again.
+
 ### Model endpoints and presets
 
 `domios model-provider` routes to the installed provider declaring model configuration support. In the app, each such harness's plugin page has a **Custom model endpoints** section with the same operations plus edit and model discovery: a typed key is saved to the secret store (masked, never shown again), or a saved secret is copied into the endpoint's owned slot. The HTTP endpoint `POST /api/model-providers` accepts `?provider=<id>` to address one harness.
@@ -178,4 +193,22 @@ Full secret-store reference, including CLI, storage internals, error mapping, an
 
 Settings UI: Settings > Secrets — backend picker, server URL + Apply (Bitwarden), Install Bitwarden CLI button (when `bw` missing), login (password or API key), default scope, recently saved items, lock / sign-out.
 
-<!-- revision: 12 -->
+## Blueprint nodes
+
+The Claude, Codex and OpenCode provider plugins contribute `claude.run_prompt`, `codex.run_prompt` and `opencode.run_prompt`. Each starts one prompt in a separate agent tab using that provider's normal launch path. Agents follow Settings → Agents → Full access; Codex steps always use the read-only sandbox. Supply an existing absolute `cwd`, a `prompt`, and optionally `model` and `timeout_ms` (default 600000, maximum 3600000). A bound text `context` is appended in a fenced block. The node returns `text` and routes to `done` or `failed`; cancellation closes its agent. A lost run is `unknown` and is never resubmitted after a restart. Replies are bounded with an explicit `[truncated]` marker.
+
+This node fragment consumes a preceding `read` node's page text. Use the authoring cookbook for the enclosing graph:
+
+```yaml
+- id: summarize
+  uses: codex.run_prompt
+  with:
+    prompt: {lit: "Summarize the supplied page."}
+    cwd: {lit: "/absolute/project"}
+    timeout_ms: {lit: 600000}
+  bind: {context: read.out.text}
+  outcomes: [done, failed]
+  routes: {done: "@next", failed: "@stop"}
+```
+
+<!-- revision: 16 -->

@@ -4,6 +4,64 @@ use crate::{
 };
 use codeterm_types::plan::{ExecutionIntent, ExecutionSandboxPolicy};
 mod build_roots;
+mod ceiling;
+mod neighbor;
+
+/// Every caller identity a delegated spawn names, plus the request's caller header, bounds its sandbox.
+pub fn enforce_delegation_ceiling(
+    svc: &ServiceContext,
+    params: &SpawnAgentParams,
+    header_caller: Option<&str>,
+) -> Result<(), String> {
+    let callers: Vec<_> = {
+        let mux = svc.mux.read();
+        [
+            header_caller,
+            params.spawned_by_tab_id.as_deref(),
+            params.creator_tab_id.as_deref(),
+            params.parent_tab_id.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .filter_map(|tab| {
+            mux.get_tab(tab)
+                .and_then(|caller| caller.restorable_launch.execution_sandbox.clone())
+                .map(|policy| (tab.to_string(), policy))
+        })
+        .collect()
+    };
+    ceiling::check(
+        params.sandbox.as_deref(),
+        svc.configuration().agent.sandbox_ceiling.as_deref(),
+        &callers,
+        params.cwd.as_deref(),
+    )
+}
+
+/// A peer cannot enforce this machine's caller ceiling, so a confined caller never delegates across the mesh.
+pub fn refuse_confined_mesh_delegation(
+    svc: &ServiceContext,
+    callers: &[Option<&str>],
+) -> Result<(), String> {
+    let mux = svc.mux.read();
+    match callers.iter().flatten().find(|tab| {
+        mux.get_tab(tab)
+            .is_some_and(|caller| caller.restorable_launch.execution_sandbox.is_some())
+    }) {
+        Some(tab) => Err(format!(
+            "Sandboxed caller tab {tab} cannot delegate a launch to a mesh peer"
+        )),
+        None => Ok(()),
+    }
+}
+
+pub(crate) fn requested_label(intent: &ExecutionIntent) -> &'static str {
+    if *intent == ExecutionIntent::ReadOnly {
+        "read-only"
+    } else {
+        "workspace-write"
+    }
+}
 
 pub(crate) fn requested_intent(sandbox: Option<&str>) -> Result<Option<ExecutionIntent>, String> {
     match sandbox {
@@ -90,7 +148,7 @@ pub(crate) fn resolve(
     let Some(mode) = mode_for_intent(registry, provider, intent, arguments, runtime)? else {
         return Ok(None);
     };
-    let intent = intent.ok_or("Execution sandbox intent absent")?;
+    let intent = intent.ok_or("Execution sandbox mode absent")?;
     let path = std::path::Path::new(
         cwd.ok_or("Execution sandbox requires an explicit working directory")?,
     );
@@ -145,7 +203,7 @@ pub(crate) fn for_launch(
             .as_ref()
             .is_some_and(|intent| intent != &policy.intent)
     }) {
-        return Err("Execution sandbox intent is immutable for this tab".into());
+        return Err("Execution sandbox is immutable for this tab".into());
     }
     let mut policy = resolve(
         &svc.agent_registry,
@@ -155,7 +213,9 @@ pub(crate) fn for_launch(
         params.args.as_deref().unwrap_or_default(),
         runtime,
     )?;
+    let neighbor = neighbor::apply_roots(svc, tab, provider, runtime, &mut policy)?;
     if let (Some(saved), Some(resolved)) = (saved.as_ref(), policy.as_mut()) {
+        let allowed_roots = neighbor.then(|| resolved.writable_roots.clone());
         *resolved = restore_recorded(saved, resolved, |root| {
             build_roots::restore_recorded_root(root, &saved.cwd);
             std::path::Path::new(root)
@@ -165,10 +225,15 @@ pub(crate) fn for_launch(
                 .as_deref()
                 == Some(root)
         })?;
+        if let Some(allowed) = allowed_roots {
+            resolved
+                .writable_roots
+                .retain(|root| allowed.contains(root));
+        }
     }
     if let Some(policy) = policy
         .as_mut()
-        .filter(|policy| saved.is_none() && policy.intent == ExecutionIntent::Mutating)
+        .filter(|policy| !neighbor && saved.is_none() && policy.intent == ExecutionIntent::Mutating)
     {
         svc.ensure_agent_pad(tab)?;
         let project = crate::service::launch_session_detection::canonical_project_for_launch(
@@ -301,6 +366,76 @@ pub(crate) fn validate_runtime_settings(
     Ok(())
 }
 
+#[cfg(any(debug_assertions, test))]
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct RuntimePolicyComparison {
+    expected_mode: &'static str,
+    actual_mode: &'static str,
+    mode_matches: bool,
+    expected_root_count: usize,
+    actual_root_count: usize,
+    roots_match: bool,
+    expected_network_access: Option<bool>,
+    actual_network_access: Option<bool>,
+    network_matches: bool,
+    cwd_matches: bool,
+}
+
+#[cfg(any(debug_assertions, test))]
+impl std::fmt::Display for RuntimePolicyComparison {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            formatter,
+            "expected_mode={} actual_mode={} mode_matches={} expected_root_count={} actual_root_count={} roots_match={} expected_network_access={:?} actual_network_access={:?} network_matches={} cwd_matches={}",
+            self.expected_mode,
+            self.actual_mode,
+            self.mode_matches,
+            self.expected_root_count,
+            self.actual_root_count,
+            self.roots_match,
+            self.expected_network_access,
+            self.actual_network_access,
+            self.network_matches,
+            self.cwd_matches
+        )
+    }
+}
+
+#[cfg(any(debug_assertions, test))]
+fn runtime_mode_label(mode: Option<&str>) -> &'static str {
+    match mode {
+        None => "missing",
+        Some("read-only") => "read-only",
+        Some("read-only-with-writable-roots") => "read-only-with-writable-roots",
+        Some("workspace-write") => "workspace-write",
+        Some("approval-required") => "approval-required",
+        Some("auto-accept-edits") => "auto-accept-edits",
+        Some("auto") => "auto",
+        Some("full-access") => "full-access",
+        Some(_) => "other",
+    }
+}
+
+#[cfg(any(debug_assertions, test))]
+pub(crate) fn runtime_policy_comparison(
+    policy: &ExecutionSandboxPolicy,
+    settings: &codeterm_plugin::agent_runtime::RuntimeSettings,
+    cwd: &str,
+) -> RuntimePolicyComparison {
+    RuntimePolicyComparison {
+        expected_mode: runtime_mode_label(policy.runtime_mode.as_deref()),
+        actual_mode: runtime_mode_label(settings.mode.as_deref()),
+        mode_matches: settings.mode == policy.runtime_mode,
+        expected_root_count: policy.writable_roots.len(),
+        actual_root_count: settings.additional_directories.len(),
+        roots_match: settings.additional_directories == policy.writable_roots,
+        expected_network_access: Some(false),
+        actual_network_access: settings.network_access,
+        network_matches: settings.network_access == Some(false),
+        cwd_matches: cwd == policy.cwd,
+    }
+}
+
 pub(crate) fn validate_runtime_operation(
     svc: &ServiceContext,
     context: &codeterm_plugin::agent_runtime::RuntimeContext,
@@ -315,17 +450,30 @@ pub(crate) fn validate_runtime_operation(
     let Some(policy) = policy else {
         return Ok(());
     };
-    validate_runtime_settings(&policy, &context.settings, &context.cwd)?;
+    let validate = |settings: &codeterm_plugin::agent_runtime::RuntimeSettings, _source: &str| {
+        let result = validate_runtime_settings(&policy, settings, &context.cwd);
+        #[cfg(debug_assertions)]
+        if result.is_err() {
+            log::debug!(
+                "[runtime-policy] phase=guard tab={} epoch={} operation={} source={} comparison=({})",
+                context.tab_id,
+                context.epoch,
+                operation.kind(),
+                _source,
+                runtime_policy_comparison(&policy, settings, &context.cwd)
+            );
+        }
+        result
+    };
+    validate(&context.settings, "context")?;
     match operation {
         RuntimeOperation::OpenThread { settings, .. }
         | RuntimeOperation::ResumeThread { settings, .. }
-        | RuntimeOperation::SubmitTurn { settings, .. } => {
-            validate_runtime_settings(&policy, settings, &context.cwd)
-        }
+        | RuntimeOperation::SubmitTurn { settings, .. } => validate(settings, "operation"),
         RuntimeOperation::Control { action, value, .. } if action == "settings" => {
             let settings = serde_json::from_value(value.clone())
                 .map_err(|reason| format!("Invalid sandbox runtime settings: {reason}"))?;
-            validate_runtime_settings(&policy, &settings, &context.cwd)
+            validate(&settings, "operation")
         }
         RuntimeOperation::Control { action, value, .. } if action == "mode" => {
             if value.as_str() != policy.runtime_mode.as_deref() {

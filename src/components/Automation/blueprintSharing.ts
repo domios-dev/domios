@@ -7,15 +7,18 @@ export interface BlueprintInput {
   default?: unknown;
   enum?: unknown[];
 }
+/** What the import form reads from a recipe: a name to show and the inputs to bind. Every other field, and whether the
+ *  recipe is valid at all, is the runtime's to judge when it imports. */
 export interface BlueprintRecipe {
-  schema_version: 1;
-  name: string;
+  name?: string;
   inputs?: Record<string, BlueprintInput>;
-  watch?: Record<string, unknown>;
-  pipeline?: Record<string, unknown>;
 }
 export interface BlueprintFile { name: string; yaml: string }
 
+const INPUT_TYPES: readonly string[] = ["string", "integer", "number", "boolean", "object", "array"];
+
+/** A light read before import: the file must be a YAML or JSON mapping within 256 KiB. Schema versions and shapes are not
+ *  checked here; the import sends the file's bytes and the runtime refuses what it cannot accept, with its own reason. */
 export function parseBlueprintRecipe(raw: string): BlueprintRecipe {
   if (new TextEncoder().encode(raw).length > 256 * 1024) throw new Error("Blueprint document exceeds 256 KiB");
   const parsed = parseDocument(raw, { version: "1.2", uniqueKeys: true });
@@ -23,27 +26,24 @@ export function parseBlueprintRecipe(raw: string): BlueprintRecipe {
   const value: unknown = parsed.toJS({ maxAliasCount: 100 });
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid Blueprint document");
   const recipe = value as Record<string, unknown>;
-  if (recipe.schema_version !== 1) throw new Error("Unsupported Blueprint schema version");
-  if (typeof recipe.name !== "string" || !recipe.name.trim()) throw new Error("Blueprint name is required");
-  if (Boolean(recipe.watch) === Boolean(recipe.pipeline)) throw new Error("Choose exactly one watch or pipeline");
-  if (recipe.inputs !== undefined) {
-    if (!recipe.inputs || typeof recipe.inputs !== "object" || Array.isArray(recipe.inputs)) throw new Error("Invalid Blueprint inputs");
-    for (const input of Object.values(recipe.inputs)) {
-      if (!input || typeof input !== "object" || Array.isArray(input) || !["string", "integer", "number", "boolean", "object", "array"].includes(String((input as Record<string, unknown>).type))) throw new Error("Invalid Blueprint input type");
-    }
-  }
-  return recipe as unknown as BlueprintRecipe;
+  // Only inputs the form can bind are offered; anything else is left for the runtime to explain.
+  const inputs = recipe.inputs && typeof recipe.inputs === "object" && !Array.isArray(recipe.inputs)
+    ? Object.fromEntries(Object.entries(recipe.inputs).filter(([, input]) => input && typeof input === "object" && !Array.isArray(input)
+      && INPUT_TYPES.includes(String((input as Record<string, unknown>).type)))) as Record<string, BlueprintInput>
+    : undefined;
+  return { ...(typeof recipe.name === "string" ? { name: recipe.name } : {}), ...(inputs && Object.keys(inputs).length ? { inputs } : {}) };
 }
 
 export interface BlueprintSharingApi {
   export(workspaceId: string, teamId: string | null, id: string): Promise<BlueprintFile>;
-  import(callerTabId: string, source: string, assignments: string[]): Promise<unknown>;
+  /** `scope` names the destination ("general", "workspace:<id>", "team:<id>"); the caller tab must already live there. */
+  import(callerTabId: string, source: string, assignments: string[], scope?: string): Promise<unknown>;
   save(file: BlueprintFile): void;
 }
 
 export const blueprintSharingApi: BlueprintSharingApi = {
   export: (workspaceId, teamId, id) => orchestrationTransport().blueprint_export_file({ workspaceId, teamId, id }) as Promise<BlueprintFile>,
-  import: (callerTabId, source, assignments) => orchestrationTransport().blueprint_import_file({ callerTabId, recipe: source, assignments }),
+  import: (callerTabId, source, assignments, scope) => orchestrationTransport().blueprint_import_file({ callerTabId, recipe: source, assignments, scope }),
   save: (file) => {
     const link = document.createElement("a");
     link.download = `${file.name.replace(/[^a-zA-Z0-9_-]+/g, "-") || "blueprint"}.yaml`;

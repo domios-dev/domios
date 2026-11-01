@@ -9,6 +9,7 @@ pub(super) fn fixture_capability() -> ExecutionSandboxCapability {
             runtime_mode: Some("opaque-read-mode".into()),
         }),
         mutating: None,
+        runtime_read_only_writable_roots_mode: Some("opaque-root-exception".into()),
         unsupported_reason: Some("opaque-gap".into()),
         forbidden_argument_prefixes: vec!["opaque-deny".into()],
     }

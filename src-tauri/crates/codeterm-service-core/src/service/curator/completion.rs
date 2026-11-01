@@ -79,6 +79,7 @@ impl ServiceContext {
                     run_id,
                     status,
                     &round.outcome.to_string(),
+                    None,
                 )
                 .map_err(|error| error.to_string())?;
                 cron.lock().unregister_tab(tab);

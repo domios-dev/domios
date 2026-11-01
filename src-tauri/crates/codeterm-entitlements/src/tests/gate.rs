@@ -100,7 +100,7 @@ fn summary_reports_enforcement_and_the_three_maxima() {
     );
     assert_eq!(
         serde_json::to_value(dormant).unwrap(),
-        serde_json::json!({"enforcing": false, "workspaces": 2, "teams": 6, "agent.tabs": 35})
+        serde_json::json!({"enforcing": false, "mesh.machines": 2, "mem.items": 500, "workspaces": 2, "teams": 6, "agent.tabs": 35})
     );
 }
 

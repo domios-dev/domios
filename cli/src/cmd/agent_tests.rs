@@ -218,7 +218,9 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
     let output_json = format_agent_models_json(&descriptor);
     let json_models: serde_json::Value =
         serde_json::from_str(&output_json).expect("CLI model JSON output");
-    let json_models = json_models.as_array().expect("CLI model JSON array");
+    let json_models = json_models["result"]
+        .as_array()
+        .expect("CLI model JSON array");
     let model = json_models
         .iter()
         .find(|model| model["id"] == "gpt-5.6-sol")
@@ -345,7 +347,7 @@ fn refusal_hint_never_suggests_a_shell_expression_sha() {
         dirty_files: Vec::new(),
     };
 
-    for line in refusal_next_commands() {
+    for line in refusal_next_commands(&refusal) {
         assert!(!line.contains("$(git "), "{line}");
     }
     assert!(refusal
@@ -362,7 +364,7 @@ fn json_next_commands_are_the_same_sequence_the_text_hint_prints() {
     };
     let message = refusal.message();
 
-    let commands = refusal_next_commands();
+    let commands = refusal_next_commands(&refusal);
     assert!(!commands.is_empty());
     for line in &commands {
         assert!(message.contains(*line), "{line}");
@@ -371,7 +373,7 @@ fn json_next_commands_are_the_same_sequence_the_text_hint_prints() {
 
 #[test]
 fn task_file_round_trips_shell_metacharacters_byte_exact() {
-    let body = "run `whoami` then $(rm -rf /) and ${HOME}\nline two\twith tab\n";
+    let body = " \tfragment-97α\r\n$opaque `x` \\\" {task}\ntrailing\t ";
     let path = std::env::temp_dir().join(format!("ct-task-file-{}.txt", uuid::Uuid::new_v4()));
     std::fs::write(&path, body).unwrap();
 
@@ -385,6 +387,9 @@ fn task_file_round_trips_shell_metacharacters_byte_exact() {
 
     std::fs::remove_file(&path).ok();
     assert_eq!(resolved, Some(body.to_string()));
+    let error = resolve_spawn_task(Some(body.into()), None, None, &mut &b""[..]).unwrap_err();
+    assert!(error.starts_with("inline_handoff_refused:"));
+    assert!(error.contains("--task-file"));
 }
 
 #[test]
@@ -773,4 +778,15 @@ fn agent_ack_renders_current_manifest_brief_byte_completely() {
     .unwrap();
     assert!(rendered.ends_with(brief));
     assert_eq!(rendered.matches(brief).count(), 1);
+}
+
+#[test]
+fn json_binding_refusal_only_offers_partial_reporting() {
+    let refusal = crate::cmd::report_guard::unavailable_scope_refusal("lookup failed");
+    let value = report_refusal_json(&refusal, false, None, None);
+    assert_eq!(
+        value["next_commands"],
+        serde_json::json!(["domios agent report --status partial --from-pad report.md"])
+    );
+    assert!(!refusal.message().contains("git commit"));
 }

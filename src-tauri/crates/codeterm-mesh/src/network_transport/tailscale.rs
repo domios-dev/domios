@@ -8,17 +8,21 @@ pub struct Tailscale;
 
 impl NetworkTransportProvider for Tailscale {
     fn detect(&self) -> TransportStatus {
-        let status = crate::discovery::tailscale_status_json();
-        let installed = status.is_some() || installed();
-        project(installed, status.as_ref())
+        #[cfg(target_os = "macos")]
+        {
+            super::self_detection::detect()
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let status = crate::discovery::tailscale_status_json();
+            let installed = status.is_some() || installed();
+            project(installed, status.as_ref())
+        }
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn installed() -> bool {
-    #[cfg(target_os = "macos")]
-    if std::path::Path::new("/Applications/Tailscale.app").exists() {
-        return true;
-    }
     crate::discovery::tailscale_binary().is_some()
 }
 

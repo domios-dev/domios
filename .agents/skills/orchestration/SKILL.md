@@ -43,8 +43,7 @@ Orchestrator would route on it.
 Exact built-in leaf `executor_role` values select their Worker prompt profile at
 local dispatch. `--kind qa` or `--kind release_manager` may select that prompt
 without editing the saved task role. The kind is prompt composition only;
-task-bound canonical placement still needs the parent-authorized
-`--canonical-writer` dispatch and its exclusive task attempt. Direct task-bound
+task-bound placement still needs parent-authorized dispatch. Shared canonical is the default with declared disjoint edit files; overlap or `build-breaking` selects a lane. `--placement shared|lane` overrides automatic selection; `--canonical-writer` reserves exclusive access. Direct task-bound
 spawn cannot reserve that attempt. Task-less kinds with Plan context retain
 parent-directed placement behavior and do not reserve task attempts or
 participate in canonical writer occupancy, so the parent coordinates those
@@ -155,8 +154,9 @@ evidence; passing evidence is the observable far end, such as stable DOM,
 recipient landed on the right thread, or persisted visible state.
 
 Before an autonomous fix, ask whether it is small, well-understood, and
-low-risk. If yes, ship one logical fix with a regression test that fails before
-and passes after, then re-run the scenario and adjacent journeys. Otherwise
+low-risk. If yes, ship one logical fix with the cheapest adequate existing check
+or concrete live observation. Add a regression test only for an important
+uncovered failure mode; expand checks only for affected behavior. Otherwise
 escalate with what is broken, options plus trade-offs, and a recommendation.
 
 ## Worktrees And Branches
@@ -165,8 +165,7 @@ Independent lanes can use separate worktrees and branches. This keeps diffs
 reviewable and protects unrelated work. A later integration branch can combine
 the lane diffs for full-system verification.
 
-The Orchestrator works from the canonical integration checkout. Workers own
-isolated lanes; merges, reviews, broad QA, and release gates run warm there.
+The Orchestrator integrates in canonical. Shared Workers edit and commit only declared paths, use `build.sh fmt --paths <files>`, and request extensions with `domios plan task extend-files --edit-file <path>`. Overlap and build-breaking work use isolated lanes; their final targets stay separate while lane-check reuses serialized intermediates. Sccache Rust keys still include cwd; `SCCACHE_BASEDIRS` alone does not prove worktree reuse. Broad QA and releases remain canonical.
 
 Worktrees with uncommitted changes are source artifacts. They should be kept
 until their diffs have been integrated, reviewed, or intentionally discarded.
@@ -200,3 +199,5 @@ full source and loader map is `.agents/skills/prompts/inventory.md`.
 Moved out of the embedded `domios docs` pages because they describe Domios's own source:
 
 - [references/attempt-retirement.md](references/attempt-retirement.md) — the attempt retirement fence
+
+<!-- revision: 2 -->

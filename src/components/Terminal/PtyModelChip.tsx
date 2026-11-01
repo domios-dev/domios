@@ -56,25 +56,9 @@ export function PtyModelChip({ tabId, provider, onError }: {
       <span>{modelSwitchLabel(provider.model_switch)}</span>
       {!picker.modelEnabled && <p>This tab does not declare model switching.</p>}
       <button type="button" disabled={!picker.fastEnabled} title="This tab does not declare fast control">Fast unavailable</button>
-      {tab.structured_control_active ? <label>Runtime mode
-        <select aria-label="Runtime mode" disabled={busy || !model}
-          value={tab.structured_runtime_mode ?? (tab.auto_approve ? "full-access" : "auto-accept-edits")}
-          onChange={async (event) => {
-            if (!model) return;
-            const mode = event.target.value;
-            setBusy(true);
-            try { setResult((await getTabModelApi().switchModel(tabId, model, effort, mode)) ?? null); }
-            catch (error) { onError(error instanceof Error ? error.message : String(error)); }
-            finally { setBusy(false); }
-          }}>
-          <option value="approval-required">Approval required</option>
-          <option value="auto-accept-edits">Accept edits</option>
-          <option value="auto">Automatic review</option>
-          <option value="full-access">Full access</option>
-        </select>
-      </label> : <button type="button" disabled title={picker.runtimeMode === "launch_flag" ? "Permissions are a launch flag for this tab" : "This tab does not declare runtime mode control"}>
+      <button type="button" disabled title={picker.runtimeMode === "launch_flag" ? "Permissions are a launch flag for this tab" : "This tab does not declare runtime mode control"}>
         {picker.runtimeMode === "launch_flag" ? `Permissions bypass: ${tab.auto_approve === undefined ? "unknown" : tab.auto_approve ? "on" : "off"} (launch flag)` : "Runtime mode unavailable"}
-      </button>}
+      </button>
       <button type="button" onClick={close}>Close</button>
     </div>
     </AnchoredPopover>

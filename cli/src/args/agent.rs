@@ -168,7 +168,7 @@ pub enum AgentAction {
         )]
         after: u64,
     },
-    /// Mark a tab as orchestrator (top-level, can spawn workers)
+    /// Promote your own live roleless, team-less agent to Orchestrator (can spawn workers)
     SetOrchestrator {
         /// Tab ID (default: $CODETERM_TAB_ID; no focused-tab fallback)
         #[arg(long = "tab", value_name = "TAB")]
@@ -447,6 +447,9 @@ pub enum AgentAction {
         /// Create and dispatch a visible exceptional task for this Worker.
         #[arg(long)]
         unplanned: bool,
+        /// Work tags for an unplanned Worker task; omitted work tags are inferred.
+        #[arg(long = "tag", requires = "unplanned")]
+        tags: Vec<String>,
         /// Why this Worker needs an unplanned task.
         #[arg(long, allow_hyphen_values = true)]
         reason: Option<String>,

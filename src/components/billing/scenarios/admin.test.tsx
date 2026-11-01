@@ -11,11 +11,11 @@ afterEach(closeScenario);
 describe("admin", () => {
   it("is unlimited regardless of billing", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.admin, { workspaces: 2, teams: 6, tabs: 35 });
-    expect(scenario.tray).toBe("Admin · Free · active");
+    expect(scenario.tray?.tier).toBe("free");
     await scenario.createWorkspace("/new/third");
     await scenario.createTab();
     await scenario.createPair();
-    expect(scenario.modalLine()).toBeNull();
+    expect(scenario.modalPrompt()).toBeNull();
     expect(scenario.daemon.counts()).toEqual({ workspaces: 3, teams: 7, "agent.tabs": 38 });
   });
 });

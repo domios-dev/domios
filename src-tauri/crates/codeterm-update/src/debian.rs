@@ -1,9 +1,17 @@
 use base64::Engine;
 use std::path::{Path, PathBuf};
 
+mod staging;
+pub use staging::{cleanup, failure, StageLease};
+#[cfg(any(test, target_os = "linux"))]
+pub mod handoff;
+
 pub struct StagedDebianPackage {
-    path: PathBuf,
+    pub path: PathBuf,
+    pub version: String,
+    pub sha256: String,
     command: String,
+    pub lease: StageLease,
 }
 
 impl StagedDebianPackage {
@@ -21,19 +29,12 @@ impl StagedDebianPackage {
 }
 
 pub async fn stage(manifest_url: Option<&str>) -> Result<Option<StagedDebianPackage>, String> {
-    let endpoint = match manifest_url {
-        Some(url) => url.to_string(),
-        None => {
-            let latest = crate::checker::latest_release_tag().await?;
-            crate::channel::immutable_endpoint_for_release(
-                latest.repository,
-                &latest.tag,
-                crate::Channel::Stable,
-                &crate::InstallMethod::Deb,
-            )
-        }
-    };
-    let manifest = crate::manifest::fetch(&endpoint).await?;
+    let manifest = crate::checker::resolve_manifest(
+        &crate::InstallMethod::Deb,
+        crate::Channel::Stable,
+        manifest_url,
+    )
+    .await?;
     if crate::manifest::offered_version(
         codeterm_build_info::version(),
         &manifest,
@@ -58,6 +59,23 @@ pub async fn stage(manifest_url: Option<&str>) -> Result<Option<StagedDebianPack
         .ok_or("Missing updater public key")?
         .to_owned();
     let signature = platform.signature.clone();
+    let version = manifest.version.clone();
+    let reuse_signature = signature.clone();
+    let reuse_key = public_key.clone();
+    let reuse_version = version.clone();
+    if let Some(staged) = tokio::task::spawn_blocking(move || {
+        staging::reuse(
+            &std::env::temp_dir(),
+            &reuse_version,
+            &reuse_signature,
+            &reuse_key,
+        )
+    })
+    .await
+    .map_err(|error| error.to_string())??
+    {
+        return Ok(Some(staged));
+    }
     let bytes = reqwest::Client::builder()
         .https_only(!cfg!(feature = "dev-updater-allowlocal"))
         .build()
@@ -72,7 +90,13 @@ pub async fn stage(manifest_url: Option<&str>) -> Result<Option<StagedDebianPack
         .await
         .map_err(|error| error.to_string())?;
     tokio::task::spawn_blocking(move || {
-        verify_and_stage(&bytes, &signature, &public_key, &std::env::temp_dir())
+        verify_and_stage(
+            &bytes,
+            &signature,
+            &public_key,
+            &version,
+            &std::env::temp_dir(),
+        )
     })
     .await
     .map_err(|error| error.to_string())?
@@ -83,8 +107,14 @@ fn verify_and_stage(
     bytes: &[u8],
     signature: &str,
     public_key: &str,
+    version: &str,
     root: &Path,
 ) -> Result<StagedDebianPackage, String> {
+    verify(bytes, signature, public_key)?;
+    staging::store(bytes, version, signature, root)
+}
+
+fn verify(bytes: &[u8], signature: &str, public_key: &str) -> Result<(), String> {
     let decode = |value: &str| -> Result<String, String> {
         String::from_utf8(
             base64::engine::general_purpose::STANDARD
@@ -98,16 +128,7 @@ fn verify_and_stage(
     let signature = minisign_verify::Signature::decode(&decode(signature)?)
         .map_err(|error| error.to_string())?;
     key.verify(bytes, &signature, true)
-        .map_err(|error| format!("Debian package signature verification failed: {error}"))?;
-    let directory = tempfile::Builder::new()
-        .prefix("domios-verified-update-")
-        .tempdir_in(root)
-        .map_err(|error| error.to_string())?;
-    let path = directory.path().join("domios-update.deb");
-    let command = staged_command(&path)?;
-    std::fs::write(&path, bytes).map_err(|error| error.to_string())?;
-    let _ = directory.keep();
-    Ok(StagedDebianPackage { path, command })
+        .map_err(|error| format!("Debian package signature verification failed: {error}"))
 }
 
 fn staged_command(path: &Path) -> Result<String, String> {

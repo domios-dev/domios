@@ -24,6 +24,7 @@ pub fn mesh_state(state: &account::LifecycleState) -> mesh::AccountMeshState {
                 verified: verified(&membership.verified),
             }),
         revoked_installations: state.revoked_installations.clone(),
+        unavailable_installations: state.unavailable_installations.clone(),
         plan_limit_locked: state.plan_limit_locked(),
     }
 }
@@ -78,7 +79,14 @@ pub fn admission_refusal(refusal: AccountMeshRefusal) -> mesh::AdmissionRefusal 
         AccountMeshRefusal::PlanLimitLocked => M::PlanLimitLocked,
         AccountMeshRefusal::Cancelled => M::Cancelled,
         AccountMeshRefusal::Invalid
+        | AccountMeshRefusal::InstallationUnverified
+        | AccountMeshRefusal::CutoffAfterCurrentSession
         | AccountMeshRefusal::Conflict
+        | AccountMeshRefusal::KeyConflict
+        | AccountMeshRefusal::GenerationMismatch
+        | AccountMeshRefusal::ChallengeInvalid
+        | AccountMeshRefusal::EnrollmentBudget { .. }
+        | AccountMeshRefusal::ProofInvalid
         | AccountMeshRefusal::VerificationUnavailable => M::handshake(reason(&refusal)),
     }
 }

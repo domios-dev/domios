@@ -37,6 +37,6 @@ export function cloudExports(hostRef: () => Host): Pick<PluginModule, "discoverR
     sendMessage: (session, text) => get().sendMessage(session, text),
     poll: (session, cursor) => get().poll(session, cursor),
     closeSession: session => get().closeSession(session),
-    viewCall: (method, args) => get().viewCall(method, args),
+    viewCall: (method, args, context) => get().viewCall(method, args, context),
   };
 }

@@ -32,6 +32,24 @@ describe("sidebar drawer wiring", () => {
     }
   });
 
+  it("slides only when it opens or closes, never when it first renders closed", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const drawer = () => host.querySelector<HTMLElement>('[data-testid="sidebar-drawer"]')!;
+    try {
+      await act(async () => root.render(<SidebarDrawer phone shown={false}><aside aria-label="Sidebar" /></SidebarDrawer>));
+      expect(drawer().hasAttribute("data-sliding")).toBe(false);
+      await act(async () => root.render(<SidebarDrawer phone shown><aside aria-label="Sidebar" /></SidebarDrawer>));
+      expect(drawer().hasAttribute("data-sliding")).toBe(true);
+      await act(async () => drawer().dispatchEvent(Object.assign(new Event("transitionend", { bubbles: true }), { propertyName: "transform" })));
+      expect(drawer().hasAttribute("data-sliding")).toBe(false);
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
   it("hides retained navigation from accessibility and interaction while closed", async () => {
     const host = document.createElement("div");
     document.body.append(host);

@@ -1,3 +1,4 @@
+import { MemoryFriendsProvider } from "./MemoryProvenance";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { listen } from "../../lib/bridge";
 import { memoryListControlsVisible } from "./memoryDetailModel";
@@ -16,7 +17,7 @@ import { fetchStats, type MemStats } from "./memoryApi";
 import { useTouchOptimizedUi } from "../../hooks/useTouchOptimizedUi";
 import type { ApiConfig, AppConfig } from "../../lib/types";
 import { UI_BUTTON, UI_PANEL, UI_TEXT } from "../shared/design";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 import { LiquidTabRail } from "../shared/LiquidTabRail";
 
 export type MemoryTab = "dreams" | "inspect" | "activity" | "settings";
@@ -47,7 +48,7 @@ interface Props {
   onOpenAgentsSettings: () => void;
 }
 
-export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate, onOpenAgentsSettings }: Props) {
+function MemoryPanelContent({ api, onClose, initialState, config, onConfigUpdate, onOpenAgentsSettings }: Props) {
   const [detailOpen, setDetailOpen] = useState(false);
   const touchUi = useTouchOptimizedUi();
   const [activeTab, setActiveTab] = useState<MemoryTab>(normalizeTab(initialState?.activeTab));
@@ -207,7 +208,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
         )}
         {activeTab === "inspect" && inspectView === "graph" &&
           snapshot.status === "loading" && !snapshot.index && (
-          <RegionLoader className="absolute inset-0" data-testid="memory-graph-loading" label="Loading memory graph" />
+          <Loader variant="overlay" data-testid="memory-graph-loading" label="Loading memory graph" />
         )}
         {activeTab === "inspect" && inspectView === "graph" && snapshotError && (
           <div data-testid="memory-graph-error"><InlineErrorNotice error={snapshotError} operation="loading memory" blocking /></div>
@@ -230,6 +231,7 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
             <MemorySnapshotCanvas
               api={api}
               index={snapshot.index}
+              metadataNodes={nodes}
               epoch={snapshot.epoch}
               pulses={pulses}
               onRefresh={() => void snapshot.refresh()}
@@ -280,4 +282,8 @@ export function MemoryPanel({ api, onClose, initialState, config, onConfigUpdate
       </div>
     </div>
   );
+}
+
+export function MemoryPanel(props: Props) {
+  return <MemoryFriendsProvider><MemoryPanelContent {...props} /></MemoryFriendsProvider>;
 }

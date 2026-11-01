@@ -201,9 +201,11 @@ pub fn resolve_agent_model_selection(
             } else if providers
                 .iter()
                 .any(|provider| provider.eq_ignore_ascii_case(requested))
-                && !requested.eq_ignore_ascii_case(explicit)
             {
-                return Err(provider_mismatch_error(explicit, requested, requested));
+                if !requested.eq_ignore_ascii_case(explicit) {
+                    return Err(provider_mismatch_error(explicit, requested, requested));
+                }
+                (explicit.to_string(), None)
             } else {
                 (explicit.to_string(), Some(requested.to_string()))
             }

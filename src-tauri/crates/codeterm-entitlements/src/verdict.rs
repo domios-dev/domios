@@ -83,7 +83,7 @@ impl Verdict {
         Self {
             state: TimeState::of(payload, now),
             authority: payload.authority,
-            label: payload.label,
+            label: payload.label.clone(),
             limits: payload.effective_limits(),
             capabilities: payload.capabilities.clone(),
             perks: payload.perks,

@@ -270,7 +270,7 @@ pub fn run_migrate(json: bool, args: MigrateArgs) {
             "claimed_in_ms": claim_ms,
             "total_ms": total_ms,
         });
-        println!("{}", serde_json::to_string_pretty(&summary).unwrap());
+        println!("{}", crate::cmd::output::encode(&summary).unwrap());
     } else {
         println!(
             "Migrated {} from {} -> {} in {}ms (released in {}ms, claimed in {}ms)",
@@ -328,7 +328,7 @@ fn report_split_brain(json: bool, source: &str, target: &str, service: &str, rol
             "rollback_error": rollback_err,
             "repair_command": repair_cmd,
         });
-        println!("{}", serde_json::to_string_pretty(&payload).unwrap());
+        println!("{}", crate::cmd::output::encode(&payload).unwrap());
         return;
     }
     eprintln!();

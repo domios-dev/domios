@@ -96,7 +96,7 @@ async function command(args, retainSend = false) {
 async function dc(...args) {
   return command([join(root, "evals/restart-endurance/run.sh"), "--dc", ...args]);
 }
-const unwrap = (value) => value?.data ?? value;
+const unwrap = (value) => value.result;
 async function dcJson(...args) { return unwrap(JSON.parse(await dc(...args, "--json"))); }
 
 class Events {

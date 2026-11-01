@@ -69,8 +69,10 @@ fn send_inner(
             tab: tab.into(),
             detail,
         })?;
-    super::capacity_retry::cancel(svc, tab)
-        .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+    if matches!(input, crate::service::messenger::AgentInput::Human(_)) {
+        super::capacity_retry::cancel(svc, tab)
+            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+    }
     svc.wake_frozen_tab(tab)
         .map_err(|detail| DeliveryError::TabBusyRefused {
             tab: tab.into(),
@@ -189,6 +191,29 @@ fn turn_input(text: &str) -> TurnInput {
     }
 }
 
+pub(super) fn runtime_input(
+    classified: &crate::service::messenger::AgentInput,
+) -> Result<TurnInput, RuntimeFailure> {
+    use crate::service::messenger::{AgentInput, InputProvenance};
+    let rendered = classified.text();
+    match classified {
+        AgentInput::Launch(_) => Ok(TurnInput {
+            text: rendered.into_owned(),
+            attachments: Vec::new(),
+        }),
+        AgentInput::Framed(frame) if frame.provenance() == InputProvenance::Neighbor => {
+            Ok(TurnInput {
+                text: rendered.into_owned(),
+                attachments: Vec::new(),
+            })
+        }
+        AgentInput::Shell(_) => Err(RuntimeFailure::Refused(
+            "shell input cannot target a runtime agent".into(),
+        )),
+        _ => Ok(turn_input(&rendered)),
+    }
+}
+
 pub(crate) async fn submit_loaded(
     svc: &ServiceContext,
     session: &Arc<Session>,
@@ -196,20 +221,8 @@ pub(crate) async fn submit_loaded(
     send_id: &str,
     classified: crate::service::messenger::AgentInput,
 ) -> Result<(), DeliveryError> {
-    let rendered = classified.text();
-    let input = match &classified {
-        crate::service::messenger::AgentInput::Launch(_) => TurnInput {
-            text: rendered.into_owned(),
-            attachments: Vec::new(),
-        },
-        crate::service::messenger::AgentInput::Shell(_) => {
-            return Err(before_write(
-                &session.context.lock().tab_id,
-                RuntimeFailure::Refused("shell input cannot target a runtime agent".into()),
-            ))
-        }
-        _ => turn_input(&rendered),
-    };
+    let input = runtime_input(&classified)
+        .map_err(|reason| before_write(&session.context.lock().tab_id, reason))?;
     let context = session.context.lock().clone();
     let tab = context.tab_id.as_str();
     if session.compaction.lock().held(context.epoch) {
@@ -242,12 +255,6 @@ pub(crate) async fn submit_loaded(
             RuntimeFailure::Refused("Runtime input or outstanding claim limit".into()),
         ));
     }
-    if !session.capacity_retry.lock().permits_send(send_id) {
-        return Err(before_write(
-            tab,
-            RuntimeFailure::Refused("Capacity retry cancelled".into()),
-        ));
-    }
     if !svc.chat_send_ledger.bind_rpc_send(
         &pending.send_id,
         SendLiveBinding {
@@ -259,12 +266,6 @@ pub(crate) async fn submit_loaded(
             tab: tab.into(),
             detail: "Runtime send already claimed".into(),
         });
-    }
-    if matches!(classified, crate::service::messenger::AgentInput::Human(_)) {
-        session.capacity_retry.lock().begin(send_id, &input.text);
-    } else {
-        super::capacity_retry::cancel(svc, tab)
-            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
     }
     session.context.lock().claimed_sends.push(ClaimedSend {
         send_id: pending.send_id.clone(),
@@ -320,7 +321,6 @@ pub(crate) async fn submit_loaded(
                 );
             }
             if let Some(turn) = turn_id {
-                session.capacity_retry.lock().bind(&send_id, &turn);
                 let mut current = session.context.lock();
                 if current.epoch == context.epoch
                     && session.completions.lock().permits_receipt(
@@ -387,7 +387,7 @@ pub(crate) fn send_envelope(
     token: &str,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    super::envelope_delivery::send(svc, tab, &input.to_message(), token, observer)
+    super::envelope_delivery::send(svc, tab, input, token, observer)
 }
 
 #[cfg(test)]

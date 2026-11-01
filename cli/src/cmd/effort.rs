@@ -10,7 +10,7 @@ pub fn handle_effort(client: &mut dyn RpcClient, json_output: bool, action: Effo
     match run_effort(client, json_output, action) {
         Ok(None) => {}
         Ok(Some(val)) if json_output => {
-            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+            println!("{}", crate::cmd::output::encode(&val).unwrap());
         }
         Ok(Some(val)) => crate::cmd::print::print_object(&val),
         Err(e) => {

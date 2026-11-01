@@ -18,6 +18,7 @@ pub(crate) use crate::service::ordered_actions::*;
 #[cfg(test)]
 pub(crate) use lifecycle::claim_restored_launch;
 pub use lifecycle::claim_restored_pty_boot;
+pub(crate) use send::build_launch_dispatch;
 pub(crate) use send::build_spawn_dispatch;
 pub(crate) use send::delivery_is_unknown;
 pub use send::{await_bare_shell_prompt, await_shell_prompt};

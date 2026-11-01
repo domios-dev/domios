@@ -282,11 +282,10 @@ mod strides_render_tests {
 }
 
 mod error_contract_tests {
-    use crate::args::inbox::InboxAction;
     use crate::args::task::{CanvasAction, TaskAction};
     use crate::client::{RpcClient, RpcError, SocketCallError};
     use crate::cmd::print::{write_cli_error, CliError, CLI_ERROR_EXIT_CODE};
-    use crate::cmd::task::{run_canvas, run_inbox, run_task};
+    use crate::cmd::task::{run_canvas, run_task};
     use serde_json::Value;
 
     /// Every JSON-RPC code the daemon uses starts with this; asserting its
@@ -449,35 +448,6 @@ mod error_contract_tests {
     }
 
     #[test]
-    fn inbox_add_rejection_reaches_the_contract() {
-        let mut client = FailingRpc::local();
-        let message = run_inbox(&mut client, inbox_add(None))
-            .expect_err("inbox add surfaces the daemon rejection");
-
-        assert_eq!(client.calls, ["task.add"]);
-        let (out, err) = rendered(false, &message);
-        assert!(out.is_empty(), "{out}");
-        assert_eq!(err.lines().count(), 1, "{err}");
-        assert!(err.ends_with(&format!("{DAEMON_MESSAGE}\n")), "{err}");
-    }
-
-    #[test]
-    fn inbox_add_unreadable_body_file_is_rejected_before_any_rpc() {
-        let mut client = FailingRpc::local();
-        let missing = std::env::temp_dir()
-            .join("codeterm-absent-inbox-dir")
-            .join("body.md");
-        assert!(!missing.exists(), "the fixture must name an absent path");
-        let message = run_inbox(&mut client, inbox_add(Some(missing.display().to_string())))
-            .expect_err("an unreadable --body-file is rejected locally");
-
-        assert!(client.calls.is_empty(), "{:?}", client.calls);
-        let (out, err) = rendered(false, &message);
-        assert!(out.is_empty(), "{out}");
-        assert_eq!(err.lines().count(), 1, "{err}");
-    }
-
-    #[test]
     fn canvas_focus_rejection_reaches_the_contract() {
         let mut client = FailingRpc::local();
         let message = run_canvas(
@@ -495,27 +465,6 @@ mod error_contract_tests {
         assert!(err.is_empty(), "{err}");
         let envelope: serde_json::Value = serde_json::from_str(&out).expect("one JSON envelope");
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
-    }
-
-    fn inbox_add(body_file: Option<String>) -> InboxAction {
-        InboxAction::Add {
-            name: "probe".into(),
-            kind: None,
-            model: None,
-            why: None,
-            why_file: None,
-            criterion: Vec::new(),
-            test_plan: None,
-            qa_plan: None,
-            qa_plan_file: None,
-            correctness: None,
-            body: None,
-            body_file,
-            intent: None,
-            intent_file: None,
-            execution_intent: None,
-            assign_tab: None,
-        }
     }
 }
 

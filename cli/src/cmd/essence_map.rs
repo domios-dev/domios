@@ -201,7 +201,7 @@ pub(crate) fn handle(json_output: bool, action: EssenceMapAction) {
 
     match result {
         Ok(report) if json_output => {
-            println!("{}", serde_json::to_string_pretty(&report).unwrap());
+            println!("{}", crate::cmd::output::encode(&report).unwrap());
         }
         Ok(report) => print_report(&report),
         Err(error) => fail(error),

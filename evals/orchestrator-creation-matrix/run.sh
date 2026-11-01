@@ -61,6 +61,9 @@ gated()   { echo "  [GATED]   $1: $2"; record "$1" GATED "$2"; }
 
 # --- json helpers (python; portable) --------------------------------
 # js <output> <python-expr-on-d>; tolerate CLI hints around JSON.
+api_js() {
+  printf '%s' "$1" | "$PYTHON_BIN" "$JSON_EXPR" "$2" --raw
+}
 js() {
   printf '%s' "$1" | "$PYTHON_BIN" "$JSON_EXPR" "$2"
 }
@@ -73,7 +76,7 @@ workspace_ids() {
   else
     expression="','.join(row.get('id','') for row in d if isinstance(row,dict) and row.get('id'))"
   fi
-  ids=$(js "$output" "$expression") || return
+  ids=$(api_js "$output" "$expression") || return
   [ -z "$ids" ] || printf '%s\n' "$ids" | tr ',' '\n'
 }
 
@@ -85,7 +88,7 @@ plan_ids_snapshot() {
     printf '%s\n' "$output" >&2
     return 1
   fi
-  ids=$(js "$output" "'\\n'.join(str(row.get('plan_id') or row.get('id') or '') for row in (d if isinstance(d,list) else d.get('plans',[])) if isinstance(row,dict) and (row.get('plan_id') or row.get('id')))") || {
+  ids=$(js "$output" "'\\n'.join(str(row.get('plan_id') or row.get('id') or '') for row in (d) if isinstance(row,dict) and (row.get('plan_id') or row.get('id')))") || {
     printf 'could not parse plan list JSON:\n%s\n' "$output" >&2
     return 1
   }
@@ -233,7 +236,7 @@ if ! dev_get /api/health >/dev/null 2>&1; then
   echo "ABORT: dev daemon not healthy on 7686. Start it (orchestrator owns dev): ./build.sh dev" >&2
   exit 7
 fi
-BUILD=$(js "$(dev_get /api/health)" "d.get('build','?')")
+BUILD=$(api_js "$(dev_get /api/health)" "d.get('build','?')")
 echo "  dev build: $BUILD"
 
 # Creation routes must all reach the one shared preset resolver; a kind that
@@ -298,7 +301,7 @@ mk_plan() {
   return 1
 }
 
-tab_rows_expr="(d if isinstance(d,list) else d.get('tabs',[]))"
+tab_rows_expr="d"
 tab_count() {
   local output
   output=$(dc tab list --json 2>&1)
@@ -307,14 +310,14 @@ tab_count() {
 plan_count() {
   local output
   output=$(dc plan list --json 2>&1)
-  js "$output" "len(d if isinstance(d,list) else d.get('plans',[]))"
+  js "$output" "len(d)"
 }
 tab_exists() {
   local output
   output=$(dc tab list --json 2>&1)
   js "$output" "any(row.get('id') == '$1' for row in $tab_rows_expr)"
 }
-tab_session() { js "$(dev_get /api/tabs)" "next((p.get('agent_session_id') or '' for p in d if p.get('id') == '$1'), '')"; }
+tab_session() { api_js "$(dev_get /api/tabs)" "next((p.get('agent_session_id') or '' for p in d if p.get('id') == '$1'), '')"; }
 
 LAUNCH_DIAGNOSTIC_LINE=""
 LAUNCH_DIAGNOSTIC_ERROR=""
@@ -597,7 +600,7 @@ scenario_D() {
   # role profile carries the coordinator identity over the Manager role.
   local tabs_after role_state
   tabs_after=$(dev_get /api/tabs)
-  role_state=$(js "$tabs_after" "next((str(p.get('role') or '').lower() + ':' + str(p.get('role_profile') or '').lower() for p in d if p.get('id') == '$tab'), '')")
+  role_state=$(api_js "$tabs_after" "next((str(p.get('role') or '').lower() + ':' + str(p.get('role_profile') or '').lower() for p in d if p.get('id') == '$tab'), '')")
   if [ "$role_state" = "manager:orchestrator" ]; then
     pass D.role "tab promoted with role=Manager and role_profile=orchestrator"
   else

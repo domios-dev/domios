@@ -5,19 +5,19 @@ Transports: authenticated REST, local socket JSON-RPC and `domios`.
 
 REST, socket and CLI share authorization, PTY cleanup, events and hierarchy checks.
 
-The CLI socket needs no TCP. Unix peer credentials or Windows process-token SID restrict it to the daemon's OS user; the daemon owns authentication, signing and transport.
+Socket access needs no TCP: Unix peer credentials or Windows process-token SID enforce the daemon OS user; control requests also authenticate credentials.
 
 Socket/mesh envelopes require `protocol_version`; older or versionless clients get `-32002`. Wire: `API-TRANSPORT`; peer notice routes: `MESH`.
 
-Human `domios workspace list` shows ordered topology; `tab inspect <id>` inspects one tab. `workspace current --json` returns `{id, source}`, resolving explicit placement, caller tab, validated workspace environment, then focus. No match exits 1; JSON errors go to stdout.
+`workspace list`: ordered topology; `tab inspect <id>`: one tab. `workspace current --json` -> `{id,source}`: explicit placement, caller tab, validated workspace env, focus. No match:exit1; JSON errors:stdout.
 
-POST `/api/blueprints/{id}/webhook` uses a per-graph secret; POST `/api/blueprints/{id}/webhook/configure` manages its lifecycle for a local authenticated caller. Signing, limits and payload rules: `domios docs BLUEPRINTS` and the integrations reference below.
+Blueprint webhooks use per-graph secrets; local authenticated callers configure them. Routes, signing, limits and payloads: `BLUEPRINTS`, `API-INTEGRATIONS`.
 
 ## REST API
 Base: `http://<host>:7685/api`.
 
 ### Authentication
-The Bearer token lives in owner-only `<data_dir>/.secrets` as `domios.instance:api_token`, read once at startup and passed to tabs as `CODETERM_API_TOKEN`, never stored in `config.toml`. Local-only `domios system api-token` prints the credential and refuses `--mesh`. Control endpoints require it even on loopback; public health/pairing grants no control.
+Host credential: owner-only `.secrets` (`domios.instance:api_token`), not injected into tab env. Tab credentials revoke on close/relaunch/session replacement/restart; identity must match. `system api-token` stays host-only. `domios web link` and GET `/api/network/web-token` allow host/owner or authenticated local General only. Other agents, Neighbor-derived tabs, peers, service pushes and missing auth refuse. Links print only to caller; no logs, telemetry, notifications or shared memory. Export refuses `--mesh`. Loopback needs auth; public health/pairing grants none.
 
 Default configuration:
 ```toml
@@ -28,7 +28,7 @@ cors = false
 ```
 Then: `Authorization: Bearer your-secret-token`
 
-Non-loopback binds require an explicit host and non-empty token; remote requests work only while Mesh is enabled. Turning Mesh off blocks remote HTTP while preserving localhost. CORS is allowlist-only:
+Non-loopback binds require explicit host and non-empty token. Mesh OFF blocks remote HTTP, preserving localhost. CORS requires an allowlist:
 
 ```toml
 [api]
@@ -37,9 +37,11 @@ cors = true
 cors_allow_origins = ["https://console.example"]
 ```
 
-Config readback exposes actual and configured listener state through `api_listener.active`, `.configured`, `.restart_required` (enabled, address, CORS/origins, authentication); writes do not imply a runtime rebind. Loopback hosts canonicalize to valid socket/callback URLs; recovery follows the generation contract below. Empty CORS allowlists deny cross-origin requests without disabling the listener; `*` and malformed origins are rejected.
+`api_listener.active`, `.configured`, `.restart_required`: actual/configured enabled/address/CORS/origins/auth; writes never imply rebind. Loopback hosts canonicalize socket/callback URLs. Recovery: MESH. Empty CORS lists deny cross-origin access only; `*`/malformed origins refuse.
 
 ### Endpoints
+
+Inventories: API-PLAN (plans/tasks), API-TEAMS (authority), API-LIFECYCLE (host/hooks/account/Neighbor receiving), API-EVENTS (Blueprints/notifications), API-SERVICES (Mesh/plugins).
 
 #### CI failure events
 
@@ -47,11 +49,24 @@ POST `/api/ci/webhook`: `API-EVENTS`.
 
 #### Startup readiness
 
-Health `status: "ok"` proves liveness; `startup.state: "ready"` proves readiness. Only loopback health/events bypass auth. Await `ready` on `/api/startup/events` (`startup-state`). Other requests get HTTP 503 `starting`/`startup_failed` without queuing. CLI: `API-CLI`.
+Health `status:"ok"` proves liveness. `/api/startup` and `/api/startup/events` (`startup-state`) report `desktop_ready`, subsystem states and full readiness `startup.state:"ready"`. Sessions/optional areas may still restore after desktop readiness. Pending areas return 503 with `error.code:"starting"` and `error.subsystem`; keep loading until their readiness event. Never queue/replay mutations. Only loopback health/startup observations bypass auth. CLI: `API-CLI`.
 
 #### Account machines
 
-Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke` accepts `{installation_id?: string | null}`; omission selects this machine. It signs out the selected installation's account sessions and returns `{ok: true, result: {target_installation_id, revoked_at}}` or the standard typed refusal. The local installation key and saved pairings remain. The UI asks for confirmation before this action.
+Local account routes refuse Mesh. POST `/api/account/mesh/session-revoke {installation_id?:string|null}` signs out the selected machine (default: this one), returning `{ok:true,result:{target_installation_id,revoked_at}}` or typed refusal. Preserve key/pairings; UI confirms first.
+
+#### Neighbor read receipts
+
+`POST /api/account/neighbors/read`: local owner UI only; exactly `{friendship_id,through_message_id}` (64/32 lowercase hex). Reports open-conversation visibility, never history fetches; tab/Mesh callers refuse. Host reports concierge pickup separately. Persist read-up-to before relay dispatch; suppress duplicate/older batches; stop for paused/ended friends or Neighbors off.
+
+Neighbor outgoing history: optional UNIX-ms `delivered_at`, `read_at` (implies delivery). Ticks: accepted 1, delivered 2, read 2 blue. After receipt persistence, `neighbor-history-changed` carries `friendship_id`. Signal/catch-up: `NEIGHBORS`.
+
+#### Plugin media and Neighbor memory
+
+| Method | Path | Body | Description |
+|--------|------|------|-------------|
+| GET | `/api/plugins/{plugin}/media/{frame}/{handle}` | — | Passive plugin image/audio/video delivery; the opaque live frame/handle pair authorizes access. Also accepts HEAD. Supports one byte Range (206; invalid ranges 416), `no-store` and `nosniff`; unknown, expired or revoked authority returns 404. No filesystem paths. |
+| POST | `/api/mem/neighbor-save` | `{kind,area,title,body,summary?,tags?,importance?}` | Authenticated Neighbor-derived tab only; requires a live matching friendship and a memory write grant for the exact area. Saves only `fact` or `note`, with server-derived authorship and global scope; returns `{id}`. Credentials and oversized content refuse. HTTP 403 returns `{code,reason,message}` for denied authority, area, kind, credentials or size. Local owner and ordinary tabs cannot use this route. |
 
 #### Local previews
 | Method | Path | Body | Description |
@@ -65,37 +80,38 @@ Local account routes refuse Mesh callers. POST `/api/account/mesh/session-revoke
 | GET | `/api/health` | — | Health check. Returns `version`, `build` (git short hash), `name`, `platform`, `status`. |
 | POST | `/api/automation/blueprints/export` | `{workspace_id, team_id, id}` | Local host `{name, yaml}` authoring file; see BLUEPRINTS. |
 | POST | `/api/automation/blueprints/solutions/show` | `{workspace_id, id}` | Local host read-only saved solution, with the same workspace visibility as solutions/list. Accepts a bare ID or `mem:<id>`. Returns `{document, expanded_calls}`; see below. |
-| POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments}` | Local host apply by name, stopped; recipe is YAML text or the matching document object; see BLUEPRINTS. |
+| POST | `/api/automation/blueprints/import` | `{caller_tab_id, recipe, assignments, scope?}` | Local host apply by name, stopped; scope is general, workspace:<id>, or team:<id> and must match the caller; recipe is YAML text or the matching document object; see BLUEPRINTS. |
 | GET | `/api/automation/blueprints/project` | Query `workspace_id`, optional `path` | Local host read-only repository listing or bounded source view. No execution or approval. |
 | GET | `/api/automation/blueprints/viewer/history` | Query `workspace_id`, explicit `team_id` (empty for no Team), `id` | Retained definition versions with actual root/callee semantic diffs. |
 | GET | `/api/identify` | — | Version, platform, features |
 | POST | `/api/cli/rpc` | `{method, params?, protocol_version}` | Internal CLI fallback for authenticated loopback callers only. It dispatches the same RPC methods as the local socket; mesh peer tokens are refused. See API-CLI. |
 | GET | `/api/network` | — | Local IP, Tailscale IP, API URLs |
+| GET | `/api/network/web-token` | — | Token-bearing web UI link; host/owner or authenticated local General only. |
 | GET | `/api/keepawake` | — | Get keep-awake status (see below) |
 | POST | `/api/keepawake/start` | `{duration_secs?, display?}` | Start / restart keep-awake session |
 | POST | `/api/keepawake/stop` | — | Stop keep-awake session |
 | POST | `/api/graph/events/{subscription_id}` | `{plugin_id, event_id, payload}` | Plugin event ingress. Uses the subscription's Bearer token, accepts at most 64 KiB, and returns 202 for admission; refusal codes map to 401, 403, 404, 409, 413, 422, 429 or 503. |
 
-REST listener lifecycle and recovery: MESH, *Local REST availability*. REST chat/transcript routes parse a bounded 4 MiB tail.
+REST listener recovery: MESH, *Local REST availability*. Chat/transcript parsing: 4 MiB tail.
 
-Saved solution show returns a credential-redacted `document` and recursive `expanded_calls: [{node, pin: {id, hash}, graph, children}]` under the saved scope and exact hashes. Missing/corrupt/foreign pins expose `pinned_revision_unavailable`; limits of eight levels, 64 calls and 256 KiB expose `budget_exhausted`. Archived/foreign roots and peer-origin requests refuse.
+Saved show: redacted `document`, recursive `expanded_calls:[{node,pin:{id,hash},graph,children}]`, saved scope/exact hashes. Missing/corrupt/foreign pins:`pinned_revision_unavailable`; 8levels/64calls/256KiB:`budget_exhausted`. Archived/foreign roots and peers refuse.
 
 #### Workspaces
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
 | * | `/api/workspaces/...` | *(per route)* | Workspace and workspace-scoped tab routes: list, create, focus, relocate cwd, rename, close, recently-closed, reopen, and tab create/rename/move — all in API-TABS |
 
-POST routes whose fields only refine a complete action (agent restart, hooks, serve enable, keepawake start, session resume, reopen-closed, workspace tab create) accept no body and apply documented defaults. Workspace close has a caller-sensitive confirmation body (API-TABS). `POST /api/workspaces` requires `name` (`400`).
+Bodyless POST applies defaults for agent restart, hooks, serve enable, keepawake start, session resume, reopen-closed and workspace tab create. Workspace close requires caller-sensitive confirmation (API-TABS); workspace create requires `name` (400).
 
 #### Closed History & Restore
 
-A bounded persistent ring records closed tabs/workspaces, evicting oldest first. Each close has an opaque `group_id` of kind `single`, `cascade`, or `workspace`.
+Closed tabs/workspaces persist in an oldest-evicted bounded ring; opaque `group_id` kinds: `single`, `cascade`, `workspace`.
 
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen a whole closed group by `group_id` (from `recently_closed`). Recreates a missing workspace; a live workspace at the same `cwd` is reused, never duplicated. Returns `{workspace_id, tab_id}` for the activated tab. |
+| POST | `/api/closed-groups/{group_id}/reopen` | — | Reopen `recently_closed` group: recreate missing workspace or reuse live matching `cwd`, never duplicate. Returns activated `{workspace_id,tab_id}`. |
 
-Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` exposes the newest-first union as `recently_closed: ClosedTabView[]`; each view adds `index`, `orphaned`, `group_id`, and `group_kind` to its `ClosedTab` fields. Socket equivalents and shapes: API-TRANSPORT.
+Restore matches normalized `cwd`. `GET /api/mux/state`: newest-first `recently_closed:ClosedTabView[]` adds `index`, `orphaned`, `group_id`, `group_kind` to `ClosedTab`. Socket shapes: API-TRANSPORT.
 
 #### Tabs
 | Method | Path | Body / Query | Description |
@@ -107,7 +123,7 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs` | `{title?, description?, cwd?, workspace_id?, team_id?, creator_tab_id?, detach_from_team?, cmd?, eager?, chat_backend?, system_prompt?, preset?, model?}` | Create tab: `title` one word, max 64 chars; `description` trimmed one line, max 200 chars, empty clears. Workspace: explicit, creator-owned, then focus. PTY shells inherit the live creator Team unless `detach_from_team`; explicit `team_id` is membership-checked; chat backends never inherit. `cmd` uses `/send` plus Enter. `chat_backend` opens an installed `chatBackend` shell instead of a PTY; only these accept `system_prompt`, `preset` (plugin `defaultPreset` default), and `model`. |
 | POST | `/api/tabs/{id}/send` | `{text?, raw?, actions?: [{type:"key", key} \| {type:"delay", ms}], batch?: [{text, delay_ms?}], source_tab?}` | The ordinary write path, also used by mesh relay and service push tokens. Plain text and every batch item submit; `actions`/`raw` are only for explicit low-level terminal input. Delivery results (`sent`, `pending`, or a structured error with `bytes_written`): API-CHAT. |
 | POST | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
-| POST | `/api/tabs/{id}/attachments` | `{kind: "voice"\|"file", name, size, data}` (`data` is base64, at most 25 MiB decoded) | Target-host attachment ingest for mesh sends. Refuses oversized (`413`), malformed, empty or size-mismatched (`400`) payloads, sanitizes `name`, stores bytes in this host's upload directory. Returns `{path, kind, size, reference}`: `path` is host-local; for `voice`, `reference` is the voice marker transcribed here. Peers reach it through the signed relay with `/send` access. |
+| POST | `/api/tabs/{id}/attachments` | `{kind: "voice"\|"file", name, size, data}` (`data` is base64, at most 25 MiB decoded) | Target-host mesh ingest: oversized=413; malformed/empty/size mismatch=400. Sanitizes `name`, stores local uploads; returns `{path,kind,size,reference}`. Path is host-local; voice reference is the marker transcribed here. Peers require signed relay and `/send` access. |
 | POST | `/api/mesh/attachments/transfer` | `{ordinary_tab_id, peer_id, path, kind}` | Origin-host handoff: sends a local attachment's bytes to the owning peer's `POST /api/tabs/{id}/attachments` and returns that peer's `{path, kind, size, reference}`. Transfer failure is an error, never the original path. Remote sends from this host (`/send`, `/chat-send`, `/delayed-messages`) whose text still names an attachment stored here are refused with `source_attachment_path`. |
 | GET | `/api/tabs/{id}/chat-send` | *(per route)* | Chat send and transcript routes: API-CHAT |
 | POST | `/api/tabs/{id}/stop` | — | Interrupt an active turn through structured abort or the provider-declared stop sequence. `stopped:true` follows a terminal status event; with no active turn nothing is sent (`{stopped:false, reason:"not_working", status}`), and without a stop capability the response is `{stopped:false, reason:"stop_unsupported"}`. |
@@ -133,7 +149,6 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 | POST | `/api/tabs/{id}/repair` | `{provider? \| session_id? \| from_evidence? \| from_journal?}` | Repair a live PTY provider/session without restart; self or bound Plan-owner authority. Modes, caller headers, response and refusals: API-REPAIR. |
 | POST | `/api/tabs/{id}/adopt-agent` | See API-ADOPT | Adopt a live PTY; see API-ADOPT. |
 | * | `/api/tabs/{id}/delayed-messages`, `/api/delayed-messages/{id}` | *(per route)* | List, queue, edit, delete, and send-now for delayed Chat UI messages — all in API-CHAT |
-| POST | `/api/tabs/{id}/hook/{permission,session_state,stop,session_start}` | *(per-hook, see below)* | Agent lifecycle hooks for one tab. Payloads, modes, nonce rejection and responses live in API-TABS |
 | POST | `/api/tabs/{id}/agent/switch-provider` | `{provider, model?, reasoning_effort?, force?}` | Daemon-owned in-place handoff (also General/self); 202 + operation id; see PROVIDER-SWITCH |
 | GET | `/api/tabs/{id}/agent/switch-provider/{operation}` | `?wait=true` optional | Read pending/running/completed/failed operation and outcome. |
 | GET | `/api/tabs/{id}/agent/provider-history` | `?file=PATH` | Read this tab's archived previous provider transcript. |
@@ -144,35 +159,35 @@ Restore normalizes the recorded `cwd` before matching. `GET /api/mux/state` expo
 #### Agent Hierarchy
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
-| POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Set tab role (`Orchestrator` or `Worker`; `Conductor` aliases `Orchestrator`). A `Manager` with `role_profile: "planner"` requires `plan_id`; an omitted `parent_tab_id` resolves to the plan's live Orchestrator owner instead of refusing, and an explicit one wins. |
+| POST | `/api/tabs/{id}/role` | `{role, parent_tab_id?, can_spawn?, plan_id?}` | Orchestrator/Worker (`Conductor` aliases Orchestrator). Manager with `role_profile:"planner"` requires `plan_id`; omitted parent resolves to its live Orchestrator owner, explicit parent wins. |
 | DELETE | `/api/tabs/{id}/role` | — | Clear role: detach a Worker, or retire an Orchestrator while keeping the final anchor's Team and active Plan for a replacement |
-| GET | `/api/tabs/{id}/status` | — | Tab status (`working` \| `question` \| `idle` \| `error` \| `exited`, the value `tab list` shows) + role + children info, including `pending_prompt` when a numbered provider prompt is active (`question` and `options`). `domios tab status --json` returns the same prompt data. |
+| GET | `/api/tabs/{id}/status` | — | `working`/`question`/`idle`/`error`/`exited` (as in tab list), role, children; active numbered prompt adds `pending_prompt:{question,options}`, also returned by `domios tab status --json`. |
 | POST | `/api/tabs/{id}/report` | `{message, caller_tab_id?, caller_session_id?, session_binding_nonce?, plan_id?, task_id?, status?, ...}` | Send an authenticated hierarchy report. A Plan-authorized task-less reporter uses `plan_id` without `task_id`/`status`; success returns `plan_report` and persists a task-less Plan stride before Orchestrator delivery. |
 | GET | `/api/tabs/{id}/reports` | `?clear=true` | Read reports from children (optionally clearing them) |
 | POST | `/api/tabs/{id}/can-spawn` | `{can_spawn: bool}` | Toggle whether tab can spawn children |
 | POST | `/api/tabs/{id}/agent-type` | `{agent_type}` | Mark a tab as running a specific agent provider |
 | POST | `/api/tabs/{id}/prompt/respond` | `{value}` | Respond to the active numbered prompt. `domios tab respond <option> --tab <id>` uses the one-based option shown by status and refuses when the prompt is no longer on screen. |
 | POST | `/api/tabs/{id}/prompt/clear` | — | Clear a pending permission prompt |
-| GET | `/api/agents/providers` | — | Versioned provider catalog (changes emit catalogue events to selectors): `id`, `display_name`, models, reasoning efforts/defaults (per-model values override the provider list, API-AGENTS), settings, and `kind`: `agent` (PTY) or `shell` (chat backend, also exposing presets and Chat UI support). `availability` is `available`, `unavailable`, or `unknown`; PTY lookup uses `binary_name`; backends use optional `cli_binary`. Spawn refuses `unavailable` before creating a tab; `unknown` warns. Debug builds add `stub_replay`, true when a launch of that provider is replaced by the `CODETERM_STUB_AGENT_CMD` replayer; release builds omit it. |
+| GET | `/api/agents/providers` | — | Versioned catalog emits change events: `id`, `display_name`, models, reasoning efforts/defaults (model overrides win; API-AGENTS), settings, `kind`: `agent` (PTY) or `shell` (chat backend, presets, Chat UI). `availability`: `available`, `unavailable` (spawn refuses before tab creation), `unknown` (warns). Binary lookup: PTY `binary_name`, backend optional `cli_binary`. Debug-only `stub_replay` reports replacement by `CODETERM_STUB_AGENT_CMD`. |
 | POST | `/api/agents/providers/refresh` | `{provider_id}` | Explicitly refreshes a provider's model catalogue before a listing: a catalogue that requires live discovery re-probes; any other catalogue gets the reader-gated re-probe (TTL window, or a changed credential/config/provider binary). Returns `{provider_id, discovery_required, refreshed, reason}`; `reason` names why a probe published nothing and is null after a refresh. |
 | GET | `/api/providers` | — | Authenticated provider list alias for selectors |
 | POST | `/api/agents/spawn` | *(per route: API-SPAWN)* | One-call agent spawn; roled Team members use `POST /api/teams/{team_id}/members` (API-TEAMS). |
-| POST | `/api/agents/helper` | `{title, task}` | Shared spawn for UI AI helper buttons (Configure with AI, Mesh Set up with AI). The daemon resolves the General Agent provider, places the tab in the General workspace and working directory regardless of the active workspace, and starts a roleless visible launch that always carries a first turn. Other fields are refused. A missing General workspace, launch failure or undelivered first turn errors and rolls the tab back. `delivery_state` is `confirmed` only when the first turn was submitted through the PTY with submit evidence, `launched` when the provider consumed it inline at launch without that evidence. |
-| GET | `/api/remote-workers` | `?tab=<id>` | Orchestrator view of cross-mesh workers, built from inbound mesh reports. `?tab=` returns that orchestrator's workers; otherwise the full `{ tab_id: RemoteWorker[] }` map. `RemoteWorker = {peer, remote_tab, title, model, status, last_message, last_seen_ms}`. Live updates via the `remote-workers-changed` event. |
+| POST | `/api/agents/helper` | `{title, task}` | UI AI helper spawn (Configure with AI, Mesh setup): General provider/workspace/cwd, regardless of focus; visible, roleless, always with a first turn. Other fields refuse. Missing General workspace, launch failure or undelivered first turn rolls back the tab. `delivery_state`: `confirmed` requires PTY submit evidence; `launched` means provider consumed the turn inline without that evidence. |
+| GET | `/api/remote-workers` | `?tab=<id>` | Inbound mesh reports: `?tab=` scopes to that Orchestrator; omitted returns `{tab_id:RemoteWorker[]}`. Fields: `{peer,remote_tab,title,model,status,last_message,last_seen_ms}`. Event: `remote-workers-changed`. |
 
-Configure-with-AI, provider install, auto-confirm, Pebble and Blueprint webhooks, plugin receivers: `domios docs API-INTEGRATIONS`.
+AI setup, provider install/auto-confirm, Pebble/Blueprint webhooks, plugin receivers: `API-INTEGRATIONS`.
 
-Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
+Plugin surfaces (`/api/surfaces/*`): `SURFACES`.
 
 #### Batch
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Execute multiple commands sequentially (see below) |
+| POST | `/api/batch` | `{commands: [{method, params, id?}]}` | Host credential only; execute multiple commands sequentially (see below) |
 
 #### Pasteboard (cross-mesh ephemeral payloads)
 | Method | Path | Body | Description |
 |--------|------|------|-------------|
-| POST | `/api/pasteboard` | `{body, content_type?, ttl_ms?, pop_on_read?}` | Stash a payload. Returns `{id: "paste:NNNNNN", expires_at}`. TTL default 1h, max 24h. 20-entry cap, oldest evicted first. Memory-only: a restart wipes every paste. |
+| POST | `/api/pasteboard` | `{body, content_type?, ttl_ms?, pop_on_read?}` | Memory-only payload; restart clears it. Returns `{id:"paste:NNNNNN",expires_at}`. TTL 1h default/24h max; cap 20, oldest evicted. |
 | GET | `/api/pasteboard/{id}` | — | Fetch body. `?pop=true` deletes after read. Returns 404 if expired/unknown. |
 | DELETE | `/api/pasteboard/{id}` | — | Explicit delete. |
 | GET | `/api/pasteboard` | — | List local pastes (id, size, ttl_remaining_ms, content_type). |
@@ -184,12 +199,12 @@ Plugin surface routes (`/api/surfaces/*`): `domios docs SURFACES`.
 
 #### Plan task mutation authority
 
-Task-mutating calls (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) carry caller/session/binding/owner-epoch authority (REST: matching `X-CodeTerm-*` headers). Once owned, the caller must match the recorded owner. `GET /api/tasks` and socket `task.list` return the same object: `tasks` plus an optional `empty_reason`. Its `kind` is `plan_not_found`, `plan_archived`, `plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`, `all_tasks_inactive`, or `no_match_for_filters`. The field is absent when tasks exist; consumers ignore unknown kinds and never invent a local explanation.
+Task writes (socket `plan.task.*`, REST `/api/plans/{id}/tasks/{tid}*`) require caller/session/binding/owner-epoch authority, matching `X-CodeTerm-*` REST headers and any recorded owner. `GET /api/tasks`/socket `task.list` return `tasks` and optional `empty_reason.kind`: `plan_not_found`, `plan_archived`, `plan_outside_project`, `no_plans_in_scope`, `no_tasks_in_scope`, `all_tasks_inactive`, `no_match_for_filters`. Tasks present: field absent. Ignore unknown kinds; never invent explanations.
 
-Batch writes (socket `plan.batch`, REST `POST /api/plans/{id}/batch`, both reached by `domios plan record`) cross the same boundary: an op naming a task another tab holds is refused unless the caller is that holder or the plan owner. Callers name themselves with `caller_tab_id`; an unidentified caller cannot claim a hold. The refusal carries `STALE TASK BINDING` (socket `-32003`, REST `403`) with `type: "stale_task_binding"` plus `attempted_by_tab`, `plan_id` and `task_id`, and nothing is written. A bearer token proves a client is permitted, never that it holds the task.
+Batch writes (`plan.batch`, `POST /api/plans/{id}/batch`, via `domios plan record`) touching another tab's held task require that holder or plan owner. Credentials establish tab caller; `caller_tab_id` checks consistency, never selects human authority/claims a hold. Refusal writes nothing: `STALE TASK BINDING` (socket `-32003`, REST `403`), `type:"stale_task_binding"`, `attempted_by_tab`, `plan_id`, `task_id`. Bearer permission is not ownership.
 
-A live authenticated Plan owner may recover `update`, `assign`, `respawn`, or `close` after its tab disappears; retirement and recovery commit atomically. Mutating dispatch into canonical or another task's lane is refused with `-32013`; competition provisions one lane per competitor. Advisory findings ride successful results in `safety_nudges` and `_hints`. See `ORCHESTRATION`.
+Live authenticated Plan owners can recover `update`/`assign`/`respawn`/`close` after tab loss; retirement/recovery is atomic. Canonical/foreign-lane mutation dispatch refuses `-32013`; one lane/competitor. Success includes advisory `safety_nudges`/`_hints`. See `ORCHESTRATION`.
 
 Related: `API-PLAN`, `API-TABS`, `API-CHAT`, `API-MEMORY`, `API-TRANSPORT`, `API-CLI`, `TELEGRAM-SETUP`. Analytics (`/api/analytics/{status,consent,event}`), account and plan routes: `ACCOUNT`.
 
-<!-- revision: 231 -->
+<!-- revision: 243 -->

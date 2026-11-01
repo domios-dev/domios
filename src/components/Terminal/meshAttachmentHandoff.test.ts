@@ -12,10 +12,10 @@ import {
 } from "./meshAttachmentHandoff";
 import { addCapsule, capsuleToken, capsulesForPaths, EMPTY_CAPSULES } from "./composerCapsules";
 
-const sourceVoice = "C:\\Users\\blackstar\\.domios\\uploads\\1a2b3c4d-voice-note-1.webm";
-const sourceImage = "C:\\Users\\blackstar\\AppData\\Local\\Temp\\codeterm-chat\\5e6f7a8b-pasted image.png";
-const targetVoice = "/Users/air/.domios/uploads/9f8e7d6c-1a2b3c4d-voice-note-1.webm";
-const targetImage = "/Users/air/.domios/uploads/0a1b2c3d-5e6f7a8b-pasted_image.png";
+const sourceVoice = "C:\\Users\\source-user\\.domios\\uploads\\1a2b3c4d-voice-note-1.webm";
+const sourceImage = "C:\\Users\\source-user\\AppData\\Local\\Temp\\codeterm-chat\\5e6f7a8b-pasted image.png";
+const targetVoice = "/Users/peer-user/.domios/uploads/9f8e7d6c-1a2b3c4d-voice-note-1.webm";
+const targetImage = "/Users/peer-user/.domios/uploads/0a1b2c3d-5e6f7a8b-pasted_image.png";
 const remoteTab = "mesh:air-peer/tab-7";
 const remote = attachmentHostTarget(remoteTab, null);
 const local = attachmentHostTarget("tab-7", null);
@@ -99,7 +99,7 @@ async function main() {
     await assert.rejects(resolveAttachmentParts(remote, plans, deps), (error: unknown) => {
       assert.ok(error instanceof AttachmentTransferError);
       assert.ok(error.message.includes("peer_unroutable"));
-      assert.ok(!error.message.includes("C:\\Users\\blackstar"), "the source path stays private");
+      assert.ok(!error.message.includes("C:\\Users\\source-user"), "the source path stays private");
       return true;
     });
   }

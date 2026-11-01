@@ -56,6 +56,7 @@ pub enum NativeHostBindError {
 pub struct NativeHostEndpoint<UpdateRequest, UpdateResult> {
     pub(super) active: Arc<RwLock<Option<Arc<Session<UpdateRequest, UpdateResult>>>>>,
     pub(super) active_generation: Arc<AtomicU64>,
+    pub(super) attached_once: Arc<AtomicBool>,
     pub(super) next_request_id: Arc<AtomicU64>,
     pub(super) next_event_id: Arc<AtomicU64>,
     pub(super) ready: ServerReady,
@@ -67,6 +68,7 @@ impl<UpdateRequest, UpdateResult> Clone for NativeHostEndpoint<UpdateRequest, Up
         Self {
             active: self.active.clone(),
             active_generation: self.active_generation.clone(),
+            attached_once: self.attached_once.clone(),
             next_request_id: self.next_request_id.clone(),
             next_event_id: self.next_event_id.clone(),
             ready: self.ready.clone(),
@@ -143,6 +145,7 @@ where
             endpoint: NativeHostEndpoint {
                 active: Arc::new(RwLock::new(None)),
                 active_generation: Arc::new(AtomicU64::new(0)),
+                attached_once: Arc::new(AtomicBool::new(false)),
                 next_request_id: Arc::new(AtomicU64::new(1)),
                 next_event_id: Arc::new(AtomicU64::new(1)),
                 ready: ready.clone(),
@@ -156,6 +159,10 @@ where
 
     pub fn endpoint(&self) -> NativeHostEndpoint<UpdateRequest, UpdateResult> {
         self.endpoint.clone()
+    }
+
+    pub(crate) fn attached_once(&self) -> Arc<AtomicBool> {
+        self.endpoint.attached_once.clone()
     }
 
     pub async fn serve(self) -> io::Result<()>
@@ -625,6 +632,7 @@ where
         self.endpoint
             .active_generation
             .store(connection.generation, Ordering::Release);
+        self.endpoint.attached_once.store(true, Ordering::Release);
         let previous = self.endpoint.active.write().replace(session);
         *attaching = None;
         Ok(previous)

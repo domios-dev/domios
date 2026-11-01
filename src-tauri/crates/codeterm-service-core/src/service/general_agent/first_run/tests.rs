@@ -251,6 +251,7 @@ fn ghost_repro_restore_from_old_snapshot_drops_picker_tab() {
                     team_id: None,
                     parent_tab_id: None,
                     spawned_by_tab_id: None,
+                    neighbor_authority: None,
                     report_target_tab_id: None,
                     report_target_mesh_peer: None,
                     ownership: None,

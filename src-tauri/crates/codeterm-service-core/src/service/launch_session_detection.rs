@@ -610,14 +610,7 @@ pub(crate) fn marked_launch_command_for_tab(
     tab_id: &str,
     cwd: &str,
     params: &mut crate::agent::provider::AgentLaunchParams,
-    selection: crate::ports::transport::Selection,
 ) -> Option<String> {
-    if let Some(command) =
-        super::codex_rpc::launch::selection_plan(svc, tab_id, provider_id, cwd, params, selection)
-            .and_then(|plan| super::codex_rpc::launch::prepare_selection(svc, tab_id, plan))
-    {
-        return Some(command);
-    }
     if let Err(error) = svc.ensure_agent_pad(tab_id) {
         log::warn!("[sandbox-agent-pad] tab={tab_id} has no AgentPad before launch: {error}");
     }

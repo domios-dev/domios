@@ -20,7 +20,7 @@ export function signInFailureToastMessage(failure: SignInFailure): string {
   return `Sign-in could not be completed: ${stageMessage[failure.stage]}. Choose Retry to try again.`;
 }
 
-export function useAccount() {
+export function useAccount(onSignOutFailure?: (message: string) => void) {
   const [model, setModel] = useState<AccountModel>({ kind: "pending" });
   const active = useRef(0);
   const acting = useRef(false);
@@ -70,6 +70,7 @@ export function useAccount() {
       const status = await request(action, undefined, hint);
       if (generation === active.current) setModel(accountModel(status));
       if (action === "login") signInFailure = status.last_sign_in_failure ?? null;
+      if (action === "logout" && status.server_stop_unconfirmed) onSignOutFailure?.("Signed out locally. Server stop unconfirmed; Domios will retry when connected.");
       changed = true;
     } catch (error) {
       let failure = accountFailure(error);
@@ -91,6 +92,7 @@ export function useAccount() {
         failure = { kind: "error", message: signInFailureToastMessage(signInFailure), failure: signInFailure };
       }
       if (generation === active.current) setModel(failure);
+      if (action === "logout") onSignOutFailure?.("Sign-out could not be completed. Try again.");
     } finally {
       acting.current = false;
       if (changed) window.dispatchEvent(new Event("domios:account-changed"));

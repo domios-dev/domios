@@ -239,7 +239,7 @@ fn parse_full_manifest() {
                 "settingsPath": "~/.claude/settings.json"
             },
             "rule": {
-                "path": "~/.claude/rules/codeterm.md"
+                "path": "~/.claude/rules/domios.md"
             },
             "models": [
                 { "id": "sonnet", "displayName": "Claude Sonnet 4.6", "description": "Best for everyday tasks." }
@@ -826,20 +826,16 @@ fn expand_home_resolves_domios_paths_in_the_instance_data_dir() {
 }
 
 #[test]
-fn expand_home_keeps_the_legacy_plugin_data_prefix_inside_the_instance_data_dir() {
-    let data = codeterm_paths::data_dir();
-    assert_eq!(
-        PluginManifest::expand_home("~/.codeterm"),
-        Some(data.clone())
-    );
-    assert_eq!(
-        PluginManifest::expand_home("~/.codeterm/teams-client"),
-        Some(data.join("teams-client"))
-    );
-    if let Some(home) = dirs::home_dir() {
+fn expand_home_treats_the_former_data_prefix_as_an_ordinary_home_path() {
+    let home = dirs::home_dir();
+    for suffix in [
+        ".codeterm",
+        ".codeterm/teams-client",
+        ".codeterm-fixture-41/x",
+    ] {
         assert_eq!(
-            PluginManifest::expand_home("~/.codeterm-fixture-41/x"),
-            Some(home.join(".codeterm-fixture-41/x"))
+            PluginManifest::expand_home(&format!("~/{suffix}")),
+            home.as_ref().map(|home| home.join(suffix))
         );
     }
 }
@@ -1022,25 +1018,18 @@ fn permission_request_roster_resolution_rejects_unknown_verdict() {
 }
 
 #[test]
-fn manifest_accepts_legacy_icon_fields_shipped_by_channel_plugins() {
-    let manifest = PluginManifest::from_json_str(
-        r##"{
-            "id": "legacy",
+fn retired_manifest_icon_fields_are_refused() {
+    for field in ["iconHint", "iconSvg"] {
+        let mut document = serde_json::json!({
+            "id": "retired-icon",
             "version": "1.0.0",
-            "displayName": "Legacy",
-            "description": "Still loads",
-            "iconHint": "lock",
-            "iconColor": "#175ddc",
-            "iconSvg": "<svg viewBox=\"0 0 1 1\"></svg>",
-            "capabilities": { "view": true }
-        }"##,
-    )
-    .expect("pre-1.10.21 channel manifests keep loading");
-    assert_eq!(manifest.description.as_deref(), Some("Still loads"));
-    assert!(
-        manifest.icon_svg.is_none(),
-        "legacy inline SVG is never trusted as the icon"
-    );
+            "displayName": "Retired icon"
+        });
+        document[field] = serde_json::json!("old");
+        let error = PluginManifest::from_json_str(&document.to_string()).unwrap_err();
+        assert!(error.contains("unknown field"), "{error}");
+        assert!(error.contains(field), "{error}");
+    }
 }
 
 #[test]

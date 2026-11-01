@@ -115,3 +115,59 @@ fn snapshot_caps_output_even_when_the_caller_requests_an_unbounded_limit() {
         .text
         .contains(&format!("truncated at {MAX_LINES} lines")));
 }
+
+#[test]
+fn bounded_display_preserves_full_names_for_legacy_role_locators() {
+    let name = "x".repeat(150);
+    let snapshot = build_snapshot(&controls(&[&name]), 20);
+    assert_eq!(snapshot.items[0].name.len(), NAME_LIMIT);
+    assert_eq!(
+        resolve_target(Some(&snapshot), &["button", &name])
+            .unwrap()
+            .backend_node_id,
+        1
+    );
+}
+
+#[test]
+fn disclosure_triangles_have_actionable_summary_alias_refs_and_expanded_state() {
+    let nodes: Vec<AxNode> = serde_json::from_value(json!([
+        {"nodeId":"details","role":{"value":"DisclosureTriangle"},"name":{"value":"Details"},"backendDOMNodeId":77,"properties":[{"name":"expanded","value":{"value":false}}]}
+    ])).unwrap();
+    let snapshot = build_snapshot(&nodes, 20);
+    assert_eq!(snapshot.refs.get("e1"), Some(&77));
+    assert_eq!(
+        snapshot.text,
+        r#"- DisclosureTriangle "Details" [expanded=false] [@e1]"#
+    );
+    assert_eq!(
+        resolve_target(Some(&snapshot), &["summary", "Details"])
+            .unwrap()
+            .backend_node_id,
+        77
+    );
+}
+
+#[test]
+fn with_text_includes_bounded_static_leaves_without_refs_and_preserves_redaction() {
+    let mut nodes: Vec<AxNode> = serde_json::from_value(json!([
+      {"nodeId":"root","childIds":["value","secret","control"]},
+      {"nodeId":"value","parentId":"root","role":{"value":"StaticText"},"name":{"value":"Description value"},"backendDOMNodeId":2},
+      {"nodeId":"secret","parentId":"root","role":{"value":"StaticText"},"name":{"value":"opaque-private-value"},"backendDOMNodeId":3},
+      {"nodeId":"control","parentId":"root","role":{"value":"button"},"name":{"value":"Apply"},"backendDOMNodeId":4}
+    ])).unwrap();
+    sensitive::redact(&mut nodes,&json!({"root":{"backendNodeId":1,"children":[{"backendNodeId":3,"attributes":["data-sensitive",""]}]}})).unwrap();
+    let snapshot = build_snapshot_with_text(&nodes, 2, "capture", true, true);
+    assert!(snapshot.truncated);
+    assert_eq!(snapshot.items.len(), 2);
+    assert!(snapshot.refs.is_empty());
+    assert_eq!(snapshot.items[0].name, "Description value");
+    assert_eq!(snapshot.items[1].name, "REDACTED");
+    assert!(!snapshot.text.contains("opaque-private-value"));
+    assert_eq!(
+        build_snapshot_filtered(&nodes, 10, "capture", true)
+            .index
+            .len(),
+        1
+    );
+}

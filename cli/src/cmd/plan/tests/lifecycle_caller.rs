@@ -54,6 +54,40 @@ impl RpcClient for Recorder {
     }
 }
 
+#[test]
+fn plan_create_omits_blank_caller_claims_and_retains_real_tab_claims() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    for tab in ["", " \t", "owner-tab"] {
+        let _env = CallerEnv::set(Some(tab), Some(""), Some(" \t"));
+        let mut recorder = Recorder::default();
+        run_plan(
+            &mut recorder,
+            true,
+            PlanAction::Create {
+                title: "opaque-plan".into(),
+                from_spec: None,
+                kinds: None,
+                project: Some("opaque-project".into()),
+            },
+        )
+        .unwrap();
+        assert_eq!(recorder.calls.len(), 1);
+        let (method, params) = &recorder.calls[0];
+        assert_eq!(method, "plan.create");
+        assert!(params.get("session_id").is_none());
+        assert!(params.get("session_binding_nonce").is_none());
+        if tab.trim().is_empty() {
+            assert!(params.get("caller_tab_id").is_none());
+            assert!(params["owner"]["tab_id"].is_null());
+        } else {
+            assert_eq!(params["caller_tab_id"], tab);
+            assert_eq!(params["owner"]["tab_id"], tab);
+        }
+    }
+}
+
 struct AttemptRebindRecorder {
     calls: Vec<(String, Value)>,
     response: Value,
@@ -445,7 +479,7 @@ fn plan_rebind_attempt_preserves_typed_refusal_without_session_env() {
         error.data.as_ref(),
     );
     assert_eq!(envelope["ok"], false);
-    assert_eq!(envelope["data"]["kind"], "stale_task_epoch");
+    assert_eq!(envelope["result"]["kind"], "stale_task_epoch");
     assert_eq!(envelope["error"]["rpc_code"], -32003);
     assert_eq!(
         error.data.unwrap(),

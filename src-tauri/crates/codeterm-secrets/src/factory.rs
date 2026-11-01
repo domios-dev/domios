@@ -58,7 +58,7 @@ pub fn build_active(backend: &str, providers: &HashMap<String, Value>) -> Arc<dy
                 .build(&Value::Null)
         }
     };
-    Arc::from(built)
+    crate::readiness::wrap(Arc::from(built))
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { Window } from "happy-dom";
 import { BrandState } from "./BrandState";
 import { ServerConnectionLayerView } from "./ServerConnectionLayer";
-import { brandStateModel } from "./brandStateModel";
+import { brandConnectionModel, brandStateModel, RECONNECT_GRACE_MS } from "./brandStateModel";
 
 const window = new Window();
 
@@ -56,9 +56,9 @@ test("reduced motion keeps the mark and faint matrix static without waves", () =
   }
 });
 
-test("disconnect status blocks stale content without trapping focus", () => {
+test("first-connect status blocks content without trapping focus", () => {
   const host = parsed(renderToStaticMarkup(
-    <ServerConnectionLayerView model={{ kind: "reconnecting" }} contentClassName="content">
+    <ServerConnectionLayerView model={brandConnectionModel({ kind: "disconnected", disconnectedAt: 0 }, RECONNECT_GRACE_MS, false)} contentClassName="content">
       <button type="button">Stale action</button>
     </ServerConnectionLayerView>,
   ));
@@ -74,6 +74,22 @@ test("disconnect status blocks stale content without trapping focus", () => {
   const tab = new window.KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true });
   status.dispatchEvent(tab);
   assert.equal(tab.defaultPrevented, false);
+});
+
+test("a drop after load leaves the app usable and says updates are paused", () => {
+  const host = parsed(renderToStaticMarkup(
+    <ServerConnectionLayerView model={brandConnectionModel({ kind: "disconnected", disconnectedAt: 0 }, RECONNECT_GRACE_MS, true)} contentClassName="content">
+      <button type="button">Loaded action</button>
+    </ServerConnectionLayerView>,
+  ));
+  const content = host.querySelector(".content");
+  const status = host.querySelector('[data-testid="connection-paused"]');
+  assert.equal(content?.hasAttribute("inert"), false);
+  assert.equal(host.querySelector(".brand-connection-scrim"), null);
+  assert.ok(status);
+  assert.equal(status.getAttribute("role"), "status");
+  assert.equal(status.textContent?.replace(/\s+/g, " ").trim(), "Reconnecting…Updates paused");
+  assert.equal(status.querySelectorAll("button, a, input, select, textarea, [tabindex]").length, 0);
 });
 
 window.close();

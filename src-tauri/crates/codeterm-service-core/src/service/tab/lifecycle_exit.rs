@@ -423,12 +423,6 @@ impl ServiceContext {
             );
             return false;
         }
-        if crate::service::codex_rpc::lifecycle::for_tab(tab_id).is_some() {
-            log::info!(
-                "[agent-lifecycle] preserving sidecar thread identity: tab={tab_id} cause={cause}"
-            );
-            return false;
-        }
         true
     }
 

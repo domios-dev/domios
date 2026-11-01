@@ -17,6 +17,7 @@ type Error = (StatusCode, String);
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/account/mesh", get(state))
+        .route("/api/account/mesh/summary", get(summary))
         .route("/api/account/mesh/enroll", post(enroll))
         .route("/api/account/mesh/list", post(list))
         .route("/api/account/mesh/rename", post(rename_self))
@@ -28,12 +29,38 @@ pub fn router() -> Router<AppState> {
         )
 }
 
+fn admit_summary(caller: Option<&Extension<CallerIdentity>>) -> Result<(), Error> {
+    match caller.map(|caller| &caller.0) {
+        Some(CallerIdentity::Local | CallerIdentity::Tab(_)) => Ok(()),
+        _ => Err((
+            StatusCode::FORBIDDEN,
+            "Account mesh summary requires a local caller".into(),
+        )),
+    }
+}
+
+pub async fn summary(
+    State(state): State<AppState>,
+    caller: Option<Extension<CallerIdentity>>,
+) -> Result<Json<AccountMeshSnapshot>, Error> {
+    admit_summary(caller.as_ref())?;
+    Ok(Json(
+        state
+            .svc
+            .account_mesh_snapshot()
+            .await
+            .map_err(unavailable)?,
+    ))
+}
+
 /// `account_mesh_state`
 pub async fn state(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
 ) -> Result<Json<AccountMeshSnapshot>, Error> {
-    admit(caller.as_ref())?;
+    admit(caller.as_ref()).map_err(|(status, _)| (
+        status, "Account Mesh details are owner-only. Ask the owner to run `domios mesh status` in a local terminal.".to_owned()
+    ))?;
     Ok(Json(
         state
             .svc
@@ -94,7 +121,7 @@ pub struct Revoke {
     target: MeshTarget,
 }
 
-/// `account_mesh_revoke`: releases the server slot; local unpair stays `mesh_disconnect`.
+/// Removes an installation from the account mesh.
 pub async fn revoke(
     State(state): State<AppState>,
     caller: Option<Extension<CallerIdentity>>,
@@ -154,3 +181,6 @@ pub async fn acknowledge_limit(
         .map_err(unavailable)?;
     Ok(Json(serde_json::json!({ "acknowledged": acknowledged })))
 }
+
+#[cfg(test)]
+mod tests;

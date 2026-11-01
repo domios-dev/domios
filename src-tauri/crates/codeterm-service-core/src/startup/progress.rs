@@ -19,6 +19,10 @@ impl StartupStep {
     pub fn logged(name: &'static str) -> Self {
         Self::with_sink(name, log_boundary)
     }
+
+    pub fn debug(name: &'static str) -> Self {
+        Self::with_sink(name, debug_boundary)
+    }
 }
 
 impl<F> StartupStep<F>
@@ -52,6 +56,13 @@ fn log_boundary(boundary: Boundary, name: &'static str, elapsed: Option<Duration
             elapsed.unwrap_or_default().as_millis()
         ),
     }
+}
+
+fn debug_boundary(boundary: Boundary, name: &'static str, elapsed: Option<Duration>) {
+    log::debug!(
+        "[startup-phase] name={name:?} boundary={boundary:?} elapsed_us={}",
+        elapsed.unwrap_or_default().as_micros()
+    );
 }
 
 #[cfg(test)]

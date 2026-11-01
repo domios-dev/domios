@@ -1,5 +1,4 @@
-import { Loader2 } from "lucide-react";
-import { BusySpinner } from "../shared/BusyState";
+import { BusyState } from "../shared/BusyState";
 import type { PluginActivity } from "../../lib/types";
 import type { PluginActivityDisplay } from "../../lib/usePluginActivity";
 
@@ -32,11 +31,8 @@ export function PluginActivityInline({
       }}
     >
       <div style={{ display: "flex", alignItems: "flex-start", gap: 6, minWidth: 0 }}>
-        <BusySpinner
-          icon={Loader2}
-          size={compact ? 12 : 14}
-          style={{ color: "var(--ct-accent, #818cf8)", flex: "none", marginTop: compact ? 1 : 2 }}
-        />
+        <BusyState inline hideLabel label="Working" phase="work" dotSize={compact ? "micro" : "small"}
+          style={{ flex: "none", marginTop: compact ? 1 : 2 }} />
         <div style={{ minWidth: 0, flex: 1 }}>
           <div
             style={{

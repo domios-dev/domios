@@ -7,19 +7,20 @@ import { initialChatScrollAnchor } from "./chatScrollMemory";
 import { mountedChatWindowFromGeometry, sameMountedChatWindow } from "./chatMountedWindow";
 import { indexChatTranscript, indexedChatAnchor, type ChatTranscriptIndex } from "./chatMountedTranscript";
 import { chatAnchorShift, chatShiftAnchorAt, chatSpacerAfterLayout, chatSpacerFold, chatSpacerHeight, chatSpacerTranslation, chatLayoutViewportTop, shouldAbsorbChatShift,
-  type ChatShiftAnchor } from "./chatSpacerDrift";
+  unrecordedRowsAbove, type ChatShiftAnchor } from "./chatSpacerDrift";
 
-function mountedRowTops(el: HTMLElement): { rows: ChatShiftAnchor[]; heights: number[] } {
+function mountedRowTops(el: HTMLElement): { rows: ChatShiftAnchor[]; heights: number[]; elements: HTMLElement[] } {
   const origin = el.getBoundingClientRect().top - el.scrollTop;
   const rows: ChatShiftAnchor[] = [];
   const heights: number[] = [];
-  for (const row of Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"))) {
+  const elements = Array.from(el.querySelectorAll<HTMLElement>("[data-chat-window-row]"));
+  for (const row of elements) {
     const box = row.getBoundingClientRect();
     const body = row.querySelector<HTMLElement>("[data-message-id]");
     rows.push({ id: row.dataset.chatWindowRow!, top: box.top - origin, contentTop: body ? body.getBoundingClientRect().top - origin : undefined });
     heights.push(box.height);
   }
-  return { rows, heights };
+  return { rows, heights, elements };
 }
 
 interface ChatWindowRow { msg: { id: string; sourceMessageId?: string } }
@@ -97,8 +98,18 @@ export function useMountedChatWindow({ rows, scrollRef, active, followTailRef, s
   const captureShiftAnchor = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const { rows: tops, heights } = mountedRowTops(el);
-    shiftAnchorRef.current = chatShiftAnchorAt(tops, heights, el.scrollTop);
+    const { rows: tops, heights: measured, elements } = mountedRowTops(el);
+    const next = chatShiftAnchorAt(tops, measured, el.scrollTop);
+    // A resize above the anchor that its notification has not reported yet is absorbed against the old anchor first;
+    // taking the new anchor now would hide that shift for good. The rows were just measured, so this reads nothing more.
+    // Up to the previous anchor: a row that grew above it may now reach into the view and would be the new anchor itself.
+    const previous = shiftAnchorRef.current ? tops.findIndex((row) => row.id === shiftAnchorRef.current!.id) : -1;
+    const pending = unrecordedRowsAbove(tops, measured, Math.max(previous, next ? tops.indexOf(next) : -1), heights.current);
+    if (pending.length > 0) {
+      applyHeightsRef.current(pending.map((index) => [elements[index], measured[index]] as const));
+      return;
+    }
+    shiftAnchorRef.current = next;
   }, [scrollRef]);
 
   // Runs after every layout change of the mounted rows, before paint, so a shift above the view never reaches the screen.

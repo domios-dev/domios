@@ -171,7 +171,7 @@ pub enum SplitNodeSnapshot {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         agent_type_locked: bool,
         /// Agent session ID for --resume, persisted under `LEAF_SESSION_ID_KEY`.
-        #[serde(skip_serializing_if = "Option::is_none", alias = "claude_session_id")]
+        #[serde(skip_serializing_if = "Option::is_none")]
         agent_session_id: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent_identity: Option<AgentIdentitySnapshot>,
@@ -192,6 +192,8 @@ pub enum SplitNodeSnapshot {
         /// the spawner even with no role parent. `None` for legacy snapshots.
         #[serde(skip_serializing_if = "Option::is_none", default)]
         spawned_by_tab_id: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none", default)]
+        neighbor_authority: Option<crate::multiplexer::types::NeighborAuthority>,
         /// Non-hierarchy report target (cron / mem worker). Persisted alongside
         /// `spawned_by_tab_id` so report routing survives restart. `None` for
         /// legacy snapshots.
@@ -911,6 +913,12 @@ fn parse_tab_record(
         .and_then(serde_json::Value::as_str)
         .unwrap_or("<unknown>")
         .to_string();
+    if let Err(error) = legacy_decode::reject_legacy_session_id(&tab) {
+        log::error!(
+            "[session] quarantined tab {workspace_id}/{tab_id}: {error}; source left unchanged"
+        );
+        return None;
+    }
     let normalized = match codeterm_types::startup_records::normalize_pane_id_fields(&mut tab) {
         Ok(normalized) => normalized,
         Err(error) => {

@@ -7,7 +7,7 @@ For a PR targeting a non-default branch, declare each fixed source-repo issue on
 Declare shipped public issues separately. Remove examples that do not apply; do not use prose
 issue references or GitHub closing keywords outside the final PR to `master`.
 
-Repository-Issue: rollacode/codeterm#N
+Repository-Issue: domios-dev/domios#N
 Public-Issue: rollacode/codeterm-releases#N
 
 ## Verification

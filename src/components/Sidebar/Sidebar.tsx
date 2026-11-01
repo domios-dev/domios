@@ -15,15 +15,15 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import { shareRecord } from "../../lib/sameJson";
 import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
-import { getAgentProvider } from "../../lib/agentProviders";
+import { getPlugin } from "../../lib/plugins/registry";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
-import { ExtensionsIcon } from "../Icons";
-import { MemoryGraphIcon, MeshIcon, SidebarNavButton } from "./SidebarNavButton";
+import { MemoryGraphIcon, MeshIcon, NeighborsIcon, SidebarNavButton } from "./SidebarNavButton";
 import { OrchestrationCreate, type OrchestrationCreateResult } from "./OrchestrationCreate";
-import { SidebarDisclosure } from "./SidebarDisclosure";
-import { RecentlyClosed } from "./RecentlyClosed";
+import { SidebarStructuralSection } from "./SidebarStructuralSection";
+import { SidebarNeighborsSection } from "../Neighbors/SidebarNeighborsSection";
+import { useNeighborsSwitch } from "../Neighbors/neighborsSwitch";
 import {
   keepPressFocusInPlace,
   SidebarDnd,
@@ -80,9 +80,11 @@ interface SidebarProps {
   onCollapse?: () => void;
   onOpenMemory?: () => void;
   onOpenMesh?: () => void;
-  onOpenExtensions?: () => void;
+  onOpenNeighbors?: () => void;
+  /** The Neighbor whose conversation is the current view, for its row's highlight. */
+  activeNeighborChat?: string | null;
   onNavigateToTab?: () => void;
-  mainView?: "workspace" | "settings" | "memory" | "mesh" | "git" | "extensions" | "analytics";
+  mainView?: "workspace" | "settings" | "memory" | "mesh" | "neighbors" | "neighbor" | "git" | "extensions" | "analytics";
   config?: AppConfig;
   uiFontScale?: number;
   workspaceCanvasActive?: boolean;
@@ -93,6 +95,7 @@ interface SidebarProps {
   /** Bumped by the titlebar burger to bring a collapsed sidebar back. */
   expandRequest?: number;
   restoring?: boolean;
+  firstRunActive?: boolean;
 }
 
 // Memoized: App re-renders on every store change; the sidebar has its own selector.
@@ -100,7 +103,8 @@ export const Sidebar = memo(function Sidebar({
   onCollapse,
   onOpenMemory,
   onOpenMesh,
-  onOpenExtensions,
+  onOpenNeighbors,
+  activeNeighborChat = null,
   onNavigateToTab,
   mainView = "workspace",
   config,
@@ -112,6 +116,7 @@ export const Sidebar = memo(function Sidebar({
   onCollapsedChange,
   expandRequest = 0,
   restoring = false,
+  firstRunActive = firstRunLocked(config?.general_agent),
 }: SidebarProps) {
   const {
     createWorkspace,
@@ -124,9 +129,6 @@ export const Sidebar = memo(function Sidebar({
     createTab,
     attachRemoteTab,
     closeTab,
-    reopenClosed,
-    reopenGroup,
-    restoreOrphaned,
     setActiveTab,
     renameTab,
     spawnAgentTab,
@@ -135,14 +137,9 @@ export const Sidebar = memo(function Sidebar({
     upsertToast,
   } = useMultiplexer();
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
-  const firstRunActive = firstRunLocked(config?.general_agent);
   const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
   const visibleTabs = useMemo(() => firstRunSidebarTabs(firstRunActive, backendState.tabs), [firstRunActive, backendState.tabs]);
   const state = { ...selectedState, tabs: visibleTabs };
-  const reopenRecentlyClosed = useCallback((workspaceId: string, index: number, orphaned: boolean, tabId: string) => {
-    if (orphaned) restoreOrphaned(tabId);
-    else reopenClosed(workspaceId, index);
-  }, [restoreOrphaned, reopenClosed]);
   // Rows compare attention by identity, so a tab whose attention did not change keeps its previous entry.
   const attentionRef = useRef<ReturnType<typeof tabAttentionByTab>>({});
   const attention = useMemo(() => {
@@ -202,10 +199,10 @@ export const Sidebar = memo(function Sidebar({
     }
     let folder: string | null = workspaceCwd;
     if (!folder) {
-      const provider = getAgentProvider(agentId);
+      const provider = getPlugin(agentId);
       if (IS_WEB) {
         setFolderPicker({
-          title: `Project folder for ${provider?.displayName ?? agentId}`,
+          title: `Project folder for ${provider?.meta.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
             void spawnAgentTab(workspaceId, agentId, path).catch(reportFailure);
@@ -217,7 +214,7 @@ export const Sidebar = memo(function Sidebar({
           folder = await open({
             directory: true,
             multiple: false,
-            title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+            title: `Choose project folder for ${provider?.meta.displayName ?? agentId}`,
           });
         } catch (err) {
           console.error(`[agent-spawn] folder picker failed:`, err);
@@ -364,6 +361,8 @@ export const Sidebar = memo(function Sidebar({
       setMeshEnabledOverride(null);
     }
   }, [meshPresence]);
+
+  const neighborsSwitch = useNeighborsSwitch(config);
 
   const toggleExpanded = useCallback((wsId: string) => {
     setExpandedWorkspaces((prev) => {
@@ -780,18 +779,9 @@ export const Sidebar = memo(function Sidebar({
                   onOpenJobs={onOpenWorkspaceAutomation}
                 />
               )}
-              {!isCompact && !restoring && <div className="sidebar-structural-section">
-                <div className="sidebar-structural-header">
-                  <SidebarDisclosure
-                    data-testid="workspaces-section-toggle"
-                    className="sidebar-structural-toggle"
-                    expanded={workspacesSectionExpanded}
-                    onClick={toggleWorkspacesSection}
-                  >
-                    <span className="sidebar-structural-label">WORKSPACES</span>
-                  </SidebarDisclosure>
-                  <div className="sidebar-structural-action" />
-                </div>
+              {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
+                firstRunMuted={firstRunActive}
+                expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
                   <>
                     <WorkspaceCardGrid
@@ -817,7 +807,7 @@ export const Sidebar = memo(function Sidebar({
                     )}
                   </>
                 )}
-              </div>}
+              </SidebarStructuralSection>}
               </SidebarDnd>
               </div>
               <div ref={scrollAnchor.spaceRef} aria-hidden="true" />
@@ -828,34 +818,14 @@ export const Sidebar = memo(function Sidebar({
                 onAttach={(peer, tab) => attachRemoteTab?.(remotePickerWorkspaceId, peer, tab)}
               />
             )}
-            {!isCompact && (() => {
-              const views = state.recently_closed ?? [];
-              const hasOrphaned = views.some((v) => v.orphaned);
-              return (
-                <RecentlyClosed
-                  structures={state.closed_structures ?? []}
-                  views={views}
-                  showWorkspace={state.workspaces.length > 1 || hasOrphaned}
-                  onReopen={reopenRecentlyClosed}
-                  onReopenGroup={reopenGroup}
-                  touchMode={touchMode}
-                  uiFontScale={uiFontScale}
-                />
-              );
-            })()}
+            {!isCompact && !restoring && <SidebarNeighborsSection uiFontScale={uiFontScale} touchMode={touchMode} onNavigateToTab={onNavigateToTab} enabled={neighborsSwitch.enabled} activeChat={activeNeighborChat}
+              activeTabId={isWorkspaceMode && !workspaceCanvasActive && state.active_workspace_id ? state.activeTabIds[state.active_workspace_id] ?? null : null} />}
             <div
               role="navigation"
               aria-label="Sidebar views"
-              className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
+              data-first-run-muted={firstRunActive || undefined}
+              className={`sidebar-footer ${firstRunActive ? "opacity-70" : ""} ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
-              <SidebarNavButton
-                testId="nav-extensions"
-                label="Plugins"
-                icon={<ExtensionsIcon size={navIconSize} className="shrink-0" />}
-                current={mainView === "extensions"}
-                onClick={onOpenExtensions}
-                {...navButtonLayout}
-              />
               <SidebarNavButton
                 testId="nav-memory"
                 label="Memory"
@@ -865,6 +835,26 @@ export const Sidebar = memo(function Sidebar({
                 onClick={onOpenMemory}
                 {...navButtonLayout}
               />
+              <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
+                <SidebarNavButton
+                  testId="nav-neighbors"
+                  label="Neighborhood"
+                  icon={<NeighborsIcon size={navIconSize} />}
+                  current={mainView === "neighbors"}
+                  onClick={onOpenNeighbors}
+                  grow
+                  {...navButtonLayout}
+                />
+                {!isCompact && (
+                  <LiquidFlip
+                    data-testid="neighbors-toggle"
+                    aria-label="Neighbors"
+                    className="shrink-0 text-[10px]"
+                    checked={neighborsSwitch.enabled}
+                    onCheckedChange={neighborsSwitch.setEnabled}
+                  />
+                )}
+              </div>
               <div className={`flex items-center ${isCompact ? "justify-center" : "gap-1 w-full"}`}>
                 <SidebarNavButton
                   testId="nav-mesh"

@@ -12,7 +12,7 @@ pub async fn hook_stop(
     tokio::task::spawn_blocking(move || {
     let started = std::time::Instant::now();
     let tab_id = resolve_hook_tab(&state, &raw_tab_id, "stop")?;
-    if let Some(response) = hook_authority::telemetry_response(&tab_id, "stop") {
+    if let Some(response) = hook_authority::telemetry_response(&state.svc, &tab_id, "stop") {
         return Ok(axum::response::IntoResponse::into_response(response));
     }
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
@@ -44,6 +44,8 @@ pub async fn hook_stop(
         );
         return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
     }
+    // The provider flushes its transcript before Stop.
+    state.svc.chat_registry.wake(&tab_id);
     let title = state
         .svc
         .mux

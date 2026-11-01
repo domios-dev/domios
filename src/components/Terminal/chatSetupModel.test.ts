@@ -10,12 +10,14 @@ test("an observed spawn failure replaces loading even after a transcript attache
   }
 });
 
-test("a pending runtime deadline keeps startup and a later success releases it", () => {
+test("a pending runtime deadline keeps startup until a transcript attaches or runtime recovers", () => {
   const pending = { boot_stage: "agent_ready" as const, session_bound: true,
     agent_runtime_state: { state: "degraded" as const, epoch: 2, reason: "Deadline: opaque" } };
-  assert.equal(chatSetupView(pending, true).kind, "starting");
+  assert.equal(chatSetupView(pending, false).kind, "starting");
+  assert.equal(chatSetupView(pending, true).kind, "none");
   const recovered = { ...pending, agent_runtime_state: { state: "loaded" as const, epoch: 3 } };
   assert.equal(chatSetupView(recovered, true).kind, "none");
+  assert.equal(chatSetupView(recovered, false).kind, "none");
 });
 
 test("only undismissed backend-held messages are shown as waiting for launch", () => {

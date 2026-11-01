@@ -3,6 +3,8 @@ use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
 
+mod questions;
+
 use crate::contract::{AnswerSlot, NotificationAction};
 use codeterm_types::pty::PromptIdentity;
 
@@ -564,6 +566,7 @@ impl NotificationStore {
                     severity.clone(),
                     &provenance,
                     level,
+                    ask.actions.clone(),
                 ))
             .then_some(id)
         });
@@ -605,6 +608,7 @@ impl NotificationStore {
         severity: NotificationSeverity,
         provenance: &NotificationProvenance,
         level: NotifyLevel,
+        actions: Option<Vec<NotificationAction>>,
     ) -> bool {
         let Some(target) = self.notifications.iter_mut().find(|n| n.id == id) else {
             return false;
@@ -619,6 +623,7 @@ impl NotificationStore {
         target.peer_name = provenance.peer_name.clone();
         target.read = false;
         target.push_failed = None;
+        target.actions = actions;
         self.sync_persisted();
         true
     }

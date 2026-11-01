@@ -151,6 +151,14 @@ pub(super) fn dispatch(
                 .map_err(|e| error(e.to_string()))
         }
         "blueprint.import" => {
+            let scope = params.as_ref().and_then(|p| p.get("scope"));
+            let scope = match scope {
+                None | Some(Value::Null) => None,
+                Some(Value::String(scope)) => Some(scope.as_str()),
+                _ => return Err(error("Blueprint scope must be a string")),
+            };
+            svc.blueprint_import_destination(&caller, scope)
+                .map_err(error)?;
             let recipe = params
                 .as_ref()
                 .and_then(|p| p.get("recipe"))
@@ -205,6 +213,17 @@ pub(super) fn dispatch(
                 .map_err(|e| error(e.to_string()))
         }
         "blueprint.list" => {
+            if params
+                .as_ref()
+                .and_then(|params| params.get("all"))
+                .and_then(Value::as_bool)
+                == Some(true)
+                && !svc.sentinel_read_all_authority(&caller).map_err(error)?
+            {
+                return Err(error(
+                    "blueprint list --all requires owner or Orchestrator authority",
+                ));
+            }
             let mut listed = serde_json::to_value(svc.sentinel_list(&caller).map_err(error)?)
                 .map_err(|e| error(e.to_string()))?;
             let quarantined = svc.sentinel_quarantined(&caller).map_err(error)?;
@@ -221,7 +240,7 @@ pub(super) fn dispatch(
                 return codeterm_sentinel_host::blueprint_calls::show_callable(svc, &caller, &id)
                     .map_err(error);
             }
-            let job = match svc.sentinel_show(&caller, &id) {
+            let job = match svc.sentinel_inspect(&caller, &id) {
                 Ok(job) => job,
                 Err(message) => {
                     let quarantined = svc.sentinel_quarantined(&caller).map_err(error)?;
@@ -264,6 +283,7 @@ pub(super) fn dispatch(
                     document.as_ref(),
                     &entries,
                     recorded_version,
+                    &svc.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
                 )
                 .map_err(error)?;
                 if let (Some(value), Some(fields)) = (value.as_object_mut(), projection.as_object())

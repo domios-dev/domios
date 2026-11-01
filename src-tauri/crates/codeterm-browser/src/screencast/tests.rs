@@ -5,6 +5,7 @@ fn params(width: u32) -> ScreencastParams {
         width,
         height: 720,
         dpr: 1.5,
+        mobile: false,
     })
 }
 

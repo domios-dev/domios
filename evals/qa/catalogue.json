@@ -1092,6 +1092,19 @@
       "automation": "manual",
       "case": "cases/CUR-047-cli-smoke-monkey-charter/case.md",
       "status": "active"
+    },
+    {
+      "id": "CUR-048",
+      "title": "Encrypted Neighbors two-account acceptance",
+      "area": "account",
+      "tier": "release-core",
+      "surfaces": ["cli", "web", "native"],
+      "platforms": ["windows", "macos", "linux"],
+      "providers": [],
+      "grants": ["two-qa-accounts", "isolated-named-dev", "qa-key-lifecycle", "general-agent-scoped-permission", "backend-redacted-readback"],
+      "automation": "manual",
+      "case": "cases/CUR-048-neighbors-encrypted-delivery/case.md",
+      "status": "active"
     }
   ]
 }

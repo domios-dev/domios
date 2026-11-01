@@ -112,6 +112,12 @@ pub(super) fn respawn(
     let _respawn_reservation = store
         .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
         .map_err(plan_rpc_err)?;
+    svc.retire_respawn_executor(&draft)
+        .map_err(|error| JsonRpcError {
+            code: -32603,
+            message: error,
+            data: None,
+        })?;
     let mut spawn_params = super::super::plan_task_dispatch::respawn_worker_params(
         &draft,
         &task.name,

@@ -41,7 +41,7 @@ test("running builds synchronize the swing and three impact sparks, honoring red
       const visible = spark.frames.findIndex((frame) => Number(frame.opacity) > 0);
       assert.ok(visible > 0);
       assert.equal(spark.frames[visible].offset, impact.offset);
-      const fadeMs = (Number(spark.frames[visible + 1].offset) - Number(impact.offset)) * Number(spark.timing.duration);
+      const fadeMs: number = (Number(spark.frames[visible + 1].offset) - Number(impact.offset)) * Number(spark.timing.duration);
       assert.ok(fadeMs > 0 && fadeMs <= 250);
       assert.equal(spark.frames[visible + 1].opacity, 0);
       assert.equal(spark.frames[spark.frames.length - 1].opacity, 0);

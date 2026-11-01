@@ -62,7 +62,7 @@ def main() -> int:
     print(f"[probe] our public_key:  {ident['public_key']}")
 
     token = sign_token(ident["private_key"], ident["instance_id"])
-    print(f"[probe] signed token (len={len(token)}, first 40): {token[:40]}...")
+    print(f"[probe] signed token prepared (length={len(token)})")
 
     relay_body = json.dumps({"method": args.method, "path": args.path, "body": None}).encode("utf-8")
     relay_url = f"{args.peer_url.rstrip('/')}/api/mesh/relay"

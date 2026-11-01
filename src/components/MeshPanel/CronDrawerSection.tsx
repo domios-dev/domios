@@ -139,6 +139,7 @@ export function CronDrawerSection({ service, machineName, onUpdate, actionAdapte
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true" data-testid="mesh-resource-announcement">{announcement}</div>
       <CronScheduleCard
         service={service}
+        lastRun={job?.last_run ?? null}
         busy={busy}
         running={running}
         editing={editingSchedule}

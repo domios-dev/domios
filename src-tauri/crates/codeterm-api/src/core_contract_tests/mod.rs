@@ -6,5 +6,6 @@ mod plan_reminder_nudge;
 mod respond_prompt;
 mod secrets_guard;
 mod spawn_tab_identity;
+mod tab_mutation_authority;
 mod team_plan_creation;
 mod workspace_close;

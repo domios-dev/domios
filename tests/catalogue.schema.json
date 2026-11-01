@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/rollacode/codeterm/tests/catalogue.schema.json",
+  "$id": "https://github.com/domios-dev/domios/tests/catalogue.schema.json",
   "title": "Domios test catalogue",
   "description": "tests/catalogue.json: one entry per runner and the test-looking file patterns every test must be owned through. Membership is discovery output, never hand-listed here. $defs/overlayFile describes tests/catalogue.overlay.json.",
   "type": "object",

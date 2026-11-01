@@ -134,6 +134,9 @@ function decodePublicKey(raw) {
 function decodeSignature(field) {
   const text = Buffer.from(field.trim(), 'base64').toString('utf8');
   const lines = text.split('\n').filter((line) => line.trim() !== '');
+  if (lines.length !== 4 || !lines[2].startsWith('trusted comment: ')) {
+    throw new Error('signature carries no authenticated trusted comment');
+  }
   const body = lines.find((line) => !line.startsWith('untrusted comment:') && !line.startsWith('trusted comment:'));
   if (!body) throw new Error('signature carries no payload line');
   const bytes = Buffer.from(body.trim(), 'base64');
@@ -142,7 +145,25 @@ function decodeSignature(field) {
     algorithm: bytes.subarray(0, 2).toString('utf8'),
     keyId: bytes.subarray(2, 10),
     signature: bytes.subarray(10),
+    trustedComment: lines[2].slice('trusted comment: '.length),
+    commentSignature: Buffer.from(lines[3].trim(), 'base64'),
   };
+}
+
+function verifyVersionBinding(field, version, keyId, publicKey) {
+  const decoded = decodeSignature(field);
+  if (!decoded.keyId.equals(keyId)) {
+    throw new Error(`signed by key ${decoded.keyId.toString('hex')}, manifest key is ${keyId.toString('hex')}`);
+  }
+  const message = Buffer.concat([decoded.signature, Buffer.from(decoded.trustedComment)]);
+  if (decoded.commentSignature.length !== 64 || !edVerify(null, message, publicKey, decoded.commentSignature)) {
+    throw new Error('trusted comment signature does not verify');
+  }
+  const bindings = decoded.trustedComment.split(/\s+/).filter(token => token.startsWith('version:'));
+  if (typeof version !== 'string' || !version || bindings.length !== 1 || bindings[0] !== `version:${version}`) {
+    throw new Error(`trusted comment must bind exactly version:${version}`);
+  }
+  return decoded;
 }
 
 function signedMessage(algorithm, content) {
@@ -187,6 +208,14 @@ async function verifyInto(record, args) {
   if (args.requireVersion) {
     validateReleaseScope(manifest, declaredPlatforms, args.requireVersion);
   }
+  const signatures = new Map();
+  for (const [name, entry] of Object.entries(declaredPlatforms)) {
+    try {
+      signatures.set(name, verifyVersionBinding(entry.signature ?? '', manifest.version, keyId, publicKey));
+    } catch (error) {
+      record.failures.push(`${name}: ${error.message}`);
+    }
+  }
 
   const platforms = Object.entries(declaredPlatforms).filter(
     ([name]) => !args.platform || name === args.platform,
@@ -195,14 +224,13 @@ async function verifyInto(record, args) {
 
   console.log(`manifest version ${manifest.version} (pub_date ${manifest.pub_date})`);
   for (const [name, entry] of platforms) {
+    const decoded = signatures.get(name);
+    if (!decoded) continue;
     try {
       const content = args.local
         ? await readFile(path.join(args.local, path.basename(new URL(entry.url).pathname)))
         : await readSource(entry.url);
-      const { algorithm, keyId: sigKeyId, signature } = decodeSignature(entry.signature ?? '');
-      if (!sigKeyId.equals(keyId)) {
-        throw new Error(`signed by key ${sigKeyId.toString('hex')}, manifest key is ${keyId.toString('hex')}`);
-      }
+      const { algorithm, signature } = decoded;
       const ok = edVerify(null, signedMessage(algorithm, content), publicKey, signature);
       console.log(`  ${ok ? 'OK  ' : 'FAIL'} ${name}  ${content.length} bytes  ${entry.url}`);
       if (ok) record.platforms.push(name);

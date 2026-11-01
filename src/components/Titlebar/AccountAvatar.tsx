@@ -3,6 +3,7 @@ import { useState } from "react";
 const SIZES = {
   tray: "h-5 w-5 text-[11px]",
   menu: "h-[30px] w-[30px] shrink-0 text-[12px]",
+  node: "h-full w-full text-[17px]",
 } as const;
 
 export function AccountAvatar({ url, initial, label, size }: {

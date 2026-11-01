@@ -18,23 +18,6 @@ function relayKey(base: string): string {
   return `${base}:${typeof window === "undefined" ? "" : (window.location.origin ?? `${window.location.protocol}//${window.location.host}`)}`;
 }
 
-function migrateRelayFromSessionStorage(): void {
-  if (typeof sessionStorage === "undefined" || typeof localStorage === "undefined") return;
-  const legacyId = sessionStorage.getItem(RELAY_PEER_KEY);
-  if (!legacyId) return;
-  if (!localStorage.getItem(relayKey(RELAY_PEER_KEY))) {
-    localStorage.setItem(relayKey(RELAY_PEER_KEY), legacyId);
-    const legacyName = sessionStorage.getItem(RELAY_NAME_KEY);
-    if (legacyName) localStorage.setItem(relayKey(RELAY_NAME_KEY), legacyName);
-  }
-  sessionStorage.removeItem(RELAY_PEER_KEY);
-  sessionStorage.removeItem(RELAY_NAME_KEY);
-}
-
-if (typeof window !== "undefined") {
-  migrateRelayFromSessionStorage();
-}
-
 /** Origin the SPA was served from — the local daemon. */
 export function selfHost(): string {
   return baseDaemonTransport().origin();
@@ -202,7 +185,7 @@ export async function webUpload(
 ): Promise<{ path: string; size: number }> {
   const form = await browserUploadBody(file, filename);
   const controller = new AbortController();
-  const interrupt = () => controller.abort();
+  const interrupt = () => controller.abort(new DOMException("Interrupted", "AbortError"));
   const visibilityChanged = () => { if (document.visibilityState === "hidden") interrupt(); };
   window.addEventListener("pagehide", interrupt);
   document.addEventListener("visibilitychange", visibilityChanged);

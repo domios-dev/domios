@@ -1,7 +1,7 @@
 {
   "id": "opencode",
-  "version": "1.14.13",
-  "minCodeterm": "1.15.3",
+  "version": "1.14.14",
+  "minCodeterm": "1.18.0",
   "hostApi": 2,
   "capabilities": {
     "attachments": {
@@ -13,6 +13,70 @@
     "modelProviderConfig": true,
     "decisionModel": {
       "tokenMode": "none"
+    },
+    "graphNodes": {
+      "steps": [
+        {
+          "contractVersion": 1,
+          "revision": 1,
+          "id": "opencode.run_prompt",
+          "title": "OpenCode: run prompt",
+          "description": "Runs one prompt in a separate agent tab using this provider. Lost runs are never resubmitted.",
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "prompt",
+              "cwd"
+            ],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "maxLength": 32768
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "cwd": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600000,
+                "default": 600000
+              }
+            }
+          },
+          "inputs": {
+            "context": {
+              "kind": "text",
+              "minItems": 0,
+              "maxItems": 1
+            }
+          },
+          "outputs": {
+            "text": {
+              "kind": "text",
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "outcomes": [
+            "done",
+            "failed"
+          ],
+          "lifecycle": {
+            "reconcile": true,
+            "cancel": true
+          },
+          "effects": {
+            "sideEffects": true
+          }
+        }
+      ]
     }
   },
   "generalAgentOfferWhenAbsent": true,
@@ -209,7 +273,8 @@
         "api.deepseek.com",
         "registry.npmjs.org"
       ]
-    }
+    },
+    "spawnAgents": true
   },
   "icon": "icon.svg",
   "cliCompatibility": {

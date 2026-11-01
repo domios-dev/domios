@@ -49,6 +49,37 @@
       "team_created",
       "memory_saved",
       "web_ui_opened"
+    ],
+    "Resource": [
+      "workspaces",
+      "teams",
+      "agent_tabs",
+      "mesh_machines",
+      "memory_items",
+      "neighbors"
+    ],
+    "UpgradeSource": [
+      "limit_dialog",
+      "account_settings"
+    ],
+    "CheckoutOutcome": [
+      "opened",
+      "returned",
+      "failed"
+    ],
+    "SettingsSection": [
+      "root",
+      "account",
+      "privacy",
+      "general",
+      "notifications",
+      "agents",
+      "secrets",
+      "jobs",
+      "logs",
+      "guide",
+      "about",
+      "agent_provider"
     ]
   },
   "events": {
@@ -95,6 +126,33 @@
     },
     "feature_used": {
       "feature": "Feature"
+    },
+    "limit_reached_shown": {
+      "resource": "Resource"
+    },
+    "upgrade_clicked": {
+      "source": "UpgradeSource"
+    },
+    "checkout_opened": {
+      "outcome": "CheckoutOutcome"
+    },
+    "checkout_returned": {
+      "outcome": "CheckoutOutcome"
+    },
+    "friend_added": {
+      "count": "u32"
+    },
+    "neighbor_message_sent": {
+      "count": "u32"
+    },
+    "file_shared": {
+      "count": "u32"
+    },
+    "read_receipt_shown": {
+      "count": "u32"
+    },
+    "settings_viewed": {
+      "section": "SettingsSection"
     }
   }
 }

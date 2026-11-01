@@ -17,6 +17,7 @@ struct FakeState {
 struct FakeConnection {
     state: Mutex<FakeState>,
     closed: watch::Sender<Option<String>>,
+    fail_metrics: std::sync::atomic::AtomicBool,
 }
 
 impl FakeConnection {
@@ -24,6 +25,7 @@ impl FakeConnection {
         Arc::new(Self {
             state: Mutex::new(FakeState::default()),
             closed: watch::channel(None).0,
+            fail_metrics: std::sync::atomic::AtomicBool::new(false),
         })
     }
 
@@ -130,6 +132,12 @@ impl CdpConnection for FakeConnection {
                     .targets
                     .remove(params["targetId"].as_str().unwrap());
                 Ok(json!({ "success": removed }))
+            }
+            "Page.getLayoutMetrics" if self.fail_metrics.load(Ordering::SeqCst) => {
+                Err(CdpError::Malformed("injected metrics failure".into()))
+            }
+            "Page.getLayoutMetrics" => {
+                Ok(json!({"cssLayoutViewport":{"clientWidth":390},"cssContentSize":{"width":400}}))
             }
             "Page.captureScreenshot" => {
                 Ok(json!({ "data": if session == Some("ST1") { "QQ==" } else { "Qg==" } }))
@@ -319,4 +327,74 @@ async fn crash_retires_all_old_leases_and_relaunch_survives_stale_close() {
     assert_eq!(replacement.count("Browser.close"), 0);
     next.release(CLOSE_DEADLINE).await;
     assert_eq!(replacement.count("Browser.close"), 1);
+}
+
+#[tokio::test]
+async fn ephemeral_instance_profiles_refuse_removal_until_last_lease_closes() {
+    let root = tempfile::tempdir().unwrap();
+    let layout = ProfileLayout::new(root.path().to_path_buf());
+    layout
+        .prepare_instance("qa", "http://localhost:7686", true)
+        .unwrap();
+    let dir = layout.profiles_dir().join("qa");
+    let connection = FakeConnection::new();
+    let launches = Arc::new(AtomicUsize::new(0));
+    let first = acquire(dir.clone(), connection.clone(), launches.clone()).await;
+    let second = acquire(dir.clone(), connection.clone(), launches).await;
+    assert!(crate::profile::delete_named_profile(&layout, "qa")
+        .await
+        .unwrap_err()
+        .contains("in use"));
+    first.release(CLOSE_DEADLINE).await;
+    assert!(dir.exists());
+    second.release(CLOSE_DEADLINE).await;
+    assert!(!dir.exists());
+}
+
+#[tokio::test]
+async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_failure() {
+    for fail in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let connection = FakeConnection::new();
+        let lease = acquire(
+            root.path().join("profile"),
+            connection.clone(),
+            Arc::new(AtomicUsize::new(0)),
+        )
+        .await;
+        let host = crate::BrowserHost::new(crate::BrowserHostConfig::under_data_dir(root.path()));
+        let runtime = from_lease(lease, Viewport::default(), hub()).await.unwrap();
+        host.install(runtime);
+        connection.fail_metrics.store(fail, Ordering::SeqCst);
+        let result = host
+            .capture_with_viewport(
+                Viewport {
+                    width: 390,
+                    height: 844,
+                    dpr: 2.0,
+                    mobile: true,
+                },
+                false,
+            )
+            .await;
+        assert_eq!(result.is_err(), fail);
+        if let Ok(shot) = result {
+            assert_eq!(shot["metrics"]["cssContentSize"]["width"], 400);
+        }
+        let metrics: Vec<_> = connection
+            .state
+            .lock()
+            .requests
+            .iter()
+            .filter(|(_, method, _)| method == "Emulation.setDeviceMetricsOverride")
+            .map(|(_, _, params)| params.clone())
+            .collect();
+        assert_eq!(metrics[metrics.len() - 2]["mobile"], true);
+        assert_eq!(
+            metrics.last().unwrap(),
+            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false})
+        );
+        assert_eq!(host.viewport(), Viewport::default());
+        host.close().await;
+    }
 }

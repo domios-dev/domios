@@ -7,7 +7,7 @@ import { defineSpecimen } from "../types";
 
 const THEMES = ["github-dark", "dracula", "catppuccin-mocha", "one-dark", "nord", "github-light", "solarized-light", "pip-boy"];
 mockCommand("list_themes", () => THEMES);
-mockCommand("get_themes_dir", () => "/Users/andrey/.codeterm/themes");
+mockCommand("get_themes_dir", () => "/Users/example/.codeterm/themes");
 mockCommand("get_autostart_enabled", () => true);
 mockCommand("shell_profiles", (): ShellProfile[] => [
   { id: "zsh", name: "zsh", executable: "/bin/zsh", args: ["-l"], wsl_distro: null },

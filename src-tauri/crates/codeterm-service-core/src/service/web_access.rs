@@ -22,7 +22,7 @@ async fn mutate(
     mutation: Mutation,
 ) -> Result<mesh::ServeResult, String> {
     let mesh_for_mutation = mesh_state.clone();
-    let (mut result, changed) = tokio::task::spawn_blocking(move || {
+    let mut result = tokio::task::spawn_blocking(move || {
         let _guard = mutation_gate()
             .lock()
             .map_err(|_| "Web Access mutation lock is poisoned".to_string())?;
@@ -30,13 +30,15 @@ async fn mutate(
             Mutation::Enable(https_port) => mesh::enable_web_serve(api_port, https_port),
             Mutation::Disable => mesh::disable_web_serve(api_port),
         };
-        let changed = result.ok && mesh::refresh_local_addresses_blocking_force(&mesh_for_mutation);
-        Ok::<_, String>((result, changed))
+        if result.ok {
+            mesh::refresh_local_addresses_blocking_force(&mesh_for_mutation);
+        }
+        Ok::<_, String>(result)
     })
     .await
     .map_err(|error| format!("Web Access worker failed: {error}"))??;
 
-    if changed {
+    if result.ok {
         let report = mesh::broadcast_announce(&mesh_state, None).await;
         ui.emit("mesh-state-changed", serde_json::Value::Null);
         if !report.errors.is_empty() {

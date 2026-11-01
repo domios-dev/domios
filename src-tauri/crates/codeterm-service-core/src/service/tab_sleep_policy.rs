@@ -46,6 +46,9 @@ pub struct SleepFacts {
     pub general: bool,
     pub protected: bool,
     pub status: Option<TabStatus>,
+    pub active_turn: bool,
+    pub live_pty: bool,
+    pub last_pty_output_ms: Option<u64>,
     pub last_turn: Option<LastTurnEvidence>,
     pub held_send: bool,
     pub written_send: bool,
@@ -78,6 +81,8 @@ pub enum StayReason {
     General,
     Protected,
     NotIdle,
+    ActiveTurn,
+    PtyActivity,
     LastTurnNotCompleted,
     ForeignTurnEvidence,
     HeldSend,
@@ -114,6 +119,7 @@ pub fn evaluate(policy: &SleepPolicy, facts: &SleepFacts, now_ms: u64) -> SleepD
         (facts.general, General),
         (facts.protected, Protected),
         (facts.status != Some(TabStatus::Idle), NotIdle),
+        (facts.active_turn, ActiveTurn),
         (facts.held_send, HeldSend),
         (facts.written_send, WrittenSend),
         (facts.unconfirmed_send, UnconfirmedSend),
@@ -150,6 +156,14 @@ pub fn evaluate(policy: &SleepPolicy, facts: &SleepFacts, now_ms: u64) -> SleepD
         return SleepDecision::Stay(ForeignTurnEvidence);
     }
     let threshold_ms = policy.idle_minutes.saturating_mul(60_000);
+    if facts.live_pty
+        && !facts
+            .last_pty_output_ms
+            .and_then(|last| now_ms.checked_sub(last))
+            .is_some_and(|idle| idle > threshold_ms)
+    {
+        return SleepDecision::Stay(PtyActivity);
+    }
     let (last, reason) = match (facts.last_activity_ms, facts.last_open_ms) {
         (Some(activity), Some(open)) if open > activity => (open, OpenNotOldEnough),
         (Some(activity), _) => (activity, ActivityNotOldEnough),

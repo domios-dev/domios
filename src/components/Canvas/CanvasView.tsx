@@ -30,7 +30,7 @@ import type { PlanGhostModel } from "./canvasView/models";
 import type { Plan, Section, TagFacet } from "./types";
 import { derivePlanWorkspaceScope } from "./planWorkspaceScope";
 import { usePlanDrift } from "./usePlanDrift";
-import { useCanvasViewport, paintLayer, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "@codeterm/canvas-camera";
+import { useCanvasViewport, paintLayer, AUTO_FIT_MAX_SCALE, CANVAS_MIN_SCALE, CANVAS_MAX_SCALE, type ViewportTransform } from "@codeterm/canvas-camera";
 import { buildSectionGroups, resolveSceneLod } from "./canvasRender/sceneLod";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import { canvasFitContextKey, resolveWorkspaceFocusNodeIds } from "./workspacePlanEntry";
@@ -458,9 +458,9 @@ export function CanvasViewInner({
     else if (tabTaskIds.length) focusOnNodes(tabTaskIds);
     else if (activePlanId) {
       const frame = layout.frames.find((f) => f.planId === activePlanId);
-      if (frame) fitToView(frame.box);
-      else fitToView(layout.bounds);
-    } else fitToView(layout.bounds);
+      if (frame) fitToView(frame.box, { maxScale: AUTO_FIT_MAX_SCALE });
+      else fitToView(layout.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
+    } else fitToView(layout.bounds, { maxScale: AUTO_FIT_MAX_SCALE });
   }, [fitContextKey, fitToView, fitCameraToNodes, focusOnNodes, workspaceFocusIds, tabTaskIds, activePlanId, size.width, size.height]);
 
   useEffect(() => {

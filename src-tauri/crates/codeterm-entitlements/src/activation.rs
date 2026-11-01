@@ -26,7 +26,7 @@ const ENFORCE: Enforcement = Enforcement {
 pub const PRODUCTION: Activation = Activation {
     project: "domios-d9357",
     mode: Mode::Live,
-    policy_version: 1,
+    policy_version: 2,
     policy_epoch: "live-v1",
     enforcement: ENFORCE,
     keys: &[CompiledKey {
@@ -47,7 +47,7 @@ pub const QA_PROJECT: &str = "";
 pub const TEST: Activation = Activation {
     project: QA_PROJECT,
     mode: Mode::Test,
-    policy_version: 1,
+    policy_version: 2,
     policy_epoch: "test-v1",
     enforcement: ENFORCE,
     keys: &[CompiledKey {

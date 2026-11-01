@@ -1,6 +1,6 @@
 # @codeterm/plugin-sdk
 
-SDK for authoring [Domios](https://github.com/rollacode/codeterm)
+SDK for authoring [Domios](https://github.com/domios-dev/domios)
 plugin **logic** in TypeScript.
 
 A Domios plugin's logic half runs in a confined QuickJS VM and talks to the
@@ -8,6 +8,13 @@ host only through the injected `host.*` API. This package gives you the typed
 contracts for that surface — the `host` global, and the capability interfaces a
 plugin can implement. Type imports have zero runtime weight. The optional pure
 diff helpers are bundled only when imported as values.
+
+For plugin-owned storage, use `host.dataDir()`. `host.fs.expandHome("~/.domios")`
+and paths beneath `~/.domios/` resolve to the running instance's data directory,
+including development and named instances. Other `~/` paths use the user's home;
+the former product directory has no special mapping. Filesystem grants still apply after expansion.
+The SDK package name and `CODETERM_*` host environment variables remain the
+public technical contract; they do not select a legacy data root.
 
 `capabilities.localRecordingTrigger` declares a USB vendor/product and HID
 usage-page/usage tuple. It permits a host-owned `receiverTarget` tab-menu item
@@ -75,6 +82,13 @@ successful display on errors or truncation. Hooks return continuations, not Prom
 
 The host snapshots callable exports when the bundle evaluates; methods added later are invisible until a bundle reload includes them.
 
+A plugin-owned chat backend confirms `closeSession` with
+`{ sessionId, processExited: true }` only after that exact session's owned
+processes have exited. Return `host.awaitJob(jobId, continuation)` when closure
+needs asynchronous work. Missing, failed, foreign-session or incomplete receipts
+refuse task respawn. A host-owned `agentRuntime` uses the host's pinned process
+exit observation instead. No additional subprocess or sandbox authority is granted.
+
 Exports: `Host`, `HostFs`, `HostShell`, `HostPath`, `DirEntry`, `ExecOpts`,
 `ExecResult`, `FetchOpts`, `FetchResult`, and the capability contracts
 (`PluginModule`, `StatusBubble`, `GlanceView`, `ViewNode`, `ViewCall`,
@@ -120,6 +134,54 @@ edges alone, so a plan never depends on which plugin serves a step.
 properties with optional `description`, `enum`, `maxLength` (<= 65536) and
 `maxItems` (<= 256); at most 32 properties. `$ref`, combinators
 (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
+
+## Blueprint step declarations
+
+`GraphNodesManifestCapability.steps` accepts up to 32 `BlueprintStepDescriptor`
+records. A plugin may declare specialized nodes and a general node whose model
+and parameters are selected by its own bounded schema. The host never knows
+supplier models or endpoints.
+
+```ts
+import type { BlueprintStepDescriptor } from "@codeterm/plugin-sdk";
+
+const generate: BlueprintStepDescriptor = {
+  contractVersion: 1, revision: 1, id: "fixture.generate",
+  title: "Generate", description: "Generate an output from a prompt",
+  params: { type: "object", properties: {
+    model: { type: "string", enum: ["small", "large"], maxLength: 16 },
+  }, required: ["model"] },
+  inputs: {
+    prompt: { kind: "text", minItems: 1, maxItems: 1 },
+    references: { kind: "image", minItems: 0, maxItems: 4 },
+  },
+  outputs: { image: { kind: "image", minItems: 1, maxItems: 1 } },
+  outcomes: ["done", "failed"],
+  lifecycle: { reconcile: true, cancel: true },
+  effects: { sideEffects: true },
+};
+```
+
+Export `blueprintSubmit` and the declared optional `blueprintReconcile` and
+`blueprintCancel` methods from `BlueprintSteps`. Requests carry host-owned
+operation identity and attribution. An uncertain submit is never replayed;
+reconciliation and cancellation refer to the exact persisted job. Invalid
+responses retain a valid returned job identity for later observation.
+
+The host reserves `unknown` and `canceled`; other bounded declared outcomes route
+the graph. Parameters and JSON ports use closed bounded schemas. Text, JSON,
+file, image, audio and video ports declare cardinality. Media outputs use
+`{kind: "media_source", id, media}` for an existing plugin-owned artifact.
+`mediaFile` resolves it relative to the plugin data directory; generic files may
+use `application/octet-stream`. Host handles are inputs only and require the
+receiving step's explicit grant. UI frame tokens grant no run-input access.
+
+YAML authors write `uses: fixture.generate` and `with:`. Apply pins the installed
+descriptor revision. A built-in node bound to `read.out.text` receives the plain
+string, JSON value or confined file path; multi-item ports supply arrays.
+Commands receive that value on stdin, with JSON values encoded as JSON.
+Plugin-to-plugin bindings retain typed run-media handles. Durable held runs
+reconcile their exact job through the Blueprint monitor and resume at the cursor.
 
 ## Decision model capability
 
@@ -186,3 +248,4 @@ export default plugin;
 `capabilities.receiverStatusQuery` declares one immutable HID status request (2–64bytes), application-collection usage and reportID. `host.localRecording.statusReport()` exchanges only that declaration with a sibling collection belonging to the exact selected receiver; persisted `local_recording` grant and current selection/availability are checked before and after IO. No device path or request argument is exposed. The plugin owns decoding, connection/battery semantics and `statusBubble`; unsupported platforms or unavailable status return a refusal. `TabContext.tabId` identifies the host-supplied bubble recipient.
 
 `localRecordingTrigger.button` supplies the selected interface/collection, report schema, approved singleton button usages, press usage and duplicate window. Native adapters validate that declared shape instead of branching on manufacturer identity. A missing native mapping remains unavailable.
+

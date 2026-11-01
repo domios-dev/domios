@@ -68,9 +68,9 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   }
 
   test("guide_parser_accepts_only_a_standalone_directive", () => {
-    assert(parseGuideDirective("@ds-guide supporter-agent") === "supporter-agent", "section id lost");
-    assert(parseGuideDirective("\t@ds-guide memory \r") === "memory", "CR line or indentation lost");
-    for (const source of ["prefix @ds-guide memory", "@ds-guide memory suffix", "@ds-guide\nmemory", "@ds-guide memory\nsecond-line", "@ds-guide", "`@ds-guide memory`", "> @ds-guide memory"]) {
+    assert(parseGuideDirective("<ds-guide section='supporter-agent' />") === "supporter-agent", "section id lost");
+    assert(parseGuideDirective("  <ds-guide section='memory' /> \r") === "memory", "CR line or indentation lost");
+    for (const source of ["prefix <ds-guide section='memory' />", "<ds-guide section='memory' /> suffix", "<ds-guide\nsection=memory />", "<ds-guide section='memory' />\nsecond-line", "<ds-guide", "`<ds-guide section='memory' />`", "> <ds-guide section='memory' />"]) {
       assert(parseGuideDirective(source) === null, `accepted non-standalone directive: ${source}`);
     }
   });
@@ -104,7 +104,7 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   }
 
   test("guide_control_opens_settings_section_and_focuses_heading", async () => {
-    await withHarness("@ds-guide supporter-agent", async (host) => {
+    await withHarness("<ds-guide section='supporter-agent' />", async (host) => {
       const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       assert(control && control.type === "button" && !control.disabled, "Guide control inaccessible");
       assert((control.getAttribute("aria-label") ?? control.textContent)?.trim(), "Guide control has no accessible name");
@@ -124,7 +124,7 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   });
 
   test("unknown_guide_id_shows_notice_and_opens_first_section", async () => {
-    await withHarness("@ds-guide unknown-section-3c2", async (host) => {
+    await withHarness("<ds-guide section='unknown-section-3c2' />", async (host) => {
       assert(host.querySelector('[data-testid="chat-guide-notice"]'), "unknown id notice missing");
       const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => control.click());
@@ -133,7 +133,7 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   });
 
   test("guide_directive_is_generic_across_sections", async () => {
-    await withHarness("@ds-guide memory", async (host) => {
+    await withHarness("<ds-guide section='memory' />", async (host) => {
       const control = host.querySelector('[data-testid="chat-ds-guide"] [data-block-action="open"]') as HTMLButtonElement;
       await act(async () => control.click());
       assertDestination(host, "memory");
@@ -141,12 +141,12 @@ testWindow.HTMLElement.prototype.scrollIntoView = function () {
   });
 
   test("inline_code_fences_quotes_and_file_previews_do_not_open_guide", async () => {
-    for (const text of ["prefix @ds-guide memory", "```text\n@ds-guide memory\n```", "`@ds-guide memory`", "> @ds-guide memory"]) {
+    for (const text of ["prefix <ds-guide section='memory' />", "```text\n<ds-guide section='memory' />\n```", "`<ds-guide section='memory' />`", "> <ds-guide section='memory' />"]) {
       await withHarness(text, async (host) => {
         assert(!host.querySelector('[data-testid="chat-ds-guide"]'), "non-standalone text became a Guide control");
       });
     }
-    await withHarness("@ds-guide memory", async (host) => {
+    await withHarness("<ds-guide section='memory' />", async (host) => {
       assert(!host.querySelector('[data-testid="chat-ds-guide"]'), "file preview gained a Guide control");
     }, false);
   });

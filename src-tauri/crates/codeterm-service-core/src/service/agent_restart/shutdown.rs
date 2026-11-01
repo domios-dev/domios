@@ -121,7 +121,6 @@ impl ServiceContext {
             crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
         );
         self.screen_state.remove(&snap.pty_id);
-        crate::service::stream_preview::remove(&snap.pty_id);
         self.clear_tab_agent_identity_after_confirmed_exit(
             &snap.tab_id,
             "agent restart reaped the previous PTY",

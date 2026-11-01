@@ -10,7 +10,7 @@ import { NotificationToastContainer } from "./Notifications/NotificationToast";
 const fakes = vi.hoisted(() => ({
   upsert: vi.fn(), add: vi.fn(), dismiss: vi.fn(), invoke: vi.fn(),
   listeners: new Map<string, (event: { payload: unknown }) => void>(),
-  update: { status: "up-to-date" as string, latestVersion: "2", error: null as string | null, toastOpen: true, blocking: false, dismissUpdateToast: vi.fn(), applyUpdate: vi.fn() },
+  update: { status: "up-to-date" as string, latestVersion: "2", error: null as string | null, toastOpen: true, blocking: false, installing: false, dismissUpdateToast: vi.fn(), applyUpdate: vi.fn() },
 }));
 vi.mock("../store/multiplexer", () => ({
   useMultiplexer: () => ({ upsertToast: fakes.upsert, addNotification: fakes.add, dismissToast: fakes.dismiss }),
@@ -38,6 +38,7 @@ beforeEach(() => {
   fakes.update.status = "up-to-date";
   fakes.update.error = null;
   fakes.update.blocking = false;
+  fakes.update.installing = false;
   fakes.update.toastOpen = true;
   host = document.createElement("div");
   document.body.append(host);
@@ -70,6 +71,26 @@ test("an update failure observed from daemon state creates no toast", async () =
   fakes.update.toastOpen = false;
   await render(<UpdateProgressLayer />);
   expect(fakes.upsert).not.toHaveBeenCalled();
+});
+
+test.each(["checking", "downloading"])("an active %s update uses a dismissible shared notice", async status => {
+  fakes.update.status = status;
+  fakes.update.installing = true;
+  await render(<UpdateProgressLayer />);
+  expect(host.childElementCount).toBe(0);
+  expect(fakes.upsert).toHaveBeenCalledTimes(1);
+  expect(fakes.update.dismissUpdateToast).toHaveBeenCalledTimes(1);
+  const notice = await showCapturedToast();
+  expect(notice.severity).toBe("Info");
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!.click());
+  expect(fakes.dismiss).toHaveBeenCalledWith("app-update");
+
+  fakes.update.toastOpen = false;
+  await render(<UpdateProgressLayer />);
+  expect(fakes.upsert).toHaveBeenCalledTimes(1);
+  fakes.update.status = "applying";
+  await render(<UpdateProgressLayer />);
+  expect(host.querySelector('[data-testid="update-screen"]')).not.toBeNull();
 });
 
 test("blocking update progress remains a persistent progress surface", async () => {

@@ -66,7 +66,7 @@ fn every_parity_wire_parses() {
 
 #[test]
 fn parse_extracts_kind_attrs_payload() {
-    let p = parse("-=-codeterm:voice file=/u/v.webm-=-\ndo the task").unwrap();
+    let p = parse(&voice("/u/v.webm", Some("do the task"), None)).unwrap();
     assert_eq!(p.kind, "voice");
     assert_eq!(p.attr("file"), Some("/u/v.webm"));
     assert_eq!(p.payload, "do the task");
@@ -74,7 +74,11 @@ fn parse_extracts_kind_attrs_payload() {
 
 #[test]
 fn parse_unwraps_bracketed_paste_marker() {
-    let p = parse("\x1b[200~-=-codeterm:voice file=/u/v.webm-=-hello\x1b[201~").unwrap();
+    let p = parse(&format!(
+        "\x1b[200~{}\x1b[201~",
+        voice("/u/v.webm", Some("hello"), None)
+    ))
+    .unwrap();
     assert_eq!(p.kind, "voice");
     assert_eq!(p.attr("file"), Some("/u/v.webm"));
     assert_eq!(p.payload, "hello");
@@ -184,7 +188,7 @@ fn system_prompt_has_no_attrs_and_payload_is_prompt_text() {
 }
 
 #[test]
-fn legacy_and_structured_voice_parts_are_identical() {
+fn retired_voice_markers_are_refused_and_current_voice_parses() {
     for (legacy, wire) in [
         (
             "-=-codeterm:voice file=/u/v.webm-=-\nпривет",
@@ -195,7 +199,8 @@ fn legacy_and_structured_voice_parts_are_identical() {
             voice("/u/v.webm", None, Some("no daemon")),
         ),
     ] {
-        assert_eq!(parse(legacy), parse(&wire));
+        assert!(parse(legacy).is_none());
+        assert!(parse(&wire).is_some());
         assert_eq!(parse(&format!("\x1b[200~{wire}\x1b[201~")), parse(&wire));
         assert_eq!(provenance(&wire), Provenance::StreamContent);
     }
@@ -223,11 +228,16 @@ fn voice_transcript_delimiters_round_trip_inside_one_element() {
     assert_eq!(wire.matches("</transcript>").count(), 1);
     let persisted =
         "<domios type=\"attachment\" kind=\"voice\" path=\"/u/v.webm\" label=\"voice\" />\nпривет";
-    assert_eq!(
-        parse(persisted),
-        parse(&voice("/u/v.webm", Some("привет"), None))
-    );
+    assert!(parse(persisted).is_none());
     let untranscribed = voice("/u/v.webm", None, Some("no daemon"));
     assert!(!untranscribed.contains("<transcript>"));
     assert_eq!(parse(&untranscribed).unwrap().payload, "no daemon");
+}
+
+#[test]
+fn current_extensible_marker_kinds_remain_readable() {
+    for kind in ["photo", "file", "document", "video", "opaque-service"] {
+        let wire = Marker::new(kind).attr("file", "/opaque/path").build();
+        assert_eq!(parse(&wire).unwrap().kind, kind);
+    }
 }

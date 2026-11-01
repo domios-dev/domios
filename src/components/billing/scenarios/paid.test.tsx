@@ -11,12 +11,12 @@ afterEach(closeScenario);
 describe("active paid subscription", () => {
   it("shows the paid plan and creates past every free limit", async () => {
     const scenario = await openScenario(PLAN_PAYLOADS.paid, { workspaces: 2, teams: 6, tabs: 35 });
-    expect(scenario.tray).toBe("Pro · active");
+    expect(scenario.tray?.tier).toBe("pro");
     expect(scenario.plan.limits).toEqual({ enforcing: true, max: { workspaces: null, teams: null, "agent.tabs": null } });
     await scenario.createWorkspace("/new/third");
     await scenario.createTab();
     await scenario.createPair();
-    expect(scenario.modalLine()).toBeNull();
+    expect(scenario.modalPrompt()).toBeNull();
     expect(scenario.daemon.counts()).toEqual({ workspaces: 3, teams: 7, "agent.tabs": 38 });
   });
 });

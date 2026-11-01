@@ -226,6 +226,7 @@ fn process_split_contract_artifact_and_prod_selectors_cannot_cross_attach() {
     use crate::launch::{InstanceSelector, LaunchOptions};
     let mut options = LaunchOptions {
         probe_identity_alias: None,
+        development_owner: None,
         instance: InstanceSelector::Development {
             instance: Some("split-oracle".into()),
             port: 7685,

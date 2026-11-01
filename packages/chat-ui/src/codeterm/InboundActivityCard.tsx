@@ -9,9 +9,16 @@ import type { ToolKindVisual } from "../toolcard/toolKindVisual";
 
 interface Props {
   message: ChatMessage;
+  technicalCommand?: string;
+  showTechnicalDetails?: boolean;
+  focusTabTestId?: string;
+  headerTestId?: string;
+  statusTestId?: string;
+  statusLabel?: string;
   testId: string;
   title: string;
   summary: string;
+  subtitle?: ReactNode;
   presentationSummary?: ReactNode;
   chips?: string[];
   status?: ToolEvent["status"];
@@ -34,9 +41,9 @@ export function inboundActivityEvent(message: ChatMessage, summary: string, stat
   };
 }
 
-export function InboundActivityCard({ message, testId, title, summary, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel }: Props) {
+export function InboundActivityCard({ message, testId, title, summary, subtitle, presentationSummary, chips = [], status = "success", visual, expanded, onToggle, onFocusTab, children, disclosureLabel, technicalCommand, showTechnicalDetails = true, focusTabTestId = "inbound-show-tab", headerTestId, statusTestId, statusLabel }: Props) {
   const host = useChatBlockHost();
-  const event = inboundActivityEvent(message, summary, status);
+  const event = { ...inboundActivityEvent(message, summary, status), detail: technicalCommand };
   const text = decodeCliMessageText(message.content).trim();
   const menu: ChatCardMenuItem[] = [];
   if (text) menu.push({ label: "Copy text", icon: <Copy size={14} aria-hidden />, onSelect: () => copyPlainText(text) });
@@ -48,18 +55,24 @@ export function InboundActivityCard({ message, testId, title, summary, presentat
   return (
     <section role="group" aria-label={title}>
     <ToolCardFrame
+      communication
+      showTechnicalDetails={showTechnicalDetails}
+      headerTestId={headerTestId}
+      statusTestId={statusTestId}
+      statusLabel={statusLabel}
       testId={testId}
       event={event}
       expanded={expanded}
       onToggle={onToggle}
       title={title}
+      subtitle={subtitle}
       summary={presentationSummary ?? summary}
       variant="codeterm"
       visualOverride={visual}
       disclosureLabel={disclosureLabel}
       metric={chips.length ? <ToolCardChips chips={chips} /> : undefined}
       menu={menu}
-      action={onFocusTab ? <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId="inbound-show-tab" /> : undefined}
+      action={onFocusTab ? <ToolCardActionButton label="Show Tab" onClick={onFocusTab} testId={focusTabTestId} /> : undefined}
     >
       {children}
     </ToolCardFrame>

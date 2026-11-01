@@ -32,8 +32,9 @@ class FakeChatServer {
   starts: string[] = [];
   offset = 100;
   transcript: NormalizedChatMessage[] = [];
+  resumes = 0;
 
-  constructor(readonly ranged: boolean) {}
+  constructor(readonly ranged: boolean, readonly replay: "empty" | "gapped" = "empty") {}
 
   install(bridge: {
     __setInvokeForTest: (fn: unknown) => void;
@@ -49,6 +50,7 @@ class FakeChatServer {
       if (command === "chat_start") {
         const subscriptionId = String(args.subscriptionId ?? "");
         this.starts.push(subscriptionId);
+        if (this.starts.length > 1) assert(args.knownWindow == null, "gap recovery must discard its stale window cursor");
         return {
           text: "",
           start_offset: this.ranged ? 0 : undefined,
@@ -58,7 +60,16 @@ class FakeChatServer {
           source_session_id: "sid-1",
           session_binding_nonce: "nonce-1",
           subscription_id: subscriptionId,
+          cursor: this.ranged ? JSON.stringify({ kind: "bytes", incarnation: "file", offset: this.offset }) : undefined,
         };
+      }
+      if (command === "chat_resume") {
+        this.resumes++;
+        return { kind: "resumed", caught_up: true, deltas: this.replay === "empty" ? [] : [{
+          start_offset: this.offset - 10, offset: this.offset, messages: this.transcript.slice(-1),
+          cursor: JSON.stringify({ kind: "bytes", incarnation: "file", offset: this.offset }),
+          source_session_id: "sid-1", session_binding_nonce: "nonce-1",
+        }] };
       }
       return {};
     });
@@ -92,8 +103,8 @@ async function flush(): Promise<void> {
   });
 }
 
-async function runVariant(ranged: boolean): Promise<void> {
-  const label = ranged ? "ranged" : "unranged";
+async function runVariant(ranged: boolean, replay: "empty" | "gapped" = "empty"): Promise<void> {
+  const label = ranged ? `ranged/${replay}` : "unranged";
   const bridge = await import("../../lib/bridge");
   const { useChatSession } = await import("./useChatSession");
   const { clearTranscriptWindows } = await import("./transcriptStore");
@@ -117,7 +128,7 @@ async function runVariant(ranged: boolean): Promise<void> {
     },
   });
 
-  const server = new FakeChatServer(ranged);
+  const server = new FakeChatServer(ranged, replay);
   server.transcript = [row("s-1", "history")];
   server.install(bridge as never);
 
@@ -142,6 +153,19 @@ async function runVariant(ranged: boolean): Promise<void> {
   assert(view.some((m) => m.content === "history"), `${label}: snapshot renders`);
   const startsAfterAttach = server.starts.length;
 
+  if (ranged) {
+    await act(async () => {
+      const start = server.offset;
+      server.offset += 1_300_000;
+      server.handler?.({ payload: { tab_id: "tab", messages: [], start_offset: start, offset: server.offset,
+        source_session_id: "sid-1", session_binding_nonce: "nonce-1" } });
+      server.emit([row("silent-follow", "reply after filtered records")]);
+    });
+    await flush();
+    assert(view[view.length - 1]?.content === "reply after filtered records", `${label}: offset-only ranges keep live rows contiguous`);
+    assert(server.starts.length === startsAfterAttach, `${label}: silent ranges do not request attachment`);
+  }
+
   // The client never saw the bytes between the committed end and this delta.
   await act(async () => {
     server.emit([row("live-2", "newest server row")], 500);
@@ -149,6 +173,7 @@ async function runVariant(ranged: boolean): Promise<void> {
   await flush();
 
   if (ranged) {
+    assert(server.resumes === 0, `${label}: a proven gap must bypass unreliable cursor replay`);
     assert(
       server.starts.length === startsAfterAttach + 1,
       `${label}: a gap requests exactly one re-attach (got ${server.starts.length - startsAfterAttach})`,
@@ -163,6 +188,11 @@ async function runVariant(ranged: boolean): Promise<void> {
     view[view.length - 1]?.content === "newest server row",
     `${label}: the newest server row is the last rendered row (${view.map((m) => m.content)})`,
   );
+  const startsAfterRecovery = server.starts.length;
+  await act(async () => server.emit([row("busy-stream", "stream continues before turn end")]));
+  await flush();
+  assert(view[view.length - 1]?.content === "stream continues before turn end", `${label}: recovery resumes streaming without an idle event`);
+  assert(server.starts.length === startsAfterRecovery, `${label}: the next busy delta does not reattach again`);
   assert(
     scheduled.length === 0,
     `${label}: recovery scheduled a timer (${scheduled.join(",")})`,
@@ -178,6 +208,7 @@ async function runVariant(ranged: boolean): Promise<void> {
 async function main(): Promise<void> {
   setupHookDom();
   await runVariant(true);
+  await runVariant(true, "gapped");
   await runVariant(false);
   console.log("chat dropped-delta convergence checks passed");
 }

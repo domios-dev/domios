@@ -41,8 +41,37 @@ impl StageDefinition {
             .lower()
             .map_err(|errors| format!("{errors:?}"))?;
         let matches = if let Some(spec) = runtime.get("spec") {
-            let spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec =
+            let mut spec: codeterm_blueprint_types::blueprint_pipeline::BlueprintSpec =
                 serde_json::from_value(spec.clone()).map_err(|e| e.to_string())?;
+            if let StageSource::Pipeline(pinned) = &self.source {
+                use codeterm_blueprint_types::blueprint_pipeline::StepKind;
+                for (authored, installed) in spec.steps.iter_mut().zip(&pinned.steps) {
+                    if let (
+                        StepKind::Plugin {
+                            node_type,
+                            revision,
+                            outcomes,
+                            ..
+                        },
+                        StepKind::Plugin {
+                            node_type: installed_type,
+                            revision: installed_revision,
+                            outcomes: installed_outcomes,
+                            ..
+                        },
+                    ) = (&mut authored.kind, &installed.kind)
+                    {
+                        // Apply owns descriptor pins; authoring cannot supply them.
+                        if node_type == installed_type && *revision == 0 && *installed_revision > 0
+                        {
+                            *revision = *installed_revision;
+                            if outcomes.is_empty() {
+                                outcomes.clone_from(installed_outcomes);
+                            }
+                        }
+                    }
+                }
+            }
             let interval = match &spec.trigger {
                 codeterm_blueprint_types::blueprint_pipeline::Trigger::Schedule { every } => {
                     watch::duration_ms(every)?

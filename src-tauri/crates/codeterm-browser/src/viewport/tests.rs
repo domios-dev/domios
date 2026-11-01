@@ -57,7 +57,8 @@ fn browser_viewport_clamps_size_and_dpr() {
         Some(Viewport {
             width: MIN_WIDTH,
             height: MIN_HEIGHT,
-            dpr: MAX_DPR
+            dpr: MAX_DPR,
+            mobile: false,
         })
     );
     assert_eq!(
@@ -65,7 +66,8 @@ fn browser_viewport_clamps_size_and_dpr() {
         Some(Viewport {
             width: 1281,
             height: 720,
-            dpr: 1.5
+            dpr: 1.5,
+            mobile: false,
         })
     );
     assert_eq!(
@@ -90,6 +92,7 @@ fn browser_viewport_device_size_scales_by_dpr() {
         width: 1280,
         height: 721,
         dpr: 1.5,
+        mobile: false,
     };
     assert_eq!(viewport.device_size(), (1920, 1082));
 }
@@ -119,4 +122,18 @@ fn browser_viewport_attach_mode_never_resizes() {
         ViewportDecision::RefusedAttached
     );
     assert_eq!(model.current(), initial);
+}
+
+#[test]
+fn browser_mobile_viewport_preserved_by_viewer_resize_and_refused_on_attach() {
+    let mut model = ViewportModel::new(ViewportMode::Owned, Viewport::default());
+    model.apply_device(request(390.0, 844.0, 2.0), true);
+    model.apply(request(400.0, 800.0, 2.0));
+    assert!(model.current().mobile);
+    let mut attached = ViewportModel::new(ViewportMode::Attached, Viewport::default());
+    assert_eq!(
+        attached.apply_device(request(390.0, 844.0, 2.0), true),
+        ViewportDecision::RefusedAttached
+    );
+    assert!(!attached.current().mobile);
 }

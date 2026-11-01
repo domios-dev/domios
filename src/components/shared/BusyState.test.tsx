@@ -54,11 +54,10 @@ test("BusyState label comes from the i18n constants module", async () => {
   assert(busyLabel("planLoad") === "Loading plan", "en value");
 });
 
-test("BusySpinner renders its icon and its bare ring form", async () => {
+test("BusySpinner only spins a control's own icon; there is no bare ring", async () => {
   const icon = await render(<BusySpinner icon={RefreshCw} spinning />);
-  assert(icon.host.querySelector("svg"), "icon renders");
-  const ring = await render(<BusySpinner data-testid="ring" />);
-  assert(ring.host.querySelector('[data-testid="ring"]'), "ring renders");
+  assert(icon.host.querySelector("svg.animate-spin"), "icon spins");
+  assert(!icon.host.querySelector(".ct-busy-ring"), "no ring");
 });
 
 test("BusyState explicit label overrides the key (Tab boot stage)", async () => {

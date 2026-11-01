@@ -1,9 +1,11 @@
 import type { PointerEvent as ReactPointerEvent } from "react";
-import { HEADER_HEIGHT, STATUS_HEIGHT, type LaidOutBlueprintNode } from "./layout";
+import { HEADER_HEIGHT, STATUS_HEIGHT, TRIGGER_HEIGHT, type LaidOutBlueprintNode } from "./layout";
 import type { BlueprintPin, NodeEvidence } from "./graphModel";
 import { stateTone } from "../styles";
+import { UnavailableNotice } from "./UnavailableNotice";
 
 function Pin({ pin }: { pin: BlueprintPin }) {
+  if (pin.terminal) return <span className="bp-terminal" aria-hidden="true"><span /></span>;
   return <span className="bp-pin" data-side={pin.side} data-kind={pin.kind} data-connected={pin.connected || undefined} aria-hidden="true" />;
 }
 
@@ -18,7 +20,7 @@ function PinLabel({ pin }: { pin: BlueprintPin }) {
   if (!pin.label) return null;
   const detail = pin.kind === "data" ? shownDetail(pin) : undefined;
   const tooltip = [pin.detail ? `${pin.label}: ${pin.detail}` : pin.label, pin.type && pin.type !== pin.detail ? pin.type : null].filter(Boolean).join(" · ");
-  return <span className="bp-pin-label" data-side={pin.side} data-kind={pin.kind} title={tooltip}>
+  return <span className="bp-pin-label" data-side={pin.side} data-kind={pin.kind} data-terminal={pin.terminal || undefined} data-host={pin.hostReserved || undefined} title={tooltip}>
     <span className="bp-pin-label__name">{pin.label}</span>
     {detail && <span className="bp-pin-label__detail">{detail}</span>}
   </span>;
@@ -51,15 +53,16 @@ export function BlueprintNodeCard({ laid, watch }: { laid: LaidOutBlueprintNode;
         <span className="bp-node__subtitle">{node.callee ? `${node.kindLabel} · ${node.callee.name}` : node.kindLabel}{node.callPath.length ? ` · in ${node.callPath.join(" / ")}` : ""}</span>
       </span>
     </span>
+    {node.trigger && <span className="bp-node__trigger" role="note" aria-label={node.trigger.label} title={node.trigger.label} style={{ height: TRIGGER_HEIGHT }}><span aria-hidden="true">⟳</span><span>{node.trigger.badge}</span></span>}
     {node.evidence && <span className="bp-node__status" data-state={node.evidence.state} style={{ height: statusHeight || STATUS_HEIGHT }}>
       <span className={`bp-node__dot ${stateTone(node.evidence.state)}`} aria-hidden="true" />
       <span className="bp-node__status-text">{evidenceText(node.evidence)}</span>
     </span>}
     {node.body && <span className="bp-node__body" data-kind={node.body.kind} style={{ height: bodyHeight }}>
-      <span className="bp-node__clamp" style={{ WebkitLineClamp: bodyLines }}>{node.body.text}</span>
+      <span className="bp-node__clamp" style={{ WebkitLineClamp: bodyLines }}>{node.plugin?.available === false ? <UnavailableNotice text={node.body.text} /> : node.body.text}</span>
     </span>}
     {node.callee?.openable && <span className="bp-node__hint" aria-hidden="true">Double-click to open</span>}
-    {rows.map((row, index) => <span key={index} className="bp-row" data-pair={row.left?.label && row.right?.label ? "both" : "single"} style={{ top: row.top, height: row.height }}>
+    {rows.map((row, index) => <span key={index} className="bp-row" data-host-start={row.right?.hostReserved && !rows[index - 1]?.right?.hostReserved || undefined} data-pair={row.left?.label && row.right?.label ? "both" : "single"} style={{ top: row.top, height: row.height }}>
       {row.left && <PinSlot pin={row.left} rowTop={row.top} watch={watch} />}
       {row.right && <PinSlot pin={row.right} rowTop={row.top} watch={watch} />}
     </span>)}

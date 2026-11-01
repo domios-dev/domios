@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { DeferredLoader } from "@codeterm/chat-ui/DeferredLoader";
 
 export type SkeletonShape = "line" | "circle" | "tile";
 
@@ -33,10 +34,13 @@ export function Skeleton({ children, className, inline = false, "data-testid": t
   inline?: boolean;
   "data-testid"?: string;
 }) {
-  const Tag = inline ? "span" : "div";
-  return (
-    <Tag aria-hidden="true" data-testid={testId} className={`ct-skeleton ${inline ? "inline-flex" : ""} ${className ?? ""}`}>
+  return inline ? (
+    <span aria-hidden="true" data-testid={testId} className={`ct-skeleton inline-flex ${className ?? ""}`}>
       {children}
-    </Tag>
+    </span>
+  ) : (
+    <DeferredLoader state="present" aria-hidden="true" data-testid={testId} className={`ct-skeleton ${className ?? ""}`}>
+      {children}
+    </DeferredLoader>
   );
 }

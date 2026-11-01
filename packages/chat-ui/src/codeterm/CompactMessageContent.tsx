@@ -1,4 +1,5 @@
 import React from "react";
+import { useParentMessageBounds } from "../BoundedMessageContent";
 import { userMessageAttachments } from "@codeterm/chat-core";
 import type { MessageSegment } from "@codeterm/chat-core";
 import { LinkedText, type OpenPlan, type ResolvedChatPlanRef } from "./LinkedText";
@@ -28,7 +29,8 @@ export function CompactMessageContent({ text, markdown = false, segments, fontSc
   const parts = React.useMemo(() => segments ? { text, files: [], inline: null, reply: null } : userMessageAttachments(text), [text, segments]);
   const normalized = normalizeMessageText(parts.text);
   const lines = normalized.split("\n");
-  const collapsible = lines.length > collapseAfter;
+  const parentOwnsBounds = useParentMessageBounds();
+  const collapsible = !parentOwnsBounds && lines.length > collapseAfter;
   const [expanded, setExpanded] = React.useState(false);
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
   const renderText = (content: string) => {

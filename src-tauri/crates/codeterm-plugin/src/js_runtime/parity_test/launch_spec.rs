@@ -2,7 +2,7 @@ use super::*;
 use crate::provider::LaunchSpecParams;
 use codeterm_types::agent::LaunchSpec;
 
-fn materialized_arguments(mut spec: LaunchSpec) -> LaunchSpec {
+pub(super) fn materialized_arguments(mut spec: LaunchSpec) -> LaunchSpec {
     for index in 1..spec.args.len() {
         let flag = spec.args[index - 1].as_str();
         if !matches!(flag, "--settings" | "--append-system-prompt-file") {

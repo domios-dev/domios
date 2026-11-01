@@ -82,6 +82,24 @@ impl PinnedProcess {
         }
     }
 
+    pub fn wait_for_exit(&self) -> io::Result<()> {
+        let mut fd = libc::pollfd {
+            fd: self.handle.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        loop {
+            let result = unsafe { libc::poll(&mut fd, 1, -1) };
+            if result == 1 && fd.revents & libc::POLLIN != 0 {
+                return Ok(());
+            }
+            let error = io::Error::last_os_error();
+            if error.kind() != io::ErrorKind::Interrupted {
+                return Err(error);
+            }
+        }
+    }
+
     pub fn ensure_alive(&self) -> io::Result<()> {
         let mut fd = libc::pollfd {
             fd: self.handle.as_raw_fd(),

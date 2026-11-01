@@ -1,3 +1,4 @@
+mod proofs;
 use crate::account_mesh::wire::*;
 use crate::account_mesh::*;
 use crate::{Identity, InstallationId, Secret, Session};
@@ -6,6 +7,7 @@ use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use base64::Engine;
 use codeterm_entitlements::{Activation, CompiledKey, DetachedGrant, Mode, PinnedAuthority};
 use ed25519_dalek::{Signature, Signer, SigningKey};
+use proofs::ProofChallenges;
 use serde_json::json;
 use std::collections::HashMap;
 use std::io;
@@ -160,15 +162,31 @@ pub struct Script {
     pub sync_cursor: Option<MeshCursor>,
     pub rename_race: Option<String>,
     pub enrollment: Option<RegistryRefusal>,
+    pub challenge: Option<RegistryRefusal>,
+    pub challenge_once: Option<RegistryRefusal>,
+    pub membership_seconds: Option<u64>,
+    pub disable_renew_replay: bool,
+    pub renew_bodies: Vec<MeshAdmissionBody>,
+    pub key_requests: Vec<InstallationEnrollment>,
+    pub recovery_bodies: Vec<MeshAdmissionBody>,
+    pub recovery_prepared: Vec<SignedEnvelope<MeshAdmissionBody>>,
+    pub endpoint_seconds: Option<u64>,
+    pub membership_registry_revision: Option<u64>,
+    pub registry_revision: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
+    pub membership_once: Option<RegistryRefusal>,
     pub lose_membership_reply: Option<RegistryRefusal>,
     pub lose_key_reply: Option<RegistryRefusal>,
     pub publication: Option<RegistryRefusal>,
     pub presence: Option<RegistryRefusal>,
     pub list: Option<RegistryRefusal>,
     pub permit: Option<RegistryRefusal>,
+    pub permit_once: Option<RegistryRefusal>,
+    pub link_bodies: Vec<MeshAdmissionBody>,
     pub gate: Option<Arc<Notify>>,
+    pub list_gate: Option<Arc<Notify>>,
+    pub sync_gate: Option<Arc<Notify>>,
     pub peer_unpublished: bool,
     pub peer_key: Option<(String, u64)>,
     pub peer_active: Option<bool>,
@@ -187,6 +205,9 @@ struct Account {
     key_generation: u64,
     revoked_generation: u64,
     slot: Option<u64>,
+    slot_key: Option<(String, u64)>,
+    renew_receipt: Option<(MeshAdmissionBody, MeshResult)>,
+    recovery_receipt: Option<(SignedEnvelope<MeshAdmissionBody>, MeshResult)>,
     metadata_revision: u64,
     endpoint: Option<MeshEndpointObservation>,
     inactive: bool,
@@ -201,8 +222,10 @@ pub struct FakeRegistry {
     log: Log,
     pub script: Mutex<Script>,
     pub entered: Notify,
+    pub list_entered: Notify,
+    pub sync_entered: Notify,
     accounts: Mutex<HashMap<String, Account>>,
-    challenged: Mutex<Option<serde_json::Value>>,
+    challenged: Mutex<ProofChallenges>,
 }
 
 impl FakeRegistry {
@@ -213,60 +236,16 @@ impl FakeRegistry {
             log,
             script: Mutex::new(Script::default()),
             entered: Notify::new(),
+            list_entered: Notify::new(),
+            sync_entered: Notify::new(),
             accounts: Mutex::new(HashMap::new()),
-            challenged: Mutex::new(None),
+            challenged: Mutex::new(ProofChallenges::default()),
         }
     }
 
     fn admit(&self, session: &Session, label: &str) {
         let token = session.id_token.expose();
         note(&self.log, format!("registry:{label}:{token}"));
-    }
-
-    fn verify<T: serde::Serialize>(
-        &self,
-        session: &Session,
-        endpoint: &str,
-        body: &T,
-        proof: &InstallationProof,
-        spki: Option<&str>,
-    ) -> RegistryResult<()> {
-        let body = serde_json::to_value(body).unwrap();
-        if self.challenged.lock().unwrap().take().as_ref() != Some(&body) {
-            return Err(RegistryRefusal::Conflict);
-        }
-        let uid = &session.identity.uid;
-        let spki = match spki {
-            Some(spki) => spki.to_owned(),
-            None => self
-                .accounts
-                .lock()
-                .unwrap()
-                .get(uid)
-                .and_then(|account| account.key.clone())
-                .ok_or(RegistryRefusal::Forbidden)?,
-        };
-        let digest = super::super::key::jcs_sha256_hex(&body).unwrap();
-        let signed = json!({
-            "domain": "domios.online-installation-proof.v1",
-            "project": PROJECT, "mode": "test", "uid": uid, "installation_id": INSTALLATION,
-            "policy_epoch": EPOCH, "method": "POST", "endpoint": endpoint, "body_sha256": digest,
-            "schema_version": proof.schema_version, "key_id": proof.key_id,
-            "generation": proof.generation, "timestamp": proof.timestamp, "nonce": proof.nonce,
-        });
-        let bytes = codeterm_entitlements::jcs::encode(&signed).unwrap();
-        let der = STANDARD.decode(&spki).unwrap();
-        let key = codeterm_entitlements::policy::parse_spki(&spki).unwrap();
-        let signature: [u8; 64] = URL_SAFE_NO_PAD
-            .decode(&proof.signature)
-            .unwrap()
-            .try_into()
-            .unwrap();
-        let valid = key
-            .verify_strict(bytes.as_bytes(), &Signature::from_bytes(&signature))
-            .is_ok()
-            && proof.key_id == super::super::key::sha256_hex(&der);
-        valid.then_some(()).ok_or(RegistryRefusal::Forbidden)
     }
 
     pub fn slot(&self, uid: &str) -> Option<u64> {
@@ -276,7 +255,6 @@ impl FakeRegistry {
     pub fn revoke_self(&self, uid: &str) {
         let mut accounts = self.accounts.lock().unwrap();
         let account = accounts.get_mut(uid).expect("account");
-        account.slot = None;
         account.inactive = true;
         account.revoked_generation = account.key_generation;
     }
@@ -306,8 +284,12 @@ impl FakeRegistry {
             account.map_or(0, |a| a.metadata_revision),
             account.and_then(|a| a.display_name.as_deref()),
         );
-        own.key_id = key_id.to_owned();
-        own.key_generation = account.map_or(1, |a| a.key_generation.max(1));
+        own.key_id = account
+            .and_then(|a| a.slot_key.as_ref())
+            .map_or_else(|| key_id.to_owned(), |(key, _)| key.clone());
+        own.key_generation = account
+            .and_then(|a| a.slot_key.as_ref())
+            .map_or(1, |(_, generation)| *generation);
         own.slot_revision = account.and_then(|a| a.slot).unwrap_or(1);
         own.active = account.is_none_or(|account| !account.inactive);
         own.presence = account.map_or(RegistryPresence::Present, |account| account.presence);
@@ -340,19 +322,41 @@ impl FakeRegistry {
 
 #[async_trait]
 impl MeshRegistry for FakeRegistry {
+    async fn revoke_prior_sessions(
+        &self,
+        _: &Session,
+        _: &PriorSessionsTarget,
+    ) -> RegistryResult<PriorSessionsRevokedResult> {
+        Err(RegistryRefusal::Unavailable)
+    }
     async fn challenge(
         &self,
         session: &Session,
         request: &ChallengeRequest,
     ) -> RegistryResult<String> {
         self.admit(session, "challenge");
-        *self.challenged.lock().unwrap() = Some(request.body.clone());
-        Ok(format!(
-            "{}.{}.{}",
-            self.clock.now(),
-            "a".repeat(43),
-            "b".repeat(43)
-        ))
+        let refusal = {
+            let mut script = self.script.lock().unwrap();
+            script.challenge_once.take().or(script.challenge)
+        };
+        if let Some(refusal) = refusal {
+            return Err(refusal);
+        }
+        if request.endpoint == ProofEndpoint::MeshAdmission {
+            if matches!(
+                request.body["operation"].as_str(),
+                Some("enroll" | "renew" | "recover")
+            ) {
+                assert_eq!(request.body["requested_membership_seconds"], 86400);
+            } else {
+                assert!(request.body.get("requested_membership_seconds").is_none());
+            }
+        }
+        Ok(self
+            .challenged
+            .lock()
+            .unwrap()
+            .issue(request.body.clone(), self.clock.now()))
     }
 
     async fn enroll_key(
@@ -365,6 +369,11 @@ impl MeshRegistry for FakeRegistry {
             KeyOperation::Recover => "recover_key",
         };
         self.admit(session, label);
+        self.script
+            .lock()
+            .unwrap()
+            .key_requests
+            .push(request.clone());
         let gate = self.script.lock().unwrap().enrollment_gate.clone();
         if let Some(gate) = gate {
             self.entered.notify_one();
@@ -381,24 +390,33 @@ impl MeshRegistry for FakeRegistry {
             &request.proof,
             Some(&spki),
         )?;
-        let generation = request
-            .body
-            .expected_generation
-            .checked_add(1)
-            .ok_or(RegistryRefusal::Invalid)?;
-        if request.proof.generation != generation {
-            return Err(RegistryRefusal::Invalid);
-        }
         let mut accounts = self.accounts.lock().unwrap();
         let account = accounts.entry(session.identity.uid.clone()).or_default();
-        match &request.body.operation {
-            KeyOperation::Enroll
-                if account.key.is_none() && request.body.expected_generation == 0 => {}
-            KeyOperation::Recover
-                if account.key.is_some()
-                    && account.key_generation == request.body.expected_generation => {}
-            _ => return Err(RegistryRefusal::Conflict),
-        }
+        let assigned = request.body.generation_policy == Some(GenerationPolicy::Assign);
+        let generation = if assigned {
+            assert_eq!(request.body.operation, KeyOperation::Recover);
+            assert_eq!(request.body.expected_generation, 0);
+            assert_eq!(request.proof.generation, 0);
+            if account.key.as_ref() == Some(&spki) {
+                account.key_generation
+            } else {
+                account.key_generation + 1
+            }
+        } else {
+            let generation = request.body.expected_generation + 1;
+            if request.proof.generation != generation {
+                return Err(RegistryRefusal::Invalid);
+            }
+            match &request.body.operation {
+                KeyOperation::Enroll
+                    if account.key.is_none() && request.body.expected_generation == 0 => {}
+                KeyOperation::Recover
+                    if account.key.is_some()
+                        && account.key_generation == request.body.expected_generation => {}
+                _ => return Err(RegistryRefusal::Conflict),
+            }
+            generation
+        };
         account.key = Some(spki);
         account.key_generation = generation;
         if let Some(refusal) = self.script.lock().unwrap().lose_key_reply.take() {
@@ -430,9 +448,30 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::Link { .. } => "link",
         };
         self.admit(session, label);
+        if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
+            self.script
+                .lock()
+                .unwrap()
+                .link_bodies
+                .push(envelope.request.clone());
+        }
+        if matches!(envelope.request.operation, MeshOperation::Recover { .. }) {
+            let mut script = self.script.lock().unwrap();
+            script.recovery_bodies.push(envelope.request.clone());
+            script.recovery_prepared.push(envelope.clone());
+        }
+        if matches!(envelope.request.operation, MeshOperation::List { .. }) {
+            let gate = self.script.lock().unwrap().list_gate.clone();
+            if let Some(gate) = gate {
+                self.list_entered.notify_one();
+                gate.notified().await;
+            }
+        }
         let membership_op = matches!(
             envelope.request.operation,
-            MeshOperation::Enroll { .. } | MeshOperation::Renew { .. }
+            MeshOperation::Enroll { .. }
+                | MeshOperation::Renew { .. }
+                | MeshOperation::Recover { .. }
         );
         if membership_op {
             self.entered.notify_one();
@@ -443,14 +482,26 @@ impl MeshRegistry for FakeRegistry {
         }
         let proof = &envelope.installation_proof;
         self.verify(session, "meshAdmission", &envelope.request, proof, None)?;
+        if matches!(envelope.request.operation, MeshOperation::Sync { .. }) {
+            let gate = self.script.lock().unwrap().sync_gate.clone();
+            if let Some(gate) = gate {
+                self.sync_entered.notify_one();
+                gate.notified().await;
+            }
+        }
         let script = {
-            let script = self.script.lock().unwrap();
-            (
-                script.membership,
-                script.publication,
-                script.permit,
-                script.issuer_ahead,
-            )
+            let mut script = self.script.lock().unwrap();
+            let membership = if membership_op {
+                script.membership_once.take().or(script.membership)
+            } else {
+                script.membership
+            };
+            let permit = if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
+                script.permit_once.take().or(script.permit)
+            } else {
+                script.permit
+            };
+            (membership, script.publication, permit, script.issuer_ahead)
         };
         let lost_membership_reply = if membership_op {
             self.script.lock().unwrap().lose_membership_reply.take()
@@ -461,8 +512,34 @@ impl MeshRegistry for FakeRegistry {
         let now = self.clock.now() + script.3;
         let mut accounts = self.accounts.lock().unwrap();
         let account = accounts.entry(uid.clone()).or_default();
+        if matches!(
+            envelope.request.operation,
+            MeshOperation::Recover {
+                target_policy: Some(_),
+                ..
+            }
+        ) {
+            if let Some((prepared, result)) = &account.recovery_receipt {
+                if prepared == envelope {
+                    return Ok(result.clone());
+                }
+            }
+        }
+        if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
+            let mut script = self.script.lock().unwrap();
+            script.renew_bodies.push(envelope.request.clone());
+            if !script.disable_renew_replay {
+                if let Some((body, result)) = &account.renew_receipt {
+                    if body == &envelope.request {
+                        return Ok(result.clone());
+                    }
+                }
+            }
+        }
         match &envelope.request.operation {
-            MeshOperation::Enroll { .. } | MeshOperation::Renew { .. } => {
+            MeshOperation::Enroll { .. }
+            | MeshOperation::Renew { .. }
+            | MeshOperation::Recover { .. } => {
                 if let Some(refusal) = script.0 {
                     return Err(refusal);
                 }
@@ -477,32 +554,99 @@ impl MeshRegistry for FakeRegistry {
                     MeshOperation::Enroll { .. } if account.inactive => {
                         return Err(RegistryRefusal::Forbidden)
                     }
-                    MeshOperation::Enroll { .. } => return Err(RegistryRefusal::Conflict),
+                    MeshOperation::Enroll { .. } => return Err(RegistryRefusal::Forbidden),
                     MeshOperation::Renew {
                         expected_slot_revision,
-                    } if account.slot == Some(*expected_slot_revision) => {
+                    } if account.slot == Some(*expected_slot_revision)
+                        && !account.inactive
+                        && account.slot_key.as_ref()
+                            == Some(&(proof.key_id.clone(), proof.generation)) =>
+                    {
                         expected_slot_revision + 1
                     }
-                    MeshOperation::Renew { .. } => return Err(RegistryRefusal::Conflict),
+                    MeshOperation::Renew { .. } => return Err(RegistryRefusal::Forbidden),
+                    MeshOperation::Recover {
+                        target: RecoveryTarget::Own { installation_id },
+                        target_policy: Some(OwnTargetPolicy::Own),
+                    } if installation_id == INSTALLATION
+                        && account.slot.is_some()
+                        && account
+                            .slot_key
+                            .as_ref()
+                            .is_some_and(|(_, generation)| proof.generation > *generation) =>
+                    {
+                        account.slot.unwrap() + 1
+                    }
+                    MeshOperation::Recover {
+                        target: RecoveryTarget::Exact(target),
+                        target_policy: None,
+                    } if !account.inactive
+                        && account.slot == Some(target.slot_revision)
+                        && account.slot_key.as_ref()
+                            == Some(&(target.key_id.clone(), target.key_generation))
+                        && proof.generation > target.key_generation =>
+                    {
+                        target.slot_revision + 1
+                    }
+                    MeshOperation::Recover { .. } => return Err(RegistryRefusal::Forbidden),
                     _ => return Err(RegistryRefusal::Invalid),
                 };
                 account.slot = Some(slot);
+                account.slot_key = Some((proof.key_id.clone(), proof.generation));
                 account.inactive = false;
-                let payload =
+                let mut payload =
                     Issuer::membership_payload(&uid, &proof.key_id, proof.generation, slot, now);
+                if let Some(seconds) = self.script.lock().unwrap().membership_seconds {
+                    payload["expires_at"] = json!(now + seconds);
+                }
                 let result = MeshResult::Membership(MembershipResult {
                     operation: match &envelope.request.operation {
                         MeshOperation::Enroll { .. } => MembershipOperation::Enroll,
                         MeshOperation::Renew { .. } => MembershipOperation::Renew,
+                        MeshOperation::Recover { .. } => MembershipOperation::Recover,
                         _ => return Err(RegistryRefusal::Invalid),
                     },
                     installation_id: INSTALLATION.into(),
                     slot_revision: slot,
-                    registry_revision: slot,
+                    registry_revision: self
+                        .script
+                        .lock()
+                        .unwrap()
+                        .membership_registry_revision
+                        .unwrap_or(slot),
                     membership: self.issuer.sign(&payload),
                 });
+                if matches!(envelope.request.operation, MeshOperation::Renew { .. }) {
+                    account.renew_receipt = Some((envelope.request.clone(), result.clone()));
+                }
+                if matches!(
+                    envelope.request.operation,
+                    MeshOperation::Recover {
+                        target_policy: Some(_),
+                        ..
+                    }
+                ) {
+                    account.recovery_receipt = Some((envelope.clone(), result.clone()));
+                }
                 if let Some(refusal) = lost_membership_reply {
                     return Err(refusal);
+                }
+                if let (
+                    MeshOperation::Recover {
+                        target: RecoveryTarget::Exact(_),
+                        ..
+                    },
+                    MeshResult::Membership(membership),
+                ) = (&envelope.request.operation, &result)
+                {
+                    return Ok(MeshResult::Recovered(RecoveredResult {
+                        installation_id: membership.installation_id.clone(),
+                        key_id: proof.key_id.clone(),
+                        key_generation: proof.generation,
+                        slot_revision: membership.slot_revision,
+                        registry_revision: membership.registry_revision,
+                        membership: Some(membership.membership.clone()),
+                    }));
                 }
                 Ok(result)
             }
@@ -538,7 +682,8 @@ impl MeshRegistry for FakeRegistry {
                         transport: endpoint.transport.clone(),
                         tailnet_ip: endpoint.tailnet_ip.clone(),
                         api_port: endpoint.api_port,
-                        expires_at: now + 3600,
+                        expires_at: now
+                            + self.script.lock().unwrap().endpoint_seconds.unwrap_or(3600),
                     };
                     changed |= account.endpoint.as_ref() != Some(&observation);
                     account.endpoint = Some(observation);
@@ -549,6 +694,13 @@ impl MeshRegistry for FakeRegistry {
                 if changed {
                     account.metadata_revision += 1;
                 }
+                let (registry_revision, cursor) = {
+                    let script = self.script.lock().unwrap();
+                    (
+                        script.registry_revision.unwrap_or(9),
+                        script.sync_cursor.clone(),
+                    )
+                };
                 let mut result = SyncResult {
                     installation_id: INSTALLATION.into(),
                     display_name: account.display_name.clone(),
@@ -562,11 +714,11 @@ impl MeshRegistry for FakeRegistry {
                     previous_metadata_revision: previous,
                     metadata_revision: account.metadata_revision,
                     slot_revision: account.slot.unwrap(),
-                    registry_revision: 9,
+                    registry_revision,
                     registry: PageResult {
-                        registry_revision: 9,
+                        registry_revision,
                         rows: Vec::new(),
-                        cursor: self.script.lock().unwrap().sync_cursor.clone(),
+                        cursor,
                     },
                 };
                 drop(accounts);
@@ -587,7 +739,7 @@ impl MeshRegistry for FakeRegistry {
                     transport: endpoint.transport.clone(),
                     tailnet_ip: endpoint.tailnet_ip.clone(),
                     api_port: endpoint.api_port,
-                    expires_at: now + 3600,
+                    expires_at: now + self.script.lock().unwrap().endpoint_seconds.unwrap_or(3600),
                 };
                 account.metadata_revision += 1;
                 account.endpoint = Some(observation.clone());
@@ -597,7 +749,7 @@ impl MeshRegistry for FakeRegistry {
                     previous_metadata_revision: *expected_metadata_revision,
                     metadata_revision: account.metadata_revision,
                     slot_revision: account.slot.unwrap_or(1),
-                    registry_revision: 9,
+                    registry_revision: self.script.lock().unwrap().registry_revision.unwrap_or(9),
                 }))
             }
             MeshOperation::Presence {
@@ -643,13 +795,22 @@ impl MeshRegistry for FakeRegistry {
                 }))
             }
             MeshOperation::List { .. } => {
+                if account.inactive
+                    || account.slot_key.as_ref().is_some_and(|(key, generation)| {
+                        key != &proof.key_id || *generation != proof.generation
+                    })
+                {
+                    return Err(RegistryRefusal::Forbidden);
+                }
                 if let Some(refusal) = self.script.lock().unwrap().list {
                     return Err(refusal);
                 }
                 drop(accounts);
+                let registry_revision = self.script.lock().unwrap().registry_revision.unwrap_or(7);
+                let rows = self.rows(&uid, &proof.key_id);
                 Ok(MeshResult::Page(PageResult {
-                    registry_revision: 7,
-                    rows: self.rows(&uid, &proof.key_id),
+                    registry_revision,
+                    rows,
                     cursor: None,
                 }))
             }
@@ -709,6 +870,9 @@ impl MeshRegistry for FakeRegistry {
                 if let Some(refusal) = script.2 {
                     return Err(refusal);
                 }
+                if account.slot != Some(*expected_slot_revision) {
+                    return Err(RegistryRefusal::Conflict);
+                }
                 let holder = MeshTarget {
                     installation_id: INSTALLATION.into(),
                     key_id: proof.key_id.clone(),
@@ -724,7 +888,6 @@ impl MeshRegistry for FakeRegistry {
                     permit: self.issuer.sign(&payload),
                 }))
             }
-            MeshOperation::Recover { .. } => Err(RegistryRefusal::Invalid),
         }
     }
 }
@@ -749,11 +912,26 @@ pub fn row(id: &str, metadata_revision: u64, name: Option<&str>) -> MeshManageme
 }
 
 #[derive(Default)]
-pub struct FakeSessions(pub Mutex<Option<Session>>);
+pub struct FakeSessions(
+    pub Mutex<Option<Session>>,
+    pub AtomicU64,
+    pub Mutex<Option<AccountMeshRefusal>>,
+);
 #[async_trait]
 impl SessionSource for FakeSessions {
     async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
         Ok(self.0.lock().unwrap().clone())
+    }
+    async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal> {
+        self.1.fetch_add(1, Ordering::SeqCst);
+        if let Some(refusal) = *self.2.lock().unwrap() {
+            return Err(refusal);
+        }
+        let mut session = self.0.lock().unwrap();
+        if let Some(session) = session.as_mut() {
+            session.id_token = Secret::new("refreshed-token");
+        }
+        Ok(session.clone())
     }
 }
 
@@ -770,29 +948,8 @@ impl InstallationKeyStore for MemoryKeys {
     }
 }
 
-pub struct MemoryStore {
-    pub record: Mutex<AccountMeshRecord>,
-    pub corrupt: Mutex<bool>,
-    pub fail_save: Mutex<bool>,
-    log: Log,
-}
-#[async_trait]
-impl AccountMeshStore for MemoryStore {
-    async fn load(&self) -> io::Result<AccountMeshRecord> {
-        if *self.corrupt.lock().unwrap() {
-            return Err(io::ErrorKind::InvalidData.into());
-        }
-        Ok(self.record.lock().unwrap().clone())
-    }
-    async fn save(&self, record: &AccountMeshRecord) -> io::Result<()> {
-        if *self.fail_save.lock().unwrap() {
-            return Err(io::ErrorKind::PermissionDenied.into());
-        }
-        note(&self.log, format!("save:signed_out={}", record.signed_out));
-        *self.record.lock().unwrap() = record.clone();
-        Ok(())
-    }
-}
+mod store;
+pub use store::MemoryStore;
 
 #[derive(Default)]
 pub struct FakeEndpoint(pub Mutex<Option<MeshEndpoint>>);
@@ -878,6 +1035,8 @@ impl Harness {
             record: Mutex::default(),
             corrupt: Mutex::new(corrupt),
             fail_save: Mutex::new(false),
+            save_gate: Mutex::new(None),
+            save_entered: Notify::new(),
             log: log.clone(),
         });
         let transport = Arc::new(FakeTransport {

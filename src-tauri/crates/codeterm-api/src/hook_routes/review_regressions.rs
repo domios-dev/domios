@@ -69,6 +69,7 @@ fn hook_session_offruntime_keeps_runtime_responsive_while_cron_writer_is_held() 
         .record_run(
             &job.id,
             CronRunInfo {
+                cancel_reason: None,
                 run_id: "run-1".into(),
                 started_at: 1,
                 finished_at: None,

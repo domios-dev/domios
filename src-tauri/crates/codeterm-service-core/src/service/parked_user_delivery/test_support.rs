@@ -1,10 +1,28 @@
 use super::*;
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::ServiceContext;
 use parking_lot::Mutex;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
 
 pub(super) const TEST_DEADLINE: Duration = Duration::from_secs(10);
+
+pub fn note_dispatched_for_test(service: &ServiceContext, tab: &str) {
+    let authority = service.user_send_authority(tab).unwrap();
+    assert!(service.note_user_launch_dispatched(&authority));
+}
+
+pub fn owner_wake_counts(service: &ServiceContext, tab: &str) -> (u64, u64) {
+    let owner = service.pending_delivery_payloads.user_sends.tab(tab);
+    (
+        owner
+            .wake_generation
+            .load(std::sync::atomic::Ordering::Acquire),
+        owner
+            .dispatch_generation
+            .load(std::sync::atomic::Ordering::Acquire),
+    )
+}
 
 pub(crate) fn pre_ready_fixture() -> (ServiceFixture, String) {
     let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();

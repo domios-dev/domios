@@ -305,7 +305,8 @@ function TabItemInner({
     : null;
   const managedBy = managedTabPresentation(tab.managed).label ?? managedByLabel(tab);
   const meshLabel = meshBadgeLabel(tab);
-  const rowText = tabRowText({ title: displayTitle, description, typeLabel: roleShield });
+  const activityDescription = hasAgent && tabState.phase === "compacting" ? tabState.label : description;
+  const rowText = tabRowText({ title: displayTitle, description: activityDescription, typeLabel: roleShield });
   const isSubTab =
     !anchorsTeam(tab) && (Boolean(tab.parent_tab_id) || (tab.depth ?? 0) > 0);
   const [editing, setEditing] = useState(false);
@@ -478,8 +479,9 @@ function TabItemInner({
           >
             {rowText.title}
           </span>
+          <TabAttentionMark title={accessibleTitle} attention={attention ?? tabAttention(tab, status, [], isActive)} active={isActive} placement="title" />
           {hasAgent && (
-            <TabWorkingActivity activity={tabState} />
+            <TabWorkingActivity activity={tabState} label={tabState.label} />
           )}
           {shellRunning && <TabWorkingActivity activity={tabState} label={`${displayTitle} working`} />}
         </span>
@@ -543,9 +545,9 @@ function TabItemInner({
         role="status"
         aria-live="polite"
         aria-atomic="true"
-        aria-label={`${accessibleTitle} tab status ${tabState.status}`}
+        aria-label={`${accessibleTitle} tab status ${tabState.phase === "compacting" ? tabState.label : tabState.status}`}
       >
-        {accessibleTitle} tab status {tabState.status}
+        {accessibleTitle} tab status {tabState.phase === "compacting" ? tabState.label : tabState.status}
       </span>}
       <div className={`shrink-0 relative z-[1] flex items-center justify-end ${touchMode ? "" : `sidebar-tab-end ${tabText}`}`}>
         {!attachment && !touchMode && <MeshDot label={meshLabel} />}

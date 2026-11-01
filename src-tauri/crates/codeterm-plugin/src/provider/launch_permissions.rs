@@ -3,6 +3,8 @@
 //! settings files, so every CodeTerm instance launches with the same grants.
 
 use serde::{Deserialize, Serialize};
+mod filesystem;
+pub use filesystem::ScopedFilesystemPermissions;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
@@ -18,6 +20,8 @@ pub struct LaunchPermissionCapability {
     pub deny_tool_args_format: Vec<String>,
     /// Tools that start a provider-native subagent inside the session.
     pub native_subagent_tools: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scoped_filesystem: Option<ScopedFilesystemPermissions>,
 }
 
 impl LaunchPermissionCapability {
@@ -82,6 +86,7 @@ mod tests {
             allow_rule_args_format: vec!["--allow".into(), "{rule}".into()],
             deny_tool_args_format: vec!["--deny".into(), "{tool}".into()],
             native_subagent_tools: vec!["Spawner".into()],
+            ..Default::default()
         }
     }
 

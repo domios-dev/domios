@@ -203,3 +203,16 @@ fn a_cache_miss_cannot_overwrite_a_concurrent_set_or_delete() {
         }
     }
 }
+
+#[test]
+fn startup_never_imports_the_retired_keychain_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let old = root.path().join("keychain").join("fixture.json");
+    std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+    let original = br#"{"key":"retired-value"}"#;
+    std::fs::write(&old, original).unwrap();
+    let store = SecretFile::new_at(root.path(), "fixture");
+    assert!(matches!(store.get("key"), Err(SecretFileError::NotFound)));
+    assert!(!root.path().join(".secrets").exists());
+    assert_eq!(std::fs::read(old).unwrap(), original);
+}

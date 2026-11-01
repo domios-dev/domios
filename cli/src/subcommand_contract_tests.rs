@@ -1,7 +1,6 @@
 use super::*;
 use crate::args::agent::AgentAction;
 use crate::args::delayed::DelayedAction;
-use crate::args::inbox::InboxAction;
 use crate::args::mem::MemAction;
 use crate::args::misc::TabAction;
 use crate::args::orchestrator::OrchestratorAction;
@@ -13,6 +12,7 @@ mod context;
 mod curator;
 mod plan_lane_clean;
 mod plan_project;
+mod radar;
 mod recurrence;
 mod remote_team;
 mod sessions;
@@ -34,12 +34,6 @@ struct MemOnly {
 struct TaskOnly {
     #[command(subcommand)]
     action: TaskAction,
-}
-
-#[derive(Parser)]
-struct InboxOnly {
-    #[command(subcommand)]
-    action: InboxAction,
 }
 
 #[derive(Parser)]
@@ -267,24 +261,6 @@ fn task_show_parses_siblings_flags() {
 }
 
 #[test]
-fn standalone_task_add_parses_qa_plan_file() {
-    let parsed = InboxOnly::try_parse_from([
-        "inbox",
-        "add",
-        "--name",
-        "QA lifecycle",
-        "--qa-plan-file",
-        "qa-plan.md",
-    ])
-    .expect("inbox add --qa-plan-file parses");
-    match parsed.action {
-        InboxAction::Add { qa_plan_file, .. } => {
-            assert_eq!(qa_plan_file.as_deref(), Some("qa-plan.md"))
-        }
-    }
-}
-
-#[test]
 fn removed_spellings_are_rejected() {
     for argv in [
         vec!["codeterm", "report", "--status", "in_review", "x"],
@@ -293,6 +269,7 @@ fn removed_spellings_are_rejected() {
         vec!["codeterm", "notify", "hello"],
         vec!["codeterm", "orchestration", "new"],
         vec!["codeterm", "task", "add", "--name", "x"],
+        vec!["codeterm", "inbox", "add", "--name", "x"],
     ] {
         assert!(
             Cli::try_parse_from(argv.clone()).is_err(),
@@ -356,13 +333,13 @@ fn retained_spellings_still_parse() {
         }
     ));
 
-    let inbox =
-        Cli::try_parse_from(["codeterm", "inbox", "add", "--name", "x"]).expect("inbox add parses");
+    let radar = Cli::try_parse_from(["codeterm", "radar", "pull", "rd_1", "--plan", "pl_1"])
+        .expect("radar pull parses");
     assert!(matches!(
-        inbox.command,
-        Commands::Inbox {
-            action: InboxAction::Add { ref name, .. }
-        } if name == "x"
+        radar.command,
+        Commands::Radar {
+            action: RadarAction::Pull { ref item_id, ref plan, .. }
+        } if item_id == "rd_1" && plan == "pl_1"
     ));
 
     for leaf in [
@@ -522,7 +499,7 @@ fn task_read_leaves_are_preserved() {
     ));
     assert!(
         Cli::try_parse_from(["codeterm", "inbox", "list"]).is_err(),
-        "the inbox group holds only `add`"
+        "the inbox group is gone; Radar replaces it"
     );
 }
 
@@ -887,7 +864,6 @@ fn tab_list_defaults_to_all_workspace_scope() {
         parsed.action,
         TabAction::List {
             workspace: None,
-            all_workspaces: false,
             agents: false,
         }
     ));
@@ -901,7 +877,6 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
         listed.action,
         TabAction::List {
             workspace: Some(ref workspace),
-            all_workspaces: false,
             agents: true,
         } if workspace == "ws_1"
     ));
@@ -928,16 +903,7 @@ fn tab_list_and_inspect_parse_explicit_scopes() {
     ));
     assert!(TabOnly::try_parse_from(["tab", "focus", "--tab", "tab_1"]).is_ok());
     assert!(TabOnly::try_parse_from(["tab", "close", "--tab", "tab_1"]).is_ok());
-    let all = TabOnly::try_parse_from(["tab", "list", "--all-workspaces"])
-        .expect("all-workspaces tab list parses");
-    assert!(matches!(
-        all.action,
-        TabAction::List {
-            workspace: None,
-            all_workspaces: true,
-            agents: false,
-        }
-    ));
+    assert!(TabOnly::try_parse_from(["tab", "list", "--all-workspaces"]).is_err());
     assert!(
         TabOnly::try_parse_from(["tab", "list", "--workspace", "ws_1", "--all-workspaces"])
             .is_err()

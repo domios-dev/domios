@@ -76,7 +76,11 @@ fn store_agent_state_and_record_turn_resume_edge(
 ) -> (bool, bool) {
     let mut new_state = new_state;
     finished_turn::carry_summary(tab.agent_state.as_ref(), &mut new_state);
-    if tab.structured_control_active || tab.agent_state.as_ref() == Some(&new_state) {
+    if matches!(
+        tab.backing,
+        crate::multiplexer::types::TabBacking::ChatBackend { .. }
+    ) || tab.agent_state.as_ref() == Some(&new_state)
+    {
         return (false, false);
     }
     tab.record_activity();
@@ -198,14 +202,6 @@ impl ServiceContext {
         if let Some(tab_id) = tab_id.as_deref() {
             super::structured_prompt::wake_for_tab(tab_id);
         }
-        if tab_id
-            .as_deref()
-            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
-        {
-            let status = self.agent_tracker.lock().get_status(pty_id);
-            return (status, status);
-        }
-
         // An unresolvable provider has UNKNOWN chrome, so refuse to hash
         // rather than measure the volatile band against a fictional zero.
         let status_bar_rows = match agent_type.as_deref() {
@@ -555,13 +551,6 @@ impl ServiceContext {
     }
 
     pub(crate) fn recompute_agent_state(&self, pty_id: &str) {
-        let tab = self.mux.read().tab_id_for_pty(pty_id);
-        if tab
-            .as_deref()
-            .is_some_and(|tab| super::codex_rpc::lifecycle::for_tab(tab).is_some())
-        {
-            return;
-        }
         use crate::agent::offline_state_classifier::{
             classify_state, extract_completion_summary, extract_question_message,
             extract_status_line, AgentLiveState, TabVerdict, TimelineState,
@@ -613,7 +602,7 @@ impl ServiceContext {
 
         // screen_state (3): trimmed lines + tail from the existing parser.
         const LIVE_TAIL_ROWS: usize = 60;
-        let Some((lines, tail, cursor_hidden, composer_ready, cursor_row)) = ({
+        let Some((lines, tail, cursor_hidden, composer_ready)) = ({
             let Some(screen_state) = self.screen_state.existing(pty_id) else {
                 return;
             };
@@ -645,21 +634,10 @@ impl ServiceContext {
                     })
                     .unwrap_or(false)
             };
-            let cursor_row = cursor_state.map(|(_alt, _vis, row, _rows)| row as usize);
-            Some((lines, tail, cursor_hidden, composer_ready, cursor_row))
+            Some((lines, tail, cursor_hidden, composer_ready))
         }) else {
             return;
         };
-
-        // Ephemeral stream preview: telemetry only, never feeds classification.
-        if let Some(event) =
-            crate::service::stream_preview::step(pty_id, &tab_id, &lines, cursor_row)
-        {
-            self.ui.emit(
-                "chat-stream-preview",
-                serde_json::to_value(&event).unwrap_or_default(),
-            );
-        }
 
         let status = extract_status_line(&lines);
 
@@ -894,6 +872,12 @@ impl ServiceContext {
                     )
                 };
 
+                if crate::service::structured_prompt::pending_for_tab(tab_id).as_ref()
+                    == Some(prompt)
+                {
+                    self.push_structured_prompt(tab_id, Some(prompt.clone()));
+                    return;
+                }
                 let trust = if require_user_confirmation {
                     super::directory_trust::TrustDecision::NotApplicable
                 } else {
@@ -902,7 +886,23 @@ impl ServiceContext {
                 if trust.owns_prompt() && trust != super::directory_trust::TrustDecision::Held {
                     return;
                 }
+                if !directory_trust_prompt
+                    && !require_user_confirmation
+                    && self
+                        .try_permission_auto_confirm(tab_id, screen_text)
+                        .owns_prompt()
+                {
+                    return;
+                }
                 if auto_approve && !directory_trust_prompt && !require_user_confirmation {
+                    let bound_permission_owner = super::structured_endpoint::sse(tab_id).is_some()
+                        || agent_type.as_deref().is_some_and(|agent_type| {
+                            self.agent_registry
+                                .with_provider(agent_type, |provider| {
+                                    provider.supports_permission_auto_confirm()
+                                })
+                                .unwrap_or(false)
+                        });
                     if is_general_tab {
                         let provider_classified_safety_dialog = agent_type
                             .as_deref()
@@ -918,7 +918,7 @@ impl ServiceContext {
                             prompt,
                             screen_text.unwrap_or(""),
                             directory_trust_prompt || provider_classified_safety_dialog,
-                        ) {
+                        ).filter(|ack| !bound_permission_owner || ack.kind != crate::service::general_agent::blocker::AutoAckKind::FirstAffirmative) {
                             log::info!(
                                 "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
                                 ack.kind.label(),
@@ -954,12 +954,13 @@ impl ServiceContext {
                     let structured_prompt =
                         crate::service::structured_prompt::pending_for_tab(tab_id)
                             .is_some_and(|structured| &structured == prompt);
-                    let legacy_permitted = super::directory_trust::legacy_auto_approve_permitted(
-                        &trust,
-                        session_authenticated,
-                        structured_prompt,
-                        directory_trust_prompt,
-                    );
+                    let legacy_permitted = !bound_permission_owner
+                        && super::directory_trust::legacy_auto_approve_permitted(
+                            &trust,
+                            session_authenticated,
+                            structured_prompt,
+                            directory_trust_prompt,
+                        );
                     if let Some(response) = legacy_permitted
                         .then(|| legacy_auto_approve_response(prompt, directory_trust_prompt))
                         .flatten()
@@ -980,14 +981,6 @@ impl ServiceContext {
                         "[auto-approve] Skipping non-approvable prompt for Tab {}",
                         tab_id
                     );
-                }
-                if !directory_trust_prompt
-                    && !require_user_confirmation
-                    && self
-                        .try_permission_auto_confirm(tab_id, screen_text)
-                        .owns_prompt()
-                {
-                    return;
                 }
                 let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
                 let pending_prompt_changed = {

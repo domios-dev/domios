@@ -7,7 +7,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { Button } from "../shared/Button";
 import { useChildTranscript } from "./useChildTranscript";
 import { childTranscriptTitle, childTranscriptViewState, subagentTone } from "./childTranscriptViewModel";
-import { RegionLoader } from "../shared/RegionLoader";
+import { Loader } from "../shared/Loader";
 
 function ChildTranscript({ tabId, threadId, authority, onClose }: { tabId: string; threadId: string; authority: ChildTranscriptAuthority; onClose: () => void }) {
   const transcript = useChildTranscript(tabId, threadId, authority);
@@ -52,7 +52,7 @@ function ChildTranscript({ tabId, threadId, authority, onClose }: { tabId: strin
           return <MessageBubble key={message.id} message={{ ...message, interactive: [] }} item={item.kind === "tool" ? item : undefined} />;
         })}
       </div>
-      {state === "loading" && <RegionLoader label="Loading transcript" className="min-h-40" />}
+      {state === "loading" && <Loader variant="compact" label="Loading transcript" />}
       {state === "empty" && <p role="status" className="ct-child-transcript__empty">This sub-agent has not produced output</p>}
     </div>
   </section>;

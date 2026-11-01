@@ -9,15 +9,10 @@ impl PlanStore {
         *self.task_key_port.write() = Some(port);
     }
 
-    /// Largest stored key number per prefix across every loaded plan.
+    /// Largest stored key number per prefix, read from the task rows; no plan is loaded.
     pub fn task_key_high_water(&self) -> HashMap<String, u64> {
-        let plans: Vec<_> = self.plans.read().values().cloned().collect();
-        let mut keys = Vec::new();
-        for plan in plans {
-            let plan = plan.lock();
-            keys.extend(plan.tasks.iter().filter_map(|task| task.key.clone()));
-        }
-        task_key::high_water(keys.iter().map(String::as_str))
+        let keys = self.task_field_values("$.key");
+        task_key::high_water(keys.iter().map(|row| row.value.as_str()))
     }
 
     /// Must NOT be called while holding a plan mutex: the host port takes the mux lock.
@@ -36,7 +31,7 @@ impl PlanStore {
     }
 
     fn task_key_scope(&self, plan_id: &str) -> Option<TaskKeyScope> {
-        let plan = self.plans.read().get(plan_id).cloned()?;
+        let plan = self.plan_arc(plan_id).ok()?;
         let plan = plan.lock();
         Some(TaskKeyScope {
             plan_id: plan.id.clone(),
@@ -47,7 +42,7 @@ impl PlanStore {
     }
 
     pub fn task_display_key(&self, plan_id: &str, task_ref: &str) -> Option<String> {
-        let plan = self.plans.read().get(plan_id).cloned()?;
+        let plan = self.plan_arc(plan_id).ok()?;
         let plan = plan.lock();
         task_key::find_task(&plan.tasks, task_ref).map(|task| task.display_key())
     }
