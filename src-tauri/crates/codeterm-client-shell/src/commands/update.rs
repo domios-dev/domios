@@ -1,5 +1,5 @@
 use codeterm_update::channel::Channel;
-use codeterm_update::{UpdatePhase, UpdateStateHandle};
+use codeterm_update::UpdateStateHandle;
 use tauri::Manager;
 
 use crate::app_runtime::AppHandle;
@@ -24,24 +24,12 @@ pub async fn check_for_update(
     }
 
     let method = update_state.lock().install_method.clone();
-    {
-        let mut us = update_state.lock();
-        us.set_phase(UpdatePhase::Checking);
-        us.clear_error();
-    }
-    let info = match codeterm_update::checker::check_for_update(&method).await {
-        Ok(info) => info,
-        Err(error) => {
-            update_state.lock().set_error(error.clone());
-            return Err(error);
-        }
-    };
+    let info = codeterm_update::checker::check_for_update(&method).await?;
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
     let mut us = update_state.lock();
     us.last_check = Some(info);
     us.last_check_time = Some(std::time::Instant::now());
-    us.set_phase(UpdatePhase::Idle);
     Ok(val)
 }
 

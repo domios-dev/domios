@@ -239,6 +239,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const userInstallRef = useRef(false);
   const activeInstallPhaseRef = useRef(false);
   const installCallReturnedRef = useRef(false);
+  const installFailureRef = useRef(false);
 
   useEffect(() => {
     installingRef.current = installing;
@@ -246,7 +247,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
   const handleInfo = useCallback((next: UpdateInfo) => {
     setInfo(next);
-    if (installingRef.current) return;
+    if (installingRef.current || installFailureRef.current) return;
     setStatus(next.update_available ? "available" : "up-to-date");
   }, []);
 
@@ -254,13 +255,16 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     async (force = false, opts?: { silent?: boolean }): Promise<void> => {
       if (installingRef.current) return;
       const silent = opts?.silent ?? false;
-      if (!silent) setStatus("checking");
-      setError(null);
+      if (!installFailureRef.current) {
+        if (!silent) setStatus("checking");
+        setError(null);
+      }
       try {
         const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined);
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
         handleInfo(data);
       } catch (e) {
+        if (installFailureRef.current) return;
         if (!classifyUpdateFailure(silent ? "background" : "check", e)) {
           if (DEV_BUILD) console.debug("Background update check failed", e);
           return;
@@ -308,6 +312,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const applyRuntimeStatus = useCallback(
     (raw: RuntimeStatus, opts?: { adopt?: boolean }) => {
       const next = normalizeRuntimeStatus(raw);
+      if (next.phase === "idle" && installFailureRef.current) return;
       const observation = observeInstallPhase(
         next.phase,
         activeInstallPhaseRef.current,
@@ -320,6 +325,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       const nextInstalling = installingRef.current || shouldAdopt;
 
       if (shouldAdopt) {
+        installFailureRef.current = false;
         if (!installingRef.current) setToastOpen(true);
         installingRef.current = true;
       }
@@ -352,10 +358,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "error") {
         const message = next.last_error || "Update failed";
-        if (!classifyUpdateFailure(installingRef.current ? "update" : "background", message)) {
-          if (DEV_BUILD) console.debug("Background update status failed", message);
-          return;
-        }
+        installFailureRef.current = true;
         installingRef.current = false;
         activeInstallPhaseRef.current = false;
         installCallReturnedRef.current = true;
@@ -406,6 +409,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     userInstallRef.current = opts?.failureSurface !== "inline";
     activeInstallPhaseRef.current = false;
     installCallReturnedRef.current = false;
+    installFailureRef.current = false;
     setInstalling(true);
     setToastOpen(true);
     setStatus("checking");
@@ -419,6 +423,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       await fetchRuntimeStatus();
       return response;
     } catch (e) {
+      installFailureRef.current = true;
       installingRef.current = false;
       activeInstallPhaseRef.current = false;
       installCallReturnedRef.current = true;
