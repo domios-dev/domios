@@ -80,7 +80,13 @@ async fn check_and_apply_plugin(
     let mut builder = app
         .updater_builder()
         .endpoints(vec![endpoint.clone()])
-        .map_err(|e| format!("failed to set updater endpoint: {}", e))?;
+        .map_err(|e| format!("failed to set updater endpoint: {}", e))?
+        .configure_client(|client| {
+            client
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .read_timeout(std::time::Duration::from_secs(60))
+                .timeout(std::time::Duration::from_secs(15 * 60))
+        });
     #[cfg(windows)]
     {
         let app_handle = app.clone();
