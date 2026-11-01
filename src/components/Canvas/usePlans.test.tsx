@@ -322,6 +322,7 @@ async function main() {
 
   test("usePlanTaskBoard cancels the old plan request on selection change", async () => {
     pendingTaskPageSignal = null;
+    const readPendingSignal = (): AbortSignal | null => pendingTaskPageSignal;
     let current: UsePlanTaskBoardResult | null = null;
     const readCurrent = (): UsePlanTaskBoardResult | null => current;
     function TaskBoardProbe({ planId }: { planId: string }) {
@@ -336,7 +337,7 @@ async function main() {
       root.render(<TaskBoardProbe planId="slow-plan" />);
       await Promise.resolve();
     });
-    const oldSignal = pendingTaskPageSignal;
+    const oldSignal = readPendingSignal();
     assert(oldSignal, "the first page request has an abort signal");
     await act(async () => {
       root.render(<TaskBoardProbe planId="replacement-plan" />);
@@ -388,6 +389,7 @@ async function main() {
 
   test("usePlanTaskDetail cancels the prior task read on selection change", async () => {
     pendingTaskDetailSignal = null;
+    const readPendingSignal = (): AbortSignal | null => pendingTaskDetailSignal;
     let current: import("./usePlans").UsePlanTaskDetailResult | null = null;
     const readCurrent = (): import("./usePlans").UsePlanTaskDetailResult | null => current;
     function TaskDetailProbe({ planId }: { planId: string }) {
@@ -402,7 +404,7 @@ async function main() {
       root.render(<TaskDetailProbe planId="slow-detail-plan" />);
       await Promise.resolve();
     });
-    const oldSignal = pendingTaskDetailSignal;
+    const oldSignal = readPendingSignal();
     assert(oldSignal, "the task read has an abort signal");
     await act(async () => {
       root.render(<TaskDetailProbe planId="replacement-detail-plan" />);
