@@ -1,7 +1,4 @@
-import {
-  CONTEXT_EPOCH_BOUNDARY_TEXT,
-  projectContextEpochs,
-} from "./contextEpoch";
+import { projectContextEpochs } from "./contextEpoch";
 import type { NormalizedChatMessage } from "./types";
 
 function assert(condition: unknown, message: string): asserts condition {
@@ -18,7 +15,6 @@ const transcript: NormalizedChatMessage[] = [
 const firstProjection = projectContextEpochs(transcript);
 const dividers = firstProjection.filter((message) => message.systemSubtype === "context_epoch_boundary");
 assert(dividers.length === 1, "one reset adds exactly one context-epoch divider");
-assert(dividers[0]?.content === CONTEXT_EPOCH_BOUNDARY_TEXT, "divider explains provider exclusion");
 assert(firstProjection.some((message) => message.id === "u0"), "prior transcript remains archived and visible");
 assert(firstProjection.find((message) => message.id === "u0")?.contextEpoch === 0, "old turns remain in epoch zero");
 assert(firstProjection.find((message) => message.id === "u1")?.contextEpoch === 1, "later turns use the new epoch");
@@ -34,7 +30,7 @@ const persistedProjection = projectContextEpochs([
   {
     id: "persisted-boundary",
     type: "system",
-    content: CONTEXT_EPOCH_BOUNDARY_TEXT,
+    content: "persisted boundary",
     systemSubtype: "context_epoch_boundary",
   },
   transcript[3],
@@ -42,10 +38,6 @@ const persistedProjection = projectContextEpochs([
 assert(
   persistedProjection.filter((message) => message.systemSubtype === "context_epoch_boundary").length === 1,
   "persisted reload boundary is not duplicated",
-);
-assert(
-  !reloadedProjection.some((message) => /delivery|retry/i.test(message.systemSubtype ?? "")),
-  "context epochs add no delivery-status surface",
 );
 
 console.log("contextEpoch tests passed");

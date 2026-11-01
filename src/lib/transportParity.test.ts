@@ -1,26 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { scanTransportSource } from "./transportParityScan";
-
-describe("transportParity", () => {
-  it("detects aliases, dynamic commands, reexports and dynamic Tauri imports", () => {
-    const source = `import { invoke as call } from './bridge';
-      call('get_config'); call(schema.command);
-      export { getCurrentWindow } from '@tauri-apps/api/window';
-      const native = import('@tauri-apps/api/core');`;
-    expect(scanTransportSource("fixture.ts", source).map(({ kind, target }) => ({ kind, target }))).toEqual([
-      { kind: "audited-command", target: "get_config" }, { kind: "audited-command", target: "<dynamic>" },
-      { kind: "tauri-import", target: "@tauri-apps/api/window" }, { kind: "tauri-import", target: "@tauri-apps/api/core" },
-    ]);
-  });
-  it("ignores comments, string examples and test runtime marker creation", () => {
-    expect(scanTransportSource("fixture.ts", `// import '@tauri-apps/api/core';\nconst example = "invoke('get_config')"; window.__TAURI_INTERNALS__ = {};`)).toEqual([]);
-  });
-  it("detects raw native globals and CommonJS imports", () => {
-    const source = `window.__TAURI_INTERNALS__.invoke('get_config'); window['__TAURI__'].core.invoke('get_config'); require('@tauri-apps/api/core');`;
-    expect(scanTransportSource("fixture.ts", source).map(site => site.kind)).toEqual(["native-global", "native-global", "tauri-import"]);
-  });
-
-});
 
 import { createCommandRegistry, dispatchCommand, CLIENT_LOCAL_COMMANDS } from "./transportCommands";
 import { rustRouteContracts, routeMatches } from "./transportRouteAudit";

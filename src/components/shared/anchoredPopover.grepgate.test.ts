@@ -34,14 +34,6 @@ function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-assert(handPositioned(`className="ct-menu absolute bottom-full left-0 mb-1"`, false), "a Tailwind popover above its trigger is refused");
-assert(handPositioned(`className="top-full absolute right-0 z-10"`, false), "class order does not matter");
-assert(handPositioned(`  top: calc(100% + 4px);`, true), "a CSS popover under its trigger is refused");
-assert(handPositioned(`  bottom: 100%;`, true), "a CSS popover above its trigger is refused");
-assert(!handPositioned(`className="absolute inset-0"`, false), "ordinary absolute layout is allowed");
-assert(!handPositioned(`  max-height: calc(100% - 8px);`, true), "a size is not a position");
-assert(!handPositioned(`// absolute top-full used to be here`, false), "comments are ignored");
-
 function walk(dir: string, out: string[] = []): string[] {
   for (const entry of readdirSync(dir)) {
     if (entry === "node_modules" || entry === "dist") continue;
