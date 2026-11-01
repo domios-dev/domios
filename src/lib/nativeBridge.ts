@@ -40,7 +40,7 @@ export interface NativeBridge {
     request(enabling?: boolean): Promise<NotificationPermission>;
   } | undefined;
   updater: {
-    check(force?: boolean, channel?: string): Promise<unknown>;
+    check(force?: boolean, channel?: string, retireErrorRevision?: string | null): Promise<unknown>;
     status(): Promise<unknown>;
     install(channel?: string): Promise<{ status: string }>;
   } | undefined;
@@ -136,7 +136,7 @@ export function createNativeBridge(native: boolean = typeof window !== "undefine
       request: async (enabling = true) => permission(await invoke("establish_notify_permission", { enabling })),
     } : undefined,
     updater: native ? {
-      check: (force = false, channel?: string) => invoke("check_for_update", { force, channel }),
+      check: (force = false, channel?: string, retireErrorRevision?: string | null) => invoke("check_for_update", { force, channel, retireErrorRevision }),
       status: () => invoke("get_update_status"),
       install: (channel?: string) => invoke("install_app_update", { channel }),
     } : undefined,

@@ -72,9 +72,15 @@ export function normalizeInstallResponse(v: unknown): InstallResponse {
   };
 }
 
+export interface UpdateFailureBoundary {
+  frontendRevision: number;
+  nativeRevision: string | null;
+}
+
 interface RuntimeStatus {
   phase: UpdatePhase;
   last_error: string | null;
+  error_revision: string | null;
   channel: UpdateChannel;
   install_method: string;
   current_version: string;
@@ -104,7 +110,8 @@ interface UpdateContextValue {
   installing: boolean;
   nativeStatusObserved: boolean;
   setChannel: (next: UpdateChannel) => Promise<void>;
-  refresh: (force?: boolean, opts?: { silent?: boolean }) => Promise<void>;
+  captureFailureBoundary: () => UpdateFailureBoundary;
+  refresh: (force?: boolean, opts?: { silent?: boolean; retirementBoundary?: UpdateFailureBoundary }) => Promise<void>;
   applyUpdate: (opts?: { failureSurface: "inline" | "toast" }) => Promise<InstallResponse | null>;
   dismissUpdateToast: () => void;
   error: string | null;
@@ -182,6 +189,7 @@ function normalizeRuntimeStatus(v: RuntimeStatus): RuntimeStatus {
   return {
     phase: v.phase,
     last_error: nullableString(v.last_error),
+    error_revision: nullableString(v.error_revision),
     channel: isUpdateChannel(v.channel) ? v.channel : "stable",
     install_method: typeof v.install_method === "string" ? v.install_method : "unknown",
     current_version: v.current_version,
@@ -243,6 +251,11 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const installCallReturnedRef = useRef(false);
   const installFailureRef = useRef(false);
   const installErrorRevisionRef = useRef(0);
+  const nativeErrorRevisionRef = useRef<string | null>(null);
+  const captureFailureBoundary = useCallback((): UpdateFailureBoundary => ({
+    frontendRevision: installErrorRevisionRef.current,
+    nativeRevision: nativeErrorRevisionRef.current,
+  }), []);
 
   useEffect(() => {
     installingRef.current = installing;
@@ -255,20 +268,19 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const refresh = useCallback(
-    async (force = false, opts?: { silent?: boolean }): Promise<void> => {
+    async (force = false, opts?: { silent?: boolean; retirementBoundary?: UpdateFailureBoundary }): Promise<void> => {
       if (installingRef.current) return;
       const silent = opts?.silent ?? false;
       if (!installFailureRef.current) {
         if (!silent) setStatus("checking");
         setError(null);
       }
-      const failureAtStart = installFailureRef.current;
-      const errorAtStart = installErrorRevisionRef.current;
+      const boundary = opts?.retirementBoundary ?? captureFailureBoundary();
       try {
-        const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined);
+        const data: unknown = await checkForUpdate(force, channelRef.current ?? undefined, boundary.nativeRevision);
         if (!isUpdateInfo(data)) throw new Error("Malformed update info");
-        if (force && !data.update_available && failureAtStart
-          && errorAtStart === installErrorRevisionRef.current && !installingRef.current) {
+        if (force && !data.update_available && installFailureRef.current
+          && boundary.frontendRevision === installErrorRevisionRef.current && !installingRef.current) {
           installFailureRef.current = false;
           setError(null);
           setPhase("idle");
@@ -285,7 +297,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
         setStatus("error");
       }
     },
-    [handleInfo],
+    [captureFailureBoundary, handleInfo],
   );
 
   const fetchChannel = useCallback(async (): Promise<void> => {
@@ -324,6 +336,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const applyRuntimeStatus = useCallback(
     (raw: RuntimeStatus, opts?: { adopt?: boolean }) => {
       const next = normalizeRuntimeStatus(raw);
+      const previousNativeRevision = nativeErrorRevisionRef.current;
+      nativeErrorRevisionRef.current = next.error_revision;
       setNativeStatusObserved(true);
       if (next.phase === "idle" && installFailureRef.current) return;
       const observation = observeInstallPhase(
@@ -371,7 +385,9 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
 
       if (next.phase === "error") {
         const message = next.last_error || "Update failed";
-        installErrorRevisionRef.current += 1;
+        if (next.error_revision === null || next.error_revision !== previousNativeRevision || !installFailureRef.current) {
+          installErrorRevisionRef.current += 1;
+        }
         installFailureRef.current = true;
         installingRef.current = false;
         activeInstallPhaseRef.current = false;
@@ -517,6 +533,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       installing,
       nativeStatusObserved,
       setChannel,
+      captureFailureBoundary,
       refresh,
       applyUpdate,
       dismissUpdateToast,
@@ -524,6 +541,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     }),
     [
       applyUpdate,
+      captureFailureBoundary,
       blocking,
       channel,
       channelSupported,

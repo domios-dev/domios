@@ -88,6 +88,39 @@ impl Default for UpdateOperation {
 }
 
 impl UpdateOperation {
+    fn recorded_result(
+        &self,
+        request: &NativeUpdateRequest,
+        options: &NativeUpdateApplyOptions,
+    ) -> Result<Option<NativeUpdateApplyResult>, NativeHostRejection> {
+        self.record
+            .lock()
+            .as_ref()
+            .map(|record| record.recorded_result(request, options))
+            .unwrap_or(Ok(None))
+    }
+
+    fn admit(
+        &self,
+        mut record: NativeUpdateHandoff,
+        write: impl FnOnce(&NativeUpdateHandoff) -> Result<(), String>,
+    ) -> Result<(bool, NativeUpdateApplyResult), NativeHostRejection> {
+        let mut guard = self.record.lock();
+        if let Some(previous) = guard.as_ref() {
+            if let Some(result) = previous.recorded_result(&record.request, &record.options)? {
+                return Ok((false, result));
+            }
+            record.inherit_replay(previous);
+        }
+        write(&record).map_err(|_| NativeHostRejection::HostRejected)?;
+        let result = record.result.clone();
+        log::info!(target: "native_updater", "operation={} phase=admitted started_at_ms={}",
+            result.operation_id.value(), record.started_at_ms);
+        *guard = Some(record);
+        self.changed.send_replace(result.sequence);
+        Ok((true, result))
+    }
+
     fn mutate(
         &self,
         change: impl FnOnce(&mut NativeUpdateHandoff) -> Result<(), String>,
@@ -179,20 +212,8 @@ impl NativeHostClient {
             return Err(NativeHostRejection::ProtocolMismatch);
         }
         let operation = self.app.state::<Arc<UpdateOperation>>().inner().clone();
-        {
-            let guard = operation.record.lock();
-            if let Some(record) = guard.as_ref() {
-                if record.request.operation_id == request.operation_id {
-                    return if record.request == request && record.options == options {
-                        Ok(record.result.clone())
-                    } else {
-                        Err(NativeHostRejection::ProtocolMismatch)
-                    };
-                }
-                if record.blocks_new_attempt() {
-                    return Err(NativeHostRejection::QueueFull);
-                }
-            }
+        if let Some(result) = operation.recorded_result(&request, &options)? {
+            return Ok(result);
         }
         let lease = single_flight::global()
             .try_acquire()
@@ -205,19 +226,14 @@ impl NativeHostClient {
         let mut record =
             NativeUpdateHandoff::new(request, options.clone(), self.connection.clone());
         record.owner_client = Some(self.client_process.clone());
-        log::info!(target: "native_updater", "operation={} phase=admitted started_at_ms={} client_pid={}",
-            record.result.operation_id.value(), record.started_at_ms, self.client_process.pid);
-        let admitted = record.result.clone();
         let staging = operation.clone();
-        tokio::task::spawn_blocking(move || {
-            persist(&record)?;
-            *staging.record.lock() = Some(record);
-            staging.changed.send_replace(1);
-            Ok::<_, String>(())
-        })
-        .await
-        .map_err(|_| NativeHostRejection::HostRejected)?
-        .map_err(|_| NativeHostRejection::HostRejected)?;
+        let (is_new, admitted) =
+            tokio::task::spawn_blocking(move || staging.admit(record, persist))
+                .await
+                .map_err(|_| NativeHostRejection::HostRejected)??;
+        if !is_new {
+            return Ok(admitted);
+        }
         {
             let mut state = state.lock();
             state.clear_error();
@@ -369,3 +385,6 @@ impl ServerStop for UpdateServerStop {
         .map_err(|e| e.to_string())?
     }
 }
+
+#[cfg(test)]
+mod tests;

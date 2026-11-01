@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setInvokeForTest, __setListenForTest } from "../lib/bridge";
 import { defaultConfig } from "./useConfig";
+import { UpdatePanelProvider, useUpdatePanel } from "./useUpdatePanel";
 import {
   normalizeInstallResponse,
   observeInstallPhase,
@@ -22,6 +23,7 @@ Object.assign(globalThis, {
   Node: testWindow.Node,
   SVGElement: testWindow.SVGElement,
   IS_REACT_ACT_ENVIRONMENT: true,
+  localStorage: testWindow.localStorage,
 });
 
 const updateInfo: UpdateInfo = {
@@ -48,9 +50,15 @@ function runtimeStatus(phase: "idle" | "checking" | "downloading" | "applying" |
 
 type UpdateState = ReturnType<typeof useUpdate>;
 let latest: UpdateState | null = null;
+let panel: ReturnType<typeof useUpdatePanel> | null = null;
+function panelState() {
+  if (!panel) throw new Error("update panel did not render");
+  return panel;
+}
 
 function Harness() {
   latest = useUpdate();
+  panel = useUpdatePanel();
   return null;
 }
 
@@ -64,7 +72,7 @@ async function mount() {
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => {
-    root.render(createElement(UpdateProvider, null, createElement(Harness)));
+    root.render(createElement(UpdateProvider, null, createElement(UpdatePanelProvider, null, createElement(Harness))));
   });
   await act(async () => {
     await Promise.resolve();
@@ -95,6 +103,9 @@ async function main() {
     status: async () => ({ ...runtimeStatus(restoredPhase), last_error: restoredPhase === "error" ? "opaque recovered failure" : null }),
     install: async () => { installCalls++; return await installResponse as { status: string }; },
   };
+  const currentAvailability = { items: [{ id: "app", kind: "app", installed: "1.0.0", latest: "1.0.0",
+    compatible: true, state: "up_to_date", reason: "same_version", channel: null }], errors: {} };
+  let checkAvailability = async () => currentAvailability;
   const events = new Map<string, (payload: unknown) => void>();
   __setListenForTest(async <T,>(name: string, handler: (event: { payload: T }) => void) => {
     events.set(name, payload => handler({ payload: payload as T }));
@@ -102,6 +113,8 @@ async function main() {
   });
   __setInvokeForTest(async <T,>(command: string) => {
     switch (command) {
+      case "check_update_availability":
+        return await checkAvailability() as T;
       case "get_config":
         return defaultConfig() as T;
       case "check_for_update":
@@ -202,6 +215,35 @@ async function main() {
     assert.equal(state().status, "up-to-date");
     assert.equal(state().phase, "idle");
     assert.equal(state().toastOpen, false);
+    await act(async () => events.get("update-status-changed")?.({
+      ...runtimeStatus("error"), last_error: "E1", error_revision: "native-E1",
+    }));
+    let finishAvailability!: (value: typeof currentAvailability) => void;
+    checkAvailability = () => new Promise(resolve => { finishAvailability = resolve; });
+    let retiredNativeRevision: string | null | undefined;
+    nativeBridge.updater.check = async (_force, _channel, revision) => {
+      retiredNativeRevision = revision;
+      return { ...updateInfo, latest_version: updateInfo.current_version, update_available: false };
+    };
+    let retry!: Promise<void>;
+    await act(async () => { retry = panelState().retry(); });
+    await act(async () => events.get("update-status-changed")?.({
+      ...runtimeStatus("error"), last_error: "E2", error_revision: "native-E2",
+    }));
+    await act(async () => { finishAvailability(currentAvailability); await retry; });
+    assert.equal(retiredNativeRevision, "native-E1");
+    assert.equal(state().error, "E2");
+    assert.equal(state().status, "error");
+    assert.ok(panelState().error);
+    assert.equal(panelState().errorDetails, "E2");
+    checkAvailability = async () => {
+      events.get("update-status-changed")?.({ ...runtimeStatus("error"), last_error: "E2", error_revision: "native-E2" });
+      return currentAvailability;
+    };
+    await act(async () => { await panelState().retry(); });
+    assert.equal(retiredNativeRevision, "native-E2");
+    assert.equal(state().error, null);
+    assert.equal(Boolean(panelState().error), false);
     await unmountFailure();
   } finally {
     nativeBridge.updater = undefined;

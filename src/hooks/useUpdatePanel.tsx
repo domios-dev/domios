@@ -166,6 +166,7 @@ function useUpdatePanelController() {
 
   const retry = async () => {
     if (checking || ((starting || intent || app.installing) && !error && !app.error && !restoredFailure)) return;
+    const retirementBoundary = app.captureFailureBoundary();
     setChecking(true);
     setCheckResult(null);
     const previousFailure = error ?? (app.error ? classifyUpdateFailure("update", app.error) : null) ?? restoredFailure;
@@ -175,7 +176,7 @@ function useUpdatePanelController() {
     try {
       const fresh = await refresh(true);
       const available = panelItems(updateableItems(fresh.items, classifyUpdateStatus(fresh).errors));
-      if (app.error) await app.refresh(true);
+      if (app.error) await app.refresh(true, { retirementBoundary });
       setRunItems([]);
       setOutcomes({});
       const failures = Object.keys(fresh.errors).length;

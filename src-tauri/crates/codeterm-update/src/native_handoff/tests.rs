@@ -415,3 +415,27 @@ fn admission_stays_closed_through_installer_handoff_until_a_terminal_outcome() {
         assert!(!record.blocks_new_attempt());
     }
 }
+
+#[test]
+fn relaunch_recovery_verifies_exact_target_supersedes_newer_pair_and_rejects_mismatch() {
+    for (version, build_matches, expected) in [
+        ("1.18.2", true, "verified"),
+        ("1.18.3", true, "no_update"),
+        ("1.18.3", false, "failed"),
+    ] {
+        let mut record = handoff();
+        record.target_version = Some("1.18.2".into());
+        record.advance(NativeUpdateApplyPhase::Relaunching).unwrap();
+        let (connection, ready) = replacement(&record);
+        let build = if build_matches {
+            ready.build.as_str()
+        } else {
+            "foreign-build"
+        };
+        assert!(record.recover(version, build, &connection, &ready));
+        assert_eq!(phase_name(&record.result.phase), expected);
+        let recovered = record.clone();
+        assert!(!record.recover(version, build, &connection, &ready));
+        assert_eq!(record, recovered);
+    }
+}

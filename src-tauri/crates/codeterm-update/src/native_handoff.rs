@@ -1,3 +1,4 @@
+pub mod replay;
 use codeterm_types::{
     native_host::NativeHostConnection,
     native_update::{
@@ -42,6 +43,8 @@ pub struct NativeUpdateHandoff {
     pub options: NativeUpdateApplyOptions,
     pub result: NativeUpdateApplyResult,
     pub target_version: Option<String>,
+    #[serde(default)]
+    pub replay: replay::ReplayLedger,
     #[serde(default)]
     pub started_at_ms: u64,
     #[serde(default)]
@@ -111,12 +114,49 @@ impl NativeUpdateHandoff {
             request,
             options,
             target_version: None,
+            replay: replay::ReplayLedger::default(),
             started_at_ms: now_ms(),
             updated_at_ms: now_ms(),
             owner_client: None,
             started_version: Some(codeterm_build_info::version().into()),
             terminal_cause: None,
         }
+    }
+
+    pub fn recorded_result(
+        &self,
+        request: &NativeUpdateRequest,
+        options: &NativeUpdateApplyOptions,
+    ) -> Result<Option<NativeUpdateApplyResult>, codeterm_types::native_host::NativeHostRejection>
+    {
+        use codeterm_types::native_host::NativeHostRejection;
+        let previous = if self.request.operation_id == request.operation_id {
+            Some((&self.request, &self.options, &self.result))
+        } else {
+            self.replay
+                .recent
+                .iter()
+                .find(|prior| prior.request.operation_id == request.operation_id)
+                .map(|prior| (&prior.request, &prior.options, &prior.result))
+        };
+        if let Some((prior_request, prior_options, result)) = previous {
+            return if prior_request == request && prior_options == options {
+                Ok(Some(result.clone()))
+            } else {
+                Err(NativeHostRejection::ProtocolMismatch)
+            };
+        }
+        if self.replay.contains(request.operation_id) {
+            return Err(NativeHostRejection::ProtocolMismatch);
+        }
+        if self.blocks_new_attempt() {
+            return Err(NativeHostRejection::QueueFull);
+        }
+        Ok(None)
+    }
+
+    pub fn inherit_replay(&mut self, previous: &Self) {
+        self.replay = replay::ReplayLedger::after(previous, self.request.operation_id);
     }
 
     pub fn blocks_new_attempt(&self) -> bool {
@@ -161,6 +201,9 @@ impl NativeUpdateHandoff {
             && connection.server_epoch == server.epoch
             && connection.instance_id == server.instance_id
             && connection.generation > 0
+            && (!matches!(self.result.phase, NativeUpdateApplyPhase::Relaunching)
+                || (server.epoch != self.request.expected_server.incarnation.epoch
+                    && server.process != self.request.expected_server.incarnation.process))
             && self.superseded_by(version)
         {
             log::info!(target: "native_updater", "operation={} recovery=superseded current_version={} execution_replayed=false",
@@ -214,9 +257,7 @@ impl NativeUpdateHandoff {
     fn superseded_by(&self, version: &str) -> bool {
         if matches!(
             self.result.phase,
-            NativeUpdateApplyPhase::Relaunching
-                | NativeUpdateApplyPhase::Verified { .. }
-                | NativeUpdateApplyPhase::NoUpdate
+            NativeUpdateApplyPhase::Verified { .. } | NativeUpdateApplyPhase::NoUpdate
         ) {
             return false;
         }
@@ -228,7 +269,14 @@ impl NativeUpdateHandoff {
             .as_ref()
             .and_then(|v| semver::Version::parse(v).ok())
         {
-            return current >= target;
+            return if matches!(self.result.phase, NativeUpdateApplyPhase::Relaunching) {
+                current > target
+            } else {
+                current >= target
+            };
+        }
+        if matches!(self.result.phase, NativeUpdateApplyPhase::Relaunching) {
+            return false;
         }
         self.started_version
             .as_ref()

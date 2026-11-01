@@ -10,6 +10,7 @@ pub async fn check_for_update(
     update_state: tauri::State<'_, UpdateStateHandle>,
     force: Option<bool>,
     channel: Option<Channel>,
+    retire_error_revision: Option<String>,
 ) -> Result<serde_json::Value, String> {
     if let Some(channel) = channel {
         update_state.lock().channel = channel;
@@ -24,18 +25,12 @@ pub async fn check_for_update(
     }
 
     let method = update_state.lock().install_method.clone();
-    let error_before = update_state.lock().phase_changed_at;
     let info = codeterm_update::checker::check_for_update(&method).await?;
 
     let val = serde_json::to_value(&info).map_err(|e| e.to_string())?;
     let mut us = update_state.lock();
-    if !info.update_available
-        && us.phase_changed_at == error_before
-        && us.phase == codeterm_update::UpdatePhase::Error
-        && !codeterm_update::single_flight::global().is_in_flight()
-    {
-        us.last_error = None;
-        us.set_phase(codeterm_update::UpdatePhase::Idle);
+    if !info.update_available && !codeterm_update::single_flight::global().is_in_flight() {
+        us.retire_error(retire_error_revision.as_deref());
     }
     us.last_check = Some(info);
     us.last_check_time = Some(std::time::Instant::now());
