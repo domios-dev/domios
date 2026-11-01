@@ -19,7 +19,17 @@ const ASSET_EXTENSIONS = [
   ".wav",
 ];
 
-register("./ts-test-assets.mjs", pathToFileURL(import.meta.filename));
+const happyDom = new URL(import.meta.url).searchParams.get("happy-dom");
+register("./ts-test-assets.mjs", pathToFileURL(import.meta.filename), {
+  data: { happyDom },
+});
+
+if (happyDom) {
+  const resolveFilename = Module._resolveFilename;
+  Module._resolveFilename = function (specifier, ...args) {
+    return resolveFilename.call(this, specifier === "happy-dom" ? happyDom : specifier, ...args);
+  };
+}
 
 // tsx transpiles TSX to CommonJS, so an asset import arrives through require()
 // and never reaches the ESM hooks above. Both paths resolve to the same string.
