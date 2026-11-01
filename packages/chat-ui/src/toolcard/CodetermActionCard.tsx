@@ -115,9 +115,9 @@ function codetermAction(event: ToolEvent, invocation: CodetermInvocation | undef
   const command = toolCommand(event);
   const inv = invocation ?? recognize(command.command, command.argv);
   const sent = inv && isSend(inv) ? parseSend(inv, event.result, resolveTabName, resolvePeerName) : undefined;
-  const target = inv ? navigationTarget(inv, event.result) : null;
-  const descriptor: ActionDescriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName, resolvePlugin) : { lead: "codeterm", chips: [] };
-  const taskMetadata = inv ? taskActivityMetadata(inv, event.result) : undefined;
+  const target = inv ? navigationTarget(inv, event.result, String(event.status)) : null;
+  const descriptor: ActionDescriptor = inv ? describeAction(inv, event.result, resolveTabName, resolvePeerName, resolvePlugin, String(event.status)) : { lead: "codeterm", chips: [] };
+  const taskMetadata = inv ? taskActivityMetadata(inv, event.result, String(event.status)) : undefined;
   const resolvedTask = target?.kind === "task" ? resolvePlanRef?.(target.planId, target.id, "task") : undefined;
   const taskTitle = taskMetadata?.name ?? resolvedTask?.taskTitle;
   const taskKey = taskMetadata?.key ?? resolvedTask?.taskKey;

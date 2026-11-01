@@ -105,7 +105,7 @@ for (const [command, expectedBody] of [
   const text = host.textContent ?? "";
   const bubble = host.querySelector('[data-testid="chat-sent-message"]');
   assert(bubble != null && bubble.textContent!.trim().length > 0, `${command} renders a non-blank outgoing row`);
-  assert(text.includes("Recipient") && host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === "delivered", `${command} retains recipient and delivered status`);
+  assert(text.includes("Recipient") && host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === "sent", `${command} retains recipient and sent status`);
   if (expectedBody) assert(text.includes(expectedBody), `${command} retains its body descriptor`);
 }
 

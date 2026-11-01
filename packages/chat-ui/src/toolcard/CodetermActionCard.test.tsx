@@ -46,22 +46,39 @@ if (!showTask || showTask.textContent !== "Show Task" || showTask.textContent.in
 await act(async () => showTask.click());
 if (planCalls[0]?.join("|") !== `${PLAN}|${TASK}|task`) throw new Error("plan navigation callback regression");
 
-const taskResult = JSON.stringify({ result: { task: { id: TASK, key: "COD-2212", name: "Readable task title", status: "in_review" } } });
+const taskResult = JSON.stringify({ ok: true, result: { task_id: TASK, key: "COD-2212", section_ids: [] } });
 const taskCalls: Array<[string, string | undefined, string | undefined]> = [];
 const collapsedTaskHost = await render(
   <CodetermActionCard
-    event={{ ...event(`codeterm plan task update ${PLAN} ${TASK} --status in_review --model gpt`), result: taskResult }}
+    event={{ ...event(`codeterm plan task add ${PLAN} --name "Readable task title" --model gpt`), result: taskResult }}
     expanded={false}
     onToggle={() => {}}
     onOpenPlan={(planId, taskId, kind) => taskCalls.push([planId, taskId, kind])}
   />,
 );
 if (collapsedTaskHost.host.querySelector('[data-testid="toolcard-summary"]')?.textContent !== "Readable task title") throw new Error("task name must be the primary row text");
-if (!collapsedTaskHost.host.textContent?.includes("COD-2212") || !collapsedTaskHost.host.textContent.includes("in_review") || !collapsedTaskHost.host.textContent.includes("gpt")) throw new Error("task row must retain key, status, and model metadata");
+if (!collapsedTaskHost.host.textContent?.includes("COD-2212") || !collapsedTaskHost.host.textContent.includes("gpt")) throw new Error("created task row must retain service key and model metadata");
 const collapsedTaskOpener = collapsedTaskHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-show-plan"]');
 if (collapsedTaskOpener?.textContent !== "Show Task") throw new Error("collapsed task row must expose its accessible opener");
 await act(async () => collapsedTaskOpener.click());
 if (taskCalls[0]?.join("|") !== `${PLAN}|${TASK}|task`) throw new Error("collapsed opener must open the exact plan task");
+
+const updateCalls: Array<[string, string | undefined, string | undefined]> = [];
+const updatedTaskHost = await render(
+  <CodetermActionCard
+    event={{ ...event(`codeterm plan task update ${PLAN} ${TASK} --status in_review --model gpt`), result: JSON.stringify({ ok: true, result: { ok: true } }) }}
+    expanded={false}
+    onToggle={() => {}}
+    resolvePlanRef={(planId, focusId, focusKind) => ({ planId, focusId, focusKind, title: "Task", planTitle: "Plan", taskTitle: "Resolved task title", taskKey: "COD-2212", state: "resolved", rawLabel: TASK, fullRef: `${PLAN}/${TASK}` })}
+    onOpenPlan={(planId, taskId, kind) => updateCalls.push([planId, taskId, kind])}
+  />,
+);
+if (updatedTaskHost.host.querySelector('[data-testid="toolcard-summary"]')?.textContent !== "Resolved task title") throw new Error("successful update uses the existing resolver's authoritative task title");
+if (!updatedTaskHost.host.textContent?.includes("COD-2212") || !updatedTaskHost.host.textContent.includes("in_review")) throw new Error("update keeps resolved task key and successful command status as secondary details");
+const updatedTaskOpener = updatedTaskHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-show-plan"]');
+if (!updatedTaskOpener) throw new Error("successful update row must expose its exact task opener");
+await act(async () => updatedTaskOpener.click());
+if (updateCalls[0]?.join("|") !== `${PLAN}|${TASK}|task`) throw new Error("successful update opener uses the exact command plan and task ids");
 
 const expandedTaskHost = await render(
   <CodetermActionCard
@@ -70,7 +87,7 @@ const expandedTaskHost = await render(
     onToggle={() => {}}
   />,
 );
-if (!expandedTaskHost.host.querySelector('[data-testid="toolcard-result"]') || !expandedTaskHost.host.textContent.includes("Readable task title")) throw new Error("task diagnostics remain expandable beside the resolved name");
+if (!expandedTaskHost.host.querySelector('[data-testid="toolcard-result"]') || !expandedTaskHost.host.textContent.includes("requested")) throw new Error("task diagnostics remain expandable beside the accepted mutation name");
 const unconfirmedTaskStatusHost = await render(
   <CodetermActionCard
     event={{ ...event(`codeterm plan task update ${PLAN} ${TASK} --status in_review`), result: "Exit code: 2\nupdate rejected" }}
@@ -79,6 +96,16 @@ const unconfirmedTaskStatusHost = await render(
   />,
 );
 if (unconfirmedTaskStatusHost.host.textContent?.includes("in_review")) throw new Error("requested task status must not be presented as authoritative result metadata");
+const failedCreateHost = await render(
+  <CodetermActionCard
+    event={{ ...event(`codeterm plan task add ${PLAN} --name "Rejected task"`), status: "error", result: taskResult }}
+    expanded={false}
+    onToggle={() => {}}
+    onOpenPlan={() => { throw new Error("failed create must not expose a task opener"); }}
+  />,
+);
+if (failedCreateHost.host.querySelector('[data-testid="codeterm-show-plan"]')) throw new Error("failed create cannot navigate using contradictory mutation output");
+if (failedCreateHost.host.querySelector('[data-testid="toolcard-summary"]')?.textContent === "Rejected task") throw new Error("failed create must not promote its requested name to a created task");
 
 const focusCalls: string[] = [];
 const sendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "hello"')} expanded onToggle={() => {}} resolveTabName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined} onFocusTab={(ref) => focusCalls.push(ref)} />);
