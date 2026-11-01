@@ -174,6 +174,13 @@ function commandTaskId(inv: CodetermInvocation): string | undefined {
   return inv.positionals.find((value) => TASK_ID_RE.test(value));
 }
 
+function commandTaskDisplayRef(inv: CodetermInvocation): string | undefined {
+  const flag = nonBlank(strFlag(inv, "task"));
+  if (flag) return flag;
+  const planId = commandPlanId(inv);
+  return inv.positionals.find((value) => value !== planId && !value.startsWith("-"));
+}
+
 export function taskActivityMetadata(inv: CodetermInvocation, result?: string, activityStatus?: string): TaskActivityMetadata | undefined {
   if (inv.path[0] !== "plan" || inv.path[1] !== "task" || (inv.path[2] !== "add" && inv.path[2] !== "update")) return undefined;
   const parsedTask = taskRecord(result);
@@ -407,7 +414,7 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
   if (inv.path[0] === "plan" && inv.path[1] === "task") {
     const action = inv.path[2];
     const task = taskActivityMetadata(inv, result, activityStatus);
-    const target = action === "add" || action === "update" ? undefined : firstRef(TASK_RE, inv, result);
+    const target = action === "add" ? undefined : commandTaskDisplayRef(inv) ?? firstRef(TASK_RE, inv, result);
     const changingDeps = action === "update" && (inv.flags["clear-dependencies"] === true || inv.flags["depends-on"] != null);
     const lead = changingDeps ? "task deps" : action === "update" ? "task edit" : action === "close" ? "close" : action === "dispatch" ? "dispatch" : "plan task";
     const model = flagText(inv, "model");

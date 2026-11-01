@@ -88,7 +88,7 @@ eq(describeAction(recognize("domios plan task add pl_opaque")!).object, "New tas
 
 const sent = recognize('codeterm send --tab bda0e267 "hi there"')!;
 eq(renderTemplate(sent).title, "Sent to tab bda0e267", "send title");
-eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "delivered" }, "send status from result");
+eq(renderTemplate(sent, "OK (sent)").status, { ok: true, label: "sent" }, "send status from result");
 eq(renderTemplate(sent, "OK (pending)").status, { ok: false, label: "pending", pending: true }, "pending send status is not delivered");
 
 const sendAlias = recognize('codeterm send --tab keats "Привет от send"')!;
