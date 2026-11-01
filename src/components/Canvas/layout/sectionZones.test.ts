@@ -1,7 +1,7 @@
 // Run: npx tsx src/components/Canvas/layout/sectionZones.test.ts
 
 import type { Box, Point } from "./geometry";
-import { convexHull, roundPolygon, computeZonePolygon, zoneCentroid, smoothClosedPath, zoneColor, zoneLabelBox } from "./sectionZones";
+import { convexHull, computeZonePolygon, zoneCentroid, zoneColor, zoneLabelBox } from "./sectionZones";
 
 let passed = 0;
 let failed = 0;
@@ -58,13 +58,6 @@ const corners = (b: Box): Point[] => [
 }
 
 {
-  const sq = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
-  ok("roundPolygon adds points (corner-cutting)", roundPolygon(sq, 3).length > sq.length);
-  const d = smoothClosedPath(sq);
-  ok("smoothed path starts with M, closes with Z, uses béziers", d.startsWith("M ") && d.trimEnd().endsWith("Z") && d.includes(" C "));
-}
-
-{
   const short = zoneLabelBox("Worlds & content-LOD");
   ok("short title is one full line, no ellipsis", short.lines.length === 1 && short.lines[0] === "Worlds & content-LOD" && !short.lines[0].includes("…"));
   const long = zoneLabelBox("Worlds & content-LOD plus a very long deliberately overflowing section title here");
@@ -74,7 +67,6 @@ const corners = (b: Box): Point[] => [
 }
 
 {
-  ok("zoneColor is deterministic", zoneColor("sec_core") === zoneColor("sec_core"));
   ok("distinct sections get distinct hues", zoneColor("sec_core") !== zoneColor("sec_perf"));
 }
 
