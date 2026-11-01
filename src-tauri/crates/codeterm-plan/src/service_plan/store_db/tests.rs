@@ -553,6 +553,19 @@ fn plan_round_trips_from_one_wal_database() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("plans.db");
     let database = PlanDatabase::open(path.clone()).unwrap();
+    assert!(path.is_file());
+    let published = Connection::open(&path).unwrap();
+    let version: i64 = published
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+    assert_eq!(
+        published
+            .query_row("SELECT COUNT(*) FROM plans", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    drop(published);
     let mut plan = Plan::new(
         "Global plan".into(),
         "D:/project".into(),

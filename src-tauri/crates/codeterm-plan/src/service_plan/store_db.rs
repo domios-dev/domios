@@ -84,14 +84,20 @@ impl PlanDatabase {
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
-        create_schema(&connection).map_err(db_error)?;
         connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(db_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        create_schema(&transaction).map_err(db_error)?;
+        transaction
             .pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
         connection
             .execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 PRAGMA synchronous = NORMAL;
+                "PRAGMA synchronous = NORMAL;
                  PRAGMA foreign_keys = ON;",
             )
             .map_err(db_error)?;
