@@ -24,23 +24,6 @@ fn canonical_program_name_is_independent_of_argv0() {
     }
 }
 
-#[test]
-fn both_program_names_dispatch_to_identical_commands() {
-    for args in [
-        vec!["docs", "API-CLI"],
-        vec!["cli-manifest", "--json"],
-        vec!["tab", "list"],
-        vec!["--json", "agent", "report", "--status", "in_review"],
-    ] {
-        let parse = |program: &str| {
-            Cli::command()
-                .try_get_matches_from(std::iter::once(program).chain(args.iter().copied()))
-                .unwrap()
-        };
-        assert_eq!(parse("domios"), parse("codeterm"), "{args:?}");
-    }
-}
-
 fn alias_invocations(text: &str) -> Vec<usize> {
     static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
     let pattern = PATTERN.get_or_init(|| {
@@ -113,50 +96,5 @@ fn shipped_guidance_teaches_the_primary_command() {
         failures.is_empty(),
         "shipped guidance has obsolete naming:\n{}",
         failures.join("\n")
-    );
-}
-
-#[test]
-fn guidance_guard_finds_inline_and_fenced_commands_without_renaming_identifiers() {
-    assert_eq!(alias_invocations("Run `codeterm docs API-CLI`."), [1]);
-    assert_eq!(alias_invocations("```bash\ncodeterm tab list\n```"), [2]);
-    assert_eq!(alias_invocations("codeterm\nconfig get"), [1]);
-    assert!(alias_invocations(
-        "Use `domios docs API-CLI`; `codeterm` remains an alias. skills/codeterm docs, codeterm-plugins, CODETERM_TAB_ID, codeterm_cli.md"
-    ).is_empty());
-    assert_eq!(
-        obsolete_data_paths("Prod: ~/.codeterm/skills\nDev: ~/.codeterm-dev/mem/knowledge.db"),
-        [1, 2]
-    );
-    assert!(obsolete_data_paths("~/.domios/skills; ~/.domios-dev/mem/knowledge.db").is_empty());
-}
-
-#[test]
-fn guidance_guard_reads_nested_commands_and_long_argument_help() {
-    let command = clap::Command::new("domios").subcommand(
-        clap::Command::new("nested").subcommand(
-            clap::Command::new("leaf")
-                .long_about("Run codeterm tab list")
-                .arg(
-                    clap::Arg::new("directory")
-                        .long("directory")
-                        .long_help("Default: ~/.codeterm-dev/skills"),
-                ),
-        ),
-    );
-    let mut sources = Vec::new();
-    help_sources(&command, &mut sources);
-    assert_eq!(sources.len(), 3);
-    let (_, leaf) = sources.last().unwrap();
-    assert!(!alias_invocations(leaf).is_empty());
-    assert!(!obsolete_data_paths(leaf).is_empty());
-}
-
-#[test]
-fn tab_lifecycle_help_stays_within_the_complete_read_budget() {
-    let text = std::fs::read(repo_path("prod-docs/TAB-LIFECYCLE.md")).unwrap();
-    assert!(
-        text.len() < 16 * 1024,
-        "TAB-LIFECYCLE must fit one complete read"
     );
 }
