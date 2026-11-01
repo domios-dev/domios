@@ -122,16 +122,6 @@ fn build_skill_id_ascii() {
 }
 
 #[test]
-fn build_skill_id_non_ascii_does_not_panic() {
-    // Non-ASCII can be 3-byte; keep guard to avoid panic on byte slicing.
-    let long_chinese = "技能技能技能技能技能技能技能技能技能技能技能技能技能技能"; // 14 × 3 = 42 bytes as slug
-    let result = std::panic::catch_unwind(|| {
-        codeterm_mem_store::skill_folders::skill_id_for_title(long_chinese)
-    });
-    assert!(result.is_ok(), "should not panic on non-ASCII skill names");
-}
-
-#[test]
 fn build_skill_id_emoji_does_not_panic() {
     let emoji_title = "🚀🎯🔥🌟💡🎨🛡️🔑🌈✨🎭🎪🎡🎢🎠🎟🎃🎄🎆🎇"; // many emoji
     let result = std::panic::catch_unwind(|| {

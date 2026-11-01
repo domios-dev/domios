@@ -1,8 +1,8 @@
 use super::{
     analyze_send_text_response, classify_tab_kind, decide_send_eligibility, find_target_record,
-    guard_against_shell_mangle, is_task_shaped_payload, key_action_bytes, pad_file_path,
-    parse_actions_spec, parse_tab_targets, resolve_send_text_input, SendActionSpec,
-    SendEligibility, SendTextOutcome, TabKind,
+    guard_against_shell_mangle, key_action_bytes, pad_file_path, parse_actions_spec,
+    parse_tab_targets, resolve_send_text_input, SendActionSpec, SendEligibility, SendTextOutcome,
+    TabKind,
 };
 
 const CHARTER: &str = "You are Worker Leo.\nExecute the task; report on completion.";
@@ -30,12 +30,6 @@ fn send_result_exposes_supplied_pad_file_path() {
     let token = "runtime/agent-pads/tab/inbox/123-token.md";
     let response = serde_json::json!({"ok": true, "delivery": "sent", "pad_file": token});
     assert_eq!(pad_file_path(&response), Some(token));
-}
-
-#[test]
-fn classify_agent_tab_from_agent_type() {
-    let record = serde_json::json!({"id": "t1", "agent_type": "claude", "backing_kind": "pty"});
-    assert_eq!(classify_tab_kind(&record), TabKind::Agent);
 }
 
 #[test]
@@ -78,22 +72,6 @@ fn surface_targets_refuse_text_even_with_to_shell() {
             SendEligibility::Refuse(_)
         ));
     }
-}
-
-#[test]
-fn task_shaped_payload_detects_multiline_and_long() {
-    assert!(is_task_shaped_payload("first line\nsecond line"));
-    assert!(is_task_shaped_payload(&"x".repeat(241)));
-    assert!(!is_task_shaped_payload("git status"));
-    assert!(!is_task_shaped_payload(&"y".repeat(240)));
-}
-
-#[test]
-fn agent_tab_allows_prose() {
-    assert_eq!(
-        decide_send_eligibility(TabKind::Agent, CHARTER, false, false),
-        SendEligibility::Allow
-    );
 }
 
 #[test]

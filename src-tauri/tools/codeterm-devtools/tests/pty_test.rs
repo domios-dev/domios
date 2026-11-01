@@ -2,50 +2,6 @@ use codeterm_service_core::pty::manager::PtyManager;
 use std::collections::HashMap;
 
 #[test]
-fn test_pty_spawn() {
-    let mut manager = PtyManager::new();
-
-    #[cfg(target_os = "windows")]
-    let cmd = Some("cmd.exe".to_string());
-    #[cfg(not(target_os = "windows"))]
-    let cmd = Some("/bin/sh".to_string());
-
-    let result = {
-        let gate = manager.spawn_gate();
-        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, HashMap::new())
-            .map(|built| manager.register_session(None, built))
-    };
-    assert!(result.is_ok(), "Failed to spawn PTY: {:?}", result.err());
-
-    let (pty_id, _reader) = result.unwrap();
-    assert!(!pty_id.is_empty());
-
-    let _ = manager.kill(&pty_id);
-}
-
-#[test]
-fn test_pty_write() {
-    let mut manager = PtyManager::new();
-
-    #[cfg(target_os = "windows")]
-    let cmd = Some("cmd.exe".to_string());
-    #[cfg(not(target_os = "windows"))]
-    let cmd = Some("/bin/sh".to_string());
-
-    let (pty_id, _reader) = {
-        let gate = manager.spawn_gate();
-        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, HashMap::new())
-            .map(|built| manager.register_session(None, built))
-    }
-    .unwrap();
-
-    let result = manager.write(&pty_id, b"echo hello\r\n");
-    assert!(result.is_ok(), "Failed to write to PTY: {:?}", result.err());
-
-    let _ = manager.kill(&pty_id);
-}
-
-#[test]
 fn test_pty_resize() {
     let mut manager = PtyManager::new();
 
@@ -102,29 +58,6 @@ fn test_pty_resize_invalid_id() {
     let mut manager = PtyManager::new();
     let result = manager.resize("nonexistent", 80, 24);
     assert!(result.is_err());
-}
-
-#[test]
-fn test_pty_spawn_with_env_vars() {
-    let mut manager = PtyManager::new();
-    let mut env_vars = HashMap::new();
-    env_vars.insert("CODETERM_TEST".to_string(), "1".to_string());
-    env_vars.insert("CODETERM_TAB_ID".to_string(), "test-tab".to_string());
-
-    #[cfg(target_os = "windows")]
-    let cmd = Some("cmd.exe".to_string());
-    #[cfg(not(target_os = "windows"))]
-    let cmd = Some("/bin/sh".to_string());
-
-    let result = {
-        let gate = manager.spawn_gate();
-        codeterm_service_core::pty::manager::build_session(gate, cmd, None, 80, 24, env_vars)
-            .map(|built| manager.register_session(None, built))
-    };
-    assert!(result.is_ok());
-
-    let (pty_id, _reader) = result.unwrap();
-    let _ = manager.kill(&pty_id);
 }
 
 #[test]

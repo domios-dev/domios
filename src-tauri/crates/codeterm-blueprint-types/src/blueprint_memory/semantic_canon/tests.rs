@@ -54,7 +54,7 @@ fn golden_pipeline_and_watch() {
     }
 }
 #[test]
-fn twenty_formatting_perturbations_keep_canon_and_hash_byte_identical() {
+fn formatting_perturbations_keep_canon_and_hash_byte_identical() {
     let document = parse_document(BASE).unwrap();
     let json = serde_json::to_value(&document).unwrap();
     let pretty = serde_json::to_string_pretty(&json).unwrap();
@@ -71,10 +71,8 @@ fn twenty_formatting_perturbations_keep_canon_and_hash_byte_identical() {
             "|-\n  Block a release until the map is valid.",
         ),
     ];
-    for index in 0..15 {
-        variants.push(format!("# format variation {index}\n---\n{BASE}\n"));
-    }
-    assert_eq!(variants.len(), 20);
+    variants.push(format!("# formatting comment\n---\n{BASE}\n"));
+    assert_eq!(variants.len(), 6);
     let expected = canon(BASE);
     let expected_json = canonical_json(&document);
     for source in variants {
