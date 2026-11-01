@@ -22,9 +22,6 @@ pub(crate) fn fixture_manifest_dir() -> &'static Path {
     })
 }
 
-#[cfg(all(test, feature = "test-support"))]
-mod tests;
-
 #[cfg(any(test, feature = "test-support"))]
 pub fn archive_mem_item_conn(
     conn: &rusqlite::Connection,
@@ -41,6 +38,3 @@ pub fn archive_mem_item_conn(
     )
     .map_err(|e| (e.status_code(), e.into_message()))
 }
-
-#[cfg(all(test, feature = "test-support"))]
-use crate::backend::sqlite::fixtures::memory_connection;

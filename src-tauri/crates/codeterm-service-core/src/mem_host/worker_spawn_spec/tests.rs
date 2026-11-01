@@ -3,7 +3,7 @@ use crate::service::spawn::{AgentSpawnSpec, TabCommand};
 use crate::service::spawn_capability::test_backend::registry_with_spawnable;
 use crate::service::spawn_capability::MissingSpawnCapability;
 
-const TASK: &str = "extract entities from the queued item";
+const TASK: &str = "opaque_mem_worker_task_7b91";
 
 #[test]
 fn memory_worker_long_intent_uses_valid_short_title() {
