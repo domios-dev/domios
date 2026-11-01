@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use codeterm_client_shell::application_host::{ServerStop, ServerStopError, ServerStopState};
 use codeterm_update::update_state::{detect_install_method, UpdatePhase, UpdateState};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 
 use super::native_client::{ExactServerShutdownResult, NativeHostClientSlot};
 use super::ServerApiAttachmentSlot;
@@ -10,6 +10,12 @@ use crate::crash;
 
 /// The native client owns the in-app updater; its state lives here, not in the attached server.
 pub(crate) fn install(app: &codeterm_client_shell::app_runtime::AppHandle) {
+    let events = app.clone();
+    let _ = codeterm_update::update_state::STATUS_EMITTER.set(Box::new(move |status| {
+        if let Err(error) = events.emit("update-status-changed", status) {
+            log::debug!("[updater] native status event could not be emitted: {error}");
+        }
+    }));
     let update_state: codeterm_update::UpdateStateHandle =
         Arc::new(parking_lot::Mutex::new(UpdateState {
             install_method: detect_install_method(),
