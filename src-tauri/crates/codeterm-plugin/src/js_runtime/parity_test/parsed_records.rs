@@ -232,7 +232,10 @@ fn descriptor_without_a_records_sibling_keeps_text_and_forged_offset_is_refused(
     .unwrap();
     let delta = absent.parse_session_delta(file.path(), 0);
     assert_eq!(delta.messages.len(), 1);
-    assert_eq!(delta.messages[0].blocks[0].data["text"], "text hook retained");
+    assert_eq!(
+        delta.messages[0].blocks[0].data["text"],
+        "text hook retained"
+    );
     let vm = super::super::PluginVm::from_source_with("record-fixture", r#"
         module.exports = {parseSessionRecords(records, meta){ return {messages:[],new_offset:meta.newOffset+1}; }};
     "#.into(), Some(text)).unwrap();
