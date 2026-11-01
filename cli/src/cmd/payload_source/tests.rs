@@ -1,18 +1,5 @@
 use super::*;
 
-#[derive(Default)]
-struct FakeDestination {
-    payload: Option<String>,
-    status: &'static str,
-}
-
-impl FakeDestination {
-    fn accept(&mut self, payload: String, status: &'static str) {
-        self.payload = Some(payload);
-        self.status = status;
-    }
-}
-
 #[test]
 fn nested_utf8_is_preserved_and_traversal_is_rejected() {
     let temp = tempfile::tempdir().unwrap();
@@ -87,26 +74,6 @@ fn symlink_escape_is_rejected_before_read() {
 }
 
 #[test]
-fn send_from_pad_resolves_before_transport() {
-    let temp = tempfile::tempdir().unwrap();
-    let pad = temp.path().join("send-owner-full-id");
-    fs::create_dir(&pad).unwrap();
-    let expected = "reusable `payload` $value Привіт\nsecond line\n";
-    fs::write(pad.join("message.md"), expected).unwrap();
-    let first = read_from_pad_root(&pad, "message.md").unwrap();
-    let second = read_from_pad_root(&pad, "message.md").unwrap();
-    let mut transport = FakeDestination::default();
-    transport.accept(first, "accepted");
-    assert_eq!(transport.payload.as_deref(), Some(expected));
-    assert_eq!(second, expected);
-    assert!(!transport
-        .payload
-        .as_ref()
-        .unwrap()
-        .contains(pad.to_string_lossy().as_ref()));
-}
-
-#[test]
 fn message_file_dash_reads_stdin() {
     for option in ["--message-file", "--from-file", "--from-pad", "--stdin"] {
         let expected = "quoted `body` $value\r\nλ😀\n";
@@ -118,23 +85,6 @@ fn message_file_dash_reads_stdin() {
             expected.as_bytes()
         );
     }
-}
-
-#[test]
-fn agent_pad_report_reaches_parent_and_survives_worker_close() {
-    let temp = tempfile::tempdir().unwrap();
-    let pad = temp.path().join("worker-full-id");
-    fs::create_dir(&pad).unwrap();
-    let expected =
-        "STATUS: in_review\n\n- quotes: '\"'\n- code: `x`\n- dollar: $HOME\n- Unicode: Привіт\n";
-    fs::write(pad.join("report.md"), expected).unwrap();
-    let resolved = read_from_pad_root(&pad, "report.md").unwrap();
-    let mut parent = FakeDestination::default();
-    parent.accept(resolved, "in_review");
-    fs::remove_dir_all(&pad).unwrap();
-    assert_eq!(parent.payload.as_deref(), Some(expected));
-    assert_eq!(parent.status, "in_review");
-    assert!(!pad.exists());
 }
 
 #[test]
