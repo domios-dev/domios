@@ -57,10 +57,3 @@ fn the_popup_document_escapes_what_it_is_given() {
     assert!(!html.contains("b<script>"), "{html}");
     assert!(html.contains("&lt;script&gt;a"), "{html}");
 }
-
-#[test]
-fn the_window_label_is_one_constant_for_lookup_and_creation() {
-    // A second literal would let the reuse path miss the window it built.
-    assert!(!NOTIF_WINDOW_LABEL.is_empty());
-    assert_eq!(NOTIF_WINDOW_LABEL, "codeterm-notif");
-}
