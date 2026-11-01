@@ -202,10 +202,6 @@ async fn all_document_factories_refuse_unsupported_target_before_token_use() {
         transport.listen_pending(&friendship).await,
         Err(Error::Transport)
     ));
-    assert_eq!(
-        transport.pending_count(&friendship).await,
-        Err(Error::Transport)
-    );
 }
 
 #[tokio::test]

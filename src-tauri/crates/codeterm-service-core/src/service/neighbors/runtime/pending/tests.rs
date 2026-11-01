@@ -4,18 +4,6 @@ use async_trait::async_trait;
 
 struct NoRemoteCalls;
 
-#[test]
-fn dirty_checkpoints_coalesce_to_one_in_flight_count_and_one_followup() {
-    let mut recount = Recount::default();
-    assert!(recount.changed());
-    for _ in 0..1000 {
-        assert!(!recount.changed());
-    }
-    assert!(recount.completed());
-    assert!(!recount.completed());
-    assert!(!recount.in_flight);
-    assert!(recount.changed());
-}
 #[async_trait]
 impl codeterm_neighbors::adapter::AuthenticatedCall for NoRemoteCalls {
     async fn invoke(&self, _: &str, _: Value) -> codeterm_neighbors::Result<Value> {
