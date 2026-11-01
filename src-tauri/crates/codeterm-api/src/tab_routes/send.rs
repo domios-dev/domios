@@ -380,9 +380,6 @@ pub(crate) enum SendAction {
     Delay { ms: u64 },
 }
 
-#[cfg(test)]
-pub(crate) use codeterm_service_core::agent::keys::action_key_bytes as send_action_bytes;
-
 /// Keys aimed at a provider dialog are written as-is, so Enter is a plain carriage return.
 fn owner_dialog_keys(
     ordered: &[codeterm_service_core::service::ordered_actions::OrderedPtyAction],
