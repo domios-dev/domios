@@ -72,7 +72,7 @@
     "@types/react-syntax-highlighter": "^15.5.13",
     "@vitejs/plugin-react": "^6.1.2",
     "esbuild": "^0.28.2",
-    "happy-dom": "^20.10.2",
+    "happy-dom": "^21.0.4",
     "knip": "^6.42.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
