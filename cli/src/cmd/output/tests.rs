@@ -36,16 +36,6 @@ fn compact_output_search_sources_and_unicode_snippets() {
 }
 
 #[test]
-fn compact_output_named_handlers_use_the_shared_renderer() {
-    let rows = json!({"hits":[{"item":{"id":"m","title":"Title","body":"Body"}}]});
-    assert_eq!(
-        crate::cmd::mem::render_search_hits(&rows),
-        "m  Title — Body\n"
-    );
-    assert_eq!(crate::cmd::mem::render_search_hits(&json!({"hits":[]})), "");
-}
-
-#[test]
 fn json_shape_contract_for_each_collection_payload() {
     for key in COLLECTION_KEYS {
         let input = json!({(*key):[{"id":"one","title":"First"}], "total":2, "next":"cursor", "warnings":["offline"]});

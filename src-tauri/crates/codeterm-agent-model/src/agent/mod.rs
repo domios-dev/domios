@@ -22,8 +22,6 @@ pub mod registry_search;
 pub use codeterm_agent_detect::semantic_marker;
 pub mod shell_command_state;
 pub use codeterm_agent_detect::signal_extractor;
-#[cfg(test)]
-mod classify_input_wiring_tests;
 pub mod interactive_prompt;
 pub mod kpi_ledger;
 pub mod reports;

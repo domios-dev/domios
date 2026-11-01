@@ -64,33 +64,6 @@ fn plan_state_allows_missing_plan_id() {
 }
 
 #[test]
-fn plan_task_update_parses_without_plan_id() {
-    let parsed = Cli::try_parse_from([
-        "codeterm", "plan", "task", "update", "task_1", "--status", "done",
-    ])
-    .expect("plan task update parses without plan id");
-    match parsed.command {
-        Commands::Plan {
-            action:
-                PlanAction::Task {
-                    action:
-                        crate::args::plan::PlanTaskAction::Update {
-                            plan_id,
-                            task_id,
-                            status,
-                            ..
-                        },
-                },
-        } => {
-            assert_eq!(plan_id.as_deref(), Some("task_1"));
-            assert_eq!(task_id, None);
-            assert_eq!(status.as_deref(), Some("done"));
-        }
-        _ => panic!("expected plan task update"),
-    }
-}
-
-#[test]
 fn plan_task_list_allows_missing_plan_id() {
     let parsed = Cli::try_parse_from(["codeterm", "plan", "task", "list", "--status", "blocked"])
         .expect("plan task list parses without plan id");

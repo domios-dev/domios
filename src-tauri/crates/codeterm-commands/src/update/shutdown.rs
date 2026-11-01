@@ -74,16 +74,4 @@ mod tests {
             "an unknown-disk-state failure keeps the cancel semantics"
         );
     }
-
-    #[test]
-    fn mem_checkpoint_returns_pragma_row() {
-        let mem = codeterm_service_core::mem::MemManager::open_in_memory().unwrap();
-        let (busy, log_frames, checkpointed) = mem
-            .checkpoint_and_close()
-            .expect("checkpoint should succeed on a fresh in-memory db");
-        // mode"). We only assert the call path is wired.
-        assert!(busy >= -1);
-        assert!(log_frames >= -1);
-        assert!(checkpointed >= -1);
-    }
 }

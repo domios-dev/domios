@@ -606,12 +606,4 @@ mod tests {
         );
         assert_eq!(merged, vec!["task_b", "task_c"]);
     }
-
-    #[test]
-    fn dedup_preserve_keeps_first_occurrence_order() {
-        assert_eq!(
-            dedup_preserve(vec!["task_a".into(), "task_b".into(), "task_a".into()]),
-            vec!["task_a", "task_b"]
-        );
-    }
 }

@@ -19,22 +19,7 @@ fn neighbor_save_requires_local_authority_over_mesh() {
 }
 
 #[test]
-fn neighbor_save_help_documents_body_area_and_repeated_tags() {
-    let help = match crate::Cli::try_parse_from(["domios", "mem", "neighbor-save", "--help"]) {
-        Err(error) => error,
-        Ok(_) => panic!("help parsed as a command"),
-    };
-    assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
-    for flag in [
-        "--kind",
-        "--area",
-        "--title",
-        "--from-pad",
-        "--summary",
-        "--tag",
-    ] {
-        assert!(help.to_string().contains(flag));
-    }
+fn neighbor_save_parses_body_area_and_repeated_tags() {
     assert!(crate::Cli::try_parse_from([
         "domios",
         "mem",

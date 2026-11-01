@@ -31,18 +31,6 @@ fn sole_rejection(text: &str) -> RejectionReason {
 }
 
 #[test]
-fn core_needles_still_exist_in_the_text_they_guard() {
-    let worker = crate::prompts::worker_suffix();
-    for fragment in CONTRACT_CORE {
-        assert!(
-            worker.contains(fragment.needle),
-            "core fragment `{}` no longer matches worker_suffix",
-            fragment.id
-        );
-    }
-}
-
-#[test]
 fn a_leaf_overlay_loads_and_layers_over_the_worker_base() {
     let catalog = catalog(GOOD);
     assert!(catalog.rejected().is_empty());

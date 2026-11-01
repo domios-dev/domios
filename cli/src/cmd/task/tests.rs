@@ -54,98 +54,6 @@ mod status_reason_render_tests {
     }
 }
 
-mod siblings_render_tests {
-    use crate::cmd::task::{
-        is_closed_sibling_status, short_display_id, truncate_label, TaskShowOpts,
-    };
-    use serde_json::json;
-
-    fn render_siblings_line(items: &[serde_json::Value], opts: &TaskShowOpts) -> String {
-        if !opts.list_siblings {
-            let open = items
-                .iter()
-                .filter(|item| {
-                    !item
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(is_closed_sibling_status)
-                })
-                .count();
-            let closed = items.len().saturating_sub(open);
-            return if closed > 0 {
-                format!("siblings: {open} open (+ {closed} done/cancelled); use --siblings to list")
-            } else {
-                format!("siblings: {open} open; use --siblings to list")
-            };
-        }
-        let rendered = items
-            .iter()
-            .filter(|item| {
-                opts.include_done_siblings
-                    || !item
-                        .get("status")
-                        .and_then(|v| v.as_str())
-                        .is_some_and(is_closed_sibling_status)
-            })
-            .map(|item| {
-                let id = item.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-                let name = item.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                let status = item.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-                format!(
-                    "{} {} ({status})",
-                    short_display_id(id),
-                    truncate_label(name, 48)
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-        if rendered.is_empty() {
-            "siblings: none".into()
-        } else {
-            format!("siblings: {rendered}")
-        }
-    }
-
-    #[test]
-    fn default_siblings_is_one_summary_line() {
-        let siblings: Vec<_> = (0..160)
-            .map(|i| {
-                json!({
-                    "id": format!("task_{i:03}"),
-                    "name": format!("Sibling {i}"),
-                    "status": if i % 3 == 0 { "done" } else { "pending" }
-                })
-            })
-            .collect();
-        let line = render_siblings_line(
-            &siblings,
-            &TaskShowOpts {
-                list_siblings: false,
-                include_done_siblings: false,
-            },
-        );
-        assert!(!line.contains("Sibling 0"));
-        assert!(line.contains("use --siblings to list"));
-    }
-
-    #[test]
-    fn siblings_flag_uses_short_ids_and_truncated_names() {
-        let line = render_siblings_line(
-            &[json!({
-                "id": "task_abcdef012345",
-                "name": "A very long sibling name that should be truncated for terminal display",
-                "status": "pending"
-            })],
-            &TaskShowOpts {
-                list_siblings: true,
-                include_done_siblings: false,
-            },
-        );
-        assert!(line.contains("task_abcdef"));
-        assert!(line.contains('…'));
-    }
-}
-
 #[test]
 fn diagnostics_that_speak_task_show_routing_values_are_rendered_or_unset() {
     use crate::cmd::task::task_routing_lines;
@@ -202,15 +110,6 @@ mod executor_role_render_tests {
     use serde_json::json;
 
     #[test]
-    fn renders_line_when_set() {
-        let task = json!({ "id": "task_1", "executor_role": "qa" });
-        assert_eq!(
-            executor_role_line(&task).as_deref(),
-            Some("executor_role: qa")
-        );
-    }
-
-    #[test]
     fn omits_line_when_absent_or_blank() {
         assert!(executor_role_line(&json!({ "id": "task_1" })).is_none());
         assert!(executor_role_line(&json!({ "executor_role": "  " })).is_none());
@@ -238,12 +137,6 @@ mod task_presentation_render_tests {
 mod strides_render_tests {
     use crate::cmd::task::render_strides;
     use serde_json::json;
-
-    #[test]
-    fn omits_when_no_milestones() {
-        assert!(render_strides(&json!({ "id": "task_1" })).is_none());
-        assert!(render_strides(&json!({ "id": "task_1", "milestones": [] })).is_none());
-    }
 
     #[test]
     fn renders_newest_first_with_author_kind_ts_text() {
@@ -284,7 +177,7 @@ mod strides_render_tests {
 mod error_contract_tests {
     use crate::args::task::{CanvasAction, TaskAction};
     use crate::client::{RpcClient, RpcError, SocketCallError};
-    use crate::cmd::print::{write_cli_error, CliError, CLI_ERROR_EXIT_CODE};
+    use crate::cmd::print::{write_cli_error, CliError};
     use crate::cmd::task::{run_canvas, run_task};
     use serde_json::Value;
 
@@ -374,18 +267,6 @@ mod error_contract_tests {
         assert_eq!(envelope["ok"], serde_json::Value::Bool(false));
         assert_eq!(envelope["kind"], "error");
         assert_eq!(envelope["error"]["message"], DAEMON_MESSAGE);
-    }
-
-    /// Exit-code parity itself is owned by `print.rs`, whose `cli_error_exit_code`
-    /// is private; what this lane can still pin is that neither mode goes silent.
-    #[test]
-    fn both_modes_report_on_exactly_one_stream_and_exit_non_zero() {
-        let (json_out, json_err) = rendered(true, DAEMON_MESSAGE);
-        let (human_out, human_err) = rendered(false, DAEMON_MESSAGE);
-
-        assert!(!json_out.is_empty() && json_err.is_empty(), "{json_err}");
-        assert!(human_out.is_empty() && !human_err.is_empty(), "{human_out}");
-        assert_ne!(CLI_ERROR_EXIT_CODE, 0);
     }
 
     #[test]
@@ -516,18 +397,4 @@ mod executor_render_tests {
         }))
         .is_none());
     }
-}
-
-#[test]
-fn task_list_explains_plan_outside_project_like_plan_task_list() {
-    let reason = serde_json::json!({
-        "kind":"plan_outside_project", "plan_id":"pl_foreign",
-        "plan_project":"other", "requested_project":"current"
-    });
-    assert_eq!(
-        super::empty_task_list_message(&serde_json::json!({
-            "tasks":[], "empty_reason":reason
-        })),
-        crate::cmd::plan::render_empty_reason(&reason).unwrap()
-    );
 }

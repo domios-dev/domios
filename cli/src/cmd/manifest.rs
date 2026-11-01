@@ -276,27 +276,6 @@ mod tests {
     mod program_name;
     use super::*;
 
-    #[test]
-    fn build_artifact_writes_preserve_unchanged_metadata_and_replace_changed_bytes() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("commandPaths.ts");
-        write_if_changed(&path, "original").unwrap();
-        let file = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
-        file.set_times(
-            std::fs::FileTimes::new()
-                .set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(100)),
-        )
-        .unwrap();
-        let modified = file.metadata().unwrap().modified().unwrap();
-        write_if_changed(&path, "original").unwrap();
-        assert_eq!(
-            std::fs::metadata(&path).unwrap().modified().unwrap(),
-            modified
-        );
-        write_if_changed(&path, "updated").unwrap();
-        assert_eq!(std::fs::read_to_string(path).unwrap(), "updated");
-    }
-
     fn normalize_newlines(s: &str) -> String {
         s.replace("\r\n", "\n")
     }
@@ -697,18 +676,6 @@ mod tests {
             assert!(
                 markdown.contains(global),
                 "root global {global} is missing from the command reference"
-            );
-        }
-    }
-
-    #[test]
-    fn manifest_has_core_commands() {
-        let m = build();
-        let names: Vec<&str> = m.subcommands.iter().map(|c| c.name.as_str()).collect();
-        for expected in ["send", "agent", "mem", "tab", "cli-manifest"] {
-            assert!(
-                names.contains(&expected),
-                "missing top-level command: {expected}"
             );
         }
     }

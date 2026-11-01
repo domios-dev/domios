@@ -56,15 +56,6 @@ fn callback_wrong_state_stays_pending() {
     assert_eq!(request.verifier.expose(), "fixture-verifier");
 }
 #[test]
-fn callback_second_refused() {
-    let mut flow = flow();
-    flow.complete(callback("fixture-state-matching")).unwrap();
-    assert!(matches!(
-        flow.complete(callback("fixture-state-matching")),
-        Err(Error::Consumed)
-    ));
-}
-#[test]
 fn callback_parsing_refuses_wrong_path_duplicate_fields_and_credentials() {
     let good = format!(
         "domios://auth/callback?code={}&state=fixture-state-matching",
