@@ -2,6 +2,7 @@ use super::{db_error, PlanError};
 use rusqlite::Connection;
 
 type Schema = Vec<(String, String, String, Option<String>)>;
+const MANAGED_ADDITIVE_INDEX: &str = "plan_tasks_board_cursor";
 
 pub(in crate::service_plan) fn schema(connection: &Connection) -> rusqlite::Result<Schema> {
     let mut statement = connection.prepare(
@@ -19,7 +20,28 @@ pub(in crate::service_plan) fn validate(
     connection: &Connection,
     expected: &Connection,
 ) -> Result<(), PlanError> {
-    if schema(connection).map_err(db_error)? != schema(expected).map_err(db_error)? {
+    let actual = schema(connection).map_err(db_error)?;
+    let expected = schema(expected).map_err(db_error)?;
+    let is_managed_index = |entry: &&(String, String, String, Option<String>)| {
+        entry.0 == "index" && entry.1 == MANAGED_ADDITIVE_INDEX
+    };
+    let actual_managed = actual.iter().find(is_managed_index);
+    let expected_managed = expected.iter().find(is_managed_index);
+    let actual_without_managed: Vec<_> = actual
+        .iter()
+        .filter(|entry| !is_managed_index(entry))
+        .collect();
+    let expected_without_managed: Vec<_> = expected
+        .iter()
+        .filter(|entry| !is_managed_index(entry))
+        .collect();
+    let managed_index_matches = match (actual_managed, expected_managed) {
+        (Some(actual), Some(expected)) => actual == expected,
+        (None, Some(_)) | (None, None) => true,
+        (Some(_), None) => false,
+    };
+
+    if actual_without_managed != expected_without_managed || !managed_index_matches {
         return Err(PlanError::Io(
             "unrecognized, partial or mixed plan database schema".into(),
         ));

@@ -147,6 +147,9 @@ export function usePlanTaskBoard(
   const controllers = useRef(new Map<PlanTaskBoardStatus, AbortController>());
   const planIdRef = useRef(planId);
   planIdRef.current = planId;
+  const apiHost = api?.host;
+  const apiPort = api?.port;
+  const apiToken = api?.token;
 
   useEffect(() => {
     if (!api || !planId) {
@@ -164,7 +167,7 @@ export function usePlanTaskBoard(
         setInitial({ planId, data: null, loading: false, error: formatPlanFetchError(cause) });
       });
     return () => controller.abort();
-  }, [api?.host, api?.port, api?.token, planId, contextKey, retryKey]);
+  }, [apiHost, apiPort, apiToken, planId, contextKey, retryKey]);
 
   const refetch = useCallback(async () => {
     setRetryKey((key) => key + 1);
@@ -179,7 +182,7 @@ export function usePlanTaskBoard(
       for (const controller of controllers.current.values()) controller.abort();
       controllers.current.clear();
     };
-  }, [api?.host, api?.port, api?.token, planId, contextKey, retryKey]);
+  }, [apiHost, apiPort, apiToken, planId, contextKey, retryKey]);
 
   const loadNextPage = useCallback(async (status: PlanTaskBoardStatus) => {
     if (!api || !planId) return;
@@ -201,19 +204,20 @@ export function usePlanTaskBoard(
         status,
         cursor: current?.next_cursor,
       });
-      if (controller.signal.aborted || planIdRef.current !== planId || !result.column) return;
+      const column = result.column;
+      if (controller.signal.aborted || planIdRef.current !== planId || !column) return;
       setInitial((previous) => {
         if (!previous.data || previous.planId !== planId) return previous;
         const oldColumn = previous.data.columns?.[status];
         const seen = new Set(oldColumn?.items.map((item) => item.id) ?? []);
-        const items = [...(oldColumn?.items ?? []), ...result.column.items.filter((item) => !seen.has(item.id))];
+        const items = [...(oldColumn?.items ?? []), ...column.items.filter((item) => !seen.has(item.id))];
         return {
           ...previous,
           data: {
             ...previous.data,
             columns: {
               ...previous.data.columns,
-              [status]: { ...result.column, items },
+              [status]: { ...column, items },
             },
           },
         };
@@ -234,7 +238,7 @@ export function usePlanTaskBoard(
         });
       }
     }
-  }, [api, planId, initial.planId, initial.data]);
+  }, [apiHost, apiPort, apiToken, planId, contextKey, initial.planId, initial.data]);
 
   useEffect(() => {
     if (!api || !planId) return;
@@ -255,7 +259,7 @@ export function usePlanTaskBoard(
       active = false;
       unlisten?.();
     };
-  }, [api, planId, refetch]);
+  }, [apiHost, apiPort, apiToken, planId, contextKey, refetch]);
 
   return {
     data: initial.planId === planId ? initial.data : null,
