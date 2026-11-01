@@ -7,10 +7,15 @@ use wait_timeout::ChildExt;
 mod diagnostics;
 pub(super) use diagnostics::print_pty_environment;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_NO_MORE_FILES, HANDLE, INVALID_HANDLE_VALUE,
+    CloseHandle, DuplicateHandle, DUPLICATE_SAME_ACCESS, ERROR_NO_MORE_FILES, HANDLE,
+    INVALID_HANDLE_VALUE, WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
+};
+use windows_sys::Win32::System::Threading::{
+    GetCurrentProcess, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
+    PROCESS_SYNCHRONIZE,
 };
 
 // Hosts are attributed by parent PID, which is the whole test process, so a
@@ -39,20 +44,106 @@ pub(super) fn new_conpty_hosts(before: &HashSet<u32>) -> Result<Vec<u32>, String
         .collect())
 }
 
-pub(super) fn wait_for_processes_gone(pids: Vec<u32>, timeout: Duration) -> bool {
-    if pids.is_empty() {
-        return true;
+pub(super) struct ProcessExitWitness {
+    pid: u32,
+    role: &'static str,
+    handle: OwnedHandle,
+}
+
+impl ProcessExitWitness {
+    pub(super) fn for_child(child: &dyn portable_pty::Child) -> Result<Self, String> {
+        let pid = child.process_id().ok_or("PTY child has no process ID")?;
+        let source = child
+            .as_raw_handle()
+            .ok_or_else(|| format!("PTY child {pid} has no process handle"))?;
+        let mut duplicate = std::ptr::null_mut();
+        let process = unsafe { GetCurrentProcess() };
+        if unsafe {
+            DuplicateHandle(
+                process,
+                source.cast(),
+                process,
+                &mut duplicate,
+                0,
+                0,
+                DUPLICATE_SAME_ACCESS,
+            )
+        } == 0
+        {
+            return Err(last_error(&format!(
+                "duplicate PTY child {pid} process handle"
+            )));
+        }
+        Ok(Self {
+            pid,
+            role: "PTY child",
+            handle: OwnedHandle::new(duplicate, "capture PTY child process handle")?,
+        })
     }
-    let ids = pids
+
+    fn wait_until(&self, deadline: Instant) -> Result<(), String> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let milliseconds = remaining.as_millis().min(u32::MAX as u128 - 1) as u32;
+        match unsafe { WaitForSingleObject(self.handle.0, milliseconds) } {
+            WAIT_OBJECT_0 => Ok(()),
+            WAIT_TIMEOUT => Err(format!(
+                "{} {} remains alive at the shared process-exit deadline",
+                self.role, self.pid
+            )),
+            WAIT_FAILED => Err(last_error(&format!(
+                "observe {} {} process exit",
+                self.role, self.pid
+            ))),
+            result => Err(format!(
+                "observe {} {} process exit: unexpected wait result {result:#x}",
+                self.role, self.pid
+            )),
+        }
+    }
+}
+
+pub(super) fn capture_conpty_host_exits(pids: &[u32]) -> Result<Vec<ProcessExitWitness>, String> {
+    let witnesses = pids
         .iter()
-        .map(u32::to_string)
-        .collect::<Vec<_>>()
-        .join(",");
-    let timeout_secs = timeout.as_secs().max(1);
-    let script = format!(
-        "$ids=@({ids}); Wait-Process -Id $ids -Timeout {timeout_secs} -ErrorAction SilentlyContinue; if (Get-Process -Id $ids -ErrorAction SilentlyContinue) {{ exit 1 }} else {{ exit 0 }}"
-    );
-    run_powershell(&script).is_ok_and(|output| output.status.success())
+        .map(|&pid| {
+            let handle = OwnedHandle::new(
+                unsafe {
+                    OpenProcess(
+                        PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
+                        0,
+                        pid,
+                    )
+                },
+                &format!("capture ConPTY host {pid} process handle"),
+            )?;
+            Ok(ProcessExitWitness {
+                pid,
+                role: "ConPTY host",
+                handle,
+            })
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    let attributable = conpty_host_children_of_current_process()?;
+    for witness in &witnesses {
+        if !attributable.contains(&witness.pid) {
+            return Err(format!(
+                "captured ConPTY host {} is not attributable to the current test process",
+                witness.pid
+            ));
+        }
+    }
+    Ok(witnesses)
+}
+
+pub(super) fn wait_for_processes_exit(
+    witnesses: Vec<ProcessExitWitness>,
+    timeout: Duration,
+) -> Result<(), String> {
+    let deadline = Instant::now() + timeout;
+    for witness in witnesses {
+        witness.wait_until(deadline)?;
+    }
+    Ok(())
 }
 
 fn run_process_query(script: &str) -> Result<HashSet<u32>, String> {
