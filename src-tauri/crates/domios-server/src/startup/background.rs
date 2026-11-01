@@ -57,15 +57,15 @@ pub(crate) fn start_background_tasks(
                             let signed_token = signed_token.clone();
                             let port = peer.api_port;
                             let ip = addr.ip.clone();
-                            let mesh = mesh.clone();
-                            let peer_id = peer.instance_id.clone();
                             async move {
-                                let client = if let Some(ref tok) = signed_token {
-                                    mesh::transport::PeerClient::new_signed(&ip, port, tok)
-                                } else {
-                                    mesh::transport::PeerClient::new_unauthenticated(&ip, port)
+                                let Some(ref token) = signed_token else {
+                                    return mesh::transport::TryNext::Retry(
+                                        "missing mesh signing key".to_owned(),
+                                    );
                                 };
-                                if mesh::disconnect::ping_peer(&mesh, &peer_id, &client).await {
+                                let client =
+                                    mesh::transport::PeerClient::new_signed(&ip, port, token);
+                                if client.ping_reply().await.is_ok() {
                                     mesh::transport::TryNext::Success(client)
                                 } else {
                                     mesh::transport::TryNext::Retry("ping failed".to_string())
@@ -110,6 +110,9 @@ pub(crate) fn start_background_tasks(
                                 (false, false)
                             }
                         };
+                        if online != was_online {
+                            mesh.lock().notify_connection_change();
+                        }
                         let now_secs = std::time::SystemTime::now()
                             .duration_since(std::time::UNIX_EPOCH)
                             .unwrap_or_default()

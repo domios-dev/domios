@@ -387,3 +387,207 @@ fn secret_cli_preflight_refuses_neighbor_credentials_without_entering_the_secret
     assert_eq!(response.result.unwrap()["authorized"], true);
     assert_eq!(backend_calls.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
+
+fn neighbor_save_matrix(case: &str) {
+    let (fixture, concierge, token) = fixture();
+    codeterm_service_core::async_runtime::block_on(
+        codeterm_service_core::mem_ops::neighbor_save::matrix::run(
+            case,
+            &fixture,
+            &concierge,
+            |method, body| {
+                let service = fixture.service.clone();
+                let token = token.clone();
+                async move {
+                    tokio::task::spawn_blocking(move || {
+                let (method, token) = if method == "owner" { ("mem.neighbor_save".to_string(), "owner-secret".to_string()) } else { (method, token) };
+                let req: JsonRpcRequest = serde_json::from_value(json!({"jsonrpc":"2.0","id":1,"method":method,"params":body,"credential":token,"protocol_version":protocol::PROTOCOL_VERSION})).unwrap();
+                let svc = Arc::new(service);
+                let response = respond_to_request(req, 0, &svc.mux, &svc.pty, &svc.notif, &svc.output_buf, &svc);
+                match response.error { Some(error) => { assert_eq!(error.code, -32003); Err((403, error.message)) }, None => Ok(response.result.unwrap()) }
+            }).await.unwrap()
+                }
+            },
+        ),
+    );
+}
+
+#[test]
+fn neighbor_save_saved_in_granted_area() {
+    neighbor_save_matrix("saved_in_granted_area");
+}
+
+#[test]
+fn neighbor_save_area_b_refused() {
+    neighbor_save_matrix("area_b_refused");
+}
+
+#[test]
+fn neighbor_save_empty_write_list() {
+    neighbor_save_matrix("empty_write_list");
+}
+
+#[test]
+fn neighbor_save_mem_save_denied() {
+    neighbor_save_matrix("mem_save_denied");
+}
+
+#[test]
+fn neighbor_save_forged_author_ignored() {
+    neighbor_save_matrix("forged_author_ignored");
+}
+
+#[test]
+fn neighbor_save_rule_refused() {
+    neighbor_save_matrix("rule_refused");
+}
+
+#[test]
+fn neighbor_save_preference_refused() {
+    neighbor_save_matrix("preference_refused");
+}
+
+#[test]
+fn neighbor_save_skill_refused() {
+    neighbor_save_matrix("skill_refused");
+}
+
+#[test]
+fn neighbor_save_script_refused() {
+    neighbor_save_matrix("script_refused");
+}
+
+#[test]
+fn neighbor_save_forced_fields() {
+    neighbor_save_matrix("forced_fields");
+}
+
+#[test]
+fn neighbor_save_credentials_title() {
+    neighbor_save_matrix("credentials_title");
+}
+
+#[test]
+fn neighbor_save_credentials_body() {
+    neighbor_save_matrix("credentials_body");
+}
+
+#[test]
+fn neighbor_save_credentials_summary() {
+    neighbor_save_matrix("credentials_summary");
+}
+
+#[test]
+fn neighbor_save_credentials_tags() {
+    neighbor_save_matrix("credentials_tags");
+}
+
+#[test]
+fn neighbor_save_over_cap_body() {
+    neighbor_save_matrix("over_cap_body");
+}
+
+#[test]
+fn neighbor_save_over_cap_title() {
+    neighbor_save_matrix("over_cap_title");
+}
+
+#[test]
+fn neighbor_save_over_cap_total() {
+    neighbor_save_matrix("over_cap_total");
+}
+
+#[test]
+fn neighbor_save_revoked_area() {
+    neighbor_save_matrix("revoked_area");
+}
+
+#[test]
+fn neighbor_save_paused_friend() {
+    neighbor_save_matrix("paused_friend");
+}
+
+#[test]
+fn neighbor_save_owner_refused() {
+    neighbor_save_matrix("owner_refused");
+}
+
+#[test]
+fn neighbor_save_never_extracts() {
+    neighbor_save_matrix("never_extracts");
+}
+
+#[test]
+fn neighbor_save_missing_friend_author() {
+    neighbor_save_matrix("missing_friend_author");
+}
+
+#[test]
+fn neighbor_save_replace_inside_grant() {
+    neighbor_save_matrix("replace_inside_grant");
+}
+
+#[test]
+fn neighbor_save_replace_outside_grant() {
+    neighbor_save_matrix("replace_outside_grant");
+}
+
+#[test]
+fn neighbor_save_replace_pinned() {
+    neighbor_save_matrix("replace_pinned");
+}
+
+#[test]
+fn native_socket_local_admission_denies_concierge_and_accepts_ordinary_authenticated_tab() {
+    let (fixture, concierge, token) = fixture();
+    for operation in ["maintenance", "host-owner", "local-input"] {
+        assert_eq!(
+            request(
+                &fixture,
+                &token,
+                "cli.local.authorize",
+                Some(json!({"operation":operation}))
+            )
+            .error
+            .unwrap()
+            .code,
+            -32003
+        );
+    }
+    assert!(request(&fixture, &token, "system.identify", None)
+        .result
+        .is_some());
+    let ordinary = fixture
+        .service
+        .mux
+        .read()
+        .all_tabs()
+        .find(|tab| tab.id != concierge)
+        .unwrap()
+        .id
+        .clone();
+    let ordinary_token = fixture
+        .service
+        .frontend_pty_env(Some(&ordinary))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    assert_eq!(
+        request(
+            &fixture,
+            &ordinary_token,
+            "cli.local.authorize",
+            Some(json!({"operation":"maintenance"}))
+        )
+        .result
+        .unwrap()["authorized"],
+        true
+    );
+    assert!(request(
+        &fixture,
+        "forged",
+        "cli.local.authorize",
+        Some(json!({"operation":"maintenance"}))
+    )
+    .error
+    .is_some());
+}

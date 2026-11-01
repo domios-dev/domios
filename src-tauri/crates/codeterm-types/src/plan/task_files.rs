@@ -11,6 +11,54 @@ pub struct TaskFiles {
 }
 
 impl TaskFiles {
+    pub fn shared_edit_paths(&self) -> Result<Vec<String>, String> {
+        if self.edit.is_empty() {
+            return Err("shared placement requires declared edit files".into());
+        }
+        if self.read.iter().any(|path| self.owns_edit_path(path)) {
+            return Err("shared edit prefixes cannot contain declared read-only files".into());
+        }
+        self.edit
+            .iter()
+            .map(|path| normalize_edit_path(path))
+            .collect()
+    }
+
+    pub fn owns_edit_path(&self, path: &str) -> bool {
+        let Ok(path) = normalize_edit_path(path) else {
+            return false;
+        };
+        self.edit
+            .iter()
+            .filter_map(|edit| normalize_edit_path(edit).ok())
+            .any(|edit| {
+                path == edit
+                    || path
+                        .strip_prefix(&edit)
+                        .is_some_and(|suffix| suffix.starts_with('/'))
+            })
+    }
+
+    pub fn overlapping_edit_path<'a>(&'a self, other: &Self) -> Option<&'a str> {
+        self.edit
+            .iter()
+            .find(|path| {
+                other.owns_edit_path(path)
+                    || other.edit.iter().any(|owned| {
+                        let Ok(path) = normalize_edit_path(path) else {
+                            return false;
+                        };
+                        let Ok(owned) = normalize_edit_path(owned) else {
+                            return false;
+                        };
+                        owned
+                            .strip_prefix(&path)
+                            .is_some_and(|suffix| suffix.starts_with('/'))
+                    })
+            })
+            .map(String::as_str)
+    }
+
     pub fn validated(mut self) -> Result<Self, String> {
         if self.edit.len() + self.read.len() > 256 {
             return Err("task files exceed 256 entries".into());
@@ -32,36 +80,29 @@ impl TaskFiles {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn task_files_validate_deduplicate_and_preserve_new_edit_paths() {
-        let files = TaskFiles {
-            edit: vec!["new.rs".into(), "new.rs".into()],
-            read: vec!["context.md".into()],
-        }
-        .validated()
-        .unwrap();
-        assert_eq!(files.edit, ["new.rs"]);
-        assert_eq!(files.read, ["context.md"]);
+pub fn normalize_edit_path(path: &str) -> Result<String, String> {
+    let path = path.replace('\\', "/");
+    let path = path.trim_end_matches('/');
+    if path.is_empty()
+        || path.contains(':')
+        || path.chars().any(char::is_control)
+        || path.split('/').any(|part| {
+            part.is_empty()
+                || part.ends_with('.')
+                || part.ends_with(' ')
+                || part.eq_ignore_ascii_case(".git")
+        })
+    {
+        return Err(format!(
+            "edit path '{path}' must be repository-relative without traversal"
+        ));
     }
-    #[test]
-    fn task_files_refuse_invalid_and_conflicting_paths() {
-        for path in ["", " ", "bad\npath"] {
-            assert!(TaskFiles {
-                edit: vec![path.into()],
-                ..Default::default()
-            }
-            .validated()
-            .is_err());
-        }
-        assert!(TaskFiles {
-            edit: vec!["x".into()],
-            read: vec!["x".into()]
-        }
-        .validated()
-        .is_err());
-        assert!(serde_json::from_str::<TaskFiles>(r#"{"write":["x"]}"#).is_err());
-    }
+    Ok(if cfg!(windows) {
+        path.to_lowercase()
+    } else {
+        path.to_string()
+    })
 }
+
+#[cfg(test)]
+mod tests;

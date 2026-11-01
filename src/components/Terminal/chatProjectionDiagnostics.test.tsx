@@ -9,7 +9,7 @@ import {
 import { flushSync } from "react-dom";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { ChatProjectionMonitor, scheduleAfterPaint } from "./chatProjectionDiagnostics";
+import { ChatProjectionMonitor, ChatResponsivenessTrace, scheduleAfterPaint } from "./chatProjectionDiagnostics";
 import { paintTailSignature, tailSignatureOf } from "./useChatSession";
 import type { ChatSessionDiagnosticEvent } from "./useChatSession";
 
@@ -178,6 +178,15 @@ function testScheduleAfterPaint(): void {
     cancel(); // cancel the pending inner frame
     while (runOne()) { /* drain */ }
     assert(superseded.count() === 0, "cancelling a superseded frame before paint suppresses its stale record");
+    const trace = new ChatResponsivenessTrace();
+    trace.select({ trace: "opaque-trace", tab: TAB_ID, session: "s", nonce: "n", epoch: 1, turn: "t", item: "i" });
+    const authority = { tab: TAB_ID, session: "s", nonce: "n", epoch: 1 };
+    trace.bind(authority);
+    trace.afterPaint(authority, [{ id: "i", toolFlowId: "t", toolResult: "opaque" }], () => true);
+    runOne();
+    trace.release(TAB_ID);
+    while (runOne()) { /* drain */ }
+    assert(trace.snapshot().records.length === 0 && pending.size === 0, "disposal cancels the pending selected paint opportunity");
   } finally {
     g.requestAnimationFrame = prevRaf;
     g.cancelAnimationFrame = prevCaf;
@@ -596,7 +605,187 @@ async function testActivationRemountIntegration(): Promise<void> {
   (bridge as never as { __setListenForTest: (fn: unknown) => void }).__setListenForTest(null as never);
 }
 
+function testResponsivenessPrearmRequiresProvenLiveOwnAssistant(): void {
+  let now = 0;
+  const trace = new ChatResponsivenessTrace(() => ++now, () => 1234);
+  const authority = { tab: "tab", session: "session", nonce: "nonce", epoch: 7, generation: 3 };
+  const binding = { trace: "opaque-prearm", ...authority, body: "opaque-private-extra" };
+  const row = { id: "first", type: "assistant", toolFlowId: "turn", content: "opaque-private-body" };
+  const origin = { kind: "runtime_live", turn: "turn" };
+  trace.arm(binding);
+  assert(trace.snapshot().armed?.epoch === 7 && trace.snapshot().selection === null, "arm has exact authority and no invented item/turn");
+  let refused = false;
+  try { trace.arm({ ...binding, nonce: "x".repeat(129) }); } catch { refused = true; }
+  assert(refused && trace.snapshot().armed?.nonce === "nonce", "invalid oversized arm is refused before replacing the valid observer");
+  assert(!trace.eligible(authority), "armed observer cannot scan rendered rows before a real live item");
+  trace.observe("layout_commit", authority, [row]);
+  trace.arrival(authority, [row]);
+  trace.arrival(authority, [row], { kind: "cache", turn: "turn" });
+  for (const incoming of [{ ...authority, tab: "foreign" }, { ...authority, session: "foreign" },
+    { ...authority, nonce: "foreign" }, { ...authority, epoch: 8 }, { ...authority, epoch: undefined }]) {
+    trace.arrival(incoming, [row], origin);
+  }
+  for (const type of ["user", "tool_call", "thinking", "system"]) trace.arrival(authority, [{ ...row, type }], origin);
+  trace.arrival(authority, [{ ...row, toolFlowId: "stale-turn" }], origin);
+  trace.arrival(authority, [{ ...row, id: "x".repeat(129) }], origin);
+  trace.arrival(authority, [row], { kind: "runtime_live", turn: "" });
+  assert(trace.snapshot().selection === null && trace.snapshot().records.length === 0, "history/cache/foreign/stale/non-assistant/invalid arrivals cannot select");
+  trace.arrival(authority, [row, { ...row, id: "later" }], origin);
+  let snapshot = trace.snapshot();
+  assert(snapshot.selection?.item === "first" && snapshot.selection.turn === "turn" && snapshot.armed === null, "first exact eligible arrival chooses only its real ids");
+  assert(snapshot.records.length === 1 && snapshot.records[0]!.stage === "frontend_arrival", "selection synchronously records that very first arrival");
+  assert(snapshot.records[0]!.epochVerified && snapshot.records[0]!.listenerGeneration === 3 && snapshot.records[0]!.observerMs > 0, "first record retains provenance and measures selection work");
+  assert(!JSON.stringify(snapshot).includes("opaque-private"), "selection/snapshot retain no row bodies or extra caller fields");
+  trace.arrival(authority, [{ ...row, id: "later" }], origin);
+  trace.arrival(authority, [row]);
+  assert(trace.snapshot().records.length === 1 && trace.snapshot().selection?.item === "first", "selection never follows another item or unproven history");
+  trace.arrival(authority, [{ ...row, content: row.content + "-growth" }], origin);
+  assert(trace.snapshot().records[1]!.contentUnits > snapshot.records[0]!.contentUnits, "later proven growth records the same item");
+  for (let index = 0; index < 2050; index++) trace.arrival(authority, [row], origin);
+  const reads = hitCounter();
+  const tracked = new Proxy([row], { get(target, key, receiver) { if (key === "0") reads.hit(); return Reflect.get(target, key, receiver); } });
+  trace.arrival(authority, tracked, origin);
+  snapshot = trace.snapshot();
+  assert(snapshot.records.length === 2048 && snapshot.dropped > 0 && reads.count() === 0, "exhausted arrival cap rejects before row lookup");
+  trace.arm(binding);
+  const large = new Proxy(Array.from({ length: 2000 }, () => ({ ...row, type: "tool_call" })), {
+    get(target, key, receiver) { if (typeof key === "string" && /^\d+$/.test(key)) reads.hit(); return Reflect.get(target, key, receiver); },
+  });
+  trace.arrival(authority, large, origin);
+  assert(reads.count() === 1024 && trace.snapshot().armed !== null && trace.snapshot().dropped === 1, "pending selection scans at most1024 entries and counts a capped attempt");
+  trace.arm(binding);
+  trace.arrival(authority, [row, ...large], origin);
+  assert(trace.snapshot().records.length === 1, "first eligible entry in a large batch is recorded without a second tail scan");
+  trace.arm(binding);
+  trace.bind({ ...authority, epoch: 8 });
+  assert(!trace.snapshot().active, "authority replacement disposes a pending arm");
+  trace.arm(binding);
+  trace.release("tab");
+  trace.arrival(authority, [row], origin);
+  assert(!trace.snapshot().active && trace.snapshot().records.length === 0, "disposal/unmount cancels pending selection");
+}
+
+function testResponsivenessTraceSelectionGrowthBoundsAndDisposal(): void {
+  let now = 0;
+  const trace = new ChatResponsivenessTrace(() => ++now, () => 1234);
+  const selection = { trace: "opaque-trace", tab: "tab", session: "session", nonce: "nonce", epoch: 7, turn: "turn", item: "item" };
+  trace.select(selection);
+  const authority = { tab: "tab", session: "session", nonce: "nonce", epoch: 7 };
+  trace.bind(authority);
+  const row = { id: "item", toolFlowId: "turn", content: "", toolResult: "opaque-result", toolDetail: "opaque-path" };
+  trace.observe("frontend_arrival", { ...authority, nonce: "foreign" }, [row]);
+  assert(trace.snapshot().records.length === 0, "foreign authority produces no trace evidence");
+  trace.observe("frontend_arrival", authority, [row]);
+  trace.observe("layout_commit", authority, [{ ...row, toolResult: row.toolResult + "-more" }]);
+  const snapshot = trace.snapshot();
+  assert(snapshot.records[1]!.resultUnits > snapshot.records[0]!.resultUnits, "tool growth changes trace without assistant content growth");
+  assert(snapshot.records.every(record => record.clock === "browser-performance-ms" && record.epochVerified), "clock and exact epoch provenance stay explicit");
+  assert(!JSON.stringify(snapshot).includes("opaque-result") && !JSON.stringify(snapshot).includes("opaque-path"), "trace never retains bodies or paths");
+  for (let index = 0; index < 2050; index++) trace.observe("layout_commit", authority, [row]);
+  assert(trace.snapshot().records.length === 2048 && trace.snapshot().dropped === 4, "trace has a fixed cap and exact drops");
+  trace.bind({ ...authority, epoch: 8 });
+  assert(!trace.snapshot().active, "epoch replacement disposes selected observer");
+  trace.select(selection);
+  trace.dispose();
+  trace.observe("layout_commit", authority, [row]);
+  assert(trace.snapshot().records.length === 0, "disposed observer cannot retain late events");
+}
+
+function testResponsivenessRenderedEligibilityAndMeasuredBoundedLookup(): void {
+  const global = globalThis as unknown as { requestAnimationFrame?: (callback: () => void) => number; cancelAnimationFrame?: (id: number) => void };
+  const previousRaf = global.requestAnimationFrame;
+  const previousCancel = global.cancelAnimationFrame;
+  let clock = 0;
+  let visits = 0;
+  let selectedAt = 0;
+  let active = true;
+  let mounted = true;
+  let rangeStart = 9000;
+  let rangeEnd = 10000;
+  let revision = 1;
+  let mountChecks = 0;
+  const visitCount = () => visits;
+  const currentClock = () => clock;
+  let nextFrame = 0;
+  const frames = new Map<number, () => void>();
+  global.requestAnimationFrame = callback => { clock += 7; frames.set(++nextFrame, callback); return nextFrame; };
+  global.cancelAnimationFrame = id => { frames.delete(id); };
+  const runOne = () => {
+    const entry = frames.entries().next().value as [number, () => void] | undefined;
+    assert(entry != null, "a frame was explicitly scheduled");
+    frames.delete(entry[0]); entry[1]();
+  };
+  const trace = new ChatResponsivenessTrace(() => clock, () => 1);
+  const authority = { tab: "tab", session: "session", nonce: "nonce", epoch: 1 };
+  const selection = { trace: "opaque-trace", ...authority, turn: "turn", item: "selected" };
+  const entries = Array.from({ length: 10000 }, (_, index) => ({
+    get msg() { visits++; clock++; return { id: index === selectedAt ? "selected" : `opaque-${index}`, toolFlowId: "turn", toolResult: "opaque" }; },
+  }));
+  const mountProof = () => {
+    const captured = revision;
+    return { active, start: rangeStart, end: rangeEnd, revision,
+      isMounted: (_id: string, index: number) => { mountChecks++; clock += 3; return active && mounted && captured === revision && index >= rangeStart && index < rangeEnd; } };
+  };
+  try {
+    trace.rendered(authority, entries, mountProof())();
+    assert(visitCount() === 0 && currentClock() === 0, "unselected DEV render never reads or projects entries");
+    trace.select(selection);
+    trace.rendered({ ...authority, nonce: "foreign" }, entries, mountProof())();
+    assert(visitCount() === 0, "foreign authority never reads entries");
+    active = false;
+    trace.rendered(authority, entries, mountProof())();
+    assert(visitCount() === 0 && frames.size === 0, "inactive or loading surface exits before lookup and scheduling");
+    active = true;
+    rangeStart = 0; rangeEnd = 60; selectedAt = 9999;
+    trace.rendered(authority, entries, mountProof())();
+    assert(visitCount() === 60 && trace.snapshot().records.length === 0, "logical tail outside mounted range produces no rendered receipt");
+    visits = 0; rangeStart = 0; rangeEnd = 10000; selectedAt = 0;
+    trace.rendered(authority, entries, mountProof())();
+    assert(visitCount() === 1024 && trace.snapshot().observerMs >= 1024, "selected lookup is bounded even for oversized mounted input and its full scan is timed");
+    visits = 0; rangeStart = 9980; rangeEnd = 10000; selectedAt = 9999; mounted = false;
+    trace.rendered(authority, entries, mountProof())();
+    assert(trace.snapshot().records.length === 0 && frames.size === 0, "logical selected row without actual mounted content is not a render or paint");
+    mounted = true; visits = 0; clock = 0;
+    const cancel = trace.rendered(authority, entries, mountProof());
+    const record = trace.snapshot().records.find(row => row.stage === "rendered_commit");
+    assert(visitCount() === 1 && record != null && record.observerMs >= 11, "one accessor lookup, mount check and scheduling are measured without array projection");
+    runOne();
+    revision++; rangeStart = 0; rangeEnd = 60;
+    runOne();
+    assert(trace.snapshot().records.every(row => row.stage !== "paint_opportunity"), "range supersession is revalidated before a paint opportunity");
+    cancel();
+    trace.select(selection);
+    rangeStart = 9980; rangeEnd = 10000;
+    trace.rendered(authority, entries, mountProof());
+    runOne(); active = false; runOne();
+    assert(trace.snapshot().records.every(row => row.stage !== "paint_opportunity"), "a surface hidden between frames cannot claim paint");
+    active = true; trace.select(selection); clock = 0;
+    const paintRows = new Proxy([{ id: "selected", toolFlowId: "turn", toolResult: "opaque" }], {
+      get(target, key, receiver) { if (key === "0") clock++; return Reflect.get(target, key, receiver); },
+    });
+    const cancelPaint = trace.afterPaint(authority, paintRows, () => true);
+    assert(trace.snapshot().observerMs >= 8, "standalone paint lookup and scheduling contribute to observer time");
+    cancelPaint();
+    trace.select(selection);
+    const row = { id: "selected", toolFlowId: "turn", toolResult: "opaque" };
+    for (let index = 0; index < 2048; index++) trace.observe("layout_commit", authority, [row]);
+    visits = 0; clock = 0; mountChecks = 0;
+    const trackedRows = new Proxy([row], { get(target, key, receiver) { if (key === "0") visits++; return Reflect.get(target, key, receiver); } });
+    trace.rendered(authority, entries, mountProof())();
+    trace.afterPaint(authority, trackedRows, () => { mountChecks++; return true; })();
+    trace.observe("layout_commit", authority, trackedRows);
+    assert(visitCount() === 0 && currentClock() === 0 && mountChecks === 0 && frames.size === 0, "exhausted traces exit before all row, mount and scheduler work");
+    assert(trace.snapshot().dropped === 3, "cap refusals retain cheap observer-attempt counters");
+  } finally {
+    trace.dispose();
+    global.requestAnimationFrame = previousRaf;
+    global.cancelAnimationFrame = previousCancel;
+  }
+}
 async function main(): Promise<void> {
+  testResponsivenessPrearmRequiresProvenLiveOwnAssistant();
+  testResponsivenessRenderedEligibilityAndMeasuredBoundedLookup();
+  testResponsivenessTraceSelectionGrowthBoundsAndDisposal();
   testStageDistinction();
   testAuthorityStall();
   testMonotonicAndBounded();

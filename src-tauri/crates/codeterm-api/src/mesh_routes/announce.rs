@@ -127,7 +127,7 @@ where
     }) {
         let new_hint = {
             let mut mesh = state.mesh.lock();
-            if mesh.is_revoked(&sender_id) || mesh.is_blocked(&sender_id) {
+            if mesh.account_peer_revoked(&sender_id) {
                 return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
             }
             mesh.check_and_record_nonce(token).is_ok()
@@ -146,30 +146,11 @@ where
     }
     let mut mesh = state.mesh.lock();
     if let Some(membership) = membership.as_deref() {
-        mesh.note_advertised_membership(&sender_id, membership);
         mesh.refresh_peer_membership(&sender_id, membership);
     }
     if !mesh.traffic_open(&sender_id) {
         let reason = format!("{:?}", mesh.traffic_decision(&sender_id));
         return Err((StatusCode::FORBIDDEN, reason));
-    }
-    let adopt =
-        membership.is_some() && mesh.is_legacy_link(&sender_id) && mesh.admission_context().is_ok();
-    if adopt {
-        let mesh_state = state.mesh.clone();
-        let peer_id = sender_id.clone();
-        codeterm_service_core::async_runtime::spawn(async move {
-            if let Err(refusal) =
-                codeterm_service_core::mesh::account_mesh::link::adopt_peer(&mesh_state, &peer_id)
-                    .await
-            {
-                log::debug!(
-                    "[mesh/account] adoption of {} deferred: {}",
-                    peer_id,
-                    refusal
-                );
-            }
-        });
     }
     match mesh.apply_announce(&sender_id, &ann) {
         Ok(change) if change.changed() => {

@@ -114,6 +114,7 @@ impl ExtensionsBuilder {
         self.insert_late::<crate::CronState>();
         self.insert_late::<crate::CronWake>();
         self.insert_late::<crate::service::curator::CuratorTabs>();
+        self.insert_late::<crate::service::curator::CuratorReconciliations>();
         self.insert_late::<crate::ports::sentinel::SentinelPorts>();
         self.insert_late::<crate::ports::rest::LocalApiRouter>();
         self.insert_late::<crate::startup::RestApiControlState>();
@@ -153,7 +154,7 @@ fn required() -> Vec<(TypeId, &'static str)> {
         account::AccountCell, analytics::AnalyticsCell, billing::BillingCell,
         receiver_target::LocalRecordingTargets, receiver_target::ReceiverTargets,
         task_files::LaunchTaskFiles, workspace_cwd::WorkspaceRelocationLock, BridgeOutboundRx,
-        LoadedPlanProjects, MuxEmitPending, PlanStartupLoaded, PlanWatchers, PublishedTabStatuses,
+        LoadedPlanProjects, MuxEmitPending, PlanStartupLoaded, PublishedTabStatuses,
         WorkerIdentityAllocator,
     };
     vec![
@@ -209,7 +210,6 @@ fn required() -> Vec<(TypeId, &'static str)> {
         key::<crate::usage::TabActivity>(),
         key::<Arc<crate::user_last_activity::UserLastActivity>>(),
         key::<crate::usage::poller::UsagePollerSlot>(),
-        key::<PlanWatchers>(),
         key::<LoadedPlanProjects>(),
         key::<PlanStartupLoaded>(),
         key::<Arc<crate::service::hierarchy::heartbeat_gate::Gate>>(),

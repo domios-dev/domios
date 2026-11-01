@@ -61,6 +61,18 @@ it.each(["chat", "extensions"])("opens %s markdown in a safe new browser tab", a
   expect(native.invoke).not.toHaveBeenCalled();
 });
 
+it.each([
+  ["C:/Users/Owner/snake.html", "file:///C:/Users/Owner/snake.html"],
+  ["/home/owner/snake.html", "file:///home/owner/snake.html"],
+  ["file:///C:/Users/Owner/snake.html", "file:///C:/Users/Owner/snake.html"],
+])("opens an owner chat file link directly: %s", async (href, url) => {
+  const bridge = createNativeBridge(true);
+  configureMarkdownLinkOpener((target) => bridge.openUrl(target));
+  await render(<RichMarkdown text={`[snake](${href})`} />);
+  await activate(host.querySelector("a")!);
+  expect(native.invoke).toHaveBeenCalledExactlyOnceWith("open_url", { url });
+});
+
 it("supports middle clicks and keeps opener failures from navigating the app", async () => {
   const open = vi.fn().mockRejectedValue(new Error("Unavailable"));
   configureMarkdownLinkOpener(open);

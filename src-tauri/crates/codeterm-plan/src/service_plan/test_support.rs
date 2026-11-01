@@ -92,7 +92,11 @@ impl PlanSearchPort for TestSearchPort {
                 created_at INTEGER NOT NULL DEFAULT 0,
                 updated_at INTEGER NOT NULL DEFAULT 0,
                 accessed_at INTEGER,
-                is_pinned_wakeup INTEGER NOT NULL DEFAULT 0
+                is_pinned_wakeup INTEGER NOT NULL DEFAULT 0,
+                author_kind TEXT NOT NULL DEFAULT 'system' CHECK(author_kind IN ('owner','neighbor','system')),
+                author_uid TEXT,
+                author_friendship TEXT,
+                author_label TEXT DEFAULT 'unscoped'
             );
             CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(
                 mem_id UNINDEXED,

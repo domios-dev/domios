@@ -110,7 +110,9 @@ pub enum MeshOperation {
         target: SessionTarget,
     },
     Recover {
-        target: MeshTarget,
+        target: RecoveryTarget,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        target_policy: Option<OwnTargetPolicy>,
     },
     List {
         cursor: Option<MeshCursor>,
@@ -170,6 +172,27 @@ pub struct InstallationKeyBody {
     pub public_key_spki_base64: String,
     pub operation: KeyOperation,
     pub expected_generation: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation_policy: Option<GenerationPolicy>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GenerationPolicy {
+    Assign,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum RecoveryTarget {
+    Exact(MeshTarget),
+    Own { installation_id: String },
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OwnTargetPolicy {
+    Own,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]

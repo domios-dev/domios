@@ -55,8 +55,8 @@ async function main() {
 
   if (mode === "team-count") {
     const [teamId, expected] = args;
-    requireState(Array.isArray(value.teams)
-      && value.teams.filter((team) => team.id === teamId).length === Number(expected));
+    requireState(Array.isArray(value.result)
+      && value.result.filter((team) => team.id === teamId).length === Number(expected));
     return;
   }
 
@@ -93,7 +93,7 @@ async function main() {
 
   if (mode === "plan-state") {
     const [planId, teamId, ownerId, minimumHistory] = args;
-    const plan = value.plan ?? value;
+    const plan = value.result;
     const ownerMatches = ownerId === "null"
       ? plan.owner?.tab_id == null
       : plan.owner?.tab_id === ownerId;

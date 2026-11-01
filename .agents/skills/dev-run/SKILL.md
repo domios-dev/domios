@@ -194,15 +194,76 @@ provenance, releases the build gateway, then launches through `dev-prebuilt`.
 Foreground launch stays in its Dev shell and owns the client process.
 
 Server reload/staging tool updates also use `dev-server`; native source and
-Tauri/Cargo configuration changes still require `dev`. Named DEV CLI artifacts
-build alongside the app in the instance target under distinct binary names.
-Named `dev` and `dev-server` use nonincremental Rust compilation and the portable
-compiler-cache wrapper automatically. Cargo keeps its configured intermediate
-directory; runnable artifacts stay isolated per instance. Generated-source
-metadata uses the same virtual prefix across configured build directories.
-Existing Cargo-fresh intermediates retain their previous metadata until rebuilt;
-the build skill covers scoped invalidation for an approved cache measurement.
-Source and CLI artifact changes can still relink the roots.
+Tauri/Cargo configuration changes still require `dev`.
+
+### Build a debug pair without starting it
+
+After the owner stops every DEV using the checkout's shared named target:
+
+```bash
+DOMIOS_ACCOUNT_TARGET='' CODETERM_DEV_INSTANCE=p0 CODETERM_DEV_API_PORT=7786 ./build.sh dev --build-only
+```
+
+Use the existing instance name/private port; never create a name or target to evade
+liveness refusal. `--build-only` requires a named instance and refuses running or
+unknown-liveness holders, including the selected instance, before compilation.
+It does not stop anything. It builds/stages the normal CLI/server/client/frontend,
+including embeddings and mem-postgres, writes and verifies schema3 provenance,
+then releases the stable mapping and gateway and prints `BUILD/STAGED` with the
+source identity and record path. No GUI, server, watcher or account is started;
+no retained-window/server-swap path runs. This is staged-byte proof, never READY.
+
+`--wait` is accepted but unnecessary: build-only always returns after staging,
+not after readiness. `--wait-build`/`--queue` remain accepted aliases; none proves readiness.
+`--notify-tab` remains a build log/error return route, not a readiness claim.
+Duplicate build-only, unknown options, `dev-prebuilt --build-only`, and external
+frontend/dev-back combinations refuse. Account target empty/qa follows the same
+compile configuration as ordinary dev; changing it does not authorize borrowing
+saved accounts or redirecting an existing QA binary. Parent separately captures
+and verifies the common layout before an isolated headless start. Do not launch
+the rebuilt default-target artifact against the selected instance's saved QA data.
+
+Every named instance of a checkout shares ONE DEV target,
+`<checkout>/src-tauri/target/named-dev`; CLI, server and app build there.
+Named `dev` and `dev-server` compile incrementally (`CARGO_INCREMENTAL=1`) with
+no compiler wrapper (`RUSTC_WRAPPER=` overrides the machine sccache config).
+Release, CI, `install-local` and `worktree-check` keep their cold-by-design
+policy. Data directory, ports, installed CLI and provenance stay per instance
+under `~/.domios-dev-<instance-key>`.
+
+- **Start further instances from the one build.** `dev` also writes the shared
+  build record `named-dev/dev-build-provenance.json`. `dev-prebuilt` for an
+  instance without its own current record validates that shared record, installs
+  the built CLI into its own data directory, writes its own provenance and
+  launches without Cargo. Never invent a new instance name to get a fresh target.
+- **Never rebuild under a running DEV.** `dev` and `dev-server` refuse before
+  compiling while any other instance started from `named-dev` is running. They
+  find those instances from their own provenance (`~/.domios-dev-*` records that
+  name this target) plus a health answer on the recorded API port as that
+  instance, never from executable paths. The refusal lists each instance and its
+  exact `CODETERM_DEV_INSTANCE=... CODETERM_DEV_API_PORT=... ./build.sh kill`.
+  The selected instance itself is still replaced (or server-swapped) as before.
+  Named `dev` checks before taking the instance launch lock, so with several
+  instances running it prints this refusal, not `DEV launch owner unavailable`.
+  It also reports the selected instance and its own `kill` command.
+- **`kill` stops only the selected instance.** The image path only bounds the
+  candidates to the shared target. The instance's own API-port listener and its
+  authenticated quit snapshot (data root plus port) seed the selection, and that
+  selection extends through the process tree. Other instances under
+  `named-dev` keep running.
+- **One-time adoption of a warm legacy target.** On the first named `dev` or
+  `dev-prebuilt` without `named-dev`, a single
+  `src-tauri/target/dev-instances/<name>` is renamed (same filesystem, no copy)
+  to `named-dev`. With several, the one whose instance record is newest is
+  renamed and the rest stay untouched. Adoption refuses while a DEV still runs
+  from that legacy target. The first incremental build after adoption recompiles
+  the workspace and path crates once; registry dependencies stay fresh.
+  Until the instance runs `dev` again, its old record names the legacy path and
+  `dev-prebuilt` refuses with the usual rebuild instruction.
+
+Debug Development launches apply instance identity, frontend URL and CDP at
+runtime, so one build serves every instance. Source and CLI artifact changes can
+still relink the roots.
 
 Debug Development servers resolve the frontend port and identifier from the
 launch environment (`CODETERM_VITE_PORT`, `CODETERM_DEV_IDENTIFIER`). These values
@@ -346,8 +407,7 @@ DEV staging must synchronize the complete tree: an overlay retains obsolete
 hashed chunks, and the watcher's service-worker precache then changes `sw.js`.
 After updating the staging code, rebuild the selected instance with `dev --wait`
 once to stage an exact tree and record provenance. Never edit the receipt or
-exclude the service worker from validation. Focused proof:
-`node --test scripts/tests/dev-frontend-provenance.test.mjs scripts/tests/dev-provenance-roundtrip.test.mjs`.
+exclude the service worker from validation.
 
 ```bash
 curl -s http://127.0.0.1:7686/api/health | jq '.status'
@@ -399,7 +459,7 @@ for `dc config set api.mesh_tailnet_host '"<tailnet-ip>"'`; never a bare CLI
 inheriting production routing. Confirm identity before changing that instance.
 Restart only that named instance through the documented launcher. Verify both
 loopback health and tailnet health, the build identity, and
-`dc config get api_listener.ready_addresses` before `dc mesh link`.
+`dc config get api_listener.ready_addresses` before checking automatic account mesh connections.
 Removing the opt-in uses JSON `null` and another scoped restart.
 
 To join two DEV consoles on different machines over the mesh (pairing,
@@ -491,9 +551,9 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 - **Windows DEV exits before READY with missing frontend runtime identity.** The private desktop launch channel must carry the validated Vite port, development identifier, browser arguments and CDP port. Keep its fixed allowlist in sync with runtime configuration; preserve credential scrubbing, peer ownership checks and CDP validation.
 
-- **Named `kill` refuses its own launched instance with `Uncertain DEV instance identity`.** Shutdown must select the same checkout-local `dev-instances/<name>` target as the build before deriving the client path. The guard previously received the default target while provenance pinned the named target. Use the corrected `build.sh kill` from the instance's original checkout with its explicit instance and port; all process, epoch, data, production and foreign-instance checks remain active.
+- **Named `kill` refuses its own launched instance with `Uncertain DEV instance identity`.** Shutdown must select the target the instance's own provenance names (`named-dev`, or its legacy `dev-instances/<key>` before adoption) before deriving the client path. Use `build.sh kill` from the instance's original checkout with its explicit instance and port; all process, epoch, data, production and foreign-instance checks remain active, and other instances in the shared target are never selected.
 
-- **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under `<checkout>/src-tauri/target/dev-instances/<instance-key>`, for both foreground and `--wait`; `dev-prebuilt` resolves the same checkout target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with the same explicit instance and private port to create the new artifacts and provenance, then reuse them with `dev-prebuilt`. Separate instance targets keep a second instance from overwriting the default instance's running executable. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
+- **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under the one checkout target `<checkout>/src-tauri/target/named-dev`, for both foreground and `--wait`; `dev-prebuilt` resolves the same target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with an explicit instance and private port, then start that or any other instance with `dev-prebuilt`. `dev`/`dev-server` refuse to rebuild while another DEV from the target runs (Windows locks its executable); stop it with the printed `kill` first. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
 
 - **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. In Git Bash use `CODETERM_DEV_INSTANCE=my-lane CODETERM_DEV_API_PORT=7799 ./build.sh dev`; in PowerShell set `$env:CODETERM_DEV_INSTANCE='my-lane'; $env:CODETERM_DEV_API_PORT='7799'` before `./build.ps1 dev`. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.domios-dev[-<instance>]/config.toml` to that private port first. Canonical launch ignores parent connection variables and selects 7686. Explicit `CODETERM_DEV_API_PORT=7685` still refuses. Never stop production to resolve the refusal.
 
@@ -613,7 +673,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 15 -->
+<!-- revision: 16 -->
 
 ### REST listener bind recovery
 
@@ -960,14 +1020,34 @@ would change the seal beneath a running client; use the same scoped `dev`
 command for native/server edits. `dev-prebuilt --wait` reuses an unchanged signed
 pair with the same explicit instance/port settings.
 
-Detached named macOS cleanup has a follow-up limitation: scoped `build.sh kill`
-stops the server and watchers while the surviving native client may recover a
-new server. For an owned validation run, retain the native attachment receipt,
-exact executable and process creation identity; stop only that verified client
-first. Then use `node scripts/dev-server.mjs inspect <record> <data> <private-port>
-<owned-receipt>` and `node scripts/dev-server.mjs stop <record> <data>
-<private-port> <owned-receipt>` for required cleanup and pinned server exit.
-Finally use the same explicit instance/port with `./build.sh kill` to reap its
-watcher/static processes and verify all owned processes exited. Native-client
-shutdown automation needs a separate ownership-aware fix; never use global
-process-name kills or address prod, canonical DEV or another instance.
+Use the same explicit instance and private port with `./build.sh kill` for
+client/server cleanup. It first requests authenticated quit using the selected
+process incarnations, waits for their exit within a deadline, then stops surviving
+images in that instance's own target tree. Canonical DEV uses exact runtime image
+paths so Cargo test and build processes remain outside cleanup. Frontend cleanup
+stays scoped to the repo and selected port/output directory. Never use global
+process-name kills or address prod or another instance. Native execution must
+still prove process exit and session restoration on each platform.
+
+`dev` and `dev-prebuilt` hold `.dev-launch.lock` in the instance data directory
+with an OS file lock through their supervisor lifetime. A second launcher refuses;
+use scoped `kill` or let the first launcher exit before launching again. A
+leftover lock file is harmless; do not delete a lock file held by a live launcher.
+
+### Debug isolated headless agents and CLI identity
+
+A debug `domios-server start --verify-isolated` now requires `--instance NAME`
+in addition to the explicit private data/config directories and custom port.
+Use an owner-selected unused lowercase slug, not a guessed socket or an inherited
+DEV selector. The host binds the corresponding named DEV socket before launching
+General, PTY or chat-backend children; their exact tab/nonce/credential remain
+lifecycle-owned. Default DEV socket plus custom port remains a CLI refusal.
+Private data/config and PostgreSQL ownership stay unchanged; ordinary named
+`start --development` is not a substitute for retained explicit private paths.
+
+Release isolated verification forbids this instance option and keeps its existing
+PID IPC behavior; debug child-tool proof does not qualify release General tools.
+The build skill owns the full isolated launch and shutdown recipe. Any real
+fixture launch, account operation or General tool request requires its separate
+authorization and exact matched artifact identity. Do not reroute a QA-compiled
+DEV to emulator endpoints or alter an existing running instance to test this seam.

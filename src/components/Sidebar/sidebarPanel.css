@@ -101,6 +101,8 @@
 .ct-compact-rail__tab {
   position: relative;
   display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
   width: 36px;
   height: 36px;
   align-items: center;
@@ -351,6 +353,12 @@
 }
 
 .tab-starting-mark {
+  flex-shrink: 0;
+  align-items: center;
+  color: var(--ct-magenta);
+}
+
+.tab-waiting-mark {
   position: absolute;
   right: -3px;
   bottom: -3px;
@@ -360,7 +368,7 @@
   border-radius: 50%;
 }
 
-.ct-compact-rail__tab > .tab-starting-mark {
+.ct-compact-rail__tab > .tab-waiting-mark {
   right: 5px;
   bottom: 5px;
 }

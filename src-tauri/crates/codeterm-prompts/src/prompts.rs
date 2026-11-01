@@ -136,7 +136,7 @@ pub const CRON_SKILL_HINT: &str = include_str!("../../../prompts/cron_skill_hint
 /// skill folder is missing. Placeholders: `{skill_slug}`, `{skill_path}`.
 pub const CRON_SKILL_MISSING: &str = include_str!("../../../prompts/cron_skill_missing.md");
 
-/// CodeTerm rule installed to ~/.claude/rules/codeterm.md.
+/// CodeTerm rule installed to ~/.claude/rules/domios.md.
 pub const CODETERM_RULE: &str = include_str!("../../../prompts/codeterm_rule.md");
 
 /// Mem bridge rule payload installed per provider via `install_bridge_rule`.
@@ -413,7 +413,7 @@ pub fn cartographer_suffix() -> String {
 /// Upper bound for a composed role prompt. Not a style preference: every byte
 /// here is spent on every launch of that role, so growth needs a decision.
 /// Re-measured at the General Agent's 33_257 LF bytes for v1.12.4: the post-setup
-/// Supporter note and the `@ds-guide` directive were owner decisions.
+/// Supporter note and the `ds-guide` tag were owner decisions.
 pub const COMPOSED_ROLE_PROMPT_MAX_BYTES: usize = 34_100;
 
 #[cfg(test)]

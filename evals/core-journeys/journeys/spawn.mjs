@@ -1,18 +1,12 @@
 import { dcJson } from "../lib/env.mjs";
 import { historyFiller, marker } from "../lib/fixtures.mjs";
-import { selectProviders } from "../lib/oracle.mjs";
 import { probeReply, stopLongTurn, waitReady } from "../lib/tabs.mjs";
 import { JourneyFailure } from "../lib/wait.mjs";
 
-export async function providers(ctx) {
-  const descriptors = await ctx.api("/api/agents/providers");
-  return selectProviders(descriptors, { only: ctx.options.providers });
-}
-
-async function spawnOne(ctx, provider) {
+export async function spawnOne(ctx, provider) {
   const { workspace } = ctx.state;
-  const spawned = await dcJson(["agent", "spawn", provider.id, "--workspace", workspace.id, "--cwd", workspace.cwd,
-    "--title", `cj${provider.id}`, "--non-user-facing", "--description", `core-journeys ${ctx.state.run}`]);
+  const spawned = await ctx.policy.launch(provider.id, "J1-spawn", (model) => (ctx.command ?? dcJson)(["agent", "spawn", provider.id, "--model", model, "--workspace", workspace.id, "--cwd", workspace.cwd,
+    "--title", `cj${provider.id}`, "--non-user-facing", "--description", `core-journeys ${ctx.state.run}`]));
   const id = spawned?.tab_id;
   if (!id) throw new JourneyFailure(`spawn returned no tab id: ${JSON.stringify(spawned).slice(0, 300)}`);
   ctx.state.tabs.push({ id, provider: provider.id, runtime: provider.runtime, journey: "J1", reply: true });

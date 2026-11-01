@@ -589,10 +589,21 @@ pub(super) async fn attach_or_launch(
             helper_diagnostic(ClientStartupStage::Attach, &error);
             startup_started(ClientStartupStage::Launch);
             let trail_pause = super::startup_log::pause_for_server_launch();
+            let mut launch_options = install.launch_options.clone();
+            if matches!(
+                launch_options.instance,
+                codeterm_types::server_bootstrap::InstanceSelector::Development { .. }
+            ) {
+                launch_options.development_owner = Some(
+                    PinnedProcess::open(std::process::id())
+                        .and_then(|process| process.provenance())
+                        .map_err(|error| ClientStartupFailure::from(error.to_string()))?,
+                );
+            }
             let launch_result = invoke_helper_until(
                 &install.server_executable,
                 "launch",
-                &install.launch_options,
+                &launch_options,
                 deadline,
                 || Ok(()),
             )

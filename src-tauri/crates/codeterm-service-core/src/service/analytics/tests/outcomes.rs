@@ -227,7 +227,7 @@ async fn product_mesh_peer_paired_requires_successful_save_and_deduplicates() {
     );
     let machines = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let cache = machines.clone();
-    mesh.bind_pairing_observers(
+    mesh.bind_connection_observers(
         mesh_observer(sink.worker.clone()),
         Arc::new(move |count| {
             cache.store(count, std::sync::atomic::Ordering::Relaxed);

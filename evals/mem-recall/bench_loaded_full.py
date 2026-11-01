@@ -42,7 +42,7 @@ def dc_json(*args):
     )
     if result.returncode:
         raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-    return json.loads(result.stdout)
+    return json.loads(result.stdout)["result"]
 
 
 def hydrate_hits(hits):
@@ -213,7 +213,7 @@ for i, tc in enumerate(TESTS):
     try:
         resp = search(tc["q"])
         elapsed = (time.time() - t0) * 1000
-        hits = hydrate_hits(resp.get("hits", []))
+        hits = hydrate_hits(resp)
     except Exception as e:
         hits = []
         elapsed = (time.time() - t0) * 1000

@@ -5,7 +5,11 @@ fn plan_value() -> Value {
     json!({
         "id": "pl_rows",
         "title": "Rows",
-        "sections": [{"id": "s1", "title": "Section", "body": "text"}],
+        "sections": [{"id": "s2", "title": "Second"}, {"id": "s1", "title": "Section", "body": "text"}],
+        "elements": [{"id": "e1", "kind": "note"}],
+        "strides": [{"id": "st1", "text": "first"}, {"id": "st2", "text": "second"}],
+        "heartbeat": {"current_focus": "rows"},
+        "planning_state": "approved",
         "tasks": [
             {
                 "id": "t2",
@@ -37,14 +41,48 @@ fn joined(rows: &PlanRows) -> Value {
                 .collect(),
         })
         .collect();
-    join_plan(serde_json::from_str(&rows.plan).unwrap(), tasks).unwrap()
+    let documents = |rows: &[KeyedRow]| {
+        rows.iter()
+            .map(|row| serde_json::from_str(&row.document).unwrap())
+            .collect()
+    };
+    let plan = join_plan(serde_json::from_str(&rows.header).unwrap(), tasks).unwrap();
+    join_plan_level(
+        plan,
+        StoredPlanLevel {
+            sections: documents(&rows.sections),
+            elements: documents(&rows.elements),
+            strides: rows
+                .strides
+                .iter()
+                .map(|stride| serde_json::from_str(stride).unwrap())
+                .collect(),
+            heartbeat: rows
+                .heartbeat
+                .as_deref()
+                .map(|heartbeat| serde_json::from_str(heartbeat).unwrap()),
+        },
+    )
+    .unwrap()
 }
 
 #[test]
 fn split_then_join_restores_every_field_and_order() {
     let rows = split_plan(plan_value()).unwrap();
 
-    assert!(!rows.plan.contains("\"tasks\""));
+    for key in ["tasks", "sections", "elements", "strides", "heartbeat"] {
+        assert!(!rows.header.contains(&format!("\"{key}\"")), "{key}");
+    }
+    assert!(rows.header.contains("\"planning_state\":\"approved\""));
+    assert_eq!(
+        rows.sections
+            .iter()
+            .map(|section| section.id.as_str())
+            .collect::<Vec<_>>(),
+        ["s2", "s1"]
+    );
+    assert_eq!(rows.strides.len(), 2);
+    assert_eq!(rows.stride_digests[1], rows.stride_digest());
     assert_eq!(
         rows.tasks
             .iter()
@@ -92,21 +130,48 @@ fn milestone_digests_chain_so_an_edited_prefix_is_detectable() {
 }
 
 #[test]
-fn a_plan_row_that_still_embeds_tasks_joins_unchanged() {
-    let whole = plan_value();
-    assert_eq!(join_plan(whole.clone(), Vec::new()).unwrap(), whole);
+fn a_plan_row_that_embeds_tasks_is_refused() {
+    let error = join_plan(plan_value(), Vec::new()).unwrap_err();
+    assert!(error.contains("unsupported whole-document plan row"));
 }
 
 #[test]
-fn unkeyable_tasks_stay_embedded_in_the_plan_row() {
+fn a_plan_header_that_embeds_plan_level_rows_is_refused() {
+    let header = json!({"id": "pl_rows", "strides": []});
+    let level = StoredPlanLevel {
+        sections: Vec::new(),
+        elements: Vec::new(),
+        strides: Vec::new(),
+        heartbeat: None,
+    };
+    let error = join_plan_level(header, level).unwrap_err();
+    assert!(
+        error.contains("strides must be stored separately"),
+        "{error}"
+    );
+}
+
+#[test]
+fn unkeyable_sections_and_elements_are_refused() {
+    let mut duplicate = plan_value();
+    duplicate["sections"][1]["id"] = json!("s2");
+    assert!(split_plan(duplicate)
+        .unwrap_err()
+        .contains("duplicate section id s2"));
+    let mut missing = plan_value();
+    missing["elements"][0].as_object_mut().unwrap().remove("id");
+    assert!(split_plan(missing)
+        .unwrap_err()
+        .contains("element has no string id"));
+}
+
+#[test]
+fn unkeyable_tasks_are_refused() {
     for unkeyable in [json!("t2"), json!(7)] {
         let mut value = plan_value();
         value["tasks"][1]["id"] = unkeyable;
-        let rows = split_plan(value.clone()).unwrap();
-
-        assert!(rows.tasks.is_empty());
-        assert!(rows.kept_whole.is_some());
-        assert_eq!(serde_json::from_str::<Value>(&rows.plan).unwrap(), value);
+        let error = split_plan(value).unwrap_err();
+        assert!(error.contains("duplicate task id") || error.contains("no string id"));
     }
 }
 

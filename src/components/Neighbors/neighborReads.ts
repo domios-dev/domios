@@ -2,17 +2,21 @@ import { listen } from "../../lib/bridge";
 import { SharedRead } from "../../lib/sharedRead";
 import type { NeighborClient } from "./neighborClient";
 import { parseNeighbors, type NeighborList } from "./neighborModel";
-import type { ReferralClaim } from "./referralTrial";
 
-const clients = new WeakMap<NeighborClient, Map<string, NeighborReads>>();
+let clients = new WeakMap<NeighborClient, Map<string, NeighborReads>>();
+const activeReads = new Set<NeighborReads>();
+
+export function resetNeighborReads() {
+  for (const reads of activeReads) reads.dispose();
+  clients = new WeakMap();
+}
 
 class NeighborReads {
-  readonly list = new SharedRead<NeighborList>();
+  readonly list = new SharedRead<NeighborList>(undefined, Infinity);
   private readonly reloads = new Set<(read: Promise<NeighborList>) => void>();
   private stopReloads: (() => void) | undefined;
-  private claim: Promise<ReferralClaim> | undefined;
 
-  constructor(private readonly accounts: Map<string, NeighborReads>, private readonly identity: string) {}
+  constructor(private readonly identity: string) {}
 
   subscribeReloads(client: NeighborClient, listener: (read: Promise<NeighborList>) => void) {
     this.reloads.add(listener);
@@ -30,32 +34,26 @@ class NeighborReads {
       }
       void listen<{ uid?: unknown; list?: unknown }>("neighbors-changed", event => {
         if (!live || event.payload?.uid !== this.identity) return;
-        try { parseNeighbors(event.payload.list); }
+        try { this.list.write(parseNeighbors(event.payload.list)); }
         catch { reload(); }
       }).then(stop => { if (live) stops.push(stop); else stop(); });
-      void listen("account-changed", () => {
-        if (live && this.accounts.get(this.identity) === this) this.claim = undefined;
-      }).then(stop => { if (live) stops.push(stop); else stop(); });
+      void listen("account-changed", reload).then(stop => { if (live) stops.push(stop); else stop(); });
       this.stopReloads = () => { live = false; stops.forEach(stop => stop()); };
     }
     return () => {
       this.reloads.delete(listener);
-      if (this.reloads.size === 0) { this.stopReloads?.(); this.stopReloads = undefined; }
     };
   }
 
-  referral(client: NeighborClient): Promise<ReferralClaim> {
-    this.claim ??= client.claimReferralTrial();
-    return this.claim;
-  }
+  dispose() { this.stopReloads?.(); activeReads.delete(this); }
 }
 
 export function neighborReads(client: NeighborClient, identity: string | null) {
   let accounts = clients.get(client);
   if (!accounts) { accounts = new Map(); clients.set(client, accounts); }
-  if (!identity) { accounts.clear(); return null; }
-  if (accounts.size > 0 && !accounts.has(identity)) accounts.clear();
+  if (!identity) { for (const reads of accounts.values()) reads.dispose(); accounts.clear(); return null; }
+  if (accounts.size > 0 && !accounts.has(identity)) { for (const reads of accounts.values()) reads.dispose(); accounts.clear(); }
   let reads = accounts.get(identity);
-  if (!reads) { reads = new NeighborReads(accounts, identity); accounts.set(identity, reads); }
+  if (!reads) { reads = new NeighborReads(identity); accounts.set(identity, reads); activeReads.add(reads); }
   return reads;
 }

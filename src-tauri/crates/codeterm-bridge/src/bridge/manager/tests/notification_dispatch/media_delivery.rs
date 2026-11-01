@@ -23,6 +23,7 @@ async fn deliver(
         )),
         tabs: NotificationTabs,
         placements: PLMutex::new(Vec::new()),
+        answer: None,
     });
     let (completion, delivered) = std::sync::mpsc::sync_channel(1);
     let message = OutboundMessage {

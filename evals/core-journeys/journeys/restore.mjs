@@ -7,6 +7,8 @@ import { JourneyFailure } from "../lib/wait.mjs";
 export async function snapshotBeforeRestart(ctx) {
   const owned = new Set(ctx.state.tabs.map((tab) => tab.id));
   const tabs = await readTabs(ctx.api);
+  for (const tab of tabs.filter((tab) => tab.agent_type && !ctx.state.tabs.some((fixture) => fixture.id === tab.id && fixture.shell)
+    && (ctx.options.allTabs || owned.has(tab.id)))) await ctx.policy.identity(tab.id);
   ctx.state.before_restart = {
     listener: listenerIdentity(ctx.dev.port),
     build_sha: ctx.health.build_sha ?? ctx.health.build,
@@ -14,6 +16,7 @@ export async function snapshotBeforeRestart(ctx) {
       id: tab.id, title: tab.title, agent_type: tab.agent_type, session: tab.agent_session_id ?? null,
       role: tab.role ?? null, owned: owned.has(tab.id), backing: tab.backing?.kind ?? null,
       attempt_id: tab.task_binding?.attempt_id ?? null,
+      model_identity: ctx.state.model_policy.identities[tab.id] ?? null,
     })),
   };
   ctx.save();
@@ -36,6 +39,8 @@ export async function restoredTabsReady(ctx) {
   const tabs = ctx.state.before_restart?.tabs ?? [];
   await Promise.all(tabs.map((tab) => ctx.check("J4", "restored_tab_ready", `${tab.id} ${tab.agent_type}${tab.role ? `/${tab.role}` : ""}`, async () => {
     const record = await waitReady(ctx, tab.id, { requireSession: Boolean(tab.session) });
+    const fixture = ctx.state.tabs.find((entry) => entry.id === tab.id);
+    if (!fixture?.shell) await ctx.policy.identity(tab.id, { restored: true });
     if (tab.session && record.agent_session_id !== tab.session) {
       throw new JourneyFailure(`session changed across restart: ${tab.session} -> ${record.agent_session_id}`);
     }

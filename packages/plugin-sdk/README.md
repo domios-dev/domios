@@ -135,6 +135,54 @@ properties with optional `description`, `enum`, `maxLength` (<= 65536) and
 `maxItems` (<= 256); at most 32 properties. `$ref`, combinators
 (`oneOf`/`anyOf`), `patternProperties` and nested objects are refused at parse.
 
+## Blueprint step declarations
+
+`GraphNodesManifestCapability.steps` accepts up to 32 `BlueprintStepDescriptor`
+records. A plugin may declare specialized nodes and a general node whose model
+and parameters are selected by its own bounded schema. The host never knows
+supplier models or endpoints.
+
+```ts
+import type { BlueprintStepDescriptor } from "@codeterm/plugin-sdk";
+
+const generate: BlueprintStepDescriptor = {
+  contractVersion: 1, revision: 1, id: "fixture.generate",
+  title: "Generate", description: "Generate an output from a prompt",
+  params: { type: "object", properties: {
+    model: { type: "string", enum: ["small", "large"], maxLength: 16 },
+  }, required: ["model"] },
+  inputs: {
+    prompt: { kind: "text", minItems: 1, maxItems: 1 },
+    references: { kind: "image", minItems: 0, maxItems: 4 },
+  },
+  outputs: { image: { kind: "image", minItems: 1, maxItems: 1 } },
+  outcomes: ["done", "failed"],
+  lifecycle: { reconcile: true, cancel: true },
+  effects: { sideEffects: true },
+};
+```
+
+Export `blueprintSubmit` and the declared optional `blueprintReconcile` and
+`blueprintCancel` methods from `BlueprintSteps`. Requests carry host-owned
+operation identity and attribution. An uncertain submit is never replayed;
+reconciliation and cancellation refer to the exact persisted job. Invalid
+responses retain a valid returned job identity for later observation.
+
+The host reserves `unknown` and `canceled`; other bounded declared outcomes route
+the graph. Parameters and JSON ports use closed bounded schemas. Text, JSON,
+file, image, audio and video ports declare cardinality. Media outputs use
+`{kind: "media_source", id, media}` for an existing plugin-owned artifact.
+`mediaFile` resolves it relative to the plugin data directory; generic files may
+use `application/octet-stream`. Host handles are inputs only and require the
+receiving step's explicit grant. UI frame tokens grant no run-input access.
+
+YAML authors write `uses: fixture.generate` and `with:`. Apply pins the installed
+descriptor revision. A built-in node bound to `read.out.text` receives the plain
+string, JSON value or confined file path; multi-item ports supply arrays.
+Commands receive that value on stdin, with JSON values encoded as JSON.
+Plugin-to-plugin bindings retain typed run-media handles. Durable held runs
+reconcile their exact job through the Blueprint monitor and resume at the cursor.
+
 ## Decision model capability
 
 Decision adapters may expose `selectModel(id): boolean` to apply a catalogue model immediately (modelId must report the selected id), and `metadata()` for display_name, help_url, server_address and settings_url. Metadata must never contain credentials. Without selectModel, the host only accepts the model reported by modelId.
@@ -200,3 +248,4 @@ export default plugin;
 `capabilities.receiverStatusQuery` declares one immutable HID status request (2–64bytes), application-collection usage and reportID. `host.localRecording.statusReport()` exchanges only that declaration with a sibling collection belonging to the exact selected receiver; persisted `local_recording` grant and current selection/availability are checked before and after IO. No device path or request argument is exposed. The plugin owns decoding, connection/battery semantics and `statusBubble`; unsupported platforms or unavailable status return a refusal. `TabContext.tabId` identifies the host-supplied bubble recipient.
 
 `localRecordingTrigger.button` supplies the selected interface/collection, report schema, approved singleton button usages, press usage and duplicate window. Native adapters validate that declared shape instead of branching on manufacturer identity. A missing native mapping remains unavailable.
+

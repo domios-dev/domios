@@ -21,10 +21,10 @@ impl PlanStore {
         member_tab_ids: &[String],
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
         let mut ids: Vec<_> = self
-            .list_full()
+            .team_close_plans(team_id, member_tab_ids)
             .into_iter()
             .filter(|plan| has_team_close_work(plan, team_id, &tabs))
             .map(|plan| plan.id)
@@ -32,7 +32,7 @@ impl PlanStore {
         ids.sort();
         let originals: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &ids {
-            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+            if let Err(error) = self.with_plan_in_writer(&writer_turn, id, now_ms, |plan| {
                 let team_bound = plan.team_id.as_deref() == Some(team_id);
                 close_team_tasks(plan, team_id, &tabs, team_bound, now_ms);
                 if team_bound {
@@ -41,7 +41,9 @@ impl PlanStore {
                 Ok(())
             }) {
                 for original in &originals {
-                    if let Err(rollback_error) = self.restore_team_plan(original) {
+                    if let Err(rollback_error) =
+                        self.restore_team_plan_in_writer(&writer_turn, original)
+                    {
                         log::error!(
                             "[plan.team-close] rollback failed for plan {} after {error}: {rollback_error}",
                             original.id
@@ -72,18 +74,22 @@ impl PlanStore {
         team_id: &str,
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let target_team_id = team_id.trim().to_string();
-        self.archive_matching_team_plans(|bound| bound == target_team_id, now_ms)
+        self.archive_matching_team_plans_in_writer(
+            &writer_turn,
+            |bound| bound == target_team_id,
+            now_ms,
+        )
     }
 
     pub fn rollback_team_plan_archive(
         &self,
         transaction: TeamPlanArchive,
     ) -> Result<(), PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         for plan in transaction.original_plans {
-            self.restore_team_plan(&plan)?;
+            self.restore_team_plan_in_writer(&writer_turn, &plan)?;
         }
         Ok(())
     }
@@ -93,34 +99,55 @@ impl PlanStore {
         live: &std::collections::BTreeSet<String>,
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
-        let plans = self.list_full();
-        let mut active_by_team = std::collections::BTreeMap::<String, Vec<&Plan>>::new();
-        let mut archive_ids = Vec::new();
-        for plan in plans
-            .iter()
-            .filter(|plan| plan.status == PlanStatus::Active && !plan.is_orphaned_active())
-        {
-            match plan.team_id.as_deref() {
-                Some(team_id) if live.contains(team_id) => {
-                    active_by_team.entry(team_id.into()).or_default().push(plan);
+        let writer_turn = self.mutation_writer.enter();
+        // SQL names the active rows; only those that may be archived are opened.
+        // A live Team's single active plan stays untouched, and the unique
+        // one_active_plan_per_team index makes a second one exceptional.
+        let mut live_team_rows = std::collections::BTreeMap::<String, Vec<String>>::new();
+        let mut unbound = Vec::new();
+        for row in self.database.active_plan_rows()? {
+            match row.team_id {
+                Some(team_id) if live.contains(&team_id) => {
+                    live_team_rows.entry(team_id).or_default().push(row.id)
                 }
-                _ => archive_ids.push(plan.id.clone()),
+                _ => unbound.push(row.id),
+            }
+        }
+        let candidates = unbound.into_iter().chain(
+            live_team_rows
+                .into_values()
+                .filter(|ids| ids.len() > 1)
+                .flatten(),
+        );
+        let active: Vec<(String, Option<String>, u64)> = candidates
+            .filter_map(|id| {
+                let plan = self.plan_arc(&id).ok()?;
+                let plan = plan.lock();
+                (plan.status == PlanStatus::Active && !plan.is_orphaned_active())
+                    .then(|| (plan.id.clone(), plan.team_id.clone(), plan.updated_at))
+            })
+            .collect();
+        let mut active_by_team = std::collections::BTreeMap::<String, Vec<(&str, u64)>>::new();
+        let mut archive_ids = Vec::new();
+        for (id, team_id, updated_at) in &active {
+            match team_id.as_deref() {
+                Some(team_id) if live.contains(team_id) => {
+                    active_by_team
+                        .entry(team_id.into())
+                        .or_default()
+                        .push((id.as_str(), *updated_at));
+                }
+                _ => archive_ids.push(id.clone()),
             }
         }
         for plans in active_by_team.values_mut() {
-            plans.sort_by(|left, right| {
-                right
-                    .updated_at
-                    .cmp(&left.updated_at)
-                    .then_with(|| left.id.cmp(&right.id))
-            });
-            archive_ids.extend(plans.iter().skip(1).map(|plan| plan.id.clone()));
+            plans.sort_by(|left, right| right.1.cmp(&left.1).then_with(|| left.0.cmp(right.0)));
+            archive_ids.extend(plans.iter().skip(1).map(|(id, _)| (*id).to_string()));
         }
         archive_ids.sort();
         let originals: Vec<_> = archive_ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &archive_ids {
-            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+            if let Err(error) = self.with_plan_in_writer(&writer_turn, id, now_ms, |plan| {
                 if plan
                     .team_id
                     .as_ref()
@@ -132,7 +159,7 @@ impl PlanStore {
                 Ok(())
             }) {
                 for original in &originals {
-                    let _ = self.restore_team_plan(original);
+                    let _ = self.restore_team_plan_in_writer(&writer_turn, original);
                 }
                 return Err(error);
             }
@@ -140,8 +167,9 @@ impl PlanStore {
         Ok(archive_ids)
     }
 
-    fn archive_matching_team_plans<F>(
+    fn archive_matching_team_plans_in_writer<F>(
         &self,
+        turn: &MutationWriterTurn<'_>,
         matches: F,
         now_ms: u64,
     ) -> Result<TeamPlanArchive, PlanError>
@@ -149,23 +177,26 @@ impl PlanStore {
         F: Fn(&str) -> bool,
     {
         let mut ids: Vec<_> = self
-            .list_full()
-            .into_iter()
-            .filter_map(|plan| {
-                let bound_team = plan.team_id.as_deref();
-                bound_team.filter(|team| matches(team)).map(|_| plan.id)
+            .index
+            .read()
+            .values()
+            .filter_map(|row| {
+                let bound_team = row.team_id.as_deref();
+                bound_team
+                    .filter(|team| matches(team))
+                    .map(|_| row.id.clone())
             })
             .collect();
         ids.sort();
         let original_plans: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
         for id in &ids {
-            if let Err(error) = self.with_plan_in_writer(id, now_ms, |plan| {
+            if let Err(error) = self.with_plan_in_writer(turn, id, now_ms, |plan| {
                 let team_id = plan.team_id.clone().unwrap_or_default();
                 detach_closed_team_plan(plan, &team_id, now_ms);
                 Ok(())
             }) {
                 for original in &original_plans {
-                    let _ = self.restore_team_plan(original);
+                    let _ = self.restore_team_plan_in_writer(turn, original);
                 }
                 return Err(error);
             }
@@ -176,25 +207,25 @@ impl PlanStore {
         })
     }
 
-    fn restore_team_plan(&self, original: &Plan) -> Result<(), PlanError> {
-        let arc = self
-            .plans
-            .read()
-            .get(&original.id)
-            .cloned()
-            .ok_or(PlanError::NotFound)?;
+    fn restore_team_plan_in_writer(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        original: &Plan,
+    ) -> Result<(), PlanError> {
+        turn.assert_store(self);
+        let arc = self.plan_arc(&original.id)?;
         let staged = original.clone();
-        let path = self
-            .persist_plan_and_spec(&staged)
-            .map_err(|error| PlanError::Io(error.to_string()))?;
+        self.persist_plan_and_spec_in_writer(turn, &staged)
+            .map_err(|error| {
+                self.plan_cache.evict(&staged.id);
+                PlanError::Io(error.to_string())
+            })?;
         {
             let mut plan = arc.lock();
             *plan = staged.clone();
         }
-        self.note_plan_write(&staged, &path);
-        self.index
-            .write()
-            .insert(staged.id.clone(), Self::index_entry(&staged, path));
+        self.plan_cache.commit(&staged.id, &arc);
+        self.note_index(&staged);
         Ok(())
     }
 }

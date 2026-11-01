@@ -181,3 +181,15 @@ fn promote_high_confidence_lessons_ignores_non_lessons() {
     assert!(!tags_skill.contains("high-confidence"));
     assert!(!tags_note.contains("high-confidence"));
 }
+
+#[test]
+fn neighbor_lessons_are_never_promoted() {
+    let conn = fresh_conn();
+    insert_item(&conn, "neighbor", "lesson", "[]", 100, 0, None);
+    conn.execute("UPDATE mem_items SET author_kind='neighbor',author_uid='friend',author_friendship='friendship' WHERE id='neighbor'", []).unwrap();
+    let report =
+        promote_high_confidence_lessons(&conn, DEFAULT_PROMOTION_THRESHOLD, "test").unwrap();
+    assert_eq!(report.promoted, 0);
+    assert_eq!(tags_for(&conn, "neighbor"), "[]");
+    assert_eq!(audit_count_for(&conn, "neighbor"), 0);
+}

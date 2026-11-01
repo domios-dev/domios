@@ -143,3 +143,28 @@ fn close_inventory_failure_has_rpc_data_and_a_readable_message() {
     assert_eq!(ordinary.message, "permission refused");
     assert!(ordinary.data.is_none());
 }
+
+#[test]
+fn active_team_plans_never_loads_unmatched_plans() {
+    use codeterm_service_core::service::plan::load_audit::{
+        assert_never_loaded, execution_plan, seed, start,
+    };
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let service = std::sync::Arc::new(fixture.service.clone());
+    let store = &service.plan_store;
+    let mut listed = execution_plan(fixture.temp.path(), "listed", "owner", vec![]);
+    listed.team_id = Some("team-listed".into());
+    let listed = seed(store, listed);
+    let mut other = execution_plan(fixture.temp.path(), "other", "owner", vec![]);
+    other.team_id = Some("team-other".into());
+    let other = seed(store, other);
+    start(store);
+
+    let plans = active_team_plans(&service, vec!["team-listed".into()]);
+    assert_eq!(
+        plans.into_iter().map(|plan| plan.id).collect::<Vec<_>>(),
+        vec![listed]
+    );
+    assert_never_loaded(store, &[&other]);
+}

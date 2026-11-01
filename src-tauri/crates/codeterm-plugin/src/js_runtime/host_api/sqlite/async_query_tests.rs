@@ -185,10 +185,10 @@ fn async_query_keeps_the_sandbox_read_gate() {
     let other = tempfile::tempdir().unwrap();
     let confined = vm(
         "sqlite-async-confined",
-        Some(Arc::new(PluginSandbox::restricted(
-            vec![other.path().to_path_buf()],
-            vec![],
-        ))),
+        Some(Arc::new(
+            PluginSandbox::restricted(vec![other.path().to_path_buf()], vec![])
+                .with_identity_and_perms("sqlite-async-confined", &Default::default()),
+        )),
     );
     let sql = "SELECT i FROM t";
     assert_eq!(
@@ -205,10 +205,10 @@ fn async_query_keeps_the_sandbox_read_gate() {
 
     let granted = vm(
         "sqlite-async-granted",
-        Some(Arc::new(PluginSandbox::restricted(
-            vec![dir.path().to_path_buf()],
-            vec![],
-        ))),
+        Some(Arc::new(
+            PluginSandbox::restricted(vec![dir.path().to_path_buf()], vec![])
+                .with_identity_and_perms("sqlite-async-granted", &Default::default()),
+        )),
     );
     assert_eq!(
         rows(&granted, "async", &db, sql, serde_json::Value::Null)

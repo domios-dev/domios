@@ -13,7 +13,6 @@ mod active;
 pub mod capability;
 pub mod factory;
 pub mod js_backend;
-pub mod legacy;
 pub mod local;
 pub mod mock;
 mod readiness;
@@ -26,7 +25,6 @@ pub use capability::{
     AUTO_UNLOCK_CREDENTIAL_KEY,
 };
 pub use factory::{factory as get_factory, list as list_factories, SecretBackendFactory};
-pub use legacy::{purge_legacy_master_password_file, LegacyPurge};
 pub use registry::SecretRegistry;
 
 use std::fmt;

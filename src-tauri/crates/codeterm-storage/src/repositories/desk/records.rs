@@ -12,27 +12,6 @@ pub const MAX_DESK_LAYOUT_DEPTH: usize = 128;
 pub const MAX_DESK_LEAF_BYTES: usize = 64 * 1024;
 pub const MAX_DESK_CATALOGUE: usize = 65_536;
 
-pub const LEGACY_SESSION_ID_FIELD: &str = "claude_session_id";
-
-pub fn normalize_legacy_session_id(value: &mut Value) {
-    match value {
-        Value::Object(object) => {
-            if let Some(legacy) = object.remove(LEGACY_SESSION_ID_FIELD) {
-                object.entry("agent_session_id").or_insert(legacy);
-            }
-            for value in object.values_mut() {
-                normalize_legacy_session_id(value);
-            }
-        }
-        Value::Array(values) => {
-            for value in values {
-                normalize_legacy_session_id(value);
-            }
-        }
-        _ => {}
-    }
-}
-
 const LEAF_FIELDS: &[&str] = &[
     "last_active_at_ms",
     "last_opened_at_ms",
@@ -48,7 +27,6 @@ const LEAF_FIELDS: &[&str] = &[
     "agent_type",
     "agent_type_locked",
     "agent_session_id",
-    LEGACY_SESSION_ID_FIELD,
     "agent_identity",
     "role",
     "role_profile",
@@ -148,7 +126,6 @@ fn valid_leaf_value(field: &str, value: &Value) -> bool {
         | "title_level"
         | "agent_type"
         | "agent_session_id"
-        | LEGACY_SESSION_ID_FIELD
         | "role"
         | "role_profile"
         | "team_id"
@@ -261,14 +238,6 @@ pub struct DeskState {
 
 impl DeskSnapshot {
     pub fn validate(&self) -> Result<usize, StorageError> {
-        self.validate_inner(true)
-    }
-
-    pub(crate) fn validate_preserving_orphan_teams(&self) -> Result<usize, StorageError> {
-        self.validate_inner(false)
-    }
-
-    fn validate_inner(&self, require_team_workspace: bool) -> Result<usize, StorageError> {
         if self.workspaces.len() > MAX_DESK_WORKSPACES {
             return Err(StorageError::invalid(
                 "desk workspaces",
@@ -325,7 +294,7 @@ impl DeskSnapshot {
                     "empty or duplicate identity",
                 ));
             }
-            if require_team_workspace && !workspaces.contains(team.workspace_id.as_str()) {
+            if !workspaces.contains(team.workspace_id.as_str()) {
                 return Err(StorageError::invalid(
                     "Team workspace",
                     "must name a desk workspace",

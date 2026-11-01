@@ -211,7 +211,7 @@ dev_resolve_identity() {
   fi
   if ! parsed="$(printf '%s\n' "$output" | python3 -c '
 import json, sys
-connection = json.load(sys.stdin)["connection"]
+connection = json.load(sys.stdin)["result"]["connection"]
 values = [
     connection["data_dir"],
     connection["host"],
@@ -704,7 +704,7 @@ for w in json.load(sys.stdin):
 #     workspaces (PTYs already killed by the restart) intermittently
 #     returns dropped connections; the retry loop covers the gap.
 #   - reset_dev_state_hard — replaces the selected named dev Storage
-#     root from an empty typed import, then restarts that instance.
+#     root and lets startup initialize it, then restarts that instance.
 #     Use when the bench's `pre` snapshot count must be exact.
 reset_dev_state() {
   local pass max_pass=4
@@ -725,45 +725,19 @@ for w in json.load(sys.stdin):
   done
 }
 
-# Build an empty inert copy root and import it with the reviewed typed verifier.
-# Only the selected named dev instance's Storage root is replaced.
+# Fresh startup creates the current schema in the selected named dev Storage root.
 seed_empty_storage_root() {
   [ -n "$EVAL_LIB_REQUESTED_INSTANCE" ] || {
     echo "ERROR: Storage reset requires CODETERM_INSTANCE for a named dev instance" >&2
     return 7
   }
   dev_resolve || return 7
-  local data_dir stage imported previous
+  local data_dir stage
   data_dir="$(dev_data_dir)" || return 7
   dev_kill_hard || return
   stage="$(mktemp -d "$data_dir/.storage-seed.XXXXXX")" || return 1
-  mkdir -p "$stage/copy-root" || { rm -rf "$stage"; return 1; }
-  if ! (
-    cd "$EVAL_LIB_REPO_ROOT" || exit 1
-    CARGO_TARGET_DIR="$data_dir/target" CODETERM_ALLOW_EXTERNAL_TARGET=1 \
-      cargo run --quiet --manifest-path "$EVAL_LIB_REPO_ROOT/src-tauri/Cargo.toml" \
-        -p codeterm-devtools --features dev-tools --bin storage-verify -- --copy-root "$stage/copy-root" --work-root "$stage/work-root"
-  ); then
-    rm -rf "$stage"
-    return 1
-  fi
-  imported="$stage/work-root/instance/storage"
-  [ -f "$imported/state.db" ] || {
-    echo "ERROR: typed empty import did not create Storage state.db" >&2
-    rm -rf "$stage"
-    return 1
-  }
-  previous="$stage/previous-storage"
-  if [ -e "$data_dir/storage" ] && ! mv "$data_dir/storage" "$previous"; then
-    rm -rf "$stage"
-    return 1
-  fi
-  if ! mv "$imported" "$data_dir/storage"; then
-    if [ -e "$previous" ] && ! mv "$previous" "$data_dir/storage"; then
-      echo "ERROR: prior Storage root preserved at $previous" >&2
-      return 1
-    fi
-    rm -rf "$stage"
+  if [ -e "$data_dir/storage" ] && ! mv "$data_dir/storage" "$stage/previous-storage"; then
+    rmdir "$stage"
     return 1
   fi
   rm -rf "$stage"
@@ -802,9 +776,9 @@ assert_atomic_save_clean() {
 plan_ids() {
   dc plan list --json 2>/dev/null | python3 -c '
 import json,sys
-try: d=json.load(sys.stdin)
-except Exception: d=[]
-for p in (d if isinstance(d,list) else d.get("plans",[])):
+try: rows=json.load(sys.stdin)["result"]
+except Exception: rows=[]
+for p in rows:
     pid=p.get("plan_id") or p.get("id") or ""
     if pid: print(pid)
 ' 2>/dev/null
@@ -846,10 +820,10 @@ plan_sweep_new() {
 plan_junk_titles() {
   dc plan list --json 2>/dev/null | python3 -c '
 import json,re,sys
-try: d=json.load(sys.stdin)
-except Exception: d=[]
+try: rows=json.load(sys.stdin)["result"]
+except Exception: rows=[]
 pat=re.compile(r"^(orchestration|\d{1,2}:\d{2})$", re.I)
-for p in (d if isinstance(d,list) else d.get("plans",[])):
+for p in rows:
     t=(p.get("title") or "").strip()
     if t=="" or pat.match(t) or "orchmatrix" in t.lower():
         print("%s\t%r" % (p.get("plan_id") or p.get("id") or "?", t))
@@ -883,7 +857,7 @@ new_workspace() {
   local name="$1" cwd="$2"
   mkdir -p "$cwd" 2>/dev/null
   dc workspace create "$name" --cwd "$cwd" --json 2>/dev/null \
-    | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))"
+    | python3 -c "import json,sys; print(json.load(sys.stdin)['result'].get('id',''))"
 }
 
 # Workspace whose directory the daemon creates, so agents started in it get directory trust.
@@ -891,14 +865,14 @@ new_workspace() {
 new_provisioned_workspace() {
   local name="$1"
   dc workspace create "$name" --provision --json 2>/dev/null \
-    | python3 -c "import json,sys; w=json.load(sys.stdin); print(w.get('id','') + '\t' + w.get('cwd',''))"
+    | python3 -c "import json,sys; w=json.load(sys.stdin)['result']; print(w.get('id','') + '\t' + w.get('cwd',''))"
 }
 
 # Spawn a plain shell tab in the given workspace. Echoes tab_id.
 new_shell_tab() {
   local ws="$1" cwd="$2" title="${3:-shell}"
   dc tab new --workspace "$ws" --cwd "$cwd" --title "$title" --json 2>/dev/null \
-    | python3 -c "import json,sys; print(json.load(sys.stdin).get('tab_id',''))"
+    | python3 -c "import json,sys; print(json.load(sys.stdin)['result'].get('tab_id',''))"
 }
 
 # Spawn an agent tab of the given provider. Echoes tab_id.
@@ -918,8 +892,8 @@ new_agent_tab() {
 # Read the spawned tab id from `agent spawn --json`; human output is not a contract.
 spawned_tab_id() {
   python3 -c 'import json,sys
-d = json.load(sys.stdin)
-print(d.get("tab_id") or (d.get("data") or {}).get("tab_id") or "")'
+d = json.load(sys.stdin)["result"]
+print(d.get("tab_id") or "")'
 }
 
 # Spawn a claude tab in the given workspace. Echoes tab_id.

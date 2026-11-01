@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../../../packages/chat-ui/src/ToolCallBubble";
 import { MessageBubble } from "../../../packages/chat-ui/src/MessageBubble";
+import { ChatBlockHostProvider } from "../../../packages/chat-ui/src/blocks/ChatBlockHost";
 import fixture from "./fixtures/mixed-turn.json";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -19,7 +20,7 @@ async function render(node: React.ReactNode) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
-  await act(async () => root?.render(node));
+  await act(async () => root?.render(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}>{node}</ChatBlockHostProvider>));
   return host;
 }
 
@@ -77,15 +78,23 @@ describe("Codex structured chat wire contract", () => {
     expect(items[0].kind === "tool" && items[0].event.stream?.members.map((member) => member.toolId)).toEqual(["one","two"]);
   });
 
-  it("opens command groups as a parsed tree without a raw block", async () => {
+  it("opens collapsed command groups explicitly as a parsed tree without a raw block", async () => {
     const message: NormalizedChatMessage = {id:"group-default",type:"tool_call",content:"",toolId:"group-default",
       toolName:"commandExecution",toolKind:"command",toolSummary:"cd /repo; git status; git diff",toolInput:{command:"cd /repo; git status; git diff"},toolError:false,toolResult:"working tree clean"};
     const view = await render(<Timeline messages={[message]} />);
     const groupToggle = view.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
+    expect(groupToggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(view.textContent).toContain("git diff");
+    expect(view.textContent).not.toContain("working tree clean");
+    await act(async () => groupToggle?.click());
     expect(groupToggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(view.textContent).toContain("git diff");
     expect(view.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();
     expect(view.querySelector('[data-testid="message-raw-content"]')).toBeNull();
-    expect(view.textContent).not.toContain("working tree clean");
+    const details = [...view.querySelectorAll("button")].find(button => button.textContent === "Details");
+    expect(details).toBeTruthy();
+    await act(async () => details!.click());
+    expect(view.textContent).toContain("working tree clean");
     await act(async () => groupToggle?.click());
     expect(groupToggle?.getAttribute("aria-expanded")).toBe("false");
   });
@@ -102,11 +111,15 @@ describe("structured command batches", () => {
     expect(view.querySelector('[data-testid="toolcard-summary"]')?.textContent).toBe("(Get-Culture).Name");
     expect(view.querySelector('[data-testid="toolcard-summary"]')?.textContent).not.toContain("pwsh");
   });
-  it("renders parallel command items in one existing expanded command group", async () => {
+  it("reveals parallel command items through one collapsed command group", async () => {
     const view = await render(<Timeline messages={batch} />);
     expect(view.querySelectorAll('[data-testid="chat-command-group"]')).toHaveLength(1);
     expect(view.querySelector('[data-testid="chat-command-group-title"]')?.textContent).toBe("(Get-Culture).Name");
     expect(view.textContent).toContain("3 commands");
+    const toggle = view.querySelector<HTMLButtonElement>('[data-testid="chat-command-group-toggle"]');
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(view.textContent).toContain("Get-Date");
+    await act(async () => toggle?.click());
     expect(view.querySelectorAll('[data-testid="chat-command-tree-line"]')).toHaveLength(3);
     expect(view.querySelector('[data-testid="chat-command-group-toggle"]')?.getAttribute("aria-expanded")).toBe("true");
     expect(view.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();

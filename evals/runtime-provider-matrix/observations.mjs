@@ -1,5 +1,5 @@
 export function unwrap(value) {
-  return value.data || value;
+  return value.result;
 }
 
 export function taskStatus(value) {

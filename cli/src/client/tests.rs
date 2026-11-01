@@ -364,63 +364,22 @@ fn is_dev_socket_does_not_match_pid_paths_with_dev_substring() {
     assert!(is_dev_socket("domios-dev.sock"));
 }
 
-fn method_not_found() -> SocketCallError {
-    SocketCallError::Rpc(RpcError {
-        code: -32601,
-        message: "Method not found".into(),
-        data: None,
-    })
-}
-
 #[test]
-fn version_skew_same_version_call_makes_exactly_one_request() {
-    let mut seen: Vec<(String, Option<serde_json::Value>)> = Vec::new();
-    let params = serde_json::json!({"tab_id": "t1"});
-
-    let result = call_with_version_fallback(
-        |method, params| {
-            seen.push((method.to_string(), params));
-            Ok(serde_json::json!({"ok": true}))
-        },
-        "tab.list",
-        Some(params.clone()),
-    )
-    .unwrap();
-
-    assert_eq!(result["ok"], true);
-    assert_eq!(seen, vec![("tab.list".to_string(), Some(params))]);
-}
-
-#[test]
-fn version_skew_typed_error_passes_through_untranslated() {
-    let mut calls = 0;
-    let outcome = call_with_version_fallback(
-        |_, _| {
-            calls += 1;
-            Err(SocketCallError::Rpc(RpcError {
-                code: crate::protocol::VERSION_SKEW_CODE,
-                message: "client protocol v1, server requires >=2 — run rebuild".into(),
-                data: Some(serde_json::json!({
-                    "type": "version_skew",
-                    "client_protocol": 1,
-                    "server_protocol": 2,
-                    "recovery": "rebuild",
-                })),
-            }))
-        },
-        "agent.report",
-        None,
-    );
-
-    let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
-        panic!("the typed error must stay an RPC error");
-    };
-    assert_eq!(calls, 1, "a skew refusal must not trigger extra requests");
-    assert_eq!(error.code, crate::protocol::VERSION_SKEW_CODE);
-    let data = error.data.expect("typed data crosses untranslated");
-    assert_eq!(data["client_protocol"], 1);
-    assert_eq!(data["server_protocol"], 2);
-    assert_eq!(data["recovery"], "rebuild");
+fn version_skew_and_missing_method_errors_pass_through_untranslated() {
+    for code in [crate::protocol::VERSION_SKEW_CODE, -32601] {
+        let data =
+            serde_json::json!({"client_protocol":1,"server_protocol":2,"recovery":"rebuild"});
+        let result = http_rpc_result(
+            reqwest::StatusCode::OK,
+            serde_json::json!({"error":{"code":code,"message":"opaque refusal","data":data}}),
+        );
+        let SocketCallError::Rpc(error) = result.unwrap_err() else {
+            panic!("the typed error must stay an RPC error");
+        };
+        assert_eq!(error.code, code);
+        assert_eq!(error.message, "opaque refusal");
+        assert_eq!(error.data, Some(data));
+    }
 }
 
 #[test]
@@ -457,54 +416,6 @@ fn version_skew_request_envelope_carries_the_protocol_integer() {
     let wire: serde_json::Value =
         serde_json::from_str(&serde_json::to_string(&req).unwrap()).unwrap();
     assert_eq!(wire["protocol_version"], crate::protocol::PROTOCOL_VERSION);
-}
-
-#[test]
-fn version_skew_unknown_method_fallback_names_both_versions() {
-    let mut seen: Vec<String> = Vec::new();
-    let outcome = call_with_version_fallback(
-        |method, _| {
-            seen.push(method.to_string());
-            if method == "system.identify" {
-                Ok(serde_json::json!({"version": "0.0.1"}))
-            } else {
-                Err(method_not_found())
-            }
-        },
-        "tab.list",
-        None,
-    );
-
-    assert_eq!(
-        seen,
-        vec!["tab.list".to_string(), "system.identify".to_string()]
-    );
-    let SocketCallError::Transport(rendered) = outcome.unwrap_err() else {
-        panic!("cross-version -32601 becomes a transport explanation");
-    };
-    assert!(rendered.contains("0.0.1"), "{rendered}");
-    assert!(rendered.contains(env!("CARGO_PKG_VERSION")), "{rendered}");
-    assert!(rendered.contains("tab.list"), "{rendered}");
-}
-
-#[test]
-fn version_skew_unknown_method_on_same_version_daemon_stays_method_not_found() {
-    let outcome = call_with_version_fallback(
-        |method, _| {
-            if method == "system.identify" {
-                Ok(serde_json::json!({"version": env!("CARGO_PKG_VERSION")}))
-            } else {
-                Err(method_not_found())
-            }
-        },
-        "tab.list",
-        None,
-    );
-
-    let SocketCallError::Rpc(error) = outcome.unwrap_err() else {
-        panic!("same-version -32601 is a real missing method, not skew");
-    };
-    assert_eq!(error.code, -32601);
 }
 
 #[test]
@@ -695,4 +606,166 @@ fn http_fallback_refuses_an_inherited_url_for_another_instance() {
             .base_url,
         "http://127.0.0.1:7791"
     );
+}
+
+#[test]
+fn socket_call_sends_one_request_without_a_version_probe() {
+    use interprocess::local_socket::ListenerOptions;
+
+    for code in [None, Some(crate::protocol::VERSION_SKEW_CODE), Some(-32601)] {
+        let name = format!("single-rpc-{}-{}", std::process::id(), uuid::Uuid::new_v4());
+        let listener = ListenerOptions::new()
+            .name(name.as_str().to_ns_name::<GenericNamespaced>().unwrap())
+            .create_sync()
+            .unwrap();
+        let server = std::thread::spawn(move || {
+            let mut stream = BufReader::new(listener.accept().unwrap());
+            let mut requests = Vec::new();
+            loop {
+                let mut line = String::new();
+                if stream.read_line(&mut line).unwrap() == 0 {
+                    break;
+                }
+                let request: serde_json::Value = serde_json::from_str(&line).unwrap();
+                let response = if request["method"] == "system.identify" {
+                    serde_json::json!({"result":{"version":"0.0.1"}})
+                } else if let Some(code) = code {
+                    serde_json::json!({"error":{"code":code,"message":"opaque refusal","data":{"opaque":true}}})
+                } else {
+                    serde_json::json!({"result":{"opaque":true}})
+                };
+                writeln!(
+                    stream.get_mut(),
+                    "{}",
+                    serde_json::json!({
+                        "jsonrpc":"2.0", "id":request["id"],
+                        "result":response.get("result"), "error":response.get("error"),
+                    })
+                )
+                .unwrap();
+                requests.push(request);
+            }
+            requests
+        });
+        let stream = interprocess::local_socket::Stream::connect(
+            name.as_str().to_ns_name::<GenericNamespaced>().unwrap(),
+        )
+        .unwrap();
+        let mut client = SocketClient {
+            transport: ClientTransport::Socket(BufReader::new(stream)),
+            credential: "opaque-credential".into(),
+            next_id: 1,
+        };
+        let params = serde_json::json!({"tab_id":"opaque-tab"});
+        let result = client.call_detailed("tab.list", Some(params.clone()));
+        drop(client);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0]["method"], "tab.list");
+        assert_eq!(requests[0]["params"], params);
+        assert_eq!(requests[0]["credential"], "opaque-credential");
+        assert_eq!(
+            requests[0]["protocol_version"],
+            crate::protocol::PROTOCOL_VERSION
+        );
+        if let Some(code) = code {
+            let SocketCallError::Rpc(error) = result.unwrap_err() else {
+                panic!("RPC error must cross untranslated");
+            };
+            assert_eq!(error.code, code);
+            assert_eq!(error.message, "opaque refusal");
+            assert_eq!(error.data, Some(serde_json::json!({"opaque":true})));
+        } else {
+            assert_eq!(result.unwrap(), serde_json::json!({"opaque":true}));
+        }
+    }
+}
+#[test]
+fn identity_headers_omit_blank_claims_and_retain_real_values() {
+    let _lock = crate::test_env_lock()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let fields = [
+        ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
+        ("CODETERM_SESSION_ID", "x-codeterm-session-id"),
+        ("CODETERM_SESSION_BINDING_NONCE", "x-codeterm-binding-nonce"),
+        ("CODETERM_WORKER_ID", "x-codeterm-worker-id"),
+    ];
+    let saved = fields.map(|(key, _)| std::env::var_os(key));
+    for input in ["", " \t ", "opaque-identity"] {
+        for (key, _) in fields {
+            std::env::set_var(key, input);
+        }
+        let headers = super::identity_headers(&fields);
+        for (_, header) in fields {
+            if input.trim().is_empty() {
+                assert!(!headers.contains_key(header));
+            } else {
+                assert_eq!(headers[header], input);
+            }
+        }
+    }
+    for ((key, _), value) in fields.into_iter().zip(saved) {
+        match value {
+            Some(value) => std::env::set_var(key, value),
+            None => std::env::remove_var(key),
+        }
+    }
+}
+
+#[test]
+fn isolated_debug_named_socket_accepts_owned_custom_port_without_default_fallback() {
+    let display = if cfg!(windows) {
+        r"\\.\pipe\domios-dev-verification-a.sock"
+    } else {
+        "/tmp/domios-dev-verification-a.sock"
+    };
+    for path in ["domios-dev-verification-a.sock", display] {
+        let selected = resolve_socket_selection(Some(path), Some("verification-a"), Some("7798"))
+            .unwrap()
+            .unwrap();
+        assert_eq!(selected.path, "domios-dev-verification-a.sock");
+        assert!(
+            resolve_socket_selection(Some(path), Some("verification-b"), Some("7798")).is_err()
+        );
+        assert!(
+            resolve_socket_selection(Some(path), Some("verification-a"), Some("7685")).is_err()
+        );
+        assert!(
+            resolve_socket_selection(Some(path), Some("verification-a"), Some("7686")).is_err()
+        );
+    }
+    assert!(resolve_socket_selection(Some("domios-dev.sock"), None, Some("7798")).is_err());
+    assert!(resolve_socket_selection(None, None, Some("7798")).is_err());
+}
+
+#[test]
+fn selected_socket_failure_preserves_os_cause_without_fallback() {
+    let fields = io_failure_fields(&std::io::Error::from_raw_os_error(5));
+    assert!(fields.contains("os=5"));
+    let failure = selected_socket_failure(ResolutionSource::CodeTermSocketPath, &fields);
+    assert!(failure.contains("refusing to derive another socket"));
+    assert!(failure.ends_with(&fields));
+    let private = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "private error body");
+    assert_eq!(io_failure_fields(&private), "kind=PermissionDenied os=none");
+}
+
+#[test]
+fn http_failure_diagnostic_redacts_request_and_error_strings() {
+    let error = reqwest::blocking::Client::new()
+        .get("https://private-user:private-password@private.invalid:invalid-port/private-path?token=private-token")
+        .build().unwrap_err();
+    let message = http_failure_message("http_probe_send", &error);
+    assert_eq!(
+        message,
+        "loopback HTTP failure stage=http_probe_send class=builder kind=none os=none"
+    );
+    assert!(!message.contains("private"));
+}
+#[test]
+fn malformed_socket_connect_retains_finite_failure_fields() {
+    let failure = SocketClient::connect("invalid\0socket").err().unwrap();
+    assert!(failure.contains("stage=socket_connect"));
+    assert!(failure.contains("kind="));
+    assert!(failure.contains("os="));
 }

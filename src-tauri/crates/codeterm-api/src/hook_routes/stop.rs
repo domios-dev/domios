@@ -44,6 +44,8 @@ pub async fn hook_stop(
         );
         return Err((StatusCode::CONFLICT, "binding nonce mismatch".to_string()));
     }
+    // The provider flushes its transcript before Stop.
+    state.svc.chat_registry.wake(&tab_id);
     let title = state
         .svc
         .mux

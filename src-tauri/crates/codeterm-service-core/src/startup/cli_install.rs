@@ -189,6 +189,21 @@ pub(crate) fn refresh_installed_cli_with(
         );
     }
 
+    let resources = src
+        .parent()
+        .and_then(std::path::Path::parent)
+        .ok_or_else(|| std::io::Error::other("CLI resource root unavailable"))?
+        .canonicalize()?;
+    let hint = codeterm_types::server_bootstrap::CliResourceHint {
+        resources,
+        cli_sha256: file_sha256(&dest)
+            .ok_or_else(|| std::io::Error::other("Installed CLI digest unavailable"))?,
+    };
+    codeterm_util::private_file::write_atomic(
+        &dest_dir.join(codeterm_types::server_bootstrap::CLI_RESOURCE_HINT_FILE),
+        &serde_json::to_vec(&hint).map_err(std::io::Error::other)?,
+    )?;
+
     let alias = dest_dir.join(if cfg!(windows) {
         "domios.exe"
     } else {

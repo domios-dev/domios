@@ -784,6 +784,7 @@ fn default_l1_budget_tokens() -> usize {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct MemoryConfig {
+    pub backend: super::MemoryBackend,
     /// Agent provider for extraction workers (default: same as general_agent)
     pub extraction_agent: String,
     /// Model for extraction workers. "haiku" for claude, "o3-mini" for codex.
@@ -844,6 +845,7 @@ pub struct MemoryConfig {
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
+            backend: super::MemoryBackend::default(),
             extraction_agent: String::new(),
             extraction_model: String::new(),
             auto_extract: true,

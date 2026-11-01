@@ -21,37 +21,16 @@ pub fn read_at(data_root: &Path) -> Result<Option<String>, String> {
     }
 }
 
-pub fn initialize_at(
-    data_root: &Path,
-    legacy_token: Option<&str>,
-    generate: bool,
-) -> Result<Option<String>, String> {
+pub fn initialize_at(data_root: &Path, generate: bool) -> Result<Option<String>, String> {
     if let Some(token) = read_at(data_root)? {
         return Ok(Some(token));
     }
-    let token = legacy_token
-        .filter(|token| !token.trim().is_empty())
-        .map(str::to_owned)
-        .or_else(|| generate.then(|| uuid::Uuid::new_v4().simple().to_string()));
+    let token = generate.then(|| uuid::Uuid::new_v4().simple().to_string());
     if let Some(token) = &token {
         store(data_root)?
             .set(ACCOUNT, token)
             .map_err(|_| "Cannot persist instance API credential in .secrets".to_string())?;
     }
-    Ok(token)
-}
-
-/// Rotate legacy authority before its config entry or recovery copies lose their role.
-pub fn migrate_at(data_root: &Path, legacy_token: &str) -> Result<String, String> {
-    if let Some(token) = read_at(data_root)? {
-        if token != legacy_token {
-            return Ok(token);
-        }
-    }
-    let token = uuid::Uuid::new_v4().simple().to_string();
-    store(data_root)?
-        .set(ACCOUNT, &token)
-        .map_err(|_| "Cannot persist rotated instance API credential in .secrets".to_string())?;
     Ok(token)
 }
 

@@ -3,7 +3,6 @@ use super::*;
 #[test]
 fn friend_receiver_refusals_preserve_feature_key_and_machine_slot_reasons() {
     for (reason, expected) in [
-        ("feature_unsupported", Error::FeatureUnsupported),
         ("key_revoked", Error::Revoked),
         ("key_not_found", Error::KeyNotFound),
         ("receiver_revision_stale", Error::ReceiverRevisionStale),
@@ -153,8 +152,6 @@ async fn post_call_validation_never_refreshes_and_rejects_logout_or_new_login() 
         service: fixture.service.clone(),
         uid: captured.identity.uid.clone(),
         generation: captured.login_generation,
-        own_keys: Default::default(),
-        receiver_status: Default::default(),
     };
     calls.validate_session(&captured).await.unwrap();
     account.logout().await.unwrap();
@@ -183,8 +180,6 @@ async fn cached_own_inventory_and_receiver_reads_still_require_the_current_accou
         service: fixture.service.clone(),
         uid: "owner".into(),
         generation: 1,
-        own_keys: tokio::sync::Mutex::new(Some(json!([]))),
-        receiver_status: tokio::sync::Mutex::new(Some(json!({}))),
     };
     assert_eq!(
         calls.invoke("friendsOwnKeys", json!({})).await,
@@ -314,6 +309,9 @@ fn http_status_body_matrix_keeps_permanent_failures_out_of_recovery() {
     for body in bodies {
         for status in [401, 403, 404, 429, 500, 503] {
             let error = classify_callable_error(status, body.as_ref(), Some(60));
+            if status == 404 {
+                assert_eq!(error, Error::Unavailable);
+            }
             assert_eq!(
                 codeterm_neighbors::supervisor::retryable(error),
                 !matches!(status, 403 | 404),

@@ -74,6 +74,7 @@ pub(crate) async fn hook_provider_event(
     }
     let raw_event = serde_json::json!({"session_id": &body.session_id, "event": &body.event});
     record_hook_post(&state, &tab_id, "provider_event", Some(&raw_event));
+    state.svc.chat_registry.wake(&tab_id);
     let event_json = serde_json::to_string(&body.event).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,

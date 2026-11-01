@@ -3,7 +3,8 @@ import { describe, it } from "vitest";
 import { materializeToolEvent, reduceToolEvents } from "@codeterm/chat-core";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { ToolCallBubble } from "../ToolCallBubble";
-import { render } from "./cardTestSetup";
+import { act, render } from "./cardTestSetup";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
 
 function call(id: string, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage {
   return {
@@ -37,7 +38,7 @@ function reducedEvent(messages: NormalizedChatMessage[]) {
 
 async function renderMessages(messages: NormalizedChatMessage[], expanded = false) {
   const event = reducedEvent(messages);
-  return render(<ToolCallBubble event={event} expanded={expanded} onToggle={() => {}} />);
+  return render(<ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><ToolCallBubble event={event} expanded={expanded} onToggle={() => {}} /></ChatBlockHostProvider>);
 }
 
 const cases: Array<[string, () => Promise<void>]> = [
@@ -120,7 +121,10 @@ const cases: Array<[string, () => Promise<void>]> = [
       result("codex-read-result", { toolId: "codex-tool", toolExitCode: 0, toolDurationMs: 2400 }),
     ], true);
     if (!host.textContent?.includes("Read SKILL.md")) throw new Error("parsed_cmd title was not shown");
-    if (!host.querySelector('[data-testid="raw-command-disclosure"]')) throw new Error("command detail disclosure disappeared");
+    const details = [...host.querySelectorAll("button")].find(button => button.textContent === "Details");
+    if (!details) throw new Error("command detail action disappeared");
+    await act(async () => details.click());
+    if (host.querySelector('[data-testid="message-raw-content"]')?.textContent !== exactCommand) throw new Error("exact command detail was lost");
     if (!host.querySelector('[data-testid="toolcard-exit-code"]')?.textContent?.includes("exit 0")) throw new Error("Codex exit fact was not rendered");
     if (!host.querySelector('[data-testid="toolcard-duration"]')?.textContent?.includes("2.4s")) throw new Error("Codex duration fact was not rendered");
   }],

@@ -55,6 +55,7 @@ pub(super) const RECOVERY_METHODS: &[&str] = &[
 /// itself. Closed on purpose: a verb newly routed through this seam to assert the
 /// CALLER's own task binding inherits neither the shortcut nor recovery.
 pub(super) const PLAN_OWNER_AUTHORITY_METHODS: &[&str] = &[
+    "plan.task.extend_files",
     "task.take",
     "task.drop",
     "plan.task.update",
@@ -335,6 +336,7 @@ fn require_plan_role_for_unowned_task(
     if !matches!(
         method,
         "plan.task.update"
+            | "plan.task.extend_files"
             | "plan.task.close"
             | "plan.task.assign"
             | "plan.task.dispatch"

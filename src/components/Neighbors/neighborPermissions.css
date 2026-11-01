@@ -1,0 +1,101 @@
+.neighbor-permissions .neighbor-areas {
+  align-items: start;
+}
+
+.neighbor-areas__controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.neighbor-areas__controls .ct-bar-pill {
+  max-width: 12rem;
+  font-family: var(--ct-font-ui);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.neighbor-area-name {
+  font-family: var(--ct-font-mono);
+  font-weight: 500;
+}
+
+.neighbor-permissions .neighbor-access,
+.neighbor-permissions .neighbor-limit {
+  padding: 0.625rem 0.75rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--ct-fg) 4%, transparent);
+}
+
+.neighbor-permissions .neighbor-access {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.neighbor-access > :not(:first-child):not(.ct-liquid-segmented) {
+  grid-column: 1 / -1;
+}
+
+.neighbor-permissions .neighbor-access .ct-liquid-segmented__thumb {
+  background: var(--ct-bg-elev);
+  box-shadow: var(--ct-shadow-sm);
+}
+
+.neighbor-permissions .neighbor-access .ct-liquid-segmented {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.neighbor-permissions .neighbor-access .ct-liquid-segmented__option {
+  font-size: 13px;
+  padding-inline: 12px;
+}
+
+.neighbor-permissions .neighbor-access .ct-liquid-segmented__option[aria-selected="true"] {
+  color: var(--ct-fg);
+}
+
+.neighbor-permissions .neighbor-access__warning {
+  display: flex;
+  align-items: start;
+  gap: 0.5rem;
+  color: var(--ct-warn);
+}
+
+.neighbor-access__warning > svg {
+  flex: none;
+  margin-top: 0.1rem;
+}
+
+.neighbor-permissions .neighbor-limit .neighbor-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.25rem 0.75rem;
+}
+
+.neighbor-limit .neighbor-limit__row {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+}
+
+.neighbor-limit .neighbor-field > span {
+  grid-column: 1;
+}
+
+@media (max-width: 600px) {
+  .neighbor-permissions .neighbor-access {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .neighbor-permissions .neighbor-areas {
+    flex-wrap: wrap;
+  }
+
+  .neighbor-areas__controls {
+    margin-left: auto;
+  }
+}

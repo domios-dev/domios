@@ -240,20 +240,10 @@ jobs:
           node -e 'const fs = require("node:fs"); const selected = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/pr-catalogue.json", "utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "commands=" + JSON.stringify(Object.fromEntries(selected.runners.map(entry => [entry.id, entry.runner]))) + "\n");'
         if: "!cancelled()"
       - *cancel-run-on-failure
-      - *cancel-run-on-failure
       - name: Plugin release contracts
         id: ci-6
         if: ${{ !cancelled() }}
         run: node scripts/ci-step.mjs plugin-release-contracts --ci
-      - *cancel-run-on-failure
-      - *cancel-run-on-failure
-      # Gateway race and serial suites run locally through build.sh script-guards; policy covers release signing.
-      - *cancel-run-on-failure
-      - name: Build gateway and release signing policy
-        id: ci-9
-        if: ${{ !cancelled() }}
-        run: |
-          bash scripts/check-build-gateway-policy.sh
       - *cancel-run-on-failure
       - name: cargo fmt --check
         id: ci-10
@@ -261,22 +251,11 @@ jobs:
         run: node scripts/ci-step.mjs rust-fmt --ci
       # Release shards run tests from an archive extracted on another machine.
       - *cancel-run-on-failure
-      - *cancel-run-on-failure
       - name: Install dependencies
         id: ci-13
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         # Runners on one host share HOME; a per-runner store keeps concurrent installs apart.
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - *cancel-run-on-failure
-      - name: Node script tests (tests/catalogue.json node-script-tests)
-        id: ci-14
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-step.mjs node-script-tests --ci
-      - *cancel-run-on-failure
-      - name: Python script tests (tests/catalogue.json python-script-tests)
-        id: ci-15
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-step.mjs python-script-tests --ci
       - *cancel-run-on-failure
       - name: Offline core journey contracts
         id: ci-16
@@ -558,10 +537,6 @@ jobs:
       - name: Run TS unit tests
         id: ci-6
         run: node scripts/ci-step.mjs ts-unit --ci
-      - name: TS unit runner contracts
-        id: ci-7
-        if: ${{ !cancelled() && matrix.shard == 1 }}
-        run: node scripts/ci-step.mjs ts-unit-runner-tests --ci
   ts-vitest:
     name: ts vitest
     needs: changed

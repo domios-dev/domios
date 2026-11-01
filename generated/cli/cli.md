@@ -32,7 +32,7 @@ A Team whose Orchestrator is gone is not stranded. Removing its final Orchestrat
 
 A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `domios docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role Worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
 
-`domios plan task dispatch` refuses a **mutating** dispatch before any tab exists when the resolved worktree is the canonical checkout or another task's lane; the error carries a stable `violation_id` (`lane.mutating_write_in_canonical_checkout`, `lane.mutating_write_in_foreign_lane`) plus the exact `plan task update --worktree/--branch/--base` command that supplies an isolated lane. A task with no recorded lane is not refused — the dispatcher provisions one and commits Team workspace identity together with the lane. Every other lane finding is advisory: the dispatch succeeds and prints a `safety_nudges` block on stderr, each line carrying a stable id and the exact fix. Read-only dispatch, General-Agent creation, and plain shell tabs are never obstructed, including in canonical.
+`domios plan task dispatch` defaults local mutating tasks to shared canonical with declared disjoint edit files. Automatic overlap or a `build-breaking` tag selects a lane; `--placement shared` refuses conflicts and names the owner, while `--placement lane` requests isolation. `domios plan task extend-files --edit-file <path>` atomically extends a shared Worker's set. The report-time guard refuses commits containing foreign or undeclared paths. Exclusive `--canonical-writer`, mesh lanes and recorded lane safety remain explicit; see `domios docs LANES`.
 
 `domios plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. A deliberate `--status blocked` update also requires a fresh nonblank `--status-label` with its reason and owner trigger, and is limited to the live Plan owner or Planner. A Worker `agent report --status blocked` is a proposal that preserves task state, assignment, lane, and report evidence until that owner decision. Stale-owner recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner`, `task_block_authority_required` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `domios plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
@@ -40,13 +40,18 @@ Competition has no `domios plan task` verb — it is driven by the `plan.task.co
 
 `domios plan transfer <plan_id> --to <orchestrator-tab>` moves the plan to the destination Orchestrator's live Team. The CLI requires `CODETERM_TAB_ID`, supplies that caller identity, and the daemon requires the tab to be the source Team's Orchestrator or planner Manager; missing callers, Workers, and foreign-Team tabs cannot transfer. Transfer changes the Team, owner, owner history, and stale planner routing atomically before relinking hierarchy.
 
+
+Every `--json` command returns one object with its payload under `result`: an array for a list/search, an object for a record, or a scalar/null. Optional `meta` retains list metadata, `next` carries pagination and `warnings` carries diagnostics. Failures also include `ok:false` and `error`; their daemon receipt is under `result`. Read `result` directly; do not guess `data`, `results`, `hits`, `tasks` or `tabs` envelopes.
+
+Search/list output defaults to one line per record: `id  title — short snippet` (80 characters, one line). Known omitted counts end with `N more — refine the query or use --limit`. Use `--verbose` for scores, relevance, warnings and detailed views.
 <!-- cli:auto-start -->
 #### `domios`
 
 Domios CLI — control your terminal multiplexer
 
-- `--json` — Output raw JSON instead of human-readable text
+- `--json` — Output JSON with the payload under result
 - `--mesh` — Execute command on a remote mesh peer instead of locally
+- `--verbose` — Include detailed diagnostics, scores and warnings
 
 #### `domios account`
 
@@ -54,7 +59,10 @@ Sign in, inspect identity or sign out on this machine
 
 #### `domios account login`
 
-Sign in using the system browser and wait for completion
+Sign in and wait for completion
+
+- `--code-from-pad` — Complete the pending browserless sign-in using a whole callback URL from this tab's pad
+- `--no-browser` — Print the authorization URL and accept the whole redirected callback URL
 
 #### `domios account logout`
 
@@ -82,13 +90,6 @@ Read pending, delivered or not_delivered from the relay receipt
 General Agent only: deny this Neighbor's requests
 
 - `<friendship_id>`
-
-#### `domios account neighbors enroll`
-
-Receive all friends here (account takeover); use receive-here to move only one friend
-
-- `--confirm-takeover`
-- `--expected-receiver-revision` — Receiver revision shown by status; refresh and confirm again if stale
 
 #### `domios account neighbors flag`
 
@@ -387,6 +388,7 @@ Spawn a new agent; roleless unless --role is provided.
 - `--sandbox` — Explicit OS confinement for this launch; Workers default to full access
 - `--speed` — Provider-declared service tier for this launch
 - `--system` — Override the shell system prompt of a chatBackend shell; refused for PTY agents
+- `--tag` — Work tags for an unplanned Worker task; omitted work tags are inferred
 - `--task` — Task to send after agent starts
 - `--task-file` — Read the task body from a file (or `-` for stdin) instead of --task. Local relative paths resolve from --cwd; mesh paths resolve on the caller. Content remains byte-exact. Mutually exclusive with --task
 - `--task-id` — Bound task id
@@ -565,7 +567,9 @@ Keep a generalised solution (Team Orchestrator only); give 3-5 --when intents
 
 #### `domios blueprint list`
 
-List blueprints scoped to the calling tab and its Team
+List blueprints; Orchestrators and the owner may inspect all Teams and workspaces
+
+- `--all` — Require authority to read across Teams and workspaces
 
 #### `domios blueprint log`
 
@@ -1080,6 +1084,33 @@ Move every item to another area, preserving scope and audit history
 - `<from>`
 - `--into`
 
+#### `domios mem backend`
+
+Select and migrate memory storage backends
+
+#### `domios mem backend migrate`
+
+Copy every memory table while the daemon is stopped; preserve the source
+
+- `--into-nonempty` — Authorize importing into a target that already contains data
+- `--to`
+
+#### `domios mem backup`
+
+Create an online SQLite archive or restore a stopped instance
+
+#### `domios mem backup create`
+
+Copy knowledge.db, memory blobs and storage into a timestamped archive
+
+- `--out`
+
+#### `domios mem backup restore`
+
+Replace memory and storage from an archive; requires a stopped daemon
+
+- `--from`
+
 #### `domios mem calibration`
 
 Memory calibration: review or trigger the dreamer's importance/archive sweep
@@ -1455,6 +1486,17 @@ Merge a near-duplicate into a keeper, reversibly: the lesser is archived (never 
 - `--keeper` — Item that survives
 - `--lesser` — Item that is archived and linked to the keeper
 
+#### `domios mem neighbor-save`
+
+Save a fact or note through this friendship's live memory write grant
+
+- `--area`
+- `--from-pad` — Body from your AgentPad; use - for UTF-8 stdin
+- `--kind`
+- `--summary`
+- `--tag` — Repeat for each tag
+- `--title`
+
 #### `domios mem pin`
 
 Pin a mem item so it always loads in L1 wake-up
@@ -1742,25 +1784,13 @@ Spawn a new graph worker
 
 #### `domios mesh`
 
-Mesh networking — peer discovery, pairing, relay
+Account mesh — installations, status and authenticated relay
 
 #### `domios mesh announce`
 
 Push our current address list to paired peers without re-detecting locally. Use --to to limit to one peer
 
 - `--to` — Optional target peer (instance_id or name). Omit for all peers
-
-#### `domios mesh disconnect`
-
-Disconnect (unpair) from a paired peer
-
-- `<instance_id>` — Instance ID of the paired peer
-
-#### `domios mesh link`
-
-Link a machine enrolled in this account. Both machines must be signed in, online to the registry and directly reachable; no approval on the other side
-
-- `<installation_id>` — Installation ID from the account's machine list
 
 #### `domios mesh offline`
 
@@ -1783,7 +1813,7 @@ Manually override our cached address for a paired peer. Useful when auto-detecti
 
 #### `domios mesh peers`
 
-List paired peers
+List account installations and their connection state
 
 #### `domios mesh refresh`
 
@@ -1798,12 +1828,6 @@ Show mesh status (identity, peers)
 List tabs on a remote mesh peer
 
 - `<target>` — Target peer name or instance ID
-
-#### `domios mesh unrevoke`
-
-Explicitly lift a local peer identity revocation
-
-- `<instance_id>` — Instance ID of the revoked peer
 
 #### `domios model-provider`
 
@@ -1873,6 +1897,12 @@ Clear all notifications
 List notifications
 
 - `--unread` — Show only unread notifications
+
+#### `domios notify resolve`
+
+Resolve a question asked by this tab after receiving its answer
+
+- `<id>`
 
 #### `domios notify send`
 
@@ -2085,8 +2115,6 @@ Create a new plan
 - `--from-spec`
 - `--kinds`
 - `--project`
-- `--spec`
-- `--spec-file`
 - `--title`
 
 #### `domios plan curator`
@@ -2906,10 +2934,10 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--intent`
 - `--intent-file`
 - `--loop-from`
-- `--model`
+- `--model` — Provider:model, model id, or bare provider resolved at dispatch
 - `--name`
 - `--parent`
-- `--personality` — REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'
+- `--personality` — Executor's one-word persona; defaults to the first word of the task name
 - `<plan_id>`
 - `--primary`
 - `--priority`
@@ -2917,7 +2945,7 @@ Add a task to a plan (carries model/why routing + quality fields)
 - `--qa-plan-file`
 - `--role-guidance` — REQUIRED: initial worker conditioning. Presence alone is the machine contract; prose quality is a human judgment
 - `--role-guidance-file` — Read required initial worker conditioning from a file
-- `--sections`
+- `--sections` — Section selectors; omission uses area matching or the plan's sole section
 - `--tag`
 - `--test-plan`
 - `--test-plan-file`
@@ -2990,6 +3018,7 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--kind` — Select a built-in Worker prompt kind without changing the task's executor_role
 - `--model`
 - `--parent-tab` — Parent tab override (defaults to the caller tab)
+- `--placement`
 - `<plan_id>`
 - `--provider-reserve-pct` — Optional minimum remaining provider allowance for mutating work (0 = no reserve)
 - `--reasoning-effort` — Selected-model reasoning effort; provider fallback applies without per-model levels (rejected if unsupported)
@@ -2997,6 +3026,14 @@ Spawn a worker, assign the task, and deliver its brief in one atomic call
 - `--speed` — Provider-declared service tier for this launch
 - `<task_id>`
 - `--workspace`
+
+#### `domios plan task extend-files`
+
+Extend this Worker's declared edit files; overlapping live ownership is refused
+
+- `--edit-file`
+- `<plan_id>`
+- `<task_id>`
 
 #### `domios plan task files`
 
@@ -3832,7 +3869,6 @@ Show the full daemon tab payload for one or more explicit tab ids
 List compact tab summaries across every workspace. Use `--workspace` for one workspace and `tab inspect` for full tab details
 
 - `--agents` — Show only tabs running an agent (have an agent_type)
-- `--all-workspaces` — Accepted for compatibility; every workspace is now listed by default
 - `--workspace` — Workspace id to list. Without this selector every workspace is listed
 
 #### `domios tab new`
@@ -3906,6 +3942,12 @@ Replace a plain shell's process in the same tab, preserving tab identity and met
 Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or current model. Cross-script — "Далтон" matches "Dalton". Add `--mesh PEER` to search a paired peer (#99). `find` kept as alias
 
 - `<pattern>` — Substring or short pattern to match
+
+#### `domios tab send-status`
+
+Inspect one retained send without resending its payload
+
+- `<send_id>`
 
 #### `domios tab status`
 
@@ -4128,7 +4170,7 @@ Read or update the current agent tab's bounded checklist
 
 #### `domios todo amend`
 
-Review and amend a child's checklist; seeded criteria stay locked
+Review and amend a child's checklist; seeded criteria stay locked. Input: [{"id"?: string, "content"?: string, "status": "pending|in_progress|completed|blocked|skipped", "activeForm"?: string, "link"?: string, "reason"?: string}]. New items require content; activeForm defaults to content. Blocked/skipped require reason
 
 - `--from-pad`
 - `--note-from-pad`
@@ -4153,7 +4195,7 @@ Share this tab's checklist with its parent; work may continue immediately
 
 Declare this tab's whole checklist: created on first write, then reconciled; locked items stay
 
-- `--from-pad` — JSON array of {content,status,activeForm,link?,reason?} from this tab's pad
+- `--from-pad` — JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content
 
 #### `domios trace`
 

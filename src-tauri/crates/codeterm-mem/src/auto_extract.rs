@@ -7,7 +7,6 @@
 use std::collections::HashMap;
 
 use parking_lot::Mutex;
-use rusqlite::Connection;
 
 use codeterm_types::config::MemoryConfig;
 
@@ -110,48 +109,7 @@ pub fn find_pending_items(
     mem: &MemManager,
     limit: usize,
 ) -> Result<Vec<(String, String, String, MemKind)>, String> {
-    use crate::store::MemKind::*;
-    mem.with_conn(|conn| {
-        // worker has already run against it — we don't need to re-queue.
-        let mut stmt = conn
-            .prepare(
-                r#"SELECT m.id, m.kind, m.title, COALESCE(m.body_inline, '')
-               FROM mem_items m
-               WHERE m.kind IN ('conversation','note','daily','learning','fact')
-                 AND m.tags_json NOT LIKE '%auto-extracted%'
-                 AND NOT EXISTS (
-                   SELECT 1 FROM relations r
-                   WHERE r.from_id = m.id OR r.to_id = m.id
-                 )
-               ORDER BY m.created_at DESC
-               LIMIT ?1"#,
-            )
-            .map_err(|e| e.to_string())?;
-
-        let rows = stmt
-            .query_map([limit as i64], |r| {
-                let id: String = r.get(0)?;
-                let kind_str: String = r.get(1)?;
-                let title: String = r.get(2)?;
-                let body: String = r.get(3)?;
-                let kind = match kind_str.as_str() {
-                    "conversation" => Conversation,
-                    "note" => Note,
-                    "daily" => Daily,
-                    "learning" => Learning,
-                    "fact" => Fact,
-                    _ => Note,
-                };
-                Ok((id, title, body, kind))
-            })
-            .map_err(|e| e.to_string())?;
-
-        let mut out = Vec::new();
-        for row in rows {
-            out.push(row.map_err(|e| e.to_string())?);
-        }
-        Ok(out)
-    })
+    mem.store.pending_extraction(limit)
 }
 
 // Track injected `kind=skill` and `kind=lesson` items so we can bump evidence on matching output.
@@ -213,7 +171,25 @@ impl EvolutionObserver {
     /// Drain the tracked items for `scope` and apply the observation.
     /// Returns the list of mem_ids that got `evidence_count` bumped.
     /// `observation` is the raw text of the next agent output / tool result.
-    pub fn observe(&self, conn: &Connection, scope: &str, observation: &str) -> Vec<String> {
+    pub fn observe(
+        &self,
+        store: &dyn crate::backend::MemStore,
+        scope: &str,
+        observation: &str,
+    ) -> Vec<String> {
+        self.observe_evidence(scope, observation, |id| {
+            store.bump_evidence(
+                &crate::backend::WriteContext::system("evolution-observer"),
+                id,
+            )
+        })
+    }
+    pub(crate) fn observe_evidence(
+        &self,
+        scope: &str,
+        observation: &str,
+        bump: impl Fn(&str) -> Result<bool, String>,
+    ) -> Vec<String> {
         let items = {
             let mut by_scope = self.by_scope.lock();
             by_scope.remove(scope).unwrap_or_default()
@@ -230,7 +206,7 @@ impl EvolutionObserver {
             if observation_echoes_body(&obs_lower, &item.body_signature) {
                 continue;
             }
-            match codeterm_mem_store::graph::bump_evidence_count(conn, &item.mem_id) {
+            match bump(&item.mem_id) {
                 Ok(true) => bumped.push(item.mem_id),
                 Ok(false) => {
                     log::debug!(
@@ -280,165 +256,4 @@ fn observation_echoes_body(observation_lower: &str, body_sig_lower: &str) -> boo
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::Connection;
-
-    fn open_test_conn() -> Connection {
-        let conn = Connection::open_in_memory().unwrap();
-        crate::store::init_schema(&conn).unwrap();
-        conn
-    }
-
-    fn insert_skill(conn: &Connection, id: &str, body: &str) {
-        conn.execute(
-            "INSERT INTO mem_items (id, uid, kind, scope, title, body_inline, tags_json, created_at, updated_at)
-             VALUES (?1, ?1, 'skill', 'global', 't', ?2, '[]', '2026-01-01', '2026-01-01')",
-            rusqlite::params![id, body],
-        ).unwrap();
-    }
-
-    fn evidence_count(conn: &Connection, id: &str) -> i64 {
-        conn.query_row(
-            "SELECT evidence_count FROM mem_items WHERE id = ?1",
-            rusqlite::params![id],
-            |r| r.get(0),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn observer_bumps_on_success_shaped_observation() {
-        let conn = open_test_conn();
-        insert_skill(&conn, "skill_a", "follow these steps to refresh tokens");
-        let obs = EvolutionObserver::new();
-        obs.record_injection(
-            "tab1",
-            vec![InjectedItem::new(
-                "skill_a".into(),
-                MemKind::Skill,
-                "follow these steps to refresh tokens",
-            )],
-        );
-        let bumped = obs.observe(
-            &conn,
-            "tab1",
-            "Done. Token refreshed and request returned 200 OK.",
-        );
-        assert_eq!(bumped, vec!["skill_a".to_string()]);
-        assert_eq!(evidence_count(&conn, "skill_a"), 2);
-        assert!(
-            obs.pending("tab1").is_empty(),
-            "scope cleared after observe"
-        );
-    }
-
-    #[test]
-    fn observer_skips_when_observation_carries_error_marker() {
-        let conn = open_test_conn();
-        insert_skill(&conn, "skill_b", "follow these steps");
-        let obs = EvolutionObserver::new();
-        obs.record_injection(
-            "tab1",
-            vec![InjectedItem::new(
-                "skill_b".into(),
-                MemKind::Skill,
-                "follow these steps",
-            )],
-        );
-        let bumped = obs.observe(&conn, "tab1", "Error: command failed with exit code 1");
-        assert!(bumped.is_empty());
-        assert_eq!(
-            evidence_count(&conn, "skill_b"),
-            1,
-            "no bump on error-shaped observation"
-        );
-    }
-
-    #[test]
-    fn observer_skips_when_observation_echoes_skill_body() {
-        let conn = open_test_conn();
-        let body = "When refreshing JWT tokens always include the kid header read from the JWKS endpoint, otherwise Auth0 returns 401 with realm=api.example.com";
-        insert_skill(&conn, "skill_c", body);
-        let obs = EvolutionObserver::new();
-        obs.record_injection(
-            "tab1",
-            vec![InjectedItem::new("skill_c".into(), MemKind::Skill, body)],
-        );
-        let echo = format!(
-            "Working on it. Following the rule: {}. Should succeed shortly.",
-            body
-        );
-        let bumped = obs.observe(&conn, "tab1", &echo);
-        assert!(
-            bumped.is_empty(),
-            "echo of body must not count as independent evidence"
-        );
-        assert_eq!(evidence_count(&conn, "skill_c"), 1);
-    }
-
-    #[test]
-    fn observer_no_op_when_nothing_tracked() {
-        let conn = open_test_conn();
-        let obs = EvolutionObserver::new();
-        let bumped = obs.observe(&conn, "tab1", "ok");
-        assert!(bumped.is_empty());
-    }
-
-    #[test]
-    fn observer_replaces_prior_batch_for_same_scope() {
-        let conn = open_test_conn();
-        insert_skill(&conn, "skill_x", "x body");
-        insert_skill(&conn, "skill_y", "y body");
-        let obs = EvolutionObserver::new();
-        obs.record_injection(
-            "tab1",
-            vec![InjectedItem::new(
-                "skill_x".into(),
-                MemKind::Skill,
-                "x body",
-            )],
-        );
-        obs.record_injection(
-            "tab1",
-            vec![InjectedItem::new(
-                "skill_y".into(),
-                MemKind::Skill,
-                "y body",
-            )],
-        );
-        let bumped = obs.observe(&conn, "tab1", "ok");
-        assert_eq!(bumped, vec!["skill_y".to_string()]);
-        assert_eq!(
-            evidence_count(&conn, "skill_x"),
-            1,
-            "x not in tracked batch when observe ran"
-        );
-        assert_eq!(evidence_count(&conn, "skill_y"), 2);
-    }
-
-    #[test]
-    fn observer_handles_missing_row_gracefully() {
-        let conn = open_test_conn();
-        let obs = EvolutionObserver::new();
-        obs.record_injection(
-            "tab1",
-            vec![InjectedItem::new(
-                "ghost".into(),
-                MemKind::Skill,
-                "vanished",
-            )],
-        );
-        let bumped = obs.observe(&conn, "tab1", "ok");
-        assert!(bumped.is_empty(), "missing row → no bump reported");
-    }
-
-    #[test]
-    fn is_success_shaped_recognizes_common_failure_words() {
-        assert!(is_success_shaped("Done. exit code 0."));
-        assert!(!is_success_shaped("ERROR: something blew up"));
-        assert!(!is_success_shaped("the build failed"));
-        assert!(!is_success_shaped("thread 'main' panicked"));
-        assert!(!is_success_shaped("Traceback (most recent call last):"));
-    }
-}
+mod tests;

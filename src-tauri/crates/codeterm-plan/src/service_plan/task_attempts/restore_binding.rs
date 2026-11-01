@@ -117,7 +117,10 @@ fn restore_binding(
         || attempt.competition_lane.is_some()
         || attempt.mesh_peer.is_some()
         || attempt.remote_dispatch_state.is_some()
-        || attempt.placement != WorkerPlacement::IsolatedLane
+        || !matches!(
+            attempt.placement,
+            WorkerPlacement::IsolatedLane | WorkerPlacement::Shared
+        )
     {
         return Err(Refusal::AttemptAuthorityInvalid.refusal());
     }

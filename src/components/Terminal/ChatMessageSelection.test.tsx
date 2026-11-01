@@ -261,7 +261,9 @@ it("Select enters block selection with that message", async () => {
   await act(async () => item("a1", "Select")!.click());
   expect(bar()?.textContent).toContain("1 message");
   expect(row("a1").dataset.selected).toBe("true");
-  expect(document.activeElement).toBe(row("a1"));
+  const selectedPart = row("a1").querySelector<HTMLElement>('[data-message-part-id][data-selected="true"]');
+  expect(selectedPart).not.toBeNull();
+  expect(document.activeElement).toBe(selectedPart);
 });
 
 it("Quote docks one reply block above the composer input, replaces it, and never inserts a capsule", async () => {

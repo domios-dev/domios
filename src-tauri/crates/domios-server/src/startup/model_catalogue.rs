@@ -1,5 +1,8 @@
 use codeterm_service_core::agent;
 
+#[cfg(test)]
+mod tests;
+
 pub(crate) fn forward_changes(
     ui: std::sync::Arc<dyn codeterm_service_core::ports::host::UiEvents>,
 ) {
@@ -32,8 +35,16 @@ pub(crate) fn refresh_providers(registry: &agent::registry::AgentRegistry) {
         providers.len()
     );
     for provider in &providers {
+        let primed = std::time::Instant::now();
         agent::model_catalog::prime_from_cache(provider.id());
-        agent::model_binary_watch::install(provider.clone());
+        log::debug!(
+            "[boot-operation] catalogue cache prime provider={} elapsed_ms={}",
+            provider.id(),
+            primed.elapsed().as_millis()
+        );
+    }
+    for provider in &providers {
+        agent::model_binary_watch::install_in_background(provider.clone());
     }
     codeterm_service_core::async_runtime::spawn(async move {
         for provider in providers {

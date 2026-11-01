@@ -20,7 +20,7 @@ Fields are optional; `agent` defaults to the configured provider unless a unique
 
 Task-bound canonical mutating placement uses parent-authorized `plan task dispatch --execution-intent mutating --canonical-writer`, which reserves one exclusive task attempt before creating the Worker. Direct `agent spawn --plan-task` cannot reserve that attempt and remains refused for task-bound canonical mutation. Task-less Worker kinds with Plan context retain parent-directed placement behavior and do not reserve task attempts or participate in canonical writer occupancy, so the parent coordinates those canonical writes. Local dispatch may pass `--kind qa` or `--kind release_manager` to select the built-in prompt profile without changing the saved `executor_role`; the kind grants no placement or publication authority.
 
-An unknown id on an authoritative catalogue or a published free-form live list is refused before spawn or task dispatch creates a tab. REST spawn returns HTTP 422 with `error.code` set to `invalid_model`, including `provider`, `requested_model`, `valid_model_ids`, and `refresh_command`. A bare id owned by multiple providers returns `ambiguous_model` with `ambiguous_providers`; choose the provider explicitly. Neither refusal has a transient retry hint. CLI `--json` preserves these fields under the error envelope's `data` for spawn, dispatch, and team pair.
+An unknown id on an authoritative catalogue or a published free-form live list is refused before spawn or task dispatch creates a tab. REST spawn returns HTTP 422 with `error.code` set to `invalid_model`, including `provider`, `requested_model`, `valid_model_ids`, and `refresh_command`. A bare id owned by multiple providers returns `ambiguous_model` with `ambiguous_providers`; choose the provider explicitly. Neither refusal has a transient retry hint. CLI `--json` preserves these fields under the error envelope's `result` for spawn, dispatch, and team pair.
 
 **Response** (after the launch verdict, bounded at 20 s):
 ```json
@@ -29,4 +29,4 @@ An unknown id on an authoritative catalogue or a published free-form live list i
 
 `launch_state` is `ready` once the agent is ready, or `starting` with a `warning` when it waits on an owner prompt, holds a provisional boot stage, or is still launching at the bound; `starting` never claims readiness. A provider that exits before readiness fails the spawn: REST answers 500 with `error.code` `launch_failed`, socket `agent.spawn` returns the same fields as error `data`, and the CLI exits non-zero. Both carry `tab_id`, `reason`, `output_tail` (the provider's last printed lines), and `retry_hint`; the failed Tab stays in `spawn_failed` for inspection. `plan task dispatch` reports the same failure, output tail included, through its startup-failed event.
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->

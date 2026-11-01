@@ -18,19 +18,12 @@ impl LocalApiClient {
     }
 
     pub(crate) fn from_rpc(client: SocketClient) -> Self {
-        let mut headers = HeaderMap::new();
-        for (env, header) in [
+        let headers = crate::client::identity_headers(&[
             ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
             ("CODETERM_SESSION_ID", "x-codeterm-session-id"),
             ("CODETERM_SESSION_BINDING_NONCE", "x-codeterm-binding-nonce"),
             ("CODETERM_WORKER_ID", "x-codeterm-worker-id"),
-        ] {
-            if let Ok(value) = std::env::var(env) {
-                if let Ok(value) = value.parse() {
-                    headers.insert(header, value);
-                }
-            }
-        }
+        ]);
         Self {
             client: Arc::new(Mutex::new(client)),
             headers,

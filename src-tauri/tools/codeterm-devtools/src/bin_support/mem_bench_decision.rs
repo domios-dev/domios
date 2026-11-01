@@ -157,40 +157,44 @@ struct FixtureLink {
     to: String,
 }
 
-/// Raw SQL entities: `graph_create_entity` would embed, and default recall ignores the graph.
+/// Fixture entities: `graph_create_entity` would embed, and default recall ignores the graph.
 pub(super) fn seed_graph(
     mem: &MemManager,
     graph: &FixtureGraph,
     engine_ids: &HashMap<String, String>,
 ) -> Result<(), String> {
     let resolve = |id: &String| engine_ids.get(id).unwrap_or(id).clone();
-    mem.with_conn(|conn| {
-        for id in &graph.entities {
-            conn.execute(
-                "INSERT OR IGNORE INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
-                 VALUES (?1, 'Concept', 'global', '{}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
-                [id],
-            )
-            .map_err(|e| format!("seed entity {id}: {e}"))?;
-        }
-        for link in &graph.links {
-            codeterm_service_core::mem::graph::insert_relation(
-                conn,
-                &codeterm_service_core::mem::Relation {
-                    from_id: resolve(&link.from),
-                    relation_type: "mentions".into(),
-                    to_id: resolve(&link.to),
+    let entities: Vec<_> = graph
+        .entities
+        .iter()
+        .map(|id| {
+            (
+                codeterm_service_core::mem::Entity {
+                    id: id.clone(),
+                    entity_type: "Concept".into(),
                     scope: "global".into(),
-                    valid_from: "2026-01-01T00:00:00Z".into(),
-                    valid_to: None,
-                    confidence: 1.0,
                     properties: serde_json::json!({}),
-                    reason: None,
                 },
-            )?;
-        }
-        Ok(())
-    })
+                "2026-01-01T00:00:00Z".into(),
+            )
+        })
+        .collect();
+    let relations: Vec<_> = graph
+        .links
+        .iter()
+        .map(|link| codeterm_service_core::mem::Relation {
+            from_id: resolve(&link.from),
+            relation_type: "mentions".into(),
+            to_id: resolve(&link.to),
+            scope: "global".into(),
+            valid_from: "2026-01-01T00:00:00Z".into(),
+            valid_to: None,
+            confidence: 1.0,
+            properties: serde_json::json!({}),
+            reason: None,
+        })
+        .collect();
+    mem.seed_graph(&entities, &relations)
 }
 
 #[derive(Deserialize)]
@@ -872,7 +876,7 @@ mod tests {
     }
     #[test]
     fn decision_graph_additions_skip_pooled_and_cap() {
-        use codeterm_service_core::mem::{graph, MemKind, MemScope, NewMemItem, Relation};
+        use codeterm_service_core::mem::{MemKind, MemScope, NewMemItem, Relation};
         let mem = MemManager::open_in_memory().unwrap();
         let ids: Vec<String> = ["pooled one", "graph two", "graph three"]
             .iter()
@@ -893,31 +897,31 @@ mod tests {
                 .unwrap()
             })
             .collect();
-        mem.with_conn(|conn| {
-            conn.execute(
-                "INSERT INTO entities (id, entity_type, scope, properties_json, created_at, updated_at)
-                 VALUES ('tech_quasar', 'Tech', 'global', '{}', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
-                [],
-            )
-            .unwrap();
-            for id in &ids {
-                graph::insert_relation(
-                    conn,
-                    &Relation {
-                        from_id: id.clone(),
-                        relation_type: "mentions".into(),
-                        to_id: "tech_quasar".into(),
-                        scope: "global".into(),
-                        valid_from: "2026-01-01T00:00:00Z".into(),
-                        valid_to: None,
-                        confidence: 1.0,
-                        properties: serde_json::json!({}),
-                        reason: None,
-                    },
-                )
-                .unwrap();
-            }
-        });
+        mem.seed_graph(
+            &[(
+                codeterm_service_core::mem::Entity {
+                    id: "tech_quasar".into(),
+                    entity_type: "Tech".into(),
+                    scope: "global".into(),
+                    properties: serde_json::json!({}),
+                },
+                "2026-01-01T00:00:00Z".into(),
+            )],
+            &ids.iter()
+                .map(|id| Relation {
+                    from_id: id.clone(),
+                    relation_type: "mentions".into(),
+                    to_id: "tech_quasar".into(),
+                    scope: "global".into(),
+                    valid_from: "2026-01-01T00:00:00Z".into(),
+                    valid_to: None,
+                    confidence: 1.0,
+                    properties: serde_json::json!({}),
+                    reason: None,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
         let pool: Vec<SearchHit> = graph_additions(&mem, "quasar", &[], 10)
             .unwrap()
             .into_iter()

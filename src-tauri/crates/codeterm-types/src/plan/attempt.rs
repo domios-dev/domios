@@ -126,6 +126,7 @@ pub enum WorkerPlacement {
     #[default]
     IsolatedLane,
     CanonicalWriter,
+    Shared,
 }
 
 impl WorkerPlacement {
@@ -184,6 +185,10 @@ pub struct TaskExecutionAttempt {
     pub branch: Option<String>,
     #[serde(default)]
     pub worktree_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkout_path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared_start_sha: Option<String>,
     #[serde(default)]
     pub base: Option<String>,
     #[serde(default)]
@@ -192,7 +197,7 @@ pub struct TaskExecutionAttempt {
     /// empty list is deliberate: that dispatch granted no gate permission.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub authorized_gates: Option<Vec<String>>,
-    /// Set only by an explicit dispatch opt-in; never derived from a checkout path.
+    /// Reserved by dispatch; never inferred from a Worker's checkout path.
     #[serde(default, skip_serializing_if = "WorkerPlacement::is_isolated_lane")]
     pub placement: WorkerPlacement,
     #[serde(default)]

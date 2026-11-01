@@ -162,31 +162,11 @@ function PeerDrawer({
   const sectionTextClass = `${UI_TEXT.metaMuted} text-[10px]`;
   const sectionSelectClass = `${UI_INPUT.full} text-[10px] px-2 py-1`;
   const peerActionBtnClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border`;
-  const peerActionDangerClass = `${UI_BUTTON.base} ${UI_BUTTON.compact} border border-[var(--ct-red)]/40 text-[var(--ct-red)]`;
   const headingRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     headingRef.current?.focus({ preventScroll: true });
   }, []);
-
-  const handleDisconnect = async () => {
-    if (typeof window !== "undefined" && typeof window.confirm === "function" && !window.confirm(`Disconnect from target machine "${peer.name}"? This cannot be undone.`)) return;
-    setBusy(true);
-    try {
-      await invoke("mesh_disconnect", { instanceId: peer.instance_id });
-      const message = `Disconnected from target machine ${peer.name}.`;
-      setAnnouncement(message);
-      onAnnouncement?.(message);
-      onActionDone();
-      onClose();
-    } catch (e) {
-      const message = `Disconnect failed: target machine ${peer.name} rejected or failed the request (${String(e)}).`;
-      setAnnouncement(message);
-      onAnnouncement?.(message);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const handleAccessChange = async (
     level: AccessLevel,
@@ -296,15 +276,7 @@ function PeerDrawer({
             >
               Refresh
             </button>
-            {!isSelf && (
-              <button
-                onClick={handleDisconnect}
-                disabled={busy}
-                className={`${peerActionDangerClass} flex-1 disabled:opacity-50`}
-              >
-                Disconnect
-              </button>
-            )}
+
           </div>
         </div>
 

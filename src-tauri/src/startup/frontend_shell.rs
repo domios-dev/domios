@@ -41,7 +41,7 @@ pub fn application_context(
 use crate::host_ports::webview_diagnostics::CLIENT_VIEW_QUERY;
 use crate::host_ports::ClientViewGeneration;
 use crate::host_ports::{
-    webview_diagnostics::{root_generation_from_url, with_root_generation},
+    webview_diagnostics::{root_generation_from_url, with_root_generation, PortPreflight},
     ClientRootRenderLatch, ClientRootRenderWait, ServerApiAttachment, ServerApiAttachmentSlot,
 };
 use codeterm_frontend_shell::{
@@ -94,11 +94,70 @@ struct ShellSupervisor {
     observer_started: std::sync::atomic::AtomicBool,
     root_render: ClientRootRenderLatch,
     development_frontend: Option<Url>,
+    diagnostics_preflight: StartupDiagnosticsPreflight,
     windows: tokio::sync::watch::Sender<WindowEpoch>,
     capability_origins: parking_lot::Mutex<HashSet<String>>,
     view_bootstrap: parking_lot::Mutex<Option<ShellBootstrap>>,
     initial_document: initial_document::InitialDocument,
     reconnect: reconnect::RecoveryOwner,
+}
+
+struct StartupDiagnosticsPreflight(Option<(u16, PortPreflight)>);
+
+impl StartupDiagnosticsPreflight {
+    fn capture(
+        mode: crate::LocalWebviewDiagnosticsMode,
+        probe: impl FnOnce(u16) -> PortPreflight,
+    ) -> Self {
+        Self(match mode {
+            crate::LocalWebviewDiagnosticsMode::Disabled => None,
+            crate::LocalWebviewDiagnosticsMode::RequestedPort(port) => Some((port, probe(port))),
+        })
+    }
+
+    fn for_port(&self, port: u16) -> Result<PortPreflight, &'static str> {
+        match self.0 {
+            Some((requested, preflight)) if requested == port => Ok(preflight),
+            Some(_) => Err("Native diagnostics port does not match startup preflight"),
+            None => Err("Native diagnostics startup preflight is missing"),
+        }
+    }
+}
+
+fn window_browser_arguments(
+    configured: Option<&str>,
+    mode: crate::LocalWebviewDiagnosticsMode,
+    startup: &StartupDiagnosticsPreflight,
+) -> Result<Option<String>, &'static str> {
+    let crate::LocalWebviewDiagnosticsMode::RequestedPort(port) = mode else {
+        return Ok(configured.map(str::to_owned));
+    };
+    if !startup.for_port(port)?.available() {
+        return Ok(configured.map(str::to_owned));
+    }
+    let mut arguments = configured.unwrap_or_default().to_owned();
+    if !arguments.is_empty() {
+        arguments.push(' ');
+    }
+    arguments.push_str(&format!(
+        "--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}"
+    ));
+    Ok(Some(arguments))
+}
+
+pub(super) fn configure_window_browser_arguments(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    config: &mut tauri::utils::config::WindowConfig,
+) -> Result<(), &'static str> {
+    let mode = app
+        .state::<crate::ClientStartupOptions>()
+        .local_webview_diagnostics;
+    config.additional_browser_args = window_browser_arguments(
+        config.additional_browser_args.as_deref(),
+        mode,
+        &app.state::<ShellSupervisor>().diagnostics_preflight,
+    )?;
+    Ok(())
 }
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -233,6 +292,22 @@ fn daemon_capability(origin: &str) -> Result<String, serde_json::Error> {
 pub fn initialize(
     app: &codeterm_client_shell::app_runtime::AppHandle,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    initialize_with_preflight(app, |port| {
+        let preflight = crate::host_ports::webview_diagnostics::port_preflight(port);
+        #[cfg(debug_assertions)]
+        let preflight =
+            preflight.with_starting_view_present(app.get_webview_window("starting").is_some());
+        preflight
+    })
+}
+
+fn initialize_with_preflight(
+    app: &codeterm_client_shell::app_runtime::AppHandle,
+    probe: impl FnOnce(u16) -> PortPreflight,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if app.try_state::<ShellSupervisor>().is_some() {
+        return Err("Frontend shell is already initialized".into());
+    }
     if app.try_state::<crate::ClientStartupOptions>().is_none()
         && !app.manage(crate::ClientStartupOptions::default())
     {
@@ -244,8 +319,14 @@ pub fn initialize(
     if !app.manage(root_render.clone()) {
         return Err("Client root-render latch could not be installed".into());
     }
+    let diagnostics_preflight = StartupDiagnosticsPreflight::capture(
+        app.state::<crate::ClientStartupOptions>()
+            .local_webview_diagnostics,
+        probe,
+    );
     app.manage(ShellSupervisor {
         development_frontend,
+        diagnostics_preflight,
         navigation: Arc::new(AtomicU64::new(0)),
         view_generation: AtomicU64::new(0),
         active_view_generation: AtomicU64::new(0),
@@ -335,6 +416,7 @@ pub fn create_window(
     let unavailable = unavailable_url()?;
     let fallback = fallback_url()?;
     let mut window_config = initial_document::window_config(app.config())?;
+    configure_window_browser_arguments(app, &mut window_config)?;
     ON_RECOVERY_SURFACE.store(false, Ordering::Release);
     // Revealed on the first painted interface (or the recovery page), so startup never shows an empty frame.
     window_config.visible = false;
@@ -348,24 +430,22 @@ pub fn create_window(
         "[frontend-shell] window creation: frontend_origin={origin:?}, daemon_origin={:?}",
         bootstrap.as_ref().map(|bootstrap| &bootstrap.origin)
     );
-    let shell_app = app.clone();
-    let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
-    #[cfg(windows)]
-    if let crate::LocalWebviewDiagnosticsMode::RequestedPort(port) = app
+    let diagnostics_preflight = match app
         .state::<crate::ClientStartupOptions>()
         .local_webview_diagnostics
     {
-        let available = cfg!(debug_assertions)
-            && crate::host_ports::webview_diagnostics::port_is_available(port);
+        crate::LocalWebviewDiagnosticsMode::Disabled => None,
+        crate::LocalWebviewDiagnosticsMode::RequestedPort(port) => {
+            Some((port, supervisor.diagnostics_preflight.for_port(port)?))
+        }
+    };
+    let shell_app = app.clone();
+    let mut builder = WebviewWindowBuilder::from_config(app, &window_config)?;
+    if let Some((port, preflight)) = diagnostics_preflight {
         if let Some(slot) =
             app.try_state::<crate::host_ports::native_client::NativeHostClientSlot>()
         {
-            slot.set_diagnostics_port_preflight(port, available);
-        }
-        if available {
-            builder = builder.additional_browser_args(&format!(
-                "--remote-debugging-address=127.0.0.1 --remote-debugging-port={port}"
-            ));
+            slot.set_diagnostics_port_preflight(port, preflight);
         }
     }
     if let Some(bootstrap) = bootstrap {

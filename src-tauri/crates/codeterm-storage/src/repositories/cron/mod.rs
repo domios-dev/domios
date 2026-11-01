@@ -8,7 +8,7 @@ mod records;
 
 pub(crate) use mutations::apply as apply_mutations;
 
-pub(crate) use mutations::write_import;
+use mutations::write_import;
 pub use records::{
     CronApplied, CronCancelReason, CronDivergenceOrigin, CronHistoryDisposition, CronHistoryImport,
     CronIdentity, CronImport, CronJobId, CronJobImport, CronJobRecord, CronJobState,

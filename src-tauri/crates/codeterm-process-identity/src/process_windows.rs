@@ -65,6 +65,15 @@ impl PinnedProcess {
         }
     }
 
+    pub fn wait_for_exit(&self) -> io::Result<()> {
+        let result = unsafe { WaitForSingleObject(self.handle.as_raw_handle(), u32::MAX) };
+        if result == windows_sys::Win32::Foundation::WAIT_OBJECT_0 {
+            Ok(())
+        } else {
+            Err(io::Error::last_os_error())
+        }
+    }
+
     pub fn provenance(&self) -> io::Result<ProcessProvenance> {
         let mut born: FILETIME = unsafe { std::mem::zeroed() };
         let mut exited = born;

@@ -3,6 +3,7 @@ use super::*;
 #[test]
 fn blueprint_agent_step_is_bounded_and_routes_done_or_failed() {
     let agent = StepKind::Agent {
+        review: false,
         provider: "fixture".into(),
         profile: "reader".into(),
         task: "opaque".into(),

@@ -266,11 +266,10 @@ async fn resumable_providers_keep_unchanged_sessions_but_start_fresh_for_changed
         let receiver = codeterm_neighbors::adapter::ReceiverStatus {
             receiver_revision: 1,
             receiver_installation_id: Some("machine".into()),
-            receiver_key_id: None,
+            receiver_encryption_key_id: None,
             receiver_machine_label: Some("Here".into()),
             receiving_enabled: true,
             is_me: true,
-            legacy_active: false,
         };
         let status = service.neighbor_concierge_view(&friend, &saved, &receiver);
         assert_eq!(

@@ -4,6 +4,7 @@ import { tabActivity } from "../../lib/tabActivity";
 import { isLiveAttention } from "../Notifications/attentionSurfaceModel";
 import { isAnswerUndeliverable } from "../../lib/notificationAnswer";
 import { asleepLabel } from "../../lib/tabSleep";
+import type { PlanControlLoop } from "../Canvas/planControlLoop";
 
 export type TabAttentionKind = "waiting" | "action_needed" | "failure";
 
@@ -19,6 +20,7 @@ export interface TabAttention {
   starting: "starting" | "connecting" | null;
   sleeping: boolean;
   sleepingLabel?: string;
+  curatorSchedule?: { kind: "scheduled" | "suspended"; label: string };
 }
 
 export function attentionNotifications(tabId: string, notifications: readonly Notification[]): Notification[] {
@@ -65,14 +67,31 @@ export function attentionActions(notification: Notification | null) {
 }
 
 export type TabStatusMark = { kind: "attention"; label: string; level: TabAttentionKind | null }
-  | { kind: "starting" | "sleeping"; label: string };
+  | { kind: "starting" | "sleeping" | "scheduled"; label: string };
 
 export function tabStatusMark(title: string, attention: TabAttention | null | undefined, active = false): TabStatusMark | null {
   if (!attention) return null;
+  if (attention.curatorSchedule?.kind === "suspended") return { kind: "attention", label: attention.curatorSchedule.label, level: "action_needed" };
+  if (attention.curatorSchedule?.kind === "scheduled" && (!attention.showMark || active)) return { kind: attention.curatorSchedule.kind, label: attention.curatorSchedule.label };
   if (attention.sleeping) return { kind: "sleeping", label: attention.sleepingLabel ?? "Asleep" };
   if (attention.showMark && !active) return { kind: "attention", label: tabAttentionLabel(title, attention), level: attention.kind };
   if (attention.starting) return { kind: "starting", label: `${title} ${attention.starting === "connecting" ? "waiting to connect" : "starting"}` };
   return null;
+}
+
+export function curatorTabAttention(attention: TabAttention, loop: PlanControlLoop | undefined): TabAttention {
+  if (!loop || loop.mode !== "curator") return attention;
+  const base = { ...attention, sleeping: false, starting: loop.running ? null : attention.starting };
+  if (loop.suspended_reason) return {
+    ...base,
+    curatorSchedule: { kind: "suspended", label: loop.suspended_reason === "waiting_on_human"
+      ? "Curator suspended: waiting on your answer" : `Curator suspended: ${loop.suspended_reason.replace(/_/g, " ")}` },
+  };
+  if (!loop.running && loop.next_at != null && !loop.fallback_reason) return {
+    ...base, starting: null,
+    curatorSchedule: { kind: "scheduled", label: "Curator waiting for the next round" },
+  };
+  return base;
 }
 
 export function tabStartingLabel(tab: Tab): string {

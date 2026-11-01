@@ -51,19 +51,19 @@ fn trace_cli_reads_ordered_flow_without_a_daemon_and_flags_a_gap() {
         String::from_utf8_lossy(&result.stderr)
     );
     let chain: Value = serde_json::from_slice(&result.stdout).unwrap();
-    assert_eq!(chain["events"].as_array().unwrap().len(), 5);
-    assert_eq!(chain["events"][0]["stage"], "relay.expected");
-    assert_eq!(chain["events"][4]["stage"], "report.written");
-    assert!(chain["events"]
+    assert_eq!(chain["result"]["events"].as_array().unwrap().len(), 5);
+    assert_eq!(chain["result"]["events"][0]["stage"], "relay.expected");
+    assert_eq!(chain["result"]["events"][4]["stage"], "report.written");
+    assert!(chain["result"]["events"]
         .as_array()
         .unwrap()
         .iter()
         .all(|event| event["trace_id"] == "attempt_fixture"));
-    assert!(chain["gaps"].as_array().unwrap().is_empty());
+    assert!(chain["result"]["gaps"].as_array().unwrap().is_empty());
     let recent = run(root.path(), &["--json", "trace", "recent", "--limit", "1"]);
     assert!(recent.status.success());
     let recent: Value = serde_json::from_slice(&recent.stdout).unwrap();
-    assert_eq!(recent["flows"].as_array().unwrap().len(), 1);
+    assert_eq!(recent["result"].as_array().unwrap().len(), 1);
     std::fs::write(
         root.path().join("logs/trace.jsonl"),
         serde_json::to_string(&Event::new(
@@ -134,12 +134,12 @@ fn trace_cli_joins_a_late_source_link_and_flags_a_missing_assistant() {
     let output = run(root.path(), &["--json", "trace", "show", "tab"]);
     assert!(output.status.success());
     let result: Value = serde_json::from_slice(&output.stdout).unwrap();
-    assert!(result["events"]
+    assert!(result["result"]["events"]
         .as_array()
         .unwrap()
         .iter()
         .all(|event| event["trace_id"] == "send"));
-    assert!(result["gaps"].as_array().unwrap().is_empty());
+    assert!(result["result"]["gaps"].as_array().unwrap().is_empty());
     let output = run(root.path(), &["trace", "show", "other-tab"]);
     assert!(output.status.success());
     assert!(String::from_utf8(output.stdout)

@@ -74,7 +74,7 @@ Every error body is `{"ok": false, "error": "...", "reason": "..."}` plus the fi
 - `502 model_mismatch` — the current binding's launch report or first post-relaunch turn names a different model; `launched_model`, `observed_model`, and `restart` are included. Missing model confirmation by its deadline is a pending success, not an error.
 - `502 live_switch_failed` — the tab server advertised the live route, but the POST failed. `mode_used` is `live`; Domios does not silently restart after a live request error.
 
-CLI: `domios agent model --tab TAB_ID [MODEL] [--force] [--reasoning-effort LEVEL] [--runtime-mode MODE] [--speed TIER|default] [--json]`; omit `MODEL` when changing only a setting. The CLI validates effort and mode against the selected provider catalogue before sending the request. Service tiers can be listed with `--list-speeds`; `GET /api/tabs/{id}/agent/service-tiers` reads that exact tab's runtime catalogue, returning available model-scoped tiers and bound requested/confirmed selections. Typed refusals include `no_runtime`, `no_tiers`, `unsupported_reasoning_effort`, `unsupported_runtime_mode`, and `not_found`. `--json` prints the success body, including `mode_used`, `model_confirmation`, and `evidence` when observed, or a non-zero error envelope carrying the refusal and supported list as `data`.
+CLI: `domios agent model --tab TAB_ID [MODEL] [--force] [--reasoning-effort LEVEL] [--runtime-mode MODE] [--speed TIER|default] [--json]`; omit `MODEL` when changing only a setting. The CLI validates effort and mode against the selected provider catalogue before sending the request. Service tiers can be listed with `--list-speeds`; `GET /api/tabs/{id}/agent/service-tiers` reads that exact tab's runtime catalogue, returning available model-scoped tiers and bound requested/confirmed selections. Typed refusals include `no_runtime`, `no_tiers`, `unsupported_reasoning_effort`, `unsupported_runtime_mode`, and `not_found`. `--json` prints the success body, including `mode_used`, `model_confirmation`, and `evidence` when observed, or a non-zero error envelope carrying the refusal and supported list as `result`.
 
 ### Plan task attempts and Teams
 
@@ -219,4 +219,4 @@ Runtime requests remain bound to the target tab's session and epoch. Provider CL
 | POST | `/api/tabs/{id}/agent/runtime/retry` | Retry initialization of the same runtime session. |
 | POST | `/api/tabs/{id}/agent/runtime/thread-history` | Read runtime-owned thread history. |
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->

@@ -1,6 +1,6 @@
 use super::super::lane_metadata::normalize_lane_metadata;
 use super::super::readback::pending_after_verified;
-use super::super::{PlanError, PlanStore};
+use super::super::{AttemptMatch, AttemptState, PlanError, PlanMatch, PlanStore};
 use super::{
     ambiguous_subject_cause, progression_authority, startup_attempt, startup_status_allows,
     superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
@@ -78,8 +78,7 @@ impl PlanStore {
             attempt.branch = task.lane.branch.clone();
             attempt.base = task.lane.base.clone();
             attempt.destination = task.lane.destination.clone();
-            if attempt.placement == crate::plan::WorkerPlacement::CanonicalWriter {
-                // No base keeps the report guard strict: HEAD must match and any dirt refuses.
+            if !attempt.placement.is_isolated_lane() {
                 attempt.worktree_path = Some(canonical_checkout);
                 attempt.base = None;
             }
@@ -168,7 +167,7 @@ impl PlanStore {
         enforce_runtime_binding: bool,
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
-        let _writer_turn = self.mutation_writer.enter();
+        let writer_turn = self.mutation_writer.enter();
         let current_plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
         let current_task = crate::plan::task_key::find_task(&current_plan.tasks, task_id)
             .ok_or(PlanError::TaskNotFound)?;
@@ -206,7 +205,7 @@ impl PlanStore {
             ));
         }
         let mut acknowledged = None;
-        let write = self.with_plan_in_writer(plan_id, now_ms, |plan| {
+        let write = self.with_plan_in_writer(&writer_turn, plan_id, now_ms, |plan| {
             let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;
             let attempt_index = plan.tasks[task_index]
@@ -297,7 +296,8 @@ impl PlanStore {
     /// Every live attempt this tab executes, whatever the plan or task state.
     /// Callers apply their own acceptance rule and report what they rejected.
     pub fn live_task_attempts_for_tab(&self, tab_id: &str) -> Vec<LiveTabAttempt> {
-        self.list_full()
+        let candidates = AttemptMatch::executor(tab_id, AttemptState::Unclosed).into_match();
+        self.plans_matching(&candidates)
             .into_iter()
             .flat_map(|plan| {
                 let plan_id = plan.id.clone();
@@ -327,34 +327,37 @@ impl PlanStore {
         &self,
         tab_id: &str,
     ) -> Option<(String, String, String, String, String)> {
-        self.list_full().into_iter().find_map(|plan| {
-            let plan_id = plan.id.clone();
-            plan.tasks.into_iter().find_map(|task| {
-                let (owned_index, owned) = task
-                    .execution_attempts
-                    .iter()
-                    .enumerate()
-                    .rev()
-                    .find(|(_, attempt)| attempt.executor_tab_id == tab_id)?;
-                owned.closed_at?;
-                let live = task
-                    .execution_attempts
-                    .iter()
-                    .enumerate()
-                    .skip(owned_index + 1)
-                    .rev()
-                    .find(|(_, attempt)| {
-                        attempt.closed_at.is_none() && attempt.retired_at.is_none()
-                    })?;
-                Some((
-                    plan_id.clone(),
-                    task.id.clone(),
-                    owned.id.clone(),
-                    live.1.id.clone(),
-                    live.1.executor_tab_id.clone(),
-                ))
+        let candidates = AttemptMatch::executor(tab_id, AttemptState::Any).into_match();
+        self.plans_matching(&candidates)
+            .into_iter()
+            .find_map(|plan| {
+                let plan_id = plan.id.clone();
+                plan.tasks.into_iter().find_map(|task| {
+                    let (owned_index, owned) = task
+                        .execution_attempts
+                        .iter()
+                        .enumerate()
+                        .rev()
+                        .find(|(_, attempt)| attempt.executor_tab_id == tab_id)?;
+                    owned.closed_at?;
+                    let live = task
+                        .execution_attempts
+                        .iter()
+                        .enumerate()
+                        .skip(owned_index + 1)
+                        .rev()
+                        .find(|(_, attempt)| {
+                            attempt.closed_at.is_none() && attempt.retired_at.is_none()
+                        })?;
+                    Some((
+                        plan_id.clone(),
+                        task.id.clone(),
+                        owned.id.clone(),
+                        live.1.id.clone(),
+                        live.1.executor_tab_id.clone(),
+                    ))
+                })
             })
-        })
     }
 
     /// The tab binding selects the subject; `plan_hint`/`task_hint` come from the
@@ -551,8 +554,18 @@ impl PlanStore {
         session_id: &str,
         now_ms: u64,
     ) -> Result<Option<super::super::task_attempts::TaskAttemptCreated>, PlanError> {
+        let candidates = PlanMatch::active().and(
+            AttemptMatch {
+                task_statuses: Some(vec![
+                    crate::plan::TaskStatus::Pending,
+                    crate::plan::TaskStatus::InProgress,
+                ]),
+                ..AttemptMatch::executor(tab_id, AttemptState::Unclosed)
+            }
+            .into_match(),
+        );
         let matches = self
-            .list_full()
+            .plans_matching(&candidates)
             .into_iter()
             .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
             .flat_map(|plan| {

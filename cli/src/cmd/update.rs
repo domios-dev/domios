@@ -264,6 +264,16 @@ fn poll_update_status(http: &crate::local_api::LocalApiClient, base_url: &str) {
 #[cfg(test)]
 mod tests;
 
+fn container_update_error(marked: bool) -> Option<crate::cmd::print::CliError> {
+    marked.then(|| crate::cmd::print::CliError {
+        message: codeterm_paths::container_install::UPDATE_MESSAGE.into(),
+        code: None,
+        data: Some(serde_json::json!({
+            "code": codeterm_paths::container_install::UPDATE_CODE,
+        })),
+    })
+}
+
 fn check_item_line(item: &serde_json::Value, errors: &serde_json::Value) -> String {
     let id = item["id"].as_str().unwrap_or("?");
     let source = if item["kind"] == "plugin" {
@@ -297,6 +307,9 @@ pub fn handle_update(
     manifest_url: Option<String>,
     after_update: Option<String>,
 ) {
+    if let Some(error) = container_update_error(codeterm_paths::container_install::marked()) {
+        crate::cmd::print::fail_with(1, &error);
+    }
     let (base_url, _) = read_api_config();
     let http = match build_local_api() {
         Ok(c) => c,
@@ -337,10 +350,7 @@ pub fn handle_update(
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&body).unwrap_or_default()
-                        );
+                        println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
                     } else {
                         for item in body["items"].as_array().into_iter().flatten() {
                             println!("{}", check_item_line(item, &body["errors"]));
@@ -377,13 +387,13 @@ pub fn handle_update(
                     no_continue,
                     continue_prompt,
                     continue_tab,
-                    std::env::var("CODETERM_TAB_ID").ok(),
+                    crate::nonempty_env("CODETERM_TAB_ID"),
                 );
                 if no_continue {
                     if let Err(error) = save_session_with_suppression(
                         &http,
                         &base_url,
-                        std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                        crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
                     ) {
                         crate::cmd::print::fail(
                             1,
@@ -418,7 +428,7 @@ pub fn handle_update(
             if auto {
                 params.push(("method", "auto".into()));
             }
-            let caller_tab = std::env::var("CODETERM_TAB_ID").ok();
+            let caller_tab = crate::nonempty_env("CODETERM_TAB_ID");
             if let Err(error) =
                 validate_auto_continue_tab(auto, continue_tab.as_deref(), caller_tab.as_deref())
             {
@@ -428,7 +438,7 @@ pub fn handle_update(
                 if let Err(error) = save_session_with_suppression(
                     &http,
                     &base_url,
-                    std::env::var("CODETERM_TAB_ID").ok().as_deref(),
+                    crate::nonempty_env("CODETERM_TAB_ID").as_deref(),
                 ) {
                     crate::cmd::print::fail(
                         1,
@@ -466,10 +476,7 @@ pub fn handle_update(
                 Ok(resp) if resp.status().is_success() => {
                     let body: serde_json::Value = resp.json().unwrap_or_default();
                     if json {
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&body).unwrap_or_default()
-                        );
+                        println!("{}", crate::cmd::output::encode(&body).unwrap_or_default());
                         return;
                     }
                     let status = body["status"].as_str().unwrap_or("unknown");

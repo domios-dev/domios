@@ -1,5 +1,17 @@
-use super::{classify_backend_response, render_search_human, BackendOutcome};
+use super::{classify_backend_response, render_search_verbose, BackendOutcome};
 use reqwest::StatusCode;
+
+#[test]
+fn search_default_output_is_one_compact_line_without_warnings() {
+    let value = serde_json::json!({
+        "hits":[{"meta":{"session_id":"session","title":"Fixture"},"snippets":[{"text":"first\nsecond"}]}],
+        "warnings":[{"message":"offline"}], "total":2
+    });
+    assert_eq!(
+        super::render_search_human("fixture", &value),
+        "session  Fixture — first second\n1 more — refine the query or use --limit\n"
+    );
+}
 
 /// The exact body `sessions get <unknown>` receives today. Before the fix the
 /// `--json` branch printed this and exited 0.
@@ -134,7 +146,7 @@ fn search_human_output_carries_every_warning() {
             {"provider": "p2", "reason": "over_byte_cap", "sessions": 1, "message": "warn-token-b"}
         ]
     });
-    let out = render_search_human("q", &body);
+    let out = render_search_verbose("q", &body);
     assert_eq!(out.matches("warn-token-a").count(), 1, "{out}");
     assert_eq!(out.matches("warn-token-b").count(), 1, "{out}");
 }
@@ -149,7 +161,7 @@ fn search_human_resume_hint_is_the_provider_agnostic_command() {
         }],
         "warnings": []
     });
-    let out = render_search_human("q", &body);
+    let out = render_search_verbose("q", &body);
     assert!(out.contains("domios sessions resume ses_token"), "{out}");
     assert!(out.contains("[any-provider] snippet-token"), "{out}");
 }

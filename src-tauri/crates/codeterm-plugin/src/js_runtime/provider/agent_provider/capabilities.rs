@@ -50,6 +50,6 @@ pub(super) fn notifications_schema(provider: &JsProvider) -> Vec<crate::provider
 
 pub(super) fn model_credential_files(provider: &JsProvider) -> Vec<std::path::PathBuf> {
     provider.manifest.model_catalogue.fingerprint_files(
-        super::super::host_credentials::declared_files(&provider.manifest.credentials),
+        super::super::host_credentials::resolved_files(&provider.manifest.credentials),
     )
 }

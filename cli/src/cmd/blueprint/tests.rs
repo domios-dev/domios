@@ -636,3 +636,22 @@ fn blueprint_plan_lock_is_visible_in_watch_list_and_show_summary() {
     assert!(summary.contains("[held]"));
     assert!(summary.contains("reason=plan_limit_locked"));
 }
+
+#[test]
+fn plugin_step_palette_line_lists_typed_ports_outcomes_and_availability() {
+    let node = serde_json::json!({"role":"step","kind":"fixture.read","title":"Fixture: read","plugin":"fixture","available":false,
+        "descriptor":{"inputs":{"url":{"kind":"text","minItems":0,"maxItems":1}},
+            "outputs":{"final_url":{"kind":"text","minItems":1,"maxItems":1},"page":{"kind":"json","minItems":1,"maxItems":1,"schema":{"type":"object"}}},
+            "outcomes":["read","busy"]}});
+    assert_eq!(
+        plugin_step_line(&node).unwrap(),
+        "step fixture.read: Fixture: read (plugin fixture) [unavailable] in url:text[0..1] -> out final_url:text[1..1], page:json[1..1] | outcomes read, busy"
+    );
+    let empty = serde_json::json!({"kind":"fixture.emit","title":"Emit","plugin":"fixture","available":true,
+        "descriptor":{"inputs":{},"outputs":{},"outcomes":["done"]}});
+    assert_eq!(
+        plugin_step_line(&empty).unwrap(),
+        "step fixture.emit: Emit (plugin fixture) in - -> out - | outcomes done"
+    );
+    assert!(plugin_step_line(&serde_json::json!({"role":"step","type":"code"})).is_none());
+}

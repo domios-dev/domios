@@ -11,7 +11,7 @@ PLUGIN="$ROOT/evals/blueprint-event/fixture-plugin"
 SPEC="$ROOT/evals/blueprint-event/pipeline.yaml"
 TRANSCRIPT="$ROOT/evals/blueprint-event/transcript.md"
 AUTH="$(dev_auth_header)"
-OWNER_TAB="$(dc tab new --json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("tab_id") or d.get("id"))')"
+OWNER_TAB="$(dc tab new --json | python3 -c 'import json,sys; d=json.load(sys.stdin)["result"]; print(d.get("tab_id") or d.get("id"))')"
 [[ -n "$OWNER_TAB" ]] || { echo "Could not create the owner tab." >&2; exit 1; }
 API="$(dev_api_url)"
 

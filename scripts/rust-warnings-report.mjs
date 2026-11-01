@@ -54,8 +54,8 @@ if (required.length && !missing.length && !incomplete.length && !decision.added.
 if (process.env.GITHUB_STEP_SUMMARY) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, report);
 if (missing.length) console.error('Rust warning evidence missing: ' + missing.join(', '));
 if (incomplete.length) console.error('Rust warning evidence incomplete: ' + incomplete.join(', '));
+if (missing.length || incomplete.length) process.exitCode = 1;
 if (decision.added.length) {
-  for (const warning of decision.added) console.error('New Rust warning [' + warning.target + '/' + warning.code + ']: ' + warning.message);
-  console.error('Rust warning ratchet failed: ' + decision.added.length + ' new warning(s); full details: ' + path.join(output, 'rust-warnings-report.json'));
-  process.exitCode = 1;
+  for (const warning of decision.added) console.warn('New Rust warning [' + warning.target + '/' + warning.code + ']: ' + warning.message);
+  console.warn('Rust warnings advisory: ' + decision.added.length + ' new warning(s); full details: ' + path.join(output, 'rust-warnings-report.json'));
 }

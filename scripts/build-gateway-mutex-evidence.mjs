@@ -1,4 +1,4 @@
-// Caller: scripts/build-gateway-mutex.mjs; scripts/build-gateway-mutex-evidence.test.mjs
+// Caller: scripts/build-gateway-mutex.mjs
 import fs from 'node:fs';
 import path from 'node:path';
 

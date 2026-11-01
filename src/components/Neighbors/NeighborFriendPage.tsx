@@ -167,7 +167,7 @@ export function NeighborFriendPage({ friend, locked, enabled, pending, section, 
           {enabled && !locked && receiver && !receiver.receiving_here && <NeighborReceiveHere key={`${friendship}:set`}
             receiver={receiver} friendName={name} targetMachine={runtimeStatus?.machine_label}
             onReceive={revision => runtimeClient.receiveFriend(friendship, revision)} />}
-          {enabled && !locked && receiver?.source === "friend" && <NeighborReceiveHere key={`${friendship}:reset`}
+          {enabled && !locked && receiver?.receiving_here && <NeighborReceiveHere key={`${friendship}:reset`}
             receiver={receiver} friendName={name} operation="reset" targetMachine={runtimeStatus?.machine_label}
             onReceive={revision => runtimeClient.receiveFriend(friendship, revision, "reset")} />}
           <div className="neighbor-friend__row">

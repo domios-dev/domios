@@ -37,6 +37,7 @@ fn capability_defaults_keep_existing_metadata_readable_and_reject_relative_folde
     assert!(permission.folder.is_none());
     assert_eq!(permission.machine_access, MachineAccess::ReadOnly);
     assert!(permission.memory_areas.is_none());
+    assert!(permission.memory_write_areas.is_empty());
     assert!(permission.workspaces.is_none());
     permission.folder = Some("relative/folder".into());
     assert_eq!(permission.validate(), Err(Error::InvalidRequest));
@@ -105,4 +106,29 @@ fn deny_by_default_and_tab_requests_need_an_explicit_grant() {
     );
     granted.scope.clear();
     assert!(granted.validate().is_err());
+}
+
+#[test]
+fn write_areas_default_empty_round_trip_and_reject_invalid_shapes() {
+    let mut permission: Permission =
+        serde_json::from_value(serde_json::json!({"allowed":true,"scope":"opaque"})).unwrap();
+    assert!(permission.memory_write_areas.is_empty());
+    permission.memory_write_areas = vec!["project".into()];
+    assert_eq!(
+        serde_json::from_value::<Permission>(serde_json::to_value(&permission).unwrap()).unwrap(),
+        permission
+    );
+    for areas in [
+        vec!["".into()],
+        vec!["bad\narea".into()],
+        vec!["x".repeat(257)],
+        vec!["project".into(); 65],
+    ] {
+        permission.memory_write_areas = areas;
+        assert_eq!(permission.validate(), Err(Error::InvalidRequest));
+    }
+    assert!(serde_json::from_value::<Permission>(
+        serde_json::json!({"allowed":true,"scope":"opaque","memory_write_area":["project"]})
+    )
+    .is_err());
 }

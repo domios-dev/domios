@@ -4,10 +4,10 @@ import {InlineErrorNotice} from "../shared/ErrorNotice";
 import {Button} from "../shared/Button";
 import {remoteTaskCall, useRemoteTask, type RemoteTaskCall} from "./useRemoteTask";
 
-export function RemoteTaskTab({pluginId, sessionId, capability, call: injectedCall}: {
-  pluginId: string; sessionId: string; capability: RemoteTaskCapability; call?: RemoteTaskCall;
+export function RemoteTaskTab({tabId, pluginId, sessionId, capability, call: injectedCall}: {
+  tabId: string; pluginId: string; sessionId: string; capability: RemoteTaskCapability; call?: RemoteTaskCall;
 }) {
-  const call = useMemo(() => injectedCall ?? remoteTaskCall(pluginId, sessionId), [injectedCall, pluginId, sessionId]);
+  const call = useMemo(() => injectedCall ?? remoteTaskCall(tabId, pluginId, sessionId), [injectedCall, tabId, pluginId, sessionId]);
   const {binding, busy, error, readUnavailable, run} = useRemoteTask(call);
   const [prompt, setPrompt] = useState("");
   const [branch, setBranch] = useState("master");

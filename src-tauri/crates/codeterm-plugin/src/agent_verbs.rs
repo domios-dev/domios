@@ -22,6 +22,8 @@ const STOPWORDS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentVerbCatalog {
+    #[serde(skip)]
+    pub connection_state: Option<crate::plugin_connection::PluginConnectionState>,
     pub id: String,
     pub display_name: String,
     pub description: Option<String>,
@@ -75,6 +77,7 @@ impl AgentVerbCatalog {
         keywords.retain(|k| seen.insert(k.clone()));
         keywords.truncate(MAX_KEYWORDS);
         Self {
+            connection_state: None,
             id: id.to_string(),
             display_name: display_name.to_string(),
             description,

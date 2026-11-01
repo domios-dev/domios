@@ -31,10 +31,6 @@ pub enum PlanAction {
         title: String,
         #[arg(long)]
         from_spec: Option<String>,
-        #[arg(long, allow_hyphen_values = true, hide = true)]
-        spec: Option<String>,
-        #[arg(long, value_name = "PATH", hide = true)]
-        spec_file: Option<String>,
         #[arg(long)]
         kinds: Option<String>,
         #[arg(long)]

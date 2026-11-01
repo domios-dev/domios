@@ -22,7 +22,8 @@ fn read_step_text(raw: &str) -> Result<(String, String), String> {
         .split_once(':')
         .ok_or_else(|| format!("invalid --step {raw:?}; expected kind:text or kind:@file"))?;
     let text = if let Some(path) = text.strip_prefix('@') {
-        std::fs::read_to_string(path).map_err(|e| format!("failed to read {path}: {e}"))?
+        crate::local_admission::read_local_text(path)
+            .map_err(|e| format!("failed to read {path}: {e}"))?
     } else {
         text.to_string()
     };
@@ -33,7 +34,7 @@ fn implicit_key(plan_id: &str, seed: &Value) -> String {
     let mut hasher = DefaultHasher::new();
     plan_id.hash(&mut hasher);
     seed.to_string().hash(&mut hasher);
-    std::env::var("CODETERM_TAB_ID")
+    crate::nonempty_env("CODETERM_TAB_ID")
         .unwrap_or_default()
         .hash(&mut hasher);
     let minute = SystemTime::now()
@@ -105,7 +106,7 @@ pub fn record(
     }
 
     if let Some(path) = body_file {
-        let body = std::fs::read_to_string(&path)
+        let body = crate::local_admission::read_local_text(&path)
             .map_err(|e| format!("failed to read --body-file {path}: {e}"))?;
         let task_ref = if ops
             .iter()
@@ -139,9 +140,9 @@ pub fn record(
             "kind": kind,
             "text": text,
             "from": {
-                "tab_id": std::env::var("CODETERM_TAB_ID").ok(),
-                "session_id": std::env::var("CODETERM_SESSION_ID").ok(),
-                "title": std::env::var("CODETERM_TAB_TITLE").ok(),
+                "tab_id": crate::nonempty_env("CODETERM_TAB_ID"),
+                "session_id": crate::nonempty_env("CODETERM_SESSION_ID"),
+                "title": crate::nonempty_env("CODETERM_TAB_TITLE"),
             },
         }));
     }

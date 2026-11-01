@@ -6,6 +6,18 @@ use serde::{Deserialize, Serialize};
 mod optional;
 mod startup;
 
+pub(crate) fn identity_headers(fields: &[(&str, &'static str)]) -> reqwest::header::HeaderMap {
+    let mut headers = reqwest::header::HeaderMap::new();
+    for (env, header) in fields {
+        if let Some(value) = crate::nonempty_env(env) {
+            if let Ok(value) = value.parse() {
+                headers.insert(*header, value);
+            }
+        }
+    }
+    headers
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 /// Stable provenance labels for values in `identify --json`.
 pub enum ResolutionSource {
@@ -255,19 +267,24 @@ impl SocketClient {
             candidates.push(without.to_string());
         }
         let mut denied = false;
+        let mut failures = Vec::new();
         for candidate in &candidates {
             match Self::try_connect(candidate) {
                 Ok(client) => return Ok(client),
-                Err(error) => denied |= error.kind() == std::io::ErrorKind::PermissionDenied,
+                Err(error) => {
+                    denied |= error.kind() == std::io::ErrorKind::PermissionDenied;
+                    failures.push(io_failure_fields(&error));
+                }
             }
         }
-        Err(connect_failure_message(
-            socket_path,
-            denied,
-            std::env::var("CODETERM_TAB_ID")
-                .ok()
-                .filter(|tab| !tab.is_empty())
-                .as_deref(),
+        Err(format!(
+            "{}; stage=socket_connect attempts=[{}]",
+            connect_failure_message(
+                socket_path,
+                denied,
+                crate::nonempty_env("CODETERM_TAB_ID").as_deref()
+            ),
+            failures.join("; "),
         ))
     }
 
@@ -336,18 +353,11 @@ impl SocketClient {
     }
 
     fn connect_http(config: HttpFallbackConfig) -> Result<Self, String> {
-        let mut headers = reqwest::header::HeaderMap::new();
-        for (env, header) in [
+        let headers = identity_headers(&[
             ("CODETERM_TAB_ID", "x-codeterm-tab-id"),
             ("CODETERM_SESSION_ID", "x-codeterm-session-id"),
             ("CODETERM_SESSION_BINDING_NONCE", "x-codeterm-binding-nonce"),
-        ] {
-            if let Ok(value) = std::env::var(env) {
-                if let Ok(value) = value.parse() {
-                    headers.insert(header, value);
-                }
-            }
-        }
+        ]);
         let token = reqwest::header::HeaderValue::from_str(&format!("Bearer {}", config.token))
             .map_err(|_| "CODETERM_API_TOKEN is not a valid HTTP header value".to_owned())?;
         let base_url = config.base_url;
@@ -355,7 +365,7 @@ impl SocketClient {
             .no_proxy()
             .redirect(reqwest::redirect::Policy::none())
             .build()
-            .map_err(|error| format!("failed to create loopback HTTP client: {error}"))?;
+            .map_err(|error| http_failure_message("http_client", &error))?;
         let endpoint = format!("{base_url}/api/cli/rpc");
         startup::probe_with_readiness(
             || {
@@ -368,11 +378,11 @@ impl SocketClient {
                         "protocol_version": crate::protocol::PROTOCOL_VERSION,
                     }))
                     .send()
-                    .map_err(|_| "loopback HTTP RPC probe failed".to_owned())?;
+                    .map_err(|error| http_failure_message("http_probe_send", &error))?;
                 let status = probe.status();
                 let value = probe
                     .json::<serde_json::Value>()
-                    .map_err(|_| "loopback HTTP RPC probe returned invalid JSON".to_owned())?;
+                    .map_err(|error| http_failure_message("http_probe_json", &error))?;
                 Ok((status, value))
             },
             |snapshot| startup::after_refusal(&client, &base_url, snapshot),
@@ -400,14 +410,6 @@ impl SocketClient {
     }
 
     pub fn call_detailed(
-        &mut self,
-        method: &str,
-        params: Option<serde_json::Value>,
-    ) -> Result<serde_json::Value, SocketCallError> {
-        call_with_version_fallback(|m, p| self.call_raw(m, p), method, params)
-    }
-
-    fn call_raw(
         &mut self,
         method: &str,
         params: Option<serde_json::Value>,
@@ -456,11 +458,11 @@ impl SocketClient {
                 }))
                 .send()
                 .map_err(|error| {
-                    SocketCallError::Transport(format!("HTTP request failed: {error}"))
+                    SocketCallError::Transport(http_failure_message("http_rpc_send", &error))
                 })?;
             let status = response.status();
             let value: serde_json::Value = response.json().map_err(|error| {
-                SocketCallError::Transport(format!("invalid HTTP RPC response: {error}"))
+                SocketCallError::Transport(http_failure_message("http_rpc_json", &error))
             })?;
             return http_rpc_result(status, value);
         }
@@ -471,20 +473,20 @@ impl SocketClient {
         let payload = serde_json::to_string(&req)
             .map_err(|e| SocketCallError::Transport(format!("Serialize error: {}", e)))?;
         let writer = reader.get_mut();
-        writer
-            .write_all(payload.as_bytes())
-            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
-        writer
-            .write_all(b"\n")
-            .map_err(|e| SocketCallError::Transport(format!("Write error: {}", e)))?;
-        writer
-            .flush()
-            .map_err(|e| SocketCallError::Transport(format!("Flush error: {}", e)))?;
+        writer.write_all(payload.as_bytes()).map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_write {}", io_failure_fields(&e)))
+        })?;
+        writer.write_all(b"\n").map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_write {}", io_failure_fields(&e)))
+        })?;
+        writer.flush().map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_flush {}", io_failure_fields(&e)))
+        })?;
 
         let mut line = String::new();
-        let bytes_read = reader
-            .read_line(&mut line)
-            .map_err(|e| SocketCallError::Transport(format!("Read error: {}", e)))?;
+        let bytes_read = reader.read_line(&mut line).map_err(|e| {
+            SocketCallError::Transport(format!("stage=socket_read {}", io_failure_fields(&e)))
+        })?;
 
         if bytes_read == 0 || line.trim().is_empty() {
             return Err(SocketCallError::Transport(format!(
@@ -543,64 +545,6 @@ fn http_rpc_result(
         .ok_or_else(|| SocketCallError::Transport("HTTP RPC response is missing result".into()))
 }
 
-/// Skew against a NEWER daemon is refused server-side with the typed
-/// version-skew error before dispatch, so the same-version path is exactly one
-/// request. This fallback covers the one direction the daemon cannot: a newer
-/// CLI calling an OLDER daemon that lacks the method entirely (-32601).
-fn call_with_version_fallback<F>(
-    mut raw: F,
-    method: &str,
-    params: Option<serde_json::Value>,
-) -> Result<serde_json::Value, SocketCallError>
-where
-    F: FnMut(&str, Option<serde_json::Value>) -> Result<serde_json::Value, SocketCallError>,
-{
-    match raw(method, params) {
-        Err(SocketCallError::Rpc(error)) if error.code == -32601 => {
-            let daemon_version = raw("system.identify", None)
-                .ok()
-                .and_then(|value| value.get("version")?.as_str().map(str::to_string));
-            let Some(daemon_version) = daemon_version else {
-                return Err(SocketCallError::Rpc(error));
-            };
-            let cli_version = env!("CARGO_PKG_VERSION");
-            if daemon_version == cli_version {
-                return Err(SocketCallError::Rpc(error));
-            }
-            Err(SocketCallError::Transport(render_protocol_mismatch(
-                method,
-                cli_version,
-                &daemon_version,
-            )))
-        }
-        result => result,
-    }
-}
-
-fn render_protocol_mismatch(method: &str, cli_version: &str, daemon_version: &str) -> String {
-    let ordering = compare_versions(cli_version, daemon_version);
-    let direction = match ordering {
-        Some(std::cmp::Ordering::Greater) => "CLI is newer than daemon",
-        Some(std::cmp::Ordering::Less) => "daemon is newer than CLI",
-        _ => "CLI and daemon versions differ",
-    };
-    format!(
-        "Domios CLI/daemon protocol mismatch: {direction} \
-         (CLI {cli_version}, daemon {daemon_version}); method '{method}' is unavailable. \
-         Restart or update Domios so the running daemon and installed CLI versions match."
-    )
-}
-
-fn compare_versions(left: &str, right: &str) -> Option<std::cmp::Ordering> {
-    fn parse(version: &str) -> Option<Vec<u64>> {
-        version
-            .split('.')
-            .map(|part| part.split('-').next()?.parse().ok())
-            .collect()
-    }
-    Some(parse(left)?.cmp(&parse(right)?))
-}
-
 impl RpcClient for SocketClient {
     fn call_detailed(
         &mut self,
@@ -636,19 +580,9 @@ pub fn discover_socket_resolution() -> Result<(SocketClient, ResolvedSocket), St
     )?;
 
     if let Some(resolved) = selected {
-        if let Ok(client) = SocketClient::connect(&resolved.path) {
-            return Ok((client, resolved));
-        }
-        if resolved.source == ResolutionSource::CodeTermSocketPath {
-            return Err(format!(
-                "Domios socket '{}' from CODETERM_SOCKET_PATH is not live; refusing to derive another socket.",
-                resolved.path
-            ));
-        }
-        return Err(format!(
-            "Domios socket '{}' is not live. Check CODETERM_INSTANCE/CODETERM_API_PORT or set CODETERM_SOCKET_PATH.",
-            resolved.path
-        ));
+        return SocketClient::connect(&resolved.path)
+            .map(|client| (client, resolved.clone()))
+            .map_err(|error| selected_socket_failure(resolved.source, &error));
     }
 
     #[cfg(target_os = "windows")]
@@ -670,6 +604,55 @@ pub fn discover_socket_resolution() -> Result<(SocketClient, ResolvedSocket), St
     {
         discover_unix_socket()
     }
+}
+
+fn selected_socket_failure(source: ResolutionSource, cause: &str) -> String {
+    let guidance = if source == ResolutionSource::CodeTermSocketPath {
+        "selected socket failed; refusing to derive another socket"
+    } else {
+        "selected socket failed; check instance/port selection"
+    };
+    format!("{guidance}: {cause}")
+}
+
+fn io_failure_fields(error: &std::io::Error) -> String {
+    let os = error
+        .raw_os_error()
+        .map(|code| code.to_string())
+        .unwrap_or_else(|| "none".into());
+    format!("kind={:?} os={os}", error.kind())
+}
+
+fn http_failure_message(stage: &str, error: &reqwest::Error) -> String {
+    use std::error::Error;
+    let class = if error.is_timeout() {
+        "timeout"
+    } else if error.is_connect() {
+        "connect"
+    } else if error.is_builder() {
+        "builder"
+    } else if error.is_decode() {
+        "decode"
+    } else if error.is_body() {
+        "body"
+    } else if error.is_request() {
+        "request"
+    } else {
+        "other"
+    };
+    let mut cause = error.source();
+    let mut io = "kind=none os=none".to_string();
+    for _ in 0..8 {
+        let Some(current) = cause else {
+            break;
+        };
+        if let Some(error) = current.downcast_ref::<std::io::Error>() {
+            io = io_failure_fields(error);
+            break;
+        }
+        cause = current.source();
+    }
+    format!("loopback HTTP failure stage={stage} class={class} {io}")
 }
 
 /// Normalize a socket path to the bare namespaced name that `GenericNamespaced` expects.

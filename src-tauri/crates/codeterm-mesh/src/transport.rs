@@ -130,28 +130,6 @@ impl TransportError {
         Self::new(kind, error.to_string())
     }
 
-    pub fn pairing_send_error(error: &reqwest::Error) -> Self {
-        let kind = if error.is_timeout() || error.is_body() || error.is_decode() {
-            TransportErrorKind::SubmitUnconfirmed
-        } else if error.is_connect() {
-            TransportErrorKind::NothingSent
-        } else {
-            TransportErrorKind::SubmitUnconfirmed
-        };
-        let phase = if error.is_timeout() {
-            "timeout"
-        } else if error.is_body() {
-            "response_body"
-        } else if error.is_decode() {
-            "response_decode"
-        } else if error.is_connect() {
-            "connection_establishment"
-        } else {
-            "unknown"
-        };
-        Self::new(kind, safe_reqwest_error_detail(error, phase))
-    }
-
     pub fn kind(&self) -> TransportErrorKind {
         self.kind
     }
@@ -281,8 +259,8 @@ impl PeerClient {
         Self::new_signed_url(peer_http_origin(address, port), signed_token)
     }
 
-    /// Create a client without auth (for pairing requests only).
-    pub fn new_unauthenticated(address: &str, port: u16) -> Self {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn new_for_test_without_auth(address: &str, port: u16) -> Self {
         Self {
             client: shared_http_client(),
             base_url: peer_http_origin(address, port),
@@ -455,24 +433,6 @@ impl PeerClient {
         req.send()
             .await
             .map_err(|e| format!("Relay stream connect failed: {}", e))
-    }
-
-    /// Notify a peer that we're unpairing.
-    pub async fn send_unpair(&self, our_instance_id: &str) -> Result<(), String> {
-        let url = format!("{}/api/mesh/peers/{}", self.base_url, our_instance_id);
-        let mut req = self.client.delete(&url);
-        if let Some((k, v)) = self.auth_header() {
-            req = req.header(&k, &v);
-        }
-        let resp = req
-            .send()
-            .await
-            .map_err(|e| format!("Network error: {}", e))?;
-        if resp.status().is_success() {
-            Ok(())
-        } else {
-            Err("Unpair failed".to_string())
-        }
     }
 }
 

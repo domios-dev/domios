@@ -47,16 +47,18 @@ async fn memory_deletion_finishes_runtime_cancellation_before_returning() {
         );
         if by_area {
             assert_eq!(
-                delete_area(mem.clone(), "runtime".into())
+                delete_area(mem.clone(), "runtime".into(), Default::default())
                     .await
                     .unwrap()
                     .deleted,
                 1
             );
         } else {
-            assert!(delete_item(mem.clone(), id.clone(), "test".into())
-                .await
-                .unwrap());
+            assert!(
+                delete_item(mem.clone(), id.clone(), "test".into(), Default::default())
+                    .await
+                    .unwrap()
+            );
         }
         assert!(mem.get(&id).unwrap().is_none());
         assert!(mem.extraction_authority().is_revoked(&generation));

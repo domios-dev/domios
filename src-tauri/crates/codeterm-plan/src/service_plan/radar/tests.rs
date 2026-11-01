@@ -47,7 +47,7 @@ fn github_source(number: u64) -> RadarSource {
 #[test]
 fn radar_item_persists_without_creating_a_plan() {
     let (root, store) = store();
-    let plans_before = store.list_full().len();
+    let plans_before = store.all_plans_for_test().len();
     let mut new = new_item(&project(&root), "Flaky reconnect");
     new.body = "seen twice".into();
     new.tags = vec!["Mesh".into(), "mesh".into()];
@@ -58,7 +58,7 @@ fn radar_item_persists_without_creating_a_plan() {
     assert!(is_radar_item_id(&added.item.id));
     assert_eq!(added.item.status, RadarStatus::Open);
     assert_eq!(added.item.tags, vec!["mesh".to_string()]);
-    assert_eq!(store.list_full().len(), plans_before);
+    assert_eq!(store.all_plans_for_test().len(), plans_before);
     let reopened = PlanStore::open(store.database_path_for_test()).unwrap();
     assert_eq!(reopened.radar().get(&added.item.id).unwrap(), added.item);
 }
@@ -277,64 +277,4 @@ fn radar_refuses_ids_that_are_not_item_names() {
         );
     }
     assert!(root.path().join("outside.json").exists());
-}
-
-#[test]
-fn legacy_hidden_inbox_plan_becomes_radar_items_and_is_removed() {
-    let (root, store) = store();
-    let mut legacy = Plan::new(
-        "Tasks".into(),
-        project(&root),
-        OrchestratorRef::from_tab("owner"),
-    );
-    legacy.id = "inbox".into();
-    legacy.status = PlanStatus::Archived;
-    store.save(&mut legacy, 1).unwrap();
-    let detailed = store
-        .add_task(
-            "inbox",
-            NewTask {
-                name: "Detailed".into(),
-                body: "base body".into(),
-                acceptance_criteria: vec!["criterion one".into()],
-                test_plan: Some("run probe".into()),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    let plain = store
-        .add_task(
-            "inbox",
-            NewTask {
-                name: "Plain".into(),
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
-    let artifact = crate::service_plan::paths::plan_state_dir_unchecked(
-        root.path(),
-        &PlanStatus::Archived,
-        "_inbox",
-    );
-    std::fs::create_dir_all(&artifact).unwrap();
-    std::fs::write(artifact.join("plan.yaml"), "id: inbox\n").unwrap();
-    let database = store.database_path_for_test();
-    drop(store);
-
-    let reopened = PlanStore::open(database).unwrap();
-
-    assert!(reopened.get("inbox").is_none());
-    assert!(!artifact.exists());
-    let radar = reopened.radar();
-    let converted = radar.get(&format!("rd_{detailed}")).unwrap();
-    assert_eq!(converted.title, "Detailed");
-    assert_eq!(converted.status, RadarStatus::Open);
-    assert!(converted.body.starts_with("base body"));
-    assert!(converted.body.contains("criterion one"));
-    assert!(converted.body.contains("run probe"));
-    assert_eq!(radar.get(&format!("rd_{plain}")).unwrap().title, "Plain");
-    assert_eq!(radar.list(&RadarFilter::default()).unwrap().len(), 2);
-    assert_eq!(reopened.absorb_legacy_inbox(9).unwrap(), 0);
 }

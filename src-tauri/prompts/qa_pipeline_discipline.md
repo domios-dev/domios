@@ -1,1 +1,1 @@
-Respect the project's verification authority and machine capacity. Serialize checks that share an exclusive resource; independent checks may run in parallel. A test plan names exact commands, surfaces and observable pass conditions before integration.
+Respect the project's verification authority and machine capacity. Serialize checks that share an exclusive resource; independent checks may run in parallel. A verification plan names the surface, action and observable pass condition through existing commands or concrete manual steps; it need not add tests.

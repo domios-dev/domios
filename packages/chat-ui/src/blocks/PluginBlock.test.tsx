@@ -89,7 +89,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
       "teams-client": { kind: "ready", plugin: info({ id: "teams-client", name: "Teams Client", installed: true }) },
       git: { kind: "ready", plugin: info({ id: "git", name: "Git", installed: true, updateAvailable: true, remoteVersion: "2.0.0" }) },
     });
-    const text = "@ds-plugin telegram-client\n\n@ds-plugin teams-client\n\n@ds-plugin git\n\n@ds-plugin nope-404";
+    const text = "<ds-plugin id=\"telegram-client\" />\n\n<ds-plugin id=\"teams-client\" />\n\n<ds-plugin id=\"git\" />\n\n<ds-plugin id=\"nope-404\" />";
     await withRender(text, { plugins: host }, async (element) => {
       const cards = [...element.querySelectorAll('[data-chat-block="plugin"]')] as HTMLElement[];
       assert(cards.length === 4, `expected 4 plugin blocks, got ${cards.length}`);
@@ -104,7 +104,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
 
   test("install_runs_once_on_click_and_reports_the_result_in_place", async () => {
     const { host, calls, finish } = fakeHost({ "telegram-client": { kind: "ready", plugin: info() } });
-    await withRender("@ds-plugin telegram-client", { plugins: host }, async (element) => {
+    await withRender("<ds-plugin id=\"telegram-client\" />", { plugins: host }, async (element) => {
       const install = action(element, "install");
       assert(install && !install.disabled, "Install not clickable");
       await act(async () => { install.click(); install.click(); });
@@ -119,7 +119,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
 
   test("secondary_open_in_plugins_and_open_view_route_to_the_host", async () => {
     const { host, calls } = fakeHost({ "telegram-client": { kind: "ready", plugin: info({ installed: true }) } });
-    await withRender("@ds-plugin telegram-client", { plugins: host }, async (element) => {
+    await withRender("<ds-plugin id=\"telegram-client\" />", { plugins: host }, async (element) => {
       const openInPlugins = [...element.querySelectorAll("button")].find((button) => button.textContent === "Open in Plugins");
       await act(async () => { openInPlugins?.click(); action(element, "open")?.click(); });
       assert(calls.openInPlugins[0] === "telegram-client" && calls.openView[0] === "telegram-client", "open actions not routed");
@@ -131,17 +131,17 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
     const { host } = fakeHost({ "telegram-client": { kind: "ready", plugin: info() } });
     const asked: string[] = [];
     const pinned: string[] = [];
-    await withRender("@ds-plugin telegram-client", { plugins: host }, async (element) => {
+    await withRender("<ds-plugin id=\"telegram-client\" />", { plugins: host }, async (element) => {
       assert(!element.querySelector('[aria-label^="Ask about"]') && !element.querySelector('[aria-label^="Pin "]'), "extras shown without a tab scope");
       assert(!element.querySelector('[aria-label^="Copy link"]'), "the frame offers no copy-link extra");
     });
-    await withRender("@ds-plugin telegram-client", { plugins: host, renderMenu: menuButtons, askAbout: ({ text }) => asked.push(text), pin: (source) => pinned.push(source) }, async (element) => {
+    await withRender("<ds-plugin id=\"telegram-client\" />", { plugins: host, renderMenu: menuButtons, askAbout: ({ text }) => asked.push(text), pin: (source) => pinned.push(source) }, async (element) => {
       await act(async () => {
         (element.querySelector('[aria-label^="Ask about"]') as HTMLButtonElement).click();
         (element.querySelector('[aria-label^="Pin "]') as HTMLButtonElement).click();
       });
-      assert(asked.length === 1 && asked[0].includes("@ds-plugin telegram-client"), "ask did not reference the block");
-      assert(pinned[0] === "@ds-plugin telegram-client", "pin did not receive the block source");
+      assert(asked.length === 1 && asked[0].includes("<ds-plugin id=\"telegram-client\" />"), "ask did not reference the block");
+      assert(pinned[0] === "<ds-plugin id=\"telegram-client\" />", "pin did not receive the block source");
       assert(!element.querySelector('[aria-label^="Copy link"]'), "copy link must not be offered in a tab scope");
     });
   });
@@ -153,7 +153,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
     document.body.appendChild(element);
     const root = createRoot(element);
     await act(async () => root.render(
-      <ChatBlockFrame name="test" source="@ds-test x" title="Test" icon={null}
+      <ChatBlockFrame name="test" source={"test"} title="Test" icon={null}
         actions={[{ id: "remove", label: "Remove", confirm: { message: "Remove it?", confirmLabel: "Remove now" }, run: () => { ran++; } }]} />,
     ));
     await act(async () => action(element, "remove")?.click());
@@ -166,7 +166,7 @@ function fakeHost(initial: Record<string, PluginBlockState>) {
   });
 
   test("without_a_plugin_host_the_card_says_so", async () => {
-    await withRender("@ds-plugin telegram-client", {}, async (element) => {
+    await withRender("<ds-plugin id=\"telegram-client\" />", {}, async (element) => {
       assert(element.querySelector('[data-chat-block="plugin"]') && !element.querySelector("button"), "hostless view must not offer actions");
     });
   });

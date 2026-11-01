@@ -134,6 +134,7 @@ fn keyword_overlap_boosts() {
         .map(|s| s.to_string())
         .collect();
     let item = MemItem {
+        author: Default::default(),
         id: "x".into(),
         uid: "u".into(),
         kind: "fact".into(),

@@ -68,7 +68,7 @@ fn request_value(response: Result<LocalApiResponse, LocalApiError>) -> serde_jso
 
 fn print_value(value: serde_json::Value, json: bool) {
     if json {
-        println!("{}", serde_json::to_string(&value).unwrap_or_default());
+        println!("{}", crate::cmd::output::encode(&value).unwrap_or_default());
     } else {
         println!(
             "{}",

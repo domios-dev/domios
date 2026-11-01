@@ -49,9 +49,13 @@ use super::usage::UsageAction;
     after_help = "Plugin management is available via `domios plugin --help`."
 )]
 pub struct Cli {
-    /// Output raw JSON instead of human-readable text
+    /// Output JSON with the payload under result
     #[arg(long, global = true)]
     pub json: bool,
+
+    /// Include detailed diagnostics, scores and warnings
+    #[arg(long, global = true)]
+    pub verbose: bool,
 
     /// Execute command on a remote mesh peer instead of locally
     #[arg(long, global = true)]
@@ -366,7 +370,7 @@ pub enum Commands {
         action: BridgeAction,
     },
 
-    /// Mesh networking — peer discovery, pairing, relay
+    /// Account mesh — installations, status and authenticated relay
     Mesh {
         #[command(subcommand)]
         action: MeshAction,

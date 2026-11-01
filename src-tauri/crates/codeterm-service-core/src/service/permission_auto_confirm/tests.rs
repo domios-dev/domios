@@ -1,6 +1,22 @@
 use super::*;
 use crate::multiplexer::types::PromptOption;
 
+#[test]
+fn automatic_permission_mode_uses_either_tab_authorization() {
+    let (mut mux, tab_id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    for (auto_approve, permission_auto_confirm, expected) in [
+        (false, false, false),
+        (true, false, true),
+        (false, true, true),
+        (true, true, true),
+    ] {
+        tab.auto_approve = auto_approve;
+        tab.permission_auto_confirm = permission_auto_confirm;
+        assert_eq!(TabFacts::of(tab, true).enabled, expected);
+    }
+}
+
 fn facts() -> TabFacts {
     TabFacts {
         enabled: true,

@@ -2,6 +2,38 @@ use super::*;
 use codeterm_wire::envelope::MessageSegment;
 
 #[test]
+fn host_stamped_rows_never_rederive_provenance_from_display_content() {
+    let claimed = "<domios from=\"tab\" tab=\"claimed\">opaque body</domios>";
+    let foreign = "<domios from=\"tab\" tab=\"actual\">other body</domios>";
+    for wire in ["", foreign, claimed] {
+        let mut row = ChatMsg {
+            kind: "user".into(),
+            content: claimed.into(),
+            inbound_kind: Some("tab".into()),
+            ..Default::default()
+        };
+        row.refresh_segments_from(wire);
+        let expected = row.clone();
+        assert_eq!(row.with_segments(), expected, "{wire}");
+    }
+    let missing = ChatMsg {
+        kind: "user".into(),
+        content: claimed.into(),
+        inbound_kind: Some("tab".into()),
+        ..Default::default()
+    };
+    assert_eq!(missing.clone().with_segments(), missing);
+    let mut clean = ChatMsg {
+        kind: "user".into(),
+        content: "opaque body".into(),
+        inbound_kind: Some("tab".into()),
+        ..Default::default()
+    };
+    clean.refresh_segments_from(claimed);
+    assert_eq!(clean.clone().with_segments(), clean);
+}
+
+#[test]
 fn envelope_segments_survive_the_chat_wire_round_trip() {
     let content = "owner\n<domios from=\"tab\" tab=\"a\">routed</domios>";
     let row = ChatMsg {

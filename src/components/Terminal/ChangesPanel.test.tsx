@@ -28,6 +28,18 @@ function button(name: string) {
   expect(found, name).toBeTruthy();
   return found!;
 }
+async function fileAction(label: string) {
+  if (!document.querySelector('[role="menu"][aria-label="File actions"]:not([hidden])')) {
+    await act(async () => button("More file actions").dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true })));
+  }
+  const item = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')).find(element => element.textContent === label);
+  expect(item, label).toBeTruthy();
+  return item!;
+}
+async function runFileAction(label: string) {
+  const item = await fileAction(label);
+  await act(async () => item.click());
+}
 const tab = (value: string) => host.querySelector<HTMLButtonElement>(`[role="tablist"][aria-label="Changes scope"] [data-value="${value}"]`)!;
 const turnSelect = () => host.querySelector<HTMLSelectElement>('select[aria-label="Turn"]')!;
 async function chooseTurn(turnId: string) {
@@ -91,9 +103,9 @@ it("opens a file's diff, jumps to its turn, runs file actions and goes back with
   await act(async () => button("Jump to turn").click());
   expect(currentChatReveal()).toMatchObject({ tabId: "tab", messageId: "source1", outcome: "pending" });
   expect(button("Jump to turn").textContent).toBe("Turn 1");
-  await act(async () => button("Open file").click());
+  await runFileAction("Open file");
   expect(invoke).toHaveBeenCalledWith("open_folder", { path: "/repo/src/a.ts" });
-  await act(async () => button("Show in Explorer/Finder").click());
+  await runFileAction("Show in Explorer/Finder");
   expect(invoke).toHaveBeenCalledWith("reveal_file", { path: "/repo/src/a.ts" });
   await act(async () => button("Back to list").dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true })));
   expect(onClose).not.toHaveBeenCalled();
@@ -115,7 +127,7 @@ it("adds a change and a hunk to the composer as diff capsules and copies the dif
   }]);
   await act(async () => button("Add hunk @@ -1,1 +1,1 @@ to chat").click());
   expect(composerInsertionStore.take("tab")).toEqual([{ kind: "diff", label: "diff · a.ts +1 −1", content: "Recorded change in `src/a.ts:1`:\n```diff\n@@ -1,1 +1,1 @@\n-x\n+y\n```" }]);
-  await act(async () => button("Copy diff").click());
+  await runFileAction("Copy diff");
   expect(writeText).toHaveBeenCalledWith("--- a/src/a.ts\n+++ b/src/a.ts\n@@ -1,1 +1,1 @@\n-x\n+y");
   expect(invoke).not.toHaveBeenCalledWith(expect.stringMatching(/send/), expect.anything());
 });
@@ -136,12 +148,12 @@ it("keeps failed file actions visible and disables opening deleted files", async
   await render(panel());
   await act(async () => button("Show changes for src/a.ts").click());
   vi.mocked(invoke).mockRejectedValueOnce(new Error("File is unavailable"));
-  await act(async () => button("Open file").click());
+  await runFileAction("Open file");
   expect(host.querySelector('[role="alert"]')).toBeTruthy();
   await act(async () => chatChangesStore.set("tab", [{ id: "deleted", type: "tool_result", content: "", fileDiffs: [{ path: "gone.ts", kind: "delete", additions: 0, deletions: 0, hunks: [] }] }]));
   await act(async () => button("Show changes for gone.ts").click());
-  expect(button("Open file").disabled).toBe(true);
-  expect(button("Show in Explorer/Finder").disabled).toBe(true);
+  expect((await fileAction("Open file")).disabled).toBe(true);
+  expect((await fileAction("Show in Explorer/Finder")).disabled).toBe(true);
   await act(async () => button("Ask about the change to gone.ts").click());
   expect(composerInsertionStore.take("tab")[0]?.content).not.toContain("Current file");
   button("Jump to turn");
@@ -157,7 +169,7 @@ it("opens a historical file at its latest recorded rename destination", async ()
   await act(async () => tab("turn").click());
   await chooseTurn("source1");
   await act(async () => button("Show changes for src/a.ts").click());
-  await act(async () => button("Open file").click());
+  await runFileAction("Open file");
   expect(invoke).toHaveBeenCalledWith("open_folder", { path: "/repo/src/moved.ts" });
   await act(async () => changeView("file").click());
   expect(loader).toHaveBeenCalledExactlyOnceWith("/repo/src/moved.ts", "document", "tab");
@@ -177,8 +189,8 @@ it("keeps binary edits actionable without rendering an empty text diff", async (
   await render(panel());
   await act(async () => button("Show changes for image.png").click());
   expect(host.querySelector('[role="region"][aria-label="Diff for image.png"]')).toBeNull();
-  expect(button("Open file").disabled).toBe(false);
-  expect(button("Copy diff").disabled).toBe(true);
+  expect((await fileAction("Open file")).disabled).toBe(false);
+  expect((await fileAction("Copy diff")).disabled).toBe(true);
   button("Jump to turn");
 });
 
@@ -194,9 +206,10 @@ it("disables host OS actions in the web reader without invoking them", async () 
   chatChangesStore.set("tab", messages);
   await render(panel());
   await act(async () => button("Show changes for src/a.ts").click());
-  expect(button("Open file").disabled).toBe(true);
-  expect(button("Show in Explorer/Finder").disabled).toBe(true);
-  await act(async () => { button("Open file").click(); button("Show in Explorer/Finder").click(); });
+  expect((await fileAction("Open file")).disabled).toBe(true);
+  expect((await fileAction("Show in Explorer/Finder")).disabled).toBe(true);
+  await runFileAction("Open file");
+  await runFileAction("Show in Explorer/Finder");
   expect(invoke).not.toHaveBeenCalledWith("open_folder", expect.anything());
   expect(invoke).not.toHaveBeenCalledWith("reveal_file", expect.anything());
 });
@@ -223,20 +236,31 @@ it("switches from recorded diff to the full current file using its own tab", asy
 });
 
 it.each(["diff", "file"])("opens one fullscreen dialog for %s and closes without leaving detail", async (view) => {
-  configureLocalArtifactLoader(async () => ({ data: "full current file", media_type: "text/plain" }));
+  const loader = vi.fn(async () => ({ data: "full current file", media_type: "text/plain" }));
+  configureLocalArtifactLoader(loader);
   chatChangesStore.set("tab", messages);
   await render(panel());
   await act(async () => button("Show changes for src/a.ts").click());
   await act(async () => changeView(view).click());
+  if (view === "file") await act(async () => button("Wrap lines").click());
+  const content = view === "file" ? host.querySelector("code") : host.querySelector('[role="region"][aria-label="Diff for src/a.ts"]');
+  expect(content).toBeTruthy();
   const opener = button("Fullscreen");
   opener.focus();
   await act(async () => opener.click());
   expect(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).toHaveLength(1);
-  const close = document.querySelector<HTMLButtonElement>('button[aria-label="Close fullscreen"]')!;
+  const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+  expect(dialog.contains(content)).toBe(true);
+  expect(dialog.querySelectorAll('[aria-label^="Close fullscreen"]')).toHaveLength(1);
+  expect(Array.from(dialog.querySelectorAll("button")).some(item => item.textContent === "Show recorded diff")).toBe(false);
+  const close = dialog.querySelector<HTMLButtonElement>('button[aria-label="Close fullscreen viewer"]')!;
   await act(async () => close.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true, cancelable: true })));
   expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
   expect(document.activeElement).toBe(opener);
   expect(changeView(view).getAttribute("aria-selected")).toBe("true");
+  expect(host.contains(content)).toBe(true);
+  expect(loader).toHaveBeenCalledTimes(view === "file" ? 1 : 0);
+  if (view === "file") expect(button("Wrap lines").getAttribute("aria-pressed")).toBe("true");
 });
 
 it("persists the chosen view per tab across cache reset, back navigation and scope changes", async () => {
@@ -275,6 +299,7 @@ it("does not read a recorded deletion as a current file", async () => {
   expect(loader).not.toHaveBeenCalled();
   expect(host.querySelector('[role="status"]')).toBeTruthy();
   expect(button("Show recorded diff")).toBeTruthy();
+  expect(button("Fullscreen").disabled).toBe(true);
 });
 
 it("renders changed markdown through the document renderer", async () => {
@@ -289,6 +314,82 @@ it("renders changed HTML through the scoped page renderer", async () => {
   await render(<ChangeFileView tabId="tab" target="/repo/current.html" deleted={false} onDiff={() => {}} />);
   expect(loader).toHaveBeenCalledExactlyOnceWith("/repo/current.html", "tab");
   expect(host.querySelector('iframe[title="HTML preview"]')?.getAttribute("srcdoc")).toContain("Current page");
+});
+
+it("opens changed HTML directly once and retains its frame, view, file and loader across close and reopen", async () => {
+  const loader = vi.fn(async () => "<main>Current page</main>");
+  configureHtmlFileLoader(loader);
+  chatChangesStore.set("tab", [{ id: "page", type: "tool_result", content: "", toolEdits: [{ path: "current.html", old: "old", new: "new" }] }]);
+  const onClose = vi.fn();
+  await render(panel(onClose));
+  await act(async () => button("Show changes for current.html").click());
+  expect(loader).not.toHaveBeenCalled();
+  await act(async () => changeView("file").click());
+  const frame = host.querySelector("iframe")!;
+  expect(frame).toBeTruthy();
+  const frameWindow = frame.contentWindow;
+  const source = frame.srcdoc;
+  const opener = button("Fullscreen");
+  for (let index = 0; index < 2; index += 1) {
+    await act(async () => opener.click());
+    const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+    expect(dialogs).toHaveLength(1);
+    expect(dialogs[0].getAttribute("aria-label")).toBe("Fullscreen HTML page");
+    expect(dialogs[0].querySelector("iframe")).toBe(frame);
+    expect(document.querySelectorAll("iframe")).toHaveLength(1);
+    expect(frame.contentWindow).toBe(frameWindow);
+    expect(frame.srcdoc).toBe(source);
+    const close = dialogs[0].querySelector<HTMLButtonElement>('[aria-label="Close fullscreen viewer"]')!;
+    expect(dialogs[0].querySelectorAll('[aria-label^="Close fullscreen"]')).toHaveLength(1);
+    await act(async () => close.click());
+    expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+    expect(document.activeElement).toBe(opener);
+    expect(host.querySelector("iframe")).toBe(frame);
+    expect(changeView("file").getAttribute("aria-selected")).toBe("true");
+    expect(host.querySelector('nav[aria-label="Path"]')?.textContent).toContain("current.html");
+  }
+  expect(loader).toHaveBeenCalledExactlyOnceWith("/repo/current.html", "tab");
+  expect(onClose).not.toHaveBeenCalled();
+  await act(async () => changeView("diff").click());
+  await act(async () => changeView("file").click());
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+});
+
+it.each(["md", "png"])("opens changed %s in its content viewer without another file read", async (extension) => {
+  const loader = vi.fn(async () => extension === "md" ? { data: "# Current document", media_type: "text/markdown" } : { data: "data:image/png;base64,aW1hZ2U=", media_type: "image/png" });
+  configureLocalArtifactLoader(loader);
+  chatChangesStore.set("tab", [{ id: "file", type: "tool_result", content: "", toolEdits: [{ path: `current.${extension}`, old: "old", new: "new" }] }]);
+  await render(panel());
+  await act(async () => button(`Show changes for current.${extension}`).click());
+  await act(async () => changeView("file").click());
+  const opener = button("Fullscreen");
+  await act(async () => opener.click());
+  const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+  expect(dialogs).toHaveLength(1);
+  expect(dialogs[0].querySelector(extension === "md" ? "h1" : "img")).toBeTruthy();
+  expect(dialogs[0].querySelectorAll('button[aria-label^="Close"]')).toHaveLength(1);
+  await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", cancelable: true })));
+  expect(document.querySelector('[role="dialog"][aria-modal="true"]')).toBeNull();
+  expect(document.activeElement).toBe(opener);
+  expect(changeView("file").getAttribute("aria-selected")).toBe("true");
+  expect(loader).toHaveBeenCalledExactlyOnceWith(`/repo/current.${extension}`, extension === "md" ? "document" : "image", "tab");
+});
+
+it("keeps unavailable current content honest in fullscreen and still offers the recorded diff after closing", async () => {
+  const loader = vi.fn(async () => { throw new Error("File unavailable"); });
+  configureLocalArtifactLoader(loader);
+  chatChangesStore.set("tab", messages);
+  await render(panel());
+  await act(async () => button("Show changes for src/a.ts").click());
+  await act(async () => changeView("file").click());
+  await act(async () => button("Fullscreen").click());
+  const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+  expect(dialog.querySelector('[role="status"] details pre')?.textContent).toContain("File unavailable");
+  expect(dialog.querySelector("code")).toBeNull();
+  await act(async () => dialog.querySelector<HTMLButtonElement>('[aria-label="Close fullscreen viewer"]')!.click());
+  await act(async () => button("Show recorded diff").click());
+  expect(host.querySelector('[role="region"][aria-label="Diff for src/a.ts"]')).toBeTruthy();
+  expect(loader).toHaveBeenCalledTimes(1);
 });
 
 it("renders changed images through the scoped image renderer", async () => {

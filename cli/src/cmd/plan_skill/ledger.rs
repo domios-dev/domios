@@ -21,7 +21,7 @@ fn ledger_path(plan_dir: &Path) -> std::path::PathBuf {
 
 pub fn read_ledger(plan_dir: &Path) -> Vec<LedgerEntry> {
     let path = ledger_path(plan_dir);
-    let Ok(raw) = std::fs::read_to_string(&path) else {
+    let Ok(raw) = crate::local_admission::read_local_text(&path) else {
         return Vec::new();
     };
     raw.lines()

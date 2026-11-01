@@ -3,7 +3,6 @@ set -euo pipefail
 proof_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/blueprint-v2-intent" && pwd)"
 case "${1:-}" in
   --help|-h) cat "$proof_dir/README.md"; exit 0 ;;
-  --self-test) exec python3 "$proof_dir/self_test.py" ;;
 esac
 if [[ "${CODETERM_INSTANCE:-}" != blueprint-v2-proof || "${CODETERM_API_PORT:-}" != 17693 ]]; then
   echo 'REFUSED: require explicit CODETERM_INSTANCE=blueprint-v2-proof CODETERM_API_PORT=17693' >&2

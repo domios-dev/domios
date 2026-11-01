@@ -13,7 +13,7 @@ export function rustRouteContracts(source: string): RouteContract[] {
       if (!quoted) { if (char === "(") depth++; if (char === ")") depth--; }
     }
     const body = source.slice(routes.lastIndex, end - 1);
-    for (const method of body.matchAll(/\b(get|post|put|patch|delete)\(/g)) contracts.push({ method: method[1].toUpperCase(), path: match[1] });
+    for (const method of body.matchAll(/\b(get|post|put|patch|delete|owner_post)\(/g)) contracts.push({ method: method[1] === "owner_post" ? "POST" : method[1].toUpperCase(), path: match[1] });
   }
   return contracts;
 }

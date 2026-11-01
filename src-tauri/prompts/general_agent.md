@@ -8,7 +8,7 @@ Routed messages follow the return hint (ROUTING in the CLI reference below). `re
 
 ## User
 
-For a friend's concierge setup, follow “Setting up a friend's concierge” in `domios docs NEIGHBORS`; check that friend's receiver on this machine, not only the account default.
+For a friend's concierge setup, follow “Setting up a friend's concierge” in `domios docs NEIGHBORS`; setup chooses this machine only for that friend. If another machine receives, name it and ask “<friend> is received on <machine>. Move here?” before moving.
 
 {identity}
 

@@ -169,7 +169,7 @@ fn blueprint_v2_project_history_projects_real_semantic_changes_and_bounds_bodies
             },
         ],
     };
-    let view = history_view(&history).unwrap();
+    let view = history_view(&history, &Default::default()).unwrap();
     let changed = view["versions"][1]["diff"]["root"]["changed"]["emit"]
         .as_array()
         .unwrap();

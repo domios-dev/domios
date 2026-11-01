@@ -8,6 +8,14 @@ use std::{
 pub const BOOTSTRAP_PROTOCOL: u32 = 2;
 pub const API_VERSION: u32 = 3;
 pub const SERVER_COMPONENT_SCHEMA: u32 = 2;
+pub const CLI_RESOURCE_HINT_FILE: &str = "cli-resources.json";
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CliResourceHint {
+    pub resources: PathBuf,
+    pub cli_sha256: String,
+}
 pub const BOOTSTRAP_ATTACH_UNAVAILABLE_EXIT_CODE: i32 = 4;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -130,6 +138,8 @@ pub enum InstanceSelector {
         port: u16,
     },
     IsolatedVerification {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        instance: Option<String>,
         data_dir: PathBuf,
         config_dir: PathBuf,
         bind: SocketAddr,
@@ -144,10 +154,20 @@ pub struct LaunchOptions {
     pub probe_sink: Option<PathBuf>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub probe_identity_alias: Option<ServerIdentity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub development_owner: Option<ProcessProvenance>,
 }
 
 impl LaunchOptions {
     pub fn validate(&self, development_artifact: bool) -> std::io::Result<()> {
+        if self.development_owner.is_some()
+            && (!development_artifact
+                || !matches!(&self.instance, InstanceSelector::Development { .. }))
+        {
+            return Err(std::io::Error::other(
+                "Launch ownership requires a development artifact",
+            ));
+        }
         if self.probe_identity_alias.is_some()
             && (!matches!(&self.instance, InstanceSelector::Development { instance: Some(instance), .. } if instance.starts_with("split-oracle-"))
                 || self.probe_sink.is_none())
@@ -177,16 +197,31 @@ impl LaunchOptions {
                 }
             }
             InstanceSelector::IsolatedVerification {
+                instance,
                 data_dir,
                 config_dir,
                 bind,
-            } => validate_isolated_verification(
-                data_dir,
-                config_dir,
-                *bind,
-                &dirs::home_dir()
-                    .ok_or_else(|| std::io::Error::other("Cannot determine the user data root"))?,
-            ),
+            } => {
+                match (development_artifact, instance.as_deref()) {
+                    (true, Some(name)) if !name.is_empty() && name.len() <= 64
+                        && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') => {}
+                    (true, _) => return Err(std::io::Error::other(
+                        "Debug isolated verification requires --instance with a lowercase instance slug",
+                    )),
+                    (false, Some(_)) => return Err(std::io::Error::other(
+                        "Release isolated verification does not support --instance",
+                    )),
+                    (false, None) => {}
+                }
+                validate_isolated_verification(
+                    data_dir,
+                    config_dir,
+                    *bind,
+                    &dirs::home_dir().ok_or_else(|| {
+                        std::io::Error::other("Cannot determine the user data root")
+                    })?,
+                )
+            }
             _ => Err(std::io::Error::other(
                 "Instance selector does not match server artifact",
             )),

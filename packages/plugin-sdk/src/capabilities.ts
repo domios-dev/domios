@@ -95,7 +95,7 @@ export interface GlanceView {
 
 // ── view (sandboxed iframe UI bridge target) ──
 
-export type ViewCall = (method: string, args: unknown) => unknown;
+export type ViewCall = (method: string, args: unknown, context: ViewCallContext) => unknown;
 
 // ── agentProvider ──
 // Method set mirrors plugins/provider-*/plugin.js + the AgentProvider trait.
@@ -555,6 +555,7 @@ export interface EventSourceDeclaration {
 
 /** Manifest `capabilities.graphNodes`. */
 export interface GraphNodesManifestCapability {
+  steps?: import("./blueprintSteps").BlueprintStepDescriptor[];
   converters?: GraphNodeConversion[];
   eventSources?: EventSourceDeclaration[];
 }
@@ -1005,7 +1006,48 @@ export interface TabMenuContribution {
 export type SurfaceRenderer = "view" | "stream";
 export type SurfaceRestore = "relaunch" | "placeholder" | "none";
 
+/** Host-injected iframe bridge; state subscriptions are hints, not a polling API. */
+export interface SurfaceViewBridge {
+  surface: { surface: string | null; instance: string | null; tab: string | null };
+  invoke(method: string, args?: unknown): Promise<unknown>;
+  close(): void;
+  onSurfaceStateChanged(callback: () => void): () => void;
+}
+
+/** Authoritative context of this registered UI document; no run/budget or private lease. */
+export interface ViewCallContext {
+  plugin: string;
+  origin: "document" | "remote_task" | "recording_setup";
+  surface: string | null;
+  instance: string | null;
+  tab: string | null;
+  owner: string | null;
+  workspace: string | null;
+  team: string | null;
+  actor: { kind: "local" };
+  frame: string | null;
+}
+
+export interface SurfaceCallContext {
+  surface: string;
+  instance: string;
+  tab: string;
+  owner: string;
+  /** Authenticated calling agent tab id, stamped by the host. */
+  actor: string;
+  /** Sanitized display label; attribution uses actor, never this label as authority. */
+  actorLabel: string;
+}
+
+export interface SurfaceAgentHandler {
+  onSurfaceCall(context: SurfaceCallContext, verb: string, args: string[]): string;
+}
+
 export interface SurfaceContribution {
+  /** View only: at most 32 unique lowercase kebab verbs, each at most 32 bytes. */
+  agentVerbs?: string[];
+  /** View only: permit identity-only state invalidation through host.surface.invalidate. */
+  stateInvalidation?: boolean;
   // 1-32 lowercase letters, digits or '-', unique within the plugin.
   id: string;
   // One word, no whitespace: the tab title.
@@ -1018,6 +1060,60 @@ export interface SurfaceContribution {
   runtime?: string;
   // Toolbar spec passed through untouched to the frontend; `stream` only.
   chrome?: Record<string, unknown>;
+}
+
+// ── viewHostActions (plugin.json `capabilities.viewHostActions`; requires `view`) ──
+
+// The user-gesture actions the view page may ask for through `ct.host`; each named once.
+export type ViewHostAction = "copyText" | "saveAs" | "reveal" | "pickFile";
+
+// `capabilities.viewInputs`, required by (and only allowed with) `pickFile`: what the user may
+// pick for the view, as passive media types, each at most `maxBytes`, at most `maxFiles` per pick.
+export type ViewInputMediaType =
+  | "image/png" | "image/jpeg" | "image/webp" | "image/gif"
+  | "audio/mpeg" | "audio/ogg" | "audio/wav"
+  | "video/mp4" | "video/webm" | "video/ogg";
+export interface ViewInputsContribution {
+  accept: ViewInputMediaType[];
+  maxBytes: number;
+  // 1-8.
+  maxFiles: number;
+}
+
+// One file the user picked: an opaque handle owned by this frame, never a path. Image preview is not
+// implied; show it as a file until the host offers a preview URL for it.
+export interface PickedInput {
+  handle: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+}
+export type PickFileResult =
+  | { ok: true; inputs: PickedInput[]; skipped: { fileName: string; code: "denied" | "unavailable" | "invalid"; reason: string }[] }
+  | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
+
+// `denied`: no recent activation in this shown, focused view; undeclared; cancelled; `busy` (one
+// call at a time, at most one effect per second); `stale` (the frame was hidden or replaced
+// meanwhile); or media this frame does not own.
+// `unavailable`: the host cannot act here (the web mirror has no file manager).
+// `invalid`: malformed text, handle or arguments.
+export type ViewHostResult = { ok: true } | { ok: false; code: "denied" | "unavailable" | "invalid"; reason: string };
+
+// What this app instance can perform here (the web mirror has no file manager, an insecure origin no
+// clipboard). It grants nothing: the declaration, gesture and media ownership are checked on each use.
+export type ViewHostAvailability = Record<ViewHostAction, boolean>;
+
+// `window.ct.host` inside the view page. Call the actions from a click or key handler: the host checks
+// its own user activation. Media handles are the host-issued ones this frame received; never paths.
+export interface ViewHostBridge {
+  // Resolves once the host has said what it supports; read it to hide an action, never to probe one.
+  availability(): Promise<ViewHostAvailability>;
+  copyText(text: string): Promise<ViewHostResult>;
+  saveAs(mediaHandle: string, suggestedName?: string): Promise<ViewHostResult>;
+  reveal(mediaHandle: string): Promise<ViewHostResult>;
+  // The app's own picker (system dialog, or the browser's on the web mirror). `accept` may only narrow
+  // the declared `viewInputs.accept`; `multiple` is honored up to `viewInputs.maxFiles`.
+  pickFile(options?: { accept?: ViewInputMediaType[]; multiple?: boolean }): Promise<PickFileResult>;
 }
 
 // ── onAgentCommand (the inverse seam) ──
@@ -1041,16 +1137,20 @@ export interface PluginModule
     Partial<SecretBackend>,
     Partial<Transcriber>,
     Partial<Converter>,
+    Partial<import("./blueprintSteps").BlueprintSteps>,
     Partial<DecisionModelCapability>,
     Partial<ChatBackend>,
     Partial<ChatPreprocessor>,
     Partial<WebhookReceiver>,
     Partial<AgentCommandHandler>,
+    Partial<SurfaceAgentHandler>,
     Partial<ModelProviderConfig> {
   onPermissionChanged?(event: PermissionChangedEvent): void | { error: string };
   statusBubble?(ctx: TabContext): StatusBubble | null;
   renderGlance?(ctx: TabContext): GlanceView;
   viewCall?: ViewCall;
+  /** Requires manifest mediaDelivery. Lookup only: never submit work. Paths are relative to this plugin's own data directory. */
+  mediaFile?(id: string, context: MediaFileContext): import("./mediaDelivery").MediaFile;
   /** Refresh account-backed remote execution availability and environments. */
   discoverRemoteTask?(): import("./remoteTasks").RemoteTaskDiscovery;
   glanceAction?(action: string, ctx: TabContext): unknown;
@@ -1063,3 +1163,16 @@ export interface PermissionChangedEvent {
   allowed: true;
   source: "install" | "action" | "settings";
 }
+
+export interface RunMediaLookupContext {
+  origin: "durable_run";
+  plugin: string;
+  workspace: string;
+  team: string | null;
+  owner: string;
+  run: string;
+  producerOperation: string;
+  producerPort: string;
+  receiverNode: string;
+}
+export type MediaFileContext = ViewCallContext | RunMediaLookupContext;

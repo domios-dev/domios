@@ -77,9 +77,6 @@ export function reportOutcomeLine(outcome: ReportTaskOutcome | null): string | n
   return null;
 }
 
-/** Compatibility name for callers that still render the legacy refusal row. */
-export const reportIncidentLine = reportOutcomeLine;
-
 export function reportOutcomeTone(outcome: ReportTaskOutcome | null): "error" | "calm" | null {
   if (outcome?.reportOutcome === "stale_binding_conflict" || outcome?.transitionRejected) return "calm";
   if (

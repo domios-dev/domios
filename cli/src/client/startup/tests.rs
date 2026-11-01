@@ -147,7 +147,7 @@ fn starting_refusal_keeps_phase_and_machine_code_without_credentials() {
     let envelope =
         crate::cmd::error_contract::error_envelope(&error.message, error.code, error.data.as_ref());
     assert_eq!(envelope["error"]["code"], "starting");
-    assert_eq!(envelope["data"]["startup"], snapshot);
+    assert_eq!(envelope["result"]["startup"], snapshot);
 }
 
 #[test]
@@ -158,7 +158,10 @@ fn failed_startup_remains_a_terminal_typed_refusal() {
     let envelope =
         crate::cmd::error_contract::error_envelope(&error.message, error.code, error.data.as_ref());
     assert_eq!(envelope["error"]["code"], "startup_failed");
-    assert_eq!(envelope["data"]["startup"]["phases"]["integrity"], "failed");
+    assert_eq!(
+        envelope["result"]["startup"]["phases"]["integrity"],
+        "failed"
+    );
 }
 
 #[test]

@@ -1,4 +1,4 @@
-// Caller: build.sh feature-cycle; scripts/tests/feature-cycle-units.test.mjs
+// Caller: build.sh feature-cycle
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

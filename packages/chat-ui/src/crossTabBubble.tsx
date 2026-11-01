@@ -5,11 +5,11 @@ export const CROSS_TAB_BUBBLE_TESTID = "chat-cross-tab-bubble";
 export const CROSS_TAB_SHELL_TESTID = "chat-cross-tab-shell";
 
 export function crossTabBubbleClassName(textSize: string): string {
-  return `min-w-0 rounded-2xl rounded-br-sm px-4 py-2 ${textSize} select-text cursor-text ${TEXT_WRAP_CLASS}`;
+  return `min-w-0 py-1 ${textSize} select-text cursor-text ${TEXT_WRAP_CLASS}`;
 }
 
 export const crossTabBubbleStyle: React.CSSProperties = {
-  background: "color-mix(in srgb, var(--ct-accent, #58a6ff) 12%, var(--ct-surface, #161b22) 88%)",
+  background: "transparent",
   color: "var(--ct-fg)",
 };
 
@@ -33,9 +33,9 @@ export function CrossTabMessageShell({
   return (
     <div
       data-testid={CROSS_TAB_SHELL_TESTID}
-      className="group flex mb-3 w-full max-w-4xl min-w-0 mx-auto justify-start"
+      className="group flex w-full min-w-0 justify-start"
     >
-      <div className="min-w-0 max-w-[75%] sm:max-w-[75%]">
+      <div className="min-w-0 w-full">
         {header}
         <div
           data-testid={bubbleTestId}

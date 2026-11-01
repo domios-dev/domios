@@ -72,6 +72,7 @@ fn page_result(
 }
 fn context() -> RuntimeContext {
     RuntimeContext {
+        restricted_cli: None,
         thread_id: Some("root".into()),
         ..Default::default()
     }

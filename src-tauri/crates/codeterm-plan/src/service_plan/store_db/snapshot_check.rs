@@ -6,35 +6,9 @@ use std::time::Instant;
 const SNAPSHOT_ENV: &str = "DOMIOS_PLAN_SNAPSHOT";
 const TARGET_ENV: &str = "DOMIOS_PLAN_SNAPSHOT_PLAN";
 
-fn whole_document_parse(path: &std::path::Path) -> (BTreeMap<String, serde_json::Value>, usize) {
-    let connection = Connection::open(path).unwrap();
-    let mut statement = connection
-        .prepare("SELECT id, document_json FROM plans")
-        .unwrap();
-    let rows = statement
-        .query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        })
-        .unwrap();
-    let mut plans = BTreeMap::new();
-    let mut quarantined = 0;
-    for row in rows {
-        let (id, document) = row.unwrap();
-        match parse_plan_document(&document) {
-            Ok(plan) => {
-                plans.insert(id, serde_json::to_value(plan).unwrap());
-            }
-            Err(_) => quarantined += 1,
-        }
-    }
-    (plans, quarantined)
-}
-
 fn loaded(database: &PlanDatabase) -> BTreeMap<String, serde_json::Value> {
     database
-        .load_snapshots()
-        .unwrap()
-        .0
+        .load_plans_for_test()
         .into_iter()
         .map(|plan| (plan.id.clone(), serde_json::to_value(plan).unwrap()))
         .collect()
@@ -64,7 +38,7 @@ fn table_rows(path: &std::path::Path) -> Vec<(&'static str, i64)> {
 fn plan_row_sizes(path: &std::path::Path) -> Vec<(String, i64)> {
     let connection = Connection::open(path).unwrap();
     let mut statement = connection
-        .prepare("SELECT id, length(document_json) FROM plans ORDER BY 2 DESC")
+        .prepare("SELECT id, length(header_json) FROM plans ORDER BY 2 DESC")
         .unwrap();
     let rows = statement
         .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
@@ -81,7 +55,7 @@ fn task_bytes(plan: &Plan) -> Vec<(String, String)> {
 
 #[test]
 #[ignore = "reads a production snapshot named by DOMIOS_PLAN_SNAPSHOT"]
-fn production_snapshot_migrates_without_loss() {
+fn production_snapshot_current_rows_survive_mutation_and_reopen() {
     let source = std::path::PathBuf::from(
         std::env::var(SNAPSHOT_ENV).expect("DOMIOS_PLAN_SNAPSHOT names a plans.db copy"),
     );
@@ -91,21 +65,13 @@ fn production_snapshot_migrates_without_loss() {
     std::fs::copy(&source, &path).unwrap();
     let source_bytes = std::fs::metadata(&path).unwrap().len();
 
-    let (expected, quarantined) = whole_document_parse(&path);
     let started = Instant::now();
     let database = PlanDatabase::open(path.clone()).unwrap();
-    let migration = started.elapsed();
+    let open = started.elapsed();
     let started = Instant::now();
-    let actual = loaded(&database);
+    let expected = loaded(&database);
     let load = started.elapsed();
-    assert_eq!(
-        actual.keys().collect::<Vec<_>>(),
-        expected.keys().collect::<Vec<_>>()
-    );
-    for (id, plan) in &expected {
-        assert!(actual[id] == *plan, "plan {id} differs after migration");
-    }
-    let plans = database.load_snapshots().unwrap().0;
+    let plans = database.load_plans_for_test();
     let tasks: usize = plans.iter().map(|plan| plan.tasks.len()).sum();
     let milestones: usize = plans
         .iter()
@@ -117,10 +83,10 @@ fn production_snapshot_migrates_without_loss() {
         .flat_map(|plan| &plan.tasks)
         .map(|task| task.execution_attempts.len())
         .sum();
-    println!("snapshot bytes={source_bytes} plans={} quarantined={quarantined} tasks={tasks} milestones={milestones} attempts={attempts}", plans.len());
+    println!("snapshot bytes={source_bytes} plans={} tasks={tasks} milestones={milestones} attempts={attempts}", plans.len());
     println!(
-        "migration_ms={} load_all_ms={}",
-        migration.as_millis(),
+        "open_ms={} load_all_ms={}",
+        open.as_millis(),
         load.as_millis()
     );
     println!("rows {:?}", table_rows(&path));

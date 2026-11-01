@@ -175,6 +175,8 @@ pub struct PendingRuntimeRequest {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeContext {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restricted_cli: Option<RestrictedCliPolicy>,
     #[serde(default)]
     pub thread_parents: Vec<RuntimeThreadParent>,
     #[serde(default)]
@@ -195,6 +197,20 @@ pub struct RuntimeContext {
     pub provider_settings: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_request: Option<PendingRuntimeRequest>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct RestrictedCliPolicy {
+    pub tab_id: String,
+    pub binding_nonce: String,
+    pub epoch: u64,
+    pub cwd: String,
+    pub metadata_directory: String,
+    pub executable: String,
+    pub executable_sha256: String,
+    pub config_sha256: String,
+    pub rule_sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

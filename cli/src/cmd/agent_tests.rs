@@ -218,7 +218,9 @@ host.fs.readJson = function (path) {{ return path.endsWith("/.codex/models_cache
     let output_json = format_agent_models_json(&descriptor);
     let json_models: serde_json::Value =
         serde_json::from_str(&output_json).expect("CLI model JSON output");
-    let json_models = json_models.as_array().expect("CLI model JSON array");
+    let json_models = json_models["result"]
+        .as_array()
+        .expect("CLI model JSON array");
     let model = json_models
         .iter()
         .find(|model| model["id"] == "gpt-5.6-sol")
@@ -345,7 +347,7 @@ fn refusal_hint_never_suggests_a_shell_expression_sha() {
         dirty_files: Vec::new(),
     };
 
-    for line in refusal_next_commands() {
+    for line in refusal_next_commands(&refusal) {
         assert!(!line.contains("$(git "), "{line}");
     }
     assert!(refusal
@@ -362,7 +364,7 @@ fn json_next_commands_are_the_same_sequence_the_text_hint_prints() {
     };
     let message = refusal.message();
 
-    let commands = refusal_next_commands();
+    let commands = refusal_next_commands(&refusal);
     assert!(!commands.is_empty());
     for line in &commands {
         assert!(message.contains(*line), "{line}");
@@ -776,4 +778,15 @@ fn agent_ack_renders_current_manifest_brief_byte_completely() {
     .unwrap();
     assert!(rendered.ends_with(brief));
     assert_eq!(rendered.matches(brief).count(), 1);
+}
+
+#[test]
+fn json_binding_refusal_only_offers_partial_reporting() {
+    let refusal = crate::cmd::report_guard::unavailable_scope_refusal("lookup failed");
+    let value = report_refusal_json(&refusal, false, None, None);
+    assert_eq!(
+        value["next_commands"],
+        serde_json::json!(["domios agent report --status partial --from-pad report.md"])
+    );
+    assert!(!refusal.message().contains("git commit"));
 }

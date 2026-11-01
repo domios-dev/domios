@@ -107,6 +107,31 @@ pub fn run_with_budget_input(
     )
 }
 
+pub fn run_value(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    runtime: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+    envelope: &codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope,
+    cancellation: &cancellation::Cancellation,
+) -> Result<Output, process::ProbeFailure> {
+    envelope
+        .encode()
+        .map_err(|_| process::ProbeFailure::new("contract_violation"))?;
+    run_input_bytes(
+        command,
+        cwd,
+        limit,
+        runtime,
+        owner,
+        environment,
+        envelope.payload_text().as_bytes(),
+        cancellation,
+    )
+}
+
 pub fn run_enveloped(
     command: &str,
     cwd: &Path,
@@ -117,12 +142,34 @@ pub fn run_enveloped(
     envelope: &codeterm_blueprint_types::blueprint_execution::ExecutionEnvelope,
     cancellation: &cancellation::Cancellation,
 ) -> Result<Output, process::ProbeFailure> {
-    let deadlines = process::Deadlines::start(limit, runtime)?;
     let bytes = envelope
         .encode()
         .map_err(|_| process::ProbeFailure::new("contract_violation"))?;
+    run_input_bytes(
+        command,
+        cwd,
+        limit,
+        runtime,
+        owner,
+        environment,
+        &bytes,
+        cancellation,
+    )
+}
+
+fn run_input_bytes(
+    command: &str,
+    cwd: &Path,
+    limit: Duration,
+    runtime: Duration,
+    owner: &Arc<owner::ProbeResourceOwner>,
+    environment: &environment::Environment,
+    bytes: &[u8],
+    cancellation: &cancellation::Cancellation,
+) -> Result<Output, process::ProbeFailure> {
+    let deadlines = process::Deadlines::start(limit, runtime)?;
     let stdin =
-        input::file_bytes(&bytes).map_err(|_| process::ProbeFailure::new("probe_input_failed"))?;
+        input::file_bytes(bytes).map_err(|_| process::ProbeFailure::new("probe_input_failed"))?;
     run_transaction(
         command,
         cwd,

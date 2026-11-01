@@ -1,7 +1,7 @@
 import { GitHubMark } from "../GitHubMark";
-import { Bell, Bot, Braces, CalendarClock, CircleStop, Clock3, Cpu, FileInput, Flag, GitBranch, Globe, Hand, MessageSquareReply, Network, Play, Radio, Send, ShieldAlert, SquareTerminal, Workflow, Zap } from "lucide-react";
+import { Bell, Bot, Braces, CalendarClock, CircleStop, Clock3, Cpu, FileInput, Flag, GitBranch, Globe, Hand, MessageSquareReply, Network, Play, Puzzle, Radio, Send, ShieldAlert, SquareTerminal, Workflow, Zap } from "lucide-react";
 import type { ComponentType } from "react";
-import type { BlueprintIrNode } from "../../../lib/blueprintApi";
+import type { BlueprintIrNode, BlueprintPluginNode } from "../../../lib/blueprintApi";
 
 export type NodeIcon = ComponentType<{ size?: number; className?: string }>;
 
@@ -12,6 +12,7 @@ export const blueprintNodeKinds = {
   agent: { label: "Agent", width: 272, icon: Bot },
   logic: { label: "Logic", width: 248, icon: GitBranch },
   call: { label: "Sub-graph", width: 272, icon: Network },
+  plugin: { label: "Plugin", width: 272, icon: Puzzle },
   action: { label: "Action", width: 240, icon: Bell },
   result: { label: "Result", width: 216, icon: Flag },
 } as const;
@@ -81,4 +82,14 @@ export function triggerIcon(type: unknown): NodeIcon {
   if (type === "input") return blueprintTriggers.manual.icon;
   if (type === "webhook") return blueprintTriggers.webhook.icon;
   return Zap;
+}
+
+/** A node the payload marks as an installed plugin step; the plugin's name is its kind label. */
+export function pluginNodeKind(descriptor: BlueprintPluginNode): IrNodeKind {
+  return { type: "plugin", icon: Puzzle, label: descriptor.available && descriptor.plugin ? descriptor.plugin : "Plugin" };
+}
+
+/** The payload's descriptor for a node's `uses`, if the payload marks it a plugin step. */
+export function pluginDescriptor(node: BlueprintIrNode, nodes: Readonly<Record<string, BlueprintPluginNode>> | undefined): BlueprintPluginNode | undefined {
+  return nodes ? own(nodes, node.uses) : undefined;
 }

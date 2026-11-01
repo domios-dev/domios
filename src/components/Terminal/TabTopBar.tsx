@@ -9,7 +9,7 @@ import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { ShellPurposeIcon, ShellStatus } from "../shared/ShellStatus";
 import { isUtilityShell } from "../../lib/shellCommandState";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, RotateCw } from "lucide-react";
 import { TabModeSwitch } from "./TabModeSwitch";
 import { UsageBubble } from "../Usage/UsageBubble";
 import { PluginBubbles } from "../Extensions/PluginBubbles";
@@ -336,6 +336,19 @@ export function TabTopBar({
         <ReceiverTargetMarks menu={pluginTabMenu} tabId={tabId} surface="header" />
         <PluginBubbles cwd={cwd} tabId={tabId} isActive={isActive} />
       </div>
+        {(showSwitch || menuTab?.backing?.kind === "chat_backend") && (
+          <button
+            type="button"
+            aria-label="Refresh chat"
+            title="Refresh chat"
+            disabled={!canReconnect || reconnecting || restarting}
+            className="ct-bar-pill inline-flex shrink-0 items-center justify-center disabled:opacity-50"
+            style={{ height: TAB_BAR_CONTROL_H, width: TAB_BAR_CONTROL_H, borderRadius: "50%", padding: 0 }}
+            onClick={() => void reconnect()}
+          >
+            <RotateCw size={15} strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
         {entries.length > 0 && (
           <TabActionsMenu
             entries={entries}

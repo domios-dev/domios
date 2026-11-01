@@ -2,6 +2,9 @@ import { useMemo, useSyncExternalStore } from "react";
 import type { ChatBlockHost, LiveBindingSource } from "@codeterm/chat-ui";
 import { planSidePanelStore } from "../Canvas/planSidePanelStore";
 import { insertIntoComposer } from "./composerInsertion";
+import { chatChangesStore } from "./chatChangesStore";
+import { changeKey } from "./changesViewModel";
+import { tabPanelNavigationStore } from "./tabPanel/tabPanelNavigation";
 
 const STORAGE_KEY = "codeterm.pinnedChatBlocks.v1";
 const EMPTY: readonly string[] = [];
@@ -66,6 +69,17 @@ export function usePinnedBlocks(tabId: string): readonly string[] {
   return useSyncExternalStore(pinnedBlocksStore.subscribe, () => pinnedBlocksStore.list(tabId), () => EMPTY);
 }
 
+export function openRecordedFileChange(tabId: string, path: string, view: "diff" | "file"): void {
+  const normalized = path.replace(/\\/g, "/");
+  const file = chatChangesStore.get(tabId).cumulative.find((file) =>
+    [file.path, file.movePath].some((candidate) => candidate?.replace(/\\/g, "/") === normalized));
+  if (!file) return;
+  tabPanelNavigationStore.dispatch(tabId, { type: "scope", scope: "all" });
+  tabPanelNavigationStore.dispatch(tabId, { type: "open", view: "changes", id: changeKey(file) });
+  tabPanelNavigationStore.dispatch(tabId, { type: "change-view", view });
+  planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "changes" });
+}
+
 /** Tab-scoped block services: Ask goes to this tab's composer, Pin keeps the block live in this tab's side panel. */
 export function useTabChatBlockHost(tabId: string): ChatBlockHost {
   return useMemo(() => {
@@ -76,6 +90,7 @@ export function useTabChatBlockHost(tabId: string): ChatBlockHost {
     };
     return {
       mentionTabId: tabId,
+      openFileChange: (path, view) => openRecordedFileChange(tabId, path, view),
       askAbout: ({ title, text }) => insertIntoComposer(tabId, { kind: "quote", detail: title, content: text }),
       pin: (source) => {
         if (pinnedBlocksStore.toggle(tabId, source)) planSidePanelStore.open({ planId: "", documentsTabId: tabId, tabView: "documents" });

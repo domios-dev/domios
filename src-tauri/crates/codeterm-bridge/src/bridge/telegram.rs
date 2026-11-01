@@ -468,6 +468,10 @@ impl TelegramService {
                         .and_then(|v| v.as_i64());
 
                     if !self.is_user_allowed(user_id) {
+                        let _ = self.client.post(self.api_url("answerCallbackQuery"))
+                            .json(&serde_json::json!({"callback_query_id":cb_id,
+                                "text":"This Telegram user is not allowed to answer.","show_alert":true}))
+                            .timeout(std::time::Duration::from_secs(5)).send().await;
                         continue;
                     }
 

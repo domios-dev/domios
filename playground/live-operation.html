@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live chat operation fixture</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import "/src/mocks/setup.ts";
+      import "/src/mocks/theme.ts";
+      import "../src/styles/globals.css";
+      import { createRoot } from "react-dom/client";
+      import specimen from "/src/gallery/specimens/chat-live-operation.spec.tsx";
+      createRoot(document.getElementById("root")).render(specimen.states[0].render());
+    </script>
+  </body>
+</html>

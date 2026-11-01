@@ -39,6 +39,7 @@ fn restores_abort_notice_alongside_composed_role_and_task_context() {
 #[test]
 fn restore_requires_content_and_exact_epoch_tab_thread_and_binding() {
     let expected = RuntimeContext {
+        restricted_cli: None,
         host_owned: Default::default(),
         epoch: 3,
         tab_id: "own".into(),
@@ -51,22 +52,27 @@ fn restore_requires_content_and_exact_epoch_tab_thread_and_binding() {
     assert!(!should_restore(&expected, &expected, true, false));
     for current in [
         RuntimeContext {
+            restricted_cli: None,
             epoch: 4,
             ..expected.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             tab_id: "other".into(),
             ..expected.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             binding_nonce: "new".into(),
             ..expected.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             thread_id: Some("other".into()),
             ..expected.clone()
         },
         RuntimeContext {
+            restricted_cli: None,
             thread_id: None,
             ..expected.clone()
         },

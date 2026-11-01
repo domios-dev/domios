@@ -459,7 +459,7 @@ fn run_fixture(
             serde_json::from_str::<Value>(payload).unwrap().to_string()
         })
         .collect();
-    let view = project(&document, &journal).unwrap_or(Value::Null);
+    let view = project(&document, &journal, &Default::default()).unwrap_or(Value::Null);
     drop(handle);
     drop(lease);
     drop(deliveries);

@@ -1,4 +1,4 @@
-// Caller: scripts/cache-retention.mjs, scripts/cargo-build-gc.test.mjs
+// Caller: scripts/cache-retention.mjs
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';

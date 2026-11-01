@@ -269,6 +269,7 @@ export interface Tab {
   depth?: number;
   chat_view?: boolean;
   pending_prompt?: PendingPrompt | null;
+  pending_prompt_kind?: import("./notificationTypes").NotificationPromptIdentity["kind"] | null;
   /** Live 3-state agent classification from the backend state engine. Drives
    *  the chat-view AgentStateIndicator. Absent until the backend classifies. */
   agent_state?: TabAgentState | null;

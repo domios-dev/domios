@@ -1,6 +1,7 @@
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Vendor {
     pub api_key: Option<&'static str>,
+    pub auth_domain: Option<&'static str>,
     pub project_id: Option<&'static str>,
     pub app_id: Option<&'static str>,
     pub redeem_url: Option<&'static str>,
@@ -13,6 +14,7 @@ pub(crate) fn vendor() -> Vendor {
     }
     Vendor {
         api_key: option_env!("DOMIOS_FIREBASE_API_KEY"),
+        auth_domain: option_env!("DOMIOS_FIREBASE_AUTH_DOMAIN"),
         project_id: option_env!("DOMIOS_FIREBASE_PROJECT_ID"),
         app_id: option_env!("DOMIOS_FIREBASE_APP_ID"),
         redeem_url: redeem_url(),

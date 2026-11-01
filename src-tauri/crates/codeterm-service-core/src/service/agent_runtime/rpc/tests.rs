@@ -235,3 +235,31 @@ async fn parallel_tool_output_burst_stays_inside_the_event_queue() {
     }
     assert_eq!(seen, BURST);
 }
+
+#[tokio::test]
+async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
+    let (host, mut peer) = tokio::io::duplex(4096);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    client.trace_binding(&codeterm_plugin::agent_runtime::RuntimeContext::default());
+    let mut events = client.subscribe();
+    let frames = [
+        json!({"method":"item/started","params":{"threadId":"opaque","turnId":"turn","item":{"id":"item","text":"opaque-body"}}}),
+        json!({"method":"item/commandExecution/outputDelta","params":{"threadId":"opaque","turnId":"turn","itemId":"item","delta":"opaque-progress"}}),
+    ];
+    for frame in frames {
+        peer.write_all(format!("{frame}\n").as_bytes())
+            .await
+            .unwrap();
+        let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let RuntimeFrame::Notification { method, params } = event else {
+            panic!("unexpected request");
+        };
+        assert_eq!(method, frame["method"].as_str().unwrap());
+        assert_eq!(params, frame["params"]);
+    }
+    client.close(RuntimeFailure::PipeEof);
+}

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { performance } from "node:perf_hooks";
 import { splitBinding, blueprintTriggerSummary, buildBlueprintGraph, calleeName, litWires, nodeLabel, type BlueprintGraphModel } from "./graphModel";
-import { layoutBlueprint, ROW_HEIGHT, type BlueprintLayout } from "./layout";
+import { frameBlueprint, layoutBlueprint, ROW_HEIGHT, type BlueprintLayout } from "./layout";
 import { watchRuns, withRetainedRuns } from "./runEvidence";
 import { blueprintNodeKey, toggleBlueprintExpansion } from "../blueprintExpansion";
 import { buildIncrementally } from "../blueprintIncremental";
@@ -26,6 +26,11 @@ function assertGeometry(model: BlueprintGraphModel, layout: BlueprintLayout) {
     }
   }
   for (const route of layout.wires) {
+    const transform = frameBlueprint(layout, { width: 1000, height: 700 }, true)!;
+    for (const point of [route.from, route.to]) {
+      const x = point.x * transform.scale + transform.x, y = point.y * transform.scale + transform.y;
+      assert(x >= 0 && x <= 1000 && y >= 0 && y <= 700, "Fit all contains every drawn edge endpoint");
+    }
     const from = layout.byKey.get(route.wire.from.node)!, to = layout.byKey.get(route.wire.to.node)!;
     const out = from.rows.find((row) => row.right?.id === route.wire.from.pin)!, into = to.rows.find((row) => row.left?.id === route.wire.to.pin)!;
     assert.deepEqual(route.from, { x: from.box.x + from.box.width, y: from.box.y + out.top + ROW_HEIGHT / 2 }, `${route.wire.id} leaves its pin`);
@@ -35,8 +40,8 @@ function assertGeometry(model: BlueprintGraphModel, layout: BlueprintLayout) {
 }
 
 async function main() {
-  const bindings: { binding: string; node: string | null }[] = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-bindings.json", import.meta.url), "utf8"));
-  for (const fixture of bindings) assert.deepEqual(splitBinding(fixture.binding), fixture.node === null ? null : { node: fixture.node, port: "out" }, fixture.binding);
+  const bindings: { binding: string; node: string | null; selection: string | null }[] = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-bindings.json", import.meta.url), "utf8"));
+  for (const fixture of bindings) assert.deepEqual(splitBinding(fixture.binding), fixture.node === null ? null : { node: fixture.node, port: "out", selection: fixture.selection }, fixture.binding);
   const faninContract = JSON.parse(readFileSync(new URL("../../../../tests/fixtures/blueprint-fanin.golden.json", import.meta.url), "utf8"));
   const faninGraph = await buildIncrementally(buildBlueprintGraph(pipelineModel(faninContract), new Set()), async () => {}, new AbortController().signal);
   const incoming = faninGraph.wires.filter((wire) => wire.kind === "data" && wire.to.node === key([], "join"));
@@ -151,13 +156,13 @@ async function main() {
   assert(!finished.nodes.some((node) => node.evidence?.state === "waiting"));
   const lit = litWires(finished);
   assert(lit.has(finished.wires.find((wire) => wire.from.node === key([], "probe") && wire.from.pin === "route:done")!.id), "the taken route lights");
-  assert(!lit.has(finished.wires.find((wire) => wire.from.node === key([], "probe") && wire.from.pin === "route:failed")!.id), "routes not taken stay dark");
+  assert(!finished.wires.some(wire => wire.from.node === key([], "probe") && wire.from.pin === "route:failed" && lit.has(wire.id)), "routes not taken stay dark");
   const labels = finished.nodes.map((node) => nodeLabel(node));
   assert.equal(new Set(labels).size, labels.length, `duplicate node labels: ${labels.join(", ")}`);
   assert(labels.includes("Result in invoke"));
 
   const http = await build({ ...pipeline, call_graph: { ...document, steps: [{ id: "health", uses: "http" }, { id: "ask", uses: "ask", buckets: ["ready"] }] } });
-  assert.deepEqual(http.wires.filter((wire) => wire.from.node === key([], "health")).map((wire) => wire.outcome), ["up", "down", "failed"]);
+  assert.deepEqual(http.wires.filter((wire) => wire.from.node === key([], "health")).map((wire) => wire.outcome), ["up", "down"]);
   assert.deepEqual(http.nodes.find((node) => node.id === "ask")?.outputs.map((pin) => pin.label), ["ready", "other"]);
   const fanIn = await build({ ...pipeline, nested_run: null, call_graph: { ...document, trigger: { type: "input", kind: { lit: "audio" } }, steps: [
     { id: "a", run: { lit: "a" }, in: { type: "string" }, routes: { failed: "recover" } },

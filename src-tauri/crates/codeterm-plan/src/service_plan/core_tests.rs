@@ -102,7 +102,7 @@ fn in_review_status_persists_and_reloads() {
         )
         .unwrap();
 
-    store.plans.write().clear();
+    store.forget_all_plans_for_test();
     store.reload_from_disk(&p.id).unwrap();
 
     let loaded = store.get(&p.id).unwrap();
@@ -143,7 +143,7 @@ fn task_quality_fields_persist_and_reload() {
         )
         .unwrap();
 
-    store.plans.write().clear();
+    store.forget_all_plans_for_test();
     store.reload_from_disk(&p.id).unwrap();
 
     let loaded = store.get(&p.id).unwrap();
@@ -229,7 +229,7 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
         OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
-    let held = store.plans.read().get(&p.id).cloned().unwrap();
+    let held = store.plan_arc_for_test(&p.id);
 
     let path = plan_path(dir.path(), &p);
     let mut edited: Plan = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -239,7 +239,7 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
 
     store.reload_from_disk(&p.id).unwrap();
 
-    let current = store.plans.read().get(&p.id).cloned().unwrap();
+    let current = store.plan_arc_for_test(&p.id);
     assert!(std::sync::Arc::ptr_eq(&held, &current));
     assert_eq!(held.lock().title, "Edited");
 }
@@ -254,27 +254,24 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
         OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
-    let held = store.plans.read().get(&p.id).cloned().unwrap();
 
-    let path = plan_path(dir.path(), &p);
-    let mut stale: Plan = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    stale.title = "Stale disk snapshot".into();
-    stale.updated_at = 3000;
-    std::fs::write(&path, serde_yaml::to_string(&stale).unwrap()).unwrap();
-
-    let mut guard = held.lock();
-    let reload_store = store.clone();
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let mutation_store = store.clone();
     let plan_id = p.id.clone();
-    let reload = std::thread::spawn(move || reload_store.reload_from_disk(&plan_id));
-    std::thread::sleep(std::time::Duration::from_millis(25));
+    let mutation = std::thread::spawn(move || {
+        mutation_store.with_plan(&plan_id, 3000, |plan| {
+            entered_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+            plan.title = "Newer in-flight mutation".into();
+            Ok(())
+        })
+    });
+    entered_rx.recv().unwrap();
 
-    guard.title = "Newer in-flight mutation".into();
-    guard.updated_at = 3000;
-    let written_path = PlanStore::write_atomic(&guard).unwrap();
-    store.note_plan_write(&guard, &written_path);
-    drop(guard);
-
-    reload.join().unwrap().unwrap();
+    store.reload_from_disk(&p.id).unwrap();
+    release_tx.send(()).unwrap();
+    mutation.join().unwrap().unwrap();
 
     let current = store.get(&p.id).unwrap();
     assert_eq!(current.title, "Newer in-flight mutation");
@@ -286,6 +283,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
         .unwrap();
     assert_eq!(entry.title, "Newer in-flight mutation");
     assert_eq!(entry.updated_at, 3000);
+    assert_eq!(store.index.read()[&p.id].title, "Newer in-flight mutation");
 }
 
 #[test]

@@ -216,7 +216,9 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
             match client.call("services.list", Some(params)) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
+                    } else if !crate::cmd::output::verbose() {
+                        print!("{}", crate::cmd::output::compact_list(&val, None));
                     } else if let Some(arr) = val.as_array() {
                         if arr.is_empty() {
                             println!("No services registered.");
@@ -297,7 +299,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                     if json {
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&service_add_json(&val, push)).unwrap()
+                            crate::cmd::output::encode(&service_add_json(&val, push)).unwrap()
                         );
                     } else {
                         let svc = val.get("service").unwrap_or(&val);
@@ -329,7 +331,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                     }
                     ShowOutcome::Found => {
                         if json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            println!("{}", crate::cmd::output::encode(&val).unwrap());
                         } else {
                             print!("{}", render_service_terse(&val));
                         }
@@ -374,7 +376,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
             match client.call("services.update", Some(params)) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else {
                         let n = val.get("name").and_then(|v| v.as_str()).unwrap_or("?");
                         println!("Updated: {}", n);
@@ -403,7 +405,7 @@ pub fn handle_service(client: &mut SocketClient, json: bool, action: ServiceActi
                 ) {
                     Ok(val) => {
                         if json {
-                            println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                            println!("{}", crate::cmd::output::encode(&val).unwrap());
                         } else {
                             let token = val.get("token").and_then(|v| v.as_str()).unwrap_or("");
                             println!("New token (save this NOW — it will not be shown again):");

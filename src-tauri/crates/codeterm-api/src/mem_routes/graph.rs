@@ -209,6 +209,7 @@ pub async fn mem_graph_full(
                 "tags": n.tags,
                 "has_vector": n.has_vector,
                 "has_body": n.has_body,
+                "author": n.author,
             })
         })
         .collect();

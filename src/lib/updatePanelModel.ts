@@ -56,6 +56,12 @@ export function nextUpdateStep(intent: UpdateIntent, hostVersion: string, items:
   return { kind: "complete" };
 }
 
+export function restoredAppIntentInterrupted(intent: UpdateIntent, hostVersion: string,
+  native: { observed: boolean; phase: string; installing: boolean }): boolean {
+  return intent.stage === "app" && intent.appTarget !== null && hostVersion !== intent.appTarget
+    && native.observed && native.phase === "idle" && !native.installing;
+}
+
 export function readUpdateIntent(value: string | null): UpdateIntent | null {
   if (!value) return null;
   try {

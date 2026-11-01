@@ -1,4 +1,5 @@
 mod development_context;
+mod isolated_update;
 mod quit_plan;
 
 use crate::crash;
@@ -15,7 +16,22 @@ pub fn run(
     ) -> tauri::Builder<codeterm_client_shell::app_runtime::Runtime>,
 ) {
     let arguments: Vec<_> = std::env::args_os().skip(1).collect();
-    let startup_options = match crate::preflight_client_arguments(&arguments) {
+    let isolated =
+        match isolated_update::from_arguments(&arguments, cfg!(debug_assertions), context.config())
+        {
+            Ok(launch) => launch,
+            Err(error) => {
+                eprintln!("Domios isolated update launch refused: {error}");
+                return;
+            }
+        };
+    let startup_options = match if let Some(launch) = isolated.as_ref() {
+        Ok(crate::ClientArgumentPreflight::Native(
+            launch.startup_options(),
+        ))
+    } else {
+        crate::preflight_client_arguments(&arguments)
+    } {
         Ok(crate::ClientArgumentPreflight::ExistingDispatch) => {
             startup::run_user_path_repair_if_invoked();
             startup::forward_to_cli_if_invoked();
@@ -27,7 +43,11 @@ pub fn run(
             return;
         }
     };
-    let selector = match client_instance_selector() {
+    let selector = match isolated
+        .as_ref()
+        .map(|launch| Ok(launch.selector()))
+        .unwrap_or_else(client_instance_selector)
+    {
         Ok(selector) => selector,
         Err(error) => {
             eprintln!("Domios client selector refused: {error}");
@@ -45,6 +65,10 @@ pub fn run(
     }
     let relaunch_env = codeterm_paths::relaunch_env::ApplicationRelaunchEnv::capture();
     install_client_selector(&selector);
+    if let Some(launch) = &isolated {
+        launch.install_environment();
+        context.config_mut().build.dev_url = None;
+    }
     let mut builder = codeterm_client_shell::app_runtime::builder().manage(relaunch_env);
     if startup::desktop_lifecycle::single_instance_enabled(
         cfg!(debug_assertions),
@@ -519,6 +543,7 @@ fn load_client_components(
         resources: resources.clone(),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     options.validate(cfg!(debug_assertions))?;
     Ok((manifest, resources, options))
@@ -574,6 +599,7 @@ fn select_client_instance(
         resources: PathBuf::new(),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     }
     .validate(true)?;
     Ok(instance)
@@ -606,6 +632,21 @@ fn install_client_selector(selector: &InstanceSelector) {
 mod process_split_contract_client_composition {
     use super::*;
     use std::ffi::OsStr;
+
+    #[test]
+    fn isolated_update_release_and_foreign_bundle_refuse_before_reading_context() {
+        let arguments = [std::ffi::OsString::from(
+            "--isolated-update-launch=missing-context.json",
+        )];
+        let mut config = tauri::utils::config::Config::default();
+        assert!(isolated_update::from_arguments(&arguments, true, &config).is_err());
+        config.identifier = "com.domios.dev.updater".into();
+        config.product_name = Some("Domios Update Proof".into());
+        config.main_binary_name = Some("domios-dev-app".into());
+        assert!(isolated_update::from_arguments(&arguments, false, &config).is_err());
+        let mixed = [arguments[0].clone(), "workspace".into()];
+        assert!(isolated_update::from_arguments(&mixed, true, &config).is_err());
+    }
 
     #[test]
     fn quit_feedback_only_repeats_for_a_new_state_transition() {

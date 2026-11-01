@@ -1,4 +1,4 @@
-// Caller: rust-warnings-summary.yml; scripts/tests/ci-checkout.test.mjs
+// Caller: rust-warnings-summary.yml
 import fs from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';

@@ -165,6 +165,45 @@ pub async fn run_recluster_phase_with_lock(
     finalize_recluster(&c, parsed_clusters, dreaming_model, resolved, plan_dir)
 }
 
+pub(crate) fn storage_prompt(conn: &Connection) -> Result<Option<String>, String> {
+    let hubs = collect_hubs(conn, TOP_HUBS, NEIGHBORS_PER_HUB)?;
+    let anchors = collect_anchors(conn)?;
+    Ok((!hubs.is_empty()).then(|| build_prompt(&hubs, &anchors)))
+}
+
+pub(crate) fn storage_finalize(
+    conn: &Connection,
+    response: &str,
+    model: &str,
+    plan_dir: &Path,
+) -> Result<ReclusterReport, String> {
+    finalize_recluster(
+        conn,
+        parse_response(response)?,
+        model,
+        resolve_model_id(model),
+        plan_dir,
+    )
+}
+
+pub async fn run_recluster_phase_with_store(
+    mem: &crate::MemManager,
+    model: &str,
+    plan_dir: &Path,
+    caller: &dyn LlmCaller,
+) -> Result<ReclusterReport, String> {
+    let Some(prompt) = mem.backend().recluster_prompt()? else {
+        return Ok(ReclusterReport {
+            plan_path: None,
+            clusters_proposed: 0,
+            model_used: model.into(),
+            message: "no hubs found — graph is empty or all entities orphaned".into(),
+        });
+    };
+    let response = caller.complete(&prompt, resolve_model_id(model)).await?;
+    mem.backend().recluster_finalize(&response, model, plan_dir)
+}
+
 fn finalize_recluster(
     conn: &Connection,
     parsed_clusters: Vec<RawCluster>,

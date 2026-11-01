@@ -30,6 +30,14 @@ export function restorePanelOwnsBody(tab: Partial<Tab>, wake: Partial<WakeReques
     && (tab.frozen === true || tab.boot_stage !== "spawn_failed");
 }
 
+export function restoreActivityVisible(tab: Partial<Tab>, wake: Partial<WakeRequestView>, view: RestoreStageView, bodyPainted: boolean): boolean {
+  if (view.phase === "ready") return false;
+  const responseDelay = runtimeResponseDeadlinePending(tab.agent_runtime_state, tab.boot_failure_reason);
+  const startupStage = tab.boot_stage && tab.boot_stage !== "agent_ready" && tab.boot_stage !== "pty_reattached";
+  return !(view.phase === "restoring" && responseDelay && bodyPainted && !startupStage
+    && !tab.agent_booting && !tab.frozen && !wake.pending && !wake.error);
+}
+
 export function transcriptLoadingStageView(tab: Partial<Tab>): RestoreStageView {
   const view = restoreStageView(tab);
   if (view.phase !== "ready") return { ...view, label: tab.frozen ? "Restoring…" : "Starting…" };

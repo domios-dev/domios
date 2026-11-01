@@ -54,9 +54,12 @@ impl Session {
         Ok(())
     }
 
-    fn keys(&self) -> InstallationKeys<'_> {
+    fn keys<'a>(
+        &'a self,
+        store: &'a dyn codeterm_neighbors::keys::KeyStore,
+    ) -> InstallationKeys<'a> {
         InstallationKeys {
-            store: &OsKeyStore,
+            store,
             registry: self.registry.as_ref(),
             scope: self.scope.clone(),
             uid: &self.transport.uid,
@@ -75,7 +78,10 @@ impl InboxSession for Session {
     }
     async fn prepare(&self) -> codeterm_neighbors::Result<()> {
         self.current()?;
-        self.keys().load().await?.ok_or(Error::Revoked)?;
+        self.keys(&self.service.neighbor_key_store()?)
+            .load()
+            .await?
+            .ok_or(Error::Revoked)?;
         self.current()?;
         if let Some(tab) = &self.tab {
             super::pending::publish(self).await?;
@@ -101,7 +107,8 @@ impl InboxSession for Session {
             return Err(Error::Locked);
         }
         self.current()?;
-        let lifecycle = self.keys();
+        let store = self.service.neighbor_key_store()?;
+        let lifecycle = self.keys(&store);
         let gateway = gateway::Gateway {
             reply_target: None,
             history_generation: self.service.neighbor_history_generation(),

@@ -316,8 +316,9 @@ impl PlanStore {
     ) -> Result<BatchResult, PlanError> {
         let created_count = created_task_count(self.get(plan_id).as_ref(), &request);
         let mut issued_keys = self.issue_task_keys(plan_id, created_count).into_iter();
-        let (result, pending_markdown_writes, staged_specs, staged_plans) =
-            self.with_plan(plan_id, now_ms, |plan| {
+        let turn = self.mutation_writer.enter();
+        let (result, pending_markdown_writes, staged_specs, staged_plans) = self
+            .with_plan_in_writer(&turn, plan_id, now_ms, |plan| {
                 let mut working = plan.clone();
                 let mut result = BatchResult::default();
                 let mut pending_markdown_writes: Vec<(PathBuf, String)> = Vec::new();
@@ -959,10 +960,10 @@ impl PlanStore {
                 .map_err(|e| PlanError::Io(e.to_string()))?;
         }
         for spec in staged_specs.into_values() {
-            self.commit_loaded_spec(spec)?;
+            self.commit_loaded_spec_in_writer(&turn, spec)?;
         }
         for plan in staged_plans {
-            self.commit_loaded_plan(plan)?;
+            self.commit_loaded_plan_in_writer(&turn, plan)?;
         }
         Ok(result)
     }

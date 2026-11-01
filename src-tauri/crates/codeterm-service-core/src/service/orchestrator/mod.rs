@@ -6,6 +6,8 @@ pub use launch::test_support as launch_test_support;
 mod launch_env;
 mod prompt_compose;
 mod spawn;
+#[cfg(test)]
+pub(crate) use spawn::runtime_prompt::bound_plan_id;
 pub mod tab_relink_signal;
 mod types;
 

@@ -2,7 +2,7 @@ use super::*;
 use rand::{rngs::StdRng, SeedableRng};
 use std::{collections::HashMap, sync::Mutex};
 
-mod takeover;
+mod registration;
 
 #[derive(Default)]
 struct Store(Mutex<HashMap<String, Zeroizing<Vec<u8>>>>);
@@ -30,7 +30,7 @@ struct Registry {
 
 #[async_trait]
 impl KeyRegistry for Registry {
-    async fn enroll(&self, signing: &str, _: &str, replace_others: bool) -> Result<String> {
+    async fn enroll(&self, signing: &str, _: &str) -> Result<String> {
         if *self.fail_enroll.lock().unwrap() {
             return Err(Error::Transport);
         }
@@ -39,9 +39,6 @@ impl KeyRegistry for Registry {
             &sha256_hex(format!("verifier-key:owner:{signing}").as_bytes())[..32]
         );
         let mut active = self.active.lock().unwrap();
-        if replace_others {
-            active.retain(|key| key == &id);
-        }
         if !active.contains(&id) {
             active.push(id.clone());
         }
@@ -68,8 +65,8 @@ async fn installation_keys_survive_gateway_recreation_rotate_and_revoke() {
         uid: "owner",
     };
     let mut rng = StdRng::seed_from_u64(8);
-    let first = lifecycle.enroll(true, &mut rng).await.unwrap();
-    let reopened = lifecycle.enroll(true, &mut rng).await.unwrap();
+    let first = lifecycle.enroll(&mut rng).await.unwrap();
+    let reopened = lifecycle.enroll(&mut rng).await.unwrap();
     assert_eq!(first.encryption_key_id(), reopened.encryption_key_id());
     let rotated = lifecycle.rotate(&mut rng).await.unwrap();
     assert_ne!(first.encryption_key_id(), rotated.encryption_key_id());
@@ -96,7 +93,7 @@ async fn failed_enrollment_resumes_the_persisted_candidate() {
     let mut rng = StdRng::seed_from_u64(4);
     *registry.fail_enroll.lock().unwrap() = true;
     assert!(matches!(
-        lifecycle.enroll(true, &mut rng).await,
+        lifecycle.enroll(&mut rng).await,
         Err(Error::Transport)
     ));
     let candidate = store
@@ -110,7 +107,7 @@ async fn failed_enrollment_resumes_the_persisted_candidate() {
     *registry.fail_enroll.lock().unwrap() = false;
     assert_eq!(
         lifecycle
-            .enroll(true, &mut rng)
+            .enroll(&mut rng)
             .await
             .unwrap()
             .encryption_key_id(),
@@ -178,7 +175,7 @@ async fn revocation_preserves_keys_owned_by_another_installation() {
         uid: "owner",
     };
     let mut rng = StdRng::seed_from_u64(18);
-    let local = lifecycle.enroll(true, &mut rng).await.unwrap();
+    let local = lifecycle.enroll(&mut rng).await.unwrap();
     let foreign = PrivateKeys::generate(&mut rng).verifier_key_id("owner");
     registry.active.lock().unwrap().push(foreign.clone());
     lifecycle.revoke().await.unwrap();

@@ -6,7 +6,7 @@ import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, 
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { assertServerClosure, serverArtifact } from './server-artifact.mjs';
+import { assertServerClosure, serverArtifact, SERVER_FEATURES } from './server-artifact.mjs';
 import { SERVER_COMPONENT_SCHEMA, SUPPORTED_BOOTSTRAP_PROTOCOL, validateManifest } from './package-server-component-manifest.mjs';
 import { HEADLESS_TARGETS, packageHeadless, validateHeadlessStage } from './headless-release-package.mjs';
 import { prepareCompileBundleStubs } from './prepare-bundle-resource-stubs.mjs';
@@ -118,6 +118,31 @@ export function verifyServerSource(messages, source) {
   return artifacts[0];
 }
 
+export function assertReleaseServerFeatures(features) {
+  const expected = SERVER_FEATURES.map(feature => feature.split('/')[1]).sort();
+  if (JSON.stringify([...features].sort()) !== JSON.stringify(expected)) {
+    fail('release server feature selection differs from the reviewed closure');
+  }
+}
+
+export function checkReleaseServerFeatures(buildScript) {
+  const inputs = buildScript.replaceAll('\r\n', '\n')
+    .match(/^prepare_release_bundle_inputs\(\) \{\n[\s\S]*?^\}/m)?.[0];
+  if (!inputs) fail('release server build function is missing');
+  const commands = inputs.replace(/\\\n\s*/g, ' ');
+  for (const operation of ['build', 'tree']) {
+    const rows = commands.split('\n').filter(line =>
+      new RegExp(`^\\s*cargo ${operation} .* -p domios-server(?: |$)`).test(line));
+    if (rows.length !== 1) fail(`expected one release server cargo ${operation} command`);
+    const features = rows[0].match(/--features ([^\s]+)/)?.[1].split(',');
+    if (!rows[0].includes('--no-default-features') || !features ||
+        features.some(feature => !feature.startsWith('domios-server/'))) {
+      fail(`release server cargo ${operation} requires explicit isolated features`);
+    }
+    assertReleaseServerFeatures(features.map(feature => feature.slice('domios-server/'.length)));
+  }
+}
+
 export async function verifyServerBuild({ repo = root, target, sourceSha, cargoLog, treeLog, expectedCliSha256 }) {
   metadataFor(target);
   if (!SHA_PATTERN.test(sourceSha ?? '')) fail('source SHA must be a full commit identity');
@@ -128,9 +153,7 @@ export async function verifyServerBuild({ repo = root, target, sourceSha, cargoL
   if (!messages.some(row => row.reason === 'build-finished' && row.success)) fail('release server Cargo build did not finish');
   const source = path.join(repo, 'src-tauri', 'crates', 'domios-server', 'src', 'main.rs');
   const artifact = verifyServerSource(messages, source);
-  if (JSON.stringify([...artifact.features].sort()) !== JSON.stringify(['embeddings'])) {
-    fail('release server feature selection differs from the reviewed closure');
-  }
+  assertReleaseServerFeatures(artifact.features);
   const binary = serverArtifact(messages);
   const expectedName = target.startsWith('aarch64-pc-windows') || target.startsWith('x86_64-pc-windows')
     ? 'domios-server.exe' : 'domios-server';
@@ -410,6 +433,11 @@ function argumentsFor(args) {
 
 async function main() {
   const command = process.argv[2];
+  if (command === 'check-server-features') {
+    checkReleaseServerFeatures(await readFile(path.join(root, 'build.sh'), 'utf8'));
+    process.stdout.write('release server features match build and dependency tree\n');
+    return;
+  }
   const arg = argumentsFor(process.argv.slice(3));
   const target = arg('--target');
   if (command === 'cli-digest') {

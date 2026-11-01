@@ -112,6 +112,7 @@
 }
 
 .ct-msg-dot__button {
+  position: relative;
   align-items: center;
   animation: ct-msg-dot-in 160ms ease-out;
   border-radius: 7px;
@@ -121,6 +122,34 @@
   height: 18px;
   justify-content: center;
   width: 14px;
+}
+
+.ct-msg-dot__progress {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  pointer-events: none;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  overflow: visible;
+}
+
+.ct-msg-dot__progress circle {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: ct-msg-hover-progress 300ms linear forwards;
+}
+
+@keyframes ct-msg-hover-progress {
+  to { stroke-dashoffset: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ct-msg-dot__progress circle { animation: none; stroke-dashoffset: 0; }
 }
 
 .ct-msg-dot__button::before {

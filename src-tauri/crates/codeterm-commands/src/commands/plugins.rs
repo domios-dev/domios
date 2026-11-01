@@ -1,12 +1,17 @@
 mod action;
 mod cli;
 mod diff_cache;
+mod host_action;
 mod permissions;
 mod snapshot;
 mod view;
 
 pub use action::run_action;
 pub use action::PluginManagerAction;
+pub use host_action::{
+    view_host_action, view_host_download, view_host_input, DocumentStamp, HostActionRequest,
+    PickedSource,
+};
 pub use view::bubble_poll;
 pub use view::glance_render;
 pub use view::view_call;
@@ -21,3 +26,8 @@ pub async fn plugin_manager_snapshot_for_service(
 pub fn invalidate_plugin_snapshot() {
     action::invalidate_plugin_snapshot();
 }
+
+pub use view::host::{
+    recording_suggestion as plugin_recording_suggestion,
+    remote_task_call as plugin_remote_task_call,
+};

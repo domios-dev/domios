@@ -23,11 +23,10 @@ on:
         options:
           - test-one
           - ci-suite
-          - node-test
           - nextest
           - build
       target:
-        description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; node-test: scripts/tests file; nextest: build.sh nextest scope, usually workspace"
+        description: "test-one: build.sh scope (pty, mem, cli, ...); ci-suite: full, platform or embeddings; nextest: build.sh nextest scope, usually workspace"
         required: true
         type: string
       filter:
@@ -92,7 +91,6 @@ jobs:
         if: runner.environment == 'self-hosted'
         run: node scripts/ci-runner-paths.mjs --paths-only
       - name: Fetch scoped baseline history
-        if: inputs.recipe != 'node-test'
         env:
           GH_TOKEN: ${{ github.token }}
         run: node scripts/ci-git-history.mjs baseline
@@ -108,21 +106,20 @@ jobs:
           case "$STEP_RECIPE" in
             test-one) [ -n "$STEP_FILTER" ] || { echo "::error::test-one needs a filter"; exit 2; } ;;
             ci-suite) case "$STEP_TARGET" in full|platform|embeddings) ;; *) echo "::error::ci-suite target is full, platform or embeddings"; exit 2 ;; esac ;;
-            node-test) [[ "$STEP_TARGET" == scripts/tests/*.test.mjs ]] || { echo "::error::node-test target is a scripts/tests/*.test.mjs file"; exit 2; } ;;
           esac
       - name: Hosted Rust toolchain
-        if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
+        if: runner.environment == 'github-hosted'
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: 1.99.1
           components: clippy,rustfmt
       - name: Hosted nextest
-        if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
+        if: runner.environment == 'github-hosted'
         uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91
         with:
           tool: cargo-nextest@0.9.148
       - name: Hosted sccache
-        if: runner.environment == 'github-hosted' && inputs.recipe != 'node-test'
+        if: runner.environment == 'github-hosted'
         uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
       - name: Hosted pnpm prerequisite
         if: runner.environment == 'github-hosted'
@@ -131,26 +128,20 @@ jobs:
           version: 10.32.1
           run_install: false
           dest: ${{ runner.tool_cache }}/setup-pnpm
-      - name: Install dependencies
-        if: inputs.recipe == 'node-test'
-        shell: bash
-        run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
       - name: Prepare compile fixtures
-        if: inputs.recipe != 'node-test'
         run: node scripts/ci-rust-prepare.mjs
       - name: Run the step (Unix)
         if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
-          if [ "$RUNNER_OS" = macOS ] && [ "$STEP_RECIPE" != node-test ]; then
+          if [ "$RUNNER_OS" = macOS ]; then
             # Large test binaries exceed Mach-O compact-unwind offsets, as in the CI platform suite.
             export CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS="${CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS:+$CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS }-C link-arg=-Wl,-no_compact_unwind"
           fi
           case "$STEP_RECIPE" in
             test-one) bash build.sh test-one "$STEP_TARGET" "$STEP_FILTER" ;;
             ci-suite) bash build.sh ci-tests "$STEP_TARGET" ;;
-            node-test) node --test "$STEP_TARGET" ;;
             nextest) bash build.sh nextest "$STEP_TARGET" "$STEP_FILTER" ;;
             build) source build.sh env && cargo test --workspace --exclude codeterm-cli --no-run --locked --no-default-features --manifest-path src-tauri/Cargo.toml ;;
           esac
@@ -161,7 +152,6 @@ jobs:
           switch ($env:STEP_RECIPE) {
             'test-one' { & .\build.ps1 test-one $env:STEP_TARGET $env:STEP_FILTER }
             'ci-suite' { & .\build.ps1 ci-tests $env:STEP_TARGET }
-            'node-test' { node --test $env:STEP_TARGET }
             'nextest' { & .\build.ps1 nextest $env:STEP_TARGET $env:STEP_FILTER }
             'build' { bash -c 'source build.sh env && cargo test --workspace --exclude codeterm-cli --no-run --locked --no-default-features --manifest-path src-tauri/Cargo.toml' }
           }

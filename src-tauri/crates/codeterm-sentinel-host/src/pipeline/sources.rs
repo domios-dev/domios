@@ -18,7 +18,30 @@ pub(super) fn run(
         |command, limit, runtime, input| {
             let environment = crate::probe_env::command();
             if matches!(step.kind, StepKind::Command { .. }) {
-                probe::run_enveloped(
+                let plain = step.execution.as_ref().is_some_and(|contract| {
+                    contract
+                        .input_binding
+                        .iter()
+                        .chain(contract.input_bindings.values())
+                        .any(|path| {
+                            codeterm_blueprint_types::blueprint_document::bindings::parse(path)
+                                .ok()
+                                .is_some_and(|binding| {
+                                    lease.job.pipeline().is_some_and(|spec| {
+                                        spec.steps.iter().any(|source| {
+                                            source.name == binding.node
+                                                && matches!(source.kind, StepKind::Plugin { .. })
+                                        })
+                                    })
+                                })
+                        })
+                });
+                let run = if plain {
+                    probe::run_value
+                } else {
+                    probe::run_enveloped
+                };
+                run(
                     command,
                     Path::new(&lease.job.cwd),
                     limit,

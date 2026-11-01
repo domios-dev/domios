@@ -15,7 +15,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
 import { shareRecord } from "../../lib/sameJson";
 import { selectSidebarState, sidebarStateEqual } from "./sidebarState";
-import { getAgentProvider } from "../../lib/agentProviders";
+import { getPlugin } from "../../lib/plugins/registry";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import type { AppConfig, CronJob, Tab } from "../../lib/types";
 import { anchorsTeam } from "../../lib/roleKind";
@@ -95,6 +95,7 @@ interface SidebarProps {
   /** Bumped by the titlebar burger to bring a collapsed sidebar back. */
   expandRequest?: number;
   restoring?: boolean;
+  firstRunActive?: boolean;
 }
 
 // Memoized: App re-renders on every store change; the sidebar has its own selector.
@@ -115,6 +116,7 @@ export const Sidebar = memo(function Sidebar({
   onCollapsedChange,
   expandRequest = 0,
   restoring = false,
+  firstRunActive = firstRunLocked(config?.general_agent),
 }: SidebarProps) {
   const {
     createWorkspace,
@@ -135,7 +137,6 @@ export const Sidebar = memo(function Sidebar({
     upsertToast,
   } = useMultiplexer();
   const backendState = useMuxSelector(selectSidebarState, sidebarStateEqual);
-  const firstRunActive = firstRunLocked(config?.general_agent);
   const selectedState = firstRunSelection(firstRunActive, { ...backendState, focused_tab_id: null });
   const visibleTabs = useMemo(() => firstRunSidebarTabs(firstRunActive, backendState.tabs), [firstRunActive, backendState.tabs]);
   const state = { ...selectedState, tabs: visibleTabs };
@@ -198,10 +199,10 @@ export const Sidebar = memo(function Sidebar({
     }
     let folder: string | null = workspaceCwd;
     if (!folder) {
-      const provider = getAgentProvider(agentId);
+      const provider = getPlugin(agentId);
       if (IS_WEB) {
         setFolderPicker({
-          title: `Project folder for ${provider?.displayName ?? agentId}`,
+          title: `Project folder for ${provider?.meta.displayName ?? agentId}`,
           initialPath: workspaceCwd,
           onSelect: (path) => {
             void spawnAgentTab(workspaceId, agentId, path).catch(reportFailure);
@@ -213,7 +214,7 @@ export const Sidebar = memo(function Sidebar({
           folder = await open({
             directory: true,
             multiple: false,
-            title: `Choose project folder for ${provider?.displayName ?? agentId}`,
+            title: `Choose project folder for ${provider?.meta.displayName ?? agentId}`,
           });
         } catch (err) {
           console.error(`[agent-spawn] folder picker failed:`, err);
@@ -779,6 +780,7 @@ export const Sidebar = memo(function Sidebar({
                 />
               )}
               {!isCompact && !restoring && <SidebarStructuralSection label="WORKSPACES" testId="workspaces-section-toggle"
+                firstRunMuted={firstRunActive}
                 expanded={workspacesSectionExpanded} onToggle={toggleWorkspacesSection}>
                 {workspaceSectionBodyVisible(isCompact, workspacesSectionExpanded) && (
                   <>
@@ -821,7 +823,8 @@ export const Sidebar = memo(function Sidebar({
             <div
               role="navigation"
               aria-label="Sidebar views"
-              className={`sidebar-footer ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
+              data-first-run-muted={firstRunActive || undefined}
+              className={`sidebar-footer ${firstRunActive ? "opacity-70" : ""} ${isCompact ? "px-1 py-2 flex flex-col items-center" : "flex flex-col"}`}
             >
               <SidebarNavButton
                 testId="nav-memory"

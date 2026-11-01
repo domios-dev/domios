@@ -44,10 +44,7 @@ pub async fn mem_get(
             // Skip evidence bump on worker-driven reads (extraction/dreamer sweeps would poison the signal).
             let is_worker_call = headers.get(WORKER_ID_HEADER).is_some();
             if !is_worker_call {
-                state
-                    .svc
-                    .mem
-                    .with_conn(|conn| bump_on_get(conn, &item.kind, &id));
+                state.svc.mem.bump_on_get(&item.kind, &id);
             }
             Ok(Json(serde_json::to_value(item).unwrap_or_default()))
         }
@@ -81,6 +78,7 @@ pub async fn mem_save(
     Json(body): Json<SaveBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     validate_item_fields(
         &body.title,
         &body.body,
@@ -124,7 +122,7 @@ pub async fn mem_save(
     let changed_by = changed_by_from_headers(&headers);
     let worker_id = super::worker_id_from_headers(&headers);
     let result = codeterm_service_core::mem::store::with_write_worker(worker_id, || {
-        codeterm_service_core::mem::store::with_changed_by(&changed_by, || {
+        codeterm_service_core::mem::store::with_authored_change(author.clone(), &changed_by, || {
             state.svc.save_memory_for_caller(
                 &crate::tab_routes::authenticated_plan_caller(&headers),
                 item,
@@ -145,6 +143,7 @@ pub async fn mem_save(
     let auto_extract_enabled = state.svc.configuration().memory.auto_extract;
     let should_extract = save_schedules_extraction(
         &outcome,
+        &author,
         body.skip_extract,
         is_auto_extracted,
         auto_extract_enabled,
@@ -177,6 +176,7 @@ pub async fn mem_update(
     Json(body): Json<UpdateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     validate_update_body(&body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let patch = MemUpdate {
         title: body.title,
@@ -198,9 +198,11 @@ pub async fn mem_update(
     let updated = codeterm_service_core::mem::store::with_write_worker(
         super::worker_id_from_headers(&headers),
         || {
-            codeterm_service_core::mem::store::with_changed_by(&changed_by, || {
-                state.svc.mem.update(&id, patch)
-            })
+            codeterm_service_core::mem::store::with_authored_change(
+                author.clone(),
+                &changed_by,
+                || state.svc.mem.update(&id, patch),
+            )
         },
     )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -302,13 +304,16 @@ pub async fn mem_learn(
     Json(b): Json<LearnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let lk = match b.kind.as_deref() {
         Some("error") => LearnKind::Error,
         Some("feature") => LearnKind::Feature,
         _ => LearnKind::Insight,
     };
-    let id = learnings::learn(&state.svc.mem, &b.text, lk, b.tags)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+    let id = codeterm_service_core::mem::store::with_author(author, || {
+        learnings::learn(&state.svc.mem, &b.text, lk, b.tags)
+    })
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "id": id })))
 }
 
@@ -318,8 +323,9 @@ pub async fn mem_promote(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let changed_by = changed_by_from_headers(&headers);
-    codeterm_service_core::mem::store::with_changed_by(&changed_by, || {
+    codeterm_service_core::mem::store::with_authored_change(author.clone(), &changed_by, || {
         state.svc.mem.promote_learning(&id)
     })
     .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
@@ -404,6 +410,7 @@ pub async fn mem_append(
     Json(b): Json<AppendBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     if b.text.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "text required".into()));
     }
@@ -428,9 +435,11 @@ pub async fn mem_append(
         .filter(|s| !s.is_empty())
         .map(sanitize_actor)
         .unwrap_or_else(|| changed_by_from_headers(&headers));
-    let updated = codeterm_service_core::mem::store::with_changed_by(&changed_by, || {
-        state.svc.mem.update(&id, patch)
-    })
+    let updated = codeterm_service_core::mem::store::with_authored_change(
+        author.clone(),
+        &changed_by,
+        || state.svc.mem.update(&id, patch),
+    )
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     if !updated {
         return Err((StatusCode::NOT_FOUND, format!("mem item {} not found", id)));
@@ -450,10 +459,13 @@ pub async fn mem_restore(
     Json(b): Json<RestoreBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let svc = state.svc.clone();
     let target = id.clone();
     let out = tokio::task::spawn_blocking(move || {
-        codeterm_service_core::mem_ops::mem_merge::restore_item(&svc, &target, &b)
+        codeterm_service_core::mem::store::with_author(author, || {
+            codeterm_service_core::mem_ops::mem_merge::restore_item(&svc, &target, &b)
+        })
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("join: {e}")))??;

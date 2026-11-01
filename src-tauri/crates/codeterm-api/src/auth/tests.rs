@@ -45,15 +45,11 @@ fn tailnet_exemptions_are_only_existing_peer_handshakes_and_liveness() {
     }
     for path in [
         "/api/mesh/link/hello",
-        "/api/mesh/link/approval",
-        "/api/mesh/disconnect-notice",
         "/api/mesh/link/confirm",
         "/api/mesh/link/commit",
         "/api/mesh/relay",
         "/api/mesh/announce",
         "/api/mesh/account-presence",
-        "/api/mesh/adopt/offer",
-        "/api/mesh/adopt/commit",
     ] {
         assert!(tailnet_exempt(&Method::POST, path));
         assert!(!tailnet_exempt(&Method::GET, path));
@@ -92,9 +88,9 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
             .ext::<codeterm_service_core::MeshStateHandle>(),
     ));
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
-    {
+    let admitted = {
         let mut mesh = state.mesh.lock();
-        mesh.insert_legacy_pair_for_test(PairedPeer {
+        mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "paired".into(),
             instance_name: "paired".into(),
             addresses: vec![],
@@ -111,13 +107,8 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
             consecutive_misses: 0,
             last_active_ms: None,
         });
-        mesh.apply_account_state(AccountMeshState {
-            presence: AccountPresence::SignedIn {
-                account_id: "account".into(),
-            },
-            ..Default::default()
-        });
-    }
+        mesh.account_state().clone()
+    };
     let router = Router::new()
         .route(
             "/api/config",
@@ -203,7 +194,7 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
     for presence in [AccountPresence::NeverSignedIn, AccountPresence::SignedOut] {
         state.mesh.lock().apply_account_state(AccountMeshState {
             presence,
-            ..Default::default()
+            ..admitted.clone()
         });
         for (token, expected) in [
             ("preview-test-token", StatusCode::OK),
@@ -231,13 +222,17 @@ async fn tailnet_router_accepts_instance_tokens_and_preserves_peer_access_policy
         );
     }
 
-    state.mesh.lock().apply_account_state(AccountMeshState {
-        presence: AccountPresence::SignedIn {
-            account_id: "account".into(),
-        },
-        ..Default::default()
-    });
-    state.mesh.lock().unpair("paired").unwrap();
+    state.mesh.lock().apply_account_state(admitted);
+    assert_eq!(
+        router
+            .clone()
+            .oneshot(request("GET", "/api/config", &signed))
+            .await
+            .unwrap()
+            .status(),
+        StatusCode::OK
+    );
+    state.mesh.lock().remove_account_peer("paired");
     assert_eq!(
         router
             .clone()
@@ -308,11 +303,11 @@ fn plugin_ui_document_and_assets_require_bearer_authentication() {
 fn custom_auth_only_exempts_self_verifying_paths() {
     // Self-verifying: skip the bearer middleware.
     assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
-    assert!(is_custom_auth(&Method::POST, "/api/mesh/adopt/offer"));
-    assert!(is_custom_auth(&Method::POST, "/api/mesh/adopt/commit"));
+    assert!(!is_custom_auth(&Method::POST, "/api/mesh/adopt/offer"));
+    assert!(!is_custom_auth(&Method::POST, "/api/mesh/adopt/commit"));
     assert!(!is_custom_auth(&Method::POST, "/api/mesh/introduce"));
-    assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
-                                                                        // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
+    assert!(!is_custom_auth(&Method::DELETE, "/api/mesh/peers/abc123")); // unpair
+                                                                         // Relayed plugin-UI asset proxy: iframe src, handler self-verifies query token.
     assert!(is_custom_auth(
         &Method::GET,
         "/api/mesh/relay-asset/peer1/plugins/foo/ui/index.html"
@@ -445,7 +440,7 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
     };
     let mut mesh = codeterm_service_core::mesh::MeshManager::new("auth-test".into(), 7685);
     mesh.disk_persist = false;
-    mesh.insert_legacy_pair_for_test(PairedPeer {
+    mesh.insert_account_peer_for_test(PairedPeer {
         instance_id: "air".into(),
         instance_name: "air".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.7")],
@@ -628,7 +623,6 @@ fn public_paths_recognized() {
         "/api/mesh/pair/confirm",
         "/api/mesh/pair/reject",
         "/api/mesh/link",
-        "/api/mesh/adopt/offer",
     ] {
         assert!(!PUBLIC_PATHS.contains(&removed), "{removed}");
     }
@@ -650,7 +644,7 @@ fn custom_auth_paths() {
     assert!(is_custom_auth(&Method::POST, "/api/mesh/relay"));
     assert!(!is_custom_auth(&Method::POST, "/api/mesh/link"));
     // Unpair self-verifies; only the DELETE on the bare id is exempt.
-    assert!(is_custom_auth(&Method::DELETE, "/api/mesh/peers/some-id"));
+    assert!(!is_custom_auth(&Method::DELETE, "/api/mesh/peers/some-id"));
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers/some-id"));
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/peers"));
     assert!(!is_custom_auth(&Method::GET, "/api/mesh/status"));
@@ -707,16 +701,16 @@ fn service_push_rejected_on_tab_root() {
 }
 
 #[test]
-fn migrated_instance_refuses_legacy_bearer_and_accepts_persisted_replacement() {
+fn instance_refuses_foreign_bearer_and_accepts_persisted_credential() {
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
 
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
     let state = crate::test_support::app_state(&fixture);
-    let rotated =
-        codeterm_util::instance_token::migrate_at(fixture.temp.path(), "legacy-instance-bearer")
-            .unwrap();
+    let rotated = codeterm_util::instance_token::initialize_at(fixture.temp.path(), true)
+        .unwrap()
+        .unwrap();
     state.config.lock().api.token = Some(rotated.clone());
     assert!(identify_caller(&state, "Bearer legacy-instance-bearer").is_err());
     assert!(matches!(
@@ -731,7 +725,7 @@ fn migrated_instance_refuses_legacy_bearer_and_accepts_persisted_replacement() {
 
 #[test]
 fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
-    use codeterm_service_core::mesh::account_mesh::{AccountMeshState, AccountPresence};
+    use codeterm_service_core::mesh::account_mesh::AccountMeshState;
     use codeterm_service_core::mesh::types::PairedPeer;
     use codeterm_service_core::multiplexer::state::MultiplexerState;
     use codeterm_service_core::service::test_fixture::ServiceFixture;
@@ -740,17 +734,9 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
     let fixture = ServiceFixture::new(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let (private_key, public_key) = codeterm_service_core::mesh::crown::generate_peer_keypair();
-    let sign_in = |locked| AccountMeshState {
-        account_epoch: 1 + u64::from(locked),
-        presence: AccountPresence::SignedIn {
-            account_id: "account".into(),
-        },
-        plan_limit_locked: locked,
-        ..AccountMeshState::default()
-    };
-    {
+    let admitted = {
         let mut mesh = state.mesh.lock();
-        mesh.insert_legacy_pair_for_test(PairedPeer {
+        mesh.insert_account_peer_for_test(PairedPeer {
             instance_id: "locked-peer".into(),
             instance_name: "locked".into(),
             addresses: vec![],
@@ -767,8 +753,19 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
             consecutive_misses: 0,
             last_active_ms: None,
         });
-        mesh.apply_account_state(sign_in(true));
-    }
+        mesh.account_state().clone()
+    };
+    let sign_in = |locked| AccountMeshState {
+        account_epoch: 1 + u64::from(locked),
+        plan_limit_locked: locked,
+        membership: if locked {
+            None
+        } else {
+            admitted.membership.clone()
+        },
+        ..admitted.clone()
+    };
+    state.mesh.lock().apply_account_state(sign_in(true));
     let token =
         codeterm_service_core::mesh::crown::sign_request(&private_key, "locked-peer").unwrap();
     assert!(identify_caller(&state, &format!("Bearer {token}")).is_err());

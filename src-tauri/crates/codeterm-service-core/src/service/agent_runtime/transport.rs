@@ -69,8 +69,10 @@ fn send_inner(
             tab: tab.into(),
             detail,
         })?;
-    super::capacity_retry::cancel(svc, tab)
-        .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+    if matches!(input, crate::service::messenger::AgentInput::Human(_)) {
+        super::capacity_retry::cancel(svc, tab)
+            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+    }
     svc.wake_frozen_tab(tab)
         .map_err(|detail| DeliveryError::TabBusyRefused {
             tab: tab.into(),
@@ -253,12 +255,6 @@ pub(crate) async fn submit_loaded(
             RuntimeFailure::Refused("Runtime input or outstanding claim limit".into()),
         ));
     }
-    if !session.capacity_retry.lock().permits_send(send_id) {
-        return Err(before_write(
-            tab,
-            RuntimeFailure::Refused("Capacity retry cancelled".into()),
-        ));
-    }
     if !svc.chat_send_ledger.bind_rpc_send(
         &pending.send_id,
         SendLiveBinding {
@@ -270,12 +266,6 @@ pub(crate) async fn submit_loaded(
             tab: tab.into(),
             detail: "Runtime send already claimed".into(),
         });
-    }
-    if matches!(classified, crate::service::messenger::AgentInput::Human(_)) {
-        session.capacity_retry.lock().begin(send_id, &input.text);
-    } else {
-        super::capacity_retry::cancel(svc, tab)
-            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
     }
     session.context.lock().claimed_sends.push(ClaimedSend {
         send_id: pending.send_id.clone(),
@@ -331,7 +321,6 @@ pub(crate) async fn submit_loaded(
                 );
             }
             if let Some(turn) = turn_id {
-                session.capacity_retry.lock().bind(&send_id, &turn);
                 let mut current = session.context.lock();
                 if current.epoch == context.epoch
                     && session.completions.lock().permits_receipt(

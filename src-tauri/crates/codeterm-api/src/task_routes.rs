@@ -77,7 +77,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
         | PlanError::ReviewHoldRequired
         | PlanError::DispatchInFlight { .. }
         | PlanError::AttemptBindingRestoreRefused { .. } => StatusCode::CONFLICT,
-        PlanError::Io(_) => StatusCode::INTERNAL_SERVER_ERROR,
+        PlanError::Io(_) | PlanError::Quarantined { .. } => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (status, Json(json!({ "plan_error": e.to_json() })))
 }

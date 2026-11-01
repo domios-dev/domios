@@ -1,3 +1,5 @@
+import { PluginViewChannel } from "../../lib/pluginViewChannel";
+import { TestViewPort } from "../../lib/pluginViewChannel.testSupport";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
@@ -12,7 +14,13 @@ import type { PluginSnapshot } from "./types";
 import { invoke } from "../../lib/bridge";
 
 vi.mock("../../lib/bridge", () => ({ invoke: vi.fn(), listen: vi.fn(async () => () => {}) }));
-vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ html: "<html></html>", error: null }) }));
+let consentChannel: PluginViewChannel | undefined;
+vi.mock("./usePluginDocument", () => ({ usePluginDocument: () => ({ channel: consentChannel, html: "<html></html>", error: null,
+  invoke: (method: string, args: unknown) => invoke("plugin_view_call", {pluginId:"fixture",method,args}),
+}) }));
+vi.mock("../../lib/daemonBootstrap", () => ({ baseDaemonTransport: () => ({
+  localJson: (_method: string, path: string, action: unknown) => invoke(path.endsWith("snapshot") ? "plugin_manager_snapshot" : "plugin_manager_action", {action}),
+}) }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 let root: Root | undefined;
 let host: HTMLElement;
@@ -30,6 +38,8 @@ afterEach(async () => {
   await act(async () => { while (getPluginConsent()) decidePluginConsent(false); root?.unmount(); });
   host?.remove();
   root = undefined;
+  consentChannel?.dispose();
+  consentChannel = undefined;
   __resetPluginSnapshotStoreForTest();
   vi.resetAllMocks();
 });
@@ -125,17 +135,18 @@ it("iframe consent preserves the host-stamped plugin, call ID and reply channel"
     if (++attempts === 1) throw new Error("local_recording_grant_required");
     return { enabled: true };
   });
+  consentChannel = new PluginViewChannel("c".repeat(32));
   await mount(<><PluginConsentDialog /><PluginView pluginId="fixture" api={undefined} embedded /></>);
   const iframe = host.querySelector("iframe")!;
-  const reply = vi.fn();
-  const ownWindow = { postMessage: reply };
-  Object.defineProperty(iframe, "contentWindow", { configurable: true, value: ownWindow });
-  await act(async () => window.dispatchEvent(new MessageEvent("message", {
-    source: ownWindow as unknown as Window, data: { __ctInvoke: 7, pluginId: "foreign", method: "enable", args: { enabled: true } },
-  })));
+  const port = new TestViewPort();
+  const reply = vi.spyOn(port, "postMessage");
+  consentChannel!.accept(iframe.contentWindow, port.port);
+  await act(async () => port.prove());
+  reply.mockClear();
+  await act(async () => port.receive({ __ctInvoke: 7, pluginId: "foreign", method: "enable", args: { enabled: true } }));
   expect(reply).not.toHaveBeenCalled();
   await act(async () => button("Allow").click());
-  expect(reply).toHaveBeenCalledExactlyOnceWith({ __ctReply: 7, result: { enabled: true } }, "*");
+  expect(reply).toHaveBeenCalledExactlyOnceWith({ __ctReply: 7, result: { enabled: true } });
   const calls = vi.mocked(invoke).mock.calls.filter(([command]) => command === "plugin_view_call");
   expect(calls.map(([, args]) => args?.pluginId)).toEqual(["fixture", "fixture"]);
 });
@@ -176,4 +187,23 @@ it("a stale dialog decision cannot approve the next queued permission", async ()
   expect(getPluginConsent()).toBe(second);
   await act(async () => button("Not now").click());
   expect(await denied!).toBe(false);
+});
+
+it("a native load cancels a pending consent retry instead of borrowing the fresh document lease", async () => {
+  vi.mocked(invoke).mockImplementation(async (command) => {
+    if(command==="plugin_view_call") throw new Error("local_recording_grant_required");
+    return snapshot();
+  });
+  consentChannel = new PluginViewChannel("c".repeat(32));
+  await mount(<><PluginConsentDialog /><PluginView pluginId="fixture" api={undefined} embedded /></>);
+  const iframe=host.querySelector("iframe")!;const port=new TestViewPort();
+  consentChannel.accept(iframe.contentWindow,port.port);await act(async()=>port.prove());
+  await act(async()=>port.receive({__ctInvoke:8,method:"enable",args:{enabled:true}}));
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+  await act(async()=>iframe.dispatchEvent(new Event("load")));
+  await act(async()=>button("Allow").click());
+  await act(async()=>port.prove());
+  expect(vi.mocked(invoke).mock.calls.filter(([command])=>command==="plugin_view_call")).toHaveLength(1);
+  expect(vi.mocked(invoke).mock.calls.filter(([command])=>command==="plugin_manager_action")).toHaveLength(0);
+  expect(port.sent).toContainEqual({__ctReply:8,error:expect.any(String)});
 });

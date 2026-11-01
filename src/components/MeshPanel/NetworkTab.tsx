@@ -26,7 +26,7 @@ export function NetworkTab({ triggerRefresh }: Props) {
           <SettingsCard
             icon={<Users size={16} />}
             title="My machines"
-            description="Machines signed in to your Domios account. Connect links one directly; both machines must be online."
+            description="Machines signed in to your Domios account connect automatically when both are online."
           >
             <MyMachines
               account={account.presence}

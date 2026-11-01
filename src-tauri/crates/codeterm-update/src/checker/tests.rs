@@ -196,3 +196,41 @@ fn cache_contention_refuses_without_waiting() {
     )
     .is_err());
 }
+
+#[tokio::test]
+async fn release_discovery_preserves_channel_and_newest_mirror_when_offline() {
+    for channel in [
+        crate::Channel::Stable,
+        crate::Channel::Rc,
+        crate::Channel::Nightly,
+    ] {
+        let root = tempfile::tempdir().unwrap();
+        let mut endpoints = crate::channel::default_endpoints(channel).into_iter();
+        let fresh = resolve_with(
+            &InstallMethod::Unknown,
+            channel,
+            root.path().into(),
+            |endpoint| {
+                assert_eq!(Some(endpoint.clone()), endpoints.next());
+                let version = if endpoint.contains(UPDATE_REPOSITORIES[0]) {
+                    "8.0.0"
+                } else {
+                    "9.0.0"
+                };
+                std::future::ready(Ok(resolved(version).manifest))
+            },
+        )
+        .await
+        .unwrap();
+        assert!(endpoints.next().is_none());
+        assert_eq!(fresh.release.repository, UPDATE_REPOSITORIES[1]);
+        assert_eq!(fresh.release.tag, "v9.0.0");
+        let cached = resolve_with(&InstallMethod::Unknown, channel, root.path().into(), |_| {
+            std::future::ready(Err("offline".into()))
+        })
+        .await
+        .unwrap();
+        assert_eq!(cached.release, fresh.release);
+        assert!(cached.refresh_error.is_some());
+    }
+}

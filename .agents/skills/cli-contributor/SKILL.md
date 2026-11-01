@@ -55,11 +55,12 @@ propose decomposition in reports but cannot spawn sub-Workers.
   `codeterm_cli.md` alone. It trims to the longest resolvable prefix, so it does
   **not** validate flags.
 
-**Output shape has one sweep only:** `cli/tests/json_error_contract.rs` runs
-every manifest command with `--json` and pins the error envelope. Nothing else
-asserts what a command *prints* on success, its exit code, or its JSON schema.
-Renaming an output field or dropping a printed line passes every test above.
-Cover those yourself.
+**Output contracts:** `cmd::output::tests` pins compact fixture lines and the
+shared `result` envelope. `cli/tests/json_error_contract.rs` sweeps the manifest
+with `--json`, rejecting missing `result` and old top-level envelope keys.
+JSON stdout goes through `cmd::print::print_json` or `cmd::output::encode`;
+file formats and RPC bodies retain their own serializers. Add success fixtures
+for command-specific payload or exit changes.
 
 Two structural blind spots, so you do not mistake green for complete:
 

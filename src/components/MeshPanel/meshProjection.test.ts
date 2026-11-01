@@ -111,6 +111,8 @@ function peer(instanceId: string, pending: boolean): PeerStatus {
   assert("a failed refresh keeps the loaded count", kind(meshHeaderState({ error: "timed out", loaded: true, peers: paired }, true)) === "peers:2");
   assert("an errored empty list off inventory is unavailable",
     kind(meshHeaderState({ error: "timed out", loaded: true, peers: [] }, false)) === "unavailable");
+  assert("a disabled mesh renders off, not a failure to retry",
+    kind(meshHeaderState({ error: "service unavailable", loaded: false, peers: [] }, true, false)) === "off");
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

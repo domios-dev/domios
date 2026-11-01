@@ -7,6 +7,29 @@ pub(crate) fn area_allowed(areas: &[String], area: Option<&str>) -> bool {
 }
 
 impl ServiceContext {
+    pub async fn neighbor_memory_write_grant(
+        &self,
+        caller: &TabCaller,
+    ) -> Result<(crate::multiplexer::types::NeighborAuthority, Permission), String> {
+        let authority = self
+            .mux
+            .read()
+            .get_tab(&caller.tab_id)
+            .and_then(|tab| tab.neighbor_authority.clone())
+            .ok_or("neighbor_memory_write_not_allowed: A neighbor credential is required")?;
+        let Some((friendship, permission)) = self.neighbor_capability_permission(caller).await?
+        else {
+            return Err(
+                "neighbor_memory_write_not_allowed: A live neighbor grant is required".into(),
+            );
+        };
+        Capability::MemoryWrite.require(&permission)?;
+        if friendship != authority.friendship_id {
+            return Err("neighbor_memory_write_not_allowed: Neighbor authority changed".into());
+        }
+        Ok((authority, permission))
+    }
+
     pub async fn neighbor_memory_areas(
         &self,
         caller: &TabCaller,
@@ -53,9 +76,11 @@ impl ServiceContext {
         &self,
         permission: &Permission,
     ) -> codeterm_neighbors::Result<()> {
-        let Some(areas) = permission.memory_areas.clone() else {
+        let mut areas = permission.memory_areas.clone().unwrap_or_default();
+        areas.extend(permission.memory_write_areas.iter().cloned());
+        if areas.is_empty() {
             return Ok(());
-        };
+        }
         let service = self.clone();
         let taxonomy = tokio::task::spawn_blocking(move || service.mem.get_taxonomy(None))
             .await

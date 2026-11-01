@@ -1,9 +1,11 @@
-// Caller: scripts/dev-prep.mjs; scripts/tests/dev-runtime-environment.test.mjs
+// Caller: scripts/dev-prep.mjs
 import { join } from 'node:path';
 
 export function devRuntimeEnvironment(inherited, physicalRepo) {
+  const runtime = Object.fromEntries(Object.entries(inherited).filter(([key]) =>
+    !key.startsWith('CODETERM_DEV_LAUNCH_') && !key.startsWith('CODETERM_DEV_TARGET_')));
   return {
-    ...inherited,
+    ...runtime,
     CODETERM_DEV_WORKSPACE_ROOT: physicalRepo,
     CODETERM_WEB_DIST: join(physicalRepo, 'dist'),
   };

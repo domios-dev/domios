@@ -61,7 +61,7 @@ All in-binary prompt sources live in `src-tauri/prompts/`. Their loader constant
 | `cron_complete_suffix.md` | `CRON_COMPLETE_SUFFIX` | Cron suffix | `{}` (run_id) | `service/cron.rs`, `cron/scheduler.rs` — always appended |
 | `cron_skill_hint.md` | `CRON_SKILL_HINT` | Cron skill instruction | `{skill_path}` `{skill_slug}` | `cron/skill_block.rs` — points a cron agent at the resolved skill |
 | `cron_skill_missing.md` | `CRON_SKILL_MISSING` | Cron skill failure instruction | `{skill_slug}` | `cron/skill_block.rs` — provides a bounded failure handoff when the requested skill is absent |
-| `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/codeterm.md` |
+| `codeterm_rule.md` | `CODETERM_RULE` | Framework rule | — | App loader: `service/general_agent/instructions.rs`; plugin loader: `codeterm-plugin/src/agent_claude/provider/integration.rs` writes `~/.claude/rules/domios.md` |
 | `codeterm_cli.md` | `CODETERM_CLI` | Framework rule | — | `service/general_agent/instructions.rs` — injected into the GA prompt via `{codeterm_cli}`; `service/skill_mirror.rs` renders the same constant into the `codeterm` skill through the same placeholder |
 | `mem_management.md` | `MEM_MANAGEMENT` | Shared memory management | — | GA renderer, Orchestrator and Planner suffixes, and roleless agent onboarding; excluded from Workers and Cartographer |
 | `bridge_mem.md` | `BRIDGE_MEM` | Memory protocol rule | — | `service/sync_watcher.rs:18` installs per provider; inlined into Codex `AGENTS.md` |
@@ -225,7 +225,7 @@ owning loader module (pub const &str)
 3. **Verify** — check the running `AGENT.md` actually reflects your change:
    ```bash
    cat ~/.domios/general/AGENT.md  # for general_agent.md edits
-   cat ~/.claude/rules/codeterm.md   # for codeterm_rule.md edits
+   cat ~/.claude/rules/domios.md   # for codeterm_rule.md edits
    ```
 4. **Run the prompt-evaluator** before committing any prompt change: A/B compare `HEAD~1` against `HEAD` for the edited file. If any eval reports `Δ < 0`, fix or revert; if the file has no eval set, have the evaluator bootstrap one first. Harness: `.claude/skills/prompt-evaluator/SKILL.md` and `evals/`.
 5. **Commit** — use `prompts:` or `prompt:` scope in the commit message so prompt changes are easy to find in `git log`.

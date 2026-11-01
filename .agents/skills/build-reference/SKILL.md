@@ -107,9 +107,7 @@ pipe is being closed", the build command lost its stdout reader; this is a
 gateway logging failure, not a test verdict. The gateway now owns the `tee`
 reader, closes its writer descriptors after the final exit-status line, and
 waits for the reader before returning to PowerShell. A broken path reports exit
-74 and names the log separately from the command's exit. Run
-`./build.sh gateway-logging-check` to verify final-line delivery and the
-distinct logging-failure path. For diagnosis only,
+74 and names the log separately from the command's exit. For diagnosis only,
 `CT_BUILD_GATEWAY_NO_TEE=1` bypasses log duplication; unset it for normal
 builds. `CT_BUILD_GATEWAY_FAIL_LOG_OPEN=1` is a test-only fault injector at the
 log-open boundary; it must report the logging failure and exit 74 before cargo

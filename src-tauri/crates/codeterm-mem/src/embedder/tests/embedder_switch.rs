@@ -134,14 +134,74 @@ fn reembed_plan_counts_real_docs_without_embedding() {
 }
 
 #[test]
-fn recall_reembed_adopts_unstamped_l12_without_relabelling() {
+fn recall_reembed_refuses_unstamped_index_without_relabelling() {
     let conn = connection();
     let legacy = crate::embedder::legacy_identity();
     index::recreate(&conn, &legacy).unwrap();
     conn.execute("DELETE FROM mem_embedder", []).unwrap();
     let other = MockProvider::new("mock-remote", "wide", 16).identity();
-    assert_eq!(index::ensure(&conn, &other, &legacy).unwrap(), legacy);
-    assert_eq!(index::stamp(&conn).unwrap(), Some(legacy.clone()));
+    assert!(index::ensure(&conn, &other)
+        .unwrap_err()
+        .contains("unstamped vector index refused"));
+    assert_eq!(index::stamp(&conn).unwrap(), None);
     assert!(index::check(&conn, &other).is_err());
-    assert!(index::check(&conn, &legacy).is_ok());
+    assert!(index::check(&conn, &legacy).is_err());
+}
+
+#[test]
+fn unstamped_vector_file_refusal_preserves_objects_rows_and_journal_mode() {
+    crate::embeddings::ensure_extension_registered();
+    for keep_empty_stamp in [false, true] {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("vectors.db");
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let identity = MockProvider::new("mock", "fixture", 3).identity();
+        index::recreate(&conn, &identity).unwrap();
+        conn.execute(
+            "INSERT INTO mem_vectors(mem_id, embedding) VALUES('retained', ?1)",
+            [index::encode(&[1.0, 2.0, 3.0])],
+        )
+        .unwrap();
+        conn.execute_batch("DELETE FROM mem_embedder; DROP TABLE mem_vector_pending;")
+            .unwrap();
+        if !keep_empty_stamp {
+            conn.execute_batch("DROP TABLE mem_embedder").unwrap();
+        }
+        let schema: String = conn
+            .query_row("SELECT group_concat(sql) FROM sqlite_master", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        drop(conn);
+        let before = std::fs::read(&path).unwrap();
+
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        let error = crate::embeddings::init_index(&conn, &identity).unwrap_err();
+        assert!(error.contains("unstamped vector index refused"), "{error}");
+        assert_eq!(
+            conn.query_row("PRAGMA journal_mode", [], |row| row.get::<_, String>(0))
+                .unwrap(),
+            "delete"
+        );
+        assert_eq!(
+            conn.query_row("SELECT group_concat(sql) FROM sqlite_master", [], |row| row
+                .get::<_, String>(0))
+                .unwrap(),
+            schema
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT embedding FROM mem_vectors WHERE mem_id='retained'",
+                [],
+                |row| row.get::<_, Vec<u8>>(0)
+            )
+            .unwrap(),
+            index::encode(&[1.0, 2.0, 3.0])
+        );
+        if keep_empty_stamp {
+            assert_eq!(index::stamp(&conn).unwrap(), None);
+        }
+        drop(conn);
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+    }
 }

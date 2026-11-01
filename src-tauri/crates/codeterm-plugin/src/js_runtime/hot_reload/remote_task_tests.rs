@@ -27,7 +27,11 @@ async fn remote_tasks_keep_the_call_bridge_without_advertising_an_html_view() {
     for method in ["read", "submit", "refresh"] {
         assert_eq!(
             provider
-                .call(method, json!({"sessionId":"own-session"}))
+                .call(
+                    method,
+                    json!({"sessionId":"own-session"}),
+                    &crate::view_host::ViewCallContext::panel("remote-call-fixture")
+                )
                 .await
                 .unwrap(),
             json!({"method":method,"session":"own-session"})

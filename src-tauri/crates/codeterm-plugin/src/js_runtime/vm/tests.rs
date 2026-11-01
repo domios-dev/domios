@@ -236,7 +236,7 @@ fn preamble_exposes_host_fs_and_host_manifest() {
         };
         "#
         .to_string(),
-        Some(r#"{"id":"X","version":"0","displayName":"X","spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}}"#.to_string()),
+        Some(r#"{"id":"test","version":"0","displayName":"X","spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"}}}"#.to_string()),
     )
     .unwrap();
     let dir = tempfile::tempdir().unwrap();
@@ -246,7 +246,7 @@ fn preamble_exposes_host_fs_and_host_manifest() {
         call_json(&vm, "listNames", &[json!(dir.path().to_string_lossy())]).unwrap();
     assert_eq!(names, vec!["a".to_string(), "b".to_string()]);
     let id: Option<String> = call_json(&vm, "getManifestId", &[]).unwrap();
-    assert_eq!(id.as_deref(), Some("X"));
+    assert_eq!(id.as_deref(), Some("test"));
     let q: String = call_json(&vm, "wrap", &[json!("can't")]).unwrap();
     assert_eq!(q, "'can'\\''t'");
 }

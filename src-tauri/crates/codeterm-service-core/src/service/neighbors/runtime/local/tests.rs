@@ -82,7 +82,8 @@ async fn local_reads_bypass_blocked_network_owner_and_return_metadata() {
                     result["permissions"][&friendship]["allow_interactive_content"],
                     true
                 );
-                assert_eq!(result["receiver_status_known"], false);
+                assert!(result.get("receiving_here").is_none());
+                assert_eq!(result["friend_receivers"], json!({}));
             }
         }
     }

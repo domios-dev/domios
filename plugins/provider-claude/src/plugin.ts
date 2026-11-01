@@ -1,3 +1,4 @@
+import { runPromptSteps } from "../../provider-shared/runPromptStep";
 import { sessionRecords, type SessionRecordInput } from "../../provider-shared/sessionRecords";
 import { buildClaudeLaunchCommand, buildClaudeLaunchSpec, hostOwnedLaunchArgs, starterPrompt } from "./launchSpec";
 import { parseSwitchConfirmationPrompt } from "./switchConfirmation";
@@ -181,6 +182,7 @@ function retainForeignPrecompactEntry(entry: HookEntry): boolean {
 }
 
 const plugin: PluginModule = {
+  ...runPromptSteps(() => host.agentRun),
   sessionResume: () => ({ exact: true }),
   checkForUpdate: checkClaudeUpdate,
   authStatusProbe,

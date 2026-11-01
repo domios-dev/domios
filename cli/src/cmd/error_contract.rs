@@ -253,7 +253,7 @@ pub fn error_envelope(message: &str, rpc_code: Option<i32>, data: Option<&Value>
         "ok": false,
         "kind": "error",
         "id": null,
-        "data": data.cloned(),
+        "result": data.cloned(),
         "hints": [],
         "error": error_object(message, rpc_code, data),
     })

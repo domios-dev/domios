@@ -43,6 +43,15 @@ pub fn entries_from_manifest(
         &manifest.agent_keywords,
     )
     .with_guide(guide.map(str::to_owned));
+    entries_from_catalog(manifest, settings_schema, guide, &catalog)
+}
+
+pub fn entries_from_catalog(
+    manifest: &PluginManifest,
+    settings_schema: Option<&Value>,
+    guide: Option<&str>,
+    catalog: &AgentVerbCatalog,
+) -> Vec<PluginIndexEntry> {
     let capabilities = serde_json::to_value(&manifest.capabilities).unwrap_or(Value::Null);
     let capability_lines = capability_lines(&capabilities);
     let surfaces = surface_lines(&capabilities);
@@ -52,6 +61,7 @@ pub fn entries_from_manifest(
         &capability_lines,
         &surfaces,
         &settings,
+        catalog,
     )];
     let mut slug_counts = HashMap::new();
     for usage in &catalog.verbs {
@@ -66,6 +76,11 @@ pub fn entries_from_manifest(
         };
         verb_entry(manifest, usage, guide, &key)
     }));
+    let recall = crate::plugin_connection::recall_line(catalog);
+    for entry in &mut entries {
+        entry.body = format!("{recall}\n\n{}", entry.body);
+        entry.summary = format!("{recall} {}", entry.summary);
+    }
     entries
 }
 
@@ -103,6 +118,7 @@ fn plugin_entry(
     capabilities: &[String],
     surfaces: &[String],
     settings: &[String],
+    catalog: &AgentVerbCatalog,
 ) -> PluginIndexEntry {
     let id = &manifest.id;
     let name = &manifest.display_name;
@@ -119,6 +135,12 @@ fn plugin_entry(
     body.push_str(&format!(
         "Installed plugin. Inspect its current configuration and agent guidance with `domios plugin get {id}`.\n"
     ));
+    if !catalog.verbs.is_empty() {
+        body.push_str("\nAgent verbs:\n");
+        for usage in &catalog.verbs {
+            body.push_str(&format!("- `domios plugin {id} {usage}`\n"));
+        }
+    }
     if !capabilities.is_empty() {
         body.push_str(&format!("\nCapabilities:\n{}\n", bullets(capabilities)));
     }

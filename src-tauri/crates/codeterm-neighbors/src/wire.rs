@@ -171,7 +171,7 @@ pub struct PeerKeys {
 }
 
 mod receiver;
-pub use receiver::{EffectiveReceiver, PeerReceiver, ReceiverSource};
+pub use receiver::{EffectiveReceiver, PeerReceiver};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(deny_unknown_fields)]

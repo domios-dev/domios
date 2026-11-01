@@ -1,8 +1,11 @@
-import { hunkHeader, type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
-import { ChevronRight } from "lucide-react";
+import { type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
+import { ChevronRight, Copy, FileDiff as FileDiffIcon, FileText, SquareTerminal } from "lucide-react";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { SyntaxHighlighter, createElement } from "../syntaxHighlighter";
-import { RawCommandDisclosure } from "../codeterm/RawCommandDisclosure";
+import { BoundedMessageContent } from "../BoundedMessageContent";
+import { ChatCardMenu, copyPlainText } from "../ChatCardMenu";
+import { useChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
+import { FloatingTooltip } from "../FloatingTooltip";
 import { knownLanguageFromPath } from "../codeLanguage";
 import { DIFF_HIGHLIGHT_MAX_LINES } from "../MarkdownBody";
 import { SYNTAX_HIGHLIGHT_ROOT_CLASS, themeAwarePrismStyle } from "../syntaxTheme";
@@ -29,9 +32,10 @@ function lineTone(line: string): LineTone {
   return marker === "+" ? "add" : marker === "-" ? "del" : "context";
 }
 
-function hunkLabel(count: number): string {
-  if (count === 0) return "empty";
-  return count === 1 ? "1 hunk" : `${count} hunks`;
+function changedLines(hunk: FileDiffHunk): string {
+  const start = hunk.newLines > 0 ? hunk.newStart : hunk.oldStart;
+  const count = hunk.newLines > 0 ? hunk.newLines : hunk.oldLines;
+  return count > 1 ? `Lines ${start}–${start + count - 1}` : `Line ${start}`;
 }
 
 interface HighlightNode { type: string; value?: string | number; children?: HighlightNode[] }
@@ -64,9 +68,12 @@ function HunkLines({ hunk, language }: { hunk: FileDiffHunk; language: string })
   if (language === "text" || hunk.lines.length === 0 || hunk.lines.length > DIFF_HIGHLIGHT_MAX_LINES) {
     return <>{hunk.lines.map((line, index) => <DiffLine key={index} line={line} content={line.substring(1)} />)}</>;
   }
+  const highlightLanguage = language === "html"
+    && /(?:^|\n)\s*(?:(?:async\s+)?function\s+[\w$]+\s*\(|(?:const|let|var)\s+[\w$]+\s*[=,;]|(?:document|window)\.)/.test(code.slice(0, 6000))
+    && !/<\/?(?:script|[a-z][\w-]*)(?:\s|>)/i.test(code.slice(0, 6000)) ? "javascript" : language;
   return (
     <SyntaxHighlighter
-      language={language}
+      language={highlightLanguage}
       style={themeAwarePrismStyle}
       useInlineStyles={false}
       PreTag="div"
@@ -97,24 +104,47 @@ export function DiffHunkLines({ hunk, path }: { hunk: FileDiffHunk; path: string
 
 type HunkActions = (diff: FileDiff, hunk: FileDiffHunk) => ReactNode;
 
+function FilePathLabel({ path }: { path: string }) {
+  const parts = path.replace(/\\/g, "/").split("/").filter(Boolean);
+  return <>
+    {parts.length > 1 && <span style={{ color: "var(--ct-muted-fg)" }}>{parts[parts.length - 2]}/</span>}
+    <span>{parts[parts.length - 1] ?? path}</span>
+  </>;
+}
+
 function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkActions, rawCommand }: { event: ToolEvent; diff: FileDiff; showResult: boolean; initiallyExpanded: boolean; renderHunkActions?: HunkActions; rawCommand: boolean }) {
   const [expanded, setExpanded] = useState(initiallyExpanded);
+  const [technicalOpen, setTechnicalOpen] = useState(false);
+  const host = useChatBlockHost();
   const regionId = useId();
   const visual = toolKindVisual.edit;
+  const Glyph = visual.glyph;
   const name = diff.movePath ? `${diff.path} → ${diff.movePath}` : diff.path;
   const heading = `${name} +${diff.additions} −${diff.deletions}`;
   const language = knownLanguageFromPath(diff.movePath ?? diff.path);
   const failed = event.status === "error";
+  const path = diff.movePath ?? diff.path;
+  const menu: ChatCardMenuItem[] = [
+    { label: "Copy path", icon: <Copy size={14} aria-hidden />, onSelect: () => copyPlainText(path) },
+  ];
+  if (host.openFileChange) {
+    const open = host.openFileChange;
+    menu.push({ label: "View changes", icon: <FileDiffIcon size={14} aria-hidden />, onSelect: () => open(path, "diff") });
+    if (diff.kind !== "delete") menu.push({ label: "View file", icon: <FileText size={14} aria-hidden />, onSelect: () => open(path, "file") });
+  }
+  if (rawCommand) menu.push({ label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
+    onSelect: () => { setTechnicalOpen((open) => !open); setExpanded(true); } });
   return (
     <section
       data-testid="file-diff-card"
       data-tool-status={event.status}
       aria-label={`${visual.label} ${heading}`}
-      className="min-w-0 overflow-hidden rounded-md"
+      className="ct-card min-w-0 overflow-hidden rounded-md"
       style={{
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >
+      <div className="ct-card__header flex min-w-0 items-center gap-2 py-1.5 pl-3 text-[12px]">
       <button
         type="button"
         data-testid="file-diff-toggle"
@@ -122,17 +152,23 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         aria-controls={regionId}
         aria-label={`${expanded ? "Hide" : "Show"} diff for ${heading}`}
         onClick={() => setExpanded(!expanded)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left font-mono text-[12px] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left font-mono focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
       >
-        <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
-        <span data-testid="file-diff-label" className="shrink-0 font-semibold" style={{ color: visual.color }}>{visual.label}</span>
+        <Glyph aria-hidden size={16} className="shrink-0" style={{ color: visual.color }} />
+        <span data-testid="file-diff-label" className="sr-only">{visual.label}</span>
         <span data-testid="file-diff-header" className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span className="min-w-0 truncate" title={name} style={{ color: "var(--ct-fg)" }}>{name}</span>{" "}
+          <FloatingTooltip content={name} focusable={false} className="min-w-0 truncate" tooltipStyle={{ maxWidth: "min(28rem, calc(100vw - 24px))" }}>
+            <span className="truncate" style={{ color: "var(--ct-fg)" }}><FilePathLabel path={diff.path} />{diff.movePath && <> → <FilePathLabel path={diff.movePath} /></>}</span>
+          </FloatingTooltip>{" "}
           <span className="shrink-0" style={{ color: "var(--ct-green)" }}>+{diff.additions}</span>{" "}
           <span className="shrink-0" style={{ color: "var(--ct-red)" }}>−{diff.deletions}</span>
         </span>
-        <span className="shrink-0 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{hunkLabel(diff.hunks.length)}</span>
       </button>
+      <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={menu} /></span>
+      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} diff for ${name}`} onClick={() => setExpanded(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
+        <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
+      </button>
+      </div>
       <div id={regionId} role="region" aria-label={`Diff for ${name}`} hidden={!expanded} className="overflow-x-auto pb-1.5">
         {expanded && diff.hunks.length === 0 && (
           <div className="px-3 font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Empty file</div>
@@ -140,7 +176,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         {expanded && diff.hunks.map((hunk, hunkIndex) => (
           <div key={hunkIndex} data-testid="file-diff-hunk" className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} group/hunk min-w-max`}>
             <div data-testid="file-diff-hunk-header" className="flex items-center gap-2 px-3 py-0.5 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>
-              <span>{hunkHeader(hunk)}</span>
+              <span>{changedLines(hunk)}</span>
               {renderHunkActions && <span className="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover/hunk:opacity-100 group-focus-within/hunk:opacity-100 [@media(hover:none)]:opacity-100">{renderHunkActions(diff, hunk)}</span>}
             </div>
             <HunkLines hunk={hunk} language={language} />
@@ -149,7 +185,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         {expanded && showResult && failed && event.result && (
           <div data-testid="toolcard-result" className="px-3 pt-1"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>
         )}
-        {expanded && rawCommand && <div className="px-3 pt-1"><RawCommandDisclosure raw={rawToolPayload(event)} /></div>}
+        {expanded && technicalOpen && rawCommand && <BoundedMessageContent as="pre" data-testid="message-raw-content" collapsedHeight="12rem" className="m-0 whitespace-pre-wrap break-words px-3 pt-1 font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>{rawToolPayload(event)}</BoundedMessageContent>}
       </div>
     </section>
   );

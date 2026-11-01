@@ -1,24 +1,8 @@
-import { TransportError, type TransportClient } from "../transportClient";
+import { type TransportClient } from "../transportClient";
 export type CapabilityArgs = Record<string, unknown>;
 export type CapabilityMapper = (args: CapabilityArgs) => Promise<unknown>;
 export type CapabilitiesClient = Pick<TransportClient, "json" | "localJson" | "currentToken">;
 const enc = encodeURIComponent;
-/** A refused link answers with a typed outcome body; only that body is turned back into a result. */
-async function linkOutcome(request: Promise<unknown>): Promise<unknown> {
-  try {
-    return await request;
-  } catch (error) {
-    if (!(error instanceof TransportError)) throw error;
-    let body: unknown = null;
-    try {
-      body = JSON.parse(error.body);
-    } catch {
-      throw error;
-    }
-    if (typeof body === "object" && body !== null && (body as { ok?: unknown }).ok === false) return body;
-    throw error;
-  }
-}
 const s = (args: CapabilityArgs, key: string): string => String(args[key] ?? "");
 function previewTab(args: CapabilityArgs): string {
   const tabId = s(args, "tabId");
@@ -127,16 +111,6 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     },
     mark_notification_read: (a) =>
       webJson("POST", `/api/notifications/${enc(s(a, "id"))}/read`),
-    account_mesh_link: (a) =>
-      linkOutcome(
-        localJson("POST", "/api/mesh/link", {
-          installation_id: s(a, "installationId"),
-          request_id: a.requestId,
-        }),
-      ),
-    mesh_disconnect: (a) =>
-      webJson("POST", `/api/mesh/peers/disconnect/${enc(s(a, "instanceId"))}`),
-    mesh_exit: () => webJson("POST", "/api/mesh/exit"),
     mesh_get_status: () => webJson("GET", "/api/mesh/status"),
     mesh_inventory_list: () => webJson("GET", "/api/mesh/inventory"),
     mesh_list_peers: () => webJson("GET", "/api/mesh/peers"),
@@ -205,6 +179,8 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     plugin_manager_snapshot: (a) => webJson("GET", "/api/plugins/snapshot", undefined, { signal: a.signal as AbortSignal | undefined }),
     plugin_tab_menu: () => webJson("GET", "/api/plugins/tab-menu"),
     plugin_tab_menu_action: (a) => webJson("POST", "/api/plugins/tab-menu/action", a),
+    plugin_remote_task_call: (a) => client.localJson("POST", "/api/plugins/remote-task-call", a),
+    plugin_recording_suggestion: (a) => client.localJson("POST", "/api/plugins/recording-suggestion", a),
     plugin_view_call: (a) => webJson("POST", "/api/plugins/view-call", a),
     provider_cli_status: (a) => webJson("GET", `/api/agents/providers/${enc(s(a, "providerId"))}/cli`),
     push_channel_roster: () => webJson("GET", "/api/notifications/channels"),

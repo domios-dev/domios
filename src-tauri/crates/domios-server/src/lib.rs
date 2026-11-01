@@ -1,9 +1,12 @@
 mod composition;
+pub mod mem_backend;
 pub mod startup;
 pub use composition::ComposedService;
 pub mod bootstrap;
 mod bundle;
+pub mod headless_update;
 pub mod launch;
+mod launch_ownership;
 pub mod native_host;
 mod native_inventory;
 pub mod native_update;

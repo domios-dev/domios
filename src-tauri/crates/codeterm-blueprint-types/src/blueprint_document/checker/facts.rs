@@ -25,6 +25,13 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
     for k in ["code", "convert"] {
         add("pure_kind", vec![k.into()], "");
     }
+    for node in doc.nodes().filter(|node| {
+        node.uses
+            .as_ref()
+            .is_some_and(super::super::NodeKind::plugin)
+    }) {
+        add("taint_kind", vec![node.kind().into()], "");
+    }
     for k in [
         "agent",
         "ask",
@@ -211,7 +218,9 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
                 );
             }
             binding(&mut add, n, slot, bind, &field, doc, expected.as_ref());
-            if matches!(n.kind(), "command" | "code") {
+            if matches!(n.kind(), "command" | "code" | "agent")
+                || n.uses.as_ref().is_some_and(super::super::NodeKind::plugin)
+            {
                 add("data_slot", vec![n.id.clone(), slot.clone()], &field);
                 if super::super::bindings::named(n) {
                     let call_media = super::super::bindings::parse(bind)
@@ -220,10 +229,12 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
                         .is_some_and(|media| {
                             super::super::bindings::unsupported_media(Some(media))
                         });
-                    let schema = if call_media {
+                    let media_allowed = n.kind() == "agent"
+                        || n.uses.as_ref().is_some_and(super::super::NodeKind::plugin);
+                    let schema = if call_media && !media_allowed {
                         Err(super::super::bindings::NAMED_MEDIA_UNSUPPORTED.into())
                     } else {
-                        super::super::bindings::source_schema(doc, bind)
+                        super::super::bindings::source_schema_with_media(doc, bind, media_allowed)
                     };
                     if let Err(why) = schema {
                         add(
@@ -265,7 +276,9 @@ pub(super) fn database(ir: &PositionedIr, context: &CheckContext) -> Database {
                 &path,
             );
         }
-        if matches!(n.kind(), "command" | "code" | "ask" | "agent" | "call") {
+        if matches!(n.kind(), "command" | "code" | "ask" | "agent" | "call")
+            || n.uses.as_ref().is_some_and(super::super::NodeKind::plugin)
+        {
             add("data_slot", vec![n.id.clone(), "in".into()], &path);
         }
         for cap in n.caps.iter().chain(n.code.iter().flat_map(|c| &c.caps)) {
@@ -440,6 +453,14 @@ fn binding(
     let Some(source_node) = doc.nodes().find(|n| n.id == source) else {
         return;
     };
+    if source_node
+        .uses
+        .as_ref()
+        .is_some_and(super::super::NodeKind::plugin)
+        && source_node.output.is_none()
+    {
+        return;
+    }
     let actual = source_node
         .output
         .clone()
@@ -492,6 +513,19 @@ pub(super) fn outcomes(doc: &Document, node: &Node, index: usize) -> Vec<String>
             .iter()
             .cloned()
             .chain(["other".into()])
+            .collect();
+    }
+    if node.kind() == "agent"
+        && node
+            .params
+            .get("review")
+            .and_then(ValueForm::value)
+            .and_then(Value::as_bool)
+            == Some(true)
+    {
+        return ["pass", "retry", "choose", "failed"]
+            .into_iter()
+            .map(str::to_string)
             .collect();
     }
     if doc.kind == Kind::Watch && index == 0 {

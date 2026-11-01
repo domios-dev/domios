@@ -87,7 +87,7 @@ fn create_handoff_adds_element_milestone_history_and_sidecar() {
 
     let sidecar = dir.path().join(&result.body_path);
     assert_eq!(std::fs::read_to_string(sidecar).unwrap(), "Overlay body\n");
-    store.plans.write().clear();
+    store.forget_all_plans_for_test();
     store.reload_from_disk(&plan_id).unwrap();
     let reloaded = store.get(&plan_id).unwrap();
     let element = reloaded

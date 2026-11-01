@@ -13,19 +13,12 @@ fn mesh_listener_refusal_is_an_error_response() {
 }
 
 #[test]
-fn mesh_link_parses_one_installation_and_maps_to_the_account_route() {
+fn mesh_pairing_verbs_are_removed() {
     use clap::Parser;
-    let command = crate::Cli::try_parse_from(["codeterm", "mesh", "link", "inst-1"])
-        .unwrap()
-        .command;
-    let (method, path, body) = crate::mesh_cli::api_map::cli_command_to_api(&command);
-    assert_eq!(method, "POST");
-    assert_eq!(path, "/api/mesh/link");
-    assert_eq!(
-        serde_json::from_str::<serde_json::Value>(&body.unwrap()).unwrap(),
-        serde_json::json!({"installation_id": "inst-1"})
-    );
     for removed in [
+        "link",
+        "disconnect",
+        "unrevoke",
         "connect",
         "approve",
         "reject",
@@ -34,7 +27,7 @@ fn mesh_link_parses_one_installation_and_maps_to_the_account_route() {
         "stop-broadcast",
     ] {
         assert!(
-            crate::Cli::try_parse_from(["codeterm", "mesh", removed, "x"]).is_err(),
+            crate::Cli::try_parse_from(["domios", "mesh", removed, "installation"]).is_err(),
             "{removed}"
         );
     }

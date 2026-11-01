@@ -94,3 +94,26 @@ fn restored_main_plain_launch_registers_exact_resume_authority_before_binding() 
     );
     crate::service::launch_session_detection::clear_launch_marker(&main);
 }
+
+#[test]
+fn isolated_general_launch_uses_daemon_socket_and_custom_api_without_rebinding_tab() {
+    let mut app = crate::config::schema::AppConfig::default();
+    app.api.port = 7798;
+    let config = Arc::new(parking_lot::Mutex::new(app));
+    let env = general_agent_env_vars(
+        "verification-general",
+        "owned-pad".into(),
+        "opaque-binding".into(),
+        &config,
+        Some("opaque-tab-credential".into()),
+    );
+    assert_eq!(
+        env["CODETERM_SOCKET_PATH"],
+        crate::paths::socket_display_path()
+    );
+    assert_eq!(env["CODETERM_API_PORT"], "7798");
+    assert_eq!(env["CODETERM_TAB_ID"], "verification-general");
+    assert_eq!(env["CODETERM_SESSION_BINDING_NONCE"], "opaque-binding");
+    assert_eq!(env["CODETERM_API_TOKEN"], "opaque-tab-credential");
+    assert_eq!(env["CODETERM_MACHINE_AGENT_IDENTITY"], "general_agent");
+}

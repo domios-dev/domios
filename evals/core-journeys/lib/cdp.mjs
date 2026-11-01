@@ -39,7 +39,7 @@ export function openPickerScript({ workspaceId, workspaceCwd, choice }, deadline
 })()`;
 }
 
-export function startTeamScript(deadlineMs) {
+export function startTeamScript(deadlineMs, expectedChoice = null) {
   return `(() => {
   const picker = document.querySelector(${JSON.stringify(PICKER)});
   if (!picker) return Promise.reject(new Error("Start a session dialog is not open"));
@@ -51,6 +51,19 @@ export function startTeamScript(deadlineMs) {
     const confirm = picker.querySelector('[data-testid="picker-confirm"]');
     return team.getAttribute("aria-pressed") === "true" && confirm && !confirm.disabled && confirm;
   }`, deadlineMs, "Team mode selected and Start enabled")}.then((confirm) => {
+    const expected = ${JSON.stringify(expectedChoice)};
+    if (expected) {
+      const selected = JSON.parse(window.localStorage.getItem(${JSON.stringify(CHOICE_KEY)}) ?? "null");
+      const controls = { orchestratorProviderId: "picker-provider-orchestrator", plannerProviderId: "picker-provider-planner",
+        orchestratorModelId: "picker-model-orchestrator", plannerModelId: "picker-model-planner" };
+      if (Object.entries(controls).some(([key, testId]) =>
+        picker.querySelector('[data-testid="' + testId + '"]')?.getAttribute("data-value") !== expected[key])) {
+        throw new Error("model policy refused: rendered pair selection substituted or unknown");
+      }
+      if (!selected || Object.entries(expected).some(([key, value]) => selected[key] !== value)) {
+        throw new Error("model policy refused: UI pair selection substituted or unknown");
+      }
+    }
     confirm.click();
     return ${untilScript(`() => {
       if (!picker.isConnected) return { ok: true };

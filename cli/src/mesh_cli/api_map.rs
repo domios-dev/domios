@@ -225,6 +225,9 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             crate::NotifyAction::Clear => {
                 ("POST".into(), "/api/notifications/clear".into(), None)
             }
+            crate::NotifyAction::Resolve { id } => {
+                ("POST".into(), format!("/api/notifications/{id}/resolve"), None)
+            }
         },
         Commands::Workspace { action } => match action {
             crate::WorkspaceAction::List => ("GET".into(), "/api/workspaces".into(), None),
@@ -267,19 +270,17 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
             ),
         },
         Commands::Tab { action } => match action {
+            crate::TabAction::SendStatus { .. } => unsupported("retained send status is local to the owning daemon"),
             crate::TabAction::Todo { .. } => {
                 return unsupported("tab todo checklists must run on the owning daemon")
             }
             crate::TabAction::List {
                 workspace,
-                all_workspaces,
                 agents,
             } => {
                 let mut query = vec![format!("agents={agents}")];
                 if let Some(workspace) = workspace {
                     query.push(format!("workspace_id={}", urlencoding::encode(workspace)));
-                } else if *all_workspaces {
-                    query.push("all_workspaces=true".into());
                 }
                 let path = if query.is_empty() {
                     "/api/tabs".to_string()
@@ -334,7 +335,7 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
                 }
                 if let Some(team_id) = team {
                     body["team_id"] = serde_json::Value::String(team_id.clone());
-                    if let Ok(creator_tab_id) = std::env::var("CODETERM_TAB_ID") {
+                    if let Some(creator_tab_id) = crate::nonempty_env("CODETERM_TAB_ID") {
                         body["creator_tab_id"] = serde_json::Value::String(creator_tab_id);
                     }
                 }
@@ -709,21 +710,6 @@ fn rest_request(cmd: &Commands) -> (String, String, Option<String>) {
         Commands::Mesh { action } => match action {
             MeshAction::Status => ("GET".into(), "/api/mesh/status".into(), None),
             MeshAction::Peers => ("GET".into(), "/api/mesh/peers".into(), None),
-            MeshAction::Link { installation_id } => (
-                "POST".into(),
-                "/api/mesh/link".into(),
-                Some(serde_json::json!({"installation_id": installation_id}).to_string()),
-            ),
-            MeshAction::Disconnect { instance_id } => (
-                "POST".into(),
-                "/api/mesh/disconnect".into(),
-                Some(serde_json::json!({"instance_id": instance_id}).to_string()),
-            ),
-            MeshAction::Unrevoke { instance_id } => (
-                "POST".into(),
-                "/api/mesh/unrevoke".into(),
-                Some(serde_json::json!({"instance_id": instance_id}).to_string()),
-            ),
             MeshAction::Refresh => ("POST".into(), "/api/mesh/refresh".into(), None),
             MeshAction::Announce { to } => {
                 let path = match to {

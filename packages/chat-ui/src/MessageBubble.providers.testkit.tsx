@@ -3,6 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 
 import { MessageBubble } from "./MessageBubble";
+import { ChatBlockHostProvider } from "./blocks/ChatBlockHost";
 import { reduceToolEvents } from "@codeterm/chat-core";
 import {
   type ProviderTranscriptFixture,
@@ -120,12 +121,12 @@ export async function renderTranscript(fixture: ProviderTranscriptFixture): Prom
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <div>
+      <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><div>
         {reduceToolEvents(fixture.messages).map((item) => {
           const message = item.kind === "message" ? item.message : item.event.message;
           return <MessageBubble key={message.id} message={message} item={item.kind === "tool" ? item : undefined} />;
         })}
-      </div>,
+      </div></ChatBlockHostProvider>,
     );
   });
   await waitForEffects();
@@ -145,7 +146,7 @@ export async function renderMessages(
   const root = createRoot(host);
   await act(async () => {
     root.render(
-      <div>
+      <ChatBlockHostProvider value={{ renderMenu: ({ items }) => <>{items.map(item => <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}><div>
         {reduceToolEvents(messages).map((item) => {
           const message = item.kind === "message" ? item.message : item.event.message;
           return (
@@ -159,7 +160,7 @@ export async function renderMessages(
             />
           );
         })}
-      </div>,
+      </div></ChatBlockHostProvider>,
     );
   });
   await waitForEffects();

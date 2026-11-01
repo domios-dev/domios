@@ -94,7 +94,7 @@ def registered_routes(root):
             # Wildcard any handlers are startup fallbacks, not API endpoints.
             if path.endswith('/{*path}') and re.search(r'(?:^|[.\s(])(?:axum::routing::)?any\s*\(', expr):
                 continue
-            methods = re.findall(r'(?:^|[.\s(])(?:axum::routing::)?(' + METHODS.lower() + r')\s*\(', expr)
+            methods = re.findall(r'(?:^|[.\s(:])(?:axum::routing::)?(?:owner_)?(' + METHODS.lower() + r')\s*\(', expr)
             if not methods:
                 raise ValueError(f'No recognized HTTP method for {path} in {source}')
             registered.update((method.upper(), normalize(path)) for method in methods)

@@ -52,6 +52,10 @@ pub(super) fn memory_routes(router: Router<AppState>) -> Router<AppState> {
             post(mem_routes::decision::supporter_use),
         )
         .route("/api/mem/items", post(mem_routes::mem_save))
+        .route(
+            "/api/mem/neighbor-save",
+            post(mem_routes::neighbor_save::save),
+        )
         .route("/api/mem/pinned", get(mem_routes::mem_pinned_list))
         .route(
             "/api/mem/items/{id}",

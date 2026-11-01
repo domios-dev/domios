@@ -147,9 +147,9 @@ export const neighborConciergeClient: NeighborConciergeClient = {
   }),
   setPermission: async (friendship, permission) => {
     // Only what the owner edits travels; the effective folder and its enforcement are the daemon's to report.
-    const { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder, machine_access, memory_areas, workspaces } = permission;
+    const { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder, machine_access, memory_areas, memory_write_areas = [], workspaces } = permission;
     await runtimeCall({ operation: "set_permission", friendship_id: friendship,
-      permission: { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder, machine_access, memory_areas,
+      permission: { allowed, scope, allow_tab_requests, allow_interactive_content, allow_memory, allow_files, folder, machine_access, memory_areas, memory_write_areas,
         ...(PERMISSION_WORKSPACES ? { workspaces } : {}) } });
   },
   setNotify: async (friendship, notify) => {

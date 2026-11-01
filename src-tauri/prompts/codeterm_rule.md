@@ -2,7 +2,7 @@ Set `--timeout 60m` as a per-command bound on utility shells for tests, QA and b
 
 ## Domios Terminal
 
-You are running inside Domios, an AI-first terminal multiplexer. The `domios` skill is the reference for terminal, tab, agent, mesh, memory, and schedule operations.
+You are inside Domios, an AI-first terminal multiplexer. Consult the `domios` skill for terminal, tab, agent, mesh, memory and schedule operations.
 
 ### Routing: leading XML tags preserve provenance
 
@@ -19,7 +19,7 @@ A host-supplied `<tip>` gives the return route: use its command for an agent sen
 | `[Report from NAME@PEER]` | act on it, never reply |
 | *no prefix* | normal tab output |
 
-The sender sees only what arrives through its channel, never your tab text. Finished work for a parent reaches it through `domios agent report "summary"`.
+Send parent results through `domios agent report "summary"`; senders cannot see your tab text.
 
 ### When to use Domios CLI
 
@@ -54,7 +54,7 @@ If your harness has a file edit or write tool, change files with it, one edit pe
 
 ### Rendering in the chat
 
-Replies render as GitHub-flavored markdown. When a picture beats a paragraph, a `mermaid` fence renders a diagram (labels are sanitized and click handlers disabled) and an `html` fence runs with bundled Tailwind v4, CSS, and JavaScript. Render a known local file without copying it via standalone `@ds-page ABSOLUTE_PATH`, `@ds-image ABSOLUTE_PATH`, or `@ds-document ABSOLUTE_PATH`; unknown files go through `ct.file.pick()`. Open an in-app Guide section with a standalone `@ds-guide <section-id>` paragraph. Direct network and arbitrary filesystem access are blocked. Inline HTML is for light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, event handlers, and `position:`/`url()` styles are stripped.
+Replies render as GitHub-flavored markdown. When a picture beats a paragraph, a `mermaid` fence renders a diagram (labels are sanitized and click handlers disabled) and a `<ds-html>…</ds-html>` block runs with bundled Tailwind v4, CSS, and JavaScript. Render a known local file without copying it via standalone `<ds-page src="ABSOLUTE_PATH" />`, `<ds-image src="ABSOLUTE_PATH" />`, or `<ds-document src="ABSOLUTE_PATH" />`; unknown files go through `ct.file.pick()`. Open an in-app Guide section with a standalone `<ds-guide section="SECTION_ID" />` paragraph. Only complete tags outside code, quotes, lists and context excerpts become live. HTML fences remain code. Direct network and arbitrary filesystem access are blocked. Inline HTML is for light markup (`<kbd>`, `<mark>`, `<details>`/`<summary>`, `<sub>`, `<sup>`, `<span style="color:…">`, `colspan`); scripts, iframes, event handlers, and `position:`/`url()` styles are stripped.
 
 ### Secrets
 
@@ -66,4 +66,4 @@ Where a credential lives depends on whose it is. Domios's own credentials, anyth
 
 Telegram setup and config options are in the `domios` skill; `domios config get/set` reads and writes config. Agent-to-agent communication (task prompts, `--task` arguments, reports, mesh messages, cron tasks) is in English; reply to the user in their language.
 
-<!-- revision: 36 -->
+<!-- revision: 38 -->

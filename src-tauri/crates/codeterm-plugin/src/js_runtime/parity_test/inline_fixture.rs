@@ -1,5 +1,13 @@
 use super::*;
 
+pub(super) fn provider_fixture(id: &str, relative: &str) -> String {
+    let path = workspace_plugins_root()
+        .join(format!("provider-{id}"))
+        .join("tests/fixtures")
+        .join(relative);
+    std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+}
+
 pub(super) fn load_inline_js(id: &str, plugin_js: &str) -> JsProvider {
     let manifest_json = format!(
         r#"{{"id":"{id}","version":"0.1.0","displayName":"Fixture",

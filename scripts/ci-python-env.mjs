@@ -24,7 +24,7 @@ export function preparePython({env=process.env,platform=process.platform,execute
 if(process.argv[1]&&import.meta.url===pathToFileURL(path.resolve(process.argv[1])).href){
   try{preparePython();}catch(error){
     console.error(error.stack||error.message);
-    console.error(reproLine(process.env.CI_STEP||'python-script-tests'));
+    console.error(reproLine(process.env.CI_STEP||'test-catalogue'));
     process.exitCode=1;
   }
 }

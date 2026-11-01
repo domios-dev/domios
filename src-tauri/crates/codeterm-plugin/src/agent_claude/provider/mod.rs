@@ -28,7 +28,7 @@ mod subagents;
 mod usage;
 
 #[cfg(test)]
-pub(crate) use schemas::manifest_defaults;
+pub(crate) use schemas::{install_bridge_rule_at, manifest_defaults};
 #[cfg(test)]
 pub(crate) use sessions::{enumerate_sessions_under, find_session_under};
 

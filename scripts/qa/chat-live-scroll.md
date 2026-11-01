@@ -29,7 +29,6 @@ After the forty send cases, eight arrival cases run: routed and delayed messages
 Check saved evidence without connecting to DEV:
 
 ```bash
-node --test scripts/tests/chat-scroll-criteria.test.mjs
 bash scripts/qa/chat-live-scroll.sh --check-report /tmp/codeterm-qa/chat-scroll-cfe/report.json \
   /tmp/codeterm-qa/chat-scroll-cfe/criteria-summary.json
 ```

@@ -3,7 +3,10 @@ export type ShellOperator = "pipe" | "then" | "and" | "or";
 
 export interface LexedSegment {
   argv: string[];
+  rawArgv?: string[];
+  literalRanges?: { start: number; end: number }[];
   redirects: string[];
+  redirectTargets?: { operator: string; raw: string }[];
   heredoc?: string;
   start: number;
   end: number;
@@ -37,12 +40,15 @@ class Lexer {
   private i = 0;
   private word = "";
   private inWord = false;
+  private wordStart = -1;
+  private wordEnd = -1;
+  private tokens = 0;
   private target: { kind: "redirect"; op: string } | { kind: "heredoc"; stripTabs: boolean } | null = null;
   private current = draft();
   private readonly segments: LexedSegment[] = [];
   private readonly heredocs: PendingHeredoc[] = [];
 
-  constructor(private readonly src: string, private readonly dialect: ShellDialect) {}
+  constructor(private readonly src: string, private readonly dialect: ShellDialect, private readonly captureRaw: boolean, private readonly maxTokens: number) {}
 
   run(): LexedSegment[] {
     while (this.i < this.src.length) this.step();
@@ -61,6 +67,10 @@ class Lexer {
   }
 
   private append(text: string, from: number, to: number): void {
+    if (this.captureRaw) {
+      if (!this.inWord) this.wordStart = from;
+      this.wordEnd = to;
+    }
     this.word += text;
     this.inWord = true;
     this.touch(from, to);
@@ -68,14 +78,20 @@ class Lexer {
 
   private endWord(): void {
     if (!this.inWord) return;
+    if (++this.tokens > this.maxTokens) unsupported();
     const value = this.word;
+    const raw = this.captureRaw ? this.src.slice(this.wordStart, this.wordEnd) : "";
     this.word = "";
     this.inWord = false;
     const target = this.target;
     this.target = null;
-    if (!target) this.current.argv.push(value);
-    else if (target.kind === "redirect") this.current.redirects.push(target.op + value);
-    else this.heredocs.push({ delimiter: value, stripTabs: target.stripTabs, segment: this.current });
+    if (!target) {
+      this.current.argv.push(value);
+      if (this.captureRaw) (this.current.rawArgv ??= []).push(raw);
+    } else if (target.kind === "redirect") {
+      this.current.redirects.push(target.op + value);
+      if (this.captureRaw) (this.current.redirectTargets ??= []).push({ operator: target.op, raw });
+    } else this.heredocs.push({ delimiter: value, stripTabs: target.stripTabs, segment: this.current });
   }
 
   private close(operator: ShellOperator | null, soft: boolean): void {
@@ -293,6 +309,7 @@ class Lexer {
           i++;
           continue;
         }
+        this.captureLiteral(open, i + 1);
         this.append(value, open, i + 1);
         this.i = i + 1;
         return;
@@ -316,6 +333,7 @@ class Lexer {
           i++;
           continue;
         }
+        this.captureLiteral(open, i + 1);
         this.append(value, open, i + 1);
         this.i = i + 1;
         return;
@@ -350,6 +368,12 @@ class Lexer {
     return unsupported();
   }
 
+  private captureLiteral(start: number, end: number): void {
+    if (!this.captureRaw) return;
+    if (this.src[start] === '"' && this.src.slice(start + 1, end - 1).includes("$(")) return;
+    (this.current.literalRanges ??= []).push({ start, end });
+  }
+
   private backtickSubstitution(open: number): void {
     const end = this.backtickEnd(open);
     this.append(this.src.slice(open, end), open, end);
@@ -369,10 +393,16 @@ class Lexer {
         if (closers.length === 0) return i + 1;
       } else if (ch === "'" || ch === "\"") {
         const quote = ch;
-        for (i++; i < src.length && src[i] !== quote; i++) {
-          if (quote === "\"" && (src[i] === "\\" || src[i] === "`")) i++;
+        const start = i;
+        for (i++; i < src.length; i++) {
+          if (src[i] === quote) {
+            if (dialect === "powershell" && src[i + 1] === quote) { i++; continue; }
+            break;
+          }
+          if (quote === "\"" && (dialect === "powershell" ? src[i] === "`" : src[i] === "\\" || src[i] === "`")) i++;
         }
         if (i >= src.length) unsupported();
+        this.captureLiteral(start, i + 1);
       } else if (ch === this.escape && dialect !== "cmd") {
         i++;
       }
@@ -424,10 +454,10 @@ class Lexer {
 }
 
 /** Splits a shell command into operator-joined segments; null for anything ambiguous or unsupported. */
-export function lexShell(src: string, dialect: ShellDialect): LexedSegment[] | null {
+export function lexShell(src: string, dialect: ShellDialect, captureRaw = false, maxTokens = Infinity): LexedSegment[] | null {
   if (typeof src !== "string") return null;
   try {
-    return new Lexer(src, dialect).run();
+    return new Lexer(src, dialect, captureRaw, maxTokens).run();
   } catch {
     return null;
   }

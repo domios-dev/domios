@@ -16,10 +16,10 @@ test("notification and inline capsule bodies load images with their owning tab",
   const root = createRoot(host);
   try {
     await act(async () => root.render(<>
-      <NotificationBody text="@ds-image /work/notice.png" tabId="mesh:peer/owner" />
+      <NotificationBody text="<ds-image src='/work/notice.png' />" tabId="mesh:peer/owner" />
       <LocalArtifactScope tabId="local-owner"><InlineAttachmentText segments={[
         { attachment: { kind: "file", path: "/work/note.txt", label: "note" } },
-        { text: "\n@ct-image /work/capsule.png\n" },
+        { text: "\n<ds-image src='/work/capsule.png' />\n" },
       ]} /></LocalArtifactScope>
     </>));
     expect([...host.querySelectorAll("img")].map((image) => image.getAttribute("src"))).toEqual([
@@ -29,9 +29,9 @@ test("notification and inline capsule bodies load images with their owning tab",
     expect(loader).toHaveBeenCalledWith("/work/capsule.png", "image", "local-owner");
     expect(host.querySelector('[data-attachment-path="/work/note.txt"]')).not.toBeNull();
     loader.mockClear();
-    await act(async () => root.render(<NotificationBody text="@ds-image /work/unknown.png" tabId={null} />));
+    await act(async () => root.render(<NotificationBody text="<ds-image src='/work/unknown.png' />" tabId={null} />));
     expect(loader).not.toHaveBeenCalled();
-    expect(host.textContent).toContain("@ds-image /work/unknown.png");
+    expect(host.textContent).toContain("<ds-image src='/work/unknown.png' />");
   } finally {
     await act(async () => root.unmount());
     host.remove();
@@ -56,6 +56,22 @@ test("failure notifications keep opaque bodies inside a collapsed copyable discl
   } finally {
     await act(async () => root.unmount());
     host.remove();
+  }
+});
+
+test("incomplete, quoted and legacy notification cards never read from the originating tab", async () => {
+  const loader = vi.fn(async () => ({ data: "unused", media_type: "text/markdown" }));
+  configureLocalArtifactLoader(loader);
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    for (const text of ["<ds-document src='/work/notice.md' /", "```text\n<ds-document src='/work/notice.md' />\n```", "<context>\n<ds-document src='/work/notice.md' />\n</context>", "@ds-document /work/notice.md", "@ct-document /work/notice.md"]) {
+      await act(async () => root.render(<NotificationBody text={text} tabId="mesh:peer/origin" />));
+    }
+    expect(loader).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount());
+    configureLocalArtifactLoader(null);
   }
 });
 

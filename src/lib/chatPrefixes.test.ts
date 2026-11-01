@@ -75,7 +75,7 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<command-name>/model</command-name><command-message>model</command-message><command-args></command-args>";
+    "\n/model\n";
   const r = detectChatPrefix(c);
   eq(
     r?.origin,
@@ -87,8 +87,7 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<command-name>/add-dir</command-name><command-message>add-dir</command-message>" +
-    "<command-args></command-args><local-command-stdout>Did not add a working directory.</local-command-stdout>";
+    "/add-dir\n<local-command-stdout>Did not add a working directory.</local-command-stdout>";
   const r = detectChatPrefix(c);
   eq(
     r?.origin,
@@ -99,9 +98,9 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<command-name>/model</command-name><command-args></command-args>" +
+    "\n/model\n" +
     "<local-command-stdout>Set model to Sonnet 4.6 for this session</local-command-stdout>" +
-    "<command-name>/model</command-name><command-args>opus</command-args>";
+    "\n/model opus\n";
   const r = detectChatPrefix(c);
   assert(r?.origin.kind === "command", "multiple commands: kind is command");
   if (r?.origin.kind === "command") {
@@ -117,7 +116,7 @@ eq(detectChatPrefix('<domios from="tab" tab="a">body</domios>'), null, "raw stri
 
 {
   const c =
-    "<local-command-caveat>some claude meta</local-command-caveat><command-name>/foo</command-name>";
+    "<local-command-caveat>some claude meta</local-command-caveat>\n/foo\n";
   const r = detectChatPrefix(c);
   assert(r?.origin.kind === "command", "caveat stripped: kind is command");
   if (r?.origin.kind === "command") {
@@ -199,5 +198,10 @@ No response requested.
   eq(r, null, "plain /path message returns null (no tags, not a cmd-only line)");
 }
 
+eq(
+  detectChatPrefix("<command-name>/effort</command-name><command-message>effort</command-message><command-args>low</command-args>"),
+  { origin: { kind: "command", commands: [{ name: "/effort", args: "low" }] }, body: "" },
+  "current multi-tag command keeps its name and args",
+);
 console.log(`${passed} passed, ${failed} failed`);
 if (failed) process.exit(1);

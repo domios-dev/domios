@@ -160,7 +160,7 @@ impl Session {
                     .service
                     .catch_up_neighbor_delivered_read(
                         &self.metadata,
-                        &self.transport,
+                        self.transport.as_ref(),
                         &self.transport.uid,
                         delivery,
                         generation,

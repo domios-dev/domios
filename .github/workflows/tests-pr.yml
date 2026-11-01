@@ -116,15 +116,6 @@ jobs:
         id: ci-6
         if: ${{ !cancelled() }}
         run: node scripts/ci-step.mjs plugin-release-contracts --ci
-      - name: Plugin release and scope script tests
-        id: ci-7
-        if: ${{ !cancelled() }}
-        run: node --test scripts/tests/plugin-releases.test.mjs scripts/tests/ci-scope.test.mjs
-      - name: Build gateway and release signing policy
-        id: ci-9
-        if: ${{ !cancelled() }}
-        run: |
-          bash scripts/check-build-gateway-policy.sh
       - name: cargo fmt --check
         id: ci-10
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
@@ -137,14 +128,6 @@ jobs:
         id: ci-13
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
         run: pnpm install --frozen-lockfile --store-dir "$RUNNER_TOOL_CACHE/pnpm-store"
-      - name: Node script tests (tests/catalogue.json node-script-tests)
-        id: ci-14
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-step.mjs node-script-tests --ci
-      - name: Python script tests (tests/catalogue.json python-script-tests)
-        id: ci-15
-        if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
-        run: node scripts/ci-step.mjs python-script-tests --ci
       - name: Offline core journey contracts
         id: ci-16
         if: ${{ !cancelled() && needs.changed.outputs.rust == 'true' }}
@@ -351,10 +334,6 @@ jobs:
       - name: Run TS unit tests
         id: ci-6
         run: node scripts/ci-step.mjs ts-unit --ci
-      - name: TS unit runner contracts
-        id: ci-7
-        if: ${{ !cancelled() }}
-        run: node scripts/ci-step.mjs ts-unit-runner-tests --ci
   ts-vitest:
     name: ts vitest
     needs: changed

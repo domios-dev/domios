@@ -25,9 +25,6 @@
 .ct-chat-surface :is(.ct-user-bubble, .ct-card__body, .ct-chat-message-row--agent .ct-chat-message-column > div, [data-testid="chat-tool-inline"]) {
   overflow-x: auto;
 }
-.ct-chat-surface :where(button, header) {
-  flex-wrap: wrap;
-}
 .ct-chat-surface :where(pre, table) {
   overflow-x: auto;
 }
@@ -39,9 +36,7 @@
   max-width: 100%;
 }
 .ct-chat-surface [data-ref-kind] {
-  flex-wrap: wrap;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  max-width: 100%;
 }
 .ct-chat-surface [data-ref-kind] > span {
   min-width: 0;

@@ -3,6 +3,7 @@ import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
 import {requireBackings, verdict, failureReason, requireRestart} from './model.mjs';
+import {cliResult} from './cli-result.mjs';
 
 import {run as exec} from './process.mjs';
 const [file, expectedBuild, root, deadlineRaw = '90', mode = 'verify'] = process.argv.slice(2);
@@ -19,9 +20,8 @@ const deadline = performance.now() + deadlineSeconds * 1000;
 async function dc(...args) {
   const remaining = Math.ceil(deadline - performance.now());
   if (remaining <= 0) throw new Error('bounded replay deadline elapsed');
-  const result = await exec('bash', ['-c', 'source "$1"; shift; dc "$@"', 'upgrade-restore', benchLib, ...args],
+  return cliResult(exec, 'bash', ['-c', 'source "$1"; shift; dc "$@"', 'upgrade-restore', benchLib, ...args],
     {timeout: remaining, maxBuffer: 32 * 1024 * 1024});
-  return JSON.parse(result.stdout);
 }
 const identify = await dc('identify', '--json');
 if (!String(identify.connection?.instance ?? '').startsWith('upgrade-restore-')) {

@@ -125,7 +125,7 @@ async fn file_bearing_answer_saves_confirms_acks_and_commits_proof_before_read()
     let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
     let service = &fixture.service;
-    *service.neighbor_cell().receiver.lock() = Some(serde_json::from_value(json!({"receiver_revision":1,"receiver_installation_id":"machine","receiver_key_id":null,"receiver_machine_label":"Here","receiving_enabled":true,"is_me":true})).unwrap());
+
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "recipient");
     let mut envelope = envelope();
     service.set_neighbor_friend_receiver_for_test(&envelope.friendship_id, Some(true), 1);

@@ -45,6 +45,10 @@ async fn check_and_apply_plugin(
     update_state: UpdateStateHandle,
     server_stop: std::sync::Arc<dyn ServerStop>,
 ) -> Result<ApplyResult, String> {
+    // Restoring a resolved manifest skips the provider initialization in Updater::check.
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
     let resolved_manifest = codeterm_update::checker::resolve_manifest(
         &opts.install_method,
         opts.channel,
@@ -80,7 +84,13 @@ async fn check_and_apply_plugin(
     let mut builder = app
         .updater_builder()
         .endpoints(vec![endpoint.clone()])
-        .map_err(|e| format!("failed to set updater endpoint: {}", e))?;
+        .map_err(|e| format!("failed to set updater endpoint: {}", e))?
+        .configure_client(|client| {
+            client
+                .connect_timeout(std::time::Duration::from_secs(30))
+                .read_timeout(std::time::Duration::from_secs(60))
+                .timeout(std::time::Duration::from_secs(15 * 60))
+        });
     #[cfg(windows)]
     {
         let app_handle = app.clone();

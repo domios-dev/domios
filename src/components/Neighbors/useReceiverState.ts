@@ -7,12 +7,8 @@ export function friendReceiverState(status: NeighborStatusSnapshot | null, frien
   return receiverState(receiver) ? receiver : null;
 }
 
-/** A named friend's effective receiver, or the account default when no friendship is supplied; unknown until observed. */
-export function useReceiverState(client: NeighborRuntimeClient, active: boolean, friendship?: string): ReceiverState | null {
-  const status = useNeighborStatus(client, active);
-  if (friendship !== undefined) return friendReceiverState(status, friendship);
-  if (!status || status.receiver_status_known === false || !receiverState(status)) return null;
-  return status;
+export function useReceiverState(client: NeighborRuntimeClient, active: boolean, friendship: string): ReceiverState | null {
+  return friendReceiverState(useNeighborStatus(client, active), friendship);
 }
 
 export function receivingLine(state: ReceiverState): string {

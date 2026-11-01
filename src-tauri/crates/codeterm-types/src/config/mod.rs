@@ -10,6 +10,8 @@ pub use dream_hygiene::DreamHygieneConfig;
 pub use embedder::EmbedderConfig;
 pub use model_defaults::{ModelDefaultsConfig, ReplacedModelDefault};
 pub use schema::MemoryConfig;
+mod memory_backend;
+pub use memory_backend::MemoryBackend;
 pub use supporter::{
     MemoryRerankConfig, RerankRequestMode, SupporterConfig, SupporterConnection, SupporterSources,
     DEFAULT_SUPPORTER_CALLS_PER_HOUR,

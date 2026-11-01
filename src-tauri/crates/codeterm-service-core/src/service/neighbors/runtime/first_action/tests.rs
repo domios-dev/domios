@@ -1,73 +1,26 @@
 use super::*;
 
-fn account(installation: Option<&str>) -> ReceiverStatus {
-    ReceiverStatus {
-        receiver_installation_id: installation.map(str::to_owned),
-        receiver_key_id: None,
-        receiver_machine_label: installation.map(str::to_owned),
-        receiver_revision: 7,
-        receiving_enabled: installation.is_some(),
-        is_me: installation == Some("here"),
-        legacy_active: false,
-    }
-}
-
 fn list(installation: Option<&str>) -> Value {
-    json!({"receiver_claim_capabilities":["account_all_none_v1"],"friends":[{"friendship_id":"friend", "my_receiver":{
-        "source":"friend","installation_id":installation,"key_id":null,
-        "enc_key_id":null,"session_id":null,"machine_label":installation,
-        "revision":9,"features":[],"receiving":false
+    json!({"friends":[{"friendship_id":"friend", "my_receiver":{
+        "installation_id":installation,
+        "enc_key_id":null,"machine_label":installation,
+        "revision":9,"receiving":false
     }}]})
 }
 
 #[test]
-fn accepting_and_granting_an_unassigned_friend_claims_the_observed_revision() {
+fn setup_reads_only_the_named_friend_without_an_account_fallback() {
+    let status = friend_status(&list(None), "friend", "here").unwrap();
+    assert_eq!(status.receiver_revision, 9);
+    assert!(!status.receiving_here());
     assert_eq!(
-        first_claim_revision(&list(None), "friend", &account(None), "here"),
-        Ok(Some(9))
-    );
-    assert_eq!(
-        first_claim_revision(
-            &json!({"receiver_claim_capabilities":["account_all_none_v1"],"friends":[{"friendship_id":"friend"}]}),
-            "friend",
-            &account(None),
-            "here"
-        ),
-        Ok(Some(7))
-    );
-}
-
-#[test]
-fn any_assigned_receiver_prevents_automatic_claim_even_when_disabled() {
-    assert_eq!(
-        first_claim_revision(&list(Some("elsewhere")), "friend", &account(None), "here"),
-        Ok(None)
-    );
-    assert_eq!(
-        first_claim_revision(&list(None), "friend", &account(Some("elsewhere")), "here"),
-        Ok(None)
-    );
-    let mut friends = list(None);
-    let mut other = list(Some("elsewhere"))["friends"][0].clone();
-    other["friendship_id"] = json!("other");
-    friends["friends"].as_array_mut().unwrap().push(other);
-    assert_eq!(
-        first_claim_revision(&friends, "friend", &account(None), "here"),
-        Ok(None)
-    );
-}
-
-#[test]
-fn missing_friend_and_malformed_projections_never_claim() {
-    assert_eq!(
-        first_claim_revision(&list(None), "foreign", &account(None), "here"),
+        friend_status(&list(None), "foreign", "here"),
         Err(Error::FriendshipEnded)
     );
     assert_eq!(
-        first_claim_revision(
-            &json!({"receiver_claim_capabilities":["account_all_none_v1"],"friends":[{"friendship_id":"friend","my_receiver":{}}]}),
+        friend_status(
+            &json!({"friends":[{"friendship_id":"friend"}]}),
             "friend",
-            &account(None),
             "here"
         ),
         Err(Error::InvalidEnvelope)
@@ -75,30 +28,22 @@ fn missing_friend_and_malformed_projections_never_claim() {
 }
 
 #[test]
-fn refusals_distinguish_none_chosen_and_name_the_receiving_machine() {
-    assert!(receiver_refusal("friend", "Anya", &account(None)).starts_with("receiver_not_chosen:"));
-    let refusal = receiver_refusal("friend", "Anya", &account(Some("Anya's Mac")));
-    assert!(refusal.contains("Messages from Anya are received on Anya's Mac. Receive them here?"));
-    assert!(refusal.contains("--expected-receiver-revision 7 --takeover-confirmed"));
+fn another_friends_receiver_does_not_block_setup() {
+    let mut list = list(None);
+    list["friends"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"friendship_id":"other", "my_receiver":{}}));
+    assert!(friend_status(&list, "friend", "here")
+        .unwrap()
+        .receiver_installation_id
+        .is_none());
 }
 
 #[test]
-fn absent_unknown_or_malformed_capabilities_never_authorize_an_automatic_claim() {
-    for capability in [Value::Null, json!(["unknown"]), json!({}), json!([true])] {
-        let mut value = list(None);
-        value["receiver_claim_capabilities"] = capability;
-        assert_eq!(
-            first_claim_revision(&value, "friend", &account(None), "here"),
-            Ok(None)
-        );
-    }
-    let mut value = list(None);
-    value
-        .as_object_mut()
-        .unwrap()
-        .remove("receiver_claim_capabilities");
-    assert_eq!(
-        first_claim_revision(&value, "friend", &account(None), "here"),
-        Ok(None)
-    );
+fn refusal_names_the_friend_and_machine_and_requires_owner_consent() {
+    let friend = friend_status(&list(Some("Other desk")), "friend", "here").unwrap();
+    let refusal = receiver_refusal("friend", "Ada", &friend);
+    assert!(refusal.contains("Ada is received on Other desk. Move here?"));
+    assert!(refusal.contains("--expected-receiver-revision 9 --takeover-confirmed"));
 }

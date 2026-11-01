@@ -4,77 +4,23 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use tower_http::{
-    catch_panic::CatchPanicLayer,
-    compression::CompressionLayer,
-    cors::{AllowOrigin, CorsLayer},
-};
+use tower_http::{catch_panic::CatchPanicLayer, compression::CompressionLayer};
 
 use super::{
     agent_done_routes, agent_routes, ai_helper_routes, bridge_routes, clipboard_routes,
     config_routes, cron_routes, debug_routes, essence_map_routes, fs_routes, health_routes,
     inbound_webhook, logs_routes, mem_routes, mesh_inventory, mesh_routes, network_routes,
-    notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_tab_menu_routes,
-    pty_routes, services_routes, session_routes, stream_mux, surface_routes, tab_agent_routes,
-    tab_routes, team_mission_control_routes, team_spend, theme_routes, updater_routes,
-    usage_routes, web_routes, webhook_routes, workspace_routes,
+    notification_routes, output_stream, pasteboard_routes, plan_routes, plugin_host_action_routes,
+    plugin_tab_menu_routes, pty_routes, services_routes, session_routes, stream_mux,
+    surface_routes, tab_agent_routes, tab_routes, team_mission_control_routes, team_spend,
+    theme_routes, updater_routes, usage_routes, web_routes, webhook_routes, workspace_routes,
 };
 
+mod cors;
 mod frontend_missing;
-
-const FRONTEND_REQUEST_HEADERS: [&str; 11] = [
-    "authorization",
-    "if-none-match",
-    "content-type",
-    "accept",
-    "x-codeterm-tab-id",
-    "x-codeterm-client-id",
-    "x-codeterm-session-id",
-    "x-codeterm-binding-nonce",
-    "x-codeterm-session-binding-nonce",
-    "x-codeterm-plan-confirmation",
-    "x-codeterm-blueprint-confirmation",
-];
-
-fn configured_origin(origin: &str) -> Option<axum::http::HeaderValue> {
-    if !codeterm_service_core::config::exact_cors_origin(origin) {
-        return None;
-    }
-    origin.parse().ok()
-}
-
-pub fn cors_layer(frontend_origins: &[String], configured_origins: &[String]) -> CorsLayer {
-    let mut origins = frontend_origins
-        .iter()
-        .filter_map(|origin| origin.parse::<axum::http::HeaderValue>().ok())
-        .collect::<Vec<_>>();
-    for (index, origin) in configured_origins.iter().enumerate() {
-        if let Some(value) = configured_origin(origin) {
-            if !origins.contains(&value) {
-                origins.push(value);
-            }
-        } else {
-            log::warn!(
-                "[rest-cors] refused api.cors_allow_origins entry={index}: expected an exact HTTP(S) origin"
-            );
-        }
-    }
-    CorsLayer::new()
-        .allow_origin(AllowOrigin::list(origins))
-        .allow_methods([
-            axum::http::Method::GET,
-            axum::http::Method::POST,
-            axum::http::Method::PUT,
-            axum::http::Method::PATCH,
-            axum::http::Method::DELETE,
-            axum::http::Method::OPTIONS,
-        ])
-        .allow_headers(FRONTEND_REQUEST_HEADERS.map(axum::http::HeaderName::from_static))
-        .expose_headers([
-            axum::http::header::CONTENT_SECURITY_POLICY,
-            axum::http::header::ETAG,
-        ])
-}
+pub use cors::cors_layer;
+#[cfg(test)]
+use cors::{configured_origin, FRONTEND_REQUEST_HEADERS};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -191,22 +137,6 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route(
             "/api/automation/blueprints/{id}",
-            axum::routing::delete(super::automation_graph_routes::delete),
-        )
-        .route(
-            "/api/automation/sentinels/{id}/stop",
-            post(super::automation_graph_routes::stop),
-        )
-        .route(
-            "/api/automation/sentinels/{id}",
-            axum::routing::delete(super::automation_graph_routes::delete),
-        )
-        .route(
-            "/api/sentinels/{id}/stop",
-            post(super::automation_graph_routes::stop),
-        )
-        .route(
-            "/api/sentinels/{id}",
             axum::routing::delete(super::automation_graph_routes::delete),
         )
         .route(
@@ -327,6 +257,10 @@ pub(super) fn create_router_with_preview_admission(
         .route(
             "/api/notifications/{id}/answer",
             post(notification_routes::answer_notification),
+        )
+        .route(
+            "/api/notifications/{id}/resolve",
+            post(notification_routes::resolve_notification),
         )
         .route(
             "/api/notifications/{id}",
@@ -685,31 +619,12 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/attachments/transfer",
             post(super::mesh_attachment::transfer),
         )
-        .route("/api/mesh/link", post(mesh_routes::mesh_account_link))
-        .route(
-            "/api/mesh/disconnect-notice",
-            post(mesh_routes::disconnect::receive_disconnect),
-        )
         .route("/api/mesh/link/hello", post(mesh_routes::mesh_link_hello))
-        .route(
-            "/api/mesh/link/approval",
-            post(mesh_routes::mesh_link_approval),
-        )
         .route(
             "/api/mesh/link/confirm",
             post(mesh_routes::mesh_link_confirm),
         )
         .route("/api/mesh/link/commit", post(mesh_routes::mesh_link_commit))
-        .route("/api/mesh/adopt/offer", post(mesh_routes::mesh_adopt_offer))
-        .route(
-            "/api/mesh/adopt/commit",
-            post(mesh_routes::mesh_adopt_commit),
-        )
-        .route(
-            "/api/mesh/disconnect",
-            post(mesh_routes::mesh_disconnect_peer),
-        )
-        .route("/api/mesh/unrevoke", post(mesh_routes::mesh_unrevoke))
         .route("/api/mesh/sync", post(mesh_routes::mesh_sync))
         .route("/api/mesh/enabled", post(mesh_routes::mesh_set_enabled))
         .route(
@@ -767,15 +682,7 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/relay-asset/{peer}/{*path}",
             get(mesh_routes::mesh_relay_asset),
         )
-        .route(
-            "/api/mesh/peers/{id}",
-            axum::routing::delete(mesh_routes::mesh_unpair),
-        )
         .route("/api/mesh/refresh", post(mesh_routes::mesh_refresh))
-        .route(
-            "/api/mesh/peers/disconnect/{id}",
-            post(mesh_routes::mesh_disconnect_peer_by_id),
-        )
         .route(
             "/api/mesh/account-presence",
             post(mesh_routes::account_presence),
@@ -792,7 +699,6 @@ pub(super) fn create_router_with_preview_admission(
             "/api/mesh/peers/{id}/addr",
             post(mesh_routes::mesh_set_peer_addr),
         )
-        .route("/api/mesh/exit", post(mesh_routes::mesh_exit))
         .route(
             "/api/mesh/peers/{id}/access",
             post(mesh_routes::mesh_set_access),
@@ -804,7 +710,33 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/plugins/action", post(web_routes::plugin_action))
         .route("/api/plugins/glance", post(web_routes::plugin_glance))
         .route("/api/plugins/bubble", post(web_routes::plugin_bubble))
-        .route("/api/plugins/view-call", post(web_routes::plugin_view_call))
+        .route(
+            "/api/plugins/remote-task-call",
+            plugin_host_action_routes::owner_post(web_routes::remote_task_call)
+                .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
+        )
+        .route(
+            "/api/plugins/recording-suggestion",
+            plugin_host_action_routes::owner_post(web_routes::recording_suggestion)
+                .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
+        )
+        .route(
+            "/api/plugins/view-call",
+            plugin_host_action_routes::owner_post(web_routes::plugin_view_call)
+                .layer(axum::extract::DefaultBodyLimit::max(70 * 1024)),
+        )
+        .route(
+            "/api/plugins/view-host-action",
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action),
+        )
+        .route(
+            "/api/plugins/view-host-action/download",
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_action_download),
+        )
+        .route(
+            "/api/plugins/view-input",
+            plugin_host_action_routes::owner_post(plugin_host_action_routes::host_input),
+        )
         .route(
             "/api/plugins/tab-menu",
             get(plugin_tab_menu_routes::tab_menu),
@@ -845,6 +777,31 @@ pub(super) fn create_router_with_preview_admission(
             post(web_routes::open_chat_backend_tab),
         )
         .route("/api/plugins/{id}/ui/{*path}", get(web_routes::plugin_ui))
+        .route(
+            "/api/plugins/{id}/media-register/{frame}",
+            post(crate::plugin_media_routes::register)
+                .layer(axum::extract::DefaultBodyLimit::max(4096)),
+        )
+        .route(
+            "/api/plugins/view-frame/register",
+            crate::plugin_host_action_routes::owner_post(
+                crate::plugin_media_routes::reregister_view,
+            )
+            .layer(axum::extract::DefaultBodyLimit::max(16384)),
+        )
+        .route(
+            "/api/plugins/view-frame/revoke",
+            crate::plugin_host_action_routes::owner_post(crate::plugin_media_routes::revoke_view)
+                .layer(axum::extract::DefaultBodyLimit::max(1024)),
+        )
+        .route(
+            "/api/plugins/{id}/media-frame/{frame}",
+            axum::routing::delete(crate::plugin_media_routes::revoke),
+        )
+        .route(
+            "/api/plugins/{id}/media/{frame}/{handle}",
+            get(crate::plugin_media_routes::playback),
+        )
         .route(
             inbound_webhook::ci::PATH,
             post(inbound_webhook::ci::receive),

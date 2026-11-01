@@ -210,3 +210,32 @@ fn hash_returns_none_on_missing_file() {
     let missing = dir.path().join("does-not-exist.bin");
     assert!(file_sha256(&missing).is_none());
 }
+
+#[test]
+fn resource_hint_is_private_and_refreshed_for_the_installed_cli() {
+    use codeterm_types::server_bootstrap::{CliResourceHint, CLI_RESOURCE_HINT_FILE};
+    let home = tempfile::tempdir().unwrap();
+    let data = home.path().join("data");
+    let resources = home.path().join("resources");
+    std::fs::create_dir_all(resources.join("cli")).unwrap();
+    let source = resources.join("cli/codeterm");
+    let writer = RecordingUserPath::default();
+    std::fs::write(&source, b"first").unwrap();
+    super::refresh_installed_cli_with(&source, home.path(), &data, &writer).unwrap();
+    let hint_path = data.join("bin").join(CLI_RESOURCE_HINT_FILE);
+    let first: CliResourceHint =
+        serde_json::from_slice(&std::fs::read(&hint_path).unwrap()).unwrap();
+    assert_eq!(first.resources, resources.canonicalize().unwrap());
+    assert_eq!(first.cli_sha256, file_sha256(&source).unwrap());
+    assert!(codeterm_util::private_file::owner_only(&hint_path).unwrap());
+    std::fs::write(&source, b"second").unwrap();
+    super::refresh_installed_cli_with(&source, home.path(), &data, &writer).unwrap();
+    let second: CliResourceHint =
+        serde_json::from_slice(&std::fs::read(&hint_path).unwrap()).unwrap();
+    assert_eq!(second.resources, first.resources);
+    assert_ne!(second.cli_sha256, first.cli_sha256);
+    assert_eq!(second.cli_sha256, file_sha256(&source).unwrap());
+    std::fs::remove_file(&hint_path).unwrap();
+    assert!(!super::refresh_installed_cli_with(&source, home.path(), &data, &writer).unwrap());
+    assert!(hint_path.is_file());
+}

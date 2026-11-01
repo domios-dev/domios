@@ -166,9 +166,21 @@ function fileFingerprint(filePath) {
   return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
 
-export function formatChangedFiles(root, baseRef) {
+export function scopedFiles(root, paths) {
   const absoluteRoot = realpathSync(root);
-  const changedFiles = collectChangedFiles(absoluteRoot, baseRef);
+  return [...new Set(paths.map(file => {
+    const normalized = file.replaceAll('\\', '/');
+    if (path.isAbsolute(normalized) || /^[A-Za-z]:/.test(normalized) || normalized.split('/').some(part => part === '..' || part === '')) {
+      throw new Error(`Formatting requires repository-relative file paths: ${file}`);
+    }
+    if (!isEligiblePath(absoluteRoot, normalized)) throw new Error(`Formatting path is missing, excluded or outside the checkout: ${file}`);
+    return normalized;
+  }))].sort();
+}
+
+export function formatChangedFiles(root, baseRef, paths) {
+  const absoluteRoot = realpathSync(root);
+  const changedFiles = paths ? scopedFiles(absoluteRoot, paths) : collectChangedFiles(absoluteRoot, baseRef);
   const rustFiles = changedFiles.filter(file => rustExtensions.has(path.extname(file)));
   const biomeFiles = changedFiles.filter(file => biomeExtensions.has(path.extname(file)));
   const formatFiles = [...rustFiles, ...biomeFiles];
@@ -223,23 +235,31 @@ export function formatChangedFiles(root, baseRef) {
   return { rustFiles, biomeFiles, changedByTools };
 }
 
-function parseArgs(args) {
+export function parseArgs(args) {
   let baseRef;
+  let paths;
   for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === '--paths') {
+      paths = args.slice(index + 1);
+      if (!paths.length || paths.some(file => file.startsWith('--'))) throw new Error('--paths requires file paths as its final arguments');
+      break;
+    }
     if (args[index] !== '--base' || !args[index + 1] || args[index + 1].startsWith('--')) {
-      throw new Error('Usage: build.sh fmt [--base REF]');
+      throw new Error('Usage: build.sh fmt [--base REF | --paths FILE...]');
     }
     baseRef = args[index + 1];
     index += 1;
   }
-  return baseRef;
+  if (baseRef && paths) throw new Error('--base and --paths are mutually exclusive');
+  return { baseRef, paths };
 }
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : '';
 if (invokedPath === fileURLToPath(import.meta.url)) {
   try {
     const root = run('git', ['rev-parse', '--show-toplevel'], { cwd: path.dirname(invokedPath) }).trim();
-    formatChangedFiles(root, parseArgs(process.argv.slice(2)));
+    const { baseRef, paths } = parseArgs(process.argv.slice(2));
+    formatChangedFiles(root, baseRef, paths);
   } catch (error) {
     console.error(`fmt: ${error.message}`);
     process.exitCode = 1;

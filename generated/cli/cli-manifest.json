@@ -10,7 +10,7 @@
       "value_name": "JSON",
       "possible_values": [],
       "default": null,
-      "help": "Output raw JSON instead of human-readable text",
+      "help": "Output JSON with the payload under result",
       "aliases": []
     },
     {
@@ -21,6 +21,16 @@
       "possible_values": [],
       "default": null,
       "help": "Execute command on a remote mesh peer instead of locally",
+      "aliases": []
+    },
+    {
+      "name": "verbose",
+      "positional": false,
+      "required": false,
+      "value_name": "VERBOSE",
+      "possible_values": [],
+      "default": null,
+      "help": "Include detailed diagnostics, scores and warnings",
       "aliases": []
     }
   ],
@@ -33,9 +43,30 @@
       "subcommands": [
         {
           "name": "login",
-          "about": "Sign in using the system browser and wait for completion",
+          "about": "Sign in and wait for completion",
           "aliases": [],
-          "args": [],
+          "args": [
+            {
+              "name": "code-from-pad",
+              "positional": false,
+              "required": false,
+              "value_name": "CODE_FROM_PAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Complete the pending browserless sign-in using a whole callback URL from this tab's pad",
+              "aliases": []
+            },
+            {
+              "name": "no-browser",
+              "positional": false,
+              "required": false,
+              "value_name": "NO_BROWSER",
+              "possible_values": [],
+              "default": null,
+              "help": "Print the authorization URL and accept the whole redirected callback URL",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         },
         {
@@ -110,34 +141,6 @@
                   "possible_values": [],
                   "default": null,
                   "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
-              "name": "enroll",
-              "about": "Receive all friends here (account takeover); use receive-here to move only one friend",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "confirm-takeover",
-                  "positional": false,
-                  "required": true,
-                  "value_name": "CONFIRM_TAKEOVER",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "expected-receiver-revision",
-                  "positional": false,
-                  "required": true,
-                  "value_name": "EXPECTED_RECEIVER_REVISION",
-                  "possible_values": [],
-                  "default": null,
-                  "help": "Receiver revision shown by status; refresh and confirm again if stale",
                   "aliases": []
                 }
               ],
@@ -1679,6 +1682,16 @@
               "aliases": []
             },
             {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAGS",
+              "possible_values": [],
+              "default": null,
+              "help": "Work tags for an unplanned Worker task; omitted work tags are inferred",
+              "aliases": []
+            },
+            {
               "name": "task",
               "positional": false,
               "required": false,
@@ -2427,9 +2440,20 @@
         },
         {
           "name": "list",
-          "about": "List blueprints scoped to the calling tab and its Team",
+          "about": "List blueprints; Orchestrators and the owner may inspect all Teams and workspaces",
           "aliases": [],
-          "args": [],
+          "args": [
+            {
+              "name": "all",
+              "positional": false,
+              "required": false,
+              "value_name": "ALL",
+              "possible_values": [],
+              "default": null,
+              "help": "Require authority to read across Teams and workspaces",
+              "aliases": []
+            }
+          ],
           "subcommands": []
         },
         {
@@ -4648,6 +4672,89 @@
           ]
         },
         {
+          "name": "backend",
+          "about": "Select and migrate memory storage backends",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "migrate",
+              "about": "Copy every memory table while the daemon is stopped; preserve the source",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "into-nonempty",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "INTO_NONEMPTY",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Authorize importing into a target that already contains data",
+                  "aliases": []
+                },
+                {
+                  "name": "to",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "TO",
+                  "possible_values": [
+                    "postgres",
+                    "sqlite"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
+          "name": "backup",
+          "about": "Create an online SQLite archive or restore a stopped instance",
+          "aliases": [],
+          "args": [],
+          "subcommands": [
+            {
+              "name": "create",
+              "about": "Copy knowledge.db, memory blobs and storage into a timestamped archive",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "out",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "OUT",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "restore",
+              "about": "Replace memory and storage from an archive; requires a stopped daemon",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "from",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "FROM",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            }
+          ]
+        },
+        {
           "name": "calibration",
           "about": "Memory calibration: review or trigger the dreamer's importance/archive sweep",
           "aliases": [],
@@ -6291,6 +6398,77 @@
           "subcommands": []
         },
         {
+          "name": "neighbor-save",
+          "about": "Save a fact or note through this friendship's live memory write grant",
+          "aliases": [],
+          "args": [
+            {
+              "name": "area",
+              "positional": false,
+              "required": true,
+              "value_name": "AREA",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "from-pad",
+              "positional": false,
+              "required": true,
+              "value_name": "FROM_PAD",
+              "possible_values": [],
+              "default": null,
+              "help": "Body from your AgentPad; use - for UTF-8 stdin",
+              "aliases": []
+            },
+            {
+              "name": "kind",
+              "positional": false,
+              "required": true,
+              "value_name": "KIND",
+              "possible_values": [
+                "fact",
+                "note"
+              ],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "summary",
+              "positional": false,
+              "required": false,
+              "value_name": "SUMMARY",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            },
+            {
+              "name": "tag",
+              "positional": false,
+              "required": false,
+              "value_name": "TAGS",
+              "possible_values": [],
+              "default": null,
+              "help": "Repeat for each tag",
+              "aliases": []
+            },
+            {
+              "name": "title",
+              "positional": false,
+              "required": true,
+              "value_name": "TITLE",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "pin",
           "about": "Pin a mem item so it always loads in L1 wake-up",
           "aliases": [],
@@ -7602,7 +7780,7 @@
     },
     {
       "name": "mesh",
-      "about": "Mesh networking — peer discovery, pairing, relay",
+      "about": "Account mesh — installations, status and authenticated relay",
       "aliases": [],
       "args": [],
       "subcommands": [
@@ -7619,42 +7797,6 @@
               "possible_values": [],
               "default": null,
               "help": "Optional target peer (instance_id or name). Omit for all peers",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "disconnect",
-          "about": "Disconnect (unpair) from a paired peer",
-          "aliases": [],
-          "args": [
-            {
-              "name": "instance_id",
-              "positional": true,
-              "required": true,
-              "value_name": "INSTANCE_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Instance ID of the paired peer",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "link",
-          "about": "Link a machine enrolled in this account. Both machines must be signed in, online to the registry and directly reachable; no approval on the other side",
-          "aliases": [],
-          "args": [
-            {
-              "name": "installation_id",
-              "positional": true,
-              "required": true,
-              "value_name": "INSTALLATION_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Installation ID from the account's machine list",
               "aliases": []
             }
           ],
@@ -7712,7 +7854,7 @@
         },
         {
           "name": "peers",
-          "about": "List paired peers",
+          "about": "List account installations and their connection state",
           "aliases": [],
           "args": [],
           "subcommands": []
@@ -7744,24 +7886,6 @@
               "possible_values": [],
               "default": null,
               "help": "Target peer name or instance ID",
-              "aliases": []
-            }
-          ],
-          "subcommands": []
-        },
-        {
-          "name": "unrevoke",
-          "about": "Explicitly lift a local peer identity revocation",
-          "aliases": [],
-          "args": [
-            {
-              "name": "instance_id",
-              "positional": true,
-              "required": true,
-              "value_name": "INSTANCE_ID",
-              "possible_values": [],
-              "default": null,
-              "help": "Instance ID of the revoked peer",
               "aliases": []
             }
           ],
@@ -8008,6 +8132,24 @@
               "possible_values": [],
               "default": null,
               "help": "Show only unread notifications",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "resolve",
+          "about": "Resolve a question asked by this tab after receiving its answer",
+          "aliases": [],
+          "args": [
+            {
+              "name": "id",
+              "positional": true,
+              "required": true,
+              "value_name": "ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -8903,26 +9045,6 @@
               "positional": false,
               "required": false,
               "value_name": "PROJECT",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "spec",
-              "positional": false,
-              "required": false,
-              "value_name": "SPEC",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "spec-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
               "possible_values": [],
               "default": null,
               "help": null,
@@ -12839,10 +12961,10 @@
                 {
                   "name": "executor-role",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "EXECUTOR_ROLE",
                   "possible_values": [],
-                  "default": null,
+                  "default": "",
                   "help": "REQUIRED: who executes this task. Specialization scoping what surface they own, e.g. rust-backend-dev, frontend-dev, docs-sync. Presence is the contract; no vocabulary is enforced",
                   "aliases": []
                 },
@@ -12923,16 +13045,16 @@
                   "value_name": "MODEL",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Provider:model, model id, or bare provider resolved at dispatch",
                   "aliases": []
                 },
                 {
                   "name": "name",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "NAME",
                   "possible_values": [],
-                  "default": null,
+                  "default": "",
                   "help": null,
                   "aliases": []
                 },
@@ -12949,11 +13071,11 @@
                 {
                   "name": "personality",
                   "positional": false,
-                  "required": true,
+                  "required": false,
                   "value_name": "ONE_WORD_PERSONA",
                   "possible_values": [],
-                  "default": null,
-                  "help": "REQUIRED: the executor's one-word persona name, e.g. Alex, Emma, Leo. Without it a dispatched worker falls back to the title 'Worker'",
+                  "default": "",
+                  "help": "Executor's one-word persona; defaults to the first word of the task name",
                   "aliases": []
                 },
                 {
@@ -13033,7 +13155,7 @@
                   "value_name": "SECTIONS",
                   "possible_values": [],
                   "default": null,
-                  "help": null,
+                  "help": "Section selectors; omission uses area matching or the plan's sole section",
                   "aliases": []
                 },
                 {
@@ -13466,6 +13588,19 @@
                   "aliases": []
                 },
                 {
+                  "name": "placement",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "PLACEMENT",
+                  "possible_values": [
+                    "shared",
+                    "lane"
+                  ],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
                   "name": "plan_id",
                   "positional": true,
                   "required": true,
@@ -13533,6 +13668,44 @@
                   "positional": false,
                   "required": false,
                   "value_name": "WORKSPACE",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                }
+              ],
+              "subcommands": []
+            },
+            {
+              "name": "extend-files",
+              "about": "Extend this Worker's declared edit files; overlapping live ownership is refused",
+              "aliases": [],
+              "args": [
+                {
+                  "name": "edit-file",
+                  "positional": false,
+                  "required": true,
+                  "value_name": "PATH",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "plan_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "PLAN_ID",
+                  "possible_values": [],
+                  "default": null,
+                  "help": null,
+                  "aliases": []
+                },
+                {
+                  "name": "task_id",
+                  "positional": true,
+                  "required": false,
+                  "value_name": "TASK_ID",
                   "possible_values": [],
                   "default": null,
                   "help": null,
@@ -17532,16 +17705,6 @@
               "aliases": []
             },
             {
-              "name": "all-workspaces",
-              "positional": false,
-              "required": false,
-              "value_name": "ALL_WORKSPACES",
-              "possible_values": [],
-              "default": null,
-              "help": "Accepted for compatibility; every workspace is now listed by default",
-              "aliases": []
-            },
-            {
               "name": "workspace",
               "positional": false,
               "required": false,
@@ -17941,6 +18104,24 @@
               "possible_values": [],
               "default": null,
               "help": "Substring or short pattern to match",
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
+          "name": "send-status",
+          "about": "Inspect one retained send without resending its payload",
+          "aliases": [],
+          "args": [
+            {
+              "name": "send_id",
+              "positional": true,
+              "required": true,
+              "value_name": "SEND_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
               "aliases": []
             }
           ],
@@ -18829,7 +19010,7 @@
       "subcommands": [
         {
           "name": "amend",
-          "about": "Review and amend a child's checklist; seeded criteria stay locked",
+          "about": "Review and amend a child's checklist; seeded criteria stay locked. Input: [{\"id\"?: string, \"content\"?: string, \"status\": \"pending|in_progress|completed|blocked|skipped\", \"activeForm\"?: string, \"link\"?: string, \"reason\"?: string}]. New items require content; activeForm defaults to content. Blocked/skipped require reason",
           "aliases": [],
           "args": [
             {
@@ -18919,7 +19100,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "JSON array of {content,status,activeForm,link?,reason?} from this tab's pad",
+              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content",
               "aliases": []
             }
           ],

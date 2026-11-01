@@ -32,7 +32,11 @@ fn catalog(
     if json_output {
         return Ok(Some(result));
     }
-    println!("{}", render_list(&result));
+    if method == "persona.list" && !crate::cmd::output::verbose() {
+        print!("{}", crate::cmd::output::compact_list(&result, None));
+    } else {
+        println!("{}", render_list(&result));
+    }
     Ok(None)
 }
 

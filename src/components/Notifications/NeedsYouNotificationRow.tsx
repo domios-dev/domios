@@ -9,6 +9,7 @@ import {
 } from "../../lib/notificationDeepLink";
 import type { Notification, Tab, Workspace } from "../../lib/types";
 import { RefText, refPlainText, type BoardRefs } from "../Canvas/missionControl/BoardRefText";
+import { openNotificationCenter } from "./openNotificationCenter";
 
 export interface NeedsYouDeepLinks {
   notifications: Notification[];
@@ -46,9 +47,15 @@ export function NeedsYouNotificationRow({
   onSelectTab: NeedsYouDeepLinks["onSelectTab"];
 }) {
   const { state } = item;
-  const unavailable = state.kind === "unavailable" ? DEEP_LINK_UNAVAILABLE_COPY[state.reason] : null;
+  const askingTab = item.sourceTabId ? tabs[item.sourceTabId] : undefined;
+  const canOpenAsker = state.kind === "unavailable" && state.reason === "no_target" && Boolean(askingTab && item.workspaceId);
+  const unavailable = state.kind === "unavailable" && state.reason !== "no_target" ? DEEP_LINK_UNAVAILABLE_COPY[state.reason] : null;
   const title = refPlainText(item.title, refs);
   const activate = () => {
+    if (canOpenAsker && askingTab && item.workspaceId) {
+      void onSelectTab(item.workspaceId, askingTab.id);
+      return;
+    }
     if (state.kind !== "available") return;
     const tab = tabs[state.tabId];
     if (!tab) return;
@@ -74,7 +81,7 @@ export function NeedsYouNotificationRow({
       <div
         role="link"
         tabIndex={0}
-        aria-disabled={unavailable ? true : undefined}
+        aria-disabled={state.kind !== "available" && !canOpenAsker ? true : undefined}
         aria-label={unavailable ? `${title}, ${unavailable}` : title}
         data-testid="needs-you-notification-link"
         className="mc-board-needs-link"
@@ -84,12 +91,14 @@ export function NeedsYouNotificationRow({
         <p className="mc-board-needs-title">
           <RefText text={item.title} refs={refs} />
         </p>
+        {canOpenAsker && <p className="mc-board-caption">{askingTab?.title}{item.timestamp ? ` · ${new Date(item.timestamp).toLocaleString()}` : ""} · Open question</p>}
         {unavailable && (
           <p data-testid="needs-you-notification-unavailable" className="mc-board-caption">
             {unavailable}
           </p>
         )}
       </div>
+      {canOpenAsker && <button type="button" className="mc-board-more" onClick={() => openNotificationCenter(item.id)}>Answer question</button>}
     </li>
   );
 }

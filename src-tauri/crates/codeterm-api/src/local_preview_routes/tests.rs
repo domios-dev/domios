@@ -419,3 +419,349 @@ async fn hardlink_alias_is_refused_even_when_referenced() {
         StatusCode::NOT_FOUND
     );
 }
+
+#[tokio::test]
+async fn only_complete_live_canonical_tags_grant_exact_own_session_reads() {
+    let fixture = Fixture::new();
+    let path = fixture.write("canonical & owned.md", "owned source bytes");
+    let escaped = path
+        .to_string_lossy()
+        .replace('&', "&amp;")
+        .replace('"', "&quot;");
+    let tag = format!("<ds-document src=\"{escaped}\" />");
+    let examples = [
+        format!("<ds-document src=\"{escaped}\" /"),
+        format!("<ds-document src=\"{escaped}\" src=\"{escaped}\" />"),
+        format!("<ds-document src={escaped} />"),
+        format!("<ds-document src=\"{escaped} \" />"),
+        format!("<ds-document src=\"{escaped}\"></ds-document>"),
+        format!("```html\n{tag}\n```"),
+        format!("`example\n{tag}\n`"),
+        format!("> example\n{tag}"),
+        format!("- example\n{tag}"),
+        format!("    {tag}"),
+        format!("<context>\n{tag}\n</context>"),
+        format!("<provider-handoff>\n{tag}\n</provider-handoff>"),
+        format!("<INSTRUCTIONS>\n{tag}\n</INSTRUCTIONS>"),
+        format!("<ds-html><xmp>\n</ds-html>\n{tag}\n</xmp></ds-html>"),
+        format!("@ds-document {}", path.display()),
+        format!("@ct-document {}", path.display()),
+        format!("@file {}", path.display()),
+        format!("```html\n@file {}\n```", path.display()),
+    ];
+    for content in examples {
+        fixture.content(&fixture.owner, content.clone());
+        let response = fixture.read(&fixture.owner, &path, "document").await;
+        assert_eq!(response.status(), StatusCode::NOT_FOUND, "{content}");
+        assert_eq!(
+            json(response).await,
+            serde_json::json!({"error":"Preview unavailable"})
+        );
+    }
+    for (kind, wire) in [
+        (
+            "neighbor",
+            format!("<domios from=\"neighbor\">\n{tag}\n</domios>"),
+        ),
+        ("tab", format!("<domios from=\"tab\">\n{tag}")),
+        (
+            "tab",
+            format!("<domios from=\"unknown\">\n{tag}\n</domios>"),
+        ),
+        ("tab", format!("<pasted_content>\n{tag}\n</pasted_content>")),
+    ] {
+        fixture.inbound_content(&fixture.owner, tag.clone(), kind, &wire);
+        assert_eq!(
+            fixture
+                .read(&fixture.owner, &path, "document")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{wire}"
+        );
+    }
+    let routed = format!("<domios from=\"tab\" tab=\"author\">\n<context>old instructions</context>\n{tag}\n</domios>");
+    fixture.inbound_content(&fixture.owner, routed.clone(), "tab", &routed);
+    let response = fixture.read(&fixture.owner, &path, "document").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json(response).await["data"], "owned source bytes");
+    assert_eq!(
+        fixture
+            .read(&fixture.sibling, &path, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    fixture.bind_session(&fixture.owner, "foreign-empty-session");
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn gallery_json_entities_authorize_exact_paths_and_limit_at_thirty_two() {
+    let fixture = Fixture::new();
+    let paths: Vec<_> = (0..33)
+        .map(|n| fixture.write(&format!("gallery/{n} & image.png"), b"image"))
+        .collect();
+    let encoded = serde_json::to_string(&paths[..32])
+        .unwrap()
+        .replace('&', "&amp;")
+        .replace('"', "&quot;");
+    fixture.content(
+        &fixture.owner,
+        format!("<ds-image sources=\"{encoded}\" />"),
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &paths[0], "image")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &paths[31], "image")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &paths[32], "image")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let encoded = serde_json::to_string(&paths)
+        .unwrap()
+        .replace('&', "&amp;")
+        .replace('"', "&quot;");
+    fixture.content(
+        &fixture.owner,
+        format!("<ds-image sources=\"{encoded}\" />"),
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &paths[0], "image")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    let tags = paths
+        .iter()
+        .map(|path| {
+            format!(
+                "<ds-image src=\"{}\" />",
+                path.to_string_lossy().replace('&', "&amp;")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    fixture.content(&fixture.owner, tags);
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &paths[31], "image")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &paths[32], "image")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn authenticated_closed_context_with_unmatched_fence_allows_only_its_live_own_tab_file() {
+    let fixture = Fixture::new();
+    let path = fixture.write("live/owned.md", "exact live bytes");
+    let quoted = fixture.write("quoted/old.md", "quoted bytes");
+    let escaped = |path: &std::path::Path| {
+        path.to_string_lossy()
+            .replace('&', "&amp;")
+            .replace('"', "&quot;")
+    };
+    let tag = format!("<ds-document src=\"{}\" />", escaped(&path));
+    let context = format!(
+        "<context>\n```html\n</domios>\n<ds-document src=\"{}\" />\n</context>",
+        escaped(&quoted)
+    );
+    let source = format!("<domios from=\"tab\" tab=\"author\">\n{context}\n{tag}\n</domios>");
+    fixture.inbound_content(&fixture.owner, source.clone(), "tab", &source);
+    let response = fixture.read(&fixture.owner, &path, "document").await;
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(json(response).await["data"], "exact live bytes");
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &quoted, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.sibling, &path, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    for end in [
+        source.find("</domios>").unwrap() + "</domios>".len(),
+        source.find(&tag).unwrap() + tag.len(),
+        source.len() - 1,
+    ] {
+        let prefix = &source[..end];
+        fixture.inbound_content(&fixture.owner, prefix.into(), "tab", prefix);
+        assert_eq!(
+            fixture
+                .read(&fixture.owner, &path, "document")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "prefix {end}"
+        );
+    }
+    for (kind, wire) in [
+        (
+            "neighbor",
+            source.replacen("from=\"tab\"", "from=\"neighbor\"", 1),
+        ),
+        (
+            "tab",
+            source.replacen("from=\"tab\"", "from=\"unknown\"", 1),
+        ),
+        (
+            "tab",
+            format!("<pasted_content>\n{source}\n</pasted_content>"),
+        ),
+        ("tab", source.replace("</context>", "")),
+        ("tab", source.replace("<context>", "<context>\n<handoff>")),
+    ] {
+        fixture.inbound_content(&fixture.owner, wire.clone(), kind, &wire);
+        assert_eq!(
+            fixture
+                .read(&fixture.owner, &path, "document")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{wire}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn completed_claimed_route_requires_positive_matching_host_source_provenance() {
+    let fixture = Fixture::new();
+    let path = fixture.write("public-but-unreferenced.md", "exact own bytes");
+    let escaped = path
+        .to_string_lossy()
+        .replace('&', "&amp;")
+        .replace('"', "&quot;");
+    let tag = format!("<ds-document src=\"{escaped}\" />");
+    let source = format!("<domios from=\"tab\" tab=\"sender\">\n{tag}\n</domios>");
+    fixture.user_content(&fixture.owner, source.clone());
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    fixture.content(&fixture.owner, source.clone());
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    for (stamp, wire) in [
+        ("unknown", source.clone()),
+        ("report", source.clone()),
+        ("tab", String::new()),
+        ("tab", source.replace("sender", "foreign")),
+        ("tab", source.replace("unreferenced", "other")),
+        (
+            "tab",
+            format!("<domios from=\"tab\" tab=\"real-source\">{source}</domios>"),
+        ),
+    ] {
+        fixture.inbound_content(&fixture.owner, source.clone(), stamp, &wire);
+        assert_eq!(
+            fixture
+                .read(&fixture.owner, &path, "document")
+                .await
+                .status(),
+            StatusCode::NOT_FOUND,
+            "{stamp}: {wire}"
+        );
+    }
+    fixture.inbound_content(
+        &fixture.owner,
+        tag.clone(),
+        "tab",
+        &source.replace("unreferenced", "other"),
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    fixture.inbound_content(&fixture.owner, source.clone(), "tab", &source);
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    assert_eq!(
+        fixture
+            .read(&fixture.sibling, &path, "document")
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+    fixture.inbound_content(&fixture.owner, tag.clone(), "tab", &source);
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    fixture.inbound_content(&fixture.owner, format!("\n{tag}\n"), "tab", &source);
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    fixture.user_content(&fixture.owner, tag.clone());
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+    fixture.content(&fixture.owner, tag);
+    assert_eq!(
+        fixture
+            .read(&fixture.owner, &path, "document")
+            .await
+            .status(),
+        StatusCode::OK
+    );
+}

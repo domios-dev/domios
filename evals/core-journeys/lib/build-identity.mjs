@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,14 +57,7 @@ export function readBuildIdentity(checkout, { env = process.env } = {}) {
   const cliInstanceEnv = cliInput(identify, 'INSTANCE', cliIdentify);
   const cliPortEnv = cliInput(identify, 'API_PORT', cliIdentify);
   const instance = env.CORE_JOURNEY_REQUESTED_INSTANCE ?? env[instanceInputEnv] ?? env[cliInstanceEnv] ?? '';
-  let targetRoot;
-  if (instance) {
-    const slug = instance.toLowerCase().replace(/[^a-z0-9-]/g, '-');
-    const key = instance === slug ? slug : `${slug}-x${createHash('sha256').update(instance).digest('hex').slice(0, 10)}`;
-    targetRoot = path.join(root, 'src-tauri/target/dev-instances', key);
-  } else {
-    targetRoot = env.CARGO_TARGET_DIR ?? path.join(root, 'src-tauri/target');
-  }
+  const targetRoot = instance ? path.join(root, 'src-tauri/target/named-dev') : env.CARGO_TARGET_DIR ?? path.join(root, 'src-tauri/target');
   const targetProfile = env.CARGO_BUILD_TARGET ? path.join(targetRoot, env.CARGO_BUILD_TARGET) : targetRoot;
   const executable = path.join(targetProfile, 'debug', `${binaryName}${process.platform === 'win32' ? '.exe' : ''}`);
   return {

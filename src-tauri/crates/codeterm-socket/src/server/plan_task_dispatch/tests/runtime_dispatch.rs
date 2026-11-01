@@ -102,6 +102,15 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
 
 #[test]
 fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() {
+    assert_runtime_task_dispatch(Some("Ada"), "Ada");
+}
+
+#[test]
+fn socket_task_added_without_personality_dispatches_with_first_word_title() {
+    assert_runtime_task_dispatch(None, "Prism");
+}
+
+fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str) {
     let (harness, owner, workspace) = fixture();
     let svc = &harness.fixture.service;
     let team = svc
@@ -130,22 +139,33 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
     plan.mode = PlanMode::Approved;
     plan.planning_state = codeterm_service_core::plan::PlanningState::Approved;
     svc.plan_store.save(&mut plan, 2).unwrap();
-    let task = svc
-        .plan_store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "runtime task".into(),
-                personality: Some("Ada".into()),
-                executor_role: Some("Probe".into()),
-                role_guidance: Some("opaque-role".into()),
-                body: "opaque-task".into(),
-                execution_intent: codeterm_service_core::plan::TaskExecutionIntent::NonRepository,
-                ..Default::default()
-            },
-            3,
-        )
-        .unwrap();
+    let task_name = "Prism runtime task";
+    let mut add = json!({
+        "plan_id": plan.id, "name": task_name, "executor_role": "Probe",
+        "role_guidance": "opaque-role", "body": "opaque-task",
+        "execution_intent": "non_repository", "caller_tab_id": owner,
+        "session_id": "owner-session", "session_binding_nonce": "owner-nonce",
+    });
+    if let Some(personality) = personality {
+        add["personality"] = json!(personality);
+    }
+    let added = crate::server::plan_task_rpc::dispatch(
+        "plan.task.add",
+        &Some(add),
+        &Arc::new(svc.clone()),
+        3,
+    )
+    .unwrap();
+    let task = added["task_id"].as_str().unwrap().to_owned();
+    assert_eq!(
+        svc.plan_store
+            .show_task(&task)
+            .unwrap()
+            .task
+            .personality
+            .as_deref(),
+        Some(expected_title),
+    );
     codeterm_service_core::service::plan::plan_skills::create_plan_skill(
         &svc.plan_store,
         &plan.id,
@@ -201,7 +221,9 @@ fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() 
             .expect("dispatch startup did not commit the Worker binding");
     }
     let tab = svc.mux.read().get_tab(worker).unwrap().clone();
-    assert_eq!(tab.description.as_deref(), Some("runtime task"));
+    assert_eq!(tab.title, expected_title);
+    assert_ne!(tab.title, "Worker");
+    assert_eq!(tab.description.as_deref(), Some(task_name));
     assert_eq!(
         tab.description_origin,
         codeterm_service_core::multiplexer::types::TabDescriptionOrigin::Task

@@ -81,7 +81,6 @@ runs:
         CODETERM_SCCACHE_VERIFY_ONLY: ${{ runner.environment == 'github-hosted' && '0' || '1' }}
         CODETERM_RELEASE_COMMON_STAGE: "1"
         CARGO_INCREMENTAL: "0"
-        CARGO_BUILD_JOBS: ${{ runner.environment == 'github-hosted' && '4' || 'default' }}
         RUSTUP_TOOLCHAIN: ${{ runner.arch == 'ARM64' && format('1.99.1-{0}', inputs.target) || '1.99.1' }}
         CARGO_BUILD_TARGET: ${{ inputs.target }}
         TARGET: ${{ inputs.target }}

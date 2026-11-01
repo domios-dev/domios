@@ -6,6 +6,7 @@ import { pipelineModel } from "../pipelineModel";
 import { automationKey, type AutomationAttachment, type AutomationGraph, type AutomationGraphAdapter, type AutomationIdentity } from "../types";
 import { PersistedBlueprintView as BlueprintView } from "../../Navigation/PersistedBlueprintView";
 import { watchRuns, withRetainedRuns } from "./runEvidence";
+import { triggerRuntime } from "./triggerModel";
 
 const STOPPABLE = new Set(["running", "active", "idle", "held", "finishing"]);
 
@@ -15,12 +16,13 @@ export function HostBlueprintView({ graph, attachment, adapter, refresh, bluepri
   blueprintId: string; initialRunId?: string; backLabel: string; onBack: () => void; headingLevel?: 2 | 3; fill?: boolean;
 }) {
   const snapshot = graph.blueprints?.find((blueprint) => blueprint.id === blueprintId);
-  const pipeline = useMemo(() => snapshot ? withRetainedRuns(pipelineModel(snapshot), watchRuns(graph, snapshot)) : null, [graph, snapshot]);
+  const base = useMemo(() => snapshot ? withRetainedRuns(pipelineModel(snapshot), watchRuns(graph, snapshot)) : null, [graph, snapshot]);
   const workspaceId = graph.workspace_id;
-  const teamId = pipeline?.owner.team_id ?? null;
-  const identity: AutomationIdentity | null = pipeline ? graph.scenarios.find((scenario) => scenario.root.id === blueprintId)?.root
-    ?? { kind: "blueprint", id: blueprintId, workspace_id: workspaceId, team_id: teamId, owner_tab_id: pipeline.owner.tab_id } : null;
+  const teamId = base?.owner.team_id ?? null;
+  const identity: AutomationIdentity | null = base ? graph.scenarios.find((scenario) => scenario.root.id === blueprintId)?.root
+    ?? { kind: "blueprint", id: blueprintId, workspace_id: workspaceId, team_id: teamId, owner_tab_id: base.owner.tab_id } : null;
   const root = identity ? graph.nodes.find((node) => automationKey(node.identity) === automationKey(identity)) : undefined;
+  const pipeline = useMemo(() => base ? { ...base, triggerRuntime: triggerRuntime(root) } : null, [base, root]);
   const history = useCallback(() => orchestrationTransport().blueprint_viewer_history({ workspaceId, teamId, id: blueprintId }), [workspaceId, teamId, blueprintId]);
   if (!pipeline || !identity) return <div className="flex flex-col items-start gap-3 p-4">
     <BackPill label={backLabel} onBack={onBack} />

@@ -1,0 +1,22 @@
+[Unit]
+Description=Verify and install a signed Domios headless bundle
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+StateDirectory=domios-update
+StateDirectoryMode=0755
+UMask=0077
+ExecStart=/usr/local/libexec/domios-update headless-update
+ExecStopPost=/usr/local/libexec/domios-update headless-update-recover
+TimeoutStartSec=20min
+TimeoutStopSec=8min
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+ReadWritePaths=/opt /var/lib/domios-update
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

@@ -453,3 +453,90 @@ async fn web_tab_close_refuses_a_protected_tab_with_a_typed_status() {
     state.svc.mux.write().abort_tab_close(&reservation);
     assert_eq!(locked.0, StatusCode::CONFLICT);
 }
+
+#[test]
+fn view_state_invalidations_match_only_the_exact_surface_tab_subscription() {
+    let event = crate::events::SystemEvent::SurfaceStateInvalidated {
+        plugin: "studio".into(),
+        surface: "board".into(),
+        instance: "one".into(),
+        tab: "surface-tab".into(),
+    };
+    assert!(super::event_matches_tab(&event, Some("surface-tab")));
+    assert!(!super::event_matches_tab(&event, Some("other-tab")));
+}
+
+#[tokio::test]
+async fn manifest_authenticates_only_the_bootstrap_cookie() {
+    use axum::routing::get;
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("opaque-token".into());
+    let router = Router::new()
+        .route("/manifest-bootstrap", post(super::web_manifest_bootstrap))
+        .route("/manifest.webmanifest", get(super::web_manifest))
+        .with_state(state);
+
+    let bootstrap = router
+        .clone()
+        .oneshot(
+            Request::post("/manifest-bootstrap")
+                .header("authorization", "Bearer opaque-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(bootstrap.status(), StatusCode::OK);
+    let cookie = bootstrap.headers()["set-cookie"].to_str().unwrap();
+    for attribute in ["HttpOnly", "SameSite=Lax", "Path=/"] {
+        assert!(cookie.contains(attribute));
+    }
+    assert!(cookie.contains(&format!("Max-Age={}", WEB_TOKEN_TTL.as_secs())));
+    for authorization in [None, Some("Bearer invalid")] {
+        let mut request = Request::post("/manifest-bootstrap");
+        if let Some(authorization) = authorization {
+            request = request.header("authorization", authorization);
+        }
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(response.headers().get("set-cookie").is_none());
+    }
+    for (query, cookie, expected) in [
+        ("", None, "/"),
+        ("", Some("codeterm-web-token=invalid"), "/"),
+        ("?token=opaque-token", None, "/"),
+        (
+            "?token=invalid",
+            Some("codeterm-web-token=opaque-token"),
+            "/#token=opaque-token",
+        ),
+        (
+            "",
+            Some("codeterm-web-token=opaque-token"),
+            "/#token=opaque-token",
+        ),
+    ] {
+        let mut request = Request::get(format!("/manifest.webmanifest{query}"));
+        if let Some(cookie) = cookie {
+            request = request.header("cookie", cookie);
+        }
+        let response = router
+            .clone()
+            .oneshot(request.body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let manifest: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(manifest["start_url"], expected);
+    }
+}

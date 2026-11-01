@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { MessageSegment, NormalizedChatMessage, TimelineItem } from "@codeterm/chat-core";
+import claudePlugin from "../../../plugins/provider-claude/src/plugin";
 import { enrichTimelineItems } from "./chatEnrichment";
 
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Array<{ name: string; raw: string; segments: MessageSegment[] }>;
@@ -64,4 +65,31 @@ for (const name of ["fenced example", "unclosed tag", "indented tag is content",
     instruction: "Reply through domios account neighbors send." });
   assert.deepEqual(entry.msg.segments, [{ type: "text", text: "Is 2 < 3?" }], "the bubble shows the friend's words as written");
 }
-console.log("envelope enrichment: 13 cases passed");
+{
+  const records = JSON.parse(readFileSync(new URL("../../../plugins/provider-claude/tests/fixtures/model-switch/live-command-records.json", import.meta.url), "utf8")) as Array<{ uuid: string; message: { content: string } }>;
+  const parse = claudePlugin.parseSessionDelta;
+  assert.ok(parse, "bundled provider exposes session parsing");
+  const delta = parse(records.map((record) => JSON.stringify(record)).join("\n") + "\n") as {
+    messages: Array<{ role: string; uuid: string; blocks: Array<{ kind: string; data: { text?: string } }> }>;
+  };
+  const expected = [
+    { record: records[0], name: "/model", args: undefined },
+    { record: records[2], name: "/effort", args: "low" },
+  ];
+  assert.equal(delta.messages.length, records.length);
+  for (const { record, name, args } of expected) {
+    const rich = delta.messages.find((message) => message.uuid === record.uuid);
+    assert.ok(rich, "live command reaches the provider projection");
+    const content = rich.blocks.filter((block) => block.kind === "text").map((block) => block.data.text ?? "").join("\n");
+    assert.equal(rich.role, "user");
+    assert.equal(content, record.message.content);
+    for (const segments of [undefined, [{ type: "text" as const, text: content }]]) {
+      const raw: NormalizedChatMessage = { id: record.uuid, type: "user", content, segments };
+      const [entry] = enrichTimelineItems([item(raw)], new WeakMap());
+      assert.deepEqual(entry.origin, { kind: "command", commands: [{ name, args, stdout: undefined }] });
+      assert.equal(entry.msg.content, "");
+      assert.equal(raw.content, record.message.content);
+    }
+  }
+}
+console.log("envelope enrichment: current envelope and live command cases passed");

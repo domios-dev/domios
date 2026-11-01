@@ -105,3 +105,40 @@ fn host_identity_wins_and_absent_roles_cannot_leak_from_extra_env() {
     assert_eq!(env.get("CODETERM_CLI_PATH").unwrap(), "owned-cli");
     assert_eq!(env.get("HIDDEN_WORKER_CONTEXT").unwrap(), "owned-context");
 }
+
+#[test]
+fn lifecycle_cli_and_exact_caller_identity_override_forged_launch_extras() {
+    use crate::service::instance_env::InstanceEnv;
+    use crate::service::pty_io::tab_env::{compose_launch_env, LaunchSurface, TabLaunchEnv};
+
+    let instance = InstanceEnv {
+        socket_path: "own-socket".into(),
+        api_url: "http://127.0.0.1:17686".into(),
+        api_port: "17686".into(),
+        cli_path: Some("private-worker/codeterm".into()),
+    };
+    let tab = TabLaunchEnv {
+        tab_id: "own-tab".into(),
+        pad_dir: Some("own-pad".into()),
+        session_binding_nonce: "own-session-nonce".into(),
+        shell_nonce: "own-shell-nonce".into(),
+        api_token: Some("own-token".into()),
+        identity: HashMap::new(),
+        task: HashMap::new(),
+    };
+    let owned = compose_launch_env(&instance, Some(&tab), LaunchSurface::Service);
+    let mut extra = owned
+        .keys()
+        .map(|key| (key.clone(), "foreign".into()))
+        .collect::<HashMap<_, _>>();
+    extra.insert("CODETERM_ROLE".into(), "foreign".into());
+    let composed = compose_owned_environment(extra, owned.clone());
+    assert_eq!(composed, owned);
+    assert_eq!(composed["CODETERM_CLI_PATH"], "private-worker/codeterm");
+    assert_eq!(composed["CODETERM_TAB_ID"], "own-tab");
+    assert_eq!(
+        composed["CODETERM_SESSION_BINDING_NONCE"],
+        "own-session-nonce"
+    );
+    assert_eq!(composed["CODETERM_API_TOKEN"], "own-token");
+}

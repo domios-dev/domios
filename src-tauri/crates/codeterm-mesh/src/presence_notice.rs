@@ -76,9 +76,7 @@ fn notice_targets(
         .paired_peers
         .values()
         .filter(|peer| {
-            (include_offline || peer.online)
-                && !manager.is_revoked(&peer.instance_id)
-                && !manager.is_blocked(&peer.instance_id)
+            (include_offline || peer.online) && !manager.account_peer_revoked(&peer.instance_id)
         })
         .map(|peer| (peer.addresses.clone(), peer.api_port))
         .collect()

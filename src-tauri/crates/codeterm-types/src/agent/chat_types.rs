@@ -381,7 +381,10 @@ impl ChatMsg {
     }
 
     pub fn with_segments(mut self) -> Self {
-        self.refresh_segments();
+        // Host source evidence cannot be reconstructed from a claimed frame in display content.
+        if self.inbound_kind.is_none() {
+            self.refresh_segments();
+        }
         self
     }
 }

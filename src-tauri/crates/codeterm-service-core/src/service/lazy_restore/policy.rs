@@ -6,6 +6,18 @@ use codeterm_pty::multiplexer::restore_policy::RestoreDecision;
 use codeterm_types::pty::TimelineState;
 use std::collections::HashSet;
 
+/// Active plans with an open attempt on an in-progress task; `continuing_tabs` confirms the mode.
+pub(super) fn continuing_candidates() -> crate::service::plan::PlanMatch {
+    crate::service::plan::PlanMatch::active().and(
+        crate::service::plan::AttemptMatch {
+            state: crate::service::plan::AttemptState::Open,
+            task_statuses: Some(vec![TaskStatus::InProgress]),
+            ..Default::default()
+        }
+        .into_match(),
+    )
+}
+
 pub(super) fn continuing_tabs(plans: &[Plan]) -> HashSet<String> {
     let mut tabs = HashSet::new();
     for plan in plans {

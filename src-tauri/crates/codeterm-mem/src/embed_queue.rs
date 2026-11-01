@@ -4,7 +4,7 @@
 //! round-robin order (see `embed_schedule`), so a huge item cannot starve the
 //! rest. Delete and replace cancel an item's pending chunks.
 
-use std::path::PathBuf;
+use crate::backend::{MemStore, WriteContext};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,8 +12,8 @@ use parking_lot::{Condvar, Mutex};
 use tokio::sync::Semaphore;
 
 use super::embed_schedule::{EmbedSchedule, EmbedUnit, SubmitOutcome};
-use super::embedder::index::{self, InsertOutcome};
-use super::embedder::{pending, ActiveEmbedder, EmbedError};
+use super::embedder::index::InsertOutcome;
+use super::embedder::{ActiveEmbedder, EmbedError};
 use super::graph_layout::cache::LayoutCache;
 
 const QUEUE_CAPACITY: usize = 1024;
@@ -84,7 +84,7 @@ impl EmbedQueue {
     }
 
     pub fn start(
-        db_path: PathBuf,
+        store: Arc<dyn MemStore>,
         heavy_ops_permits: Arc<Semaphore>,
         layout: Arc<LayoutCache>,
         embedder: Arc<ActiveEmbedder>,
@@ -96,7 +96,7 @@ impl EmbedQueue {
             .name("mem-embed-queue".into())
             .spawn(move || {
                 run_worker(
-                    db_path,
+                    store,
                     worker_shared,
                     heavy_ops_permits,
                     runtime,
@@ -201,36 +201,18 @@ fn next_unit(shared: &Shared) -> Option<EmbedUnit> {
 }
 
 fn run_worker(
-    db_path: PathBuf,
+    store: Arc<dyn MemStore>,
     shared: Arc<Shared>,
     heavy_ops_permits: Arc<Semaphore>,
     runtime: Option<tokio::runtime::Handle>,
     layout: Arc<LayoutCache>,
     embedder: Arc<ActiveEmbedder>,
 ) {
-    super::embeddings::ensure_extension_registered();
-    let conn = match rusqlite::Connection::open(&db_path) {
-        Ok(c) => {
-            let _ = c.busy_timeout(Duration::from_secs(5));
-            c
-        }
-        Err(e) => {
-            log::warn!("[mem] embed worker: open {}: {}", db_path.display(), e);
-            let mut state = shared.state.lock();
-            state.closed = true;
-            state.schedule = EmbedSchedule::default();
-            shared.idle.notify_all();
-            return;
-        }
-    };
-
-    log::info!("[mem] embed queue worker started on {}", db_path.display());
-
     while let Some(unit) = next_unit(&shared) {
         let _permit = runtime
             .as_ref()
             .and_then(|h| h.block_on(heavy_ops_permits.clone().acquire_owned()).ok());
-        process_unit(&conn, &shared, &layout, &embedder, &unit);
+        process_unit(store.as_ref(), &shared, &layout, &embedder, &unit);
         let mut state = shared.state.lock();
         state.schedule.finish(&unit);
         state.busy = false;
@@ -243,7 +225,7 @@ fn run_worker(
 }
 
 fn process_unit(
-    conn: &rusqlite::Connection,
+    store: &dyn MemStore,
     shared: &Shared,
     layout: &LayoutCache,
     embedder: &ActiveEmbedder,
@@ -257,7 +239,9 @@ fn process_unit(
         Err(EmbedError::Unavailable(reason)) => {
             shared.state.lock().failed += 1;
             let dropped = shared.state.lock().schedule.abandon(unit);
-            if let Err(error) = pending::mark(conn, &unit.id, &reason) {
+            if let Err(error) =
+                store.mark_pending(&WriteContext::system("embed-queue"), &unit.id, &reason)
+            {
                 log::warn!("[mem] embed {}: {error}", unit.id);
             }
             log::info!(
@@ -280,13 +264,20 @@ fn process_unit(
     if !shared.state.lock().schedule.is_current(unit) {
         return;
     }
-    match index::insert_if_live(conn, &unit.id, unit.chunk_index, &vector) {
+    match store.insert_vector(
+        &WriteContext::system("embed-queue"),
+        &unit.id,
+        unit.chunk_index,
+        &vector,
+    ) {
         Ok(InsertOutcome::Inserted) => {
             if unit.chunk_index == 0 {
-                place_in_layout(conn, layout, &unit.id);
+                store.layout_place_stored(layout, &unit.id);
             }
             if unit.is_last {
-                if let Err(error) = pending::clear(conn, &unit.id) {
+                if let Err(error) =
+                    store.clear_pending(&WriteContext::system("embed-queue"), &unit.id)
+                {
                     log::warn!("[mem] embed {}: {error}", unit.id);
                 }
                 log::debug!("[mem] indexed embedding for {}", unit.id);
@@ -305,30 +296,6 @@ fn process_unit(
         }
     }
 }
-
-#[cfg(feature = "embeddings")]
-fn place_in_layout(conn: &rusqlite::Connection, layout: &LayoutCache, id: &str) {
-    if layout.is_empty() {
-        return;
-    }
-    let blob: Option<Vec<u8>> = conn
-        .query_row(
-            "SELECT embedding FROM mem_vectors WHERE mem_id = ?1",
-            rusqlite::params![id],
-            |r| r.get::<_, Vec<u8>>(0),
-        )
-        .ok();
-    if let Some(blob) = blob {
-        let vec = super::graph_layout::placement::decode_vector(&blob);
-        match super::graph_layout::placement::place_incremental(conn, layout, id, &vec) {
-            Ok(_) => {}
-            Err(e) => log::warn!("[graph_layout] incremental place {id}: {e}"),
-        }
-    }
-}
-
-#[cfg(not(feature = "embeddings"))]
-fn place_in_layout(_conn: &rusqlite::Connection, _layout: &LayoutCache, _id: &str) {}
 
 #[cfg(test)]
 mod tests;

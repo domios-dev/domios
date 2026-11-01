@@ -1,6 +1,6 @@
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { FullscreenOverlay } from "./FullscreenOverlay";
+import { FullscreenOverlay, useFullscreenViewer } from "./FullscreenOverlay";
 import { ChevronDown, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
 import { copyCodeText } from "./copyCodeText";
 import { SyntaxHighlighter } from "./syntaxHighlighter";
@@ -123,7 +123,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
         style={{ maxHeight: fullSize ? "100%" : maxHeight }}
       >
         <pre
-          className="m-0 w-max min-w-full whitespace-pre p-3 font-mono text-xs leading-[1.4]"
+          className="m-0 w-max min-w-full whitespace-pre px-3 pb-2.5 pt-1 font-mono text-xs leading-[1.4]"
           style={{
             background: "var(--ct-bg)",
             color: "var(--ct-fg)",
@@ -162,7 +162,7 @@ const CodeBlockContent = React.memo(function CodeBlockContent({
             customStyle={{
               margin: 0,
               borderRadius: 0,
-              padding: reading ? "0" : "0.75rem",
+              padding: reading ? "0" : "0.25rem 0.75rem 0.625rem",
               fontSize: reading ? "0.8125rem" : "0.75rem",
               lineHeight: reading ? "1.65" : "1.4",
               background: reading ? "transparent" : "var(--ct-bg)",
@@ -210,6 +210,7 @@ export function CodeBlock({
   /** Describes the code beside the fullscreen reading view (outline, ports, limits); shown when there is room. */
   fullscreenAside?: React.ReactNode;
 }) {
+  const outerFullscreen = useFullscreenViewer();
   const language = languageFromInfoString(infoString);
   const normalizedText = useMemo(() => text.replace(/\r/g, ""), [text]);
   const codeLines = useMemo(() => normalizedText.replace(/\n$/, "").split("\n"), [normalizedText]);
@@ -397,11 +398,13 @@ export function CodeBlock({
   return (
     <div className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
       <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
-        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-2 py-1.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
-          <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
-          <span className="font-mono opacity-70">{language}</span>
-          <span className="opacity-70">·</span>
-          <span className="opacity-70">{lineCountValue} lines</span>
+        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
+          <span className="inline-flex min-w-0 items-baseline gap-1.5">
+            <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
+            <span className="opacity-70">{language}</span>
+            <span className="opacity-70">·</span>
+            <span className="opacity-70">{lineCountValue} {lineCountValue === 1 ? "line" : "lines"}</span>
+          </span>
           <span className="ml-auto" />
           {canCollapse && (
             <button
@@ -432,8 +435,9 @@ export function CodeBlock({
           <button
             type="button"
             onClick={openFullscreen}
+            hidden={Boolean(outerFullscreen)}
             className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-            style={{ color: "var(--ct-muted-fg)" }}
+            style={{ color: "var(--ct-muted-fg)", display: outerFullscreen ? "none" : undefined }}
             title="Open in fullscreen"
           >
             <Maximize2 size={12} />

@@ -11,6 +11,8 @@ use crate::service::plan::mutations::agent_lifecycle::{
 use crate::service::ServiceContext;
 
 mod worker_transfer;
+#[cfg(test)]
+pub(crate) use worker_transfer::worker_task_bindings;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentPlacement {
@@ -319,6 +321,32 @@ impl ServiceContext {
     }
 }
 
+/// The Worker holds an unfinished assignment or lane, or executes an unclosed attempt.
+/// Reads stored rows around the plan cache: callers hold the mux lock.
+pub(crate) fn worker_is_task_bound(
+    plan_store: &crate::service::plan::PlanStore,
+    tab_id: &str,
+) -> bool {
+    use crate::service::plan::{AttemptMatch, AttemptState, PlanMatch, TaskMatch};
+    let candidates = PlanMatch::Any(vec![
+        TaskMatch::bound_to(tab_id),
+        AttemptMatch::executor(tab_id, AttemptState::Unclosed).into_match(),
+    ]);
+    plan_store
+        .stored_plans_matching(&candidates)
+        .iter()
+        .any(|plan| {
+            plan.tasks.iter().any(|task| {
+                (!task.status.is_terminal()
+                    && (task.assigned_tab_id.as_deref() == Some(tab_id)
+                        || task.lane.tab_id.as_deref() == Some(tab_id)))
+                    || task.execution_attempts.iter().any(|attempt| {
+                        attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
+                    })
+            })
+        })
+}
+
 fn refuse_unverified_task_bound_worker_transfer(
     mux: &MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,
@@ -335,17 +363,7 @@ fn refuse_unverified_task_bound_worker_transfer(
     {
         return Ok(());
     }
-    let bound = plan_store.list_full().iter().any(|plan| {
-        plan.tasks.iter().any(|task| {
-            (!task.status.is_terminal()
-                && (task.assigned_tab_id.as_deref() == Some(request.tab_id.as_str())
-                    || task.lane.tab_id.as_deref() == Some(request.tab_id.as_str())))
-                || task.execution_attempts.iter().any(|attempt| {
-                    attempt.executor_tab_id == request.tab_id && attempt.closed_at.is_none()
-                })
-        })
-    });
-    if bound {
+    if worker_is_task_bound(plan_store, &request.tab_id) {
         return Err(
             "task-bound Worker transfer requires an authenticated source-manager transfer".into(),
         );

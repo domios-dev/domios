@@ -75,9 +75,7 @@ The add-service wizard handles manual daemon registration. Smart-Add inspects ru
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/mesh/peers/disconnect/{id}` | Path-style alias for `POST /api/mesh/disconnect {instance_id}`. |
-| `DELETE` | `/api/mesh/peers/{id}` | Remove peer (signed by that peer over an open edge, used by `mesh exit`). |
 
 All four respond `503` when `mesh.enabled=false` (see top of doc).
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->

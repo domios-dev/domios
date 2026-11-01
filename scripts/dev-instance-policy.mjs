@@ -1,4 +1,4 @@
-// Caller: build.sh; scripts/tests/dev-instance-policy.test.mjs
+// Caller: build.sh
 import { execFileSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 

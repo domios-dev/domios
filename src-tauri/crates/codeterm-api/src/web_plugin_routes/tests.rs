@@ -15,14 +15,25 @@ fn plugin_frame_policy_allows_inline_styles_without_relaxing_scripts_or_network(
     assert_eq!(directives["form-action"], "'none'");
     assert_eq!(directives["img-src"], "blob: data:");
     assert_eq!(directives["font-src"], "blob: data:");
-    assert_eq!(directives.len(), 8);
+    assert_eq!(directives["media-src"], "'none'");
+    assert_eq!(directives.len(), 9);
 }
 
 #[tokio::test]
 async fn plugin_ui_html_response_binds_bundle_and_bridge_to_fresh_nonce() {
     let source = b"<html><head><style nonce=\"__CT_NONCE__\">body{margin:0}</style></head><body><script nonce=\"__CT_NONCE__\" src=\"./app.js\"></script></body></html>";
-    let first = plugin_ui_response("index.html", source.to_vec(), &PluginUiQuery::default());
-    let second = plugin_ui_response("index.html", source.to_vec(), &PluginUiQuery::default());
+    let first = plugin_ui_response(
+        "index.html",
+        source.to_vec(),
+        &PluginUiQuery::default(),
+        "0123456789abcdef0123456789abcdef",
+    );
+    let second = plugin_ui_response(
+        "index.html",
+        source.to_vec(),
+        &PluginUiQuery::default(),
+        "0123456789abcdef0123456789abcdef",
+    );
     assert_eq!(first.status(), StatusCode::OK);
     assert_eq!(
         first.headers()[header::CACHE_CONTROL],
@@ -64,7 +75,12 @@ async fn plugin_ui_asset_response_preserves_bytes_mime_and_private_cache() {
         ("icon.svg", "image/svg+xml"),
         ("font.woff2", "font/woff2"),
     ] {
-        let response = plugin_ui_response(path, b"fixture".to_vec(), &PluginUiQuery::default());
+        let response = plugin_ui_response(
+            path,
+            b"fixture".to_vec(),
+            &PluginUiQuery::default(),
+            "0123456789abcdef0123456789abcdef",
+        );
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(response.headers()[header::CONTENT_TYPE], mime);
         assert_eq!(
@@ -104,7 +120,11 @@ async fn plugin_document_preserves_sandbox_policy_and_surface_context() {
         "surface": "</script>", "instance": "own", "tab": "tab-1",
     }))
     .unwrap();
-    let response = html_response(b"<html><head></head><body></body></html>", &context);
+    let response = html_response(
+        b"<html><head></head><body></body></html>",
+        &context,
+        "0123456789abcdef0123456789abcdef",
+    );
     let policy = response.headers()[header::CONTENT_SECURITY_POLICY]
         .to_str()
         .unwrap();
@@ -116,4 +136,19 @@ async fn plugin_document_preserves_sandbox_policy_and_surface_context() {
     let html = String::from_utf8(bytes.to_vec()).unwrap();
     assert!(html.contains("\\u003c/script\\u003e"));
     assert!(!html.contains("surface:\"</script>"));
+}
+
+#[tokio::test]
+async fn trusted_document_port_bootstrap_precedes_every_plugin_script() {
+    let raw = b"<script nonce=\"__CT_NONCE__\">window.beforeHead=true</script><head></head>";
+    let document = "0123456789abcdef0123456789abcdef";
+    let response = html_response(raw, &PluginUiQuery::default(), document);
+    let bytes = axum::body::to_bytes(response.into_body(), 65536)
+        .await
+        .unwrap();
+    let html = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(html.find("new MessageChannel()").unwrap() < html.find("window.beforeHead").unwrap());
+    assert!(html.contains(document));
+    assert!(!html.contains("__CT_DOCUMENT__"));
+    assert!(!html.contains("view_lease"));
 }

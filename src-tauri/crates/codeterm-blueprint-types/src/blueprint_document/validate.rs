@@ -216,6 +216,14 @@ fn nodes(
             ));
         }
         errors.extend(super::code_contract::errors(node, &path));
+        if let Some(NodeKind::Plugin(id)) = &node.uses {
+            if !namespaced_plugin_step(id) {
+                errors.push((
+                    format!("{path}.uses"),
+                    "Declare a namespaced plugin step".into(),
+                ));
+            }
+        }
         if let Some(code) = &node.code {
             if code.src.is_some() == code.file.is_some() {
                 errors.push((
@@ -316,7 +324,10 @@ fn nodes(
             }
         }
         for (field, bind) in &node.bind {
-            if !data_slot(node, field) && !matches!(node.kind(), "code" | "command") {
+            if !data_slot(node, field)
+                && !matches!(node.kind(), "code" | "command" | "agent")
+                && !node.uses.as_ref().is_some_and(NodeKind::plugin)
+            {
                 errors.push((
                     format!("{path}.bind.{field}"),
                     "Runtime binds are allowed only in data slots".into(),
@@ -331,7 +342,8 @@ fn nodes(
             ));
         }
         if node.bind.len() > 32
-            || matches!(node.kind(), "code" | "command")
+            || (matches!(node.kind(), "code" | "command" | "agent")
+                || node.uses.as_ref().is_some_and(NodeKind::plugin))
                 && node
                     .bind
                     .keys()

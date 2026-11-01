@@ -64,12 +64,16 @@ const graphRegion = (host: HTMLElement) => named<HTMLElement>(host, ".bp-canvas"
 test("a watch opens as typed nodes joined by labelled exec pins, with its retained run on every node", async () => {
   const view = await mount();
   try {
-    for (const label of ["Node source", "Node decide", "Node notify", "Node Stop", "Node Result"]) assert.ok(button(view.host, label), label);
+    for (const label of ["Node source", "Node decide", "Node notify", "Node Result"]) assert.ok(button(view.host, label), label);
     assert.ok(view.host.querySelector('.bp-wire[data-kind="exec"]'));
     assert.ok(button(view.host, "Node decide").textContent?.includes("Classify"), "each node names its own kind, so no legend is needed");
     assert.ok(button(view.host, "Node decide").textContent?.includes("passed"), "the decision shows its recorded outcome");
     assert.ok(!view.host.querySelector('.bp-node[data-state="waiting"]'), "a retained run never shows waiting nodes");
-    assert.equal(graphRegion(view.host).dataset.replaying, "true", "the recorded path is lit");
+    const retained = Array.from(view.host.querySelectorAll<HTMLButtonElement>("button")).find(entry => entry.getAttribute("aria-label")?.startsWith("Run "));
+    assert(retained, "a retained run is available");
+    await click(retained);
+    await settle();
+    assert.equal(graphRegion(view.host).dataset.replaying, "true", "the selected recorded path is lit");
   } finally { await view.close(); }
 });
 

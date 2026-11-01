@@ -16,7 +16,18 @@ pub enum PromptKind {
     Provider,
     DirectoryTrust,
     Structured,
+    Permission,
+    AutomaticPermission,
     ManualUpdate,
+}
+
+impl PromptKind {
+    pub fn is_structured(self) -> bool {
+        matches!(
+            self,
+            Self::Structured | Self::Permission | Self::AutomaticPermission
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

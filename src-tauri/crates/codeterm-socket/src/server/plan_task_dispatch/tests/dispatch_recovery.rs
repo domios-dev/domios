@@ -138,6 +138,7 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
         "session_id": "owner-session",
         "session_binding_nonce": "owner-nonce",
         "execution_intent": "mutating",
+        "placement": "lane",
         "agent": provider_id,
         "cwd": project.display().to_string(),
     }));

@@ -80,7 +80,7 @@ impl JsChatBackend {
             agent_runtime: manifest.capabilities.agent_runtime.clone(),
             model_catalogue: manifest.model_catalogue.clone(),
             model_catalogue_input_files: manifest.model_catalogue.fingerprint_files(
-                super::host_credentials::declared_files(&manifest.credentials),
+                super::host_credentials::resolved_files(&manifest.credentials),
             ),
             session_exec_env: parking_lot::Mutex::new(HashMap::new()),
         }

@@ -26,7 +26,7 @@ function same(a: ViewportTransform, b: ViewportTransform): boolean {
 /** `focus` is the selected node a readable Fit frames; without it Fit frames the first stage. */
 export function useAutomationViewport(layout: BlueprintLayout, camera: AutomationCamera, focus: string | null, panelOpen = false, onPaint?: (transform: ViewportTransform) => void) {
   const [size, setSize] = useState<CanvasSize | null>(null);
-  const viewport = useCanvasViewport({ width: size?.width ?? 0, height: size?.height ?? 0, ignoreSelector: "button", wheelBehavior: "zoom", minScale: 0.05, onPaint });
+  const viewport = useCanvasViewport({ width: size?.width ?? 0, height: size?.height ?? 0, ignoreSelector: "button", wheelBehavior: "zoom", minScale: size && size.width < 760 ? 0.5 : 0.05, onPaint });
   const { containerRef, setTransform, transformRef } = viewport;
   const fitted = useRef<ViewportTransform | null>(null);
   const moved = useRef(camera.userMoved);

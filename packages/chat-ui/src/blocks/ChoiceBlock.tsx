@@ -24,7 +24,6 @@ function summaryFor(outcome: ChoiceOutcome): string {
   }
 }
 
-/** `@ds-choice A | B`: tappable answers; one tap sends that label once as the user's reply in this chat. */
 export function ChoiceBlock({ options, source }: { options: string[]; source: string }) {
   const host = useChatBlockHost().choice;
   const messageId = useChatBlockMessageId();

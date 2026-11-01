@@ -7,7 +7,6 @@ pub mod adopt;
 mod adopt_tests;
 pub mod lane_port_impl;
 pub mod search_port_impl;
-pub mod sink_impl;
 #[cfg(test)]
 mod task_key_contract_tests;
 pub mod task_key_port_impl;

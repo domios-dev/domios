@@ -248,6 +248,7 @@ pub(super) fn install_handles(
         }
     });
     super::host_recording_devices::install(host, sandbox)?;
+    super::host_agent_run::install(host, sandbox)?;
     super::host_surface::install(host, sandbox)
 }
 

@@ -9,16 +9,18 @@ mod confinement;
 mod delivery;
 mod flags;
 mod handling;
+mod reconciliation;
 mod recovery;
 pub use flags::FlagCategory;
 pub(crate) mod history;
 mod launch_fence;
+mod local_counts;
 mod notifications;
 mod pause;
 mod removal;
 pub use notifications::NeighborNotify;
+mod projection;
 mod reception;
-mod referral;
 pub(crate) mod runtime;
 mod storage;
 mod toggle;
@@ -29,7 +31,7 @@ pub use runtime::{NeighborRuntimeCell, NeighborRuntimeCommand};
 #[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
 pub enum NeighborCommand {
     List {},
-    ClaimReferralTrial {},
+    Refresh {},
     Request {
         email: String,
     },
@@ -49,8 +51,7 @@ pub enum NeighborCommand {
 impl NeighborCommand {
     fn callable(self) -> (&'static str, Value) {
         match self {
-            Self::List {} => ("friendsList", json!({})),
-            Self::ClaimReferralTrial {} => ("claimReferralTrial", json!({})),
+            Self::List {} | Self::Refresh {} => ("friendsList", json!({})),
             Self::Request { email } => ("friendsRequest", json!({"email": email})),
             Self::Respond { request_id, accept } => (
                 "friendsRespond",
@@ -72,8 +73,10 @@ impl NeighborCommand {
 
 impl ServiceContext {
     pub async fn neighbor_registry(&self, command: NeighborCommand) -> Result<Value, String> {
-        if matches!(&command, NeighborCommand::List {}) {
-            self.rearm_neighbor_reads();
+        if matches!(&command, NeighborCommand::Refresh {}) {
+            self.refresh_neighbor_list()
+                .await
+                .map_err(|error| error.to_string())?;
         }
         self.neighbor_registry_owned(command).await
     }
@@ -82,17 +85,20 @@ impl ServiceContext {
         &self,
         command: NeighborCommand,
     ) -> Result<Value, String> {
-        if self.neighbor_access_locked().await {
+        if self.neighbor_access_locked().await
+            && !matches!(
+                &command,
+                NeighborCommand::List {} | NeighborCommand::Refresh {}
+            )
+        {
             return match command {
-                NeighborCommand::List {} => Ok(backend_reads::locked_list()),
-                NeighborCommand::ClaimReferralTrial {} => Ok(
-                    json!({"schema_version":1,"outcome":"not_invited","trial_end":null,"friend_request_id":null}),
-                ),
+                NeighborCommand::List {} | NeighborCommand::Refresh {} => {
+                    Ok(backend_reads::locked_list())
+                }
                 _ => Err(codeterm_neighbors::Error::Locked.to_string()),
             };
         }
         let history_generation = self.neighbor_history_generation();
-        let pause_versions = self.neighbor_cell().pauses.snapshot();
         let account = self.account().await?;
         let session = account
             .current_session()
@@ -101,21 +107,29 @@ impl ServiceContext {
             .ok_or("Sign in to manage Neighbors")?;
         let base = codeterm_account::firebase_endpoints::current().functions;
         let transport = HttpCallable::new(base).map_err(|_| "Neighbors unavailable")?;
-        let owner_connect = matches!(&command, NeighborCommand::Respond { accept: true, .. });
         let (name, data) = command.callable();
+        let list_epoch = if name == "friendsList" {
+            Some(
+                self.neighbor_projection_read_epoch(
+                    &session.identity.uid,
+                    session.login_generation,
+                )
+                .map_err(|error| error.to_string())?,
+            )
+        } else {
+            None
+        };
         let removed = if name == "friendsRemove" {
             data["friendship_id"].as_str().map(str::to_owned)
         } else {
             None
         };
-        let response = if matches!(name, "friendsList" | "claimReferralTrial") {
+        let response = if name == "friendsList" {
             use codeterm_neighbors::adapter::AuthenticatedCall;
             let calls = runtime::callable::Calls {
                 service: self.clone(),
                 uid: session.identity.uid.clone(),
                 generation: session.login_generation,
-                own_keys: Default::default(),
-                receiver_status: Default::default(),
             };
             let result = calls
                 .invoke(name, data)
@@ -158,49 +172,71 @@ impl ServiceContext {
             .ok_or_else(|| "Invalid Neighbors response".to_owned())?;
         if let Some(friendship) = removed.filter(|_| self.require_neighbors_enabled().is_ok()) {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
-            self.end_neighbor_friendship(&metadata, &friendship, history_generation)
+            self.complete_confirmed_neighbor_removal(metadata, friendship, history_generation)
                 .await
                 .map_err(|error| error.to_string())?;
         }
         if name == "friendsList" {
             let metadata = storage::Metadata::new(self.account_data_root()?, &session.identity.uid);
-            self.reconcile_neighbor_pauses(&session.identity.uid, &result, &pause_versions)
-                .map_err(|error| error.to_string())?;
-            let settings = metadata.settings().await.map_err(|e| e.to_string())?;
-            annotate_list(&mut result, &settings)?;
-            self.project_neighbor_pauses(&mut result, &settings);
-            self.remember_neighbor_names(&result);
-            if self.require_neighbors_enabled().is_ok() {
-                self.end_missing_neighbor_friendships(&metadata, &result, history_generation)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            }
+            self.prepare_neighbor_list_observation(&metadata, &mut result)
+                .await?;
             if !same_session(account.session().await.as_ref(), &session) {
                 return Err("Account changed while listing Neighbors".into());
             }
             self.require_neighbor_generation(history_generation)?;
-            self.remember_neighbor_registry(&result);
-        } else if name != "friendsRemove" {
-            self.forget_neighbor_registry();
-        }
-        if owner_connect {
-            if let Some(friendship) = result["friendship_id"].as_str() {
-                Box::pin(self.claim_first_neighbor_receiver(
-                    friendship,
-                    &session.identity.uid,
-                    history_generation,
-                ))
-                .await?;
-            }
-        }
-        if name == "claimReferralTrial" && referral::refresh_required(&result)? {
-            self.refresh_billing(codeterm_billing::RefreshEvent::PlanChanged)
-                .await?;
-            if !same_session(account.session().await.as_ref(), &session) {
-                return Err("Account changed while checking the referral".into());
-            }
+            self.remember_neighbor_list_read(
+                &session.identity.uid,
+                session.login_generation,
+                list_epoch.as_ref().ok_or("Missing Neighbor list epoch")?,
+                &result,
+            )
+            .map_err(|error| error.to_string())?;
+        } else {
+            self.invalidate_neighbor_list()
+                .await
+                .map_err(|error| error.to_string())?;
         }
         Ok(result)
+    }
+
+    async fn prepare_neighbor_list_observation(
+        &self,
+        metadata: &storage::Metadata,
+        result: &mut Value,
+    ) -> Result<(), String> {
+        let settings = metadata
+            .settings()
+            .await
+            .map_err(|error| error.to_string())?;
+        annotate_list(result, &settings)?;
+        self.project_neighbor_pauses(result, &settings);
+        self.project_neighbor_send_counts(metadata, result)
+            .await
+            .map_err(|error| error.to_string())
+    }
+
+    async fn complete_confirmed_neighbor_removal(
+        &self,
+        metadata: storage::Metadata,
+        friendship: String,
+        generation: u64,
+    ) -> codeterm_neighbors::Result<()> {
+        let service = self.clone();
+        self.neighbor_reconciliation()
+            .submit(
+                reconciliation::Kind::Removal {
+                    friendship: friendship.clone(),
+                    generation,
+                },
+                move || async move {
+                    service.invalidate_neighbor_projection_list();
+                    service
+                        .end_neighbor_friendship(&metadata, &friendship, generation)
+                        .await
+                },
+            )?
+            .wait()
+            .await
     }
 }
 

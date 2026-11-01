@@ -3,7 +3,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use super::provider::EmbedderIdentity;
 use super::StampedVector;
 
-const STAMP_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mem_embedder (
+pub(crate) const STAMP_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS mem_embedder (
     singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
     provider TEXT NOT NULL,
     model TEXT NOT NULL,
@@ -17,29 +17,29 @@ pub enum InsertOutcome {
     ItemGone,
 }
 
-/// Prepare the vector index for `active`: an unstamped legacy table is adopted
-/// as `legacy`, a missing table is created at the stamped dimension, and a
-/// mismatched stamp is left alone (inserts and searches refuse it).
-pub fn ensure(
-    conn: &Connection,
-    active: &EmbedderIdentity,
-    legacy: &EmbedderIdentity,
-) -> Result<EmbedderIdentity, String> {
+pub fn ensure(conn: &Connection, active: &EmbedderIdentity) -> Result<EmbedderIdentity, String> {
     backend::register(conn)?;
-    conn.execute_batch(STAMP_SCHEMA)
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("begin index initialization: {e}"))?;
+    tx.execute_batch(STAMP_SCHEMA)
         .map_err(|e| format!("create mem_embedder: {e}"))?;
-    super::pending::init(conn)?;
-    let stamp = match stamp(conn)? {
+    super::pending::init(&tx)?;
+    let stamp = match stamp(&tx)? {
         Some(stamp) => stamp,
         None => {
-            let adopted = if table_exists(conn)? { legacy } else { active };
-            write_stamp(conn, adopted)?;
-            adopted.clone()
+            if table_exists(&tx)? {
+                return Err("unstamped vector index refused; rebuild the index before use".into());
+            }
+            write_stamp(&tx, active)?;
+            active.clone()
         }
     };
-    if !table_exists(conn)? {
-        create_table(conn, stamp.dimension)?;
+    if !table_exists(&tx)? {
+        create_table(&tx, stamp.dimension)?;
     }
+    tx.commit()
+        .map_err(|e| format!("commit index initialization: {e}"))?;
     Ok(stamp)
 }
 
@@ -155,6 +155,7 @@ pub fn nearest(
     query: &StampedVector,
     k: usize,
 ) -> Result<Vec<(String, f64)>, String> {
+    backend::register(conn)?;
     check(conn, &query.identity)?;
     let rows = backend::knn(conn, &encode(&query.vector), k * 3)?;
     let mut best: std::collections::HashMap<String, f64> = std::collections::HashMap::new();

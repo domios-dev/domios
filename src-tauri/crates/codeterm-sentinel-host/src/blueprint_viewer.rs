@@ -44,7 +44,10 @@ impl BlueprintViewerExt for ServiceContext {
             }
             None => amend::history(&job),
         };
-        history_view(&history)
+        history_view(
+            &history,
+            &self.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
+        )
     }
     fn blueprint_project_host(&self, workspace: &str, path: Option<&str>) -> Result<Value, String> {
         let root = {
@@ -63,8 +66,12 @@ impl BlueprintViewerExt for ServiceContext {
         Ok(calls::projection::bounded(&value, 0))
     }
 }
-fn history_view(history: &amend::History) -> Result<Value, String> {
+fn history_view(
+    history: &amend::History,
+    plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
+) -> Result<Value, String> {
     let mut versions = Vec::new();
+    let mut plugin_nodes = serde_json::Map::new();
     let retained = history.versions.len().saturating_sub(12);
     for version in &history.versions[retained..] {
         let previous = version.amendment.as_ref().and_then(|amendment| {
@@ -98,10 +105,13 @@ fn history_view(history: &amend::History) -> Result<Value, String> {
         let diff = before
             .as_ref()
             .map(|before| calls::projection::diff(before, &after));
+        for closure in std::iter::once(&after).chain(&before) {
+            crate::blueprint_calls::plugin_nodes::collect(plugins, closure, &mut plugin_nodes);
+        }
         versions.push(json!({"version":version.version,"replaces":version.amendment.as_ref().map(|a| a.replaced_version),"diff":diff,"before":before.as_ref().map(calls::projection::graph).transpose()?,"after":calls::projection::graph(&after)?}));
     }
     Ok(
-        json!({"current_version":history.current_version,"history_truncated":history.history_truncated || retained > 0,"versions":versions}),
+        json!({"current_version":history.current_version,"history_truncated":history.history_truncated || retained > 0,"versions":versions,"plugin_nodes":plugin_nodes}),
     )
 }
 

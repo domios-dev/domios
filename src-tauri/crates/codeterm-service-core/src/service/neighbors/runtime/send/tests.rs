@@ -177,7 +177,6 @@ async fn empty_and_oversize_sends_stop_before_keys_network_or_history_but_files_
         uid: "owner".into(),
         installation_id: "machine".into(),
         machine_label: "Fixture".into(),
-        enrollment: None,
     };
     let store = KeyFence::default();
     let lifecycle = InstallationKeys {
@@ -325,7 +324,6 @@ async fn stopped_requests_reject_later_answers_and_refusals_before_keys_network_
         uid: "owner".into(),
         installation_id: "machine".into(),
         machine_label: "Fixture".into(),
-        enrollment: None,
     };
     let store = KeyFence::default();
     let lifecycle = InstallationKeys {

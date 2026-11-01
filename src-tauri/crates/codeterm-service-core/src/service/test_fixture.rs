@@ -435,6 +435,7 @@ impl ServiceFixture {
             crate::agent::status::TabStatusTracker::new(),
         ));
         let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+        extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
         extensions.insert_service_slots();
         extensions.insert_late::<super::neighbors::runtime::logout::LogoutKeyPorts>();
         extensions.insert_late::<FixtureLimitGate>();
@@ -613,9 +614,6 @@ impl ServiceFixture {
         );
         extensions.insert(crate::usage::poller::UsagePollerSlot(Arc::new(Mutex::new(
             None,
-        ))));
-        extensions.insert(crate::service::PlanWatchers(Arc::new(Mutex::new(
-            HashMap::new(),
         ))));
         extensions.insert(crate::service::LoadedPlanProjects(Arc::new(Mutex::new(
             HashSet::new(),

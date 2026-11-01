@@ -1,10 +1,9 @@
-import { BoundedMessageContent } from "../BoundedMessageContent";
 import { useState } from "react";
 import { Send } from "lucide-react";
 import { InboundActivityCard } from "./InboundActivityCard";
 import type { OpenPlan, ResolvedChatPlanRef } from "./LinkedText";
-import { LinkedText } from "./LinkedText";
-import { hasPlanRefs } from "./planRefs";
+import { ReportTaskSummary } from "./ReportTaskSummary";
+import { CompactMessageContent } from "./CompactMessageContent";
 import { decodeCliMessageText } from "./messageText";
 import { pickUiFontScaleValue } from "../uiFontScale";
 import { formatCommunicationEndpoint } from "./templates";
@@ -64,12 +63,13 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
       onToggle={() => setExpanded((previous) => !previous)}
       title={`Report to ${formatCommunicationEndpoint(report.recipient)}`}
       summary={report.task ?? "status update"}
+      presentationSummary={<ReportTaskSummary task={report.task} resolvePlanRef={resolvePlanRef} />}
       visual={{ glyph: Send, color: "var(--ct-magenta)", label: "report" }}
       chips={chips}
       onFocusTab={onFocusTab}
       disclosureLabel="report Details"
     >
-      <BoundedMessageContent collapsedHeight="16rem" className={`ct-compact-scroll grid gap-2 ${textSize}`}>
+      <div className={`ct-compact-scroll grid gap-2 ${textSize}`}>
         {outcomeLine && (
           <div
             data-testid={tone === "error" ? "chat-outbound-report-incident" : "chat-outbound-report-outcome"}
@@ -82,10 +82,10 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
         {body && (
           <div
             data-testid="chat-outbound-report-body"
-            className="min-w-0 whitespace-pre-wrap break-words"
+            className="min-w-0 break-words"
             style={{ color: "var(--ct-fg)" }}
           >
-            {hasPlanRefs(body) ? <LinkedText text={body} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : body}
+            <CompactMessageContent markdown text={body} fontScale={fontScale} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} collapseAfter={Number.POSITIVE_INFINITY} />
           </div>
         )}
         {diagnostics && (
@@ -97,7 +97,7 @@ export function OutboundReportCard({ report, onFocusTab, onOpenPlan, resolvePlan
             {diagnostics}
           </pre>
         )}
-      </BoundedMessageContent>
+      </div>
     </InboundActivityCard>
   );
 }

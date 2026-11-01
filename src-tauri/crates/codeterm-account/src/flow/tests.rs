@@ -1,5 +1,50 @@
 use super::*;
 #[test]
+fn paste_requires_whole_callback_url() {
+    assert!(matches!(
+        Callback::parse_paste(&"a".repeat(43)),
+        Err(PasteCallbackError::CallbackUrlRequired)
+    ));
+    for suffix in ["&code=duplicate", "&state=duplicate", "#fragment"] {
+        let input = format!(
+            "http://127.0.0.1:8765/callback?code={}&state=0123456789abcdef{suffix}",
+            "a".repeat(43)
+        );
+        assert!(Callback::parse_paste(&input).is_err());
+    }
+}
+
+#[test]
+fn pasted_url_keeps_state_verifier_and_single_use() {
+    let mut flow = LoginFlow::from_parts(
+        "0123456789abcdef".into(),
+        Secret::new("original-verifier"),
+        "http://127.0.0.1:8765/callback".into(),
+    );
+    let wrong = format!(
+        "http://127.0.0.1:8765/callback?code={}&state=wrong-state-0123456789",
+        "a".repeat(43)
+    );
+    assert!(matches!(
+        flow.complete(Callback::parse_paste(&wrong).unwrap()),
+        Err(Error::WrongState)
+    ));
+    let correct = format!(
+        "http://127.0.0.1:8765/callback?code={}&state=0123456789abcdef",
+        "a".repeat(43)
+    );
+    let request = flow
+        .complete(Callback::parse_paste(&correct).unwrap())
+        .unwrap();
+    assert_eq!(request.verifier.expose(), "original-verifier");
+    assert_eq!(request.state, "0123456789abcdef");
+    assert_eq!(request.redirect, "http://127.0.0.1:8765/callback");
+    assert!(matches!(
+        flow.complete(Callback::parse_paste(&correct).unwrap()),
+        Err(Error::Consumed)
+    ));
+}
+#[test]
 fn signin_url_preserves_pkce_and_adds_only_typed_hints() {
     for (provider, expected) in [
         (LoginProvider::Google, "google"),

@@ -3,7 +3,8 @@ use std::sync::Arc;
 use tauri::{Manager, WebviewWindowBuilder};
 
 pub(crate) fn show(app: &AppHandle) -> Result<(), Box<dyn std::error::Error>> {
-    let config = super::frontend_shell::initial_document::starting_window_config(app.config())?;
+    let mut config = super::frontend_shell::initial_document::starting_window_config(app.config())?;
+    super::frontend_shell::configure_window_browser_arguments(app, &mut config)?;
     let starting_url = super::frontend_shell::starting_url()?;
     let handle = app.clone();
     let layout = Arc::new(super::frontend_shell::initial_document::StartingLayout::default());

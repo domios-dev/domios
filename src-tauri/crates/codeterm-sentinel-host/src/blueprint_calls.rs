@@ -489,17 +489,21 @@ fn success(output: &ExecutionEnvelope, label: &str) -> crate::pipeline::StepResu
 #[cfg(test)]
 mod tests;
 
+pub mod plugin_nodes;
+
 pub fn project(
     document: &Document,
     entries: &[codeterm_storage::BlueprintJournalEntry],
+    plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
 ) -> Result<Value, String> {
-    project_retained(Some(document), entries, None)
+    project_retained(Some(document), entries, None, plugins)
 }
 
 pub fn project_retained(
     document: Option<&Document>,
     entries: &[codeterm_storage::BlueprintJournalEntry],
     definition_version: Option<u64>,
+    plugins: &codeterm_plugin::graph_nodes::GraphNodeRegistry,
 ) -> Result<Value, String> {
     let latest = entries.first().map(|entry| entry.run_id.as_str());
     let mut seen = BTreeSet::new();
@@ -517,6 +521,7 @@ pub fn project_retained(
         let graph = calls::projection::graph(&closure)?;
         value["expanded_calls"] = json!(graph.calls);
         value["call_graph"] = graph.root;
+        value["plugin_nodes"] = plugin_nodes::descriptors(plugins, &closure);
     }
     Ok(value)
 }
@@ -596,7 +601,11 @@ pub fn show_callable(
     let mut body = document.clone();
     body.dependencies.clear();
     let hash = codeterm_blueprint_types::blueprint_document::projection::identity(&body)?;
-    let mut value = project(&document, &[])?;
+    let mut value = project(
+        &document,
+        &[],
+        &service.ext::<std::sync::Arc<codeterm_plugin::graph_nodes::GraphNodeRegistry>>(),
+    )?;
     value["id"] = json!(id);
     value["hash"] = json!(hash);
     value["name"] = json!(document.name);

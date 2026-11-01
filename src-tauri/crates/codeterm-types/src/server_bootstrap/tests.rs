@@ -1,9 +1,38 @@
-use super::{InstanceSelector, LaunchOptions};
+use super::{InstanceSelector, LaunchOptions, ProcessProvenance};
 use std::{net::SocketAddr, path::PathBuf};
+
+#[test]
+fn development_launch_ownership_is_explicit_and_never_admitted_for_production() {
+    let mut options = LaunchOptions {
+        instance: InstanceSelector::Development {
+            instance: Some("fixture".into()),
+            port: 17996,
+        },
+        resources: PathBuf::from("resources"),
+        probe_sink: None,
+        probe_identity_alias: None,
+        development_owner: None,
+    };
+    assert!(serde_json::to_value(&options)
+        .unwrap()
+        .get("development_owner")
+        .is_none());
+    options.development_owner = Some(ProcessProvenance {
+        pid: 42,
+        created: "opaque".into(),
+        executable: PathBuf::from("client"),
+    });
+    assert!(options.validate(true).is_ok());
+    assert!(options.validate(false).is_err());
+    options.instance = InstanceSelector::Production;
+    assert!(options.validate(false).is_err());
+    assert!(options.validate(true).is_err());
+}
 
 fn isolated_options(data_dir: PathBuf, config_dir: PathBuf, bind: SocketAddr) -> LaunchOptions {
     LaunchOptions {
         instance: InstanceSelector::IsolatedVerification {
+            instance: None,
             data_dir,
             config_dir,
             bind,
@@ -11,6 +40,7 @@ fn isolated_options(data_dir: PathBuf, config_dir: PathBuf, bind: SocketAddr) ->
         resources: PathBuf::from("resources"),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     }
 }
 
@@ -18,14 +48,19 @@ fn isolated_options(data_dir: PathBuf, config_dir: PathBuf, bind: SocketAddr) ->
 fn server_bootstrap_isolated_verification_accepts_both_artifact_profiles() {
     let data = tempfile::tempdir().unwrap();
     let config = tempfile::tempdir().unwrap();
-    let options = isolated_options(
+    let mut options = isolated_options(
         data.path().to_owned(),
         config.path().to_owned(),
         "127.0.0.1:18765".parse().unwrap(),
     );
 
     assert!(options.validate(false).is_ok());
+    assert!(options.validate(true).is_err());
+    if let InstanceSelector::IsolatedVerification { instance, .. } = &mut options.instance {
+        *instance = Some("verification-a".into());
+    }
     assert!(options.validate(true).is_ok());
+    assert!(options.validate(false).is_err());
 }
 
 #[test]
@@ -143,6 +178,7 @@ fn server_bootstrap_production_and_development_validation_stays_strict() {
         resources: resources.clone(),
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
     let development = LaunchOptions {
         instance: InstanceSelector::Development {
@@ -152,6 +188,7 @@ fn server_bootstrap_production_and_development_validation_stays_strict() {
         resources,
         probe_sink: None,
         probe_identity_alias: None,
+        development_owner: None,
     };
 
     assert!(production.validate(false).is_ok());
@@ -195,4 +232,51 @@ fn same_machine_clients_dial_loopback_for_any_local_bind() {
         "127.0.0.1:7686".parse().ok()
     );
     assert_eq!(ready("192.168.1.10:7685").loopback_api_address(), None);
+}
+
+#[test]
+fn server_bootstrap_debug_verification_instance_survives_wire_and_rejects_invalid_identity() {
+    let data = tempfile::tempdir().unwrap();
+    let config = tempfile::tempdir().unwrap();
+    let mut options = isolated_options(
+        data.path().into(),
+        config.path().into(),
+        "127.0.0.1:7798".parse().unwrap(),
+    );
+    for invalid in ["", "Upper", "../other", "with_space", &"a".repeat(65)] {
+        if let InstanceSelector::IsolatedVerification { instance, .. } = &mut options.instance {
+            *instance = Some(invalid.into());
+        }
+        let decoded: LaunchOptions =
+            serde_json::from_value(serde_json::to_value(&options).unwrap()).unwrap();
+        assert!(decoded.validate(true).is_err());
+        assert!(decoded.validate(false).is_err());
+    }
+    if let InstanceSelector::IsolatedVerification { instance, .. } = &mut options.instance {
+        *instance = Some("verification-a".into());
+    }
+    let encoded = serde_json::to_value(&options).unwrap();
+    let decoded: LaunchOptions = serde_json::from_value(encoded.clone()).unwrap();
+    assert!(decoded.validate(true).is_ok());
+    assert!(decoded.validate(false).is_err());
+    assert_eq!(encoded["instance"]["instance"], "verification-a");
+    assert_eq!(
+        encoded["instance"]["data_dir"],
+        serde_json::json!(data.path())
+    );
+    assert_eq!(
+        encoded["instance"]["config_dir"],
+        serde_json::json!(config.path())
+    );
+    let mut missing = encoded.clone();
+    missing["instance"]
+        .as_object_mut()
+        .unwrap()
+        .remove("instance");
+    let decoded: LaunchOptions = serde_json::from_value(missing).unwrap();
+    assert!(decoded.validate(true).is_err());
+    assert!(decoded.validate(false).is_ok());
+    let mut unknown = encoded;
+    unknown["instance"]["socket_override"] = serde_json::json!("foreign.sock");
+    assert!(serde_json::from_value::<LaunchOptions>(unknown).is_err());
 }

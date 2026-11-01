@@ -1,4 +1,4 @@
-// Caller: build.sh check-queue; scripts/check-worktree.test.mjs
+// Caller: build.sh check-queue
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

@@ -1,6 +1,7 @@
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import type { ShellScript, ToolEvent } from "@codeterm/chat-core";
-import { ChevronRight } from "lucide-react";
+import { ChatCardMenu } from "../ChatCardMenu";
+import { ChevronRight, SquareTerminal } from "lucide-react";
 import { useId, useState } from "react";
 import { SyntaxHighlighter } from "../syntaxHighlighter";
 import { commandGroupSummary, type CommandRow } from "../codeterm/commandShape";
@@ -11,6 +12,7 @@ import { CodetermActionDetail, type CodetermNavigationProps } from "./CodetermAc
 import { COMMAND_TREE_CAP, CommandTree, commandCallKey, openSegmentOf, rememberOpenSegment } from "./CommandTree";
 import { StatusGlyph, statusName } from "./ToolActivityStream";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
+import { shellFileOperationPreview } from "./ShellFileOperations";
 
 interface CommandGroupCardProps extends CodetermNavigationProps {
   event: ToolEvent;
@@ -73,6 +75,7 @@ function SegmentDetail({ event, row, index, navigation }: { event: ToolEvent; ro
 /** One command call made of several shell segments: a compact tree line per segment, one outcome for the whole call. */
 export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigation }: CommandGroupCardProps) {
   const regionId = useId();
+  const [technicalOpen, setTechnicalOpen] = useState(false);
   const title = event.description || (event.commandBatch ? event.title : undefined) || commandGroupSummary(rows);
   const countLabel = `${rows.length} commands`;
 
@@ -80,42 +83,56 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
     <section
       data-testid="chat-command-group"
       data-tool-status={event.status}
+      data-expanded={expanded}
       aria-label={`Command, ${countLabel}`}
-      className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
-      style={{
-        background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
-      }}
+      className="ct-card ct-command-inline mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
     >
+      <div className="ct-command-inline__head flex w-full min-w-0 items-center gap-2 text-xs">
       <button
         type="button"
         data-testid="chat-command-group-toggle"
         aria-expanded={expanded}
         aria-controls={regionId}
-        aria-label={`${expanded ? "Hide" : "Show"} output of ${title}`}
+        aria-label={`${expanded ? "Hide" : "Show"} commands in ${title}`}
         onClick={() => onToggle(!expanded)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
       >
-        <span data-testid="chat-command-group-status" aria-label={statusName(event.status)} className="flex shrink-0">
-          <StatusGlyph status={event.status} />
-        </span>
+        <SquareTerminal aria-hidden size={16} className="shrink-0" style={{ color: "var(--ct-muted-fg)" }} />
         <span data-testid="chat-command-group-title" title={title} className="min-w-0 flex-1 truncate font-mono text-[12px]" style={{ color: "var(--ct-fg)" }}>
           {title}
         </span>
         <ToolOutcomeFacts event={event} />
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
-        <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </button>
-      <CommandGroupDetail event={event} rows={rows} expanded={expanded} {...navigation} />
-      <div id={regionId} role="region" aria-label="Command output" hidden={!expanded} className="px-3 pb-2">
+      <span className="ct-tool-status-slot">
+      <span data-testid="chat-command-group-status" role="status" aria-label={statusName(event.status)} className="ct-tool-status-icon flex items-center justify-center">
+        <StatusGlyph status={event.status} />
+      </span>
+      <ChatCardMenu label={`Actions for ${title}`} items={[{
+        label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
+        onSelect: () => setTechnicalOpen(value => !value),
+      }]} />
+      </span>
+      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} command group`} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
+        <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
+      </button>
+      </div>
+      {shellFileOperationPreview(event)}
+      <div className="pb-1 pr-2">
+        <CommandGroupDetail event={event} rows={rows} expanded={expanded} onExpand={() => onToggle(true)} {...navigation} />
+      </div>
+      <div id={regionId} role="region" aria-label="Command output" hidden={!technicalOpen} className="px-3 pb-2">
+        {technicalOpen && event.result && <><div className="mb-1 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Output</div><ToolOutputContent text={event.result} maxHeight="12rem" /></>}
       </div>
     </section>
   );
 }
 
-export function CommandGroupDetail({ event, rows, expanded = true, ...navigation }: CodetermNavigationProps & {
+export function CommandGroupDetail({ event, rows, expanded = true, onExpand, ...navigation }: CodetermNavigationProps & {
   event: ToolEvent;
   rows: CommandRow[];
   expanded?: boolean;
+  onExpand?: () => void;
 }) {
   const callKey = commandCallKey(event);
   const [openRow, setOpenRowState] = useState<number | null>(() => openSegmentOf(callKey));
@@ -124,10 +141,12 @@ export function CommandGroupDetail({ event, rows, expanded = true, ...navigation
     rememberOpenSegment(callKey, next);
     setOpenRowState(next);
   };
-  const capped = !expanded && (openRow ?? -1) < COMMAND_TREE_CAP;
+  const capped = !expanded;
   return <div role="group" aria-label={`${rows.length} commands`}>
     <CommandTree
       rows={rows}
+      quiet
+      onExpand={onExpand}
       cap={capped ? COMMAND_TREE_CAP : undefined}
       openIndex={openRow}
       onLine={toggleRow}

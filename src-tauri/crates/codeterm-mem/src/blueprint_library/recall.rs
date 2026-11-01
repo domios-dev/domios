@@ -64,10 +64,10 @@ pub struct BlueprintHit {
 }
 
 #[derive(Clone)]
-pub(super) struct Candidate {
-    pub(super) entry: Entry,
-    pub(super) row: Option<IndexRow>,
-    pub(super) vectors: Vectors,
+pub struct Candidate {
+    pub entry: Entry,
+    pub row: Option<IndexRow>,
+    pub vectors: Vectors,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -364,21 +364,8 @@ impl MemManager {
         area: &str,
         identity: Option<&crate::embedder::EmbedderIdentity>,
     ) -> Result<Vec<Candidate>, String> {
-        let conn = self.conn.lock();
-        let library = super::load_entries_in(&conn, &self.blobs_dir, area, true)?;
-        library
-            .into_iter()
-            .map(|entry| {
-                Ok(Candidate {
-                    row: index::read_row(&conn, &entry.id)?,
-                    vectors: identity
-                        .map(|identity| index::read_vectors(&conn, &entry.id, identity))
-                        .transpose()?
-                        .unwrap_or_default(),
-                    entry,
-                })
-            })
-            .collect()
+        self.store
+            .blueprint_candidates(&Self::blueprint_write_context(), area, None, identity)
     }
 
     pub fn recall_blueprint_hits(

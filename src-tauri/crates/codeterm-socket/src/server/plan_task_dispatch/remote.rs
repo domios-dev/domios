@@ -169,7 +169,7 @@ pub(super) fn dispatch(
         super::regression_dispatch_warning(super::regression_dispatch_decision(&plan));
     if p.and_then(|value| value.get("placement"))
         .and_then(Value::as_str)
-        .is_some_and(|placement| placement == "canonical_writer")
+        .is_some_and(|placement| matches!(placement, "canonical_writer" | "shared"))
     {
         return Err(invalid_dispatch("mesh Workers always require a peer lane"));
     }

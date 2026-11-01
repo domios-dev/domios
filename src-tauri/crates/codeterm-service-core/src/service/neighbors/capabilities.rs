@@ -13,6 +13,7 @@ mod workspaces;
 #[derive(Clone, Copy, Debug)]
 pub enum Capability {
     MemoryRead,
+    MemoryWrite,
     Spawn,
     Files,
     Neighbor,
@@ -32,6 +33,12 @@ impl Capability {
         let reason = match self {
             Self::MemoryRead if permission.allowed && permission.allow_memory => return Ok(()),
             Self::MemoryRead => "neighbor_memory_not_allowed",
+            Self::MemoryWrite
+                if permission.allowed && !permission.memory_write_areas.is_empty() =>
+            {
+                return Ok(())
+            }
+            Self::MemoryWrite => "neighbor_memory_write_not_allowed",
             Self::Spawn
                 if permission.allowed
                     && permission.allow_tab_requests
@@ -76,6 +83,7 @@ impl Capability {
 pub fn rpc_capability(method: &str) -> Option<Capability> {
     Some(match method {
         "mem.search" | "mem.get" | "mem.wake_up" => Capability::MemoryRead,
+        "mem.neighbor_save" => Capability::MemoryWrite,
         "tab.create" | "tab.new" | "agent.spawn" => Capability::Spawn,
         "agent.report" => Capability::Report,
         "tab.agent_pad" | "tab.todo.list" => Capability::SelfRead,
@@ -94,6 +102,8 @@ pub fn http_capability(method: &str, path: &str) -> Option<Capability> {
         Some(Capability::Neighbor)
     } else if method == "POST" && path == "/api/account/neighbors/files" {
         Some(Capability::Files)
+    } else if method == "POST" && path == "/api/mem/neighbor-save" {
+        Some(Capability::MemoryWrite)
     } else if method == "GET" && path == "/api/tabs" {
         Some(Capability::TabList)
     } else if method == "POST"

@@ -12,6 +12,7 @@ import {
 import type { ApiConfig, CronJob, GraphWorkerInfo } from "../../lib/types";
 import { authHeaders } from "./memoryApi";
 import { BusyState } from "../shared/BusyState";
+import { Button } from "../shared/Button";
 import { AgentRunLogPopup } from "../AgentRun/AgentRunLogPopup";
 import { RunChatPopup } from "../AgentRun/RunChatPopup";
 import { defaultSpawnProviderId } from "../../lib/agentDescriptorCache";
@@ -200,18 +201,10 @@ function MemoryDreamsTabImpl({ api }: Props) {
 
   return (
     <div className="absolute inset-0 overflow-y-auto bg-[var(--ct-bg)]" data-testid="memory-dreams-tab">
-      <div
-        className="pointer-events-none fixed inset-0 -z-0 opacity-25"
-        style={{
-          background:
-            "radial-gradient(circle at 20% 0%, color-mix(in srgb, var(--ct-magenta, #a78bfa) 22%, transparent) 0%, transparent 45%), radial-gradient(circle at 90% 110%, color-mix(in srgb, var(--ct-blue, #60a5fa) 18%, transparent) 0%, transparent 50%)",
-        }}
-      />
-
-      <div className="relative px-5 pt-5 pb-3 flex items-start gap-4">
+      <div className="relative px-4 sm:px-5 pt-5 pb-5 flex flex-wrap items-start gap-4">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 text-[22px] font-light text-[var(--ct-fg)] leading-tight">
-            <Moon size={18} className="opacity-70" />
+          <div className="flex items-center gap-2 text-lg font-medium text-[var(--ct-fg)] leading-tight">
+            <Moon size={18} className="shrink-0 text-[var(--ct-magenta)]" />
             <span>What memory dreamt.</span>
           </div>
           <div
@@ -240,7 +233,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
                       <span className="opacity-30">·</span>
                       <span
                         data-testid="memory-dream-unfinished-flag"
-                        style={{ color: "#fb923c" }}
+                        style={{ color: "var(--ct-yellow)" }}
                       >
                         unfinished diaries in view need recovery
                       </span>
@@ -252,37 +245,34 @@ function MemoryDreamsTabImpl({ api }: Props) {
           </div>
         </div>
 
-        <div className="shrink-0 flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
           {dreamCron && (
-            <button
+            <Button
+              variant="ghost"
+              size="sm"
               type="button"
               data-testid="memory-dream-nightly-toggle"
               onClick={() => toggleDreamCron(!dreamCron.enabled)}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-[var(--ct-bg)]/40 border border-[var(--ct-border)] cursor-pointer hover:border-[var(--ct-accent)] transition-colors"
               aria-label={dreamCron.enabled ? "Disable nightly dreaming" : "Enable nightly dreaming"}
             >
               <span
                 className="inline-block w-1.5 h-1.5 rounded-full"
-                style={{ background: dreamCron.enabled ? "#34d399" : "var(--ct-muted-fg)" }}
+                style={{ background: dreamCron.enabled ? "var(--ct-green)" : "var(--ct-muted-fg)" }}
               />
               <span
-                className="text-[10px] uppercase tracking-wider"
-                style={{ color: dreamCron.enabled ? "#34d399" : "var(--ct-muted-fg)" }}
+                className="text-xs"
+                style={{ color: dreamCron.enabled ? "var(--ct-green)" : "var(--ct-muted-fg)" }}
               >
                 {dreamCron.enabled ? "Nightly on" : "Nightly off"}
               </span>
-            </button>
+            </Button>
           )}
-          <button
+          <Button
+            variant="primary"
+            size="sm"
             data-testid="memory-dream-run-now"
             onClick={runNow}
             disabled={running || !!inflight}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[var(--ct-bg)] text-[11px] font-medium tracking-wide hover:shadow-[0_0_18px_color-mix(in_srgb,_var(--ct-accent)_55%,_transparent)] disabled:opacity-50 disabled:cursor-wait transition-shadow border-0 cursor-pointer"
-            style={{
-              background:
-                "linear-gradient(135deg, color-mix(in srgb, var(--ct-magenta, #a78bfa) 75%, var(--ct-accent)) 0%, var(--ct-accent) 100%)",
-              color: "var(--ct-bg)",
-            }}
           >
             {running || inflight ? (
               <>
@@ -291,11 +281,11 @@ function MemoryDreamsTabImpl({ api }: Props) {
               </>
             ) : (
               <>
-                <Play size={12} fill="white" />
+                <Play size={12} />
                 Dream now
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -304,28 +294,30 @@ function MemoryDreamsTabImpl({ api }: Props) {
       )}
 
       <section className="relative pb-8">
-        <div className="flex items-center justify-between px-5 pb-2">
-          <h3 className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--ct-muted-fg)]">
+        <div className="flex items-center justify-between px-4 sm:px-5 pb-2">
+          <h3 className="text-xs font-medium text-[var(--ct-muted-fg)]">
             Dream diary
           </h3>
           {diaryEntries.length > 1 && (
             <div className="flex gap-1">
-              <button
+              <Button
+                variant="icon"
+                size="sm"
                 onClick={() => scrollCarousel(-1)}
                 data-testid="memory-dream-scroll-left"
-                className="w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transparent cursor-pointer"
                 aria-label="Scroll left"
               >
                 <ChevronLeft size={14} />
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="icon"
+                size="sm"
                 onClick={() => scrollCarousel(1)}
                 data-testid="memory-dream-scroll-right"
-                className="w-7 h-7 rounded-full border border-[var(--ct-border)] text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] hover:border-[var(--ct-fg)] flex items-center justify-center bg-transparent cursor-pointer"
                 aria-label="Scroll right"
               >
                 <ChevronRight size={14} />
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -337,7 +329,7 @@ function MemoryDreamsTabImpl({ api }: Props) {
         ) : (
           <div
             ref={carouselRef}
-            className="flex gap-4 overflow-x-auto px-5 pb-3 snap-x snap-mandatory scroll-pl-5"
+            className="flex gap-4 overflow-x-auto px-4 sm:px-5 pb-3 snap-x snap-mandatory scroll-pl-5"
             data-testid="memory-dream-carousel"
           >
             {diaryEntries.map((entry, index) => (
@@ -352,8 +344,8 @@ function MemoryDreamsTabImpl({ api }: Props) {
         )}
       </section>
 
-      <section className="px-5 pb-6" data-testid="memory-dream-sessions">
-        <h3 className="text-[10px] font-semibold uppercase tracking-[0.25em] text-[var(--ct-muted-fg)] mb-2">
+      <section className="px-4 sm:px-5 pb-6" data-testid="memory-dream-sessions">
+        <h3 className="text-xs font-medium text-[var(--ct-muted-fg)] mb-2">
           Recent sessions
         </h3>
         <RecentSessionsList
@@ -393,11 +385,11 @@ function MemoryDreamsTabImpl({ api }: Props) {
 
 function EmptyDream() {
   return (
-    <div className="mx-5 rounded-2xl border border-dashed border-[var(--ct-border)] px-6 py-10 flex flex-col items-center gap-2 text-center" data-testid="memory-dream-empty">
+    <div className="ct-card ct-card--static mx-4 sm:mx-5 px-6 py-10 flex flex-col items-center gap-2 text-center" data-testid="memory-dream-empty">
       <Moon size={28} className="text-[var(--ct-magenta,#a78bfa)] opacity-70" />
-      <div className="text-[12px] text-[var(--ct-fg)]">No dreams yet</div>
-      <div className="text-[10px] text-[var(--ct-muted-fg)] max-w-[300px] leading-relaxed">
-        Here you'll find what Rollo dreamt up — his nightly walk through your memory. Trigger a session manually or wait for the nightly run.
+      <div className="text-sm font-medium text-[var(--ct-fg)]">No dreams yet</div>
+      <div className="text-xs text-[var(--ct-muted-fg)] max-w-[300px] leading-relaxed">
+        Start a session or wait for the nightly run to see what memory dreamt.
       </div>
     </div>
   );
@@ -407,10 +399,10 @@ function SkeletonDream() {
   return (
     <div
       data-dream-card
-      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl border border-[var(--ct-border)] bg-[var(--ct-bg-hover)]/30 animate-pulse overflow-hidden flex flex-col"
+      className="ct-card ct-card--static snap-start shrink-0 w-[260px] h-[280px] animate-pulse overflow-hidden flex flex-col"
     >
-      <div className="flex items-start justify-between px-4 pt-4">
-        <div className="w-9 h-9 rounded-lg bg-[var(--ct-border)]" />
+      <div className="ct-card__head justify-between">
+        <div className="ct-card__icon bg-[var(--ct-border)]" />
         <div className="flex flex-col items-end gap-1.5">
           <div className="h-6 w-10 rounded bg-[var(--ct-border)]" />
           <div className="h-2 w-12 rounded bg-[var(--ct-border)]/70" />
@@ -425,7 +417,7 @@ function SkeletonDream() {
         <div className="h-2.5 w-[85%] rounded bg-[var(--ct-border)]" />
         <div className="h-2.5 w-[60%] rounded bg-[var(--ct-border)]" />
       </div>
-      <div className="px-4 pb-3 pt-1 border-t border-white/5 flex items-center gap-2">
+      <div className="px-4 pb-3 pt-1 flex items-center gap-2">
         <div className="h-3 w-12 rounded bg-[var(--ct-border)]" />
         <div className="h-3 w-10 rounded bg-[var(--ct-border)] ml-auto" />
       </div>
@@ -435,7 +427,7 @@ function SkeletonDream() {
 
 function SkeletonCarousel() {
   return (
-    <div className="flex gap-4 overflow-x-hidden px-5 pb-3">
+    <div className="flex gap-4 overflow-x-hidden px-4 sm:px-5 pb-3">
       <SkeletonDream />
       <SkeletonDream />
       <SkeletonDream />
@@ -472,10 +464,10 @@ function RecentSessionsList({
         data-worker-status={w.status}
         data-run-label={run.label}
         title={run.reason ?? undefined}
-        className="flex items-center gap-3 px-3 py-1.5 rounded-md bg-[var(--ct-bg-hover)]/60 border border-[var(--ct-border)] hover:border-[var(--ct-accent)] cursor-pointer transition-colors"
+        className="ct-card flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 cursor-pointer"
       >
         <span
-          className="text-[10px] uppercase tracking-wider w-[74px] shrink-0"
+          className="text-[11px] w-[74px] shrink-0"
           style={{ color: run.color }}
         >
           {w.status === "orphaned" ? `orphaned · ${run.label}` : run.label}
@@ -507,13 +499,14 @@ function RecentSessionsList({
       <div className="space-y-1">{first.map(renderRow)}</div>
       {rest.length > 0 && (
         <div className="flex flex-col items-center">
-          <button
+          <Button
+            size="sm"
             data-testid="memory-dream-show-all-sessions"
             onClick={onToggleAll}
-            className="text-[10px] uppercase tracking-wider text-[var(--ct-muted-fg)] hover:text-[var(--ct-fg)] mt-2 cursor-pointer bg-transparent border-0"
+            className="mt-2"
           >
             {showAll ? "Show less" : `Show all (${workers.length})`}
-          </button>
+          </Button>
           {showAll && (
             <div className="w-full space-y-1 mt-2">{rest.map(renderRow)}</div>
           )}

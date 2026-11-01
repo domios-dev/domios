@@ -20,6 +20,9 @@ impl std::error::Error for ModelProviderEnvUnavailable {}
 /// Implemented by `ServiceContext` (and test stubs). The VM holds a
 /// `Weak<dyn PluginHostCtx>` so teardown doesn't pin the context alive.
 pub trait PluginHostCtx: Send + Sync {
+    fn surface_registration(&self, _plugin: &str, _runtime: &str) -> Option<String> {
+        None
+    }
     fn runtime_launch_authorized(
         &self,
         _binding: &crate::agent_runtime::RuntimeLaunchBinding,
@@ -54,6 +57,37 @@ pub trait PluginHostCtx: Send + Sync {
     fn agent_reap_json(&self, session_id: &str) -> String;
     fn agent_poll_json(&self, session_id: &str) -> String;
 
+    fn agent_run_start_json(
+        &self,
+        _plugin: &str,
+        _context: &crate::blueprint_step::StepInputContext,
+        _opts: &str,
+    ) -> String {
+        r#"{"error":"agent_runs_unavailable"}"#.into()
+    }
+    fn agent_run_wait_json(
+        &self,
+        _plugin: &str,
+        _operation: &str,
+        _run: &str,
+        _deadline: std::time::Instant,
+    ) -> String {
+        r#"{"state":"unknown"}"#.into()
+    }
+    fn agent_run_cancel_json(&self, _plugin: &str, _operation: &str, _run: &str) -> String {
+        r#"{"state":"unknown"}"#.into()
+    }
+
+    fn step_surface_call_json(
+        &self,
+        _plugin: &str,
+        _context: &crate::blueprint_step::StepInputContext,
+        _verb: &str,
+        _args: &str,
+    ) -> String {
+        r#"{"error":"step_surfaces_unavailable"}"#.into()
+    }
+
     // ── Plugin activity (progress) ───────────────────────────────────────
     fn progress_raw_json(&self, plugin_id: &str, opts_json: &str) -> String;
 
@@ -83,13 +117,35 @@ pub trait PluginHostCtx: Send + Sync {
         Ok(std::collections::HashMap::new())
     }
 
+    fn bind_view_transfer_input(
+        &self,
+        _plugin: &str,
+        _context: &crate::view_host::ViewCallContext,
+        _handle: &str,
+        _destination: &str,
+        _control: &crate::binary_transfer::InputPreparation,
+    ) -> crate::binary_transfer::Result<crate::binary_transfer::TransferInputGrant> {
+        Err(crate::binary_transfer::TransferRefusal::NotAllowed)
+    }
+
+    fn bind_run_transfer_input(
+        &self,
+        _plugin: &str,
+        _context: &crate::blueprint_step::StepInputContext,
+        _handle: &str,
+        _destination: &str,
+        _control: &crate::binary_transfer::InputPreparation,
+    ) -> crate::binary_transfer::Result<crate::binary_transfer::TransferInputGrant> {
+        Err(crate::binary_transfer::TransferRefusal::NotAllowed)
+    }
+
     // ── Secrets ─────────────────────────────────────────────────────────
     fn secret_get(&self, plugin_id: &str, name: &str) -> Option<String>;
     fn secret_set(&self, plugin_id: &str, name: &str, value: &str) -> bool;
     fn secret_delete(&self, plugin_id: &str, name: &str) -> bool;
 
     // ── Surfaces ────────────────────────────────────────────────────────
-    /// Runs one verb on `caller`'s own stream surface of `plugin_id`; `{ result }` or `{ error }`.
+    /// Runs one verb on `caller`'s authorized surface of `plugin_id`; `{ result }` or `{ error }`.
     fn surface_call_json(
         &self,
         _plugin_id: &str,
@@ -97,6 +153,11 @@ pub trait PluginHostCtx: Send + Sync {
         _verb: &str,
         _args_json: &str,
     ) -> String {
+        r#"{"error":"surfaces_unavailable"}"#.to_string()
+    }
+
+    /// Invalidates only a declared view instance owned by this plugin. Identity JSON is bounded.
+    fn surface_invalidate_json(&self, _plugin_id: &str, _identity_json: &str) -> String {
         r#"{"error":"surfaces_unavailable"}"#.to_string()
     }
 

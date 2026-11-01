@@ -6,17 +6,9 @@ use crate::account_mesh::gate::{self, BlockReason, TrafficDecision};
 use crate::account_mesh::ledger::{LinkAdmission, LinkRecord};
 use crate::account_mesh::protocol::AccountMeshPair;
 use crate::account_mesh::{
-    AccountMeshAuthority, AccountMeshState, AccountPresence, AdmissionRefusal, SignedMembership,
+    AccountMeshAuthority, AccountMeshState, AccountPresence, SignedMembership,
 };
 use crate::MeshState;
-
-pub(super) enum AdoptionAttempt {
-    InFlight,
-    Refused {
-        account_epoch: u64,
-        advertised: Option<String>,
-    },
-}
 
 pub(super) fn system_now() -> u64 {
     std::time::SystemTime::now()
@@ -28,19 +20,21 @@ pub(super) fn system_now() -> u64 {
 impl MeshManager {
     /// Applies an account transition. Blocking takes effect before any caller-side cleanup.
     pub fn apply_account_state(&mut self, state: AccountMeshState) {
-        if state != self.account {
-            self.adoptions.clear();
-        }
         if state.account_epoch != self.account.account_epoch {
             self.pending_links.clear();
-            self.link_requests.clear();
-            self.pending_adoptions.clear();
         }
-        let bound = state
-            .signed_in_account()
-            .is_some_and(|account| self.links.bind_owner(account));
-        if self.account_ready && self.account == state && !bound {
+        if self.account_ready && self.account == state {
             return;
+        }
+        if state.signed_in_account().is_some_and(|account| {
+            self.links.links.values().any(|record| {
+                let LinkAdmission::Account { account_id, .. } = &record.admission;
+                account_id != account
+            })
+        }) {
+            self.paired_peers.clear();
+            self.links.clear();
+            self.peer_services.clear();
         }
         if matches!(state.presence, AccountPresence::SignedOut) {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
@@ -50,11 +44,6 @@ impl MeshManager {
         }
         self.account = state;
         self.account_ready = true;
-        if bound {
-            if let Err(e) = self.save() {
-                log::warn!("[mesh/account] owner binding not persisted: {}", e);
-            }
-        }
         self.bump_gate();
     }
 
@@ -88,10 +77,6 @@ impl MeshManager {
         self.links.get(peer_id)
     }
 
-    pub fn owner_account(&self) -> Option<&str> {
-        self.links.owner_account.as_deref()
-    }
-
     /// Closes every edge until the account owner publishes its first state, so a persisted
     /// sign-out is never bypassed during startup.
     pub fn await_account_state(&mut self) {
@@ -110,7 +95,6 @@ impl MeshManager {
         gate::decide(
             self.links.get(peer_id),
             &peer.public_key,
-            self.links.owner_account.as_deref(),
             &self.account,
             self.now(),
         )
@@ -127,6 +111,10 @@ impl MeshManager {
     /// Changes whenever any edge may have changed admission; long-lived channels re-decide on it.
     pub fn gate_watch(&self) -> tokio::sync::watch::Receiver<u64> {
         self.gate_generation.subscribe()
+    }
+
+    pub fn notify_connection_change(&self) {
+        self.bump_gate();
     }
 
     pub(crate) fn bump_gate(&self) {
@@ -206,7 +194,7 @@ impl MeshManager {
             .collect()
     }
 
-    /// Accepts a renewed same-identity membership for an adopted edge; never adopts.
+    /// Accepts a renewed same-identity membership for an account connection.
     pub fn refresh_peer_membership(&mut self, peer_id: &str, token: &str) -> bool {
         if self.account.signed_in_account().is_none() {
             return false;
@@ -249,6 +237,7 @@ impl MeshManager {
                     installation_id: record.installation_id().map(str::to_string),
                     admission: record.admission.label().to_string(),
                     online: peer.online
+                        && self.traffic_open(&peer.instance_id)
                         && !record.installation_id().is_some_and(|installation| {
                             self.account
                                 .unavailable_installations
@@ -262,73 +251,60 @@ impl MeshManager {
         pairs
     }
 
-    /// Remembers the membership a peer last advertised; a change re-enables adoption offers.
-    pub fn note_advertised_membership(&mut self, peer_id: &str, token: &str) {
-        self.advertised_memberships
-            .insert(peer_id.to_string(), token.to_string());
-    }
-
-    pub(crate) fn begin_adoption(&mut self, peer_id: &str) -> bool {
-        let advertised = self.advertised_memberships.get(peer_id).cloned();
-        let blocked = match self.adoptions.get(peer_id) {
-            Some(AdoptionAttempt::InFlight) => true,
-            Some(AdoptionAttempt::Refused {
-                account_epoch,
-                advertised: seen,
-            }) => *account_epoch == self.account.account_epoch && *seen == advertised,
-            None => false,
-        };
-        if !blocked {
-            self.adoptions
-                .insert(peer_id.to_string(), AdoptionAttempt::InFlight);
-        }
-        !blocked
-    }
-
-    /// Transport loss may be retried on the next event; a refusal waits for a change.
-    pub(crate) fn finish_adoption(
-        &mut self,
-        peer_id: &str,
-        outcome: &Result<(), AdmissionRefusal>,
-    ) {
-        match outcome {
-            Ok(())
-            | Err(AdmissionRefusal::PeerUnreachable)
-            | Err(AdmissionRefusal::Offline)
-            | Err(AdmissionRefusal::Cancelled) => {
-                self.adoptions.remove(peer_id);
-            }
-            Err(_) => {
-                let refused = AdoptionAttempt::Refused {
-                    account_epoch: self.account.account_epoch,
-                    advertised: self.advertised_memberships.get(peer_id).cloned(),
-                };
-                self.adoptions.insert(peer_id.to_string(), refused);
-            }
-        }
-    }
-
-    pub fn is_legacy_link(&self, peer_id: &str) -> bool {
-        matches!(
-            self.links.get(peer_id).map(|record| &record.admission),
-            Some(LinkAdmission::Legacy { .. })
-        )
-    }
-
     #[cfg(any(test, feature = "test-support"))]
-    pub fn insert_legacy_pair_for_test(&mut self, peer: crate::types::PairedPeer) {
-        let id = peer.instance_id.clone();
-        self.links.links.insert(
-            id.clone(),
-            LinkRecord {
-                link_nonce: None,
-                admission: LinkAdmission::Legacy {
-                    public_key: peer.public_key.clone(),
-                },
-                remote_membership: None,
+    pub fn insert_account_peer_for_test(&mut self, peer: crate::types::PairedPeer) {
+        use crate::account_mesh::VerifiedMembership;
+        let account_id = self
+            .account
+            .signed_in_account()
+            .unwrap_or("test-account")
+            .to_string();
+        let expires_at = self.now().saturating_add(3600);
+        let membership = |installation_id: String| SignedMembership {
+            token: "test-membership".into(),
+            verified: VerifiedMembership {
+                account_id: account_id.clone(),
+                installation_id,
+                key_id: "test-key".into(),
+                key_generation: 1,
+                slot_revision: 1,
+                issued_at: 0,
+                expires_at,
             },
-        );
-        self.paired_peers.insert(id, peer);
+        };
+        if self.account.presence == AccountPresence::NeverSignedIn {
+            self.account.presence = AccountPresence::SignedIn {
+                account_id: account_id.clone(),
+            };
+            self.account.membership = Some(membership(self.ident.identity.instance_id.clone()));
+        }
+        self.links
+            .admit(
+                &peer.instance_id,
+                &account_id,
+                &peer.instance_id,
+                &peer.public_key,
+                membership(peer.instance_id.clone()),
+            )
+            .unwrap();
+        if !self
+            .account_installations
+            .iter()
+            .any(|row| row.installation_id == peer.instance_id)
+        {
+            self.account_installations
+                .push(crate::types::AccountInstallation {
+                    installation_id: peer.instance_id.clone(),
+                    name: peer.instance_name.clone(),
+                    active: true,
+                    signed_out: false,
+                    membership_expires_at: Some(expires_at),
+                    endpoint_expires_at: Some(expires_at),
+                    instance_id: None,
+                    online: false,
+                });
+        }
+        self.paired_peers.insert(peer.instance_id.clone(), peer);
         self.bump_gate();
     }
 }

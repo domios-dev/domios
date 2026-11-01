@@ -12,14 +12,12 @@ const B64: base64::engine::general_purpose::GeneralPurpose =
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Purpose {
     Link,
-    Adopt,
 }
 
 impl Purpose {
     fn domain(self) -> &'static [u8] {
         match self {
             Self::Link => b"domios-account-mesh-link-v1",
-            Self::Adopt => b"domios-account-mesh-adopt-v1",
         }
     }
 }

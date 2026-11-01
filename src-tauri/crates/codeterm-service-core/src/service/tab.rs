@@ -217,7 +217,7 @@ impl ServiceContext {
         if is_coordinator(role, role_profile.as_deref(), false, false) {
             return true;
         }
-        for plan in self.plan_store.list_full() {
+        for plan in self.plan_store.plans_owned_or_planned_by(tab_id) {
             let is_owner = plan.owner.tab_id.as_deref() == Some(tab_id);
             let is_planner =
                 match resolve_planner_ref(&plan.planner, &plan.owner, |p| self.tab_probe(p)) {
@@ -901,16 +901,18 @@ impl ServiceContext {
             }
         }
         let structured_prompt = crate::service::structured_prompt::pending_for_tab(tab_id);
-        if tab.pending_prompt_kind == Some(codeterm_types::pty::PromptKind::Structured)
+        if tab
+            .pending_prompt_kind
+            .is_some_and(|kind| kind.is_structured())
             && structured_prompt.is_none()
         {
             return Ok(RespondPromptOutcome::StalePrompt);
         }
         if let Some(expected) = expected_identity {
-            if expected.kind == codeterm_types::pty::PromptKind::Structured {
+            if expected.kind.is_structured() {
                 let current_identity = structured_prompt.as_ref().map(|prompt| {
                     codeterm_types::pty::PromptIdentity::new(
-                        codeterm_types::pty::PromptKind::Structured,
+                        crate::service::structured_prompt::kind_for_tab(tab_id),
                         prompt,
                     )
                 });
@@ -1054,7 +1056,7 @@ impl ServiceContext {
     ) {
         if let Some(identity) = identity {
             self.answer_prompt_notifications(tab_id, identity, option_index, "tab_respond");
-            if identity.kind == codeterm_types::pty::PromptKind::Structured {
+            if identity.kind.is_structured() {
                 self.push_structured_prompt(tab_id, None);
             }
         }

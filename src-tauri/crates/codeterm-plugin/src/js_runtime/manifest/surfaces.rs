@@ -57,6 +57,12 @@ pub struct SurfaceDecl {
     /// Lucide-style icon name for the surface's tab; an invalid name is dropped at load.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub icon: Option<String>,
+    /// View verbs callable through the authenticated host surface bridge.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_verbs: Vec<String>,
+    /// Allows identity-only state invalidations for this view's live instances.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub state_invalidation: bool,
 }
 
 impl SurfaceDecl {
@@ -69,6 +75,23 @@ impl SurfaceDecl {
     }
 
     fn validate_renderer_fields(&self) -> Result<(), String> {
+        if self.agent_verbs.len() > 32
+            || self.agent_verbs.iter().any(|verb| !valid_surface_id(verb))
+            || self.agent_verbs.iter().collect::<HashSet<_>>().len() != self.agent_verbs.len()
+        {
+            return Err(format!(
+                "surface '{}' declares invalid or duplicate agent verbs (maximum 32)",
+                self.id
+            ));
+        }
+        if self.renderer != SurfaceRenderer::View
+            && (!self.agent_verbs.is_empty() || self.state_invalidation)
+        {
+            return Err(format!(
+                "surface '{}' view capabilities require the view renderer",
+                self.id
+            ));
+        }
         match self.renderer {
             SurfaceRenderer::Stream => match self.runtime.as_deref() {
                 Some(runtime) if valid_surface_id(runtime) => {}

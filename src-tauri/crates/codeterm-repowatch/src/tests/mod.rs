@@ -6,6 +6,6 @@ mod ref_events;
 mod refcount;
 mod rescan;
 mod silence;
-mod support;
+pub(crate) mod support;
 mod unresolved;
 mod working_tree;

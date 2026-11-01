@@ -27,6 +27,7 @@ mod bookkeeping;
 mod batch;
 
 pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, process: Arc<Process>) {
+    process.client.trace_binding(&session.context.lock());
     let mut events = process.client.subscribe();
     let mut ended = process.client.ended();
     let mut exited = process.ended.clone();

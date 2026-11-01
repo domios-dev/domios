@@ -1,0 +1,1 @@
+plan_cli_error_tests::detects_dash_leading_plan_text_parse_error -> plan_cli_error_tests::plan_task_body_preserves_dash_leading_text

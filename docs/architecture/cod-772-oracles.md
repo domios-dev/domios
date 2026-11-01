@@ -327,7 +327,7 @@ Revert the complete batch, including the provider manifest/bundle and all consum
 
 ## Build cleanup dependency
 
-Real-merged Sweep commit `a7e5d4820121f05103dacc370ed3204d4b8343fd` before removing the obsolete dev token-file reaper call and its two scripts/test files. Windows still uses its authenticated server/native shutdown path. Generic runtime process cleanup is unchanged. The deleted reaper tests prove only token-file/group ownership for the retired WebSocket mechanism; no current runtime creates those tokens. Retain Sweep's `scripts/tests/dev-app-process.test.mjs` canonical gate.
+Real-merged Sweep commit `a7e5d4820121f05103dacc370ed3204d4b8343fd` before removing the obsolete dev token-file reaper call and its two scripts/test files. Windows still uses its authenticated server/native shutdown path. Generic runtime process cleanup is unchanged. The deleted reaper tests prove only token-file/group ownership for the retired WebSocket mechanism; no current runtime creates those tokens.
 
 ## Source handoff limits
 

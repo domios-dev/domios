@@ -21,20 +21,7 @@ impl MemManager {
         source: Option<&str>,
         embedding: Option<&crate::embedder::StampedVector>,
     ) -> Result<Vec<SearchHit>, String> {
-        let cfg = search::SearchConfig {
-            source_filter: Some(source.map(str::to_owned)),
-            ..Default::default()
-        };
-        let conn = self.conn.lock();
-        let hits =
-            search::hybrid_rrf_with_embedding(&conn, query, &self.blobs_dir, &cfg, embedding)?;
-        let relevant_vectors = embedding
-            .and_then(|vector| search::scoped_vectors(&conn, vector, 250, query, &cfg).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|(_, distance)| distance.is_finite() && 1.0 - distance >= RELEVANCE_FLOOR)
-            .map(|(id, _)| id)
-            .collect::<BTreeSet<_>>();
+        let (hits, relevant_vectors) = self.store.solution_candidates(query, source, embedding)?;
         Ok(hits
             .into_iter()
             .filter(|hit| {

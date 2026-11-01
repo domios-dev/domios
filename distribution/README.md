@@ -59,8 +59,6 @@ No automatic `autoupdate`, `livecheck` or checksum bypass is included.
 ## Canonical and disposable native verification
 
 All checks are deferred to the Orchestrator; Workers run none on the shared machine.
-Offline fixture checks: `node --test scripts/tests/distribution-packages.test.mjs`.
-The fixture output uses synthetic bytes and is never installable release evidence.
 
 Before external package repository writes, use owner-authorized disposable native
 Windows and macOS environments with their installed package manager. Record tool

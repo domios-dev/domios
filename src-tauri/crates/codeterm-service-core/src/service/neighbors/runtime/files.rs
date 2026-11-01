@@ -101,6 +101,7 @@ impl ServiceContext {
             .await?
         {
             owner::Outcome::Value(value) => Ok(value),
+            owner::Outcome::ReceiverCommitted(_) => Err("Invalid Neighbor file outcome".into()),
         }
     }
 
@@ -126,7 +127,7 @@ impl ServiceContext {
                         return Err(Error::InvalidRequest);
                     }
                     codeterm_neighbors::wire::validate_message_size(&body)?;
-                    let lifecycle = InstallationKeys { store: &OsKeyStore, registry: registry.as_ref(), scope, uid: &transport.uid };
+                    let lifecycle = InstallationKeys { store: &self.neighbor_key_store()?, registry: registry.as_ref(), scope, uid: &transport.uid };
                     let author = self.neighbor_author(caller)?;
                     let mut receipt = self.send_neighbor(transport.as_ref(), &lifecycle, &metadata, Outgoing {
                         authority: authority::SendAuthority::Unrestricted,

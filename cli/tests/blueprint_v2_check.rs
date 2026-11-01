@@ -1,5 +1,7 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
+#[path = "support/json_output.rs"]
+mod json_output;
 use serde_json::Value;
 
 fn cli(path: &std::path::Path, options: &[&str]) -> std::process::Output {
@@ -67,7 +69,7 @@ fn blueprint_v2_check_real_cli_proof_fix_and_idempotence() {
     assert_eq!(std::fs::read_to_string(&path).unwrap(), source);
     let written = cli(&path, &["--fix", "--write", "--json"]);
     assert_eq!(written.status.code(), Some(0));
-    let fixed: Value = serde_json::from_slice(&written.stdout).unwrap();
+    let fixed = json_output::result(&written.stdout);
     assert_eq!(fixed["fix"]["changed"], true);
     assert!(fixed["fix"]["diff"]
         .as_str()
@@ -78,7 +80,7 @@ fn blueprint_v2_check_real_cli_proof_fix_and_idempotence() {
         serde_json::json!(["trigger"])
     );
     let second = cli(&path, &["--fix", "--write", "--json"]);
-    let second: Value = serde_json::from_slice(&second.stdout).unwrap();
+    let second = json_output::result(&second.stdout);
     assert_eq!(second["ok"], true);
     assert_eq!(second["fix"]["changed"], false);
     assert_eq!(second["fix"]["diff"], "");

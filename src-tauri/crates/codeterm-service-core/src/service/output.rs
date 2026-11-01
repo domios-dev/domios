@@ -872,6 +872,12 @@ impl ServiceContext {
                     )
                 };
 
+                if crate::service::structured_prompt::pending_for_tab(tab_id).as_ref()
+                    == Some(prompt)
+                {
+                    self.push_structured_prompt(tab_id, Some(prompt.clone()));
+                    return;
+                }
                 let trust = if require_user_confirmation {
                     super::directory_trust::TrustDecision::NotApplicable
                 } else {
@@ -880,7 +886,23 @@ impl ServiceContext {
                 if trust.owns_prompt() && trust != super::directory_trust::TrustDecision::Held {
                     return;
                 }
+                if !directory_trust_prompt
+                    && !require_user_confirmation
+                    && self
+                        .try_permission_auto_confirm(tab_id, screen_text)
+                        .owns_prompt()
+                {
+                    return;
+                }
                 if auto_approve && !directory_trust_prompt && !require_user_confirmation {
+                    let bound_permission_owner = super::structured_endpoint::sse(tab_id).is_some()
+                        || agent_type.as_deref().is_some_and(|agent_type| {
+                            self.agent_registry
+                                .with_provider(agent_type, |provider| {
+                                    provider.supports_permission_auto_confirm()
+                                })
+                                .unwrap_or(false)
+                        });
                     if is_general_tab {
                         let provider_classified_safety_dialog = agent_type
                             .as_deref()
@@ -896,7 +918,7 @@ impl ServiceContext {
                             prompt,
                             screen_text.unwrap_or(""),
                             directory_trust_prompt || provider_classified_safety_dialog,
-                        ) {
+                        ).filter(|ack| !bound_permission_owner || ack.kind != crate::service::general_agent::blocker::AutoAckKind::FirstAffirmative) {
                             log::info!(
                                 "[general-agent/auto-ack] Auto-acknowledging {} for Tab {}",
                                 ack.kind.label(),
@@ -932,12 +954,13 @@ impl ServiceContext {
                     let structured_prompt =
                         crate::service::structured_prompt::pending_for_tab(tab_id)
                             .is_some_and(|structured| &structured == prompt);
-                    let legacy_permitted = super::directory_trust::legacy_auto_approve_permitted(
-                        &trust,
-                        session_authenticated,
-                        structured_prompt,
-                        directory_trust_prompt,
-                    );
+                    let legacy_permitted = !bound_permission_owner
+                        && super::directory_trust::legacy_auto_approve_permitted(
+                            &trust,
+                            session_authenticated,
+                            structured_prompt,
+                            directory_trust_prompt,
+                        );
                     if let Some(response) = legacy_permitted
                         .then(|| legacy_auto_approve_response(prompt, directory_trust_prompt))
                         .flatten()
@@ -958,14 +981,6 @@ impl ServiceContext {
                         "[auto-approve] Skipping non-approvable prompt for Tab {}",
                         tab_id
                     );
-                }
-                if !directory_trust_prompt
-                    && !require_user_confirmation
-                    && self
-                        .try_permission_auto_confirm(tab_id, screen_text)
-                        .owns_prompt()
-                {
-                    return;
                 }
                 let identity = codeterm_types::pty::PromptIdentity::new(prompt_kind, prompt);
                 let pending_prompt_changed = {

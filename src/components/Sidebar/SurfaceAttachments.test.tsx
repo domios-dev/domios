@@ -74,6 +74,16 @@ async function mount(attachments: Tab[], compact = false) {
 const all = (testId: string) => [...host!.querySelectorAll(`[data-testid='${testId}']`)];
 
 describe("surface owner block", () => {
+  it("routes a view verb pulse to only its owner's attached view", async () => {
+    const view = {...surface("view-one"), title:"Board", backing:{...backing,plugin_id:"studio",surface_id:"board"}};
+    await mount([view, {...view,id:"view-two"}]);
+    await act(async () => recordSurfaceActivity({tab_id:"view-one",verb:"submit",actor:"Visitor"}));
+    const states = all("surface-tether").map(strand => [strand.getAttribute("data-surface-tab-id"), strand.getAttribute("data-state")]);
+    expect(states).toEqual([["view-one","driving"],["view-two","idle"]]);
+    expect(surfaceActivityStore.actor("view-one")).toBe("Visitor");
+    expect(surfaceActivityStore.actor("view-two")).toBeNull();
+  });
+
   it("renders the owner alone when it has no surfaces", async () => {
     await mount([]);
     expect(all("surface-owner-block")).toHaveLength(0);

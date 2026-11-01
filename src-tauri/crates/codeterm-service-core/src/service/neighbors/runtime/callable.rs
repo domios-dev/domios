@@ -9,8 +9,6 @@ pub(in crate::service::neighbors) struct Calls {
     pub service: ServiceContext,
     pub uid: String,
     pub generation: u64,
-    pub own_keys: tokio::sync::Mutex<Option<Value>>,
-    pub receiver_status: tokio::sync::Mutex<Option<Value>>,
 }
 
 #[derive(Default)]
@@ -79,9 +77,6 @@ impl AuthenticatedCall for Calls {
         );
     }
     async fn id_token(&self) -> Result<Zeroizing<String>> {
-        if self.service.neighbor_access_locked().await {
-            return Err(Error::Locked);
-        }
         let mut session = self.session().await?;
         let failed = {
             let mut failures = self
@@ -101,6 +96,22 @@ impl AuthenticatedCall for Calls {
         Ok(Zeroizing::new(session.id_token.expose().to_owned()))
     }
     async fn invoke(&self, route: &str, data: Value) -> Result<Value> {
+        self.invoke_at(
+            codeterm_account::firebase_endpoints::current().functions,
+            route,
+            data,
+        )
+        .await
+    }
+}
+
+impl Calls {
+    pub(super) async fn invoke_at(
+        &self,
+        functions: &str,
+        route: &str,
+        data: Value,
+    ) -> Result<Value> {
         self.local_session().await?;
         let result = self
             .service
@@ -108,37 +119,14 @@ impl AuthenticatedCall for Calls {
                 route,
                 &self.uid,
                 self.generation,
-                self.invoke_owned(route, data),
+                self.invoke_owned(functions, route, data),
             )
             .await;
         self.local_session().await?;
         result
     }
-}
-
-impl Calls {
-    pub(in crate::service::neighbors) async fn invoke_fresh(
-        &self,
-        route: &str,
-        data: Value,
-    ) -> Result<Value> {
-        if !matches!(route, "friendsList" | "friendsReceiverStatus") {
-            return Err(Error::InvalidRequest);
-        }
-        if self.service.neighbor_access_locked().await {
-            return Err(Error::Locked);
-        }
-        self.local_session().await?;
-        self.receiver_status.lock().await.take();
-        let result = self.invoke_owned(route, data).await?;
-        self.local_session().await?;
-        Ok(result)
-    }
-
-    async fn invoke_owned(&self, route: &str, data: Value) -> Result<Value> {
-        let transport =
-            HttpCallable::new(codeterm_account::firebase_endpoints::current().functions)
-                .map_err(|_| Error::Transport)?;
+    async fn invoke_owned(&self, functions: &str, route: &str, data: Value) -> Result<Value> {
+        let transport = HttpCallable::new(functions).map_err(|_| Error::Transport)?;
         self.invoke_with_transport(&transport, route, data).await
     }
 
@@ -170,27 +158,6 @@ impl Calls {
         route: &str,
         data: Value,
     ) -> Result<Value> {
-        let cached_lookup = match route {
-            "friendsOwnKeys" => Some(self.own_keys.lock().await),
-            "friendsReceiverStatus" => Some(self.receiver_status.lock().await),
-            _ => None,
-        };
-        if let Some(cached) = &cached_lookup {
-            if let Some(value) = cached.as_ref() {
-                self.local_session().await?;
-                return Ok(value.clone());
-            }
-        }
-        if matches!(
-            route,
-            "friendsEnrollVerifierKey"
-                | "friendsRevokeVerifierKey"
-                | "friendsDisableReceiving"
-                | "friendsSetFriendReceiver"
-        ) {
-            self.own_keys.lock().await.take();
-            self.receiver_status.lock().await.take();
-        }
         let mut session = self.session().await?;
         let mut response = transport
             .call_for_account(
@@ -254,8 +221,16 @@ impl Calls {
         };
         self.validate_session(&session).await?;
         let result = body.get("result").cloned().ok_or(Error::Transport)?;
-        if let Some(mut cached) = cached_lookup {
-            *cached = Some(result.clone());
+        if matches!(
+            route,
+            "friendsEnrollVerifierKey"
+                | "friendsRevokeVerifierKey"
+                | "friendsSetFriendReceiver"
+                | "friendsSetPaused"
+                | "friendsSetDailyLimit"
+                | "friendsSetFileDailyLimit"
+        ) {
+            self.service.invalidate_neighbor_list().await?;
         }
         Ok(result)
     }
@@ -279,7 +254,7 @@ fn classify_callable_error(status: u16, body: Option<&Value>, retry_after: Optio
         .unwrap_or(0)
         .max(retry_after.unwrap_or(0));
     match status {
-        404 => Error::FeatureUnsupported,
+        404 => Error::Unavailable,
         403 => match structured {
             Error::Refused
             | Error::Transport
@@ -339,7 +314,6 @@ fn refusal(body: &Value) -> Error {
         },
         Some("operation_id_conflict") => Error::OperationIdConflict,
         Some("installation_unverified") => Error::InstallationUnverified,
-        Some("receivers_present") => Error::ReceiversPresent,
         Some("receiver_elsewhere") => Error::ReceiverElsewhere,
         Some("receiver_revision_stale") => Error::ReceiverRevisionStale,
         Some("not_receiver") => Error::NotReceiver,
@@ -365,7 +339,6 @@ fn refusal(body: &Value) -> Error {
         Some("unauthenticated" | "UNAUTHENTICATED") => Error::Transport,
         Some("key_revoked" | "unknown_key") => Error::Revoked,
         Some("key_not_found") => Error::KeyNotFound,
-        Some("feature_unsupported") => Error::FeatureUnsupported,
         Some("invalid_key") => Error::InvalidKey,
         Some("entitlements_unavailable") => Error::EntitlementsUnavailable,
         Some("key_limit") => match (

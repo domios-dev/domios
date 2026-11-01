@@ -1,7 +1,7 @@
 {
   "id": "browser",
-  "version": "1.12.5",
-  "minCodeterm": "1.16.1",
+  "version": "1.13.0",
+  "minCodeterm": "1.18.0",
   "hostApi": 2,
   "displayName": "Browser",
   "description": "An agent-owned live browser: the agent drives a real Chromium, the user watches it inside the agent's tab, joins in, and points at elements to ask the agent about them.",
@@ -17,7 +17,72 @@
         "restore": "relaunch",
         "icon": "globe"
       }
-    ]
+    ],
+    "graphNodes": {
+      "steps": [
+        {
+          "contractVersion": 1,
+          "revision": 1,
+          "id": "browser.read_page",
+          "title": "Browser: read page",
+          "description": "Opens a browser for the run owner, reads one page's text and closes it. Existing owner browsers are left untouched; every run gets a separate surface.",
+          "params": {
+            "type": "object",
+            "properties": {
+              "url": {
+                "type": "string",
+                "maxLength": 2048,
+                "description": "http(s) page to read; a bound url input wins."
+              },
+              "wait_text": {
+                "type": "string",
+                "maxLength": 256,
+                "description": "Text to wait for before reading."
+              },
+              "limit": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2000,
+                "default": 200,
+                "description": "Lines of page text to keep."
+              }
+            }
+          },
+          "inputs": {
+            "url": {
+              "kind": "text",
+              "minItems": 0,
+              "maxItems": 1
+            }
+          },
+          "outputs": {
+            "text": {
+              "kind": "text",
+              "minItems": 1,
+              "maxItems": 1
+            },
+            "final_url": {
+              "kind": "text",
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "outcomes": [
+            "read",
+            "navigation_failed",
+            "needs_human",
+            "browser_busy"
+          ],
+          "lifecycle": {
+            "reconcile": false,
+            "cancel": false
+          },
+          "effects": {
+            "sideEffects": false
+          }
+        }
+      ]
+    }
   },
   "permissions": {
     "agentCommands": true,

@@ -131,6 +131,9 @@ pub(super) fn project_pipeline_contract(
             "last_event_at_ms":latest["last_event_at_ms"],"trigger":trigger_view(&spec.trigger),
             "steps":latest["steps"],"result":latest["result"],"runs":runs
         });
+        if let Some(hold) = &job.admission.plugin_hold {
+            blueprint["plugin_hold"] = json!(hold);
+        }
         if state == "held" {
             let latest_run = latest["id"].as_str();
             let journal_reason = entries
@@ -142,6 +145,12 @@ pub(super) fn project_pipeline_contract(
                 .map(|reason| reason.as_str().to_string());
             let held_reason = crate::plan_lock::held_reason(job)
                 .map(str::to_string)
+                .or_else(|| {
+                    job.admission
+                        .plugin_hold
+                        .as_ref()
+                        .map(|hold| hold.reason.clone())
+                })
                 .or_else(|| {
                     job.machine
                         .held

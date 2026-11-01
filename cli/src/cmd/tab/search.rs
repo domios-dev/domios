@@ -10,6 +10,10 @@ pub fn print_tab_find_results(json: bool, pattern: &str, tabs: &[serde_json::Val
     if json {
         let out = serde_json::Value::Array(scored.into_iter().map(|(_, p)| p.clone()).collect());
         print_json(&out);
+    } else if !crate::cmd::output::verbose() {
+        for (_, row) in &scored {
+            print!("{}", crate::cmd::output::compact_row(row, None));
+        }
     } else if scored.is_empty() {
         println!("No tabs match: {}", pattern);
     } else {
@@ -32,8 +36,6 @@ pub fn rank_tabs<'a>(
         .iter()
         .filter_map(|p| {
             let id = field(p, "id");
-            let title = field(p, "title");
-            let legacy_tab_title = field(p, "tab_title");
             let tab_title = crate::tab_name::tab_name(p).to_lowercase();
             let ws_name = field(p, "workspace_name");
             let sname = field(p, "agent_session_name");
@@ -66,9 +68,6 @@ pub fn rank_tabs<'a>(
                 {
                     score += 38;
                 }
-            }
-            if !legacy_tab_title.is_empty() && legacy_tab_title != title {
-                score += score_field(&title, &needle, &needle_translit, 35, 20);
             }
             if !ws_name.is_empty() {
                 let ws_translit = translit(&ws_name);

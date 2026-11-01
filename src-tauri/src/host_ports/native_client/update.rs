@@ -77,6 +77,13 @@ pub(super) fn recover(client: &NativeHostClient) -> Result<(), String> {
             log::warn!("[updater] could not persist recovered native handoff: {error}");
         }
     }
+    if let Phase::Failed { message } = &record.result.phase {
+        client
+            .app
+            .state::<UpdateStateHandle>()
+            .lock()
+            .set_error(message.clone());
+    }
     let operation = client.app.state::<Arc<UpdateOperation>>();
     operation.changed.send_replace(record.result.sequence);
     *operation.record.lock() = Some(record);

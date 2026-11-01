@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, Ordering},
         Arc,
     },
     time::Duration,
@@ -36,6 +36,7 @@ struct State {
     pending: HashMap<RpcId, Pending>,
 }
 struct Inner {
+    trace_bound: AtomicBool,
     state: Mutex<State>,
     next_id: AtomicI64,
     outgoing: mpsc::Sender<Write>,
@@ -57,6 +58,7 @@ impl Client {
         let (events, initial_events) = broadcast::channel(EVENT_BUFFER);
         let (ended, _) = watch::channel(None);
         let client = Self(Arc::new(Inner {
+            trace_bound: AtomicBool::new(false),
             state: Mutex::new(State {
                 closed: None,
                 pending: HashMap::new(),
@@ -128,11 +130,21 @@ impl Client {
                         let _ = reply.send(Ok(result));
                     }
                 } else if let WireFrame::Event(frame) = frame {
+                    if receiver.0.trace_bound.load(Ordering::Relaxed) {
+                        super::model::responsiveness::ingress(&frame);
+                    }
                     let _ = receiver.0.events.send(frame);
                 }
             }
         });
         client
+    }
+
+    pub(super) fn trace_binding(&self, context: &codeterm_plugin::agent_runtime::RuntimeContext) {
+        self.0.trace_bound.store(
+            super::model::responsiveness::context(context).is_some(),
+            Ordering::Relaxed,
+        );
     }
 
     pub fn ended(&self) -> watch::Receiver<Option<RuntimeFailure>> {
@@ -156,6 +168,9 @@ impl Client {
         };
         for (_, reply) in pending {
             let _ = reply.send(Err(reason.clone()));
+        }
+        if self.0.trace_bound.swap(false, Ordering::Relaxed) {
+            super::model::responsiveness::dispose();
         }
         self.0.ended.send_replace(Some(reason));
     }

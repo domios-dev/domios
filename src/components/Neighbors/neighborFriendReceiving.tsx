@@ -3,7 +3,6 @@ import type { DropdownMenuItem } from "../shared/DropdownMenu";
 import { NeighborReceiveHere } from "./NeighborReceiveHere";
 import type { NeighborRuntimeClient, ReceiverState } from "./neighborRuntimeClient";
 
-/** Receiving one friend here ("set"), or handing that friend back to the account's receiver ("reset"). */
 export type FriendReceiveOperation = "set" | "reset";
 
 /** Where one friend's messages arrive, in the few words a row or a header has room for. */
@@ -13,12 +12,12 @@ export function friendReceivingLine(receiver: ReceiverState): string {
   return "not receiving";
 }
 
-/** The receiving actions a friend's menus offer: receive here when this machine does not, and undo an override. */
+
 export function friendReceiveItems(receiver: ReceiverState | null, open: (operation: FriendReceiveOperation) => void): DropdownMenuItem[] {
   if (!receiver) return [];
   return [
     ...(!receiver.receiving_here ? [{ label: "Receive this friend here", onClick: () => open("set") }] : []),
-    ...(receiver.source === "friend" ? [{ label: "Use account receiver", onClick: () => open("reset") }] : []),
+    ...(receiver.receiving_here ? [{ label: "Stop receiving this friend", onClick: () => open("reset") }] : []),
   ];
 }
 

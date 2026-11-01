@@ -1,7 +1,7 @@
 {
   "id": "codex",
-  "version": "1.14.57",
-  "minCodeterm": "1.17.0",
+  "version": "1.14.67",
+  "minCodeterm": "1.18.0",
   "hostApi": 2,
   "generalAgentOfferWhenAbsent": true,
   "displayName": "Codex",
@@ -16,6 +16,10 @@
     "agentProvider": true,
     "subagentVisibility": true,
     "agentRuntime": {
+      "restrictedCli": {
+        "kind": "execpolicy-service-operations",
+        "metadataDirectory": ".codex"
+      },
       "storedHistory": true,
       "runtime": "stdio-jsonrpc",
       "command": {
@@ -36,10 +40,14 @@
           "account/rateLimits/read"
         ],
         "openThread": [
+          "config/read",
+          "configRequirements/read",
           "thread/start",
           "thread/inject_items"
         ],
         "resumeThread": [
+          "config/read",
+          "configRequirements/read",
           "thread/resume",
           "thread/read",
           "thread/unarchive"
@@ -268,6 +276,70 @@
       "followUp": false,
       "cancel": false,
       "applyDiff": false
+    },
+    "graphNodes": {
+      "steps": [
+        {
+          "contractVersion": 1,
+          "revision": 1,
+          "id": "codex.run_prompt",
+          "title": "Codex: run prompt",
+          "description": "Runs one prompt in a separate agent tab using this provider. Lost runs are never resubmitted.",
+          "params": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "prompt",
+              "cwd"
+            ],
+            "properties": {
+              "prompt": {
+                "type": "string",
+                "maxLength": 32768
+              },
+              "model": {
+                "type": "string",
+                "maxLength": 128
+              },
+              "cwd": {
+                "type": "string",
+                "maxLength": 1024
+              },
+              "timeout_ms": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600000,
+                "default": 600000
+              }
+            }
+          },
+          "inputs": {
+            "context": {
+              "kind": "text",
+              "minItems": 0,
+              "maxItems": 1
+            }
+          },
+          "outputs": {
+            "text": {
+              "kind": "text",
+              "minItems": 1,
+              "maxItems": 1
+            }
+          },
+          "outcomes": [
+            "done",
+            "failed"
+          ],
+          "lifecycle": {
+            "reconcile": true,
+            "cancel": true
+          },
+          "effects": {
+            "sideEffects": true
+          }
+        }
+      ]
     }
   },
   "iconColor": "var(--ct-fg)",
@@ -560,7 +632,8 @@
       "allow": [
         "codex"
       ]
-    }
+    },
+    "spawnAgents": true
   },
   "icon": "icon.svg",
   "cliCompatibility": {

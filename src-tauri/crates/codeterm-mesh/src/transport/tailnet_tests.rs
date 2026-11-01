@@ -12,7 +12,10 @@ fn tailnet_ipv6_peer_clients_use_bracketed_socket_authorities() {
             PeerClient::new_signed(ip, 7685, "signed").base_url,
             expected
         );
-        assert_eq!(PeerClient::new_unauthenticated(ip, 7685).base_url, expected);
+        assert_eq!(
+            PeerClient::new_for_test_without_auth(ip, 7685).base_url,
+            expected
+        );
         assert!(reqwest::Url::parse(expected).is_ok());
     }
 }

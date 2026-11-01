@@ -8,7 +8,7 @@ export function useNeighborPermission(runtimeClient: NeighborRuntimeClient, conc
   const generation = useRef(0);
   const reload = useCallback(() => {
     const current = ++generation.current;
-    runtimeClient.permission(friendship).then(value => { if (generation.current === current) setPermission(value); }, () => {});
+    runtimeClient.permission(friendship).then(value => { if (generation.current === current) setPermission({ ...value, memory_write_areas: value.memory_write_areas ?? [] }); }, () => {});
   }, [runtimeClient, friendship]);
   useEffect(() => {
     reload();

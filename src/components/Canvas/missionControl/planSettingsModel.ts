@@ -14,6 +14,7 @@ export interface PlanOversight {
   paused_at: number | null;
   pause_reason: string | null;
   suspended_reason?: string | null;
+  running_round?: number | null;
 }
 
 export type OversightTone = "accent" | "green" | "warning" | "muted";
@@ -48,6 +49,7 @@ export function oversightLines(oversight: PlanOversight, now: number): Oversight
     ];
   }
   if (oversight.mode === "curator") {
+    if (oversight.running_round != null) return [{ tone: "green", text: `Round ${oversight.running_round} running` }];
     const last = oversight.last_round_at === null ? "" : `, last round ${formatAge(oversight.last_round_at, now)}`;
     return [{ tone: "accent", text: `${nextIn("Next round", oversight.next_at, now, true)}${last}` }];
   }
@@ -58,6 +60,7 @@ export function oversightLines(oversight: PlanOversight, now: number): Oversight
 export function oversightSummary(oversight: PlanOversight, now: number): string {
   if (oversight.paused) return "Paused";
   if (oversight.suspended_reason) return suspensionLabel(oversight.suspended_reason);
+  if (oversight.running_round != null) return `Curator, round ${oversight.running_round} running`;
   if (oversight.mode === "curator" && !oversight.fallback_reason) return `Curator, ${nextIn("next round", oversight.next_at, now, true)}`;
   return `Heartbeat every ${intervalLabel(oversight.heartbeat_interval_ms)}, ${nextIn("next", oversight.next_at, now, false)}`;
 }

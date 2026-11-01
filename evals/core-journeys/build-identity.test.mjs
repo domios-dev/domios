@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -28,11 +27,10 @@ test('build identity follows the checkout CLI binary and its own environment con
   assert.deepEqual(identity.development, { instance: 'DOMIOS_DEV_INSTANCE', port: 'DOMIOS_DEV_API_PORT' });
   assert.deepEqual(identity.cli, { instance: 'DOMIOS_INSTANCE', port: 'DOMIOS_API_PORT', apiToken: 'DOMIOS_API_TOKEN',
     dataDir: 'DOMIOS_DATA_DIR', socketPath: 'DOMIOS_SOCKET_PATH' });
-  const instance = 'cj named';
-  const slug = 'cj-named';
-  const key = `${slug}-x${createHash('sha256').update(instance).digest('hex').slice(0, 10)}`;
-  const named = readBuildIdentity(root, { env: { CARGO_TARGET_DIR: path.join(root, 'ignored'), CORE_JOURNEY_REQUESTED_INSTANCE: instance } });
-  assert.equal(named.executable, path.join(root, 'src-tauri/target/dev-instances', key, 'debug', `domios${process.platform === 'win32' ? '.exe' : ''}`));
+  for (const instance of ['cj named', 'cj-other']) {
+    const named = readBuildIdentity(root, { env: { CARGO_TARGET_DIR: path.join(root, 'ignored'), CORE_JOURNEY_REQUESTED_INSTANCE: instance } });
+    assert.equal(named.executable, path.join(root, 'src-tauri/target/named-dev/debug', `domios${process.platform === 'win32' ? '.exe' : ''}`));
+  }
 });
 
 test('build identity rejects incomplete environment contracts instead of guessing', (t) => {

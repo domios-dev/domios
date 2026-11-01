@@ -5,6 +5,7 @@ import { blueprintNodeKinds } from "./kinds";
 
 export const HEADER_HEIGHT = 44;
 export const STATUS_HEIGHT = 24;
+export const TRIGGER_HEIGHT = 26;
 export const ROW_HEIGHT = 24;
 export const BODY_LINE_HEIGHT = 16;
 export const BODY_PAD = 10;
@@ -81,8 +82,9 @@ export function measureNode(node: BlueprintGraphNode) {
   const statusHeight = node.evidence ? STATUS_HEIGHT : 0;
   const bodyHeight = lines ? lines * BODY_LINE_HEIGHT + BODY_PAD * 2 : 0;
   const rows: PinRow[] = [];
-  let top = HEADER_HEIGHT + statusHeight + bodyHeight + (lines ? 0 : 4);
+  let top = HEADER_HEIGHT + (node.trigger ? TRIGGER_HEIGHT : 0) + statusHeight + bodyHeight + (lines ? 0 : 4);
   for (let index = 0; index < Math.max(node.inputs.length, node.outputs.length); index++) {
+    if (node.outputs[index]?.hostReserved && !node.outputs[index - 1]?.hostReserved) top += 8;
     rows.push({ top, height: ROW_HEIGHT, left: node.inputs[index] ?? null, right: node.outputs[index] ?? null });
     top += ROW_HEIGHT;
   }
@@ -213,7 +215,13 @@ export interface CanvasSize { width: number; height: number }
 
 /** The whole graph while it stays readable, else the focus (or the first node) at a readable scale; `whole` forces the overview. */
 export function frameBlueprint(layout: BlueprintLayout, size: CanvasSize, whole: boolean, focusKey: string | null = null): ViewportTransform | null {
-  const fit = computeFitTransform(layout.bounds, size.width, size.height, { maxScale: 1, fitPadding: FIT_PADDING });
+  const fit = computeFitTransform(layout.bounds, size.width, size.height, { minScale: Number.EPSILON, maxScale: 1, fitPadding: FIT_PADDING });
+  if (fit && size.width < 760) {
+    if (whole) return fit.scale >= 0.5 ? fit : { scale: 0.5, x: FIT_PADDING - layout.bounds.x * 0.5, y: (size.height - layout.bounds.height * 0.5) / 2 - layout.bounds.y * 0.5 };
+    if (fit.scale >= 0.75) return fit;
+    const first = (focusKey ? layout.byKey.get(focusKey)?.box : undefined) ?? layout.nodes.find(entry => entry.node.control === "trigger")?.box ?? layout.root;
+    if (first) return { scale: 0.75, x: size.width / 2 - (first.x + first.width / 2) * 0.75, y: size.height / 2 - (first.y + first.height / 2) * 0.75 };
+  }
   const focus = (focusKey ? layout.byKey.get(focusKey)?.box : undefined) ?? layout.root;
   if (!fit || whole || fit.scale >= READABLE_SCALE || !focus) return fit;
   const scale = READABLE_SCALE;

@@ -7,6 +7,16 @@ pub struct OsKeyStore;
 
 #[async_trait]
 impl KeyStore for OsKeyStore {
+    async fn available(&self) -> bool {
+        #[cfg(target_os = "linux")]
+        {
+            platform::available().await
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            true
+        }
+    }
     async fn load(&self, scope: &KeyScope, slot: Slot) -> Result<Option<Zeroizing<Vec<u8>>>> {
         platform::load(scope.name(slot)).await
     }
@@ -140,6 +150,15 @@ mod platform {
     use super::*;
     use secret_service::{EncryptionType, SecretService};
     use std::{collections::HashMap, future::Future, time::Duration};
+
+    pub async fn available() -> bool {
+        tokio::time::timeout(
+            Duration::from_secs(15),
+            SecretService::connect(EncryptionType::Dh),
+        )
+        .await
+        .is_ok_and(|result| result.is_ok())
+    }
 
     fn attributes(name: &str) -> HashMap<&str, &str> {
         HashMap::from([("service", "Domios:Neighbors"), ("account", name)])

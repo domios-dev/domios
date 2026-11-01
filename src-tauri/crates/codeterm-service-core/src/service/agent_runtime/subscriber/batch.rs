@@ -59,6 +59,7 @@ pub(super) async fn handle(
     if session.context.lock().epoch != epoch || engine::validate_binding(svc, session).is_err() {
         return Step::Break;
     }
+    process.client.trace_binding(&session.context.lock());
     let mut reducible = Vec::new();
     let mut accepted = Vec::new();
     for frame in frames {
@@ -128,15 +129,27 @@ pub(super) async fn handle(
         }
         return Step::Break;
     };
-    let (context, state) = (
-        session.context.lock().clone(),
-        session.hook_state.lock().clone(),
-    );
+    let context = session.context.lock().clone();
+    let trace = super::super::model::responsiveness::context(&context);
+    if let Some(trace) = trace {
+        trace.mark("reducer_prepare_begin", None, serde_json::json!({}));
+    }
+    let state = session.hook_state.lock().clone();
+    if let Some(trace) = trace {
+        trace.batch(&reducible, &state);
+    }
     let result = tokio::time::timeout(
         RUNTIME_HOOK_DEADLINE,
         adapter.runtime_reduce(&context, &state, &reducible),
     )
     .await;
+    if let Some(trace) = trace {
+        trace.mark(
+            "reducer_return",
+            None,
+            serde_json::json!({"ok": matches!(&result, Ok(Ok(_)))}),
+        );
+    }
     let reduced = match result {
         Ok(Ok(reduced)) => reduced,
         Ok(Err(reason)) => {
@@ -183,7 +196,11 @@ pub(super) async fn handle(
             event,
         })
         .collect::<Vec<_>>();
-    if super::super::model::validate_state_size(&reduced.state).is_err()
+    let state_bytes = super::super::model::validated_state_bytes(&reduced.state);
+    if let Some(trace) = trace {
+        trace.mark("reducer_validated", None, serde_json::json!({"state_bytes":state_bytes.as_ref().ok(),"events":reduced.events.len()}));
+    }
+    if state_bytes.is_err()
         || reduced.events.len() > MAX_RUNTIME_BATCH
         || validate_host_runtime_events(&context, &valid_events).is_err()
     {
@@ -207,7 +224,7 @@ pub(super) async fn handle(
     }
     *session.hook_state.lock() = reduced.state;
     if let Err(reason) =
-        super::apply::publish_events(svc, session, epoch, reduced.events, received_at).await
+        super::apply::publish_live_events(svc, session, epoch, reduced.events, received_at).await
     {
         return match reason {
             RuntimeFailure::Superseded => Step::Break,

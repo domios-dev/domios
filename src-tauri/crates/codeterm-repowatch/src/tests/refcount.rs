@@ -43,11 +43,7 @@ fn repository_watch_registry_is_refcounted_per_identity() {
         "refcount tracks subscribers"
     );
     assert_eq!(registry.shared_count(), 1, "one shared ref watch");
-    assert_eq!(
-        ledger.built(),
-        2,
-        "one worktree watcher plus one shared ref watcher, built once each"
-    );
+    assert_eq!(ledger.built(), 1, "one repository watch set, built once");
 
     for token in tokens.iter().take(9) {
         assert!(registry.release(token), "release accepts a live token");
@@ -59,7 +55,7 @@ fn repository_watch_registry_is_refcounted_per_identity() {
     assert!(registry.release(&tokens[9]));
     assert_eq!(registry.entry_count(), 0, "last release removes the entry");
     assert_eq!(registry.shared_count(), 0, "and its shared ref watch");
-    assert_eq!(ledger.dropped(), 2, "both owning watchers dropped");
+    assert_eq!(ledger.dropped(), 1, "the shared watch set stopped");
 
     let after = open_handle_count();
     println!("[R1] handle/descriptor count after full release: {after:?}");
@@ -68,4 +64,35 @@ fn repository_watch_registry_is_refcounted_per_identity() {
         !registry.release(&tokens[9]),
         "a released token is not released twice"
     );
+}
+
+#[test]
+fn repository_watch_set_is_shared_across_tabs_worktrees_and_lane_checks() {
+    let repo = primary_repo();
+    let holder = linked_worktree(repo.path(), "shared-watch-set");
+    let lane = holder.path().join("shared-watch-set");
+    let ledger = Arc::new(WatchLedger::default());
+    let (registry, _) = registry_with(Arc::new(CountingBackend {
+        ledger: ledger.clone(),
+    }));
+    let first = registry.subscribe(repo.path()).unwrap();
+    let second = registry.subscribe(repo.path()).unwrap();
+    let worktree = registry.subscribe(&lane).unwrap();
+    registry
+        .retain_lane_watch("lane-check", repo.path())
+        .unwrap();
+    registry
+        .retain_lane_watch("lane-check", repo.path())
+        .unwrap();
+    assert_eq!(registry.entry_count(), 2);
+    assert_eq!(registry.shared_count(), 1);
+    assert_eq!(ledger.built(), 1);
+    assert_eq!(ledger.updated.load(std::sync::atomic::Ordering::SeqCst), 1);
+    registry.release(&first.token);
+    registry.release(&second.token);
+    registry.release(&worktree.token);
+    assert_eq!(ledger.dropped(), 0);
+    assert!(registry.release_lane_watch("lane-check"));
+    assert_eq!(ledger.dropped(), 1);
+    assert_eq!(registry.shared_count(), 0);
 }

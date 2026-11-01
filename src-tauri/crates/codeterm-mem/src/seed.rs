@@ -248,7 +248,7 @@ fn bundled_items() -> Vec<NewMemItem> {
 }
 
 pub fn seed_bundled(mem: &MemManager) -> Result<SeedOutcome, String> {
-    seed_from(mem, bundled_items())
+    crate::store::with_system_author("bundled-seed", || seed_from(mem, bundled_items()))
 }
 
 /// Testable core: takes the shipped item list explicitly so tests can drive

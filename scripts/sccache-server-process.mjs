@@ -1,4 +1,4 @@
-// Caller: scripts/build-gateway-evidence.mjs; scripts/sccache-server-process.test.mjs
+// Caller: scripts/build-gateway-evidence.mjs
 import { spawnSync } from 'node:child_process';
 import { serverAddress } from './sccache-server-probe.mjs';
 

@@ -7,7 +7,7 @@ fn blueprint_v2_call_retained_failure_survives_unchanged_decision() {
             json!({"entry_id":3,"run_id":"run","step_index":1,"parent_step_index":parent,"step_name":"command","state":"done","outcome":"unchanged","started_at_ms":2,"ended_at_ms":2,"reason":null}),
             json!({"entry_id":2,"run_id":"run","step_index":1,"parent_step_index":parent,"step_name":"command","state":"failed","outcome":"failed","started_at_ms":1,"ended_at_ms":2,"reason":"deadline"}),
         ].into_iter().map(|value| serde_json::from_value(value).unwrap()).collect::<Vec<_>>();
-        let projection = project_retained(None, &entries, None).unwrap();
+        let projection = project_retained(None, &entries, None, &Default::default()).unwrap();
         let nodes = projection["nested_run"]["nodes"].as_array().unwrap();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0]["state"], "failed");
@@ -245,7 +245,7 @@ fn blueprint_v2_call_review_import_export_update_preserves_pins_and_version_hist
 #[test]
 fn blueprint_v2_call_retained_show_never_borrows_current_pins_for_unknown_history() {
     let entries = vec![serde_json::from_value(json!({"entry_id":1,"run_id":"old-run","step_index":0,"step_name":"invoke","state":"done","outcome":"done","started_at_ms":1,"ended_at_ms":2,"result_summary":null,"reason":null,"body_ref":null})).unwrap()];
-    let view = project_retained(None, &entries, None).unwrap();
+    let view = project_retained(None, &entries, None, &Default::default()).unwrap();
     assert_eq!(view["historical_graph_available"], false);
     assert_eq!(view["expanded_calls"], json!([]));
     assert_eq!(view["call_graph"], Value::Null);
@@ -264,7 +264,7 @@ fn blueprint_v2_call_retained_show_preserves_exact_historical_body_and_version()
         .as_ref()
         .unwrap();
     let entries = vec![serde_json::from_value(json!({"entry_id":1,"run_id":"old-run","step_index":0,"step_name":"invoke","state":"done","outcome":"done","started_at_ms":1,"ended_at_ms":2,"result_summary":null,"reason":null,"body_ref":null,"definition_version":1})).unwrap()];
-    let view = project_retained(Some(&historical), &entries, Some(1)).unwrap();
+    let view = project_retained(Some(&historical), &entries, Some(1), &Default::default()).unwrap();
     assert_eq!(view["historical_graph_available"], true);
     assert_eq!(view["graph_definition_version"], 1);
     assert_eq!(view["expanded_calls"][0]["pin"], json!(pin));

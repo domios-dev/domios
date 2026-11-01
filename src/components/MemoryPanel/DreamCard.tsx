@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { Check, Copy, X } from "lucide-react";
-import { dreamSummary, iconForDream, iconBySlug, paletteFor, moodLabel, parseDream } from "./dreamVisuals";
+import { dreamSummary, iconForDream, iconBySlug, moodLabel, parseDream } from "./dreamVisuals";
+import { Button } from "../shared/Button";
+import { Chip } from "../shared/Chip";
 import type { DiaryRecordState } from "./dreamRunStatus";
 
 export interface DreamDiaryEntry {
@@ -41,7 +43,6 @@ export function DreamCard({
       body: entry.body,
       title: entry.title,
     });
-  const palette = paletteFor(`${entry.area ?? ""}:${entry.title}`);
   const mood = parsed.mood ?? moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
   const date = dreamDate(entry.created_at);
   // Card surfaces the dream's voice (insight). The technical log stays behind the modal's raw copy, never on the card.
@@ -55,64 +56,25 @@ export function DreamCard({
       data-testid="memory-dream-card"
       data-dream-id={entry.id}
       onClick={onOpen}
-      className="snap-start shrink-0 w-[260px] h-[280px] rounded-2xl overflow-hidden relative flex flex-col group cursor-pointer transition-[box-shadow] duration-300"
-      style={{
-        background: palette.surface,
-        boxShadow: `0 8px 24px -12px ${palette.glow}, inset 0 0 0 1px ${palette.accent}22`,
-      }}
-      onMouseEnter={(e) => {
-        e.currentTarget.style.boxShadow =
-          `0 14px 36px -10px ${palette.glow}, 0 0 0 1px ${palette.accent}66, inset 0 0 0 1px ${palette.accent}33`;
-      }}
-      onMouseLeave={(e) => {
-        e.currentTarget.style.boxShadow =
-          `0 8px 24px -12px ${palette.glow}, inset 0 0 0 1px ${palette.accent}22`;
-      }}
+      className="ct-card snap-start shrink-0 w-[260px] h-[280px] overflow-hidden relative flex flex-col cursor-pointer"
+      style={{ "--ct-card-tone": "var(--ct-magenta)" } as CSSProperties}
     >
-      {/* Soft glow blob — extends well outside its visible bounds so any
-          rounded-corner clipping is past the falloff and reads as a smooth
-          gradient instead of a hard edge. No transforms on the card itself. */}
-      <div
-        className="absolute -top-10 -right-10 w-44 h-44 rounded-full pointer-events-none opacity-50 group-hover:opacity-80 transition-opacity duration-300"
-        style={{
-          background: `radial-gradient(circle at center, ${palette.accent} 0%, ${palette.accent}66 40%, transparent 75%)`,
-          filter: "blur(28px)",
-        }}
-      />
-      <div className="relative flex items-start justify-between px-4 pt-4">
-        <div
-          className="w-9 h-9 rounded-lg flex items-center justify-center"
-          style={{
-            background: `${palette.accent}1f`,
-            border: `1px solid ${palette.accent}44`,
-            color: palette.accent,
-          }}
-        >
+      <div className="ct-card__head justify-between">
+        <div className="ct-card__icon">
           <Icon size={16} />
         </div>
-        <div className="text-right">
-          <div
-            className="text-[28px] leading-none font-light tracking-tight"
-            style={{ color: palette.ink }}
-          >
+        <div className="text-right ml-auto">
+          <div className="text-[28px] leading-none font-light tracking-tight">
             {date.day}
           </div>
-          <div className="text-[9px] tracking-[0.3em] mt-1 opacity-70" style={{ color: palette.ink }}>
+          <div className="text-[11px] mt-1 text-[var(--ct-muted-fg)]">
             {date.month}
           </div>
         </div>
       </div>
 
       <div className="px-4 mt-3 flex items-center justify-center gap-1.5 flex-wrap">
-        <span
-          className="inline-block text-[9px] uppercase tracking-[0.25em] px-2 py-0.5 rounded-full"
-          style={{
-            background: `${palette.accent}22`,
-            color: palette.accent,
-          }}
-        >
-          {mood}
-        </span>
+        <Chip variant="muted">{mood}</Chip>
         {recordState && recordState.state !== "complete" && (
           <span
             data-testid="memory-dream-card-incomplete"
@@ -122,11 +84,7 @@ export function DreamCard({
                 ? `Still being written by ${recordState.workerId}`
                 : recordState.reason
             }
-            className="inline-block text-[9px] uppercase tracking-[0.2em] px-2 py-0.5 rounded-full"
-            style={{
-              background: "rgba(251,146,60,0.18)",
-              color: "#fb923c",
-            }}
+            className="ct-small-pill text-[var(--ct-yellow)]"
           >
             {recordState.state === "incomplete_live" ? "in progress" : "incomplete"}
           </span>
@@ -136,22 +94,21 @@ export function DreamCard({
       <div
         data-testid="memory-dream-card-body"
         className="relative flex-1 min-h-0 px-4 pt-2 pb-3 flex items-center justify-center text-center text-[12px] leading-relaxed overflow-hidden italic"
-        style={{ color: palette.ink, opacity: 0.92 }}
+        style={{ color: "var(--ct-fg)", opacity: 0.92 }}
       >
         <span className="line-clamp-6">{snippet}</span>
       </div>
 
-      <div className="relative px-4 pb-3 pt-1 border-t border-white/5 flex items-center justify-center gap-1.5 flex-wrap">
+      <div className="relative px-4 pb-3 pt-1 flex items-center justify-center gap-1.5 flex-wrap">
         {visibleTags.length > 0 ? (
           visibleTags.map((t) => (
             <span
               key={t}
               data-testid="memory-dream-card-tag"
               data-dream-tag={t}
-              className="text-[9px] tracking-wide px-1.5 py-0.5 rounded"
+              className="ct-small-pill text-[var(--ct-muted-fg)]"
               style={{
-                background: "rgba(255,255,255,0.06)",
-                color: palette.ink,
+                color: "var(--ct-fg)",
                 opacity: 0.7,
               }}
             >
@@ -159,7 +116,7 @@ export function DreamCard({
             </span>
           ))
         ) : (
-          <span className="text-[9px] tracking-wide opacity-50" style={{ color: palette.ink }}>
+          <span className="text-[9px] tracking-wide opacity-50">
             no tags
           </span>
         )}
@@ -186,7 +143,6 @@ export function DreamDetailModal({
       body: entry.body,
       title: entry.title,
     });
-  const palette = paletteFor(`${entry.area ?? ""}:${entry.title}`);
   const mood =
     parsed.mood ?? moodLabel({ area: entry.area, tags: entry.tags, body: entry.body });
   const date = dreamDate(entry.created_at);
@@ -222,13 +178,12 @@ export function DreamDetailModal({
   return createPortal(
     <div
       onClick={onClose}
-      className="fixed inset-0 z-[70] flex items-center justify-center backdrop-blur-md"
-      style={{ background: "rgba(2,4,12,0.78)" }}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-[color-mix(in_srgb,var(--ct-bg)_70%,transparent)]"
       data-testid="memory-dream-modal-backdrop"
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative flex flex-col rounded-2xl overflow-hidden select-text"
+        className="ct-menu relative flex flex-col overflow-hidden select-text"
         data-testid="memory-dream-modal"
         data-dream-id={entry.id}
         role="dialog"
@@ -236,86 +191,70 @@ export function DreamDetailModal({
         style={{
           width: "min(720px, 92vw)",
           height: "min(720px, 88vh)",
-          background: palette.surface,
-          boxShadow: `0 20px 60px -12px ${palette.glow}, inset 0 0 0 1px ${palette.accent}33`,
+          "--ct-card-tone": "var(--ct-magenta)",
           WebkitUserSelect: "text",
           userSelect: "text",
-        }}
+        } as CSSProperties}
       >
-        <div
-          className="absolute top-0 right-0 w-[300px] h-[300px] rounded-full pointer-events-none opacity-50 blur-3xl"
-          style={{ background: palette.accent, transform: "translate(40%,-40%)" }}
-        />
-        <div
-          className="absolute bottom-0 left-0 w-[220px] h-[220px] rounded-full pointer-events-none opacity-25 blur-3xl"
-          style={{ background: palette.accent, transform: "translate(-40%,40%)" }}
-        />
-
-        <div className="relative flex items-start gap-4 px-6 pt-6 pb-3">
+        <div className="relative flex flex-wrap items-start gap-3 px-4 sm:px-6 pt-5 pb-3">
           <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+            className="ct-card__icon"
             style={{
-              background: `${palette.accent}26`,
-              border: `1px solid ${palette.accent}55`,
-              color: palette.accent,
+              color: "var(--ct-magenta)",
             }}
           >
             <Icon size={20} />
           </div>
           <div className="flex-1 min-w-0">
             <span
-              className="inline-block text-[10px] uppercase tracking-[0.3em] px-2 py-0.5 rounded-full mb-2"
+              className="ct-small-pill mb-2 text-[var(--ct-muted-fg)]"
               style={{
-                background: `${palette.accent}26`,
-                color: palette.accent,
+                color: "var(--ct-magenta)",
               }}
             >
               {mood}
             </span>
             <div
               className="text-[15px] leading-tight font-medium"
-              style={{ color: palette.ink, opacity: 0.85 }}
+              style={{ color: "var(--ct-fg)", opacity: 0.85 }}
             >
               {entry.title}
             </div>
-            <div
-              className="text-[10px] mt-0.5 opacity-55 tabular-nums"
-              style={{ color: palette.ink }}
-            >
+            <div className="text-[10px] mt-0.5 opacity-55 tabular-nums">
               {date.month} {date.day}, {date.year}
             </div>
           </div>
-          <div className="flex items-start gap-1.5">
-            <button
+          <div className="ml-auto flex items-start gap-1.5">
+            <Button
               onClick={copyInsight}
               onPointerLeave={clearCopied}
               onBlur={clearCopied}
               data-testid="memory-dream-copy-insight"
               aria-label="Copy insight"
               title="Copy insight"
-              className="h-7 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[10px] uppercase tracking-wider"
-              style={{ color: palette.ink, opacity: 0.85 }}
+              size="sm"
+              style={{ color: "var(--ct-fg)", opacity: 0.85 }}
             >
               {copied === "insight" ? <Check size={12} /> : <Copy size={11} />}
               <span>{copied === "insight" ? "copied" : "copy"}</span>
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={onClose}
               data-testid="memory-dream-modal-close"
               aria-label="Close"
-              className="w-7 h-7 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer"
-              style={{ color: palette.ink, opacity: 0.85 }}
+              variant="icon"
+              size="sm"
+              style={{ color: "var(--ct-fg)", opacity: 0.85 }}
             >
               <X size={13} />
-            </button>
+            </Button>
           </div>
         </div>
 
         {/* Insight — the dream itself, full bleed serif. */}
         <div
-          className="relative flex-1 overflow-y-auto px-6 pt-3 pb-2"
+          className="relative flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 pt-3 pb-2"
           data-testid="memory-dream-insight"
-          style={{ color: palette.ink }}
         >
           <div
             className="text-[16px] leading-[1.7] whitespace-pre-wrap break-words font-light"
@@ -332,12 +271,12 @@ export function DreamDetailModal({
           {summary && (
             <section
               aria-labelledby={summaryLabelId}
-              className="mt-6 pt-4 border-t border-white/10"
+              className="mt-6 pt-4"
             >
               <div
                 id={summaryLabelId}
-                className="text-[10px] uppercase tracking-[0.25em]"
-                style={{ color: palette.ink, opacity: 0.6 }}
+                className="text-xs font-medium"
+                style={{ color: "var(--ct-fg)", opacity: 0.6 }}
               >
                 summary
               </div>
@@ -345,7 +284,7 @@ export function DreamDetailModal({
                 data-testid="memory-dream-summary"
                 data-summary-source={summary.source}
                 className="mt-1.5 text-[12px] leading-snug break-words"
-                style={{ color: palette.ink, opacity: 0.85 }}
+                style={{ color: "var(--ct-fg)", opacity: 0.85 }}
               >
                 {summary.text}
               </p>
@@ -353,17 +292,16 @@ export function DreamDetailModal({
           )}
         </div>
 
-        <div className="relative px-6 pb-4 pt-3 border-t border-white/8 flex items-center gap-1.5 flex-wrap">
+        <div className="relative px-4 sm:px-6 pb-4 pt-3 flex items-center gap-1.5 flex-wrap">
           {visibleTags.length > 0 ? (
             visibleTags.map((t) => (
               <span
                 key={t}
                 data-testid="memory-dream-modal-tag"
                 data-dream-tag={t}
-                className="text-[10px] tracking-wide px-2 py-0.5 rounded-full"
+                className="ct-small-pill text-[var(--ct-muted-fg)]"
                 style={{
-                  background: "rgba(255,255,255,0.06)",
-                  color: palette.ink,
+                  color: "var(--ct-fg)",
                   opacity: 0.75,
                 }}
               >
@@ -371,23 +309,24 @@ export function DreamDetailModal({
               </span>
             ))
           ) : (
-            <span className="text-[9px] opacity-40" style={{ color: palette.ink }}>
+            <span className="text-[9px] opacity-40">
               no tags
             </span>
           )}
-          <button
+          <Button
             onClick={copyAll}
             onPointerLeave={clearCopied}
             onBlur={clearCopied}
             data-testid="memory-dream-copy-raw"
             aria-label="Copy raw body"
-            className="ml-auto h-6 px-2 rounded-full flex items-center gap-1 bg-white/5 hover:bg-white/10 border border-white/10 cursor-pointer text-[9px] uppercase tracking-[0.2em]"
-            style={{ color: palette.ink, opacity: 0.7 }}
+            size="sm"
+            className="ml-auto"
+            style={{ color: "var(--ct-fg)", opacity: 0.7 }}
             title="Copy raw body (insight + log)"
           >
             {copied === "all" ? <Check size={10} /> : <Copy size={10} />}
             <span>{copied === "all" ? "copied" : "raw"}</span>
-          </button>
+          </Button>
         </div>
       </div>
     </div>,

@@ -37,9 +37,9 @@ pub fn build_service_context(
     cap_registries: &crate::plugin::js_runtime::CapabilityRegistries,
 ) -> Arc<ServiceContext> {
     let phase = crate::startup::StartupStep::debug("service: registries");
-    let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::new(
+    let mem_supervisor = Arc::new(crate::mem::supervisor::Supervisor::with_manager(
         crate::mem::supervisor::Supervisor::resolve_cli_path(&crate::paths::data_dir()),
-        mem.db_path().to_path_buf(),
+        mem.clone(),
     ));
 
     let input_parser = Arc::new(crate::service::input_parser::InputParser::new(
@@ -138,6 +138,7 @@ pub fn build_service_context(
     drop(phase);
     let phase = crate::startup::StartupStep::debug("service: extensions");
     let mut extensions = crate::service::extensions::ExtensionsBuilder::default();
+    extensions.insert(crate::mem_ops::author::OwnerMemoryAuthor::default());
     extensions.insert_service_slots();
     extensions.insert(states.config.clone());
     extensions.insert(states.mesh.clone());
@@ -287,9 +288,6 @@ pub fn build_service_context(
     extensions.insert::<Arc<crate::user_last_activity::UserLastActivity>>(user_last_activity);
     extensions.insert(crate::usage::poller::UsagePollerSlot(Arc::new(
         parking_lot::Mutex::new(None),
-    )));
-    extensions.insert(crate::service::PlanWatchers(Arc::new(
-        parking_lot::Mutex::new(std::collections::HashMap::new()),
     )));
     extensions.insert(crate::service::LoadedPlanProjects(Arc::new(
         parking_lot::Mutex::new(std::collections::HashSet::new()),

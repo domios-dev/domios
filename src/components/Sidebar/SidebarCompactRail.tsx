@@ -5,7 +5,7 @@ import { tabActivity } from "../../lib/tabActivity";
 import { displayTitleForTab } from "../../store/multiplexer/tree";
 import { AgentIcon } from "../AgentIcon";
 import { TerminalIcon } from "../Icons";
-import type { TabAttention } from "./tabAttention";
+import { tabAttention, type TabAttention } from "./tabAttention";
 import { TabAttentionMark } from "./TabAttentionMark";
 import { TabItem } from "./TabItem";
 import { isFirstRunGeneralTab } from "../AgentPicker/constants";
@@ -90,7 +90,7 @@ export function SidebarCompactRail({ groups, tabStatuses, onActivate, attentionB
                 onMouseLeave={release}
               >
                 {tab.agent_type ? <AgentIcon providerId={tab.agent_type} className="text-[15px]" /> : <TerminalIcon size={14} />}
-                <TabAttentionMark title={title} attention={attentionByTab[tab.id]} active={active} />
+                <TabAttentionMark title={title} attention={attentionByTab[tab.id] ?? tabAttention(tab, tabStatuses[tab.id], [], active)} active={active} placement="compact" />
                 {activity === "working" && !attentionByTab[tab.id]?.showMark && <span className="ct-compact-rail__status" aria-hidden="true" />}
               </button>
             );

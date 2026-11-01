@@ -135,16 +135,7 @@ impl ServiceContext {
             super::team_core::now_ms(),
         )?;
         let team_ids: HashSet<_> = record.teams.iter().map(|team| team.id.as_str()).collect();
-        let plans = self
-            .plan_store
-            .list_full()
-            .into_iter()
-            .filter(|plan| {
-                plan.team_id
-                    .as_deref()
-                    .is_some_and(|id| team_ids.contains(id))
-            })
-            .collect();
+        let plans = close_inventory_plans(&self.plan_store, &team_ids);
         let in_scope = |workspace_id: &str, team_id: Option<&str>| {
             team.map_or_else(
                 || workspace_id == workspace || team_id.is_some_and(|id| team_ids.contains(id)),
@@ -473,4 +464,22 @@ impl ServiceContext {
             }
         }
     }
+}
+
+/// The plans bound to the closing Teams; no other plan is loaded.
+pub(crate) fn close_inventory_plans(
+    store: &crate::service::plan::PlanStore,
+    team_ids: &HashSet<&str>,
+) -> Vec<crate::plan::Plan> {
+    store
+        .plans_matching(&crate::service::plan::PlanMatch::Teams(
+            team_ids.iter().map(|id| id.to_string()).collect(),
+        ))
+        .into_iter()
+        .filter(|plan| {
+            plan.team_id
+                .as_deref()
+                .is_some_and(|id| team_ids.contains(id))
+        })
+        .collect()
 }

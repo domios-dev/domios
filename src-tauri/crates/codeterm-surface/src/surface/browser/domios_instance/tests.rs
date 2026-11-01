@@ -25,7 +25,8 @@ fn dev_instance_open_requires_explicit_nonproduction_selectors_and_reads_only_it
     let missing = root.path().join("missing");
     assert!(read_token(&missing).is_err());
     assert!(!missing.exists());
-    codeterm_util::instance_token::initialize_at(root.path(), Some("opaque-local-token"), false)
+    codeterm_util::secret_file::SecretFile::new_at(root.path(), "domios.instance")
+        .set("api_token", "opaque-local-token")
         .unwrap();
     assert_eq!(read_token(root.path()).unwrap(), "opaque-local-token");
 }
@@ -36,7 +37,8 @@ fn dev_instance_credentials_refuse_linked_or_unprotected_stores() {
     use std::os::unix::fs::PermissionsExt;
     let root = tempfile::tempdir().unwrap();
     let other = tempfile::tempdir().unwrap();
-    codeterm_util::instance_token::initialize_at(other.path(), Some("opaque-other-token"), false)
+    codeterm_util::secret_file::SecretFile::new_at(other.path(), "domios.instance")
+        .set("api_token", "opaque-other-token")
         .unwrap();
     std::os::unix::fs::symlink(other.path().join(".secrets"), root.path().join(".secrets"))
         .unwrap();

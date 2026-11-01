@@ -1,8 +1,15 @@
 use clap::Subcommand;
 #[derive(Subcommand)]
 pub enum AccountAction {
-    /// Sign in using the system browser and wait for completion
-    Login,
+    /// Sign in and wait for completion
+    Login {
+        /// Print the authorization URL and accept the whole redirected callback URL
+        #[arg(long)]
+        no_browser: bool,
+        /// Complete the pending browserless sign-in using a whole callback URL from this tab's pad
+        #[arg(long, requires = "no_browser")]
+        code_from_pad: Option<String>,
+    },
     /// Show the current plan and stale-cache marker
     Plan,
     /// Open an upgrade checkout in the system browser
@@ -63,14 +70,6 @@ pub enum NeighborAction {
         /// Pass only after the owner explicitly agrees to move receiving from the named machine
         #[arg(long)]
         takeover_confirmed: bool,
-    },
-    /// Receive all friends here (account takeover); use receive-here to move only one friend
-    Enroll {
-        #[arg(long, required = true)]
-        confirm_takeover: bool,
-        /// Receiver revision shown by status; refresh and confirm again if stale
-        #[arg(long)]
-        expected_receiver_revision: u64,
     },
     /// Rotate this installation's keys and revoke the previous pair
     Rotate,

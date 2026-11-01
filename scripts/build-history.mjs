@@ -1,4 +1,4 @@
-// Caller: build.sh build-history; scripts/build-history.test.mjs
+// Caller: build.sh build-history
 import fs from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';

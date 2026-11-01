@@ -94,6 +94,8 @@ async fn restart_inner(
             serde_json::to_value(status).unwrap_or_default(),
         );
     }
+    svc.validate_completed_restart_binding(tab, binding.as_ref())
+        .map_err(RuntimeFailure::Refused)?;
     let nonce = super::authority::rotate_restart(svc, tab, provider, old_nonce)
         .map_err(RuntimeFailure::Refused)?;
     svc.stage_runtime_restart_binding(tab, binding);

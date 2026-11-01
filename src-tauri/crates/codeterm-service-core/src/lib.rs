@@ -36,6 +36,7 @@ pub mod paths;
 pub use codeterm_util::persisted_state;
 pub mod plan;
 pub mod plugin;
+pub mod plugin_media;
 pub mod ports;
 pub mod process_util;
 pub mod prompts;

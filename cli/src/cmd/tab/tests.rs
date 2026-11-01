@@ -21,10 +21,10 @@ impl RpcClient for SearchRpc {
 
 #[test]
 fn tab_list_defaults_to_all_workspace_request() {
-    let params = tab_list_params(None, false, false);
+    let params = tab_list_params(None, false);
 
     assert_eq!(params["focused_workspace"], false);
-    assert_eq!(params["all_workspaces"], false);
+    assert!(params.get("all_workspaces").is_none());
     assert_eq!(ordinary_tab_list_path(&params), "/api/tabs");
 
     let output = crate::cmd::render_workspace_map(
@@ -33,8 +33,8 @@ fn tab_list_defaults_to_all_workspace_request() {
             {"id": "ws_two", "name": "Two", "tab_count": 1, "tab_ids": ["tab_two"]}
         ]),
         Some(&json!([
-            {"id": "tab_one", "tab_title": "One tab", "workspace_id": "ws_one"},
-            {"id": "tab_two", "tab_title": "Two tab", "workspace_id": "ws_two"}
+            {"id": "tab_one", "title": "One tab", "workspace_id": "ws_one"},
+            {"id": "tab_two", "title": "Two tab", "workspace_id": "ws_two"}
         ])),
         Some(&json!({"teams": []})),
         Some(&json!({"plans": []})),
@@ -69,8 +69,8 @@ fn tab_status_renders_provider_prompt_options_as_numbered_choices() {
 
 #[test]
 fn tab_list_request_uses_only_explicit_scope() {
-    let workspace = tab_list_params(Some("workspace".into()), false, false);
-    let all = tab_list_params(None, true, false);
+    let workspace = tab_list_params(Some("workspace".into()), false);
+    let all = tab_list_params(None, false);
 
     assert_eq!(workspace["focused_workspace"], false);
     assert_eq!(all["focused_workspace"], false);
@@ -80,7 +80,7 @@ fn tab_list_request_uses_only_explicit_scope() {
 fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
     let foreign = json!({
         "id": "deadbeef1234",
-        "tab_title": "Foreign Dalton",
+        "title": "Foreign Dalton",
         "workspace_name": "Elsewhere",
         "workspace_id": "ws_foreign"
     });
@@ -92,7 +92,7 @@ fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
     let response = fetch_search_tabs(&mut client).unwrap();
     assert_eq!(client.calls[0].0, "tab.list");
     let params = client.calls[0].1.as_ref().expect("tab.list params");
-    assert_eq!(params["all_workspaces"], true);
+    assert!(params.get("all_workspaces").is_none());
     assert_eq!(params["focused_workspace"], false);
     assert!(params["caller_tab_id"].is_null());
 
@@ -107,7 +107,7 @@ fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
 
 #[test]
 fn tab_list_explicit_workspace_scope() {
-    let params = tab_list_params(Some("ws_one".into()), false, false);
+    let params = tab_list_params(Some("ws_one".into()), false);
     assert_eq!(
         ordinary_tab_list_path(&params),
         "/api/tabs?workspace_id=ws_one"
@@ -115,7 +115,7 @@ fn tab_list_explicit_workspace_scope() {
 
     let tabs = vec![json!({
         "id": "tab_one",
-        "tab_title": "One",
+        "title": "One",
         "workspace_id": "ws_one",
         "workspace_name": "One",
         "scope": "workspace",
@@ -163,10 +163,10 @@ fn string_field<'a>(value: &'a serde_json::Value, key: &str) -> &'a str {
 #[test]
 fn render_tree_groups_by_workspace_and_nests_children() {
     let tabs = vec![
-        json!({"id":"aaaa","tab_title":"MainX","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1"}),
-        json!({"id":"bbbb","tab_title":"Torvalds","agent_session_model":"Opus","workspace_name":"General","workspace_id":"ws1"}),
-        json!({"id":"cccc","tab_title":"scout","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1","parent_tab_id":"bbbb"}),
-        json!({"id":"dddd","tab_title":"devbox","agent_session_model":"Sonnet","workspace_name":"codeterm","workspace_id":"ws2"}),
+        json!({"id":"aaaa","title":"MainX","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1"}),
+        json!({"id":"bbbb","title":"Torvalds","agent_session_model":"Opus","workspace_name":"General","workspace_id":"ws1"}),
+        json!({"id":"cccc","title":"scout","agent_session_model":"Sonnet","workspace_name":"General","workspace_id":"ws1","parent_tab_id":"bbbb"}),
+        json!({"id":"dddd","title":"devbox","agent_session_model":"Sonnet","workspace_name":"codeterm","workspace_id":"ws2"}),
     ];
     let out = render_tab_tree(&tabs);
     assert!(
@@ -247,16 +247,16 @@ fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
     assert_eq!(string_field(&tabs[2], "role_profile"), "planner");
     assert_eq!(string_field(&tabs[2], "remote_peer_name"), "A");
     assert_eq!(
-        ordinary_tab_list_path(&tab_list_params(None, true, false)),
-        "/api/tabs?all_workspaces=true"
+        ordinary_tab_list_path(&tab_list_params(None, false)),
+        "/api/tabs"
     );
 }
 
 #[test]
 fn render_tree_falls_back_to_agent_type_without_model() {
     let tabs = vec![
-        json!({"id":"eeee","tab_title":"plain","workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"ffff","tab_title":"coder","agent_type":"claude","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"eeee","title":"plain","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"ffff","title":"coder","agent_type":"claude","workspace_name":"W","workspace_id":"w"}),
     ];
     let out = render_tab_tree(&tabs);
     // No model + no agent_type → bare id + name (no trailing junk).
@@ -276,9 +276,9 @@ fn render_tree_falls_back_to_agent_type_without_model() {
 #[test]
 fn render_tree_places_team_terminals_after_workers_with_creator_provenance() {
     let tabs = vec![
-        json!({"id":"orch","tab_title":"Ada","role":"Orchestrator","team_id":"team","workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"terminal","tab_title":"dev server","team_id":"team","spawned_by_tab_id":"orch","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"worker","tab_title":"Worker","role":"Worker","team_id":"team","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"orch","title":"Ada","role":"Orchestrator","team_id":"team","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"terminal","title":"dev server","team_id":"team","spawned_by_tab_id":"orch","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"worker","title":"Worker","role":"Worker","team_id":"team","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
     ];
 
     let out = render_tab_tree(&tabs);
@@ -297,9 +297,9 @@ fn render_tree_places_team_terminals_after_workers_with_creator_provenance() {
 #[test]
 fn render_tree_nests_worker_owned_utility_shell_under_its_worker() {
     let tabs = vec![
-        json!({"id":"orch","tab_title":"Ada","role":"Orchestrator","team_id":"team","workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"worker","tab_title":"Worker","role":"Worker","team_id":"team","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"shell","tab_title":"qa shell","team_id":"team","spawned_by_tab_id":"worker","parent_tab_id":"worker","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"orch","title":"Ada","role":"Orchestrator","team_id":"team","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"worker","title":"Worker","role":"Worker","team_id":"team","parent_tab_id":"orch","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"shell","title":"qa shell","team_id":"team","spawned_by_tab_id":"worker","parent_tab_id":"worker","workspace_name":"W","workspace_id":"w"}),
     ];
 
     let lines: Vec<_> = render_tab_tree(&tabs).lines().map(str::to_string).collect();
@@ -322,13 +322,13 @@ fn render_tree_nests_worker_owned_utility_shell_under_its_worker() {
 #[test]
 fn render_tree_brackets_the_agent_identity_and_never_the_role() {
     let tabs = vec![
-        json!({"id":"orch","tab_title":"Ada","role":"Manager","role_profile":"orchestrator",
+        json!({"id":"orch","title":"Ada","role":"Manager","role_profile":"orchestrator",
                "agent_type":"claude","agent_session_model":"opus","agent_liveness":"live",
                "workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"gen","tab_title":"Main","role":"Manager","role_profile":"general_agent",
+        json!({"id":"gen","title":"Main","role":"Manager","role_profile":"general_agent",
                "agent_type":"claude","agent_session_model":"opus","agent_liveness":"live",
                "workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"gone","tab_title":"Ghost","role":"Worker",
+        json!({"id":"gone","title":"Ghost","role":"Worker",
                "agent_type":"codex","agent_session_model":"gpt-5.6-sol","agent_liveness":"absent",
                "workspace_name":"W","workspace_id":"w"}),
     ];
@@ -353,7 +353,7 @@ fn render_tree_brackets_the_agent_identity_and_never_the_role() {
 fn render_tree_includes_description() {
     let tabs = vec![json!({
         "id":"eeee",
-        "tab_title":"plain",
+        "title":"plain",
         "description":"running tests",
         "workspace_name":"W",
         "workspace_id":"w"
@@ -369,8 +369,8 @@ fn render_tree_includes_description() {
 #[test]
 fn render_tree_marks_only_the_calling_tab() {
     let tabs = vec![
-        json!({"id":"self01","tab_title":"current","workspace_name":"W","workspace_id":"w"}),
-        json!({"id":"peer02","tab_title":"peer","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"self01","title":"current","workspace_name":"W","workspace_id":"w"}),
+        json!({"id":"peer02","title":"peer","workspace_name":"W","workspace_id":"w"}),
     ];
     let out = render_tab_tree_with_current(&tabs, Some("self01"));
     assert!(out.contains("self01 current (self)\n"));
@@ -419,26 +419,15 @@ fn tie_break_is_stable_by_id() {
 fn tab_title_matches_friendly_name() {
     // Regression: use workspace-tree tab title in matching so labels like "dalton" still find the expected tab.
     let tabs = vec![
-        json!({"id": "11111111", "title": "claude-with-text", "tab_title": "Dalton"}),
-        json!({"id": "22222222", "title": "silent-claude",    "tab_title": "Thomson"}),
+        json!({"id": "11111111", "title": "Dalton"}),
+        json!({"id": "22222222", "title": "Thomson"}),
     ];
     let ranked = rank_ids("dalton", &tabs);
     assert_eq!(
         ranked.first().map(String::as_str),
         Some("11111111"),
-        "tab_title must be searched — that's the name the user sees"
+        "the current title must be searched"
     );
-}
-
-#[test]
-fn tab_title_contains_outranks_title_contains() {
-    // Tab title is more user-facing than the raw tab.title; "fib" should hit Fibonacci's tab over a tab that just has "fib" in its title.
-    let tabs = vec![
-        json!({"id": "aa11", "title": "ignore-me-fib", "tab_title": "Other"}),
-        json!({"id": "bb22", "title": "claude", "tab_title": "Fibonacci"}),
-    ];
-    let ranked = rank_ids("fib", &tabs);
-    assert_eq!(ranked.first().map(String::as_str), Some("bb22"));
 }
 
 #[test]
@@ -465,18 +454,17 @@ fn model_field_is_searchable() {
 fn human_row_shows_tab_title_with_model() {
     let p = json!({
         "id": "abcd1234",
-        "title": "claude-with-text",
-        "tab_title": "Dalton",
+        "title": "Dalton",
         "agent_type": "claude",
         "agent_session_model": "Sonnet",
         "workspace_name": "WS-claude-renamed",
     });
     let row = format_tab_row(&p);
-    assert!(row.contains("Dalton"), "row missing tab_title: {}", row);
-    // One label only: tab_title wins, so the raw tab.title must NOT leak in.
+    assert!(row.contains("Dalton"), "row missing title: {}", row);
+
     assert!(
         !row.contains("claude-with-text"),
-        "tab_title should win over tab.title: {}",
+        "row must not invent another title: {}",
         row
     );
     assert!(row.contains("claude"), "row missing agent: {}", row);
@@ -496,8 +484,8 @@ fn human_row_shows_tab_title_with_model() {
 fn cyrillic_needle_matches_latin_tab_title() {
     // User types tab name in Russian — should still find the Dalton tab.
     let tabs = vec![
-        json!({"id": "11111111", "title": "claude", "tab_title": "Dalton"}),
-        json!({"id": "22222222", "title": "claude", "tab_title": "Thomson"}),
+        json!({"id": "11111111", "title": "Dalton"}),
+        json!({"id": "22222222", "title": "Thomson"}),
     ];
     let ranked = rank_ids("Далтон", &tabs);
     assert_eq!(
@@ -511,8 +499,8 @@ fn cyrillic_needle_matches_latin_tab_title() {
 fn latin_needle_matches_cyrillic_tab_title() {
     // Reverse matching uses deunicode romanization so Cyrillic tab names can be found by Latin input.
     let tabs = vec![
-        json!({"id": "33333333", "title": "claude", "tab_title": "Андрей"}),
-        json!({"id": "44444444", "title": "claude", "tab_title": "Misha"}),
+        json!({"id": "33333333", "title": "Андрей"}),
+        json!({"id": "44444444", "title": "Misha"}),
     ];
     let ranked = rank_ids("andrei", &tabs);
     assert_eq!(
@@ -523,11 +511,10 @@ fn latin_needle_matches_cyrillic_tab_title() {
 }
 
 #[test]
-fn human_row_collapses_when_tab_title_equals_tab_title() {
+fn human_row_renders_one_current_title() {
     let p = json!({
         "id": "abcd1234",
         "title": "Main",
-        "tab_title": "Main",
         "agent_type": "claude",
     });
     let row = format_tab_row(&p);

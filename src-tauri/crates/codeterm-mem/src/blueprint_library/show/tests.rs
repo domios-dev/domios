@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::params;
 use serde_json::{json, Value};
 
 const AREA: &str = "blueprints:workspace";
@@ -42,7 +43,7 @@ fn view(mem: &MemManager, id: &str) -> Value {
 fn saved_solution_show_expands_nested_frozen_calls_without_writes() {
     let mem = MemManager::open_in_memory().unwrap();
     let (root, middle, leaf) = nested(&mem);
-    let changes = mem.conn.lock().total_changes();
+    let changes = mem.fixture_conn().lock().total_changes();
     let shown = view(&mem, &format!("mem:{root}"));
     assert_eq!(shown["root"]["name"], "root");
     assert_eq!(shown["calls"][0]["pin"]["id"], format!("mem:{middle}"));
@@ -56,14 +57,14 @@ fn saved_solution_show_expands_nested_frozen_calls_without_writes() {
         "constant"
     );
     assert!(shown["calls"][0].get("unavailable").is_none());
-    assert_eq!(mem.conn.lock().total_changes(), changes);
+    assert_eq!(mem.fixture_conn().lock().total_changes(), changes);
 }
 
 #[test]
 fn saved_solution_show_missing_pin_is_typed_and_preserves_available_parent() {
     let mem = MemManager::open_in_memory().unwrap();
     let (root, _, leaf) = nested(&mem);
-    mem.conn
+    mem.fixture_conn()
         .lock()
         .execute(
             "DELETE FROM blueprint_call_revisions WHERE item_id=?1",
@@ -94,7 +95,7 @@ fn saved_solution_show_never_reads_foreign_team_or_workspace_pin_bytes() {
     for (area, team) in [(AREA, "foreign"), ("blueprints:foreign", "team")] {
         let mem = MemManager::open_in_memory().unwrap();
         let (root, middle, _) = nested(&mem);
-        mem.conn
+        mem.fixture_conn()
             .lock()
             .execute(
                 "UPDATE blueprint_call_scopes SET area=?1,team=?2 WHERE item_id=?3",

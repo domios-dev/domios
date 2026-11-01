@@ -6,6 +6,7 @@ function nonEmpty(value) {
 }
 
 function inspectedTabs(value) {
+  value = value?.result;
   if (Array.isArray(value)) return value;
   if (value && Array.isArray(value.tabs)) return value.tabs;
   if (value && value.tab && typeof value.tab === "object") return [value.tab];
@@ -13,7 +14,7 @@ function inspectedTabs(value) {
 }
 
 function teamMembers(value) {
-  if (value && Array.isArray(value.members)) return value.members;
+  if (value?.result && Array.isArray(value.result.members)) return value.result.members;
   return [];
 }
 

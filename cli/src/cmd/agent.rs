@@ -125,7 +125,7 @@ pub(crate) fn read_handoff_file<R: Read>(
     } else {
         base.join(requested)
     };
-    std::fs::read_to_string(&resolved).map_err(|error| {
+    crate::local_admission::read_local_text(&resolved).map_err(|error| {
         format!(
             "failed to read {flag} {path} (resolved from {} as {}): {error}",
             base.display(),
@@ -180,7 +180,7 @@ pub fn resolve_spawn_charter<R: Read>(
                     .map_err(|e| format!("failed to read --charter-file from stdin: {}", e))?;
                 Ok(Some(buf))
             } else {
-                std::fs::read_to_string(&path)
+                crate::local_admission::read_local_text(&path)
                     .map(Some)
                     .map_err(|e| format!("failed to read --charter-file {}: {}", path, e))
             }
@@ -528,7 +528,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             {
                 Ok(resp) => {
                     let v: serde_json::Value = resp.json().unwrap_or_default();
-                    println!("{}", serde_json::to_string_pretty(&v).unwrap());
+                    println!("{}", crate::cmd::output::encode(&v).unwrap());
                 }
                 Err(e) => {
                     crate::cmd::print::fail(1, e.to_string());
@@ -556,7 +556,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             attachments,
         }) => {
             if let Some(ref explicit) = tab {
-                if let Ok(own) = std::env::var("CODETERM_TAB_ID") {
+                if let Some(own) = crate::nonempty_env("CODETERM_TAB_ID") {
                     let differs = !own.is_empty()
                         && own != *explicit
                         && !own.starts_with(explicit.as_str())
@@ -599,10 +599,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     task_bound,
                 )
             {
-                let tab = std::env::var("CODETERM_TAB_ID")
-                    .ok()
-                    .filter(|value| !value.trim().is_empty())
-                    .unwrap_or_else(|| tab_id.clone());
+                let tab = crate::nonempty_env("CODETERM_TAB_ID").unwrap_or_else(|| tab_id.clone());
                 crate::cmd::print::fail(1, missing_report_binding_incident(&tab));
             }
             let mut body = CallerContext::from_env().report_body(&tab_id, message);
@@ -639,18 +636,21 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                 body["status"] = serde_json::json!(s.as_str());
             }
             let task_scope = if crate::cmd::report_guard::is_readiness_status(status) {
-                crate::cmd::report_lane::task_readiness_scope(
+                match crate::cmd::report_lane::task_readiness_scope(
                     client,
                     plan.as_deref(),
                     task.as_deref(),
                     &tab_id,
-                )
+                ) {
+                    Ok(scope) => scope,
+                    Err(refusal) => handle_report_refusal(client, json, body, refusal),
+                }
             } else {
                 None
             };
             let canonical_writer = task_scope
                 .as_ref()
-                .is_some_and(|scope| scope.canonical_writer);
+                .is_some_and(|scope| scope.canonical_writer || scope.shared);
             let base_for_report = if canonical_writer {
                 None
             } else {
@@ -764,7 +764,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             let result = client.call("agent.ack", Some(body));
             match result {
                 Ok(value) if json => {
-                    println!("{}", serde_json::to_string_pretty(&value).unwrap());
+                    println!("{}", crate::cmd::output::encode(&value).unwrap());
                 }
                 Ok(value) => match render_agent_ack(&value) {
                     Ok(message) => println!("{message}"),
@@ -836,7 +836,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
             ) {
                 Ok(val) => {
                     if json {
-                        println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                        println!("{}", crate::cmd::output::encode(&val).unwrap());
                     } else if let Some(arr) = val.as_array() {
                         if arr.is_empty() {
                             println!("No workers in ledger for {}.", tab_id);
@@ -917,7 +917,7 @@ pub fn handle_agent(client: &mut SocketClient, json: bool, action: AgentAction) 
                     match restart_response_outcome(status, &val) {
                         Ok(()) => {
                             if json {
-                                println!("{}", serde_json::to_string_pretty(&val).unwrap());
+                                println!("{}", crate::cmd::output::encode(&val).unwrap());
                             } else {
                                 println!("{}", render_restart_success(&val, &tab_id));
                             }
@@ -1116,7 +1116,7 @@ fn print_local_agent_mutation_response(resp: crate::local_api::LocalApiResponse)
     let status = resp.status();
     let text = resp.text().unwrap_or_default();
     match parse_agent_mutation_response(status, text) {
-        Ok(value) => println!("{}", serde_json::to_string_pretty(&value).unwrap()),
+        Ok(value) => println!("{}", crate::cmd::output::encode(&value).unwrap()),
         Err(message) => {
             crate::cmd::print::fail(1, message.to_string());
         }

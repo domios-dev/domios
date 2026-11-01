@@ -66,19 +66,16 @@ export interface SettingsCardRoute {
   card: SettingsCardAnchorId;
 }
 
-/** Retired section ids that still arrive from old links. */
-export type LegacySectionId = "integrations";
 /** Links straight to one card inside a section. */
 export type CardLinkId = "messengers" | "plans";
-export type SettingsLinkId = SectionId | LegacySectionId | CardLinkId;
+export type SettingsLinkId = SectionId | CardLinkId;
 
 export interface SettingsLinkRoute {
   section: SectionId;
   card?: SettingsCardAnchorId;
 }
 
-const CARD_ROUTES: Record<LegacySectionId | CardLinkId, SettingsLinkRoute> = {
-  integrations: { section: "general", card: "telegram-bridge" },
+const CARD_ROUTES: Record<CardLinkId, SettingsLinkRoute> = {
   messengers: { section: "general", card: "telegram-bridge" },
   plans: { section: "account", card: "subscription-plans" },
 };
@@ -91,7 +88,7 @@ export function isSettingsLinkId(id: string): id is SettingsLinkId {
 
 export function resolveSettingsLink(id: SettingsLinkId | undefined): SettingsLinkRoute | undefined {
   if (!id) return undefined;
-  return own(CARD_ROUTES, id) ? CARD_ROUTES[id as LegacySectionId | CardLinkId] : { section: id as SectionId };
+  return own(CARD_ROUTES, id) ? CARD_ROUTES[id as CardLinkId] : { section: id as SectionId };
 }
 
 const HELP_SETTINGS_ROUTES: Record<HelpSettingsTarget, SettingsCardRoute> = {

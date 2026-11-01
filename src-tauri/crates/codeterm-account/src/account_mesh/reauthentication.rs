@@ -1,7 +1,5 @@
 use super::lifecycle::AccountMesh;
-use super::operations::Signed;
 use super::state::{AccountMeshRefusal, Enrollment};
-use super::wire::{InstallationEnrollment, KeyEnrollment};
 
 impl AccountMesh {
     pub(super) async fn require_sign_in(&self, epoch: u64) -> AccountMeshRefusal {
@@ -28,21 +26,5 @@ impl AccountMesh {
         self.persist().await;
         self.push().await;
         refusal
-    }
-
-    pub(super) async fn enroll_installation_key(
-        &self,
-        signed: &Signed,
-        request: &InstallationEnrollment,
-    ) -> Result<KeyEnrollment, AccountMeshRefusal> {
-        match self
-            .call(self.ports.registry.enroll_key(&signed.session, request))
-            .await
-        {
-            Err(AccountMeshRefusal::GenerationMismatch) => {
-                Err(self.require_sign_in(signed.epoch).await)
-            }
-            result => result,
-        }
     }
 }

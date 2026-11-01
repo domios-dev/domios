@@ -4,7 +4,7 @@ import { openNeighbor, openNeighborPage, type NeighborFocus } from "../component
 function adoptPromptIdentity(raw: unknown): NotificationPromptIdentity | null {
   if (typeof raw !== "object" || raw === null) return null;
   const candidate = raw as { kind?: unknown; options?: unknown };
-  const kinds = ["provider", "directory_trust", "structured", "manual_update"];
+  const kinds = ["provider", "directory_trust", "structured", "permission", "automatic_permission", "manual_update"];
   if (!kinds.includes(String(candidate.kind)) || !Array.isArray(candidate.options)) return null;
   const options = candidate.options.flatMap((option) => {
     if (typeof option !== "object" || option === null) return [];

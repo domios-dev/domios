@@ -14,7 +14,7 @@ fn migration_decision_is_local_and_once() {
 #[test]
 fn private_file_round_trip_preserves_instance_token_and_permissions() {
     let root = tempfile::tempdir().unwrap();
-    let api_token = codeterm_util::instance_token::initialize_at(root.path(), None, true).unwrap();
+    let api_token = codeterm_util::instance_token::initialize_at(root.path(), true).unwrap();
     let store = ProtectedCredentials::new(root.path());
     store
         .save("refresh", &Secret::new("opaque-refresh"))

@@ -296,7 +296,7 @@ fn text(tab_id: &str, markdown: &str) -> TabText {
 fn choice_keyboard() -> InlineKeyboard {
     vec![vec![InlineButton {
         text: "Ship it".to_string(),
-        data: Some("na:record-1:0".to_string()),
+        data: Some("choice:ship".to_string()),
         url: None,
     }]]
 }

@@ -313,7 +313,13 @@ impl PlanStore {
     pub fn orphan_attachment_dirs(&self, project_path: &Path) -> Vec<OrphanAttachmentDir> {
         let mut out = vec![];
         let project_root = paths::project_root(project_path);
-        for plan in self.list_full() {
+        let ids: Vec<String> = self
+            .plan_roots()
+            .into_iter()
+            .filter(|(_, root)| Path::new(root) == project_root.as_path())
+            .map(|(id, _)| id)
+            .collect();
+        for plan in self.plans_matching(&super::PlanMatch::Ids(ids)) {
             if paths::plan_sidecar_root(&plan) != project_root.as_path() {
                 continue;
             }

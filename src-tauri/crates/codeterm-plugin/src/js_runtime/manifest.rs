@@ -17,6 +17,7 @@ mod methods;
 mod read_root;
 mod surfaces;
 mod tab_menu;
+mod view_host_actions;
 
 use std::path::PathBuf;
 
@@ -44,6 +45,7 @@ pub use methods::manifest_settings_sections;
 pub use read_root::ReadRootEnvironment;
 pub use surfaces::{SurfaceDecl, SurfaceRenderer, SurfaceRestore};
 pub use tab_menu::{TabMenuAction, TabMenuItem, MAX_TAB_MENU_ITEMS};
+pub use view_host_actions::{ViewHostAction, ViewInputs, MAX_VIEW_INPUT_FILES};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, tag = "format", rename_all = "snake_case")]
@@ -209,12 +211,6 @@ pub struct PluginManifest {
     #[serde(skip)]
     pub source_path: Option<PathBuf>,
 
-    // Pre-1.10.21 manifests still ship these; accept them so a plugin never fails to load over an icon field.
-    #[serde(default, rename = "iconHint")]
-    pub legacy_icon_hint: Option<serde_json::Value>,
-    #[serde(default, rename = "iconSvg")]
-    pub legacy_icon_svg: Option<serde_json::Value>,
-
     /// Raw manifest `iconColor`; an invalid value is dropped, never a load failure.
     #[serde(default, rename = "iconColor")]
     pub raw_icon_color: Option<serde_json::Value>,
@@ -252,6 +248,8 @@ fn default_capabilities() -> Capabilities {
         glance_view: false,
         status_bubble: false,
         view: false,
+        media_delivery: None,
+        binary_transfer: None,
         agent_runtime: None,
         chat_backend: ChatBackendCap::default(),
         chat_preprocessor: ChatPreprocessorCap::default(),
@@ -260,6 +258,8 @@ fn default_capabilities() -> Capabilities {
         receiver_status_query: None,
         tab_menu: Vec::new(),
         surfaces: Vec::new(),
+        view_host_actions: Vec::new(),
+        view_inputs: None,
         unknown: Default::default(),
     }
 }

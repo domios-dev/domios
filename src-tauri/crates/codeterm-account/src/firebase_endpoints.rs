@@ -102,6 +102,29 @@ fn resolve(dev_build: bool, opt_in: Option<&str>) -> Endpoints {
     }
 }
 
+pub(crate) fn callable_base(base: &str) -> Option<url::Url> {
+    callable_base_for(base, cfg!(debug_assertions), current())
+}
+
+fn callable_base_for(base: &str, dev_build: bool, endpoints: Endpoints) -> Option<url::Url> {
+    let url = url::Url::parse(base).ok()?;
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !url.path().ends_with('/')
+    {
+        return None;
+    }
+    let selected_emulator = dev_build
+        && endpoints.emulator
+        && !endpoints.qa
+        && base == endpoints.functions
+        && url.as_str() == endpoints.functions;
+    (url.scheme() == "https" || (url.scheme() == "http" && selected_emulator)).then_some(url)
+}
+
 pub fn allows_url(url: &url::Url) -> bool {
     url.username().is_empty()
         && url.password().is_none()
@@ -152,6 +175,7 @@ pub(crate) fn qa_vendor() -> Option<crate::build_config::Vendor> {
         let endpoints = qa.endpoints();
         crate::build_config::Vendor {
             api_key: Some(qa.api_key),
+            auth_domain: Some("domios-signin-qa.firebaseapp.com"),
             app_id: Some(qa.app_id),
             project_id: Some(qa.project),
             signin_url: Some(endpoints.signin),

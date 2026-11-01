@@ -9,7 +9,9 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
+!if "${BUNDLEID}" != "com.domios.dev.updater"
   !insertmacro DomiosMeshFirewall Ensure
+!endif
 !macroend
 
 !macro NSIS_HOOK_PREINSTALL
@@ -18,7 +20,14 @@
   File /oname=$PLUGINSDIR\installer-process-model.ps1 "${DOMIOS_INSTALLER_HOOK_DIR}\installer-process-model.ps1"
   File /oname=$PLUGINSDIR\installer-preflight-flow.ps1 "${DOMIOS_INSTALLER_HOOK_DIR}\installer-preflight-flow.ps1"
   File /oname=$PLUGINSDIR\installer-process-native.cs "${DOMIOS_INSTALLER_HOOK_DIR}\installer-process-native.cs"
+!if "${BUNDLEID}" == "com.domios.dev.updater"
+  !if "${MAINBINARYNAME}" != "domios-dev-app"
+    !error "Isolated updater requires the dedicated DEV executable"
+  !endif
+  nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-preflight.ps1" -InstallRoot "$INSTDIR" -Development'
+!else
   nsExec::ExecToLog '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$PLUGINSDIR\installer-preflight.ps1" -InstallRoot "$INSTDIR"'
+!endif
   Pop $0
   ${If} $0 != 0
     MessageBox MB_OK|MB_ICONSTOP "Domios could not stop this installation safely. Close Domios and retry. No files were replaced." /SD IDOK
@@ -27,8 +36,10 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+!if "${BUNDLEID}" != "com.domios.dev.updater"
   ${If} $UpdateMode <> 1
     !insertmacro DomiosMeshFirewall Remove
   ${EndIf}
+!endif
 !macroend
 

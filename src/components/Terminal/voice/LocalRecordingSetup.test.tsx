@@ -29,7 +29,7 @@ async function main() {
   } });
   bridge.__setInvokeForTest(async <T,>(command: string, args: Record<string, unknown> = {}) => {
     if (command === "local_recording_input_devices") return inputs as T;
-    if (command === "plugin_view_call") return proposal as T;
+    if (command === "plugin_recording_suggestion") return proposal as T;
     if (command === "local_recording_select_devices") { selections.push(args); return undefined as T; }
     throw new Error(`unexpected command ${command}`);
   });

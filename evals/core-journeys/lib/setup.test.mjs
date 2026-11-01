@@ -1,3 +1,6 @@
+// WHAT: First-run access, completion and fixture session ownership.
+// WHY: Setup must retain persisted choices and exact session authority.
+// ORACLE: Injected API calls and readback show completion and binding once.
 import assert from "node:assert/strict";
 import test from "node:test";
 import { bindFixtureSession, chooseAgentAccess, completeFirstRun, promoteFixtureOrchestrator, requireCdp } from "./setup.mjs";
@@ -5,6 +8,9 @@ import { bindFixtureSession, chooseAgentAccess, completeFirstRun, promoteFixture
 test("General first run uses product completion and verifies persisted navigation unlock", async () => {
   let config = { agent: { full_access: false }, general_agent: { first_run_complete: false } };
   let completed = 0;
+  const policy = { launch: async (provider, path, call) => {
+    assert.equal(provider, "fixture"); assert.equal(path, "general-first-run"); return call("selected");
+  } };
   const api = async (route, options) => {
     if (options) {
       assert.equal(route, "/api/agents/general/complete-first-run");
@@ -16,10 +22,10 @@ test("General first run uses product completion and verifies persisted navigatio
     assert.equal(route, "/api/config");
     return config;
   };
-  assert.deepEqual(await completeFirstRun(api, "fixture"), { provider: "fixture", first_run_complete: true });
-  await completeFirstRun(api, "other");
+  assert.deepEqual(await completeFirstRun(api, "fixture", policy), { provider: "fixture", first_run_complete: true });
+  await completeFirstRun(api, "other", policy);
   assert.equal(completed, 1);
-  await assert.rejects(completeFirstRun(async () => ({ agent: { full_access: true } }), "fixture"), /not persisted/);
+  await assert.rejects(completeFirstRun(async () => ({ agent: { full_access: true } }), "fixture", policy), /not persisted/);
 });
 
 test("fixture promotion explicitly targets its own tab even with a scrubbed caller environment", async () => {

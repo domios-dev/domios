@@ -162,7 +162,7 @@ fn json_error_envelope_shape_is_shared_by_every_error_path() {
         .map(String::as_str)
         .collect();
     keys.sort_unstable();
-    assert_eq!(keys, ["data", "error", "hints", "id", "kind", "ok"]);
+    assert_eq!(keys, ["error", "hints", "id", "kind", "ok", "result"]);
     let mut error_keys: Vec<&str> = envelope["error"]
         .as_object()
         .expect("error is an object")

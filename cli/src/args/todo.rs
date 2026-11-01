@@ -14,6 +14,7 @@ pub enum TodoAction {
         note_from_pad: Option<String>,
     },
     /// Review and amend a child's checklist; seeded criteria stay locked.
+    /// Input: [{"id"?: string, "content"?: string, "status": "pending|in_progress|completed|blocked|skipped", "activeForm"?: string, "link"?: string, "reason"?: string}]. New items require content; activeForm defaults to content. Blocked/skipped require reason.
     Amend {
         #[arg(long, value_name = "ID")]
         tab: String,
@@ -24,7 +25,7 @@ pub enum TodoAction {
     },
     /// Declare this tab's whole checklist: created on first write, then reconciled; locked items stay.
     Write {
-        /// JSON array of {content,status,activeForm,link?,reason?} from this tab's pad.
+        /// JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content.
         #[arg(long, value_name = "PATH")]
         from_pad: String,
     },

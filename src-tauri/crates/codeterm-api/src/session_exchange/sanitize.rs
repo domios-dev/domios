@@ -136,11 +136,56 @@ fn private_key(field: &str, result: &Map<String, Value>) -> Result<String, Strin
     Err("Opaque key inventory exceeds same-size filler capacity".into())
 }
 
-fn walk(value: &Value, key: &str, private: bool, schema: bool) -> Result<Value, String> {
+#[derive(Clone, Copy)]
+enum SchemaLocation {
+    None,
+    Plan,
+    ControlLoop,
+    CuratorRound,
+    Other,
+}
+
+impl SchemaLocation {
+    fn child(self, field: &str) -> Self {
+        match (self, field) {
+            (Self::None, _) => Self::None,
+            (Self::Plan, "control_loop") => Self::ControlLoop,
+            (Self::ControlLoop, "last_round" | "rounds") => Self::CuratorRound,
+            _ => Self::Other,
+        }
+    }
+
+    fn preserves_enum(self, key: &str, value: &Value) -> bool {
+        use codeterm_types::plan::{
+            CuratorAsked, CuratorFailure, CuratorOutcome, CuratorSuspension,
+        };
+
+        match (self, key) {
+            (Self::CuratorRound, "asked") => {
+                serde_json::from_value::<CuratorAsked>(value.clone()).is_ok()
+            }
+            (Self::CuratorRound, "outcome") => {
+                serde_json::from_value::<CuratorOutcome>(value.clone()).is_ok()
+            }
+            (Self::ControlLoop, "fallback_reason") => {
+                serde_json::from_value::<CuratorFailure>(value.clone()).is_ok()
+            }
+            (Self::ControlLoop, "suspended_reason") => {
+                serde_json::from_value::<CuratorSuspension>(value.clone()).is_ok()
+            }
+            _ => false,
+        }
+    }
+}
+
+fn walk(value: &Value, key: &str, private: bool, schema: SchemaLocation) -> Result<Value, String> {
     Ok(match value {
         Value::String(text) => {
             let preserve = !private
-                && (IDS.contains(&key) || key == LEAF_SESSION_ID_KEY || METADATA.contains(&key));
+                && (IDS.contains(&key)
+                    || key == LEAF_SESSION_ID_KEY
+                    || METADATA.contains(&key)
+                    || schema.preserves_enum(key, value));
             Value::String(if preserve { text.clone() } else { filler(text) })
         }
         Value::Array(items) => Value::Array(
@@ -153,7 +198,7 @@ fn walk(value: &Value, key: &str, private: bool, schema: bool) -> Result<Value, 
             let mut result = Map::new();
             for (field, value) in object {
                 let known = !private
-                    && (schema
+                    && (!matches!(schema, SchemaLocation::None)
                         || KEYS
                             .split_whitespace()
                             .chain([LEAF_SESSION_ID_KEY])
@@ -168,7 +213,16 @@ fn walk(value: &Value, key: &str, private: bool, schema: bool) -> Result<Value, 
                 }
                 result.insert(
                     safe_field,
-                    walk(value, field, private || opaque(field) || !known, schema)?,
+                    walk(
+                        value,
+                        field,
+                        private || opaque(field) || !known,
+                        if value.is_string() {
+                            schema
+                        } else {
+                            schema.child(field)
+                        },
+                    )?,
                 );
             }
             Value::Object(result)
@@ -191,7 +245,7 @@ fn walk(value: &Value, key: &str, private: bool, schema: bool) -> Result<Value, 
 }
 
 pub(super) fn sanitize(value: &Value) -> Result<Value, String> {
-    let safe = walk(value, "", false, false)?;
+    let safe = walk(value, "", false, SchemaLocation::None)?;
     if serde_json::to_vec(value).map_err(|e| e.to_string())?.len()
         != serde_json::to_vec(&safe).map_err(|e| e.to_string())?.len()
     {
@@ -204,5 +258,5 @@ pub(super) fn sanitize(value: &Value) -> Result<Value, String> {
 mod tests;
 
 pub(super) fn sanitize_plans(value: &Value) -> Result<Value, String> {
-    walk(value, "", false, true)
+    walk(value, "", false, SchemaLocation::Plan)
 }

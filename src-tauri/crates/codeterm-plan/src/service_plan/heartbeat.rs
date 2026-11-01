@@ -478,10 +478,15 @@ impl PlanStore {
                 .ok_or(PlanError::NotFound);
         }
         let mut best_match = None;
-        for entry in self.list_index() {
-            let Some(plan) = self.get(&entry.plan_id) else {
-                continue;
-            };
+        let mut owners = Vec::new();
+        if let Some(tab) = tab_id.filter(|tab| !tab.trim().is_empty()) {
+            owners.push(super::PlanMatch::owner(tab));
+        }
+        if let Some(session) = session_id.filter(|session| !session.trim().is_empty()) {
+            owners.push(super::PlanMatch::OwnerSession(session.to_string()));
+        }
+        let candidates = super::PlanMatch::active().and(super::PlanMatch::Any(owners));
+        for plan in self.plans_matching(&candidates) {
             if plan.status != PlanStatus::Active {
                 continue;
             }

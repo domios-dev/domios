@@ -62,7 +62,7 @@ fn permission_patch_sets_every_field_and_clears_nullable_fields() {
         "allow_tab_requests": false, "allow_interactive_content": false,
         "allow_memory": false, "allow_files": true,
         "folder": folder, "machine_access": "folder",
-        "memory_areas": [], "workspaces": []
+        "memory_areas": [], "memory_write_areas": [], "workspaces": []
     });
     let permission = merge(existing(), command_patch(full.clone())).unwrap();
     assert_eq!(serde_json::to_value(&permission).unwrap(), full);
@@ -79,6 +79,7 @@ fn permission_patch_sets_every_field_and_clears_nullable_fields() {
     assert_eq!(cleared.folder, None);
     assert_eq!(cleared.workspaces, None);
     assert_eq!(cleared.memory_areas, Some(vec![]));
+    assert!(cleared.memory_write_areas.is_empty());
     for access in ["none", "read_only", "full"] {
         assert!(merge(existing(), command_patch(json!({"machine_access":access}))).is_ok());
     }

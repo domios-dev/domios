@@ -73,18 +73,8 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
         consecutive_misses: 0,
         last_active_ms: None,
     };
-    m.insert_legacy_pair_for_test(peer);
+    m.insert_account_peer_for_test(peer);
     m
-}
-
-#[test]
-fn unpair_returns_a_persistence_failure() {
-    let mut manager = make_mesh_with_peer("peer-a", vec!["100.64.0.5"]);
-    let error = manager
-        .unpair_with("peer-a", |_| Err("persistence refused".into()))
-        .expect_err("unpair must surface its failed save");
-    assert_eq!(error, "persistence refused");
-    assert!(manager.paired_peers.contains_key("peer-a"));
 }
 
 #[test]
@@ -394,7 +384,7 @@ fn client_for_picks_tailscale_via_tier_ranking() {
         consecutive_misses: 0,
         last_active_ms: None,
     };
-    m.insert_legacy_pair_for_test(peer);
+    m.insert_account_peer_for_test(peer);
 
     let picked = m.paired_peers["peer-A"]
         .addresses

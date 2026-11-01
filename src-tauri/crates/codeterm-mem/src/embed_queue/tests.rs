@@ -140,7 +140,7 @@ mod worker {
         })
         .unwrap();
         assert!(gate.next_started().contains("ada"));
-        assert!(mem.conn.try_lock().is_some());
+        assert!(mem.fixture_conn().try_lock().is_some());
         gate.release();
         assert!(mem.embed_queue.wait_idle(DEADLINE));
         assert_eq!(vector_count(&mem, "queued-person"), 1);

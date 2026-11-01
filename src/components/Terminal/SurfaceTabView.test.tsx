@@ -216,7 +216,7 @@ describe("surface tab view", () => {
     vi.useFakeTimers();
     await mount(<SurfaceTabView tab={tab} backing={backing} ownerName="Jev" isVisible decl={viewDecl} />);
     const crumbs = () => host!.querySelector("[data-testid='surface-breadcrumb']")!.textContent;
-    await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "click", actor: "QA" }));
+    await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "submit", actor: "QA" }));
     expect(crumbs()).toBe("Jev›Board· QA");
     await act(async () => recordSurfaceActivity({ tab_id: "surface-tab", verb: "goto" }));
     expect(crumbs()).toBe("Jev›Board");

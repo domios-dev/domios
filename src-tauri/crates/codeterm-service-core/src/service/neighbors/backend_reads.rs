@@ -1,105 +1,91 @@
 use crate::service::ServiceContext;
-use codeterm_neighbors::{supervisor::reconnect_delay, Error, Result};
+use codeterm_neighbors::{Error, Result};
 use serde_json::Value;
-use std::{
-    future::Future,
-    sync::atomic::{AtomicU64, Ordering},
-    time::Instant,
-};
+use std::future::Future;
+use std::sync::Arc;
+
+#[derive(Clone, Default)]
+pub(super) struct ListEpoch(Arc<tokio::sync::Mutex<()>>);
+
+impl ListEpoch {
+    fn matches(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
 
 #[derive(Default)]
 struct State {
     key: Option<(String, u64)>,
     result: Option<Result<Value>>,
-    failures: usize,
-    rearmed: u64,
-    retry_at: Option<Instant>,
+    epoch: ListEpoch,
 }
 
 #[derive(Default)]
 struct ReadGate {
-    session_cached: bool,
-    revision: AtomicU64,
-    state: tokio::sync::Mutex<State>,
-    rearmed: AtomicU64,
+    state: parking_lot::Mutex<State>,
 }
 
 impl ReadGate {
-    async fn read(
-        &self,
-        key: (String, u64),
-        locked: bool,
-        now: impl Fn() -> Instant,
-        jitter: impl Fn() -> u64,
-        load: impl Future<Output = Result<Value>>,
-    ) -> Result<Value> {
-        if locked {
-            return Err(Error::Locked);
-        }
-        let revision = self.revision.load(Ordering::Acquire);
-        let rearmed = self.rearmed.load(Ordering::Acquire);
-        let mut state = self.state.lock().await;
+    fn select(&self, key: (String, u64)) -> ListEpoch {
+        let mut state = self.state.lock();
         if state.key.as_ref() != Some(&key) {
             *state = State {
                 key: Some(key),
                 ..State::default()
             };
-        } else if let Some(result) = &state.result {
-            if self.session_cached || self.revision.load(Ordering::Acquire) != revision {
-                return result.clone();
-            }
-            if let Err(error) = result {
-                let permanent = !codeterm_neighbors::supervisor::retryable(*error);
-                if permanent && rearmed == state.rearmed
-                    || !permanent && state.retry_at.is_some_and(|at| now() < at)
-                {
-                    return Err(*error);
-                }
-            }
         }
-        state.rearmed = rearmed;
-        let result = load.await;
-        match result {
-            Ok(_) => {
-                state.failures = 0;
-                state.retry_at = None;
-            }
-            Err(_) => {
-                state.failures = state.failures.saturating_add(1);
-                state.retry_at = Some(now() + reconnect_delay(state.failures, jitter()));
-            }
-        }
-        state.result = Some(result.clone());
-        self.revision.fetch_add(1, Ordering::Release);
-        result
+        state.epoch.clone()
     }
 
-    fn rearm(&self) {
-        self.rearmed.fetch_add(1, Ordering::AcqRel);
+    fn invalidate(&self) {
+        let mut state = self.state.lock();
+        state.result = None;
+        state.epoch = ListEpoch::default();
+    }
+
+    #[cfg(test)]
+    async fn read(
+        &self,
+        key: (String, u64),
+        locked: bool,
+        load: impl Future<Output = Result<Value>>,
+    ) -> Result<Value> {
+        self.read_epoch(self.select(key), locked, load).await
+    }
+
+    async fn read_epoch(
+        &self,
+        epoch: ListEpoch,
+        locked: bool,
+        load: impl Future<Output = Result<Value>>,
+    ) -> Result<Value> {
+        if locked {
+            return Err(Error::Locked);
+        }
+        let _load = epoch.0.lock().await;
+        {
+            let state = self.state.lock();
+            if !state.epoch.matches(&epoch) {
+                return Err(Error::Revoked);
+            }
+            if let Some(result) = &state.result {
+                return result.clone();
+            }
+        }
+        let result = load.await;
+        let mut state = self.state.lock();
+        if !state.epoch.matches(&epoch) {
+            return Err(Error::Revoked);
+        }
+        state.result = Some(result.clone());
+        result
     }
 }
 
+#[derive(Default)]
 struct Reads {
     locked: parking_lot::Mutex<Option<bool>>,
     list: ReadGate,
-    receiver: ReadGate,
-    keys: ReadGate,
-    claims: ReadGate,
-}
-
-impl Default for Reads {
-    fn default() -> Self {
-        Self {
-            locked: Default::default(),
-            list: Default::default(),
-            receiver: Default::default(),
-            keys: Default::default(),
-            claims: ReadGate {
-                session_cached: true,
-                ..Default::default()
-            },
-        }
-    }
 }
 
 impl ServiceContext {
@@ -128,7 +114,6 @@ impl ServiceContext {
                 *previous = Some(locked);
             }
             if locked {
-                service.stop_neighbor_updates();
                 service.pause_neighbor_reception();
                 if let Some(account) = service
                     .ext::<crate::service::account::AccountCell>()
@@ -159,13 +144,26 @@ impl ServiceContext {
         generation: u64,
         load: impl Future<Output = Result<Value>>,
     ) -> Result<Value> {
-        let locked = self.neighbor_access_locked().await;
+        self.neighbor_reconciliation().require_readable()?;
+        self.require_neighbor_projection_account(uid, generation)?;
+        let epoch = if route == "friendsList" {
+            Some(self.neighbor_projection_read_epoch(uid, generation)?)
+        } else {
+            None
+        };
+        if let Some(value) = self
+            .neighbor_projection_read(uid, generation, route)
+            .await?
+        {
+            return Ok(value);
+        }
+        if matches!(route, "friendsOwnKeys" | "friendsReceiverStatus") {
+            return Err(Error::Transport);
+        }
+        let locked = self.neighbor_access_locked().await && route != "friendsList";
         let reads = self.extensions.get_or_init(Reads::default);
         let gate = match route {
             "friendsList" => &reads.list,
-            "friendsReceiverStatus" => &reads.receiver,
-            "friendsOwnKeys" => &reads.keys,
-            "claimReferralTrial" => &reads.claims,
             _ => {
                 return if locked {
                     Err(Error::Locked)
@@ -174,21 +172,80 @@ impl ServiceContext {
                 }
             }
         };
-        gate.read(
-            (uid.to_owned(), generation),
-            locked,
-            Instant::now,
-            rand::random,
-            load,
-        )
-        .await
+        let result = match epoch {
+            Some(epoch) => gate.read_epoch(epoch, locked, load).await,
+            None => return Err(Error::Transport),
+        };
+        self.require_neighbor_projection_account(uid, generation)?;
+        self.neighbor_reconciliation().require_readable()?;
+        if let Some(value) = self.peek_neighbor_projection(uid, generation, route, "") {
+            return Ok(value);
+        }
+        result
+    }
+
+    pub(in crate::service::neighbors) async fn invalidate_neighbor_list(&self) -> Result<()> {
+        let service = self.clone();
+        self.neighbor_reconciliation()
+            .submit(
+                super::reconciliation::Kind::Retirement,
+                move || async move {
+                    service.invalidate_neighbor_projection_list();
+                    Ok(())
+                },
+            )?
+            .wait()
+            .await
+    }
+
+    pub(super) fn commit_neighbor_list_epoch<T>(
+        &self,
+        epoch: &ListEpoch,
+        commit: impl FnOnce() -> T,
+    ) -> Result<T> {
+        let state = self
+            .extensions
+            .get_or_init(Reads::default)
+            .list
+            .state
+            .lock();
+        if !state.epoch.matches(epoch) {
+            return Err(Error::Revoked);
+        }
+        Ok(commit())
+    }
+
+    pub(super) fn retire_neighbor_list_reads(&self) {
+        self.extensions
+            .get_or_init(Reads::default)
+            .list
+            .invalidate();
+    }
+
+    pub(super) fn neighbor_list_epoch(&self, uid: &str, generation: u64) -> ListEpoch {
+        self.extensions
+            .get_or_init(Reads::default)
+            .list
+            .select((uid.to_owned(), generation))
+    }
+
+    pub(super) fn neighbor_list_epoch_current(&self, epoch: &ListEpoch) -> bool {
+        self.extensions
+            .get_or_init(Reads::default)
+            .list
+            .state
+            .lock()
+            .epoch
+            .matches(epoch)
+    }
+
+    pub(super) async fn refresh_neighbor_list(&self) -> Result<()> {
+        self.invalidate_neighbor_list().await?;
+        self.rearm_neighbor_reads();
+        Ok(())
     }
 
     pub(crate) fn rearm_neighbor_reads(&self) {
-        let reads = self.extensions.get_or_init(Reads::default);
-        reads.list.rearm();
-        reads.receiver.rearm();
-        reads.keys.rearm();
         self.rearm_neighbor_updates();
         self.rearm_neighbor_restoration();
     }

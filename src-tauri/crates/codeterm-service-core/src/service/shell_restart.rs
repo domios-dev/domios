@@ -83,7 +83,7 @@ impl ServiceContext {
         let new_pty_id = self.resolve_pty_id(tab_id)?;
         let command_submission = if let Some(command) = command {
             self.prepare_utility_command(tab_id, command);
-            match self.submit_restarted_shell_command(tab_id, &new_pty_id, command) {
+            match self.submit_shell_command_with_receipt(tab_id, &new_pty_id, command) {
                 Ok(submission) => Some(submission),
                 Err(error) => {
                     if let Some(tab) = self.mux.write().get_tab_mut(tab_id) {

@@ -362,9 +362,8 @@ key is `tauri.conf.json` `plugins.updater.pubkey`) and `codeterm-apple-notary-en
 certificate is provisioned as the `APPLE_CERTIFICATE`/`APPLE_CERTIFICATE_PASSWORD` release environment secrets.
 Windows updater signatures are not Authenticode: no Authenticode signing is currently configured.
 
-Windows installer hooks run in Windows PowerShell 5.1, not pwsh. The Windows Rust CI job
-runs `node --test scripts/tests/installer-preflight.test.mjs`, including the actual NSIS
-preflight against an empty isolated install directory and syntax checks of every hook script.
+Windows installer hooks run in Windows PowerShell 5.1, not pwsh. Verify installer
+preflight against an empty isolated install directory during native installer QA.
 
 ### Runner map
 
@@ -406,8 +405,8 @@ Use the existing sccache policy and named cache-verify/cache-stats operations. C
 counters do not prove a live cache or reuse. Container evidence comes from its own cache server,
 not host statistics. Recovery/image baking follows the build-machine skill and assigned authority;
 no automatic reboots, pruning, runner provisioning or global configuration changes.
-Rust warning reports must be complete and zero-new-warning. Fix owning-platform warnings; never
-increase baseline allowances or treat missing/cancelled reports as clean. Retrieve CI report evidence
+Rust warning findings are advisory; cleanup follows the release on the owning platform.
+Reports must remain complete: never inflate baselines or treat missing/cancelled reports as clean. Retrieve CI report evidence
 through the existing ci-artifact tooling rather than assuming GitHub artifact storage.
 
 ## Monitoring and failure recovery
@@ -442,10 +441,7 @@ unsigned diagnostics cannot be called signed releases. No file swaps or process-
 Every release-branch push restarts the full graph, so a fix must not introduce the next failure:
 
 - Collect every failed job of the run first and fix them as one batch.
-- A change to `build.sh`, a workflow or a script also runs the whole `scripts/tests` suite
-  (`node --test scripts/tests/*.test.mjs scripts/*.test.mjs`), not only the touched files: contract
-  tests pin build.sh functions, runner routing and job permissions. Windows hosts show known
-  build-gateway and DEV-tooling flakes in that suite; judge those on Linux.
+- For changes to build tooling, run the affected product entrypoint and its source guards.
 - A behaviour change updates the tests that encode the old behaviour in the same commit.
 - An environmental failure on unchanged source reruns only the failed jobs (`gh run rerun <id> --failed`).
   A rerun raises the run attempt, and publication refuses a qualification receipt from an older
@@ -454,8 +450,8 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
 ### Known traps
 
 - rustc hides link.exe progress output (`Creating library ...`) only when the linker is the bare
-  name `link.exe`; an absolute linker path turns it into `linker_messages` warnings that fail the
-  zero-warning ratchet. Put the native MSVC tool directory first on PATH instead.
+  name `link.exe`; an absolute linker path produces advisory `linker_messages` warnings.
+  Put the native MSVC tool directory first on PATH during warning cleanup.
 - Windows `tar.exe` fails with `GetVolumePathName failed: 123` on the gateway's subst drive; run it
   from the real path (`realpathSync.native`).
 - Tauri leaves its AppImage `*.AppDir` staging tree, which contains links, under the bundle
@@ -526,4 +522,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

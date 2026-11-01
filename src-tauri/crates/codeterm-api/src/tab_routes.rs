@@ -439,21 +439,19 @@ pub async fn create_shell_tab(
             (status, error)
         })?;
 
-    let mut resp = serde_json::json!({
-        "id": handle.tab_id,
-        "tab_id": handle.tab_id,
-        "workspace_id": handle.workspace_id,
-        "pty_id": handle.pty_id,
-        "description": handle.description,
-    });
+    Ok(Json(created_tab_response(
+        serde_json::to_value(handle).unwrap_or_default(),
+        utility_shell,
+    )))
+}
+
+fn created_tab_response(mut response: serde_json::Value, utility_shell: bool) -> serde_json::Value {
+    response["id"] = response["tab_id"].clone();
     if utility_shell {
-        resp["timeout_hint"] =
+        response["timeout_hint"] =
             "hint: set --timeout 60m per command for tests, QA and builds; leave it unset for dev servers.".into();
     }
-    if let Some(ref notice) = handle.budget_notice {
-        resp["budget_notice"] = serde_json::to_value(notice).unwrap_or_default();
-    }
-    Ok(Json(resp))
+    response
 }
 
 /// Validate a `chat_backend` spawn target for POST /api/tabs. `Ok(())` ⇒ the id

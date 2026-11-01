@@ -11,7 +11,7 @@ use crate::embedder::{EmbedderEvent, ReembedState};
 fn recall_reembed_measure_real_l12_1k() {
     let fx = fixture_for(MockProvider::new("fixture", "old", 384));
     for item in 0..1000 {
-        crate::store::insert(&fx.mem.conn.lock(), &note(&format!("Fixture {item}"), "Check pipeline command isolation and preserve private credentials while chaining independent tasks."), &fx.mem.blobs_dir).unwrap();
+        crate::store::insert(&fx.mem.fixture_conn().lock(), &note(&format!("Fixture {item}"), "Check pipeline command isolation and preserve private credentials while chaining independent tasks."), &fx.mem.blobs_dir).unwrap();
     }
     let (sender, events) = mpsc::channel();
     fx.embedder.subscribe(Arc::new(move |event| {

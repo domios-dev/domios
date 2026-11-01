@@ -16,6 +16,7 @@ import {
   type ChatSendDismissalMarker,
   type ChatSendDurableRecord,
 } from "./chatSendDurableModel";
+import { publishNotice } from "../../lib/notices";
 import type { DeliverySend } from "./chatDeliveryModel";
 
 const DATABASE_NAME = "codeterm-chat-send-records";
@@ -79,7 +80,7 @@ export interface ChatSendRepositoryDependencies {
 type ChangeChannel = Pick<BroadcastChannel, "postMessage" | "close" | "addEventListener">;
 
 export function createChatSendRepository(dependencies: ChatSendRepositoryDependencies = {}): ChatSendRepositoryPort {
-  const openDatabase = dependencies.openDatabase ?? openIndexedDb;
+  const openDatabase = dependencies.openDatabase ?? openChatSendDatabase;
   const channel = createChangeChannel(dependencies.createChannel);
   const listeners = new Set<(tabId: string, sendId: string) => void>();
   let database: ChatSendRecordDatabase | null = null;
@@ -614,7 +615,7 @@ class IndexedDbChatSendDatabase implements ChatSendRecordDatabase {
   }
 }
 
-function openIndexedDb(): Promise<ChatSendRecordDatabase | null> {
+export function openChatSendDatabase(): Promise<ChatSendRecordDatabase | null> {
   return new Promise((resolve) => {
     if (typeof indexedDB === "undefined") {
       resolve(null);
@@ -639,96 +640,30 @@ function openIndexedDb(): Promise<ChatSendRecordDatabase | null> {
     };
     const deadline = setTimeout(() => finish(null), OPEN_DEADLINE_MS);
     request.onupgradeneeded = (event) => {
+      if (event.oldVersion !== 0) {
+        request.transaction?.abort();
+        publishNotice({
+          kind: "toast", id: "chat-send-storage-version", severity: "Error",
+          title: "Unsupported saved chat format",
+          detail: `Chat storage version ${event.oldVersion} is no longer supported. Existing data was left unchanged. Clear this site's chat storage to start fresh.`,
+        });
+        finish(null);
+        return;
+      }
       const database = request.result;
-      let records: IDBObjectStore;
-      if (!database.objectStoreNames.contains(RECORDS)) {
-        records = database.createObjectStore(RECORDS, { keyPath: ["tabId", "sendId"] });
-      } else records = request.transaction!.objectStore(RECORDS);
-      if (!records.indexNames.contains("byTab")) records.createIndex("byTab", "tabId", { unique: false });
-      if (!records.indexNames.contains("byTabRetentionOrder")) {
-        records.createIndex("byTabRetentionOrder", ["tabId", "retention", "order"], { unique: false });
-      }
-      const tabs = database.objectStoreNames.contains(TAB_STATE)
-        ? request.transaction!.objectStore(TAB_STATE)
-        : database.createObjectStore(TAB_STATE, { keyPath: "tabId" });
-      let dismissals: IDBObjectStore;
-      if (!database.objectStoreNames.contains(DISMISSALS)) {
-        dismissals = database.createObjectStore(DISMISSALS, { keyPath: ["tabId", "sendId"] });
-      } else dismissals = request.transaction!.objectStore(DISMISSALS);
-      if (!dismissals.indexNames.contains("byTabCorrelation")) {
-        dismissals.createIndex("byTabCorrelation", ["tabId", "correlationId"], { unique: false });
-      }
-      if (!dismissals.indexNames.contains("byTabMatchedRow")) {
-        dismissals.createIndex("byTabMatchedRow", ["tabId", "matchedRowKey"], { unique: false });
-      }
-      if (!dismissals.indexNames.contains("byTabEcho")) {
-        dismissals.createIndex("byTabEcho", ["tabId", "echoKey"], { unique: false });
-      }
-      if (event.oldVersion < 2) migrateExistingRecords(records, dismissals, tabs);
+      const records = database.createObjectStore(RECORDS, { keyPath: ["tabId", "sendId"] });
+      records.createIndex("byTab", "tabId", { unique: false });
+      records.createIndex("byTabRetentionOrder", ["tabId", "retention", "order"], { unique: false });
+      database.createObjectStore(TAB_STATE, { keyPath: "tabId" });
+      const dismissals = database.createObjectStore(DISMISSALS, { keyPath: ["tabId", "sendId"] });
+      dismissals.createIndex("byTabCorrelation", ["tabId", "correlationId"], { unique: false });
+      dismissals.createIndex("byTabMatchedRow", ["tabId", "matchedRowKey"], { unique: false });
+      dismissals.createIndex("byTabEcho", ["tabId", "echoKey"], { unique: false });
     };
     request.onblocked = () => finish(null);
     request.onerror = () => finish(null);
     request.onsuccess = () => finish(new IndexedDbChatSendDatabase(request.result));
   });
-}
-
-function migrateExistingRecords(records: IDBObjectStore, dismissals: IDBObjectStore, tabs: IDBObjectStore): void {
-  const cursorRequest = records.openCursor();
-  cursorRequest.onsuccess = () => {
-    const cursor = cursorRequest.result;
-    if (!cursor) {
-      compactMigratedSettledRecords(records, dismissals);
-      return;
-    }
-    if (!isDurableRecord(cursor.value)) {
-      cursor.continue();
-      return;
-    }
-    const record = cursor.value;
-    const send = decodeChatSend(record);
-    const retention = record.deleted ? "tombstone" : send ? chatSendRetention(send) : "active";
-    const readTab = tabs.get(record.tabId);
-    readTab.onsuccess = () => {
-      const existing = readTab.result as { nextOrder?: unknown } | undefined;
-      const nextOrder = typeof existing?.nextOrder === "number" && Number.isSafeInteger(existing.nextOrder)
-        ? Math.max(existing.nextOrder, record.order + 1)
-        : record.order + 1;
-      const tabWrite = tabs.put({ tabId: record.tabId, nextOrder });
-      tabWrite.onsuccess = () => cursor.continue();
-    };
-    if (send?.dismissed && retention === "settled") {
-      const marker = encodeChatSendDismissalMarker(record.tabId, send, record.revision, record.order);
-      dismissals.put(marker);
-      cursor.update(encodeChatSendTombstone(record.tabId, record.sendId, record.revision + 1, record.order));
-    } else cursor.update({ ...record, retention });
-  };
-}
-
-function compactMigratedSettledRecords(records: IDBObjectStore, dismissals: IDBObjectStore): void {
-  const cursorRequest = records.index("byTabRetentionOrder").openCursor(null, "prev");
-  let tabId: string | undefined;
-  let retention: string | undefined;
-  let kept = 0;
-  cursorRequest.onsuccess = () => {
-    const cursor = cursorRequest.result;
-    if (!cursor) return;
-    const record = cursor.value as ChatSendDurableRecord;
-    if (record.tabId !== tabId || record.retention !== retention) {
-      tabId = record.tabId;
-      retention = record.retention;
-      kept = 0;
-    }
-    if (record.retention !== "settled" || kept++ < MAX_SETTLED_RECORDS) {
-      cursor.continue();
-      return;
-    }
-    const send = decodeChatSend(record);
-    if (send?.dismissed) {
-      dismissals.put(encodeChatSendDismissalMarker(record.tabId, send, record.revision + 1, record.order));
-    }
-    cursor.update(encodeChatSendTombstone(record.tabId, record.sendId, record.revision + 1, record.order));
-    cursor.continue();
-  };
 }
 
 function createChangeChannel(factory?: ChatSendRepositoryDependencies["createChannel"]): ChangeChannel | null {

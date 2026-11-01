@@ -20,7 +20,6 @@ import { neighborhoodNodes, STATUS_LABEL, type NeighborhoodNode } from "./neighb
 import { listedPaused, neighborName } from "./neighborModel";
 import { usePausedFriends } from "./neighborPause";
 import { neighborRuntimeClient, type NeighborRuntimeClient } from "./neighborRuntimeClient";
-import { NeighborReceiveHere } from "./NeighborReceiveHere";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";
 import type { NeighborFilesClient } from "./neighborFilesClient";
 import { referralStatus } from "./referralTrial";
@@ -28,8 +27,6 @@ import { useNeighbors } from "./useNeighbors";
 import { useNeighborsSwitch } from "./neighborsSwitch";
 import { readNeighborCache, writeNeighborCache, type CachedNeighbors } from "./neighborListCache";
 import { ActivityDots } from "../shared/ActivityDots";
-import { receivingLine, useReceiverState } from "./useReceiverState";
-import { useNeighborStatus } from "./neighborStatusStore";
 
 const openPlans = () => window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:plans" } }));
 
@@ -74,8 +71,6 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
   const neighbors = useNeighbors(identity, client);
   const tabMap = useTabMap();
   const me = accountTrayModel(account.model, null);
-  const receiver = useReceiverState(runtimeClient, Boolean(identity) && enabled);
-  const machineLabel = useNeighborStatus(runtimeClient, Boolean(identity) && enabled)?.machine_label;
   const isPaused = usePausedFriends(conciergeClient);
   const pausedInList = (id: string) => { const friend = graph?.friends.find(entry => entry.friendship_id === id); return friend ? listedPaused(friend) : undefined; };
   const [selected, setSelected] = useState<string | null>(null);
@@ -162,8 +157,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
                 <p className="neighbor-me__hint">Your connections and permissions are kept.</p>
                 <Button size="sm" variant="primary" onClick={onEnable}>Turn on Neighbors</Button>
               </div>
-              : me.kind === "signed_in" ? <><span className="neighbor-node__name">You</span>
-                {receiver && <span role="status" className="neighbor-note neighbor-me__receiving">Account default: {receivingLine(receiver)}</span>}</>
+              : me.kind === "signed_in" ? <span className="neighbor-node__name">You</span>
               : <div className="neighbor-me__signin">
                 <p className="neighbor-me__title">Sign in to meet your neighbors</p>
                 <p className="neighbor-me__hint">Invited? Sign in with that email for a free week.</p>
@@ -188,8 +182,7 @@ function NeighborhoodPage({ identity, account, client, runtimeClient, conciergeC
         </div>
         {identity && enabled && list && people + requests + invited === 0 && <p className="neighbors-caption">Add someone you trust. Your agents can then ask theirs for help, and you decide what they may share.</p>}
         {/* The one control that moves every friend: it says so, with how many and onto which machine. */}
-        {identity && enabled && receiver && !receiver.receiving_here && <NeighborReceiveHere receiver={receiver} friendCount={people}
-          targetMachine={machineLabel} onReceive={revision => runtimeClient.enroll(revision)} />}
+
         {referral && <div role="status" className="ct-card ct-card--static neighbors-referral">
           <p className="ct-card__meta">{referral}</p>
           {neighbors.referral?.trial_end !== null && neighbors.referral?.trial_end !== undefined && <Button size="sm" variant="accent" onClick={openPlans}>Subscribe</Button>}

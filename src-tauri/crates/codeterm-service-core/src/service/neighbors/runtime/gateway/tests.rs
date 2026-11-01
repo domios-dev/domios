@@ -19,16 +19,7 @@ fn gateway_rejects_a_different_friendship_or_a_descendant_before_delivery() {
     fixture
         .service
         .set_neighbor_friend_receiver_for_test(&"b".repeat(64), Some(true), 1);
-    *fixture.service.neighbor_cell().receiver.lock() =
-        Some(codeterm_neighbors::adapter::ReceiverStatus {
-            receiver_revision: 1,
-            receiver_installation_id: Some("machine".into()),
-            receiver_key_id: None,
-            receiver_machine_label: Some("Here".into()),
-            receiving_enabled: true,
-            is_me: true,
-            legacy_active: false,
-        });
+
     let (_stop, stopped) = tokio::sync::watch::channel(false);
     let mut gateway = Gateway {
         reply_target: None,
@@ -63,16 +54,7 @@ async fn disabled_gateway_never_admits_or_records_a_message() {
     fixture
         .service
         .set_neighbor_friend_receiver_for_test("f", Some(true), 1);
-    *fixture.service.neighbor_cell().receiver.lock() =
-        Some(codeterm_neighbors::adapter::ReceiverStatus {
-            receiver_revision: 1,
-            receiver_installation_id: Some("machine".into()),
-            receiver_key_id: None,
-            receiver_machine_label: Some("Here".into()),
-            receiving_enabled: true,
-            is_me: true,
-            legacy_active: false,
-        });
+
     fixture
         .service
         .ext::<crate::config::ConfigState>()

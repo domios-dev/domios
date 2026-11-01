@@ -29,7 +29,7 @@ class RequestModeTests(unittest.TestCase):
         for fail in (False, True):
             with self.subTest(fail=fail):
                 with patch.object(
-                    runner, "run_dc_command", return_value=json.dumps({"value": "per_candidate"})
+                    runner, "run_dc_command", return_value=json.dumps({"result": {"value": "per_candidate"}})
                 ) as command:
                     with patch.object(runner, "run_evaluation") as evaluate:
                         if fail:
@@ -49,7 +49,7 @@ class RequestModeTests(unittest.TestCase):
 
     def test_missing_capability_fails_before_any_write_or_evaluation(self):
         args = Namespace(dev_instance="fixture", request_mode="shared_state")
-        with patch.object(runner, "run_dc_command", return_value="{}") as command:
+        with patch.object(runner, "run_dc_command", return_value='{"result": {}}') as command:
             with patch.object(runner, "run_evaluation") as evaluate:
                 with self.assertRaises(RuntimeError):
                     runner.run(args)

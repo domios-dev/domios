@@ -1,9 +1,12 @@
 import React, { useState } from "react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { reduceToolEvents, type NormalizedChatMessage, type ToolEvent } from "@codeterm/chat-core";
 import { toolCommandShape } from "../codeterm/commandShape";
 import { ToolCallBubble } from "../ToolCallBubble";
+import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
+import { CommandGroupCard } from "./CommandGroupCard";
 import { act, render } from "./cardTestSetup";
+import * as shellLexer from "../../../chat-core/src/shellLexer";
 
 const CODEX_SESSION = "01a09a2f-b88c-79b3-a9dd-83f8741f6810";
 const CODEX_PIPELINE = [
@@ -93,6 +96,27 @@ function Stateful({ event, initiallyExpanded = false }: { event: ToolEvent; init
 }
 
 describe("compound command group", () => {
+  it("discloses supplied aggregate partial output once at whole-command scope", async () => {
+    const event = {...singleEvent(codexChain("opaque-partial-group",SPEC_CHAIN)),status:"pending" as const,result:"opaque-partial-output"};
+    const shape = toolCommandShape(event);
+    expect(shape.kind).toBe("group");
+    if (shape.kind !== "group") throw new Error("fixture must be a command group");
+    const closed = await render(<CommandGroupCard event={event} rows={shape.rows} expanded={false} onToggle={() => {}} />);
+    expect(closed.querySelector('[aria-label="Command output"]')?.hasAttribute("hidden")).toBe(true);
+    expect(closed.textContent).not.toContain(event.result);
+    const open = await render(<ChatBlockHostProvider value={{ renderMenu: ({items}) => <>{items.map(item =>
+      <button key={item.label} onClick={item.onSelect}>{item.label}</button>)}</> }}>
+      <CommandGroupCard event={event} rows={shape.rows} expanded onToggle={() => {}} />
+    </ChatBlockHostProvider>);
+    expect(open.textContent).not.toContain(event.result);
+    const details = [...open.querySelectorAll("button")].find(button => button.textContent === "Details")!;
+    await act(async () => details.click());
+    expect(open.querySelector('[aria-label="Command output"]')?.textContent).toContain(event.result);
+    expect(open.textContent?.split(event.result)).toHaveLength(2);
+    expect(open.querySelector('[data-testid="chat-command-group-status"]')?.getAttribute("aria-label")).toBe("pending");
+    expect(open.querySelector('[data-testid="chat-command-tree-line"] [aria-label="pending"]')).toBeNull();
+  });
+
   it("renders the Codex pwsh pipeline once as one box with a CodeTerm line and a python script line", async () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexRollout())} expanded={false} onToggle={() => {}} />);
     const groups = host.querySelectorAll('[data-testid="chat-command-group"]');
@@ -211,6 +235,11 @@ describe("compact command tree", () => {
     expect(host.querySelector('[data-testid="chat-command-tree-more"]')).toBeNull();
     expect(leads(host)).toEqual(["plan doctor", "plan decision list", "task show", "task show"]);
     expect(operators(host)).toEqual([]);
+    await click(host.querySelector('[data-testid="chat-command-group-toggle"]'));
+    expect(leads(host)).toEqual(["plan doctor", "plan decision list", "task show"]);
+    expect(host.querySelector('[data-testid="chat-command-tree-more"]')).not.toBeNull();
+    await click(host.querySelector('[data-testid="chat-command-tree-more"]'));
+    expect(leads(host)).toHaveLength(4);
     for (const line of lines(host)) {
       const lead = line.querySelector('[data-testid="chat-command-tree-lead"]')?.textContent ?? "";
       expect(line.textContent?.split(lead).length).toBe(2);
@@ -243,5 +272,109 @@ describe("compact command tree", () => {
     expect(host.querySelectorAll('[data-testid="toolcard-duration"]')).toHaveLength(1);
     expect(host.querySelector('[data-testid="raw-command-disclosure"]')).toBeNull();
     expect(lines(host)).toHaveLength(4);
+  });
+});
+
+describe("shell file operation visibility", () => {
+  it("opens known append content without inventing a previous file version", async () => {
+    const command = "Add-Content -LiteralPath 'notes.txt' -Value 'second line'";
+    const event = singleEvent(codexChain("append-preview", command));
+    const host = await render(<ToolCallBubble event={event} expanded={false} onToggle={() => {}} />);
+    expect(host.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+    await click(host.querySelector('button[aria-label="Show append preview for notes.txt"]'));
+    const content = host.querySelector('[data-testid="shell-replacement-fragments"]');
+    expect(content?.textContent).toContain("second line");
+    expect(content?.textContent).not.toContain("Before");
+  });
+  it("discloses literal command fragments inside the command and preserves call-local expansion", async () => {
+    const command = `$p='C:/games/snake.html'; $s=Get-Content $p -Raw; $nl=[Environment]::NewLine; $s=$s.Replace('<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>'); $s=$s.Replace('function tick() { $p=1; }', 'function tick() {' + $nl + 'save();}'); Set-Content -LiteralPath $p $s`;
+    const base = singleEvent(codexChain("snake-replacement-preview", command));
+    const event = { ...base, message: { ...base.message, toolInput: { command, argv: ["pwsh", "-Command", command] } } };
+    const host = await render(<Stateful event={event} />);
+    const operations = host.querySelector('ul[aria-label="Intended file operations"]');
+    const toggle = operations?.querySelector('button[aria-label="Show replacement preview for snake.html"]') ?? null;
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(operations?.textContent).toContain("snake.html1 replacement");
+    expect(operations?.textContent).not.toContain("C:/games");
+    expect(operations?.querySelector("[title]")).toBeNull();
+    expect(host.querySelector('[data-testid="chat-command-group"]')?.contains(operations)).toBe(true);
+    expect(host.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+    expect(host.querySelector('[data-testid="file-diff-card"]')).toBeNull();
+    await act(async () => (toggle as HTMLElement).focus());
+    expect(document.querySelector('[role="tooltip"]')?.textContent).toBe("C:/games/snake.html");
+    await click(toggle);
+    const fragments = host.querySelector('[data-testid="shell-replacement-fragments"]');
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect([...(fragments?.querySelectorAll("pre") ?? [])].map(node => node.textContent)).toEqual([
+      '<div id="score">Score: <span>0</span></div>', '<div id="score">Score: <span>0</span> · Best: <span id="best">0</span></div>',
+    ]);
+    expect(fragments?.querySelector('[role="note"][aria-label="Partial replacement preview"]')).not.toBeNull();
+    expect(fragments?.textContent).not.toContain("Get-Content");
+    await click(host.querySelector('[data-testid="chat-command-group-toggle"]'));
+    expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    await click(lines(host)[0].querySelector("button"));
+    expect(lines(host)[0].querySelector('[data-testid="chat-command-tree-detail"]')?.textContent).toBe("$p='C:/games/snake.html'");
+    const remounted = await render(<Stateful event={{ ...event, status: "success" }} />);
+    expect(remounted.querySelector('button[aria-label="Hide replacement preview for snake.html"]')?.getAttribute("aria-expanded")).toBe("true");
+    const otherSession = await render(<Stateful event={{ ...event, message: { ...event.message, sourceSessionId: "other-session" } }} />);
+    expect(otherSession.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+    await click(toggle);
+    expect(host.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
+  });
+
+  it("shows intended command-local targets, reuses analysis on render, and preserves truthful diff disclosure", async () => {
+    const command = "$p='C:/work/preview.ts'; $s=Get-Content $p -Raw; $s=$s.Replace('unmatched','next'); Set-Content $p $s";
+    const base = singleEvent(codexChain("file-operation-main", command));
+    const main: ToolEvent = { ...base, message: { ...base.message, toolInput: { command, argv: ["pwsh", "-Command", command] } } };
+    const lexer = vi.spyOn(shellLexer, "lexShell");
+    try {
+      function Preview() {
+        const [expanded, setExpanded] = useState(false);
+        return <ToolCallBubble event={{ ...main }} expanded={expanded} onToggle={setExpanded} />;
+      }
+      const host = await render(<Preview />);
+      const operations = host.querySelector('ul[aria-label="Intended file operations"]');
+      expect(operations?.children).toHaveLength(1);
+      expect(operations?.textContent).toContain("preview.ts");
+      expect(host.querySelector('[data-testid="file-diff-card"]')).toBeNull();
+      const parses = lexer.mock.calls.filter(call => call[2] === true).length;
+      expect(parses).toBe(1);
+      const groupToggle = host.querySelector('[data-testid="chat-command-group-toggle"]');
+      expect(groupToggle?.getAttribute("aria-expanded")).toBe("false");
+      await click(groupToggle);
+      expect(groupToggle?.getAttribute("aria-expanded")).toBe("true");
+      await click(lines(host)[3].querySelector("button"));
+      expect(lines(host)[3].querySelector('[data-testid="chat-command-tree-detail"]')?.textContent).toContain("Set-Content $p $s");
+      expect(lexer.mock.calls.filter(call => call[2] === true)).toHaveLength(parses);
+      expect(host.querySelectorAll('ul[aria-label="Intended file operations"]')).toHaveLength(1);
+
+      for (const status of ["pending", "success", "error", "interrupted", "unresolved"] as const) {
+        const failed = await render(<ToolCallBubble event={{ ...main, id: `write-${status}`, status }} expanded={false} onToggle={() => {}} />);
+        expect(failed.querySelector('ul[aria-label="Intended file operations"]')?.children).toHaveLength(1);
+        expect(failed.querySelector('[data-testid="file-diff-card"]')).toBeNull();
+      }
+      const unknown = await render(<ToolCallBubble event={singleEvent(codexChain("unknown-file", "Set-Content $outside x"))} expanded={false} onToggle={() => {}} />);
+      expect(unknown.querySelector('ul[aria-label="Intended file operations"]')?.textContent).toContain("unresolved target");
+      const read = await render(<ToolCallBubble event={singleEvent(codexChain("readonly-file", "Get-Content source.txt -Raw"))} expanded={false} onToggle={() => {}} />);
+      expect(read.querySelector('ul[aria-label="Intended file operations"]')).toBeNull();
+
+      const stream = await render(<ToolCallBubble event={{ ...main, stream: { flowId: "file-operation-stream", active: false, members: [main], entries: [{ kind: "action", event: main }] } }} expanded onToggle={() => {}} />);
+      expect(stream.querySelectorAll('ul[aria-label="Intended file operations"]')).toHaveLength(1);
+      await click(stream.querySelector('[data-testid="chat-tool-stream-action"]'));
+      expect(stream.querySelectorAll('ul[aria-label="Intended file operations"]')).toHaveLength(1);
+
+      const diff = { path: "C:/work/preview.ts", kind: "modify" as const, additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-old", "+new"] }] };
+      for (const kind of ["command", "edit"] as const) {
+        const exact = await render(<ToolCallBubble event={{ ...main, id: `exact-${kind}`, kind, fileDiffs: [diff] }} expanded={false} onToggle={() => {}} />);
+        expect(exact.querySelectorAll('[data-testid="file-diff-card"]')).toHaveLength(1);
+        expect(exact.querySelector('ul[aria-label="Intended file operations"]')).toBeNull();
+        expect(exact.querySelector('[data-testid="file-diff-hunk"]')).toBeNull();
+        const toggle = exact.querySelector('button[aria-label^="Show diff for"]');
+        expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+        await click(toggle);
+        expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+        expect(exact.querySelectorAll('[data-testid="file-diff-hunk"]')).toHaveLength(1);
+      }
+    } finally { lexer.mockRestore(); }
   });
 });

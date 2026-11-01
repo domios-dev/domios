@@ -11,6 +11,7 @@ pub struct AccountCell(pub Arc<tokio::sync::OnceCell<Arc<Account>>>);
 
 pub(crate) mod callable_admission;
 mod credentials;
+mod login_paste;
 pub(crate) mod logout;
 pub(crate) use credentials::AccountCredentialCell;
 pub use credentials::AccountCredentials;
@@ -42,6 +43,10 @@ impl codeterm_account::IdentityObserver for AccountIdentity {
 
     async fn changed(&self, identity: Option<&codeterm_account::Identity>) {
         if let Some(service) = self.0.upgrade() {
+            *service
+                .ext::<crate::mem_ops::author::OwnerMemoryAuthor>()
+                .0
+                .write() = identity.map(|i| i.uid.clone());
             if let Some(cached) = service.try_ext::<startup::StartupAccount>() {
                 if identity.is_none_or(|identity| identity.uid != cached.identity.uid) {
                     cached.invalidate();
@@ -276,10 +281,18 @@ impl super::ServiceContext {
         &self,
         hint: codeterm_account::LoginHint,
     ) -> Result<codeterm_account::Status, String> {
+        self.finish_account_login_with_browser(hint, Arc::new(SystemBrowser))
+            .await
+    }
+    async fn finish_account_login_with_browser(
+        &self,
+        hint: codeterm_account::LoginHint,
+        browser: Arc<dyn Browser>,
+    ) -> Result<codeterm_account::Status, String> {
         let status = self
             .account()
             .await?
-            .login_with_hint(Arc::new(SystemBrowser), hint)
+            .login_with_hint(browser, hint)
             .await
             .map_err(|e| e.to_string());
         self.ui.emit("account-changed", serde_json::Value::Null);
@@ -287,10 +300,10 @@ impl super::ServiceContext {
         if let Ok(mesh) = self.account_mesh().await {
             mesh.mesh.enrollment_signed_in();
         }
+        self.spawn_account_mesh_refresh(codeterm_account::account_mesh::EnrollTrigger::Automatic);
         let _ = self
             .refresh_billing(codeterm_billing::RefreshEvent::SignIn)
             .await;
-        self.spawn_account_mesh_refresh(codeterm_account::account_mesh::EnrollTrigger::Automatic);
         Ok(status)
     }
 }

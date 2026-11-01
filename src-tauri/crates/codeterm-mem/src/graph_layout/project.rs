@@ -297,6 +297,38 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
     let n = vectors.len();
     log::info!("[graph_layout] full projection: {n} primary vectors");
 
+    let positions = project_positions(
+        &vectors,
+        &load_active_adjacency(conn)?,
+        load_entity_ids(conn)?,
+    )?;
+
+    let computed_at = chrono::Utc::now().to_rfc3339();
+    let version = cache.replace_all(positions, computed_at);
+    cache.flush_now();
+    log::info!(
+        "[graph_layout] full projection done v{version} in {}ms",
+        started.elapsed().as_millis()
+    );
+    Ok(version)
+}
+
+#[cfg(not(feature = "embeddings"))]
+pub fn project_positions(
+    _vectors: &[(String, Vec<f32>)],
+    _adjacency: &HashMap<String, Vec<String>>,
+    _entity_ids: Vec<String>,
+) -> Result<HashMap<String, super::cache::Position>, String> {
+    Err("layout projection unavailable on this build (needs the embeddings feature)".into())
+}
+
+#[cfg(feature = "embeddings")]
+pub fn project_positions(
+    vectors: &[(String, Vec<f32>)],
+    adjacency: &HashMap<String, Vec<String>>,
+    entity_ids: Vec<String>,
+) -> Result<HashMap<String, Position>, String> {
+    let n = vectors.len();
     let raw: Vec<Vec<f32>> = vectors.iter().map(|(_, v)| v.clone()).collect();
     let (projected, knn) = project_2d(&raw)?;
     let mut normalized = placement::normalize(&projected);
@@ -307,9 +339,8 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
         .enumerate()
         .map(|(i, (id, _))| (id.as_str(), i))
         .collect();
-    let adj = load_active_adjacency(conn)?;
     let mut edges: Vec<super::linlog::WeightedEdge> = Vec::new();
-    for (from, tos) in &adj {
+    for (from, tos) in adjacency {
         let Some(&a) = id_index.get(from.as_str()) else {
             continue;
         };
@@ -372,38 +403,28 @@ pub fn run_full(conn: &rusqlite::Connection, cache: &LayoutCache) -> Result<u64,
         );
     }
 
-    place_vectorless_entities(conn, &mut positions)?;
+    place_vectorless_entities(entity_ids, adjacency, &mut positions);
 
-    let computed_at = chrono::Utc::now().to_rfc3339();
-    let version = cache.replace_all(positions, computed_at);
-    cache.flush_now();
-    log::info!(
-        "[graph_layout] full projection done v{version} in {}ms",
-        started.elapsed().as_millis()
-    );
-    Ok(version)
+    Ok(positions)
 }
 
-/// Entities without a vector get placed at the centroid of their graph-related
-/// placed positions (+ jitter). Unplaceable entities are skipped.
 #[cfg(feature = "embeddings")]
 fn place_vectorless_entities(
-    conn: &rusqlite::Connection,
+    entity_ids: Vec<String>,
+    adjacency: &HashMap<String, Vec<String>>,
     positions: &mut HashMap<String, Position>,
-) -> Result<(), String> {
-    let entity_ids = load_entity_ids(conn)?;
+) {
     let missing: Vec<String> = entity_ids
         .into_iter()
         .filter(|id| !positions.contains_key(id))
         .collect();
     if missing.is_empty() {
-        return Ok(());
+        return;
     }
-    let adj = load_active_adjacency(conn)?;
     let placed: HashSet<String> = positions.keys().cloned().collect();
 
     for id in missing {
-        let Some(neighbors) = adj.get(&id) else {
+        let Some(neighbors) = adjacency.get(&id) else {
             continue;
         };
         let mut sx = 0.0f32;
@@ -436,54 +457,7 @@ fn place_vectorless_entities(
             },
         );
     }
-    Ok(())
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use rusqlite::Connection;
-
-    fn schema(conn: &Connection) {
-        crate::store::init_schema(conn).unwrap();
-    }
-
-    #[test]
-    fn adjacency_is_undirected_and_active_only() {
-        let conn = Connection::open_in_memory().unwrap();
-        schema(&conn);
-        conn.execute(
-            "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, created_at) VALUES ('a','rel','b','global','t','t')",
-            [],
-        ).unwrap();
-        conn.execute(
-            "INSERT INTO relations (from_id, relation_type, to_id, scope, valid_from, valid_to, created_at) VALUES ('a','rel','c','global','t','ended','t')",
-            [],
-        ).unwrap();
-        let adj = load_active_adjacency(&conn).unwrap();
-        assert_eq!(adj.get("a").unwrap(), &vec!["b".to_string()]);
-        assert_eq!(adj.get("b").unwrap(), &vec!["a".to_string()]);
-        assert!(adj.get("c").is_none(), "invalidated edge must be excluded");
-    }
-
-    #[cfg(all(feature = "embeddings", not(target_os = "macos")))]
-    #[test]
-    fn non_macos_project_2d_pca_seed_and_knn_are_populated() {
-        let mut vectors = Vec::new();
-        for i in 0..12 {
-            vectors.push(vec![1.0 + i as f32 * 0.01, 0.1, 0.0, 0.0]);
-            vectors.push(vec![-1.0 - i as f32 * 0.01, -0.1, 0.0, 0.0]);
-        }
-
-        let (points, knn) = project_2d(&vectors).unwrap();
-        assert_eq!(points.len(), vectors.len());
-        assert_eq!(knn.len(), vectors.len());
-        assert!(knn.iter().any(|nbs| !nbs.is_empty()));
-        assert!(points.iter().all(|(x, y)| x.is_finite() && y.is_finite()));
-
-        let distinct = points
-            .iter()
-            .any(|p| (p.0 - points[0].0).abs() > 1e-4 || (p.1 - points[0].1).abs() > 1e-4);
-        assert!(distinct, "PCA seed must produce distinct coordinates");
-    }
-}
+mod tests;
