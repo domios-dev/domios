@@ -15,6 +15,8 @@ pub(super) struct IsolatedUpdateLaunch {
     config_dir: PathBuf,
     port: u16,
     fixture_root: PathBuf,
+    #[serde(default, deserialize_with = "diagnostics_port")]
+    diagnostics_port: Option<u16>,
 }
 
 pub(super) fn from_arguments(
@@ -74,6 +76,11 @@ pub(super) fn from_arguments(
     let launch: IsolatedUpdateLaunch = serde_json::from_slice(&bytes).map_err(io::Error::other)?;
     let data = launch.data_dir.canonicalize()?;
     let config = launch.config_dir.canonicalize()?;
+    if launch.diagnostics_port.is_some_and(|port| {
+        port < 1024 || port == launch.port || matches!(port, 7685 | 7686)
+    }) {
+        return Err(io::Error::other("Invalid isolated diagnostics port"));
+    }
     if launch.port < 1024
         || launch.install_root.canonicalize()? != root
         || data.starts_with(root)
@@ -96,6 +103,15 @@ pub(super) fn from_arguments(
 }
 
 impl IsolatedUpdateLaunch {
+    pub(super) fn startup_options(&self) -> crate::ClientStartupOptions {
+        crate::ClientStartupOptions {
+            local_webview_diagnostics: self.diagnostics_port.map_or(
+                crate::LocalWebviewDiagnosticsMode::Disabled,
+                crate::LocalWebviewDiagnosticsMode::RequestedPort,
+            ),
+        }
+    }
+
     pub(super) fn selector(&self) -> InstanceSelector {
         InstanceSelector::IsolatedVerification {
             instance: Some(self.instance.clone()),
@@ -111,4 +127,8 @@ impl IsolatedUpdateLaunch {
         std::env::set_var("CODETERM_CONFIG_DIR", &self.config_dir);
         std::env::set_var("CODETERM_DEV_UPDATE_FIXTURES", &self.fixture_root);
     }
+}
+
+fn diagnostics_port<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<Option<u16>, D::Error> {
+    u16::deserialize(deserializer).map(Some)
 }
