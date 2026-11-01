@@ -55,6 +55,8 @@ const SECTION_RE = /sec_[a-z0-9][a-z0-9_-]*/i;
 const SPEC_RE = /(?:sp|spec)_[a-z0-9][a-z0-9_-]*/i;
 const MEMORY_RE = /mem_[a-z0-9][a-z0-9_-]*/i;
 const SOURCE_RE = /src_[a-z0-9][a-z0-9_-]*/i;
+const TASK_ID_RE = /^task_[a-z0-9][a-z0-9_-]*$/i;
+const PLAN_ID_RE = /^pl_[a-z0-9][a-z0-9_-]*$/i;
 
 function strFlag(inv: CodetermInvocation, key: string): string | undefined {
   const v = inv.flags[key];
@@ -74,6 +76,73 @@ function firstRef(re: RegExp, inv: CodetermInvocation, result?: string): string 
   return firstMatch(re, ...Object.values(inv.flags).filter((value): value is string => typeof value === "string"), ...inv.positionals, result, inv.raw);
 }
 
+export interface TaskActivityMetadata {
+  id: string;
+  planId?: string;
+  name?: string;
+  key?: string;
+  status?: string;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function nonBlank(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function taskRecord(result?: string): TaskActivityMetadata | undefined {
+  if (!result || result.length > 65_536) return undefined;
+  try {
+    const envelope = record(JSON.parse(result));
+    const payload = record(envelope?.result);
+    const task = record(payload?.task);
+    const id = nonBlank(task?.id) ?? nonBlank(task?.task_id);
+    if (!id || !TASK_ID_RE.test(id)) return undefined;
+    const planId = nonBlank(task?.plan_id) ?? nonBlank(payload?.plan_id);
+    return {
+      id,
+      planId: planId && PLAN_ID_RE.test(planId) ? planId : undefined,
+      name: nonBlank(task?.name),
+      key: nonBlank(task?.key) ?? nonBlank(task?.display_key) ?? nonBlank(payload?.display_key),
+      status: nonBlank(task?.status),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function commandPlanId(inv: CodetermInvocation): string | undefined {
+  const flag = strFlag(inv, "plan");
+  if (flag && PLAN_ID_RE.test(flag)) return flag;
+  return inv.positionals.find((value) => PLAN_ID_RE.test(value));
+}
+
+function commandTaskId(inv: CodetermInvocation): string | undefined {
+  const flag = strFlag(inv, "task");
+  if (flag && TASK_ID_RE.test(flag)) return flag;
+  return inv.positionals.find((value) => TASK_ID_RE.test(value));
+}
+
+export function taskActivityMetadata(inv: CodetermInvocation, result?: string): TaskActivityMetadata | undefined {
+  if (inv.path[0] !== "plan" || inv.path[1] !== "task" || (inv.path[2] !== "add" && inv.path[2] !== "update")) return undefined;
+  const responseTask = taskRecord(result);
+  const inputTaskId = commandTaskId(inv);
+  const inputPlanId = commandPlanId(inv);
+  if (inputTaskId && responseTask && inputTaskId !== responseTask.id) return undefined;
+  if (inputPlanId && responseTask?.planId && inputPlanId !== responseTask.planId) return undefined;
+  const id = responseTask?.id ?? (inv.path[2] === "update" ? inputTaskId : undefined);
+  if (!id) return undefined;
+  return {
+    id,
+    planId: responseTask?.planId,
+    name: responseTask?.name,
+    key: responseTask?.key,
+    status: responseTask?.status,
+  };
+}
+
 /** Describe the stable navigation target represented by a recognized invocation. */
 export function navigationTarget(inv: CodetermInvocation, result?: string): NavigationTarget | null {
   if (isSend(inv)) {
@@ -84,6 +153,11 @@ export function navigationTarget(inv: CodetermInvocation, result?: string): Navi
   if (inv.path[0] === "tab") {
     const candidate = inv.flags.tab ?? inv.flags.tab ?? inv.positionals[0];
     return typeof candidate === "string" ? { kind: "tab", id: candidate } : null;
+  }
+  if (inv.path[0] === "plan" && inv.path[1] === "task" && (inv.path[2] === "add" || inv.path[2] === "update")) {
+    const task = taskActivityMetadata(inv, result);
+    const planId = commandPlanId(inv) ?? task?.planId;
+    return task && planId ? { kind: "task", id: task.id, planId } : null;
   }
   const planId = firstRef(PLAN_RE, inv, result);
   const taskId = firstRef(TASK_RE, inv, result);
@@ -277,14 +351,25 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
     return { lead: "goal", object: `set on ${plan}`, chips: [], fields: ["vector", "constraint", "postulate"].map((key) => ({ label: key, value: flagText(inv, key) ?? "—" })) };
   }
   if (inv.path[0] === "plan" && inv.path[1] === "task") {
-    const task = firstRef(TASK_RE, inv, result);
     const action = inv.path[2];
-    const name = flagText(inv, "name", "title");
-    const target = action === "add" ? undefined : inv.positionals[1] ?? inv.positionals[0] ?? task;
+    const task = taskActivityMetadata(inv, result);
+    const target = action === "add" || action === "update" ? undefined : firstRef(TASK_RE, inv, result);
     const changingDeps = action === "update" && (inv.flags["clear-dependencies"] === true || inv.flags["depends-on"] != null);
     const lead = changingDeps ? "task deps" : action === "update" ? "task edit" : action === "close" ? "close" : action === "dispatch" ? "dispatch" : "plan task";
     const model = flagText(inv, "model");
-    return { lead, object: name ?? target ?? (action === "add" ? "New task" : "Task"), chips: [model, action === "close" ? "done" : undefined].filter((v): v is string => Boolean(v)), detail: flagText(inv, "test-plan", "criterion", "correctness", "why"), fields: model ? [{ label: "model", value: model }] : undefined };
+    const chips = [model, task?.key, task?.status, action === "close" ? "done" : undefined].filter((value): value is string => Boolean(value));
+    const fields = [
+      ...(task?.key ? [{ label: "key", value: task.key }] : []),
+      ...(task?.status ? [{ label: "status", value: task.status }] : []),
+      ...(model ? [{ label: "model", value: model }] : []),
+    ];
+    return {
+      lead,
+      object: task?.name ?? (action === "add" ? "New task" : target ?? "Task"),
+      chips,
+      detail: flagText(inv, "test-plan", "criterion", "correctness", "why"),
+      fields: fields.length ? fields : undefined,
+    };
   }
   if (inv.path[0] === "plan" && inv.path[1] === "section") {
     const section = firstRef(SECTION_RE, inv, result) ?? flagText(inv, "handle");
@@ -364,6 +449,11 @@ function describeInvocation(inv: CodetermInvocation, result?: string, resolve?: 
 
 /** Recover the (planId, taskId) a plan-family invocation points at. */
 export function planLink(inv: CodetermInvocation, result?: string): PlanLink | undefined {
+  if (inv.path[0] === "plan" && inv.path[1] === "task" && (inv.path[2] === "add" || inv.path[2] === "update")) {
+    const task = taskActivityMetadata(inv, result);
+    const planId = commandPlanId(inv) ?? task?.planId;
+    return task && planId ? { planId, taskId: task.id } : planId ? { planId } : undefined;
+  }
   const planId =
     strFlag(inv, "plan") ??
     inv.positionals.find((p) => PLAN_RE.test(p)) ??
@@ -393,21 +483,40 @@ function deliveredStatus(result?: string): CardStatus | undefined {
   if (!result) return undefined;
   try {
     const envelope = JSON.parse(result);
-    const parsed = envelope.ok === false ? envelope : envelope.result;
-    if (parsed?.delivery === "pending" || parsed?.pending?.length) return { ok: false, label: "pending", pending: true };
-    if (parsed?.delivery === "sent" || parsed?.delivered?.length) return { ok: true, label: "sent" };
+    const parsed = envelope.ok === false || envelope.error != null ? envelope : envelope.result;
+    const delivery = parsed?.delivery ?? parsed?.status;
+    if (delivery === "submit_unconfirmed") return { ok: false, label: "submit_unconfirmed", pending: true };
+    if (delivery === "interrupted") return { ok: false, label: "interrupted" };
+    if (delivery === "unresolved") return { ok: false, label: "unresolved" };
+    if (delivery === "error" || delivery === "failed") {
+      const error = parsed?.error;
+      return { ok: false, label: "failed", detail: typeof error === "string" ? error : typeof error?.message === "string" ? error.message : undefined };
+    }
     if (parsed?.ok === true) return { ok: false, label: "pending", pending: true };
     if (parsed?.ok === false || parsed?.failed?.length || parsed?.error) {
       const error = parsed?.error;
       return { ok: false, label: "failed", detail: typeof error === "string" ? error : typeof error?.message === "string" ? error.message : undefined };
     }
+    if (delivery === "pending" || parsed?.pending?.length) return { ok: false, label: "pending", pending: true };
+    if (delivery === "sent" || delivery === "delivered" || parsed?.delivered?.length) {
+      return { ok: true, label: delivery === "delivered" ? "delivered" : "sent" };
+    }
   } catch {}
+  if (/\bsubmit[_ -]unconfirmed\b/i.test(result)) return { ok: false, label: "submit_unconfirmed", pending: true };
+  if (/\binterrupted\b/i.test(result)) return { ok: false, label: "interrupted" };
+  if (/\bunresolved\b/i.test(result)) return { ok: false, label: "unresolved" };
+  const explicitError = result.match(/^\s*(?:error|failed?|exit code:\s*[1-9]\d*)\b[^\r\n]*/im)?.[0]?.trim();
+  if (explicitError) {
+    const detail = explicitError.replace(/^(?:error|failed?)\s*:\s*/i, "").trim();
+    return { ok: false, label: "failed", detail: (detail || explicitError).slice(0, 500) };
+  }
   if (/\bOK\s*\(pending\)/i.test(result)) {
     return { ok: false, label: "pending", pending: true };
   }
   if (/\bOK\s*\(sent\)|delivered/i.test(result)) return { ok: true, label: "delivered" };
   if (/error|fail|not found/i.test(result)) {
-    const detail = result.match(/^\s*(?:error|failed?)\s*:\s*([^\r\n]{1,500})/im)?.[1];
+    const detail = result.match(/^\s*(?:error|failed?)\s*:\s*([^\r\n]{1,500})/im)?.[1]
+      ?? result.split(/\r?\n/).map((line) => line.trim()).find(Boolean)?.slice(0, 500);
     return { ok: false, label: "failed", detail };
   }
   return undefined;
@@ -416,6 +525,8 @@ function deliveredStatus(result?: string): CardStatus | undefined {
 export interface SentMessage {
   /** Resolved tab name, or `tab <ref>` / `current tab` fallback. */
   recipient: string;
+  recipientId?: string;
+  recipientTitleResolved: boolean;
   mesh?: string;
   body: string;
   bodySource: "resolved" | "typed" | "pad";
@@ -432,9 +543,10 @@ export function parseSend(
   resolvePeer?: PeerNameResolver,
 ): SentMessage {
   const p = inv.flags.tab ?? inv.flags.tab;
+  const title = typeof p === "string" ? resolve?.(p) : undefined;
   let recipient: string;
   if (typeof p !== "string") recipient = "current tab";
-  else recipient = resolve?.(p) ?? `tab ${p}`;
+  else recipient = title?.trim() || `tab ${p}`;
   const meshRef = typeof inv.flags.mesh === "string" ? inv.flags.mesh : undefined;
   const mesh = meshRef ? friendlyPeerName(meshRef, resolvePeer) : undefined;
   const resolved = resolvedSendText(result);
@@ -447,6 +559,8 @@ export function parseSend(
     inv.flags.stdin === true;
   return {
     recipient,
+    recipientId: typeof p === "string" ? p : undefined,
+    recipientTitleResolved: Boolean(title?.trim()),
     mesh,
     body: resolved?.text || (staged ? sendBodyDescriptor(inv) : typed) || sendBodyDescriptor(inv),
     bodySource: resolved != null ? "resolved" : typeof fromPad === "string" ? "pad" : "typed",
@@ -516,13 +630,12 @@ const sendTextTemplate: TemplateFn = (inv, result, resolve) => {
 const planTaskTemplate: TemplateFn = (inv, result) => {
   const action = inv.path[2] ?? inv.positionals[0];
   const link = planLink(inv, result);
+  const task = taskActivityMetadata(inv, result);
   if (action === "update") {
-    const status = strFlag(inv, "status");
-    return { icon: "🔄", title: status ? `Task status → ${status}` : "Task updated", link };
+    return { icon: "🔄", title: task?.name ? `Task updated: ${task.name}` : "Task updated", link };
   }
   if (action === "add") {
-    const name = strFlag(inv, "name");
-    return { icon: "🗂", title: name ? `Task created: ${name}` : "Task created", link };
+    return { icon: "🗂", title: task?.name ? `Task created: ${task.name}` : "Task created", link };
   }
   return { icon: "🗂", title: `Plan task ${action ?? ""}`.trim(), link };
 };

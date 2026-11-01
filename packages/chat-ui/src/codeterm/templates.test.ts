@@ -38,6 +38,7 @@ const TASK = "task_" + "b".repeat(32);
 
   const named = parseSend(inv(`codeterm send --tab 915fae8e "hi"`), undefined, (r) => (r === "915fae8e" ? "Puccini" : undefined));
   assert(named.recipient === "Puccini", "recipient resolves to tab name");
+  assert(named.recipientId === "915fae8e" && named.recipientTitleResolved, "recipient keeps its stable tab ref after title resolution");
   for (const wrapper of [
     `pwsh.exe -Command "codeterm send --tab 915fae8e --from-pad msg.md"`,
     `bash -lc 'codeterm send --tab 915fae8e --from-pad msg.md'`,
@@ -60,6 +61,18 @@ const TASK = "task_" + "b".repeat(32);
   const structured = parseSend(inv(`codeterm send --tab bda --from-pad message.md`), JSON.stringify({ result: { delivery: "pending", sent_message: { text: "Recorded markdown **body**", truncated: false } } }));
   assert(structured.body === "Recorded markdown **body**" && structured.formattedAvailable, "structured send evidence supplies staged body");
   assert(structured.status?.pending === true && !structured.status.ok, "structured pending status never appears sent");
+  for (const [delivery, label] of [["submit_unconfirmed", "submit_unconfirmed"], ["interrupted", "interrupted"], ["unresolved", "unresolved"]] as const) {
+    const state = parseSend(inv(`codeterm send --tab bda "x"`), JSON.stringify({ result: { delivery } }));
+    assert(state.status?.label === label && !state.status.ok, `${delivery} transport outcome stays distinct`);
+  }
+  const structuredFailure = parseSend(inv(`codeterm send --tab bda "x"`), JSON.stringify({ result: { delivery: "error", error: "tab unavailable" } }));
+  assert(structuredFailure.status?.label === "failed" && structuredFailure.status.detail === "tab unavailable", "structured transport failure keeps its error detail");
+  const contradictoryStructured = parseSend(inv(`codeterm send --tab bda "x"`), JSON.stringify({ ok: false, error: "transport failed", result: { delivery: "sent" } }));
+  assert(contradictoryStructured.status?.label === "failed", "structured failure evidence takes precedence over sent delivery data");
+  const pendingWithError = parseSend(inv(`codeterm send --tab bda "x"`), JSON.stringify({ result: { delivery: "pending", error: "transport rejected" } }));
+  assert(pendingWithError.status?.label === "failed" && pendingWithError.status.detail === "transport rejected", "structured errors remain visible beside a pending delivery marker");
+  const contradictoryText = parseSend(inv(`codeterm send --tab bda "x"`), "Exit code: 2\nOK (sent)");
+  assert(contradictoryText.status?.label === "failed", "explicit nonzero exit evidence takes precedence over a sent marker");
   const tooLong = parseSend(inv(`codeterm send --tab bda --from-pad message.md`), JSON.stringify({ result: { delivery: "sent", sent_message: { text: "x".repeat(16_385), truncated: true } } }));
   assert(tooLong.body.length === 16_384 && tooLong.truncated === true, "structured body is bounded and marks truncation");
   const typed = parseSend(inv(`codeterm send --tab bda "$VAR"`), "OK (sent)", undefined);
@@ -80,6 +93,7 @@ const TASK = "task_" + "b".repeat(32);
   assert(regression.body.length > 0 && regression.recipient === "tab bda" && regression.status?.ok === true, "delivered send without body sources has a non-empty descriptor");
   const fail = parseSend(inv(`codeterm send --tab bda "x"`), "error: Tab not found", undefined);
   assert(fail.status?.ok === false && fail.status.label === "failed", "failed status");
+  assert(fail.status?.detail === "Tab not found", "plain-text failure keeps its visible reason");
 
   const none = parseSend(inv(`codeterm send "x"`), undefined, undefined);
   assert(none.recipient === "current tab", "current tab when no --tab");
@@ -89,18 +103,36 @@ const TASK = "task_" + "b".repeat(32);
 {
   // A fixture using --plan/--title/--kind renders a card no user can ever produce, so it proves nothing about the renderer.
   const addCard = renderTemplate(inv(`codeterm plan task add ${PLAN} --name "Fix login"`));
-  assert(addCard.title === "Task created: Fix login", "plan task add reads --name, the flag clap requires");
+  assert(addCard.title === "Task created", "task input is not treated as authoritative result metadata");
   assert(addCard.link?.planId === PLAN, "plan task add carries the positional plan id");
 
   const addTitleFlag = renderTemplate(inv(`codeterm plan task add ${PLAN} --title "Fix login"`));
   assert(addTitleFlag.title === "Task created", "a --title that clap rejects never names the created task");
 
-  const addWithTask = renderTemplate(inv(`codeterm plan task add ${PLAN}`), `created ${TASK}`);
-  assert(addWithTask.link?.taskId === TASK, "task id recovered from result");
+  const addWithTextId = renderTemplate(inv(`codeterm plan task add ${PLAN}`), `created ${TASK}`);
+  assert(addWithTextId.link?.taskId === undefined, "unstructured text cannot supply a task identity");
+
+  const taskResult = JSON.stringify({ result: { plan_id: PLAN, display_key: "COD-2212", task: { id: TASK, key: "COD-2212", name: "Fix login", status: "open" } } });
+  const created = renderTemplate(inv(`codeterm plan task add ${PLAN} --name "requested title"`), taskResult);
+  assert(created.title === "Task created: Fix login", "create uses the authoritative structured task name");
+  assert(created.link?.taskId === TASK, "create opens the returned exact task id");
+  assert(navigationTarget(inv(`codeterm plan task add ${PLAN}`), taskResult)?.id === TASK, "create navigation comes from the structured task record");
 
   const upd = renderTemplate(inv(`codeterm plan task update ${PLAN} ${TASK} --status in_review`));
-  assert(upd.title === "Task status → in_review", "status-change card");
+  assert(upd.title === "Task updated", "unresolved task update does not claim a new authoritative status");
   assert(upd.link?.taskId === TASK && upd.link?.planId === PLAN, "update card carries positional plan+task ids");
+
+  const updatedResult = JSON.stringify({ result: { plan_id: PLAN, task: { id: TASK, key: "COD-2212", name: "Fix login", status: "in_review" } } });
+  const updated = renderTemplate(inv(`codeterm plan task update ${PLAN} ${TASK} --status done`), updatedResult);
+  assert(updated.title === "Task updated: Fix login", "update uses the authoritative returned task name");
+  assert(updated.link?.taskId === TASK, "update retains the exact task opener");
+  const mismatch = JSON.stringify({ result: { task: { id: "task_different", key: "COD-9", name: "Other", status: "done" } } });
+  assert(navigationTarget(inv(`codeterm plan task update ${PLAN} ${TASK}`), mismatch) === null, "conflicting result identity cannot navigate to a different task");
+  const taskDescriptor = describeAction(inv(`codeterm plan task update ${PLAN} ${TASK} --model gpt --status in_review`), updatedResult);
+  assert(taskDescriptor.object === "Fix login", "task row summary uses the authoritative name");
+  assert(taskDescriptor.chips.includes("COD-2212") && taskDescriptor.chips.includes("in_review"), "task key and status remain visible as secondary details");
+  assert(taskDescriptor.chips.includes("gpt"), "task model metadata remains visible");
+  assert(describeAction(inv(`codeterm plan task close ${PLAN} ${TASK}`)).object === TASK, "task close keeps its existing exact reference summary");
 
   const rec = renderTemplate(inv(`codeterm plan record ${PLAN} --step "Chose Postgres\nmore"`));
   assert(rec.title === "Progress recorded", "plan record title without --status");

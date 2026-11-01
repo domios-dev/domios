@@ -52,6 +52,13 @@ async function main() {
     owner_tab_id: "tab-owner",
   };
   const view = chatPlanRefView(resolved, [entry], [workspace], false);
+  const taskView = chatPlanRefView({
+    ...resolved,
+    target_kind: "task",
+    target_id: "task_legacy",
+    task_title: "Legacy task",
+  }, [entry], [workspace], false);
+  assert(taskView.taskKey === "LEGACY", "resolved task ref exposes the existing public display-key fallback");
   let opened = false;
   const host = document.createElement("div");
   document.body.appendChild(host);

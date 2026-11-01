@@ -88,6 +88,16 @@ const formingTeam: Team = {
 };
 const teamNamedTab = sampleState({ x: { ...sampleTab("x"), title: "✻ Courier", team_id: "team-1" } }, [formingTeam]);
 assert.equal(selectTabCommunicationNameMap(teamNamedTab).get("x"), "Courier · Launch", "communication recipient includes its Team context");
+const ambiguousNames = sampleState({
+  "deadbeef-first": sampleTab("deadbeef-first"),
+  "deadbeef-second": sampleTab("deadbeef-second"),
+});
+ambiguousNames.workspaces = [
+  { id: "ws-a", name: "A", tabs: ["deadbeef-first"], active_tab_id: null, cwd: null },
+  { id: "ws-b", name: "B", tabs: ["deadbeef-second"], active_tab_id: null, cwd: null },
+];
+assert.equal(selectTabCommunicationNameMap(ambiguousNames).has("deadbeef"), false, "ambiguous live tab prefixes do not resolve to a recipient title");
+assert.equal(selectTabCommunicationNameMap(ambiguousNames).get("deadbeef-first"), "Agent", "an exact live id still resolves when its short prefix is ambiguous");
 const activeTeam = { ...formingTeam, name: "Launch renamed", lifecycle: "active" as const };
 const teamsBefore = selectTeams(sampleState({}, [formingTeam]));
 const teamsAfter = selectTeams(sampleState({}, [activeTeam]));

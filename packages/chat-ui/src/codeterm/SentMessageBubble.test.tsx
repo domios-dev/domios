@@ -64,6 +64,7 @@ await (async () => {
   assert(bubble != null, "renders sent-message body");
   assert(host.querySelector('[data-testid="chat-sent-header"]') != null, "renders sent-message header");
   assert(text.includes("Puccini"), "renders resolved recipient name");
+  assert(text.includes("Tab ID 915fae8e"), "resolved recipient id remains visible as secondary metadata");
   assert(text.includes("Update") && text.includes("done"), "renders markdown body content");
   assert(host.querySelector('[data-testid="raw-command-disclosure"]') == null, "outbound message has no raw command disclosure");
 })();
@@ -232,6 +233,58 @@ await (async () => {
     <SentMessageBubble inv={inv(`codeterm send --tab bda "x"`)} result="error: Tab not found" />,
   );
   assert(host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === "failed", "failed send shows failure state");
+})();
+
+for (const [delivery, label] of [["submit_unconfirmed", "submit_unconfirmed"], ["interrupted", "interrupted"], ["unresolved", "unresolved"]] as const) {
+  const host = await render(
+    <SentMessageBubble
+      inv={inv(`codeterm send --tab bda "x"`)}
+      result={JSON.stringify({ result: { delivery } })}
+    />,
+  );
+  assert(host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === label, `${delivery} label remains distinct`);
+}
+
+for (const status of ["submit_unconfirmed", "interrupted", "unresolved"] as const) {
+  const host = await render(
+    <SentMessageBubble
+      inv={inv(`codeterm send --tab bda "x"`)}
+      activityStatus={status}
+    />,
+  );
+  assert(host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === status, `${status} activity status remains distinct`);
+}
+
+await (async () => {
+  const host = await render(
+    <SentMessageBubble
+      inv={inv(`codeterm send --tab bda "x"`)}
+      result="Exit code: 2\nOK (sent)"
+      activityStatus="error"
+    />,
+  );
+  assert(host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === "failed", "activity error overrides a positive result label");
+  assert(host.querySelector('[role="alert"]') != null, "contradictory send output retains visible error evidence");
+})();
+
+await (async () => {
+  const host = await render(
+    <SentMessageBubble
+      inv={inv(`codeterm send --tab bda "x"`)}
+      result="Tab not found"
+    />,
+  );
+  assert(host.querySelector('[role="alert"]')?.textContent === "Tab not found", "plain-text send failures retain their visible reason");
+})();
+
+await (async () => {
+  const host = await render(
+    <SentMessageBubble
+      inv={inv(`codeterm send --tab bda "x"`)}
+      activityStatus="success"
+    />,
+  );
+  assert(host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") === "unresolved", "a successful tool turn without delivery evidence stays unresolved");
 })();
 
 // mesh send shows peer

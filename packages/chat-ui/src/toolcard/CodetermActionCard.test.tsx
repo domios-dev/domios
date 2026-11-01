@@ -46,10 +46,45 @@ if (!showTask || showTask.textContent !== "Show Task" || showTask.textContent.in
 await act(async () => showTask.click());
 if (planCalls[0]?.join("|") !== `${PLAN}|${TASK}|task`) throw new Error("plan navigation callback regression");
 
+const taskResult = JSON.stringify({ result: { task: { id: TASK, key: "COD-2212", name: "Readable task title", status: "in_review" } } });
+const taskCalls: Array<[string, string | undefined, string | undefined]> = [];
+const collapsedTaskHost = await render(
+  <CodetermActionCard
+    event={{ ...event(`codeterm plan task update ${PLAN} ${TASK} --status in_review --model gpt`), result: taskResult }}
+    expanded={false}
+    onToggle={() => {}}
+    onOpenPlan={(planId, taskId, kind) => taskCalls.push([planId, taskId, kind])}
+  />,
+);
+if (collapsedTaskHost.host.querySelector('[data-testid="toolcard-summary"]')?.textContent !== "Readable task title") throw new Error("task name must be the primary row text");
+if (!collapsedTaskHost.host.textContent?.includes("COD-2212") || !collapsedTaskHost.host.textContent.includes("in_review") || !collapsedTaskHost.host.textContent.includes("gpt")) throw new Error("task row must retain key, status, and model metadata");
+const collapsedTaskOpener = collapsedTaskHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-show-plan"]');
+if (collapsedTaskOpener?.textContent !== "Show Task") throw new Error("collapsed task row must expose its accessible opener");
+await act(async () => collapsedTaskOpener.click());
+if (taskCalls[0]?.join("|") !== `${PLAN}|${TASK}|task`) throw new Error("collapsed opener must open the exact plan task");
+
+const expandedTaskHost = await render(
+  <CodetermActionCard
+    event={{ ...event(`codeterm plan task add ${PLAN} --name requested`), result: taskResult }}
+    expanded
+    onToggle={() => {}}
+  />,
+);
+if (!expandedTaskHost.host.querySelector('[data-testid="toolcard-result"]') || !expandedTaskHost.host.textContent.includes("Readable task title")) throw new Error("task diagnostics remain expandable beside the resolved name");
+const unconfirmedTaskStatusHost = await render(
+  <CodetermActionCard
+    event={{ ...event(`codeterm plan task update ${PLAN} ${TASK} --status in_review`), result: "Exit code: 2\nupdate rejected" }}
+    expanded={false}
+    onToggle={() => {}}
+  />,
+);
+if (unconfirmedTaskStatusHost.host.textContent?.includes("in_review")) throw new Error("requested task status must not be presented as authoritative result metadata");
+
 const focusCalls: string[] = [];
 const sendHost = await render(<CodetermActionCard event={event('codeterm send --tab e3fa0754 "hello"')} expanded onToggle={() => {}} resolveTabName={(ref) => ref === "e3fa0754" ? "Hugo" : undefined} onFocusTab={(ref) => focusCalls.push(ref)} />);
 const focusTab = sendHost.host.querySelector<HTMLButtonElement>('[data-testid="codeterm-focus-tab"]');
 if (!focusTab || focusTab.textContent !== "Show Tab" || focusTab.textContent.includes("e3fa0754")) throw new Error("tab navigation label regression");
+if (!sendHost.host.textContent?.includes("Tab ID e3fa0754")) throw new Error("resolved send row must show the stable recipient id secondarily");
 await act(async () => focusTab.click());
 if (focusCalls[0] !== "e3fa0754") throw new Error("tab focus callback regression");
 const meshId = "a35724e2-c7e3-486b-95d1-5edaa7f8d749";
@@ -70,8 +105,8 @@ const pendingSendHost = await render(<CodetermActionCard event={{ ...event('code
 if (pendingSendHost.host.querySelector('[data-testid="toolcard-result"]') || pendingSendHost.host.textContent?.includes("OK (pending)")) throw new Error("pending send wrapper output must stay hidden");
 if (pendingSendHost.host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") !== "pending") throw new Error("pending send must not render as successful");
 const contradictorySendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: 'Exit code: 2\nOK (sent)\nCODETERM_RESOLVED_TEXT="hello"' }} expanded onToggle={() => {}} />);
-if (contradictorySendHost.host.querySelector('[data-testid="toolcard-result"]')) throw new Error("successful send must hide a contradictory wrapper exit code");
-if (contradictorySendHost.host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") !== "delivered") throw new Error("successful send must override a contradictory wrapper status");
+if (!contradictorySendHost.host.querySelector('[role="alert"]')?.textContent?.includes("Exit code: 2")) throw new Error("send error evidence must remain visible beside a contradictory success result");
+if (contradictorySendHost.host.querySelector('[data-testid="chat-sent-status"]')?.getAttribute("aria-label") !== "failed") throw new Error("a wrapper error must not be upgraded to delivered");
 const failedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "hello"'), status: "error", result: "error: tab not found" }} expanded onToggle={() => {}} />);
 if (!failedSendHost.host.querySelector('[role="alert"]') || !failedSendHost.host.textContent?.includes("tab not found")) throw new Error("failed send reason must remain visible");
 const resolvedSendHost = await render(<CodetermActionCard event={{ ...event('codeterm send --tab e3fa0754 "$VAR"'), result: 'OK (sent)\nCODETERM_RESOLVED_TEXT="expanded ***REDACTED*** text"' }} expanded onToggle={() => {}} />);
@@ -99,7 +134,7 @@ if (!sendHelpHost.host.textContent?.includes("help") || !sendHelpHost.host.textC
 const docsHost = await render(<CodetermActionCard event={{ ...event("codeterm docs ORCHESTRATION"), result: "one two\nthree" }} expanded={false} onToggle={() => {}} />);
 if (!docsHost.host.textContent?.includes("3 words") || docsHost.host.textContent.includes("chars")) throw new Error("docs metric must count words");
 const unresolvedFocusHost = await render(<CodetermActionCard event={event('codeterm send --tab unknown-ref "hi"')} expanded onToggle={() => {}} onFocusTab={(ref) => focusCalls.push(ref)} />);
-if (!unresolvedFocusHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("tab focus should not require name resolver");
+if (unresolvedFocusHost.host.querySelector('[data-testid="codeterm-focus-tab"]')) throw new Error("unresolved send target must not expose a tab opener");
 
 const closeHost = await render(<CodetermActionCard event={event("codeterm tab close tab_x99ab")} expanded={false} onToggle={() => {}} resolveTabName={(ref) => (ref === "tab_x99ab" ? "Research board" : undefined)} />);
 if (!buttonByRoleName(closeHost.host, "Show full command")) throw new Error("close tab card missing accessible command toggle button");

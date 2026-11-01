@@ -131,14 +131,29 @@ export function selectTabTitleMap(state: ExtendedState): Map<string, string> {
 
 export function selectTabCommunicationNameMap(state: ExtendedState): Map<string, string> {
   const teams = new Map(state.teams.map((team) => [team.id, team.name?.trim() || "Team"]));
+  const teamWorkspaces = new Map(state.teams.map((team) => [team.id, team.workspace_id]));
+  const refs = new Map<string, number>();
+  const tabIds = new Map<string, number>();
+  for (const workspace of state.workspaces) {
+    for (const tabId of workspace.tabs) {
+      tabIds.set(tabId, (tabIds.get(tabId) ?? 0) + 1);
+      const ref = tabId.slice(0, 8);
+      refs.set(ref, (refs.get(ref) ?? 0) + 1);
+    }
+  }
   const byShort = new Map<string, string>();
-  for (const ws of state.workspaces) {
-    for (const tabId of ws.tabs) {
+  for (const workspace of state.workspaces) {
+    for (const tabId of workspace.tabs) {
+      const ref = tabId.slice(0, 8);
+      if (tabIds.get(tabId) !== 1) continue;
       const tab = state.tabs[tabId];
       const name = stripTabTitleSpinner(tab?.title);
       if (!name) continue;
       const teamName = tab?.team_id ? teams.get(tab.team_id) : undefined;
-      byShort.set(tabId.slice(0, 8), teamName ? `${name} · ${teamName}` : name);
+      const teamWorkspace = tab?.team_id ? teamWorkspaces.get(tab.team_id) : undefined;
+      const title = teamName && teamWorkspace === workspace.id ? `${name} · ${teamName}` : name;
+      byShort.set(tabId, title);
+      if (refs.get(ref) === 1) byShort.set(ref, title);
     }
   }
   return byShort;
