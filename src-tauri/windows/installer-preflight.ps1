@@ -18,11 +18,19 @@ if ($Development) {
         }
         $launch = Get-Content -LiteralPath $file -Raw | ConvertFrom-Json
         $fields = @('install_root', 'instance', 'data_dir', 'config_dir', 'port', 'fixture_root')
-        if (@($launch.PSObject.Properties).Count -ne $fields.Count -or
-            @($launch.PSObject.Properties.Name | Where-Object { $_ -cnotin $fields }).Count -ne 0) {
+        if (@($fields | Where-Object { $_ -cnotin $launch.PSObject.Properties.Name }).Count -ne 0 -or
+            @($launch.PSObject.Properties.Name | Where-Object { $_ -cnotin ($fields + @('diagnostics_port')) }).Count -ne 0) {
             throw 'Unexpected isolated update context fields.'
         }
         $port = [int]$launch.port
+        if ('diagnostics_port' -cin $launch.PSObject.Properties.Name) {
+            $diagnosticsPort = $launch.diagnostics_port
+            if (($diagnosticsPort -isnot [long] -and $diagnosticsPort -isnot [int]) -or
+                $diagnosticsPort -lt 1024 -or $diagnosticsPort -gt 65535 -or
+                $diagnosticsPort -in @(7685, 7686, $port)) {
+                throw 'Invalid isolated diagnostics port.'
+            }
+        }
         if ($launch.instance -cnotmatch '^[a-z0-9-]{1,64}$' -or $port -lt 1024 -or $port -gt 65535 -or $port -in @(7685, 7686) -or
             (Get-InstalledImagePath ([IO.Path]::GetFullPath($launch.install_root))).TrimEnd('\') -ine (Get-InstalledImagePath $root)) {
             throw 'Isolated update target does not match this install root.'

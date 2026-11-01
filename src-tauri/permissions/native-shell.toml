@@ -1,0 +1,21 @@
+[[permission]]
+identifier = "allow-native-shell"
+description = "Allows the registered native shell commands in the main window."
+commands.allow = [
+  "frontend_view_root_ready",
+  "native_webview_diagnostics_snapshot",
+  "notify_permission_state",
+  "establish_notify_permission",
+  "get_windows_build_number",
+  "materialize_dropped_files",
+  "read_clipboard_files",
+  "read_clipboard_text",
+  "check_for_update",
+  "install_app_update",
+  "get_update_status",
+  "open_folder",
+  "open_url",
+  "reveal_file",
+  "get_autostart_enabled",
+  "set_autostart_enabled",
+]
