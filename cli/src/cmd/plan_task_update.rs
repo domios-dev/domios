@@ -308,7 +308,7 @@ fn resolve_dependencies(
 
 #[cfg(test)]
 mod tests {
-    use super::{build_params, dedup_preserve, merge_dependencies};
+    use super::{build_params, merge_dependencies};
     use serde_json::json;
 
     #[allow(clippy::too_many_arguments)]

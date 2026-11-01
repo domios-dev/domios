@@ -5,7 +5,7 @@ use super::{
     TabKind,
 };
 
-const CHARTER: &str = "You are Worker Leo.\nExecute the task; report on completion.";
+const AUTHORED_FRAGMENT: &str = "q`v $w \"x\" 'y'\nr8\n";
 mod neighbor_refusal;
 
 #[test]
@@ -37,10 +37,10 @@ fn send_after_adopt_delivers_prose_as_agent_not_shell() {
     let adopted = serde_json::json!({"id": "t1", "agent_type": "mock-pty", "backing_kind": "pty"});
     assert_eq!(classify_tab_kind(&adopted), TabKind::Agent);
     assert_eq!(
-        decide_send_eligibility(TabKind::Agent, CHARTER, false, false),
+        decide_send_eligibility(TabKind::Agent, AUTHORED_FRAGMENT, false, false),
         SendEligibility::Allow
     );
-    match decide_send_eligibility(TabKind::RawShell, CHARTER, false, false) {
+    match decide_send_eligibility(TabKind::RawShell, AUTHORED_FRAGMENT, false, false) {
         SendEligibility::Refuse(msg) => assert!(msg.contains("--to-shell")),
         other => panic!("raw shell must still refuse prose, got {other:?}"),
     }
@@ -76,7 +76,7 @@ fn surface_targets_refuse_text_even_with_to_shell() {
 
 #[test]
 fn raw_shell_refuses_prose_by_default() {
-    match decide_send_eligibility(TabKind::RawShell, CHARTER, false, false) {
+    match decide_send_eligibility(TabKind::RawShell, AUTHORED_FRAGMENT, false, false) {
         SendEligibility::Refuse(msg) => {
             assert!(msg.contains("raw shell"));
             assert!(msg.contains("--to-shell"));
@@ -96,7 +96,7 @@ fn raw_shell_allows_short_command() {
 #[test]
 fn to_shell_override_allows_prose_to_shell() {
     assert_eq!(
-        decide_send_eligibility(TabKind::RawShell, CHARTER, false, true),
+        decide_send_eligibility(TabKind::RawShell, AUTHORED_FRAGMENT, false, true),
         SendEligibility::Allow
     );
 }
@@ -122,7 +122,7 @@ fn require_agent_refuses_non_agent_targets() {
 #[test]
 fn chat_backend_allows_prose_by_default() {
     assert_eq!(
-        decide_send_eligibility(TabKind::ChatBackend, CHARTER, false, false),
+        decide_send_eligibility(TabKind::ChatBackend, AUTHORED_FRAGMENT, false, false),
         SendEligibility::Allow
     );
 }
@@ -266,7 +266,7 @@ fn guard_with_multiple_fences_strips_only_inside() {
 
 #[test]
 fn stdin_resolution_preserves_quotes_and_trailing_newline() {
-    let input = "it's got 'quotes' and \"doubles\"\nsecond line\n";
+    let input = AUTHORED_FRAGMENT;
     let mut stdin = input.as_bytes();
     let (text, source) = resolve_send_text_input(None, None, None, true, &mut stdin).unwrap();
     assert_eq!(source, "--stdin");
@@ -346,7 +346,7 @@ fn remote_send_body_omits_empty_text_and_blank_source() {
 /// refusal has to land there, before a tab id is even resolved.
 #[test]
 fn quoted_handoff_inline_payload_is_refused_by_the_send_resolver() {
-    let authored = "Goal: `plan handoff` must arrive byte-exact.\nRules: no $VARS lost.";
+    let authored = AUTHORED_FRAGMENT;
     let err = resolve_send_text_input(
         Some(authored.to_string()),
         None,
@@ -371,7 +371,7 @@ fn quoted_handoff_scalar_send_and_staged_sources_still_resolve() {
     .expect("a scalar argument stays inline");
     assert_eq!((text.as_str(), source), ("status?", "positional"));
 
-    let staged = "Goal: `plan handoff` must arrive byte-exact.\nRules: no $VARS lost.\n";
+    let staged = AUTHORED_FRAGMENT;
     let (text, source) = resolve_send_text_input(
         None,
         None,
