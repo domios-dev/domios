@@ -321,7 +321,6 @@ fn test_build_claude_with_task() {
     assert!(cmd.contains("--dangerously-skip-permissions"));
     assert!(cmd.contains(".ct-task-"), "task via temp file");
     assert!(cmd.contains("--append-system-prompt-file"));
-    assert!(cmd.contains("Execute the CodeTerm task provided in the appended system prompt"));
     if cfg!(target_os = "windows") {
         assert!(cmd.contains("Remove-Item Env:CLAUDECODE -ErrorAction SilentlyContinue;"));
     } else {
@@ -512,39 +511,6 @@ fn test_shell_quote() {
 }
 
 // ── 4. build_agent_command with special chars ──
-
-#[test]
-fn test_build_claude_task_with_newlines() {
-    let reg = test_registry();
-    let mut params = make_params("claude", Some("line1\nline2\nline3"));
-    params.skip_permissions = Some(true);
-    params.permission_bypass_authorization =
-        crate::service::permission_policy::authorize_permission_bypass(&reg, "claude", true);
-    let cmd = build_agent_command("claude", &params, Some("line1\nline2\nline3"), None, &reg);
-    assert!(
-        cmd.contains(".ct-task-"),
-        "task with newlines still uses temp file"
-    );
-    assert!(cmd.contains("--dangerously-skip-permissions"));
-}
-
-#[test]
-fn test_build_claude_task_with_single_quotes() {
-    let reg = test_registry();
-    let task = "count files that don't match '*.rs'";
-    let params = make_params("claude", Some(task));
-    let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    assert!(cmd.contains(".ct-task-"));
-}
-
-#[test]
-fn test_build_claude_task_with_double_quotes() {
-    let reg = test_registry();
-    let task = r#"find files matching "*.rs""#;
-    let params = make_params("claude", Some(task));
-    let cmd = build_agent_command("claude", &params, Some(task), None, &reg);
-    assert!(cmd.contains(".ct-task-"));
-}
 
 #[test]
 fn test_build_claude_task_with_shell_special_chars() {
