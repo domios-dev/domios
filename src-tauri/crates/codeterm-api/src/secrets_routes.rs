@@ -453,7 +453,7 @@ pub async fn switch_backend(
                 obj.insert("serverUrl".into(), serde_json::json!(url));
             }
         }
-        if let Err(e) = codeterm_service_core::config::save_config_pub(&cfg) {
+        if let Err(e) = codeterm_service_core::config::save_config_and_apply(&state.config, cfg) {
             return Err(map_error(SecretError::Backend {
                 message: format!("save config: {}", e),
             }));

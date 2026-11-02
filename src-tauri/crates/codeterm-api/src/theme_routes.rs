@@ -100,9 +100,8 @@ pub async fn apply_theme_api(
         theme.name = body.name;
         config.theme = theme;
     }
-    codeterm_service_core::config::save_config_pub(&config)
+    let config = codeterm_service_core::config::save_config_and_apply(config_state, config)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
-    *config_state.lock() = config.clone();
     state.svc.ui.emit(
         "config-changed",
         serde_json::to_value(&config).unwrap_or(serde_json::Value::Null),

@@ -19,6 +19,14 @@ use codeterm_service_core::api_support::access_policy::peer_access_allowed;
 use codeterm_service_core::mesh::types::AccessLevel;
 use codeterm_service_core::service::tokens::token_fp;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthenticatedOrigin {
+    Owner,
+    Agent,
+    Mesh,
+    Service,
+}
+
 #[derive(Clone, Debug)]
 pub enum CallerIdentity {
     Local,
@@ -227,13 +235,20 @@ pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
 }
 
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
+    authenticate_caller(state, auth_header).map(|(identity, _)| identity)
+}
+
+fn authenticate_caller(
+    state: &AppState,
+    auth_header: &str,
+) -> Result<(CallerIdentity, AuthenticatedOrigin), ()> {
     let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
     if token.is_empty() {
         return Err(());
     }
 
     if let Some(caller) = state.svc.identify_tab_credential(token) {
-        return Ok(CallerIdentity::Tab(caller));
+        return Ok((CallerIdentity::Tab(caller), AuthenticatedOrigin::Agent));
     }
 
     if let Some(ref api_token) = state.config.lock().api.token {
@@ -244,7 +259,7 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
                 api_token.as_bytes(),
             )
         {
-            return Ok(CallerIdentity::Local);
+            return Ok((CallerIdentity::Local, AuthenticatedOrigin::Owner));
         }
     }
 
@@ -253,7 +268,10 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         &state.svc.tokens,
         &state.svc.services_store,
     ) {
-        return Ok(CallerIdentity::ServicePush { service_id: svc_id });
+        return Ok((
+            CallerIdentity::ServicePush { service_id: svc_id },
+            AuthenticatedOrigin::Service,
+        ));
     }
 
     let mesh = state.mesh.lock();
@@ -273,7 +291,9 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
     drop(mesh);
 
     match codeterm_service_core::mesh::crown::verify_signed_request(token, &known_keys) {
-        Ok(sender_id) if sender_id == own_id => Ok(CallerIdentity::Local),
+        Ok(sender_id) if sender_id == own_id => {
+            Ok((CallerIdentity::Local, AuthenticatedOrigin::Mesh))
+        }
         Ok(sender_id) => {
             let (access_level, relay_protocol_version) = state
                 .mesh
@@ -282,11 +302,14 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
                 .get(&sender_id)
                 .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
                 .unwrap_or((AccessLevel::ReadOnly, 0));
-            Ok(CallerIdentity::Peer {
-                instance_id: sender_id,
-                access_level,
-                relay_protocol_version,
-            })
+            Ok((
+                CallerIdentity::Peer {
+                    instance_id: sender_id,
+                    access_level,
+                    relay_protocol_version,
+                },
+                AuthenticatedOrigin::Mesh,
+            ))
         }
         Err(_) => Err(()),
     }
@@ -325,14 +348,6 @@ pub(crate) fn is_local_caller(state: &AppState, headers: &axum::http::HeaderMap)
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
     identify_caller(state, auth).is_ok_and(ownership_release_is_local)
-}
-
-pub(crate) fn is_owner_caller(state: &AppState, headers: &axum::http::HeaderMap) -> bool {
-    let auth = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("");
-    matches!(identify_caller(state, auth), Ok(CallerIdentity::Local))
 }
 
 fn ownership_release_is_local(caller: CallerIdentity) -> bool {
@@ -576,7 +591,11 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .unwrap_or("")
         .to_string();
 
-    let caller = identify_caller(&state, &auth);
+    let authenticated = authenticate_caller(&state, &auth);
+    if let Ok((_, origin)) = &authenticated {
+        req.extensions_mut().insert(*origin);
+    }
+    let caller = authenticated.map(|(identity, _)| identity);
     if tailnet_listener
         && state
             .mesh

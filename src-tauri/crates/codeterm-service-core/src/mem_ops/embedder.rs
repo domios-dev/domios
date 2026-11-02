@@ -277,10 +277,12 @@ fn persist(svc: &ServiceState, target: &EmbedderIdentity) -> Result<(), Refusal>
     next.memory.embedder.provider = target.provider.clone();
     next.memory.embedder.model = target.model.clone();
     next.memory.embedder.dimension = target.dimension;
-    crate::config::save_config_and_apply(&state, next).map_err(|message| Refusal {
-        message,
-        hints: Vec::new(),
-    })
+    crate::config::save_config_and_apply(&state, next)
+        .map(|_| ())
+        .map_err(|message| Refusal {
+            message,
+            hints: Vec::new(),
+        })
 }
 
 /// Daemon start: push embedder changes to the UI, then activate the

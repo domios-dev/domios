@@ -236,7 +236,10 @@ pub fn run_action(action: PluginManagerAction, svc: &ServiceContext) -> Result<V
                 .plugin_id
                 .as_deref()
                 .ok_or("remove requires pluginId")?;
-            codeterm_service_core::config::cleanup_removed_plugin_config(plugin_id)?;
+            codeterm_service_core::config::cleanup_removed_plugin_config(
+                svc.ext::<codeterm_service_core::config::ConfigState>(),
+                plugin_id,
+            )?;
         }
         if action_refreshes_catalog(&action.kind) {
             codeterm_service_core::service::plugin_skills::sync(

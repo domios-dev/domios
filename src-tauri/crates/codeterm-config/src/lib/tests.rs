@@ -548,3 +548,86 @@ fn browser_upload_folders_persist_per_profile_and_remove_on_save() {
     let loaded: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     assert!(loaded.browser_upload_folders.is_empty());
 }
+
+#[test]
+fn browser_upload_revocation_survives_a_stale_non_owner_commit_in_memory_and_on_disk() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let mut config = AppConfig::default();
+    config
+        .browser_upload_folders
+        .insert("work".into(), vec!["/media".into()]);
+    let state = Arc::new(Mutex::new(config));
+    save_config_at(&path, &state.lock()).unwrap();
+    let expected = state.lock().browser_upload_folders.clone();
+    let (captured, snapshot_ready) = std::sync::mpsc::sync_channel(0);
+    let (resume, revoked) = std::sync::mpsc::sync_channel(0);
+    std::thread::scope(|scope| {
+        let worker_state = state.clone();
+        let path = &path;
+        let writer = scope.spawn(move || {
+            let mut stale = worker_state.lock().clone();
+            stale.font.size = 18;
+            captured.send(()).unwrap();
+            revoked.recv().unwrap();
+            save_config_and_apply_with(&worker_state, stale, |applied| {
+                assert!(
+                    worker_state.try_lock().is_none(),
+                    "commit must retain the state transaction through persistence"
+                );
+                save_config_at(path, applied)
+            })
+            .unwrap()
+        });
+        snapshot_ready.recv().unwrap();
+        let mut revoked_config = state.lock().clone();
+        revoked_config.browser_upload_folders.clear();
+        commit_config(&state, revoked_config, Some(&expected), |applied| {
+            save_config_at(&path, applied)
+        })
+        .unwrap();
+        resume.send(()).unwrap();
+        assert!(writer.join().unwrap().browser_upload_folders.is_empty());
+    });
+    assert!(state.lock().browser_upload_folders.is_empty());
+    assert_eq!(state.lock().font.size, 18);
+    let disk: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(disk.browser_upload_folders.is_empty());
+    assert_eq!(disk.font.size, 18);
+    let mut stale_owner = state.lock().clone();
+    stale_owner.browser_upload_folders = expected.clone();
+    assert!(
+        commit_config(&state, stale_owner, Some(&expected), |_| panic!(
+            "stale owner must not persist"
+        ))
+        .is_err()
+    );
+    assert!(state.lock().browser_upload_folders.is_empty());
+}
+
+#[test]
+fn browser_upload_grants_are_preserved_for_all_snapshot_commits_and_failed_saves() {
+    let mut current = AppConfig::default();
+    current
+        .browser_upload_folders
+        .insert("work".into(), vec!["/media".into()]);
+    let state = Mutex::new(current);
+    let mut next = state.lock().clone();
+    next.browser_upload_folders.clear();
+    let applied = save_config_and_apply_with(&state, next.clone(), |applied| {
+        assert_eq!(
+            applied.browser_upload_folders.get("work"),
+            Some(&vec!["/media".to_string()])
+        );
+        Ok(())
+    })
+    .unwrap();
+    assert_eq!(
+        applied.browser_upload_folders,
+        state.lock().browser_upload_folders
+    );
+    next.font.size = 20;
+    assert!(save_config_and_apply_with(&state, next, |_| Err("disk full".into())).is_err());
+    assert_ne!(state.lock().font.size, 20);
+    assert!(state.lock().browser_upload_folders.contains_key("work"));
+}

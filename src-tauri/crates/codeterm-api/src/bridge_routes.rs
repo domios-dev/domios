@@ -260,7 +260,7 @@ fn persist_telegram_enabled(state: &AppState, enabled: bool) {
     let snapshot = set_telegram_enabled(
         &state.config,
         enabled,
-        codeterm_service_core::config::save_config_pub,
+        codeterm_service_core::config::save_config_and_apply,
     );
     state.svc.ui.emit(
         "config-changed",
@@ -273,18 +273,23 @@ fn persist_telegram_enabled(state: &AppState, enabled: bool) {
 fn set_telegram_enabled(
     config: &Mutex<AppConfig>,
     enabled: bool,
-    save: impl FnOnce(&AppConfig) -> Result<(), String>,
+    save: impl FnOnce(&Mutex<AppConfig>, AppConfig) -> Result<AppConfig, String>,
 ) -> AppConfig {
-    let mut cfg = config.lock();
+    let mut cfg = config.lock().clone();
     cfg.integrations.telegram_enabled = enabled;
-    if let Err(e) = save(&cfg) {
-        log::warn!(
-            "[bridge] failed to persist telegram_enabled={}: {}",
-            enabled,
-            e
-        );
+    match save(config, cfg) {
+        Ok(applied) => applied,
+        Err(e) => {
+            log::warn!(
+                "[bridge] failed to persist telegram_enabled={}: {}",
+                enabled,
+                e
+            );
+            let mut current = config.lock();
+            current.integrations.telegram_enabled = enabled;
+            current.clone()
+        }
     }
-    cfg.clone()
 }
 
 fn persist_token_file(token: &str) -> Result<(), String> {
@@ -389,9 +394,11 @@ mod tests {
         let state = config_with_allowlist();
         let mut saved = None;
 
-        let snapshot = set_telegram_enabled(&state, false, |cfg| {
-            saved = Some(serde_json::to_value(cfg).unwrap());
-            Ok(())
+        let snapshot = set_telegram_enabled(&state, false, |state, next| {
+            codeterm_service_core::config::save_config_and_apply_with(state, next, |cfg| {
+                saved = Some(serde_json::to_value(cfg).unwrap());
+                Ok(())
+            })
         });
 
         let snapshot = serde_json::to_value(&snapshot).unwrap();
@@ -408,7 +415,7 @@ mod tests {
     fn set_telegram_enabled_returns_memory_state_when_save_fails() {
         let state = config_with_allowlist();
 
-        let snapshot = set_telegram_enabled(&state, false, |_| Err("disk full".to_string()));
+        let snapshot = set_telegram_enabled(&state, false, |_, _| Err("disk full".to_string()));
 
         assert!(!snapshot.integrations.telegram_enabled);
         assert!(!state.lock().integrations.telegram_enabled);

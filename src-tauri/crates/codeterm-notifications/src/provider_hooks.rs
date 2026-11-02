@@ -60,7 +60,7 @@ fn install_provider_integration_body(
                 .ok_or_else(|| format!("Unknown provider: {provider_id}"))?
         },
         || {
-            let mut current = config.lock();
+            let current = config.lock();
             let mut updated = current.clone();
             {
                 let provider = updated.agents.entry(provider_id.clone()).or_default();
@@ -76,8 +76,8 @@ fn install_provider_integration_body(
                     .extra
                     .insert("integration_target".into(), toml::Value::String(target));
             }
-            crate::config::save_config_pub(&updated)?;
-            *current = updated;
+            drop(current);
+            crate::config::save_config_and_apply(config, updated)?;
             Ok(())
         },
         || {
@@ -315,7 +315,7 @@ fn record_inferred_owned_consent(
     provider_id: &str,
     status: &Json,
 ) -> Result<bool, String> {
-    let mut current = config.lock();
+    let current = config.lock();
     let mut updated = current.clone();
     let recorded_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -324,8 +324,8 @@ fn record_inferred_owned_consent(
     if !infer_consent_for_owned_install(&mut updated, provider_id, status, recorded_at) {
         return Ok(false);
     }
-    crate::config::save_hook_reconciliation_config(&updated)?;
-    *current = updated;
+    drop(current);
+    crate::config::save_reconciled_config_and_apply(config, updated)?;
     Ok(true)
 }
 

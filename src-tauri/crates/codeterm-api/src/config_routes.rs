@@ -1,7 +1,7 @@
 use axum::{
     extract::{Query, State as AxumState},
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 
@@ -176,22 +176,11 @@ pub(crate) fn admit_config_write(
 
 pub async fn patch_config_api(
     AxumState(state): AxumState<AppState>,
+    Extension(origin): Extension<crate::auth::AuthenticatedOrigin>,
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    if admit_config_write(
-        crate::tab_routes::caller_tab_header(&headers).as_deref(),
-        body.key.as_deref(),
-        &body.partial,
-    )
-    .is_err()
-    {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Where notifications go changes only on a tapped answer".to_string(),
-        ));
-    }
     let cfg = state.config.lock().clone();
     let mut cfg_json = serde_json::to_value(&cfg)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -219,11 +208,23 @@ pub async fn patch_config_api(
         serde_json::from_value(cfg_json)
             .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     if new_cfg.browser_upload_folders != cfg.browser_upload_folders
-        && !crate::auth::is_owner_caller(&state, &headers)
+        && origin != crate::auth::AuthenticatedOrigin::Owner
     {
         return Err((
             StatusCode::FORBIDDEN,
             "Only the owner can change browser upload folders".into(),
+        ));
+    }
+    if admit_config_write(
+        crate::tab_routes::caller_tab_header(&headers).as_deref(),
+        body.key.as_deref(),
+        &body.partial,
+    )
+    .is_err()
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Where notifications go changes only on a tapped answer".to_string(),
         ));
     }
     for (profile, folders) in &new_cfg.browser_upload_folders {
@@ -281,8 +282,24 @@ pub async fn patch_config_api(
     let changed_catalogue_settings =
         codeterm_service_core::config::changed_provider_settings(&cfg, &new_cfg);
 
-    codeterm_service_core::config::save_config_and_apply(&state.config, new_cfg.clone())
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    new_cfg = if origin == crate::auth::AuthenticatedOrigin::Owner {
+        codeterm_service_core::config::save_owner_config_and_apply(
+            &state.config,
+            new_cfg,
+            &cfg.browser_upload_folders,
+        )
+        .map_err(|error| match error {
+            codeterm_service_core::config::ConfigCommitError::StaleUploadFolders => {
+                (StatusCode::CONFLICT, error.to_string())
+            }
+            codeterm_service_core::config::ConfigCommitError::Save(message) => {
+                (StatusCode::INTERNAL_SERVER_ERROR, message)
+            }
+        })?
+    } else {
+        codeterm_service_core::config::save_config_and_apply(&state.config, new_cfg)
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
+    };
 
     if new_cfg.theme.name != current_theme_name {
         state

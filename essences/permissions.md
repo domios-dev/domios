@@ -56,7 +56,7 @@ Plugin setup guidance is data. A helper asks the owner what to change and uses t
 
 ## Browser upload folders
 
-Only the owner can add or remove persisted upload folders for a named Browser profile, through Settings or the owner-authenticated configuration CLI/API. Agent credentials cannot widen or revoke this authority. Relative upload paths resolve inside the calling agent's pad; absolute paths may also select files beneath a folder granted to the active profile. Nested files retain the same path, link and file-pinning protections and file-count bound. The upload activity names the granting folder. Platforms without secure admission refuse uploads.
+Only the owner can add or remove persisted upload folders for a named Browser profile, through Settings or the owner-authenticated configuration CLI/API. Agent, peer and relayed credentials cannot widen or revoke this authority, including requests forwarded back to the same machine. Config snapshot commits preserve the current grants; stale owner grant edits are refused. Relative upload paths resolve inside the calling agent's pad; absolute paths may also select files beneath a folder granted to the active profile. Nested files retain the same path, link and file-pinning protections and file-count bound. The upload activity names the granting folder. Platforms without secure admission refuse uploads.
 
 ## Supporter classification
 
