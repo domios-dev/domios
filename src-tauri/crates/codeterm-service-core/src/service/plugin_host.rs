@@ -542,8 +542,8 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         api_cfg_base_url(self.configuration().api)
     }
 
-    fn api_token(&self) -> Option<String> {
-        self.configuration().api.token
+    fn tab_process_env(&self, tab_id: &str) -> std::collections::HashMap<String, String> {
+        self.tab_env(tab_id)
     }
 
     fn model_provider_process_env(

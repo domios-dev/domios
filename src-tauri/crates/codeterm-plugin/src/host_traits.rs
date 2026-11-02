@@ -102,7 +102,9 @@ pub trait PluginHostCtx: Send + Sync {
     // ── Socket / API ────────────────────────────────────────────────────
     fn socket_display_path(&self) -> String;
     fn api_base_url(&self) -> String;
-    fn api_token(&self) -> Option<String>;
+    fn tab_process_env(&self, _tab_id: &str) -> std::collections::HashMap<String, String> {
+        std::collections::HashMap::new()
+    }
 
     /// Host-only decision credential lookup; its value never crosses the VM boundary.
     fn supporter_token(&self, _plugin_id: &str) -> Option<String> {

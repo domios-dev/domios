@@ -349,9 +349,6 @@ fn sandbox_service_ref_is_late_bound() {
         fn api_base_url(&self) -> String {
             String::new()
         }
-        fn api_token(&self) -> Option<String> {
-            None
-        }
         fn secret_get(&self, _: &str, _: &str) -> Option<String> {
             None
         }

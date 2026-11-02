@@ -48,6 +48,71 @@ fn credentials_are_distinct_per_tab_and_never_the_host_secret() {
 }
 
 #[test]
+fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
+    use codeterm_plugin::chatbackend_provider::ChatBackendProvider;
+    use codeterm_plugin::host_traits::PluginHostCtx;
+    use codeterm_plugin::js_runtime::{JsChatBackend, PluginVm};
+    use std::sync::Arc;
+
+    let (fixture, tab, other) = fixture();
+    let svc = &fixture.service;
+    svc.ext::<crate::config::ConfigState>().lock().api.token = Some("owner-secret".into());
+    let pty_credential = token(svc, &tab);
+    let host: Arc<dyn PluginHostCtx> = Arc::new(svc.clone());
+    let vm = Arc::new(PluginVm::from_source("credential-probe", r#"
+        module.exports.default = {
+            openSession() {
+                const opts = host.platform() === "windows"
+                    ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_API_TOKEN)"] }
+                    : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_API_TOKEN\""] };
+                opts.env = { CODETERM_API_TOKEN: "owner-secret" };
+                const out = JSON.parse(host.exec(JSON.stringify(opts)));
+                if (out.code !== 0) throw new Error(JSON.stringify(out));
+                return { sessionId: out.stdout };
+            }
+        };
+    "#.into()).unwrap());
+    assert!(vm.set_service(Arc::downgrade(&host)));
+    let backend = JsChatBackend::new(vm, "credential-probe");
+    let credential = backend.open_session(json!({"tabId":tab})).unwrap();
+    assert_eq!(credential, pty_credential);
+    let env = svc.tab_process_env(&tab);
+    assert_eq!(env["CODETERM_API_TOKEN"], credential);
+    assert_ne!(credential, "owner-secret");
+    let caller = svc
+        .authenticate_local_credential(&credential)
+        .unwrap()
+        .unwrap();
+    assert_eq!(caller.tab_id, tab);
+    assert_eq!(caller.binding_nonce, env["CODETERM_SESSION_BINDING_NONCE"]);
+    assert!(!svc
+        .tab_process_env("missing-tab")
+        .contains_key("CODETERM_API_TOKEN"));
+    for method in [
+        "agent.ack",
+        "agent.report",
+        "tab.list",
+        "mem.search",
+        "plan.get",
+    ] {
+        let mut params = Some(json!({}));
+        svc.bind_local_rpc(&credential, method, &mut params)
+            .unwrap();
+        assert_eq!(params.unwrap()["caller_tab_id"], tab, "{method}");
+    }
+    let mut send = Some(json!({"tab_id":other,"text":"opaque"}));
+    svc.bind_local_rpc(&credential, "tab.send_text", &mut send)
+        .unwrap();
+    assert_eq!(send.unwrap()["source_tab"], tab);
+    assert!(svc
+        .bind_local_rpc(&credential, "rest_api.restart", &mut None)
+        .is_err());
+    svc.rotate_session_binding_nonce(&tab);
+    assert!(svc.authenticate_local_credential(&credential).is_err());
+    assert_ne!(svc.tab_process_env(&tab)["CODETERM_API_TOKEN"], credential);
+}
+
+#[test]
 fn launch_rotation_and_close_revoke_previous_credentials() {
     let (fixture, tab, _) = fixture();
     let svc = &fixture.service;

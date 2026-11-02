@@ -591,6 +591,7 @@ fn inject_host_env_json(
 }
 
 fn with_host_env(mut opts: ExecOpts, host_env: &HashMap<String, String>) -> ExecOpts {
+    opts.env.insert("CODETERM_API_TOKEN".into(), String::new());
     opts.env.extend(host_env.clone());
     opts
 }

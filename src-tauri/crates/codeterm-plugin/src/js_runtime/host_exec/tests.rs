@@ -197,12 +197,14 @@ fn host_exec_env_overrides_plugin_env_for_identity() {
     let opts = serde_json::json!({
         "bin": "codeterm",
         "env": {
+            "CODETERM_API_TOKEN": "plugin-token",
             "CODETERM_TAB_ID": "spoofed",
             "PLUGIN_VAR": "kept"
         }
     })
     .to_string();
     let host_env = HashMap::from([
+        ("CODETERM_API_TOKEN".to_string(), "tab-token".to_string()),
         ("CODETERM_TAB_ID".to_string(), "chat-tab".to_string()),
         (
             "CODETERM_SOCKET_PATH".to_string(),
@@ -213,6 +215,13 @@ fn host_exec_env_overrides_plugin_env_for_identity() {
     let merged: ExecOpts =
         serde_json::from_str(&inject_host_env_json(&opts, &host_env).unwrap()).unwrap();
 
+    assert_eq!(
+        merged.env.get("CODETERM_API_TOKEN").map(String::as_str),
+        Some("tab-token")
+    );
+    let unbound: ExecOpts =
+        serde_json::from_str(&inject_host_env_json(&opts, &HashMap::new()).unwrap()).unwrap();
+    assert_eq!(unbound.env["CODETERM_API_TOKEN"], "");
     assert_eq!(
         merged.env.get("CODETERM_TAB_ID").map(String::as_str),
         Some("chat-tab")
