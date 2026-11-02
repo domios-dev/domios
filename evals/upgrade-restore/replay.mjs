@@ -42,6 +42,7 @@ if (provider?.agent_runtime?.command?.binary !== 'codex' || !resolvedBinary
   throw new Error('Fake app-server backing is not the DEV daemon’s resolved runtime binary');
 }
 if (mode === 'stage') {
+  await dc('config', 'set', 'general_agent.enabled', 'false', '--json');
   const imported = await dc('sessions', 'backups', 'import', '--file', file, '--json');
   if (imported.imported_tabs !== expected.length || imported.restart_required !== true) {
     throw new Error('Import lost tabs or omitted the required restart acknowledgement');

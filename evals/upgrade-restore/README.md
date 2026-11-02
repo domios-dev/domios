@@ -70,7 +70,9 @@ CODETERM_INSTANCE=upgrade-restore-real CODETERM_API_PORT=<dev-port> \
 
 Import refuses PROD, an unnamed DEV, or a desk owning PTYs. It imports the typed
 desk and sanitized Plan store and returns `restart_required`. A 200 response is
-not a restore verdict. Stop/start this named DEV using the dev-run skill so the
+not a restore verdict. Before import, `stage` persists `general_agent.enabled = false`
+through the dev-pinned config CLI so General does not start against the fixture-only
+provider after restart. Stop/start this named DEV using the dev-run skill so the
 current build loads committed storage, then require ready state and history:
 
 ```bash
