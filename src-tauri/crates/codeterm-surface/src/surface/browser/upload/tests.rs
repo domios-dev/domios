@@ -113,7 +113,7 @@ struct Connection {
     mode: &'static str,
     intercept_fails: bool,
     calls: Mutex<Vec<(String, Value)>>,
-    events: Mutex<Option<tokio::sync::mpsc::Sender<CdpEvent>>>,
+    events: Mutex<Option<tokio::sync::mpsc::Sender<Arc<CdpEvent>>>>,
     closed: tokio::sync::watch::Sender<Option<String>>,
 }
 #[async_trait::async_trait]
@@ -156,11 +156,11 @@ impl CdpConnection for Connection {
                     .lock()
                     .as_ref()
                     .unwrap()
-                    .try_send(CdpEvent {
+                    .try_send(Arc::new(CdpEvent {
                         method: "Page.fileChooserOpened".into(),
                         params: json!({"backendNodeId":42,"mode":self.mode}),
                         session_id: Some("s".into()),
-                    })
+                    }))
                     .unwrap();
                 json!({})
             }
