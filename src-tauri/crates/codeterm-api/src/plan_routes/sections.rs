@@ -30,7 +30,7 @@ pub struct SectionAddBody {
 
 pub async fn section_add(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<SectionAddBody>,
 ) -> PlanRouteResult {
@@ -99,7 +99,7 @@ pub struct SectionUpdateBody {
 
 pub async fn section_update(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, sid)): Path<(String, String)>,
     Json(body): Json<SectionUpdateBody>,
 ) -> PlanRouteResult {
@@ -130,7 +130,7 @@ pub async fn section_update(
 
 pub async fn section_rm(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, sid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;

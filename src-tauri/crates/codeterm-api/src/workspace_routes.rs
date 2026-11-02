@@ -157,7 +157,7 @@ enum WorkspaceCloseCaller {
 }
 
 fn workspace_close_caller(
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     body: &CloseWorkspaceBody,
     workspace_id: &str,
 ) -> WorkspaceCloseCaller {
@@ -191,7 +191,7 @@ pub async fn rename_workspace(
 
 pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     OptionalJson(body): OptionalJson<CloseWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

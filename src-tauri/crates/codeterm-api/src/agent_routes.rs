@@ -20,6 +20,7 @@ pub use role_mutations::{
     clear_tab_role, make_orchestrator, make_planner, set_can_spawn, set_tab_role,
 };
 mod pair_headers;
+mod remote_authority;
 pub(crate) mod spawn_ownership;
 mod spawn_rejection;
 mod spawn_request;
@@ -231,6 +232,22 @@ pub async fn spawn_agent(
         status: s,
         body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
     })?;
+    let remote_agent = crate::auth::remote_agent(&state, &headers)
+        .map_err(|(status, message)| SpawnRejection::new(status, "forbidden", message))?;
+    if let Some(agent) = &remote_agent {
+        remote_authority::prepare(agent, &mut body)?;
+    }
+    let origin = crate::auth::authenticated_origin(&state, &headers)
+        .map_err(|(status, message)| SpawnRejection::new(status, "forbidden", message))?;
+    let local_actor = if remote_agent.is_some() || origin == crate::auth::AuthenticatedOrigin::Mesh
+    {
+        None
+    } else {
+        Some(
+            crate::auth::ActorHeaders::authenticate(&state, headers.clone())
+                .map_err(|(status, message)| SpawnRejection::new(status, "forbidden", message))?,
+        )
+    };
     codeterm_service_core::service::spawn_title_validate_agent_tab_title(
         body.title.as_deref(),
         body.agent_name.as_deref(),
@@ -241,7 +258,7 @@ pub async fn spawn_agent(
             |message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message),
         )?;
     }
-    if crate::auth::caller_peer_id(&state, &headers).is_none() {
+    if local_actor.is_some() {
         if let Some(caller) = crate::auth::tab_caller(&state, &headers)
             .map_err(|(status, message)| SpawnRejection::new(status, "forbidden", message))?
         {
@@ -265,16 +282,18 @@ pub async fn spawn_agent(
         }
     }
     let require_delivery_ack = body.require_delivery_ack;
-    let spawning_peer = crate::auth::caller_peer_id(&state, &headers).map(|peer_id| {
-        let peer_name = state
-            .mesh
-            .lock()
-            .paired_peers
-            .get(&peer_id)
-            .map(|peer| peer.instance_name.clone())
-            .unwrap_or_default();
-        (peer_id, peer_name)
-    });
+    let spawning_peer = crate::auth::caller_peer_id(&state, &headers)
+        .filter(|_| remote_agent.is_none())
+        .map(|peer_id| {
+            let peer_name = state
+                .mesh
+                .lock()
+                .paired_peers
+                .get(&peer_id)
+                .map(|peer| peer.instance_name.clone())
+                .unwrap_or_default();
+            (peer_id, peer_name)
+        });
     let ownership = match spawning_peer {
         Some((peer_id, peer_name)) => Some(ownership_for_spawning_peer(
             body.ownership.take(),
@@ -298,7 +317,10 @@ pub async fn spawn_agent(
     codeterm_service_core::service::execution_sandbox_enforce_delegation_ceiling(
         &state.svc,
         &params,
-        crate::tab_routes::caller_tab_header(&headers).as_deref(),
+        local_actor
+            .as_ref()
+            .and_then(crate::tab_routes::caller_tab_header)
+            .as_deref(),
     )
     .map_err(|message| SpawnRejection::new(StatusCode::FORBIDDEN, "sandbox_ceiling", message))?;
     let cwd_params = params.clone();

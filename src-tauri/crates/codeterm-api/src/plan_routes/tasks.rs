@@ -359,7 +359,7 @@ pub struct TaskAddBody {
 
 pub async fn task_add(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<TaskAddBody>,
 ) -> PlanRouteResult {
@@ -490,7 +490,7 @@ pub async fn task_add(
 
 pub async fn task_update(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
@@ -525,7 +525,7 @@ pub async fn task_update(
 
 fn task_update_core(
     service: &codeterm_service_core::service::ServiceState,
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     id: &str,
     tid: &str,
     body: Value,
@@ -542,7 +542,7 @@ fn task_update_core(
 
 fn task_update_core_with_lane_cleanup_check(
     service: &codeterm_service_core::service::ServiceState,
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     id: &str,
     tid: &str,
     body: Value,
@@ -802,7 +802,7 @@ pub struct TaskCloseBody {
 
 pub async fn task_close(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
@@ -896,7 +896,7 @@ pub struct TaskAssignBody {
 
 pub async fn task_assign(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskAssignBody>,
 ) -> PlanRouteResult {
@@ -1107,7 +1107,7 @@ use respawn::{respawn_spawn_command, RESPAWN_ATTEMPT_FLAG};
 
 pub async fn task_rm(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;

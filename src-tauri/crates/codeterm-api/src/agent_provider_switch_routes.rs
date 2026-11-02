@@ -48,7 +48,7 @@ pub(crate) async fn provider_history(
 
 pub(crate) async fn switch_provider(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(tab): Path<String>,
     Json(body): Json<SwitchProviderBody>,
 ) -> Response {

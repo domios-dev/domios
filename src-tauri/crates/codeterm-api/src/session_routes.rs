@@ -23,7 +23,7 @@ pub struct SaveSessionBody {
 /// A `continue_tab` asks the next start to deliver one continue to that tab.
 pub async fn save_session_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     OptionalJson(body): OptionalJson<SaveSessionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;

@@ -2,7 +2,7 @@ use super::*;
 
 pub async fn archive(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
@@ -39,7 +39,7 @@ pub async fn archive(
 
 pub async fn unarchive(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
@@ -67,7 +67,7 @@ pub struct PauseBody {
 
 pub async fn pause(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<PauseBody>,
 ) -> PlanRouteResult {
@@ -96,7 +96,7 @@ pub async fn pause(
 
 pub async fn resume(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
@@ -121,7 +121,7 @@ pub async fn resume(
 
 pub(super) async fn authorize_plan_mutation_http(
     svc: &codeterm_service_core::service::ServiceState,
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     plan_id: &str,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let caller = crate::tab_routes::authenticated_plan_caller(headers);
@@ -195,7 +195,9 @@ pub struct TransferBody {
     reason: String,
 }
 
-pub(super) fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)> {
+pub(super) fn transfer_caller(
+    headers: &crate::auth::ActorHeaders,
+) -> Result<String, (StatusCode, Json<Value>)> {
     crate::tab_routes::caller_tab_header(headers)
         .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| {
@@ -208,7 +210,7 @@ pub(super) fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode
 
 pub async fn transfer(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<TransferBody>,
 ) -> PlanRouteResult {

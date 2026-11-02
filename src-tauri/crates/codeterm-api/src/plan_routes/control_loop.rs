@@ -18,7 +18,7 @@ pub fn router() -> axum::Router<AppState> {
 
 pub async fn run(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     check_auth(&state, &headers).map_err(|(status, message)| text_err(status, message))?;
@@ -52,7 +52,7 @@ pub async fn show(
 
 pub async fn set(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<codeterm_plan::service_plan::curator::ControlLoopUpdate>,
 ) -> PlanRouteResult {

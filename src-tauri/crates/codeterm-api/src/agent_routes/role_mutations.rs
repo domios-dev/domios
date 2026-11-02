@@ -16,7 +16,7 @@ pub struct SetRoleBody {
 
 pub async fn set_tab_role(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

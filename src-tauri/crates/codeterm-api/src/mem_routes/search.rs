@@ -1,6 +1,6 @@
 use axum::{
     extract::{Query, State as AxumState},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
 
@@ -9,7 +9,7 @@ use codeterm_service_core::mem_ops::search::{execute_search, run_blocking_search
 
 pub async fn mem_search(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Query(p): Query<SearchParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;

@@ -215,6 +215,7 @@ pub async fn patch_config_api(
             "Only the owner can change browser upload folders".into(),
         ));
     }
+    let headers = crate::auth::ActorHeaders::authenticate(&state, headers)?;
     if admit_config_write(
         crate::tab_routes::caller_tab_header(&headers).as_deref(),
         body.key.as_deref(),

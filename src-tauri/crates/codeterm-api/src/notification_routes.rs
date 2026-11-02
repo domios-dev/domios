@@ -35,7 +35,7 @@ pub async fn list_notifications(
 
 pub async fn create_notification(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {

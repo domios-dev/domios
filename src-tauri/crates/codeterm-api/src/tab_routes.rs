@@ -61,7 +61,9 @@ pub async fn list_tabs(
             }
         })?;
     let caller_tab_id = if focused_workspace {
-        caller_tab_header(&headers)
+        let actor = crate::auth::ActorHeaders::authenticate(&state, headers.clone())
+            .map_err(|(status, _)| (status, "Authenticated local actor or owner required"))?;
+        caller_tab_header(&actor)
     } else {
         None
     };
@@ -91,18 +93,16 @@ pub async fn list_tabs(
             }
         })?;
     let mut local = result.into_json();
-    if crate::auth::caller_peer_id(&state, &headers).is_none() {
-        if let Some(caller) = crate::auth::tab_caller(&state, &headers)
-            .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_forbidden"))?
+    if let crate::auth::CallerIdentity::Tab(caller) = crate::auth::caller_identity(&state, &headers)
+        .map_err(|_| (StatusCode::FORBIDDEN, "Invalid caller credential"))?
+    {
+        if state
+            .svc
+            .filter_neighbor_tab_listing(&caller, &mut local)
+            .await
+            .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_capability_denied"))?
         {
-            if state
-                .svc
-                .filter_neighbor_tab_listing(&caller, &mut local)
-                .await
-                .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_capability_denied"))?
-            {
-                return Ok(Json(local));
-            }
+            return Ok(Json(local));
         }
     }
     let isolated_peer = crate::auth::isolated_caller_peer_id(&state, &headers);
@@ -525,7 +525,7 @@ pub struct CloseTabQuery {
 
 pub async fn close_tab(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -561,7 +561,7 @@ pub async fn close_tab(
 
 pub async fn release_remote_ownership(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if !crate::auth::is_local_caller(&state, &headers) {
@@ -647,7 +647,7 @@ pub async fn rerun_restored_shell(
 
 pub async fn restart_shell_tab(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<RestartShellTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
@@ -700,7 +700,7 @@ fn restart_shell_request<T: serde::Serialize>(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
-pub(crate) fn caller_tab_header(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn caller_tab_header(headers: &crate::auth::ActorHeaders) -> Option<String> {
     headers
         .get("X-CodeTerm-Tab-Id")
         .and_then(|v| v.to_str().ok())
@@ -709,7 +709,7 @@ pub(crate) fn caller_tab_header(headers: &HeaderMap) -> Option<String> {
 }
 
 pub(crate) fn authenticated_plan_caller(
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
 ) -> codeterm_service_core::service::AuthenticatedPlanCaller {
     let header = |name| {
         headers

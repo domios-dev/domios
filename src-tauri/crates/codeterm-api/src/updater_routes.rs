@@ -151,7 +151,7 @@ fn validate_initiating_tab(
 
 pub async fn install_update(
     state: AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     query: Query<InstallUpdateQuery>,
     installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> axum::response::Response {
@@ -215,7 +215,7 @@ pub async fn install_update(
 
 async fn install_update_inner(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Query(q): Query<InstallUpdateQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;

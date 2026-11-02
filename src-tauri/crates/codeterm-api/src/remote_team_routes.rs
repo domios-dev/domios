@@ -23,7 +23,7 @@ pub struct ReparentBody {
 
 fn local_caller(
     state: &AppState,
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
 ) -> Result<AuthenticatedPlanCaller, (StatusCode, String)> {
     check_auth(state, headers).map_err(|(status, message)| (status, message.into()))?;
     if !crate::auth::is_local_caller(state, headers) {
@@ -37,7 +37,7 @@ fn local_caller(
 
 pub async fn adopt_remote(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(team): Path<String>,
     Json(body): Json<AdoptRemoteBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
@@ -52,7 +52,7 @@ pub async fn adopt_remote(
 
 pub async fn reparent(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Json(body): Json<ReparentBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
     let caller = local_caller(&state, &headers)?;

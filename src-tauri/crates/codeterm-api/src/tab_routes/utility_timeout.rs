@@ -7,7 +7,7 @@ pub struct TimeoutBody {
 
 pub async fn set_timeout(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<TimeoutBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {

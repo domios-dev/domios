@@ -74,7 +74,7 @@ pub use delete::{mem_delete, mem_forget_area};
 
 pub async fn mem_save(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Json(body): Json<SaveBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
@@ -224,7 +224,7 @@ pub async fn mem_update(
 
 pub async fn mem_wake_up(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
