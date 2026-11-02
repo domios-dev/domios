@@ -1,7 +1,7 @@
 {
   "license": "Apache-2.0",
   "name": "@codeterm/chat-preprocessor",
-  "version": "1.4.6",
+  "version": "1.4.7",
   "private": true,
   "type": "module",
   "description": "CodeTerm send-time Chat UI preprocessor presets.",
