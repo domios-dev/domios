@@ -157,8 +157,16 @@ resumable history only after their first turn. The restore check still requires
 the exact same session, backing and attempt identity. J4 selects each owned tab
 serially through visible sidebar controls in the native window to materialize lazy restored tabs before
 requiring readiness; selecting a tab alone never counts as ready.
+For owned PTY tabs, J4 invokes the supported browser Terminal spawn route to
+materialize the saved session; mounting a Chat transcript alone need not start it.
 Reply probes use compact nonces derived from the run, provider or tab, and phase;
 only an exact new assistant reply in the bound session passes.
+
+For an extra non-gating observation, set `CORE_JOURNEY_OBSERVE_CHAT_ACTIVATION=1`.
+Before J4 activation, one still-lazy owned Claude PTY receives one normal Chat
+send without pre-spawning it. `chat-activation-observation.json` records the
+lifecycle, receipt and exact new own-session user/reply counts. Its outcome does
+not enter the gate verdict; uncertain input is never resubmitted.
 
 ## Today's BLACKSTAR regressions
 
@@ -192,4 +200,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

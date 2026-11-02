@@ -11,6 +11,7 @@ import { REQUIRED_PROVIDERS } from "./lib/oracle.mjs";
 import { loadResults, recorder, saveResults, verdict } from "./lib/results.mjs";
 import { modelSelections, preparePolicy } from "./lib/model-policy.mjs";
 import { readTab } from "./lib/tabs.mjs";
+import { recordChatActivationObservation } from "./lib/chat-activation-observation.mjs";
 import { JourneyFailure } from "./lib/wait.mjs";
 import { cleanup } from "./journeys/cleanup.mjs";
 import { journeyThree, journeyThreeAfterRestart } from "./journeys/dispatch.mjs";
@@ -113,6 +114,7 @@ async function verify(ctx) {
   if (!ctx.state.run) throw new Error("verify needs the state written by setup in the same --out directory");
   ctx.policy = await preparePolicy(ctx, { readRecord: (id) => readTab(ctx.api, id) });
   await restartCheck(ctx);
+  if (process.env.CORE_JOURNEY_OBSERVE_CHAT_ACTIVATION === "1") await recordChatActivationObservation(ctx);
   await restoredTabsReady(ctx);
   await Promise.all([restoredSends(ctx), journeyThreeAfterRestart(ctx)]);
   await captureScreenshot(ctx, "verify");

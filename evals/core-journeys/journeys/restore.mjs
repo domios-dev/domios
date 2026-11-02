@@ -56,6 +56,9 @@ export async function restoredTabsReady(ctx) {
       const focused = await dc(["tab", "focus", "--tab", tab.id]);
       if (focused.code !== 0) throw new JourneyFailure(`restored tab focus refused: ${focused.stdout || focused.stderr}`);
     }
+    if (fixture && tab.backing === "pty") await ctx.api("/api/pty/spawn", {
+      method: "POST", body: { tab_id: tab.id, cols: 120, rows: 40 },
+    });
     const record = await waitReady(ctx, tab.id, { requireSession: Boolean(tab.session) });
     if (!fixture?.control_fixture) await ctx.policy.identity(tab.id, { restored: true });
     if (tab.session && record.agent_session_id !== tab.session) {
