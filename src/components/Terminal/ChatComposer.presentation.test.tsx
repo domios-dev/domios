@@ -1,17 +1,23 @@
 import "./ChatComposer.composition.harness";
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
+import { AgentStateIndicator } from "./AgentStateIndicator";
+import { manualPendingPrompt } from "../../lib/promptAnswers";
+import { tabActivity } from "../../lib/tabActivity";
+import type { Tab } from "../../lib/types";
 
 async function withComposer(
   attachments: string[],
-  check: (host: HTMLDivElement, removed: string[]) => void | Promise<void>,
+  check: (host: HTMLDivElement, removed: string[], update: (tab: Tab) => void) => void | Promise<void>,
+  initialTab?: Tab,
 ) {
   const unexpected: string[] = [];
   const removed: string[] = [];
@@ -31,15 +37,19 @@ async function withComposer(
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  try {
-    await act(async () => {
-      root.render(
-        <MuxStateStoreContext.Provider value={store}>
-          <ChatComposer
+  let updateTab: (tab: Tab) => void = () => { throw new Error("Harness not mounted"); };
+  function Presentation() {
+    const [tab, setTab] = useState(initialTab);
+    updateTab = setTab;
+    const lifecycle = useProviderPromptLifecycle(tab);
+    return <>
+      {tab && <AgentStateIndicator tab={lifecycle.tab} activity={tabActivity(lifecycle.tab)}
+        onOpenTerminal={reject} onCancel={reject} />}
+      <ChatComposer
             tabId="presentation-only"
             tabProvider={null}
             currentPtyId={null}
-            pendingPrompt={null}
+            pendingPrompt={manualPendingPrompt(lifecycle.tab)}
             attachments={attachments}
             addAttachments={reject}
             removeAttachment={(path) => removed.push(path)}
@@ -51,11 +61,18 @@ async function withComposer(
             observeChatSendStatus={reject}
             showComposerError={reject}
           />
+    </>;
+  }
+  try {
+    await act(async () => {
+      root.render(
+        <MuxStateStoreContext.Provider value={store}>
+          <Presentation />
         </MuxStateStoreContext.Provider>,
       );
     });
     await act(async () => { await new Promise<void>((resolve) => setImmediate(resolve)); });
-    await check(host, removed);
+    await check(host, removed, tab => updateTab(tab));
     assert.deepEqual(unexpected, [], "presentation must not issue transport or mutation commands");
   } finally {
     await act(async () => root.unmount());
@@ -64,6 +81,26 @@ async function withComposer(
     __setListenForTest(null);
   }
 }
+
+test("auto-confirm clears the terminal question controls and composer waiting hint immediately", async () => {
+  const pending = { id: "presentation-only", agent_type: "opaque-provider", agent_session_id: "session",
+    session_binding_nonce: "launch", pty_id: "pty", pending_prompt_kind: "provider",
+    agent_state: { state: "question" }, pending_prompt: { request_id: "request", question: "opaque-question",
+      options: [{ label: "opaque-choice", value: "1" }] } } as Tab;
+  await withComposer([], async (host, _removed, update) => {
+    const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]')!;
+    const waiting = editor.placeholder;
+    assert(host.querySelector('button[aria-label="Cancel the terminal question"]'));
+    assert([...host.querySelectorAll("button")].some(button => button.textContent?.includes("Open terminal")));
+    await act(async () => update({ ...pending, permission_auto_confirmations: [{ session_id: "session",
+      prompt_fingerprint: "fingerprint", tool_name: "opaque-tool", question: "opaque-question", options: ["opaque-choice"],
+      option_label: "opaque-choice", rule: "opaque-rule", confirmed_at_ms: 1 }] }));
+    assert.notEqual(editor.placeholder, waiting);
+    assert.equal(host.querySelector('button[aria-label="Cancel the terminal question"]'), null);
+    assert(![...host.querySelectorAll("button")].some(button => button.textContent?.includes("Open terminal")));
+    assert(!host.querySelector('[role="status"]')?.textContent?.includes("opaque-question"));
+  }, pending);
+});
 
 test("composer keeps one editor in an accessible card with a separate side action", async () => {
   await withComposer([], (host) => {

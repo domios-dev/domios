@@ -1,13 +1,6 @@
 import { ShieldCheck } from "lucide-react";
 import type { AutoConfirmedPrompt } from "../../lib/types";
-
-export function autoConfirmationsForSession(
-  records: AutoConfirmedPrompt[] | undefined,
-  sessionId: string | null,
-): AutoConfirmedPrompt[] {
-  if (!records || !sessionId) return [];
-  return records.filter((record) => record.session_id === sessionId);
-}
+export { autoConfirmationsForSession } from "../../lib/providerPromptLifecycle";
 
 export function AutoConfirmedPromptRows({ records }: { records: AutoConfirmedPrompt[] }) {
   if (records.length === 0) return null;

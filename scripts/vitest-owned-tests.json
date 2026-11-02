@@ -1,4 +1,5 @@
 [
+  "src/lib/providerPromptLifecycle.test.ts",
   "src/components/Terminal/permissionPromptStartup.test.tsx",
   "src/components/Terminal/ChatLiveOperation.test.tsx",
   "src/components/Automation/blueprint/replayModel.test.ts",
