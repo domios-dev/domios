@@ -193,7 +193,7 @@ struct Connection {
     mode: &'static str,
     intercept_fails: bool,
     calls: Mutex<Vec<(String, Value)>>,
-    events: Mutex<Option<tokio::sync::mpsc::Sender<Arc<CdpEvent>>>>,
+    events: Mutex<Vec<(EventFilter, tokio::sync::mpsc::Sender<Arc<CdpEvent>>)>>,
     closed: tokio::sync::watch::Sender<Option<String>>,
 }
 #[async_trait::async_trait]
@@ -205,9 +205,9 @@ impl CdpConnection for Connection {
         self.closed.subscribe()
     }
     fn close(&self, _: &str) {}
-    fn subscribe(&self, _: EventFilter) -> EventStream {
+    fn subscribe(&self, filter: EventFilter) -> EventStream {
         let (tx, rx) = tokio::sync::mpsc::channel(4);
-        *self.events.lock() = Some(tx);
+        self.events.lock().push((filter, tx));
         EventStream::from_receiver(rx)
     }
     async fn send_to(
@@ -220,6 +220,7 @@ impl CdpConnection for Connection {
         self.calls.lock().push((method.into(), params.clone()));
         Ok(match method {
             "Target.attachToTarget" => json!({"sessionId":"s"}),
+            "Page.getFrameTree" => json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}}),
             "Page.setInterceptFileChooserDialog" if self.intercept_fails => {
                 return Err(CdpError::Deadline(method.into()))
             }
@@ -232,16 +233,16 @@ impl CdpConnection for Connection {
             }
             "DOM.getContentQuads" => json!({"quads":[[0,0,20,0,20,20,0,20]]}),
             "Input.dispatchMouseEvent" if params["type"] == "mouseReleased" => {
-                self.events
-                    .lock()
-                    .as_ref()
-                    .unwrap()
-                    .try_send(Arc::new(CdpEvent {
-                        method: "Page.fileChooserOpened".into(),
-                        params: json!({"backendNodeId":42,"mode":self.mode}),
-                        session_id: Some("s".into()),
-                    }))
-                    .unwrap();
+                let event = Arc::new(CdpEvent {
+                    method: "Page.fileChooserOpened".into(),
+                    params: json!({"backendNodeId":42,"mode":self.mode}),
+                    session_id: Some("s".into()),
+                });
+                for (filter, sender) in self.events.lock().iter() {
+                    if filter.matches(&event) {
+                        sender.try_send(event.clone()).unwrap();
+                    }
+                }
                 json!({})
             }
             "DOM.resolveNode" => json!({"object":{"objectId":"file-input"}}),
@@ -275,7 +276,7 @@ async fn upload_intercepts_before_click_and_sets_the_chooser_node_without_native
             mode,
             intercept_fails: fails,
             calls: Mutex::new(Vec::new()),
-            events: Mutex::new(None),
+            events: Mutex::new(Vec::new()),
             closed: tokio::sync::watch::channel(None).0,
         });
         let page = CdpClient::from_connection(connection.clone())
@@ -290,6 +291,7 @@ async fn upload_intercepts_before_click_and_sets_the_chooser_node_without_native
             Arc::new(tokio::sync::OnceCell::new()),
             Default::default(),
         );
+        runtime.shared.bind(&page);
         let mut notices = runtime.shared.subscribe_notices();
         let paths = vec!["admitted/video.mp4".to_string(); count];
         let result = runtime
@@ -350,7 +352,7 @@ async fn rejected_upload_paths_never_reach_cdp() {
         mode: "selectSingle",
         intercept_fails: false,
         calls: Mutex::new(Vec::new()),
-        events: Mutex::new(None),
+        events: Mutex::new(Vec::new()),
         closed: tokio::sync::watch::channel(None).0,
     });
     let page = CdpClient::from_connection(connection.clone())

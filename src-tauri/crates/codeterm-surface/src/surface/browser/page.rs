@@ -70,6 +70,8 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
 
 #[derive(Default)]
 struct PageSession {
+    action: Option<String>,
+    bound_page: Option<PageChannel>,
     bound_session: Option<String>,
     snapshot: Option<Snapshot>,
     capture: Option<String>,
@@ -87,6 +89,30 @@ pub(super) struct PageShared {
 }
 
 impl PageShared {
+    pub(super) fn begin_action(&self, page: &PageChannel) -> Result<String, String> {
+        let mut session = self.session.lock();
+        if !session
+            .bound_page
+            .as_ref()
+            .is_some_and(|bound| bound.same_page(page))
+        {
+            return Err("stale: browser session changed".into());
+        }
+        let token = uuid::Uuid::new_v4().to_string();
+        session.action = Some(token.clone());
+        Ok(token)
+    }
+
+    pub(super) fn check_action(&self, token: &str) -> Result<(), String> {
+        if self.session.lock().action.as_deref() != Some(token) {
+            return Err("action_unconfirmed: browser authority changed; inspect before continuing; never replay".into());
+        }
+        Ok(())
+    }
+
+    pub(super) fn invalidate_action(&self) {
+        self.session.lock().action = None;
+    }
     pub(super) fn new(owner: &str) -> Arc<Self> {
         let state = SurfaceState {
             owner: owner.to_string(),
@@ -177,13 +203,18 @@ impl PageShared {
     pub(super) fn bind(self: &Arc<Self>, page: &PageChannel) {
         let events = {
             let mut session = self.session.lock();
-            if session.bound_session.as_deref() == Some(page.session_id()) {
+            if session
+                .bound_page
+                .as_ref()
+                .is_some_and(|bound| bound.same_page(page))
+            {
                 return;
             }
             if let Some(listener) = session.listener.take() {
                 listener.abort();
             }
             *session = PageSession {
+                bound_page: Some(page.clone()),
                 bound_session: Some(page.session_id().to_string()),
                 ..Default::default()
             };
