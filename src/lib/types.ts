@@ -847,6 +847,7 @@ export interface UiConfig {
 }
 
 export interface AppConfig {
+  browser_upload_folders?: Record<string, string[]>;
   tab_sleep?: { enabled: boolean; idle_minutes: number };
   restore?: { active_window_hours: number };
   updater?: {

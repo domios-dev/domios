@@ -77,12 +77,21 @@ pub async fn mesh_set_enabled(
     Json(body): Json<SetEnabledBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     check_auth(&state, &headers)?;
-    let enabled = codeterm_service_core::mesh::set_mesh_enabled(
-        &state.mesh,
-        &state.config,
-        state.svc.ui.as_ref(),
-        body.enabled,
-    );
+    let enabled = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::mesh::set_mesh_enabled(
+            &state.mesh,
+            &state.config,
+            state.svc.ui.as_ref(),
+            body.enabled,
+        )
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Mesh config writer task failed",
+        )
+    })?;
     Ok(Json(serde_json::json!({ "ok": true, "enabled": enabled })))
 }
 

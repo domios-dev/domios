@@ -24,6 +24,7 @@ import { ShellDiagnosticsBanner } from "./ShellDiagnosticsBanner";
 import { AgentsOverview, AgentProviderScreen } from "./AgentsTab";
 import { ShellProfilesCard } from "./ShellProfilesCard";
 import { TabSleepCard } from "./TabSleepCard";
+import { BrowserUploadFolders } from "./BrowserUploadFolders";
 import { EmbedderCard } from "./embedder/EmbedderCard";
 import { GeneralAgentCard } from "./GeneralAgentCard";
 import { NotificationsOverview } from "./NotificationsTab";
@@ -344,6 +345,12 @@ export function SettingsPanel({
 
                 <ShellProfilesCard config={localConfig} onUpdate={update} />
                 <TabSleepCard config={localConfig} onUpdate={update} />
+                <BrowserUploadFolders config={localConfig} onSave={async next => {
+                  await onUpdateConfig(next);
+                  const updated = { config: next, save: onUpdateConfig };
+                  draftRef.current = updated;
+                  setDraft(updated);
+                }} />
                 <EmbedderCard config={localConfig} />
 
                 <SettingsCard icon={<MousePointer size={16} />} title="Terminal">

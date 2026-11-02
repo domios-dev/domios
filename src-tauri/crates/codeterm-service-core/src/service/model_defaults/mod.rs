@@ -85,10 +85,13 @@ impl Reconciler {
             }
         }
         if config_changed {
-            if let Err(error) = crate::config::save_config_and_apply(config_state, next.clone()) {
-                log::warn!("[model-defaults] could not save replaced defaults: {error}");
-                return;
-            }
+            next = match crate::config::save_config_and_apply(config_state, next) {
+                Ok(applied) => applied,
+                Err(error) => {
+                    log::warn!("[model-defaults] could not save replaced defaults: {error}");
+                    return;
+                }
+            };
             service.ui.emit(
                 "config-changed",
                 serde_json::to_value(&next).unwrap_or_default(),

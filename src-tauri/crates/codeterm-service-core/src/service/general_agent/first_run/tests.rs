@@ -37,11 +37,16 @@ fn first_run_completion_publishes_saved_choice_before_launch() {
     let mut config = crate::config::schema::AppConfig::default();
     config.general_agent.first_run_complete = true;
     config.general_agent.agent_provider = "fixture-provider".into();
+    config
+        .browser_upload_folders
+        .insert("work".into(), vec!["/stale".into()]);
     let mut saved = None;
     persist_first_run_completion(&config, &ui, |snapshot| {
         assert!(ui.0.lock().is_empty());
-        saved = Some(snapshot.clone());
-        Ok(())
+        let mut applied = snapshot.clone();
+        applied.browser_upload_folders.clear();
+        saved = Some(applied.clone());
+        Ok(applied)
     })
     .unwrap();
     let events = ui.0.lock();
@@ -49,6 +54,7 @@ fn first_run_completion_publishes_saved_choice_before_launch() {
     assert_eq!(events[0].0, "config-changed");
     assert_eq!(events[0].1, serde_json::to_value(saved.unwrap()).unwrap());
     assert_eq!(events[0].1["general_agent"]["first_run_complete"], true);
+    assert_eq!(events[0].1["browser_upload_folders"], serde_json::json!({}));
 }
 
 #[test]

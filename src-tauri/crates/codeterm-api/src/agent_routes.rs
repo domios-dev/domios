@@ -903,13 +903,17 @@ pub async fn complete_general_agent_first_run(
     Json(body): Json<CompleteFirstRunBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    codeterm_service_core::service::general_agent::complete_first_run_core(
-        &state.svc,
-        &state.config,
-        &body.provider_id,
-        body.full_access,
-    )
-    .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+    tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::general_agent::complete_first_run_core(
+            &state.svc,
+            &state.config,
+            &body.provider_id,
+            body.full_access,
+        )
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
     Ok(Json(serde_json::json!({"ok": true})))
 }
 

@@ -1,7 +1,7 @@
 use axum::{
     extract::{Query, State as AxumState},
     http::{HeaderMap, StatusCode},
-    Json,
+    Extension, Json,
 };
 use serde::Deserialize;
 
@@ -176,22 +176,11 @@ pub(crate) fn admit_config_write(
 
 pub async fn patch_config_api(
     AxumState(state): AxumState<AppState>,
+    Extension(origin): Extension<crate::auth::AuthenticatedOrigin>,
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
-    if admit_config_write(
-        crate::tab_routes::caller_tab_header(&headers).as_deref(),
-        body.key.as_deref(),
-        &body.partial,
-    )
-    .is_err()
-    {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "Where notifications go changes only on a tapped answer".to_string(),
-        ));
-    }
     let cfg = state.config.lock().clone();
     let mut cfg_json = serde_json::to_value(&cfg)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -218,6 +207,50 @@ pub async fn patch_config_api(
     let mut new_cfg: codeterm_service_core::config::schema::AppConfig =
         serde_json::from_value(cfg_json)
             .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    if new_cfg.browser_upload_folders != cfg.browser_upload_folders
+        && origin != crate::auth::AuthenticatedOrigin::Owner
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Only the owner can change browser upload folders".into(),
+        ));
+    }
+    if admit_config_write(
+        crate::tab_routes::caller_tab_header(&headers).as_deref(),
+        body.key.as_deref(),
+        &body.partial,
+    )
+    .is_err()
+    {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "Where notifications go changes only on a tapped answer".to_string(),
+        ));
+    }
+    for (profile, folders) in &new_cfg.browser_upload_folders {
+        codeterm_service_core::service::browser::profile::validate_named_profile(profile)
+            .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
+        for folder in folders {
+            let path = std::path::Path::new(folder);
+            if !path.is_absolute()
+                || folder.len() > 4096
+                || path.components().any(|part| {
+                    matches!(
+                        part,
+                        std::path::Component::ParentDir | std::path::Component::CurDir
+                    )
+                })
+                || folder
+                    .split(['/', '\\'])
+                    .any(|part| matches!(part, "." | ".."))
+            {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    "Browser upload folders must be absolute folders without traversal".into(),
+                ));
+            }
+        }
+    }
     codeterm_service_core::config::sanitize_plugin_settings(&mut new_cfg);
     codeterm_service_core::config::bounds::validate_app_config(&new_cfg)
         .map_err(|message| (StatusCode::BAD_REQUEST, message))?;
@@ -249,8 +282,30 @@ pub async fn patch_config_api(
     let changed_catalogue_settings =
         codeterm_service_core::config::changed_provider_settings(&cfg, &new_cfg);
 
-    codeterm_service_core::config::save_config_and_apply(&state.config, new_cfg.clone())
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    let config_state = state.config.clone();
+    let expected_folders = cfg.browser_upload_folders.clone();
+    new_cfg = tokio::task::spawn_blocking(move || {
+        if origin == crate::auth::AuthenticatedOrigin::Owner {
+            codeterm_service_core::config::save_owner_config_and_apply(
+                &config_state,
+                new_cfg,
+                &expected_folders,
+            )
+            .map_err(|error| match error {
+                codeterm_service_core::config::ConfigCommitError::StaleUploadFolders => {
+                    (StatusCode::CONFLICT, error.to_string())
+                }
+                codeterm_service_core::config::ConfigCommitError::Save(message) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, message)
+                }
+            })
+        } else {
+            codeterm_service_core::config::save_config_and_apply(&config_state, new_cfg)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
+        }
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
 
     if new_cfg.theme.name != current_theme_name {
         state
@@ -395,57 +450,7 @@ pub async fn bridge_send_api(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{api_listener_value, api_query_includes_listener, redact_rest_config};
+mod tests;
 
-    #[test]
-    fn rest_config_never_serializes_api_token() {
-        let config = serde_json::json!({
-            "api": { "host": "0.0.0.0", "token": "permanent-secret" },
-            "mesh": { "enabled": true }
-        });
-        let redacted = redact_rest_config(config);
-        assert_eq!(redacted["api"]["token"], serde_json::Value::Null);
-        assert_eq!(redacted["api"]["host"], "0.0.0.0");
-        assert_eq!(redacted["mesh"]["enabled"], true);
-    }
-
-    #[test]
-    fn api_listener_readback_preserves_active_policy_until_restart() {
-        let mut cfg = codeterm_service_core::config::schema::AppConfig::default();
-        cfg.api.enabled = true;
-        cfg.api.host = "localhost".into();
-        cfg.api.port = 7686;
-        cfg.api.cors = true;
-        cfg.api.cors_allow_origins = vec!["https://configured.example".into()];
-        let active = codeterm_service_core::startup::RestApiRuntimePolicy {
-            enabled: true,
-            cors: false,
-            cors_allow_origins: Vec::new(),
-        };
-
-        let disclosure = api_listener_value(Some("127.0.0.1:7686".parse().unwrap()), active, &cfg);
-        assert_eq!(disclosure["active"]["cors"], false);
-        assert_eq!(
-            disclosure["active"]["cors_allow_origins"],
-            serde_json::json!([])
-        );
-        assert_eq!(disclosure["configured"]["cors"], true);
-        assert_eq!(
-            disclosure["configured"]["cors_allow_origins"],
-            serde_json::json!(["https://configured.example"])
-        );
-        assert_eq!(disclosure["restart_required"], true);
-    }
-
-    #[test]
-    fn exact_api_runtime_queries_include_listener_truth() {
-        for key in ["api", "api.enabled", "api.cors", "api.cors_allow_origins"] {
-            assert!(
-                api_query_includes_listener(key),
-                "missing listener truth for {key}"
-            );
-        }
-        assert!(!api_query_includes_listener("theme.name"));
-    }
-}
+#[cfg(test)]
+mod upload_grants_tests;

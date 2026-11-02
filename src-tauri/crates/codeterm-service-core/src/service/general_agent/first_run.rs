@@ -144,12 +144,14 @@ fn close_first_run_tabs(
 fn persist_first_run_completion(
     snapshot: &crate::config::schema::AppConfig,
     ui: &dyn crate::ports::host::UiEvents,
-    save: impl FnOnce(&crate::config::schema::AppConfig) -> Result<(), String>,
+    save: impl FnOnce(
+        &crate::config::schema::AppConfig,
+    ) -> Result<crate::config::schema::AppConfig, String>,
 ) -> Result<(), String> {
-    save(snapshot)?;
+    let applied = save(snapshot)?;
     ui.emit(
         "config-changed",
-        serde_json::to_value(snapshot).map_err(|error| error.to_string())?,
+        serde_json::to_value(&applied).map_err(|error| error.to_string())?,
     );
     Ok(())
 }

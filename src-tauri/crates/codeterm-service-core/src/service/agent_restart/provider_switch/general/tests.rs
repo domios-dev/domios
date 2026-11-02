@@ -19,9 +19,11 @@ fn protected_general_switch_persists_defaults_and_ordinary_switch_does_not() {
     let path = dir.path().join("config.toml");
     fixture
         .service
-        .persist_general_provider_switch_with(&before, "target-token", &launch, |config| {
-            std::fs::write(&path, toml::to_string_pretty(config).unwrap())
-                .map_err(|error| error.to_string())
+        .persist_general_provider_switch_with(&before, "target-token", &launch, |state, config| {
+            crate::config::save_config_and_apply_with(state, config, |config| {
+                std::fs::write(&path, toml::to_string_pretty(config).unwrap())
+                    .map_err(|error| error.to_string())
+            })
         })
         .unwrap();
     let restored: crate::config::schema::AppConfig =
@@ -41,9 +43,12 @@ fn protected_general_switch_persists_defaults_and_ordinary_switch_does_not() {
         .unwrap();
     fixture
         .service
-        .persist_general_provider_switch_with(&ordinary, "other-token", &Default::default(), |_| {
-            panic!("ordinary tabs cannot save General defaults")
-        })
+        .persist_general_provider_switch_with(
+            &ordinary,
+            "other-token",
+            &Default::default(),
+            |_, _| panic!("ordinary tabs cannot save General defaults"),
+        )
         .unwrap();
     assert_eq!(
         fixture.service.configuration().general_agent.agent_provider,
