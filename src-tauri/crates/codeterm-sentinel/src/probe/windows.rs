@@ -219,7 +219,7 @@ fn run_configured(
             });
             return run.finish_failure();
         }
-        match run.wait_event(Some(run.deadlines.remaining_operation())) {
+        match run.wait_event(run.deadlines.operation_wait()) {
             Ok(true) => {}
             Ok(false) => run.fail("probe_timeout"),
             Err(error) => {
@@ -503,7 +503,7 @@ impl WindowsRun {
                 });
                 break;
             }
-            match self.wait_event(Some(self.deadlines.remaining_operation())) {
+            match self.wait_event(self.deadlines.operation_wait()) {
                 Ok(true) => {}
                 Ok(false) => {
                     self.fail("probe_timeout");
@@ -537,7 +537,7 @@ impl WindowsRun {
                 let mut failure = ProbeFailure::new("probe_timeout");
                 self.deadlines.record_lateness(&mut failure);
                 self.finish_failure_with(failure)
-            } else if Instant::now() > self.deadlines.hard {
+            } else if self.deadlines.expired_hard() {
                 let mut failure = ProbeFailure::new("probe_cleanup_deadline");
                 self.deadlines.record_lateness(&mut failure);
                 self.finish_failure_with(failure)
@@ -563,7 +563,7 @@ impl WindowsRun {
                     failure.unconfirmed(ResourceKind::OverlappedIo);
                     return Err(failure.with_output(&output));
                 }
-                if Instant::now() > self.deadlines.hard {
+                if self.deadlines.expired_hard() {
                     let mut failure = ProbeFailure::new("probe_cleanup_deadline");
                     self.deadlines.record_lateness(&mut failure);
                     return Err(failure.with_output(&output));
