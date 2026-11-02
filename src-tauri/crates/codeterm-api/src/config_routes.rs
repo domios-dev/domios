@@ -282,24 +282,30 @@ pub async fn patch_config_api(
     let changed_catalogue_settings =
         codeterm_service_core::config::changed_provider_settings(&cfg, &new_cfg);
 
-    new_cfg = if origin == crate::auth::AuthenticatedOrigin::Owner {
-        codeterm_service_core::config::save_owner_config_and_apply(
-            &state.config,
-            new_cfg,
-            &cfg.browser_upload_folders,
-        )
-        .map_err(|error| match error {
-            codeterm_service_core::config::ConfigCommitError::StaleUploadFolders => {
-                (StatusCode::CONFLICT, error.to_string())
-            }
-            codeterm_service_core::config::ConfigCommitError::Save(message) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, message)
-            }
-        })?
-    } else {
-        codeterm_service_core::config::save_config_and_apply(&state.config, new_cfg)
-            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?
-    };
+    let config_state = state.config.clone();
+    let expected_folders = cfg.browser_upload_folders.clone();
+    new_cfg = tokio::task::spawn_blocking(move || {
+        if origin == crate::auth::AuthenticatedOrigin::Owner {
+            codeterm_service_core::config::save_owner_config_and_apply(
+                &config_state,
+                new_cfg,
+                &expected_folders,
+            )
+            .map_err(|error| match error {
+                codeterm_service_core::config::ConfigCommitError::StaleUploadFolders => {
+                    (StatusCode::CONFLICT, error.to_string())
+                }
+                codeterm_service_core::config::ConfigCommitError::Save(message) => {
+                    (StatusCode::INTERNAL_SERVER_ERROR, message)
+                }
+            })
+        } else {
+            codeterm_service_core::config::save_config_and_apply(&config_state, new_cfg)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
+        }
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))??;
 
     if new_cfg.theme.name != current_theme_name {
         state

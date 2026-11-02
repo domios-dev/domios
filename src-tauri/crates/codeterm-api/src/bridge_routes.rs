@@ -116,7 +116,7 @@ pub async fn bridge_stop(
         .ext::<std::sync::Arc<codeterm_service_core::bridge::supervisor::BridgeSupervisor>>()
         .is_active();
     if !was_active {
-        persist_telegram_enabled(&state, false);
+        persist_telegram_enabled(&state, false).await;
         return Ok(Json(json!({
             "ok": true,
             "released_in_ms": 0,
@@ -131,7 +131,7 @@ pub async fn bridge_stop(
         .await
         .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "bridge stop timed out"))?;
 
-    persist_telegram_enabled(&state, false);
+    persist_telegram_enabled(&state, false).await;
 
     codeterm_service_core::startup::unmark_tab_connected_service(&state.svc, &body.service);
 
@@ -192,7 +192,7 @@ pub async fn bridge_start(
         }
     }
 
-    persist_telegram_enabled(&state, true);
+    persist_telegram_enabled(&state, true).await;
 
     let started = Instant::now();
     if let Err(e) = codeterm_service_core::startup::start_telegram_bridge(&state.svc).await {
@@ -256,12 +256,23 @@ fn copies_vault_token(ensure_token: bool, replace_token: bool, token_file_exists
     replace_token || (ensure_token && !token_file_exists)
 }
 
-fn persist_telegram_enabled(state: &AppState, enabled: bool) {
-    let snapshot = set_telegram_enabled(
-        &state.config,
-        enabled,
-        codeterm_service_core::config::save_config_and_apply,
-    );
+async fn persist_telegram_enabled(state: &AppState, enabled: bool) {
+    let config = state.config.clone();
+    let snapshot = match tokio::task::spawn_blocking(move || {
+        set_telegram_enabled(
+            &config,
+            enabled,
+            codeterm_service_core::config::save_config_and_apply,
+        )
+    })
+    .await
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            log::error!("[bridge] config writer task failed: {error}");
+            return;
+        }
+    };
     state.svc.ui.emit(
         "config-changed",
         serde_json::to_value(&snapshot).unwrap_or(serde_json::Value::Null),

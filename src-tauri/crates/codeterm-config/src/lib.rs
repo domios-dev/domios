@@ -16,6 +16,8 @@ use schema::{AppConfig, ThemeConfig};
 
 pub type ConfigState = Arc<Mutex<AppConfig>>;
 
+static CONFIG_WRITER: Mutex<()> = Mutex::new(());
+
 fn config_path() -> Result<PathBuf, String> {
     codeterm_paths::config_path()
 }
@@ -403,17 +405,21 @@ fn commit_config(
     owner_expected_folders: Option<&std::collections::BTreeMap<String, Vec<String>>>,
     persist: impl FnOnce(&AppConfig) -> Result<(), String>,
 ) -> Result<AppConfig, ConfigCommitError> {
-    let mut current = state.lock();
-    if let Some(expected) = owner_expected_folders {
-        if &current.browser_upload_folders != expected {
-            return Err(ConfigCommitError::StaleUploadFolders);
+    let _writer = CONFIG_WRITER.lock();
+    {
+        let current = state.lock();
+        if let Some(expected) = owner_expected_folders {
+            if &current.browser_upload_folders != expected {
+                return Err(ConfigCommitError::StaleUploadFolders);
+            }
+        } else {
+            config.browser_upload_folders = current.browser_upload_folders.clone();
         }
-    } else {
-        config.browser_upload_folders = current.browser_upload_folders.clone();
+        config.api.token = current.api.token.clone();
     }
-    config.api.token = current.api.token.clone();
     persist(&config).map_err(ConfigCommitError::Save)?;
-    *current = config.clone();
+    let applied = config.clone();
+    *state.lock() = applied;
     Ok(config)
 }
 

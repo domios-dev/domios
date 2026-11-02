@@ -439,29 +439,34 @@ pub async fn switch_backend(
         }
     }
 
-    // Persist to config first — if the daemon dies right after the swap we still want the new choice to stick.
-    {
-        let mut cfg = codeterm_service_core::config::load_config();
-        cfg.integrations.secrets.backend = body.backend.clone();
-        // config.plugins.bitwarden.serverUrl); native Bitwarden is gone.
-        if let Some(url) = body.bitwarden_server_url.as_ref() {
+    let config_state = state.config.clone();
+    let backend = body.backend.clone();
+    let server_url = body.bitwarden_server_url.clone();
+    let cfg = tokio::task::spawn_blocking(move || {
+        let mut cfg = config_state.lock().clone();
+        cfg.integrations.secrets.backend = backend;
+        if let Some(url) = server_url {
             let entry = cfg
                 .plugins
                 .entry("bitwarden".to_string())
                 .or_insert_with(|| serde_json::json!({}));
-            if let Some(obj) = entry.as_object_mut() {
-                obj.insert("serverUrl".into(), serde_json::json!(url));
+            if let Some(object) = entry.as_object_mut() {
+                object.insert("serverUrl".into(), serde_json::json!(url));
             }
         }
-        if let Err(e) = codeterm_service_core::config::save_config_and_apply(&state.config, cfg) {
-            return Err(map_error(SecretError::Backend {
-                message: format!("save config: {}", e),
-            }));
-        }
-    }
-
-    // Build the new backend, run init, then atomically swap. Init failures are surfaced — the caller asked to switch and deserves to know whether the new backend is actually usable.
-    let cfg = codeterm_service_core::config::load_config();
+        codeterm_service_core::config::save_config_and_apply(&config_state, cfg)
+    })
+    .await
+    .map_err(|error| {
+        map_error(SecretError::Backend {
+            message: format!("save config task: {error}"),
+        })
+    })?
+    .map_err(|error| {
+        map_error(SecretError::Backend {
+            message: format!("save config: {error}"),
+        })
+    })?;
     let new_store = codeterm_service_core::secrets::build_active_store(
         &cfg.integrations.secrets,
         state

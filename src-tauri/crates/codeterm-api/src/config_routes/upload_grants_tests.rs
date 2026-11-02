@@ -174,3 +174,62 @@ async fn browser_upload_grants_require_owner_credential_for_key_partial_and_full
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     assert!(state.config.lock().browser_upload_folders.is_empty());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn config_requests_remain_responsive_while_persistence_is_held() {
+    let fixture = ServiceFixture::new(MultiplexerState::empty());
+    let state = crate::test_support::app_state(&fixture);
+    state.config.lock().api.token = Some("owner-secret".into());
+    let before = state.config.lock().font.size;
+    let config = state.config.clone();
+    let mut next = config.lock().clone();
+    next.font.size = before + 1;
+    let (entered, started) = tokio::sync::oneshot::channel();
+    let (release, held) = std::sync::mpsc::channel();
+    let writer = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::config::save_config_and_apply_with(&config, next, |_| {
+            entered
+                .send(())
+                .map_err(|_| "writer start receiver closed".to_string())?;
+            held.recv()
+                .map_err(|_| "writer release sender closed".to_string())?;
+            Ok(())
+        })
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started)
+        .await
+        .unwrap()
+        .unwrap();
+    let app = Router::new()
+        .route("/api/config", get(super::get_config_api))
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            crate::auth::auth_middleware,
+        ))
+        .with_state(state.clone());
+    let reader = tokio::spawn(async move {
+        app.oneshot(
+            Request::builder()
+                .uri("/api/config?key=font.size")
+                .header("authorization", "Bearer owner-secret")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    });
+    let response = tokio::time::timeout(std::time::Duration::from_secs(5), reader).await;
+    release.send(()).unwrap();
+    let applied = writer.await.unwrap().unwrap();
+    let response = response
+        .expect("config request must finish before persistence is released")
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(response.into_body(), 4096)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(body["value"], before);
+    assert_eq!(applied.font.size, before + 1);
+    assert_eq!(state.config.lock().font.size, before + 1);
+}

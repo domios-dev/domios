@@ -93,15 +93,19 @@ pub async fn apply_theme_api(
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
 
-    let config_state = &state.config;
+    let config_state = state.config.clone();
     let mut config = config_state.lock().clone();
     config.theme.name = body.name.clone();
     if let Some(mut theme) = codeterm_service_core::config::schema::get_any_theme(&body.name) {
         theme.name = body.name;
         config.theme = theme;
     }
-    let config = codeterm_service_core::config::save_config_and_apply(config_state, config)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
+    let config = tokio::task::spawn_blocking(move || {
+        codeterm_service_core::config::save_config_and_apply(&config_state, config)
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))?;
     state.svc.ui.emit(
         "config-changed",
         serde_json::to_value(&config).unwrap_or(serde_json::Value::Null),

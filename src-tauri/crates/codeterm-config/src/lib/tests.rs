@@ -572,8 +572,12 @@ fn browser_upload_revocation_survives_a_stale_non_owner_commit_in_memory_and_on_
             revoked.recv().unwrap();
             save_config_and_apply_with(&worker_state, stale, |applied| {
                 assert!(
-                    worker_state.try_lock().is_none(),
-                    "commit must retain the state transaction through persistence"
+                    CONFIG_WRITER.try_lock().is_none(),
+                    "writer serialization must remain held during persistence"
+                );
+                assert!(
+                    worker_state.try_lock().is_some(),
+                    "published state must stay readable during persistence"
                 );
                 save_config_at(path, applied)
             })
