@@ -16,7 +16,7 @@ const fake = vi.hoisted(() => ({
   },
 }));
 vi.mock("../../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
-vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ ...fake.native, error: null, applyUpdate: fake.install }) }));
+vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ ...fake.native, error: null, applyUpdate: fake.install, captureFailureBoundary: () => ({ frontendRevision: 0, nativeRevision: null }) }) }));
 vi.mock("../../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
 vi.mock("../../lib/frontendUpdate/browser", () => ({
   acceptFrontendUpdate: fake.accept, setFrontendUpdateHeld: fake.hold,
