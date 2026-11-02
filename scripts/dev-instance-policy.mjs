@@ -1,6 +1,9 @@
 // Caller: build.sh
 import { execFileSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
+
+const { gitExecutable } = createRequire(import.meta.url)('./build-identity.cjs');
 
 export function validateDevInstance({ worktree, instance = '', port = '7686' }) {
   const selected = Number(port);
@@ -30,7 +33,7 @@ export function devLaunchSelection(environment, worktree) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const gitPath = flag => execFileSync('git', ['rev-parse', '--path-format=absolute', flag], { encoding: 'utf8' }).trim();
+    const gitPath = flag => execFileSync(gitExecutable(), ['rev-parse', '--path-format=absolute', flag], { encoding: 'utf8' }).trim();
     const selection = devLaunchSelection(process.env, gitPath('--git-dir') !== gitPath('--git-common-dir'));
     console.log(`${selection.instance}:${selection.port}`);
   } catch (error) {
