@@ -3061,15 +3061,6 @@ var TRUNCATED2 = "[earlier output truncated]\n";
 var CONTINUATION = "[full output available in session history]\n";
 var TEXT_FIELDS = ["content", "toolResult", "toolDetail", "toolSummary", "toolArgs", "toolTitle", "toolName", "toolDescription"];
 var DATA_FIELDS = ["toolInput", "toolRichResult", "fileDiffs", "toolEdits"];
-function serializedBytes2(value) {
-  const serialized = JSON.stringify(value);
-  let size = 0;
-  for (const character of serialized) {
-    const point = character.codePointAt(0);
-    size += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
-  }
-  return size;
-}
 function coalesce(events) {
   const last = /* @__PURE__ */ new Map();
   events.forEach((event, index) => {
@@ -3089,7 +3080,7 @@ function shrinkRow(row3, cap) {
   }
   let omitted = false;
   for (const field of DATA_FIELDS) {
-    if (result[field] !== void 0 && serializedBytes2(result[field]) > cap) {
+    if (result[field] !== void 0 && serializedBytes(result[field]) > cap) {
       delete result[field];
       omitted = true;
     }
@@ -3100,10 +3091,10 @@ function shrinkRow(row3, cap) {
 }
 function budgetReduction(state, updates) {
   let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
-  let bytes2 = serializedBytes2({ state, events });
+  let bytes2 = serializedBytes({ state, events });
   for (let cap = EVENT_TEXT_CAP / 2; bytes2 > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
     events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
-    bytes2 = serializedBytes2({ state, events });
+    bytes2 = serializedBytes({ state, events });
   }
   if (bytes2 > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
   return { state, events };

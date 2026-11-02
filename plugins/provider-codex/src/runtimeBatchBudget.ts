@@ -1,21 +1,12 @@
 import type { AgentEvent, ChatMsg, JsonValue, RuntimeReduction } from "@codeterm/plugin-sdk";
 import { capRow, capText, EVENT_TEXT_CAP } from "./runtimeStateBudget";
+import { serializedBytes } from "./runtimeHistoryBounds";
 
 export const REDUCTION_BYTE_BUDGET = 4 * 1024 * 1024;
 const TRUNCATED = "[earlier output truncated]\n";
 const CONTINUATION = "[full output available in session history]\n";
 const TEXT_FIELDS = ["content","toolResult","toolDetail","toolSummary","toolArgs","toolTitle","toolName","toolDescription"] as const;
 const DATA_FIELDS = ["toolInput","toolRichResult","fileDiffs","toolEdits"] as const;
-
-function serializedBytes(value: unknown): number {
-  const serialized = JSON.stringify(value);
-  let size = 0;
-  for (const character of serialized) {
-    const point = character.codePointAt(0)!;
-    size += point < 0x80 ? 1 : point < 0x800 ? 2 : point < 0x10000 ? 3 : 4;
-  }
-  return size;
-}
 
 function coalesce(events: AgentEvent[]): AgentEvent[] {
   const last = new Map<string,number>();
