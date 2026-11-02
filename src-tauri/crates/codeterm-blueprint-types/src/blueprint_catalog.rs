@@ -184,14 +184,14 @@ pub const SOURCES_AND_MODES: &[NodeDescriptor] = &[
         kind: "source",
         name: "terminal",
         title: "Source: Team terminal output",
-        metadata: r#"{"params_schema":{"observe":"tab:<same-Team tab>","terminal_pattern":"optional regex","output_settled":"optional idle milliseconds (10..60000)"},"payload_schema":{"type":"text","max_bytes":32768}}"#,
+        metadata: r#"{"params_schema":{"kind":"tab","id":"same-Team tab id","pattern":"optional regex","idle_ms":"optional idle milliseconds (10..60000)"},"payload_schema":{"type":"text","max_bytes":32768}}"#,
     },
     NodeDescriptor {
         role: "source",
         kind: "source",
         name: "observe",
         title: "Source: observed tab or cron run",
-        metadata: r#"{"params_schema":{"observe":"tab:<id>|cron-run:<id>"}}"#,
+        metadata: r#"{"params_schema":{"kind":"tab|cron_run","id":"tab or cron run id"}}"#,
     },
     NodeDescriptor {
         role: "source",

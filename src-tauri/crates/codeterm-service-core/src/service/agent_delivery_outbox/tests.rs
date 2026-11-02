@@ -99,6 +99,17 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
         panic!("pre-ready send must be queued");
     };
     assert!(writes.lock().is_empty());
+    let inspected = fixture
+        .service
+        .inspect_retained_send(&delivery_id)
+        .unwrap()
+        .unwrap();
+    assert_eq!(inspected.tab_id, tab);
+    assert_eq!(
+        inspected.state,
+        crate::service::chat_send_transaction::ChatSendState::Pending
+    );
+    assert!(writes.lock().is_empty());
     let resumed = fixture
         .service
         .mux
@@ -128,6 +139,15 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
     authenticate(&fixture, &tab);
     done_rx.recv_timeout(Duration::from_secs(5)).unwrap();
     assert_eq!(*writes.lock(), ["opaque held payload"]);
+    assert_eq!(
+        fixture
+            .service
+            .inspect_retained_send(&delivery_id)
+            .unwrap()
+            .unwrap()
+            .state,
+        crate::service::chat_send_transaction::ChatSendState::Unknown
+    );
     let mut confirmations = Vec::new();
     while let Ok(event) = receipts.try_recv() {
         if let codeterm_events::SystemEvent::Generic { event_type, data } = event.event {

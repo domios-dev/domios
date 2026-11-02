@@ -581,11 +581,14 @@ fn gateway_send_response(
                 "send_id": delivery_id,
             })
         }
-        codeterm_service_core::service::messenger::Delivery::Pending { .. } => serde_json::json!({
-            "ok": true,
-            "delivery": "pending",
-            "bytes_written": false,
-        }),
+        codeterm_service_core::service::messenger::Delivery::Pending { delivery_id } => {
+            serde_json::json!({
+                "ok": true,
+                "delivery": "pending",
+                "bytes_written": false,
+                "send_id": delivery_id,
+            })
+        }
     };
     if let Some(path) = pad_file {
         value["pad_file"] = serde_json::json!(path.display().to_string());

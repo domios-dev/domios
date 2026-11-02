@@ -233,9 +233,10 @@
       "type": "terminal",
       "title": "Source: Team terminal output",
       "params_schema": {
-        "observe": "tab:<same-Team tab>",
-        "terminal_pattern": "optional regex",
-        "output_settled": "optional idle milliseconds (10..60000)"
+        "kind": "tab",
+        "id": "same-Team tab id",
+        "pattern": "optional regex",
+        "idle_ms": "optional idle milliseconds (10..60000)"
       },
       "payload_schema": {
         "type": "text",
@@ -248,7 +249,8 @@
       "type": "observe",
       "title": "Source: observed tab or cron run",
       "params_schema": {
-        "observe": "tab:<id>|cron-run:<id>"
+        "kind": "tab|cron_run",
+        "id": "tab or cron run id"
       }
     },
     {

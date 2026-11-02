@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
+mod status;
+
 use super::user_sends::{
     atomic_replace, digest, owner_directory, read_bounded, sync_directory, write_new,
     write_replace, MAX_PREPARED_BYTES, MAX_UNSETTLED,
@@ -505,6 +507,9 @@ impl AgentDeliveryStore {
             return Ok(false);
         }
         let mut next = index.clone();
+        if let Some(record) = index.records.iter().find(|record| record.id == record_id) {
+            self.retain_inspection(&tab, record, require_claimed)?;
+        }
         next.records.retain(|record| record.id != record_id);
         if let Err(error) = self.persist(&tab, &next) {
             if require_claimed {
