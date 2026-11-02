@@ -33,11 +33,10 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function fixture() {
+async function fixture(writes: Array<Record<string, unknown> | undefined> = []) {
   const host = document.createElement("div");
   const reactHost = document.createElement("div");
   document.body.append(host, reactHost);
-  const writes: Array<Record<string, unknown> | undefined> = [];
   const data: string[] = [];
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>) => {
     if (command === "write_pty_string") writes.push(args);
@@ -81,13 +80,50 @@ function enter(textarea: HTMLTextAreaElement, keyCode = 13, isComposing = false)
   }));
 }
 
+async function output(term: Terminal, ...chunks: string[]) {
+  const parsed = chunks.map(chunk => new Promise<void>(resolve => term.write(chunk, resolve)));
+  await vi.runOnlyPendingTimersAsync();
+  await Promise.all(parsed);
+}
+
 describe("xterm composition delivery", () => {
-  it("consumes renderer status queries without producing PTY input or changing user text", async () => {
-    async function output(term: Terminal, ...chunks: string[]) {
-      const parsed = chunks.map(chunk => new Promise<void>(resolve => term.write(chunk, resolve)));
-      await vi.runOnlyPendingTimersAsync();
-      await Promise.all(parsed);
+  it("leaves the backend as the sole status responder with two attached renderers", async () => {
+    const writes: Array<Record<string, unknown> | undefined> = [];
+    const native = await fixture(writes);
+    const browser = await fixture(writes);
+    const replies: string[] = [];
+    native.term.onData(data => replies.push(data));
+    browser.term.onData(data => replies.push(data));
+    try {
+      for (const [query, backendReply] of [["\x1b[5n", "\x1b[0n"], ["\x1b[6n", "\x1b[1;1R"]]) {
+        for (let split = 0; split <= query.length; split += 1) {
+          replies.length = 0;
+          replies.push(backendReply);
+          await act(async () => {
+            await output(native.term, query.slice(0, split), query.slice(split));
+            await output(browser.term, query.slice(0, split), query.slice(split));
+          });
+          expect(replies).toEqual([backendReply]);
+          expect(native.data).toEqual([]);
+          expect(browser.data).toEqual([]);
+          expect(writes).toEqual([]);
+        }
+      }
+      replies.length = 0;
+      await act(async () => output(browser.term, "\x1b[?6n"));
+      expect(replies).toEqual(["\x1b[?1;1R"]);
+      const userText = "v4q9m[5n";
+      writes.length = 0;
+      await act(async () => native.term.paste(userText));
+      expect(native.data).toEqual([userText]);
+      expect(writes).toEqual([{ ptyId: "composition-pty", data: userText }]);
+    } finally {
+      await browser.dispose();
+      await native.dispose();
     }
+  });
+
+  it("consumes renderer status queries without producing PTY input or changing user text", async () => {
     const control = new Terminal({ allowProposedApi: true });
     const replies: string[] = [];
     control.onData(data => replies.push(data));
