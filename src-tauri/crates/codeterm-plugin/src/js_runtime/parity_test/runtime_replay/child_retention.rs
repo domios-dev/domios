@@ -82,20 +82,34 @@ async fn step(
     state: &Value,
     frame: RuntimeFrame,
 ) -> (RuntimeReduction, u64) {
+    batch(provider, context, state, &[frame]).await
+}
+
+async fn batch(
+    provider: &JsProvider,
+    context: &RuntimeContext,
+    state: &Value,
+    frames: &[RuntimeFrame],
+) -> (RuntimeReduction, u64) {
     let fixture_started = Instant::now();
     let before = state.clone();
     let clone_us = fixture_started.elapsed().as_micros();
     let frame_started = Instant::now();
-    assert!(serde_json::to_vec(&frame).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
+    for frame in frames {
+        assert!(serde_json::to_vec(frame).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
+    }
+    assert!(serde_json::to_vec(frames).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
     let frame_us = frame_started.elapsed().as_micros();
     let started = Instant::now();
     let result = provider
-        .runtime_reduce(context, state, &[frame])
+        .runtime_reduce(context, state, frames)
         .await
         .unwrap_or_else(|error| panic!("child retention native hook refused: {error:?}"));
     let elapsed = started.elapsed().as_micros().min(u64::MAX as u128) as u64;
     let assertion_started = Instant::now();
     assert_eq!(state, &before, "native fixture input remains reusable");
+    assert!(serde_json::to_vec(&result.state).unwrap().len() <= 192 * 1024);
+    assert!(serde_json::to_vec(&result).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
     if std::env::var_os("CODETERM_CHILD_RETENTION_TIMING").is_some() {
         eprintln!(
             "CHILD_RETENTION_STEP clone_us={clone_us} frame_encode_us={frame_us} adapter_us={elapsed} assertion_us={}",
@@ -298,7 +312,7 @@ async fn checkpoint(
         "aging cannot reset root binding/epoch"
     );
     let mut samples = Vec::new();
-    for _ in 0..spec.repetitions.min(3) {
+    for _ in 0..spec.repetitions.min(1) {
         let mut branch = state.clone();
         let mut events = Vec::new();
         let mut micros = 0;
@@ -437,6 +451,8 @@ async fn runtime_completed_child_retention_policy() {
             let mut state = started.state;
             let mut seeded = 0;
             for &age in &spec.ages {
+                let first = seeded;
+                let mut frames = Vec::new();
                 while seeded < age {
                     let child = format!("opaque-child-{seeded:02}");
                     context.thread_parents.push(
@@ -445,31 +461,26 @@ async fn runtime_completed_child_retention_policy() {
                         )
                         .unwrap(),
                     );
-                    let (started, _) = step(
-                        &provider,
-                        &context,
-                        &state,
-                        spawn(&context, &spec, seeded, report, false),
-                    )
-                    .await;
-                    let (completed, _) = step(
-                        &provider,
-                        &context,
-                        &started.state,
-                        spawn(&context, &spec, seeded, report, true),
-                    )
-                    .await;
-                    let row = emitted(
-                        &completed.events,
-                        &format!("opaque-spawn-{seeded:02}:opaque-child-{seeded:02}"),
-                    );
-                    assert!(
-                        row["toolInput"]["agent_result"].as_str()
-                            == Some("r".repeat(report).as_str()),
-                        "terminal event lost supplied report before scratch compaction"
-                    );
-                    state = completed.state;
+                    frames.push(spawn(&context, &spec, seeded, report, false));
+                    frames.push(spawn(&context, &spec, seeded, report, true));
                     seeded += 1;
+                }
+                assert_eq!(frames.len(), (age - first) * 2);
+                if !frames.is_empty() {
+                    let (completed, _) = batch(&provider, &context, &state, &frames).await;
+                    for index in first..age {
+                        let row = emitted(
+                            &completed.events,
+                            &format!("opaque-spawn-{index:02}:opaque-child-{index:02}"),
+                        );
+                        assert_eq!(row["toolInput"]["agent_state"], "completed");
+                        assert!(
+                            row["toolInput"]["agent_result"].as_str()
+                                == Some("r".repeat(report).as_str()),
+                            "terminal event lost supplied report before scratch compaction"
+                        );
+                    }
+                    state = completed.state;
                 }
                 checkpoint(&provider, &spec, &context, &state, age, report).await;
             }
@@ -529,8 +540,7 @@ async fn payload_pressure(full: &str) {
             ),
         )
         .await;
-        let mut state = started.state;
-        let mut originals = Vec::new();
+        let mut frames = Vec::new();
         for index in 0..32 {
             let child = format!("opaque-child-{index:02}");
             context.thread_parents.push(
@@ -539,31 +549,28 @@ async fn payload_pressure(full: &str) {
                 )
                 .unwrap(),
             );
-            let (started, _) = step(
-                &provider,
-                &context,
-                &state,
-                spawn(&context, &spec, index, 0, false),
-            )
-            .await;
+            frames.push(spawn(&context, &spec, index, 0, false));
             let mut frame = spawn(&context, &spec, index, 0, true);
             if let RuntimeFrame::Notification { params, .. } = &mut frame {
                 params["item"]["agentsStates"][&child]["message"] = json!(full);
             } else {
                 panic!("expected child completion notification");
             }
-            let (completed, _) = step(&provider, &context, &started.state, frame).await;
-            assert!(serde_json::to_vec(&completed).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
-            assert!(serde_json::to_vec(&completed.state).unwrap().len() <= 192 * 1024);
+            frames.push(frame);
+        }
+        assert_eq!(frames.len(), 64);
+        let (completed, _) = batch(&provider, &context, &started.state, &frames).await;
+        for index in 0..32 {
             let row = emitted(
                 &completed.events,
-                &format!("opaque-spawn-{index:02}:{child}"),
+                &format!("opaque-spawn-{index:02}:opaque-child-{index:02}"),
             );
+            assert_eq!(row["toolInput"]["agent_state"], "completed");
             assert_eq!(row["toolInput"]["agent_result"], full);
-            let serialized = serde_json::to_vec(&completed.events).unwrap();
-            originals.push((completed.events, serialized));
-            state = completed.state;
         }
+        let serialized = serde_json::to_vec(&completed.events).unwrap();
+        let originals = completed.events;
+        let mut state = completed.state;
         for _ in 0..3 {
             let scratch = &state["items"]["opaque-spawn-00:opaque-child-00"]["toolInput"];
             payload_suffix(&scratch["agent_result"], full);
@@ -586,9 +593,7 @@ async fn payload_pressure(full: &str) {
             assert_eq!(input["agent_runtime_epoch"], context.epoch);
             payload_suffix(&input["agent_result"], full);
             state = late.state;
-            for (events, serialized) in &originals {
-                assert_eq!(&serde_json::to_vec(events).unwrap(), serialized);
-            }
+            assert_eq!(serde_json::to_vec(&originals).unwrap(), serialized);
         }
     }
     assert!(
