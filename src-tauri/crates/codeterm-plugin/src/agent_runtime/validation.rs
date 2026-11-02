@@ -27,6 +27,40 @@ pub fn validate_runtime_size(value: &impl Serialize, limit: usize) -> Result<(),
     })
 }
 
+pub(crate) fn serialize_runtime_value(
+    value: &impl Serialize,
+    limit: usize,
+) -> Result<String, RuntimeFailure> {
+    struct Buffer {
+        bytes: Vec<u8>,
+        limit: usize,
+    }
+    impl std::io::Write for Buffer {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            if self.bytes.len().saturating_add(bytes.len()) > self.limit {
+                return Err(std::io::Error::other("runtime size limit"));
+            }
+            self.bytes.extend_from_slice(bytes);
+            Ok(bytes.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+    let mut buffer = Buffer {
+        bytes: Vec::new(),
+        limit,
+    };
+    serde_json::to_writer(&mut buffer, value).map_err(|_| {
+        RuntimeFailure::new(
+            RuntimeFailureCode::SizeLimit,
+            "runtime value exceeds size limit",
+        )
+    })?;
+    String::from_utf8(buffer.bytes)
+        .map_err(|error| RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, error.to_string()))
+}
+
 fn invalid(message: &str) -> RuntimeFailure {
     RuntimeFailure::new(RuntimeFailureCode::InvalidSchema, message)
 }

@@ -3091,13 +3091,16 @@ function shrinkRow(row3, cap) {
 }
 function budgetReduction(state, updates) {
   let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
-  let bytes2 = serializedBytes({ state, events });
+  let serialized = JSON.stringify({ state, events });
+  let bytes2 = utf8Bytes2(serialized);
   for (let cap = EVENT_TEXT_CAP / 2; bytes2 > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
     events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
-    bytes2 = serializedBytes({ state, events });
+    serialized = JSON.stringify({ state, events });
+    bytes2 = utf8Bytes2(serialized);
   }
   if (bytes2 > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
-  return { state, events };
+  const normalized = JSON.parse(serialized);
+  return { state: normalized.state, events };
 }
 
 // plugins/provider-codex/src/runtimeReduce.ts
@@ -3460,7 +3463,7 @@ function runtimeReduce(ctx, raw, frames) {
     }
   }
   compactState(state);
-  return budgetReduction(json(state), events);
+  return budgetReduction(state, events);
 }
 function pendingStatus(state, threadId) {
   const statusLine = runningCallStatus(state);
