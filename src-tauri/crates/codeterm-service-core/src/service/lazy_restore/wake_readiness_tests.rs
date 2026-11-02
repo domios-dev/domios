@@ -26,7 +26,7 @@ fn waking_existing_pty_preserves_its_provider_readiness_and_flushes_held_input_o
         .unwrap(),
         Delivery::Pending { .. }
     ));
-    writes.wait_for_flush();
+    assert!(fixture.has_pending_agent_delivery(&id));
     assert!(writes.texts.lock().is_empty());
     {
         let mut mux = fixture.service.mux.write();
@@ -142,7 +142,7 @@ fn waking_without_pty_starts_launch_and_waits_for_provider_binding() {
         .unwrap(),
         Delivery::Pending { .. }
     ));
-    writes.wait_for_flush();
+    assert!(fixture.has_pending_agent_delivery(&id));
     assert!(writes.texts.lock().is_empty());
     fixture
         .service
