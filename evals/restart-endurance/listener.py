@@ -2,7 +2,6 @@ import ctypes
 import json
 import os
 import platform
-import socket
 from pathlib import Path
 import subprocess
 import sys
@@ -48,17 +47,8 @@ def linux_start(pid):
 
 def identity(port):
     if platform.system() == "Windows":
-        # Some Windows endpoint tables expose listeners with state 0; match our established tuple instead.
-        with socket.create_connection(("127.0.0.1", port), timeout=10) as connection:
-            client_port = connection.getsockname()[1]
-            script = f"""$ErrorActionPreference='Stop'
-$ids=@(Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort {port} -RemoteAddress 127.0.0.1 -RemotePort {client_port} -State Established | Select-Object -ExpandProperty OwningProcess -Unique)
-if ($ids.Count -ne 1) {{ throw 'Expected one listener' }}
-$process=Get-Process -Id $ids[0]
-$epoch=[DateTime]::SpecifyKind([DateTime]'1970-01-01',[DateTimeKind]::Utc)
-@{{pid=$process.Id;started_us=[long](($process.StartTime.ToUniversalTime().Ticks-$epoch.Ticks)/10)}} | ConvertTo-Json -Compress
-"""
-            return json.loads(output(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script]))
+        from windows_listener import identity as windows_identity
+        return windows_identity(port)
     pid = unix_listener(port)
     return {"pid": pid, "started_us": mac_start(pid) if platform.system() == "Darwin" else linux_start(pid)}
 

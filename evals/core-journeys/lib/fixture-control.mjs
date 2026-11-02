@@ -41,13 +41,15 @@ export function createFixtureBundle(ctx) {
   mkdirSync(sessions, { recursive: true });
   const quote = value => process.platform === "win32" ? `'${String(value).replaceAll("'", "''")}'` : `'${String(value).replaceAll("'", "'\"'\"'")}'`;
   const argv = [process.execPath, join(here, "fixture-runner.mjs"), "--provider", id, "--discovery", discovery,
-    "--sessions", sessions, "--bench", join(root, "evals/core-journeys/run.sh"), "--instance", ctx.dev.instance, "--port", String(ctx.dev.port)];
+    "--sessions", sessions, "--bench", join(root, "evals/core-journeys/run.sh"), "--checkout", process.env.CORE_JOURNEY_BUILD_CHECKOUT || root,
+    "--instance", ctx.dev.instance, "--port", String(ctx.dev.port)];
   const command = `${process.platform === "win32" ? "& " : ""}${argv.map(quote).join(" ")}`;
   const template = readFileSync(join(here, "fixture-provider.cjs"), "utf8");
   writeFileSync(join(bundle, "plugin.js"), template.replace("__FIXTURE_SETTINGS__", JSON.stringify({ command, sessions: sessions.replaceAll("\\", "/") })));
   writeFileSync(join(bundle, "plugin.json"), JSON.stringify({
     id, version: "0.0.0", hostApi: 2, displayName: "Core journeys control fixture", entry: "plugin.js",
-    cliBinary: process.execPath, binaryName: id, capabilities: { agentProvider: true },
+    // Launch preflight resolves binaryName on PATH; the fixture runs under Node.
+    cliBinary: process.execPath, binaryName: "node", capabilities: { agentProvider: true },
     models: [{ id: "control", displayName: "Deterministic control" }], defaultModel: "control",
     modelCatalogue: { authority: "authoritative", liveDiscoveryRequired: false },
     sessions: { rootDir: sessions.replaceAll("\\", "/"), cwdEncoding: "none", fileExtension: "jsonl" },

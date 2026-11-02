@@ -1,4 +1,5 @@
 import { JourneyFailure } from "./wait.mjs";
+import { ownedBrowserSelection } from "../../perf/streaming-soak/replay-page.mjs";
 
 const CHOICE_KEY = "codeterm:new-session-choice";
 const OPEN_EVENT = "codeterm:open-new-session";
@@ -17,6 +18,16 @@ function untilScript(checkSource, deadlineMs, label) {
   observer.observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
   const timer = setTimeout(() => { observer.disconnect(); reject(new Error(${JSON.stringify(`deadline: ${label}`)})); }, ${Number(deadlineMs)});
 })`;
+}
+
+export async function selectTabInPage(page, workspace, tab, deadlineMs) {
+  const action = value => `(${ownedBrowserSelection.toString()})(document, ${JSON.stringify(workspace)}, ${JSON.stringify(tab)}, ${JSON.stringify(value)})`;
+  await page.evaluate(action("workspace-reveal"), deadlineMs);
+  await page.evaluate(untilScript(`() => ${action("workspace-ready")}`, deadlineMs, "owned workspace control"), deadlineMs);
+  await page.evaluate(action("workspace"), deadlineMs);
+  await page.evaluate(untilScript(`() => [...document.querySelectorAll('[data-testid="workspace-detail"]')].some(node => node.dataset.workspaceId === ${JSON.stringify(workspace)} && node.getClientRects().length > 0)`, deadlineMs, "owned workspace selected"), deadlineMs);
+  await page.evaluate(action("tab"), deadlineMs);
+  await page.evaluate(untilScript(`() => ${action("mounted")}`, deadlineMs, `owned tab ${tab} selected and mounted`), deadlineMs);
 }
 
 export function focusedPaneScript(tabId, deadlineMs) {
