@@ -2,6 +2,12 @@
   "version": 1,
   "splits": [
     {
+      "from": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests.rs",
+      "to": [
+        "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests/storage_desk.rs"
+      ]
+    },
+    {
       "from": "src-tauri/crates/codeterm-service-core/src/usage/poller.rs",
       "to": [
         "src-tauri/crates/codeterm-service-core/src/usage/poller/tests.rs"
@@ -9331,7 +9337,7 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests/storage_desk.rs",
       "token": "claude",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
@@ -9345,14 +9351,14 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests/storage_desk.rs",
       "token": "codex",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests/storage_desk.rs",
       "token": "opencode",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
