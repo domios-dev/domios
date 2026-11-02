@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State as AxumState},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
 use serde::Deserialize;
@@ -125,7 +125,7 @@ mod tests {
         let response = adopt_agent(
             AxumState(crate::transport_tabs::fixture::app_state(&fixture)),
             Path(tab_id),
-            HeaderMap::new(),
+            crate::auth::ActorHeaders::for_owner_test(axum::http::HeaderMap::new()),
             Json(TabAdoptRequest {
                 provider: Some("  ".into()),
                 force: false,

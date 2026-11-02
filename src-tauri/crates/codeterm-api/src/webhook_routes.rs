@@ -31,7 +31,7 @@ pub struct RegisterWebhookBody {
 
 pub async fn register_webhook(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<RegisterWebhookBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     let id = uuid::Uuid::new_v4().to_string();

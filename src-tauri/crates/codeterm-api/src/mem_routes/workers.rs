@@ -266,7 +266,7 @@ pub async fn workers_kill(
 
 pub async fn workers_log(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<
     (

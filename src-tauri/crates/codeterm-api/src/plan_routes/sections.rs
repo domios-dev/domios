@@ -8,8 +8,7 @@ use serde::Deserialize;
 use crate::routes::AppState;
 
 use super::{
-    authorize_draft_structure_mutation_http, emit_plan_changed, epoch_ms, plan_err, text_err,
-    PlanRouteResult,
+    authorize_draft_structure_mutation_http, emit_plan_changed, epoch_ms, plan_err, PlanRouteResult,
 };
 
 #[derive(Deserialize)]

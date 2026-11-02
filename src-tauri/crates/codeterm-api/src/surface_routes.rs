@@ -53,23 +53,31 @@ fn internal() -> Refusal {
     )
 }
 
-fn authorize(_state: &AppState, _headers: &HeaderMap) -> Result<(), Refusal> {
+async fn on_blocking_pool<T: Serialize + Send + 'static>(
+    svc: ServiceState,
+    work: impl FnOnce(&ServiceContext) -> Result<T, SurfaceError> + Send + 'static,
+) -> RouteResult {
+    let result = tokio::task::spawn_blocking(move || work(svc.as_ref()))
+        .await
+        .map_err(|_| internal())?
+        .map_err(surface_refusal)?;
     serde_json::to_value(result)
         .map(Json)
         .map_err(|_| internal())
 }
 
-pub(crate) async fn list(AxumState(state): AxumState<AppState>, headers: HeaderMap) -> RouteResult {
-    authorize(&state, &headers)?;
+pub(crate) async fn list(
+    AxumState(state): AxumState<AppState>,
+    _headers: HeaderMap,
+) -> RouteResult {
     on_blocking_pool(state.svc.clone(), |svc| Ok(svc.list_surfaces())).await
 }
 
 pub(crate) async fn open(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(request): Json<SurfaceOpenRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     on_blocking_pool(state.svc.clone(), move |svc| svc.open_surface(request)).await
 }
 
@@ -85,7 +93,6 @@ pub(crate) async fn close(
     headers: HeaderMap,
     Json(request): Json<SurfaceCloseRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     let caller = crate::auth::caller_claim(&state, &headers, request.caller_tab_id.as_deref())
         .map_err(|(status, message)| refusal(status, "forbidden", &message))?;
     on_blocking_pool(state.svc.clone(), move |svc| {
@@ -116,11 +123,10 @@ fn stream_viewport(query: &StreamQuery) -> Option<ViewportRequest> {
 /// SSE `state` / `frame` / `notice`; the stream is the viewer, so disconnecting leaves the screencast.
 pub(crate) async fn stream(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab_id): Path<String>,
     Query(query): Query<StreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, Refusal> {
-    authorize(&state, &headers)?;
     let events = open_surface_stream(&state.svc, &tab_id, stream_viewport(&query))
         .await
         .map_err(surface_refusal)?;
@@ -147,7 +153,6 @@ pub(crate) async fn call(
     Path(tab_id): Path<String>,
     Json(request): Json<SurfaceCallRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     let origin = if crate::auth::authenticated_origin(&state, &headers)
         .is_ok_and(|origin| origin.owner_trusted())
     {
