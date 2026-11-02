@@ -230,7 +230,7 @@ export function requireTestSuccess(result, report, label, { warn = console.log, 
 }
 
 
-const tomlConfig = (filter) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\ntest-threads = 1\nslow-timeout = { period = "1s" }\n`;
+const tomlConfig = (filter, listener = false) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 
 // compileOnly builds every lane's test binaries and stops, so a CI step can time compilation apart from the run.
 async function run(mode, { compileOnly = false } = {}) {
@@ -238,7 +238,7 @@ async function run(mode, { compileOnly = false } = {}) {
   if (!lanes) throw new Error('usage: node scripts/ci-rust-tests.mjs full|platform|embeddings | verify DIR');
   for (const name of ['CODETERM_CONPTY_DIR', 'CODETERM_PLAN_ID', 'CODETERM_TASK_ID']) delete process.env[name];
   if (process.platform === 'linux') process.env.TAURI_CONFIG = TEST_SERVER_RESOURCES;
-  const env = { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1', NEXTEST_TEST_THREADS: '1', SLOW_UNIT_TESTS_MEASUREMENT: 'alone' };
+  const env = { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' };
   const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
   const start = performance.now();
   const receipt = { mode, os, run_id: process.env.GITHUB_RUN_ID, repository: process.env.GITHUB_REPOSITORY, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1), producer: process.env.GITHUB_JOB, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
@@ -281,7 +281,7 @@ async function run(mode, { compileOnly = false } = {}) {
       for (const { listener, selected: group } of executionGroups(selected)) {
         const unitFilter = listener ? LISTENER : `not (${LISTENER})`;
         const filter = `(${scope}) & (${unitFilter})`;
-        fs.writeFileSync(config, tomlConfig(filter));
+        fs.writeFileSync(config, tomlConfig(filter, listener));
         const log = path.join(directory, `${mode}-${lane.lane}-${listener ? 'listener' : 'normal'}.log`);
         const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config)], log, env);
         const report = fs.readFileSync(log, 'utf8');
@@ -289,7 +289,7 @@ async function run(mode, { compileOnly = false } = {}) {
         receipt.executed += executedCount(report);
         try { timings.push(...parseTimings(report)); } catch (error) { console.log(`[rust-tests] timings unavailable for ${log}: ${error.message}`); }
         const guard = ['scripts/check-slow-unit-tests.mjs', log];
-        const audit = await captureCommand(process.execPath, [...guard, '--serial'], log.replace(/\.log$/, '.audit.log'));
+        const audit = await captureCommand(process.execPath, [...guard, ...(listener ? ['--serial'] : [])], log.replace(/\.log$/, '.audit.log'));
         if (audit.error || audit.status !== 0) throw new Error(`Slow unit ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
     }

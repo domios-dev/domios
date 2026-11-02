@@ -455,11 +455,12 @@ impl ControlFixture {
         let spawned = parking_lot::Mutex::new(signal.observe_spawned());
         let readiness = self.readiness.clone();
         let close_streams = self.close_streams;
+        let detached = self.detached;
         let (receipt_tx, receipts) = std::sync::mpsc::channel();
         signal.set_readiness(move || {
             use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
             let mut stream = readiness.ready_stream()?;
-            let parent = if close_streams {
+            let parent = if close_streams || detached {
                 let pid = spawned
                     .lock()
                     .recv_timeout(super::test_readiness::SETUP_DEADLINE)
