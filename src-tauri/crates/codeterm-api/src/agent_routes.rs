@@ -786,11 +786,28 @@ mod identity;
 pub use identity::{clear_prompt, set_agent_type};
 
 /// List all registered agent providers as `ProviderDescriptor`s.
+#[derive(Default, Deserialize)]
+pub struct ProviderListQuery {
+    #[serde(default)]
+    metadata_only: bool,
+}
+
 pub async fn list_agent_providers(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
+    Query(query): Query<ProviderListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
+    if query.metadata_only {
+        let registry = state.svc.provider_registry.clone();
+        return tokio::task::spawn_blocking(move || {
+            codeterm_service_core::provider::list_agent_provider_metadata(&registry)
+                .map(|values| Json(values.into()))
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error))
+        })
+        .await
+        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+    }
     list_agent_providers_blocking(state.svc.provider_registry.clone()).await
 }
 

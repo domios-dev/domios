@@ -31,6 +31,7 @@ interface AgentProviderPickerProps {
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
+  signingInProviderId?: string;
 }
 
 export function AgentProviderPicker({
@@ -48,6 +49,7 @@ export function AgentProviderPicker({
   belowConfirm,
   navigation,
   home,
+  signingInProviderId,
 }: AgentProviderPickerProps) {
   const headlineId = useId();
   const { observed, state, refresh, silentRefresh } = useProviderAvailability(providers);
@@ -141,7 +143,7 @@ export function AgentProviderPicker({
           className="flex max-w-full flex-wrap justify-center gap-4"
           data-testid="agent-picker-cards"
         >
-          {providersLoading ? <Skeleton className="flex max-w-full flex-wrap justify-center gap-4">
+          {providersLoading && observed.length === 0 ? <Skeleton className="flex max-w-full flex-wrap justify-center gap-4">
             {[0, 1, 2].map(index => <div key={index} className={`ct-panel-card ${PROVIDER_CARD_LAYOUT}`}>
               <SkeletonBlock shape="circle" width="2rem" height="2rem" />
               <SkeletonBlock width="4.5rem" height="1rem" />
@@ -152,6 +154,7 @@ export function AgentProviderPicker({
               provider={provider}
               selected={selectedId === provider.id}
               onSelect={() => { if (!busy && !installBusy) setSelectedId(provider.id); }}
+              signInNeeded={signingInProviderId === provider.id}
             />
           ))}
         </div>
@@ -164,7 +167,7 @@ export function AgentProviderPicker({
               variant="primary"
               size="lg"
               data-testid="agent-picker-confirm"
-              disabled={providersLoading || !selected || state === "checking" || (needsInstall && !selected.install_command)}
+              disabled={!selected || selected.availability_checking || (needsInstall && !selected.install_command)}
               loading={busy || installBusy}
               onClick={() => {
                 if (!selected) return;

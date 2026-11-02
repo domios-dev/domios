@@ -1096,6 +1096,7 @@ export interface ProviderAttachmentCapabilities {
 }
 
 export interface ProviderDescriptor {
+  availability_checking?: boolean;
   general_agent_offer_when_absent?: boolean;
   /** Whether this provider can be a Neighbor's concierge here, for which machine access modes, and which of those this
    *  platform actually confines; the per-friend folder enforcement note stays the precise projection. */

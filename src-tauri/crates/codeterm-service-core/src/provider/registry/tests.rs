@@ -137,6 +137,21 @@ fn registry() -> (
 }
 
 #[test]
+fn metadata_listing_keeps_availability_unknown_without_live_backend_calls() {
+    let (registry, calls, _) = registry();
+    let baseline = calls.load(Ordering::SeqCst);
+    let metadata = super::super::values::list_agent_provider_metadata(&registry).unwrap();
+    assert_eq!(metadata.len(), 1);
+    assert_eq!(metadata[0]["id"], "shell");
+    assert_eq!(metadata[0]["availability"], "unknown");
+    assert_eq!(metadata[0]["availability_checking"], true);
+    assert!(metadata[0]
+        .get("cli_status")
+        .is_none_or(serde_json::Value::is_null));
+    assert_eq!(calls.load(Ordering::SeqCst), baseline);
+}
+
+#[test]
 fn chatbackend_list_models_populates_descriptor_catalog() {
     let (reg, model_list_calls, _) = registry();
     let descs = reg.describe_all();
