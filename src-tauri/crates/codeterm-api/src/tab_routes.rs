@@ -827,7 +827,7 @@ pub async fn resize_tab(
 
 pub async fn agent_run_log(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<
     (

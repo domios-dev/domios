@@ -9,7 +9,7 @@ use serde_json::Value;
 use crate::routes::AppState;
 use codeterm_service_core::service::plan::PlanError;
 
-use super::{emit_plan_changed, epoch_ms, groups_from_csv, plan_err, text_err, PlanRouteResult};
+use super::{emit_plan_changed, epoch_ms, groups_from_csv, plan_err, PlanRouteResult};
 
 #[derive(Deserialize)]
 pub struct LayoutSetBody {

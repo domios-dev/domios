@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::routes::AppState;
 
-use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
+use super::{emit_plan_changed, epoch_ms, plan_err, PlanRouteResult};
 
 #[derive(Deserialize)]
 pub struct LinkBody {

@@ -171,7 +171,7 @@ fn lifecycle_event(
 
 fn stored_event(
     plan: &Plan,
-    event: &codeterm_plan::service_plan::_state::mission_control::PlanEvent,
+    event: &codeterm_plan::service_plan::state::mission_control::PlanEvent,
     ordinal: usize,
 ) -> TeamMissionControlEvent {
     TeamMissionControlEvent {

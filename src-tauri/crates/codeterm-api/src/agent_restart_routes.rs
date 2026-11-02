@@ -58,7 +58,7 @@ pub(crate) fn agent_restart_failure_response(
 
 pub(crate) async fn agent_restart_handler(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     OptionalJson(body): OptionalJson<AgentRestartBody>,
 ) -> axum::response::Response {

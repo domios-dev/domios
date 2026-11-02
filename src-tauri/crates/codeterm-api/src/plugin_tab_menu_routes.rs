@@ -22,7 +22,13 @@ fn refusal(status: StatusCode, code: &str, message: &str) -> Refusal {
     )
 }
 
-fn authorize(_state: &AppState, _headers: &HeaderMap) -> Result<(), Refusal> {
+fn target_refusal(error: ReceiverTargetError) -> Refusal {
+    let status = match error {
+        ReceiverTargetError::PersistFailed => StatusCode::INTERNAL_SERVER_ERROR,
+        ReceiverTargetError::ReceiverNotFound
+        | ReceiverTargetError::TabNotFound
+        | ReceiverTargetError::MenuItemNotFound => StatusCode::NOT_FOUND,
+    };
     refusal(status, error.code(), error.message())
 }
 
@@ -47,8 +53,7 @@ async fn on_blocking_pool<T: Serialize + Send + 'static>(
         .map_err(|_| internal())
 }
 
-pub async fn tab_menu(AxumState(state): AxumState<AppState>, headers: HeaderMap) -> RouteResult {
-    authorize(&state, &headers)?;
+pub async fn tab_menu(AxumState(state): AxumState<AppState>, _headers: HeaderMap) -> RouteResult {
     on_blocking_pool(state.svc.clone(), |svc| Ok(svc.tab_menu_state())).await
 }
 
@@ -62,10 +67,9 @@ pub struct TabMenuActionRequest {
 
 pub async fn tab_menu_action(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(request): Json<TabMenuActionRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     on_blocking_pool(state.svc.clone(), move |svc| {
         svc.run_tab_menu_item(&request.plugin_id, &request.item_id, &request.tab_id)
     })
@@ -74,10 +78,9 @@ pub async fn tab_menu_action(
 
 pub async fn receiver_target(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(plugin_id): Path<String>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     on_blocking_pool(state.svc.clone(), move |svc| {
         svc.receiver_target(&plugin_id)
     })
@@ -92,11 +95,10 @@ pub struct SetReceiverTargetRequest {
 
 pub async fn set_receiver_target(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(plugin_id): Path<String>,
     Json(request): Json<SetReceiverTargetRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     on_blocking_pool(state.svc.clone(), move |svc| {
         svc.set_receiver_target(&plugin_id, &request.tab_id)
     })
@@ -105,10 +107,9 @@ pub async fn set_receiver_target(
 
 pub async fn clear_receiver_target(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(plugin_id): Path<String>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     on_blocking_pool(state.svc.clone(), move |svc| {
         svc.clear_receiver_target(&plugin_id)
     })

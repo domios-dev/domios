@@ -771,7 +771,7 @@ pub async fn plugin_snapshot(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
-    use crate::request_bound::{blocking, unavailable};
+    use crate::request_bound::blocking;
     let runtime = tokio::runtime::Handle::current();
     blocking("plugin-snapshot".into(), move |slot| {
         runtime.block_on(commands::plugins::plugin_manager_snapshot_for_service(
@@ -842,7 +842,7 @@ pub async fn plugin_bubble(
     _headers: HeaderMap,
     Json(req): Json<BubbleReq>,
 ) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
-    use crate::request_bound::{bounded, unavailable, RequestSlot, PLUGIN_DEADLINE};
+    use crate::request_bound::{bounded, RequestSlot, PLUGIN_DEADLINE};
     let slot = RequestSlot::acquire(format!("bubble:{}", req.plugin_id))?;
     let registry = state
         .svc
