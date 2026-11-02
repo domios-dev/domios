@@ -1,3 +1,4 @@
+import {bashInterpreter} from './bash-interpreter.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -18,7 +19,7 @@ export function catalogueCommand(id,{directory=process.env.RUNNER_TEMP,pluginId,
 }
 export function runCatalogue(id,{env=process.env,pluginId,execute=spawnSync,...options}={}){
   const command=catalogueCommand(id,{directory:env.RUNNER_TEMP,pluginId,...options});
-  const result=execute('bash',['-c',command],{env,stdio:'inherit',windowsHide:true});
+  const result=execute(bashInterpreter(process.platform, env),['-c',command],{env,stdio:'inherit',windowsHide:true});
   if(result.error)throw result.error;
   return result.status??1;
 }

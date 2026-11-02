@@ -15,6 +15,10 @@ on:
         required: false
         default: false
         type: boolean
+      additional_artifacts:
+        required: false
+        default: '[]'
+        type: string
 permissions:
   contents: read
   actions: read
@@ -80,6 +84,7 @@ jobs:
       - name: Report advisory warnings and verify collection completeness
         env:
           WARNING_ARTIFACTS: ${{ inputs.artifacts }}
+          WARNING_ADDITIONAL_ARTIFACTS: ${{ inputs.additional_artifacts }}
           WARNING_SEED: ${{ inputs.comment }}
         run: node scripts/rust-warnings-report.mjs ci-rust-warnings
       - name: Store warning report

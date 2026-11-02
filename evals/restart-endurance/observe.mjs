@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { retainedSendReceipt } from "./send-receipt.mjs";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
@@ -82,7 +83,7 @@ async function api(path, method = "GET", body, signal = AbortSignal.timeout(30_0
 
 async function command(args, retainSend = false) {
   return new Promise((accept, reject) => {
-    const child = spawn(process.env.ENDURE_BASH ?? "bash", args, {
+    const child = spawn(process.env.ENDURE_BASH ?? bashInterpreter(), args, {
       cwd: root, stdio: ["ignore", "pipe", "pipe"], signal: AbortSignal.timeout(deadlineMs),
     });
     let stdout = "", stderr = "";

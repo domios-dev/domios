@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { authorityTabs, Peer, ready, receiving, requireThat, retired, topology } from "./peers.mjs";
@@ -26,7 +27,7 @@ dev_assert_restart_target 0
 cd "$2"
 dev_run bash build.sh kill
 dev_run bash build.sh dev-prebuilt --wait`;
-  const bash = process.platform === "win32" ? "C:/Program Files/Git/bin/bash.exe" : "bash";
+  const bash = bashInterpreter();
   const code = await new Promise((accept, reject) => {
     const child = spawn(bash, ["-c", command, "per-friend-restart", join(repo, "evals/_lib/lib.sh"), repo], {
       cwd: repo, windowsHide: true, stdio: "inherit", signal: AbortSignal.timeout(240_000),

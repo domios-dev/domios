@@ -1,6 +1,7 @@
 // Caller: scripts ci-rust-tests.mjs, ci-rust-archives.mjs; scripts tests/ci-classifier-cache.test.mjs
 // Classifies a Cargo target's tests once per source content: results are keyed by the digest of the
 // classifier and of every file it can read, kept on the runner and in the private CI store.
+import {bashInterpreter} from './bash-interpreter.mjs';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import fs from 'node:fs';
@@ -41,14 +42,14 @@ function cacheRoot(env) {
 function fromStore(key, destination, env) {
   if (!env.AWS_ACCESS_KEY_ID) return false;
   try {
-    execFileSync('bash', ['scripts/ci-artifact.sh', 'get', `ci-classifier/${key}.json`, destination], { cwd: ROOT, stdio: 'ignore', env });
+    execFileSync(bashInterpreter(), ['scripts/ci-artifact.sh', 'get', `ci-classifier/${key}.json`, destination], { cwd: ROOT, stdio: 'ignore', env });
     return fs.existsSync(destination);
   } catch { return false; }
 }
 
 function toStore(key, file, env) {
   if (!env.AWS_ACCESS_KEY_ID) return;
-  try { execFileSync('bash', ['scripts/ci-artifact.sh', 'put', `ci-classifier/${key}.json`, file], { cwd: ROOT, stdio: 'ignore', env }); } catch { /* A cache miss later only costs one classifier run. */ }
+  try { execFileSync(bashInterpreter(), ['scripts/ci-artifact.sh', 'put', `ci-classifier/${key}.json`, file], { cwd: ROOT, stdio: 'ignore', env }); } catch { /* A cache miss later only costs one classifier run. */ }
 }
 
 export function runClassifier(source, generated, env) {

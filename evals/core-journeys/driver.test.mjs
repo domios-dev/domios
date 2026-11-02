@@ -1,6 +1,7 @@
+import {bashInterpreter} from "../../scripts/bash-interpreter.mjs";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -11,10 +12,7 @@ import { parseRestartArgs, restartEnvironment } from "./restart.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const runSh = join(here, "run.sh");
-const bash = process.env.CORE_JOURNEY_BASH ?? (process.platform === "win32"
-  ? [join(process.env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe"), "bash"]
-    .find((candidate) => candidate === "bash" || existsSync(candidate))
-  : "bash");
+const bash = process.env.CORE_JOURNEY_BASH ?? bashInterpreter();
 
 test("parseArgs reads driver flags and refuses unknown or missing ones", () => {
   const options = parseArgs(["verify", "--out", "/tmp/x", "--providers", "claude, codex", "--history-kb", "8", "--all-tabs"]);

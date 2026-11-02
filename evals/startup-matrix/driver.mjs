@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { createRequire } from 'node:module';
 import { mkdirSync, writeFileSync, readFileSync, statSync, watch, appendFileSync } from 'node:fs';
 import { resolve, join, dirname } from 'node:path';
@@ -101,7 +102,7 @@ async function screenshot(label) {
 }
 function cli(args, stdin) {
   return new Promise((accept, reject) => {
-    const child = spawn('bash', [join(root, 'evals/startup-matrix/run.sh'), '--dc', ...args], {
+    const child = spawn(bashInterpreter(), [join(root, 'evals/startup-matrix/run.sh'), '--dc', ...args], {
       cwd: root, stdio: ['pipe', 'pipe', 'pipe'], signal: AbortSignal.timeout(deadlineMs),
     });
     let stdout = '', stderr = '';

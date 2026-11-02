@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 
 import { spawn } from "node:child_process";
 
@@ -22,7 +23,7 @@ unset CODETERM_PLAN_ID CODETERM_TASK_ID
 CODETERM_SESSION_ID="$REPORT_SESSION_ID" CODETERM_SESSION_BINDING_NONCE="$REPORT_BINDING_NONCE" \
   dc --as-tab "$REPORT_TAB_ID" agent report "$REPORT_MARKER" --plan "$REPORT_PLAN_ID" --task "" --json
 `;
-const child = spawn("bash", ["-lc", command], {
+const child = spawn(bashInterpreter(), ["-lc", command], {
   env: {
     ...process.env,
     REPORT_EVAL_LIB: evalLib,

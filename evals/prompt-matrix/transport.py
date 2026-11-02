@@ -3,9 +3,12 @@ WHY: Inherited production identity and timer-based readiness are unsafe.
 ORACLE: CLI responses, ordered SSE frames and exact instance identity agree.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
 import json
 import os
-from pathlib import Path
 import queue
 import signal
 import socket
@@ -130,7 +133,7 @@ class Dev:
         return remaining
 
     def dc(self, *args, stdin=None, json_mode=True, allow_error=False):
-        command = ["bash", "-c", 'source "$1"; shift; dc "$@"', "matrix-dc",
+        command = [bash_interpreter(), "-c", 'source "$1"; shift; dc "$@"', "matrix-dc",
                    str(REPO / "evals/_lib/lib.sh"), *map(str, args)]
         if json_mode:
             command.append("--json")

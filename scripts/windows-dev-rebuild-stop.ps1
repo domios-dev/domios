@@ -9,14 +9,20 @@ function Snapshot {
   $processes = @(Get-CimInstance Win32_Process | ForEach-Object {
     $created = ''
     $imageIdentity = ''
+    $identityError = ''
     $executable = [string]$_.ExecutablePath
     try {
-      $process = [Diagnostics.Process]::GetProcessById([int]$_.ProcessId)
-      try { $created = $process.StartTime.ToUniversalTime().ToFileTimeUtc().ToString() } finally { $process.Dispose() }
-      $imageIdentity = [DevRebuildProcess]::FileIdentity([string]$_.ExecutablePath)
+      $process = [DevRebuildProcess]::Open([int]$_.ProcessId)
+      if ($null -eq $process) { return }
+      try {
+        if ($process.WaitForExit(0)) { return }
+        $created = $process.Created
+        $executable = $process.Executable
+      } finally { $process.Dispose() }
+      $imageIdentity = [DevRebuildProcess]::FileIdentity($executable)
       if ($Operation -in @('Inspect', 'StopTree')) { $executable = [DevRebuildProcess]::PhysicalImage($executable) }
-    } catch {}
-    [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; executable = $executable; created = $created; imageIdentity = $imageIdentity; commandLine = [string]$_.CommandLine }
+    } catch { $identityError = $_.Exception.Message }
+    [pscustomobject]@{ pid = [int]$_.ProcessId; parent = [int]$_.ParentProcessId; executable = $executable; created = $created; imageIdentity = $imageIdentity; identityError = $identityError; commandLine = [string]$_.CommandLine }
   })
   return [pscustomobject]@{ processes = $processes; listeners = $listeners }
 }
