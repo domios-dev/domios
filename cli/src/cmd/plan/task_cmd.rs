@@ -58,7 +58,7 @@ fn render_attempt_timestamp(attempt: &Value, field: &str) -> String {
         .get(field)
         .and_then(Value::as_u64)
         .map(|timestamp| timestamp.to_string())
-        .unwrap_or_else(|| "none".into())
+        .unwrap_or_else(|| "-".into())
 }
 
 fn render_attempts(value: &Value) -> String {
@@ -153,6 +153,7 @@ fn render_attempt(value: &Value) -> String {
         "base",
         "destination",
         "assigned_at",
+        "acknowledged_at",
         "reported_at",
         "reviewed_at",
         "closed_at",
@@ -267,11 +268,7 @@ fn print_safety_nudges(val: &Value) {
 }
 
 fn task_status(item: &Value) -> &str {
-    item.get("task")
-        .unwrap_or(item)
-        .get("status")
-        .and_then(Value::as_str)
-        .unwrap_or("")
+    crate::cmd::task_list_render::TaskSummaryRow::new(item).status
 }
 
 fn hidden_task_summary(shown: usize, all_tasks: &[Value]) -> Option<String> {

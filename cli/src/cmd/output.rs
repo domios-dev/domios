@@ -172,6 +172,15 @@ pub fn has_collection(value: &Value) -> bool {
 }
 
 pub fn compact_row(row: &Value, current_tab: Option<&str>) -> String {
+    if row.get("task").is_some_and(Value::is_object) {
+        let task = crate::cmd::task_list_render::TaskSummaryRow::new(row);
+        return format!(
+            "{}  {} — {}\n",
+            single_line(task.key, 160),
+            single_line(task.name, 160),
+            single_line(task.status, 80)
+        );
+    }
     if let Some(text) = row.as_str() {
         let text = single_line(text, 160);
         return format!("{text}  {text} — \n");

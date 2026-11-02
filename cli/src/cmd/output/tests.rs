@@ -2,6 +2,24 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn compact_task_page_uses_the_same_wrapped_rows_as_json() {
+    let value = json!({"tasks": [
+        {"display_key":"K-83", "plan_id":"p-opaque", "plan_title":"δ",
+         "section_titles":["q"], "plan_owner":{},
+         "task":{"id":"t-opaque", "name":"fragment α", "status":"in_progress", "body":"hidden"}},
+        {"display_key":"K-97", "task":{"id":"u-opaque", "name":"fragment β", "status":"blocked"}}
+    ], "total":3, "next":"opaque-cursor"});
+    assert_eq!(compact_list(&value, None),
+        "K-83  fragment α — in_progress\nK-97  fragment β — blocked\n1 more — refine the query or use --limit\n");
+    assert_eq!(envelope(&value, true)["result"], value["tasks"]);
+    let filtered = json!({"tasks":[value["tasks"][1].clone()]});
+    assert_eq!(
+        compact_list(&filtered, None),
+        "K-97  fragment β — blocked\n"
+    );
+}
+
+#[test]
 fn compact_output_exact_lines_for_search_and_list_fixtures() {
     let row = json!({"id":"one","title":"First\nresult","body":"line one\nline two", "score":0.87,"relevance":0.95});
     for key in ["hits", "plans", "tasks", "tabs", "blueprints", "skills"] {
