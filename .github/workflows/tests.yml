@@ -87,12 +87,14 @@ jobs:
           PUSH_BEFORE: ${{ github.event.before }}
         run: node scripts/ci-git-history.mjs policy
       - name: Runner preflight
+        id: preflight
         run: node scripts/ci-runner-paths.mjs bash,curl,git,node,tar
       - name: Embedded docs and generated contract preflight
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.preflight.outcome == 'success' }}
         run: node scripts/check-ci-docs.mjs
       - name: Select guard change set
         id: change
+        if: ${{ !cancelled() && steps.preflight.outcome == 'success' }}
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
@@ -113,30 +115,30 @@ jobs:
           echo "base=$base" >> "$GITHUB_OUTPUT"
       - name: Installed application identity
         run: node scripts/check-installed-identity.mjs
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Current tracked tree privacy
         run: node scripts/check-public-privacy.mjs
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Archive-portable Rust test paths
         run: node scripts/check-archive-portable-test-paths.mjs
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Check crate layering and the thin native client
         run: bash scripts/check-crate-layering.sh
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Check API docs
         run: bash scripts/check-api-docs.sh
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Check prompt docs
         run: bash scripts/check-prompts-doc.sh
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Scan new commits and working tree
         env:
           SCAN_BASE: ${{ steps.change.outputs.base }}
         run: bash scripts/secret-scan.sh "$SCAN_BASE"
-        if: ${{ success() }}
+        if: ${{ !cancelled() && steps.change.outcome == 'success' }}
       - name: Require a release branch
         env:
           HEAD_REF: ${{ github.head_ref }}
