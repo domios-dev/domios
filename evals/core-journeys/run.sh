@@ -48,7 +48,7 @@ export CORE_JOURNEY_REQUESTED_API_PORT="$EVAL_LIB_REQUESTED_API_PORT"
 select_build_identity() {
   core_journey_select_build_identity "$1"
 }
-select_build_identity "$ROOT" || { echo 'FAIL could not read the build-under-test CLI identity and environment contract' >&2; exit 7; }
+select_build_identity "${CORE_JOURNEY_BUILD_CHECKOUT:-$ROOT}" || { echo 'FAIL could not read the build-under-test CLI identity and environment contract' >&2; exit 7; }
 [ -n "$REQUESTED_INSTANCE" ] || { echo "FAIL named instance is unset: core journeys run only on a named isolated instance" >&2; exit 7; }
 case "$EVAL_LIB_REQUESTED_API_PORT" in
   7685) echo "FAIL refusing production port 7685" >&2; exit 7 ;;

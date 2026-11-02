@@ -1,10 +1,18 @@
 import { restartObserved } from "../../restart-endurance/restart.mjs";
 import { listenerIdentity } from "../lib/listener.mjs";
 import { marker } from "../lib/fixtures.mjs";
+import { dc } from "../lib/env.mjs";
 import { probeReply, readTabs, waitReady } from "../lib/tabs.mjs";
 import { JourneyFailure } from "../lib/wait.mjs";
 
 export async function snapshotBeforeRestart(ctx) {
+  // A launch binding alone need not create a resumable conversation file.
+  const conversations = await Promise.all(ctx.state.tabs.filter(tab => tab.journey === "J2").map(tab =>
+    ctx.check("J2", "session_reply_before_restart", tab.id, async () => {
+      const reply = await probeReply(ctx, tab.id, marker(ctx.state.run, tab.id, "persist"));
+      return { summary: `conversation persisted on ${reply.session}`, evidence: reply };
+    })));
+  if (conversations.some(value => !value)) throw new JourneyFailure("J2 conversation was not established before restart");
   const owned = new Set(ctx.state.tabs.map((tab) => tab.id));
   const tabs = await readTabs(ctx.api);
   for (const tab of tabs.filter((tab) => tab.agent_type && !ctx.state.tabs.some((fixture) => fixture.id === tab.id && fixture.control_fixture)
@@ -37,9 +45,13 @@ export function restartCheck(ctx) {
 
 export async function restoredTabsReady(ctx) {
   const tabs = ctx.state.before_restart?.tabs ?? [];
-  await Promise.all(tabs.map((tab) => ctx.check("J4", "restored_tab_ready", `${tab.id} ${tab.agent_type}${tab.role ? `/${tab.role}` : ""}`, async () => {
-    const record = await waitReady(ctx, tab.id, { requireSession: Boolean(tab.session) });
+  for (const tab of tabs) await ctx.check("J4", "restored_tab_ready", `${tab.id} ${tab.agent_type}${tab.role ? `/${tab.role}` : ""}`, async () => {
     const fixture = ctx.state.tabs.find((entry) => entry.id === tab.id);
+    if (!fixture?.control_fixture) {
+      const focused = await dc(["tab", "focus", "--tab", tab.id]);
+      if (focused.code !== 0) throw new JourneyFailure(`restored tab focus refused: ${focused.stdout || focused.stderr}`);
+    }
+    const record = await waitReady(ctx, tab.id, { requireSession: Boolean(tab.session) });
     if (!fixture?.control_fixture) await ctx.policy.identity(tab.id, { restored: true });
     if (tab.session && record.agent_session_id !== tab.session) {
       throw new JourneyFailure(`session changed across restart: ${tab.session} -> ${record.agent_session_id}`);
@@ -51,7 +63,7 @@ export async function restoredTabsReady(ctx) {
       throw new JourneyFailure(`attempt_id lost across restart: ${tab.attempt_id} -> ${record.task_binding?.attempt_id ?? "none"}`);
     }
     return { summary: `${record.boot_stage} ${record.agent_session_id ?? ""}`.trim(), evidence: { boot_stage: record.boot_stage } };
-  })));
+  });
 }
 
 export async function restoredSends(ctx) {

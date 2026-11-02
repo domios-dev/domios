@@ -25,6 +25,7 @@ const atomicJson = (path, value) => {
 process.env.CODETERM_SESSION_ID = session;
 process.env.CODETERM_INSTANCE = options.instance;
 process.env.CODETERM_API_PORT = options.port;
+process.env.CORE_JOURNEY_BUILD_CHECKOUT = options.checkout;
 
 const prefixes = [["agent", "set-orchestrator"], ["plan", "create"], ["plan", "task", "add"],
   ["plan", "task", "dispatch"], ["plan", "review", "bounce"], ["plan", "review", "accept"],

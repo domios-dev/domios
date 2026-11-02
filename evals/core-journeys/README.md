@@ -10,8 +10,8 @@ as success. It spends real provider tokens.
 
 ## Run
 
-Canonical checkout only, in one Team-bound QA utility shell, under the
-Orchestrator's serialized QA authority. The run needs a named isolated instance
+Run in one Team-bound QA utility shell under the Orchestrator's serialized QA
+authority. The run needs a named isolated instance
 with its own port, already running the exact build under test, with its window
 open with a CDP port because J2 drives the dialog. Launch it from the canonical
 Team DEV utility shell using the dev-run skill, with explicit isolated ports:
@@ -35,6 +35,12 @@ CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh
   --model codex=EXACT_ADVERTISED_CODEX_ID
 node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 ```
+
+For lane-owned bench repairs against an existing candidate, set
+`CORE_JOURNEY_BUILD_CHECKOUT` to the candidate checkout's absolute path. CLI
+selection and restart use that checkout's validated artifacts and provenance;
+the journeys and control runner use the lane's sources. Keep the candidate
+checkout and build stable through the run. This does not compile a new product.
 
 `all` runs `setup`, a bench-owned DEV restart (`./build.sh kill`, then
 `./build.sh dev-prebuilt --wait --wait-build` on the same instance; never port
@@ -142,6 +148,13 @@ real installed provider still requires an explicit model selection. Cleanup
 removes this run's provider after closing its workspace. No fixture credential
 is written to results, state, discovery files or request receipts.
 
+Before the restart snapshot, every J2 pair member answers an exact marker on its
+own session. This establishes a real conversation for providers that create
+resumable history only after their first turn. The restore check still requires
+the exact same session, backing and attempt identity. J4 selects each real tab
+serially through the native window to materialize lazy restored tabs before
+requiring readiness; selecting a tab alone never counts as ready.
+
 ## Today's BLACKSTAR regressions
 
 Source facts are what the fix commits changed; "expected failure" is the check
@@ -174,4 +187,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 4 -->
+<!-- revision: 5 -->
