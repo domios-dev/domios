@@ -3,7 +3,6 @@ mod codeterm_bin;
 
 #[test]
 fn blueprint_check_new_and_schema_are_offline_and_check_json_has_positions() {
-    let binary = codeterm_bin::codeterm_bin();
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("bad.yaml");
     std::fs::write(&path,"schema_version: 2\nkind: pipeline\nname: Watch\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: probe\n  run: {bind: other.out}\n").unwrap();
@@ -12,7 +11,7 @@ fn blueprint_check_new_and_schema_are_offline_and_check_json_has_positions() {
         vec!["blueprint", "new", "command", "--json"],
         vec!["blueprint", "check", path.to_str().unwrap(), "--json"],
     ] {
-        let output = std::process::Command::new(&binary)
+        let output = codeterm_bin::command()
             .args(&args)
             .env(
                 "CODETERM_SOCKET_PATH",

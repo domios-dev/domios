@@ -3,8 +3,6 @@ mod codeterm_bin;
 #[path = "support/json_output.rs"]
 mod json_output;
 
-use std::process::Command;
-
 #[test]
 fn blueprint_v2_project_offline_list_view_and_refusals() {
     let root = tempfile::tempdir().unwrap();
@@ -16,7 +14,7 @@ fn blueprint_v2_project_offline_list_view_and_refusals() {
     std::fs::write(directory.join("valid.yaml"), text("valid")).unwrap();
     std::fs::write(directory.join("mismatch.yaml"), text("other")).unwrap();
     let call = |args: &[&str]| {
-        let mut command = Command::new(codeterm_bin::codeterm_bin());
+        let mut command = codeterm_bin::command();
         command
             .current_dir(root.path())
             .args(["--json", "blueprint", "project"])

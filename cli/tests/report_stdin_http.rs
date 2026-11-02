@@ -116,12 +116,7 @@ fn stdin_taskless_report_keeps_http_fallback_identity_and_utf8_payload() {
         .unwrap();
         let instance = format!("report-{}", uuid::Uuid::new_v4());
         let socket = format!("domios-dev-{instance}.sock");
-        let mut command = Command::new(codeterm_bin::codeterm_bin());
-        for (key, _) in std::env::vars() {
-            if key.starts_with("CODETERM_") {
-                command.env_remove(key);
-            }
-        }
+        let mut command = codeterm_bin::command();
         command
             .env("CODETERM_INSTANCE", &instance)
             .env("CODETERM_DATA_DIR", scratch.path())

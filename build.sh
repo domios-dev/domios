@@ -3113,8 +3113,10 @@ EOF
       local label="$1" started=$SECONDS status=0
       shift
       echo "== release-preflight: $label"
-      "$@"
+      set +e
+      (set -e; "$@")
       status=$?
+      set -e
       echo "release-preflight: step=$label seconds=$((SECONDS - started)) exit=$status"
       return "$status"
     }
