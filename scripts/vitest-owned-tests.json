@@ -52,7 +52,6 @@
   "src/components/Sidebar/sortable.editing.test.tsx",
   "src/components/Sidebar/sortable.clickDrift.test.tsx",
   "src/components/Sidebar/sortable.pressFocus.test.tsx",
-  "src/components/Sidebar/sidebarScrollTouch.test.ts",
   "src/components/Sidebar/GeneralInventory.test.tsx",
   "src/components/Sidebar/SidebarGeneralSection.test.tsx",
   "src/components/Sidebar/WorkspaceItem.reveal.test.tsx",
