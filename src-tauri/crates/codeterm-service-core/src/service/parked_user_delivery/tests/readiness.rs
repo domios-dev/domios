@@ -32,6 +32,22 @@ fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
     attach_fixture_pty(&fixture, &tab);
     fixture.service.drain_user_owner(&tab).unwrap();
     assert_eq!(writes.load(Ordering::SeqCst), 0);
+    let held = fixture
+        .service
+        .chat_send_ledger
+        .status(&accepted.send_id)
+        .unwrap();
+    assert_eq!(held.state, ChatSendState::Pending);
+    assert!(held.pending_reason.is_some());
+    assert_eq!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .original(&tab, &accepted.send_id)
+            .unwrap(),
+        FIRST_PAYLOAD
+    );
     for _ in 0..2 {
         crate::async_runtime::block_on(
             crate::service::hook_session_binding::recover_verified_hook_binding(
@@ -43,6 +59,15 @@ fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
             ),
         )
         .unwrap();
+        let mux = fixture.service.mux.read();
+        let recovered = mux.get_tab(&tab).unwrap();
+        assert_eq!(
+            recovered.boot_stage,
+            Some(codeterm_types::pty::BootStage::AgentReady)
+        );
+        assert!(recovered.provisional_launch.is_none());
+        assert!(recovered.launch_session_authenticated());
+        drop(mux);
         fixture.service.drain_user_owner(&tab).unwrap();
     }
     await_owner_idle(&fixture, &tab);
