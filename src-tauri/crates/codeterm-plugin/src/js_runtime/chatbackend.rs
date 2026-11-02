@@ -193,8 +193,11 @@ fn chatbackend_host_exec_env(
         let port = api_url.rsplit(':').next().unwrap_or("7685").to_string();
         env.insert("CODETERM_API_URL".to_string(), api_url);
         env.insert("CODETERM_API_PORT".to_string(), port);
-        if let Some(tab_id) = ctx.get("tabId").and_then(|value| value.as_str()) {
-            env.extend(svc.tab_process_env(tab_id));
+        if let (Some(tab_id), Some(nonce)) = (
+            ctx.get("tabId").and_then(|value| value.as_str()),
+            ctx.get("bindingNonce").and_then(|value| value.as_str()),
+        ) {
+            env.extend(svc.tab_process_env(tab_id, nonce));
         }
     }
     env

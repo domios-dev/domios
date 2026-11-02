@@ -1,6 +1,49 @@
 use super::*;
 
 #[test]
+fn async_child_and_descendant_keep_the_trusted_tab_credential() {
+    let _guard = TEST_LOCK.lock();
+    #[cfg(windows)]
+    let mut opts = serde_json::json!({
+        "bin": "powershell",
+        "args": ["-NoProfile", "-Command", "& powershell -NoProfile -Command '[Console]::Out.Write(($env:CODETERM_API_TOKEN, $env:CODETERM_TAB_ID, $env:CODETERM_SESSION_BINDING_NONCE -join [char]124))'"],
+        "timeoutMs": 15000,
+    });
+    #[cfg(not(windows))]
+    let mut opts = serde_json::json!({
+        "bin": "sh",
+        "args": ["-c", "sh -c 'printf %s \"$CODETERM_API_TOKEN|$CODETERM_TAB_ID|$CODETERM_SESSION_BINDING_NONCE\"'"],
+        "timeoutMs": 15000,
+    });
+    opts["env"] = serde_json::json!({"CODETERM_API_TOKEN":"owner-secret"});
+    let host_env = HashMap::from([
+        ("CODETERM_API_TOKEN".into(), "tab-token".into()),
+        ("CODETERM_TAB_ID".into(), "own-tab".into()),
+        ("CODETERM_SESSION_BINDING_NONCE".into(), "own-nonce".into()),
+    ]);
+    let started: serde_json::Value = serde_json::from_str(&start_with_host_env(
+        "async-credential-probe",
+        &opts.to_string(),
+        &host_env,
+        Arc::new(PluginSandbox::unrestricted()),
+    ))
+    .unwrap();
+    let job = started["jobId"].as_str().expect("async job started");
+    let cancellation = crate::converter::ConversionCancellation::default();
+    let WaitResult::Completed(result) = wait_json_interruptible(
+        "async-credential-probe",
+        job,
+        &cancellation,
+        Instant::now() + Duration::from_secs(20),
+    ) else {
+        panic!("async credential child timed out")
+    };
+    let result: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(result["code"], 0, "{result}");
+    assert_eq!(result["stdout"], "tab-token|own-tab|own-nonce");
+}
+
+#[test]
 fn agent_task_wait_observes_cancellation_without_waiting_for_job_completion() {
     let (release, held) = std::sync::mpsc::channel();
     let id = start_gated_job("cancel-fixture", move || {
@@ -212,15 +255,13 @@ fn host_exec_env_overrides_plugin_env_for_identity() {
         ),
     ]);
 
-    let merged: ExecOpts =
-        serde_json::from_str(&inject_host_env_json(&opts, &host_env).unwrap()).unwrap();
+    let merged = with_host_env(serde_json::from_str(&opts).unwrap(), &host_env);
 
     assert_eq!(
         merged.env.get("CODETERM_API_TOKEN").map(String::as_str),
         Some("tab-token")
     );
-    let unbound: ExecOpts =
-        serde_json::from_str(&inject_host_env_json(&opts, &HashMap::new()).unwrap()).unwrap();
+    let unbound = with_host_env(serde_json::from_str(&opts).unwrap(), &HashMap::new());
     assert_eq!(unbound.env["CODETERM_API_TOKEN"], "");
     assert_eq!(
         merged.env.get("CODETERM_TAB_ID").map(String::as_str),

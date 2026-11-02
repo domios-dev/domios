@@ -162,8 +162,16 @@ impl PluginHostCtx for AnalyticsHost {
     fn api_base_url(&self) -> String {
         String::new()
     }
-    fn tab_process_env(&self, tab_id: &str) -> std::collections::HashMap<String, String> {
+    fn tab_process_env(
+        &self,
+        tab_id: &str,
+        binding_nonce: &str,
+    ) -> std::collections::HashMap<String, String> {
         if self.process_env.get("CODETERM_TAB_ID").map(String::as_str) == Some(tab_id) {
+            assert_eq!(
+                self.process_env["CODETERM_SESSION_BINDING_NONCE"],
+                binding_nonce
+            );
             self.process_env.clone()
         } else {
             Default::default()

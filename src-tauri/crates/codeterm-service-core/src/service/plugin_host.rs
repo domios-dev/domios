@@ -542,8 +542,21 @@ impl codeterm_plugin::PluginHostCtx for ServiceContext {
         api_cfg_base_url(self.configuration().api)
     }
 
-    fn tab_process_env(&self, tab_id: &str) -> std::collections::HashMap<String, String> {
-        self.tab_env(tab_id)
+    fn tab_process_env(
+        &self,
+        tab_id: &str,
+        binding_nonce: &str,
+    ) -> std::collections::HashMap<String, String> {
+        let env = self.tab_env(tab_id);
+        if env
+            .get("CODETERM_SESSION_BINDING_NONCE")
+            .map(String::as_str)
+            == Some(binding_nonce)
+        {
+            env
+        } else {
+            Default::default()
+        }
     }
 
     fn model_provider_process_env(

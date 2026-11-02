@@ -47,7 +47,7 @@ impl ChatBackendProvider for FakeBackend {
 #[test]
 fn channel_closed_after_accept_is_detected_without_replaying() {
     let backend = FakeBackend::new();
-    let bound = BoundSession::new("tab".into(), backend.clone());
+    let bound = BoundSession::new("tab".into(), backend.clone(), "nonce".into());
     bound.preflight("own-session").unwrap();
     let waiting = bound.arm().unwrap();
     bound
@@ -70,7 +70,11 @@ fn hot_reload_keeps_the_opening_adapter_and_never_sends_to_its_replacement() {
     let registry = ChatBackendRegistry::new();
     let old = FakeBackend::new();
     registry.register("liveness-fixture", old.clone());
-    let bound = BoundSession::new("tab".into(), registry.get("liveness-fixture").unwrap());
+    let bound = BoundSession::new(
+        "tab".into(),
+        registry.get("liveness-fixture").unwrap(),
+        "nonce".into(),
+    );
     let replacement = FakeBackend::new();
     registry.register("liveness-fixture", replacement.clone());
     bound.preflight("own-session").unwrap();
@@ -88,7 +92,7 @@ fn hot_reload_keeps_the_opening_adapter_and_never_sends_to_its_replacement() {
 
 #[test]
 fn turn_start_completes_the_failure_wait_once() {
-    let bound = BoundSession::new("tab".into(), FakeBackend::new());
+    let bound = BoundSession::new("tab".into(), FakeBackend::new(), "nonce".into());
     let receiver = bound.arm().unwrap();
     assert!(bound.arm().is_none());
     bound.observe(&StructuredChat::default());
@@ -103,7 +107,7 @@ fn turn_start_completes_the_failure_wait_once() {
 
 #[test]
 fn fast_reply_proves_liveness_but_a_history_snapshot_does_not() {
-    let bound = BoundSession::new("tab".into(), FakeBackend::new());
+    let bound = BoundSession::new("tab".into(), FakeBackend::new(), "nonce".into());
     bound.state.lock().assistant_ids.insert("history".into());
     let receiver = bound.arm().unwrap();
     let reply = |id: &str| StructuredChat {
@@ -149,7 +153,11 @@ fn service_fixture() -> (
         .lock()
         .insert(
             ("liveness-fixture".into(), "own-session".into()),
-            Arc::new(BoundSession::new(tab_id.clone(), backend.clone())),
+            Arc::new(BoundSession::new(
+                tab_id.clone(),
+                backend.clone(),
+                "own-nonce".into(),
+            )),
         );
     (fixture, tab_id, backend)
 }

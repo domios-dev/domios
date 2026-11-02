@@ -564,30 +564,18 @@ pub(super) fn start_with_host_env(
         Err(e) => return err(&e),
     };
 
-    let owned = match inject_host_env_json(opts_json, host_env) {
-        Ok(json) => json,
-        Err(e) => return err(&e),
-    };
+    let owned = opts_json.to_owned();
+    let host_env = host_env.clone();
     let Some(process) = EXEC_JOBS.lock().get(&job_id).map(|job| job.process.clone()) else {
         return err("exec cancelled before spawn");
     };
     let worker_job_id = job_id.clone();
     std::thread::spawn(move || {
         let _scope = control::Scope::new(process);
-        run_exec_worker(worker_job_id, owned, sandbox)
+        run_exec_worker(worker_job_id, owned, host_env, sandbox)
     });
 
     serde_json::json!({ "jobId": job_id }).to_string()
-}
-
-fn inject_host_env_json(
-    opts_json: &str,
-    host_env: &HashMap<String, String>,
-) -> Result<String, String> {
-    let opts: ExecOpts =
-        serde_json::from_str(opts_json).map_err(|e| format!("bad exec opts: {e}"))?;
-    serde_json::to_string(&with_host_env(opts, host_env))
-        .map_err(|e| format!("serialize exec opts: {e}"))
 }
 
 fn with_host_env(mut opts: ExecOpts, host_env: &HashMap<String, String>) -> ExecOpts {
@@ -944,9 +932,14 @@ fn reap_expired_jobs(jobs: &mut HashMap<String, ExecJob>, now: Instant) {
     });
 }
 
-fn run_exec_worker(job_id: String, opts_json: String, sandbox: Arc<PluginSandbox>) {
+fn run_exec_worker(
+    job_id: String,
+    opts_json: String,
+    host_env: HashMap<String, String>,
+    sandbox: Arc<PluginSandbox>,
+) {
     let value = match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        run_with_host_env(&opts_json, &HashMap::new(), &sandbox)
+        run_with_host_env(&opts_json, &host_env, &sandbox)
     })) {
         Ok(s) => serde_json::from_str::<serde_json::Value>(&s)
             .unwrap_or_else(|_| serde_json::json!({ "error": "exec produced invalid json" })),

@@ -49,7 +49,7 @@ fn credentials_are_distinct_per_tab_and_never_the_host_secret() {
 
 #[test]
 fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
-    use codeterm_plugin::chatbackend_provider::ChatBackendProvider;
+    use crate::multiplexer::types::TabBacking;
     use codeterm_plugin::host_traits::PluginHostCtx;
     use codeterm_plugin::js_runtime::{JsChatBackend, PluginVm};
     use std::sync::Arc;
@@ -57,7 +57,16 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
     let (fixture, tab, other) = fixture();
     let svc = &fixture.service;
     svc.ext::<crate::config::ConfigState>().lock().api.token = Some("owner-secret".into());
-    let pty_credential = token(svc, &tab);
+    let previous = token(svc, &tab);
+    {
+        let mut mux = svc.mux.write();
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.agent_type = Some("credential-probe".into());
+        target.backing = TabBacking::ChatBackend {
+            plugin_id: "credential-probe".into(),
+            session_id: String::new(),
+        };
+    }
     let host: Arc<dyn PluginHostCtx> = Arc::new(svc.clone());
     let vm = Arc::new(PluginVm::from_source("credential-probe", r#"
         module.exports.default = {
@@ -73,10 +82,32 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
         };
     "#.into()).unwrap());
     assert!(vm.set_service(Arc::downgrade(&host)));
-    let backend = JsChatBackend::new(vm, "credential-probe");
-    let credential = backend.open_session(json!({"tabId":tab})).unwrap();
-    assert_eq!(credential, pty_credential);
-    let env = svc.tab_process_env(&tab);
+    let backend = Arc::new(JsChatBackend::new(vm, "credential-probe"));
+    svc.chatbackend_registry
+        .register("credential-probe", backend);
+    let credential = svc
+        .chatbackend_open_session("credential-probe", &tab, json!({}))
+        .unwrap();
+    let launch_nonce = svc
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .session_binding_nonce
+        .clone()
+        .unwrap();
+    svc.mux.write().get_tab_mut(&tab).unwrap().backing = TabBacking::ChatBackend {
+        plugin_id: "credential-probe".into(),
+        session_id: credential.clone(),
+    };
+    assert_eq!(
+        svc.bind_in_process_chatbackend_session(&tab, "credential-probe", &credential)
+            .unwrap(),
+        launch_nonce
+    );
+    assert!(svc.authenticate_local_credential(&previous).is_err());
+    assert_eq!(credential, token(svc, &tab));
+    let env = svc.tab_process_env(&tab, &launch_nonce);
     assert_eq!(env["CODETERM_API_TOKEN"], credential);
     assert_ne!(credential, "owner-secret");
     let caller = svc
@@ -86,7 +117,7 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
     assert_eq!(caller.tab_id, tab);
     assert_eq!(caller.binding_nonce, env["CODETERM_SESSION_BINDING_NONCE"]);
     assert!(!svc
-        .tab_process_env("missing-tab")
+        .tab_process_env("missing-tab", "missing-nonce")
         .contains_key("CODETERM_API_TOKEN"));
     for method in [
         "agent.ack",
@@ -107,9 +138,32 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
     assert!(svc
         .bind_local_rpc(&credential, "rest_api.restart", &mut None)
         .is_err());
-    svc.rotate_session_binding_nonce(&tab);
+    let reopened = svc
+        .chatbackend_open_session("credential-probe", &tab, json!({}))
+        .unwrap();
+    assert!(svc
+        .bind_in_process_chatbackend_session(&tab, "credential-probe", &credential)
+        .is_err());
+    svc.mux.write().get_tab_mut(&tab).unwrap().backing = TabBacking::ChatBackend {
+        plugin_id: "credential-probe".into(),
+        session_id: reopened.clone(),
+    };
+    let reopened_nonce = svc
+        .bind_in_process_chatbackend_session(&tab, "credential-probe", &reopened)
+        .unwrap();
+    assert_ne!(reopened_nonce, launch_nonce);
+    assert!(svc.tab_process_env(&tab, &launch_nonce).is_empty());
     assert!(svc.authenticate_local_credential(&credential).is_err());
-    assert_ne!(svc.tab_process_env(&tab)["CODETERM_API_TOKEN"], credential);
+    assert_eq!(
+        svc.tab_process_env(&tab, &reopened_nonce)["CODETERM_API_TOKEN"],
+        reopened
+    );
+    let mut ack = None;
+    svc.bind_local_rpc(&reopened, "agent.ack", &mut ack)
+        .unwrap();
+    assert_eq!(ack.unwrap()["tab_id"], tab);
+    svc.rotate_session_binding_nonce(&tab);
+    assert!(svc.authenticate_local_credential(&reopened).is_err());
 }
 
 #[test]

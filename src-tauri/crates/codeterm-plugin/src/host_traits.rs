@@ -102,7 +102,11 @@ pub trait PluginHostCtx: Send + Sync {
     // ── Socket / API ────────────────────────────────────────────────────
     fn socket_display_path(&self) -> String;
     fn api_base_url(&self) -> String;
-    fn tab_process_env(&self, _tab_id: &str) -> std::collections::HashMap<String, String> {
+    fn tab_process_env(
+        &self,
+        _tab_id: &str,
+        _binding_nonce: &str,
+    ) -> std::collections::HashMap<String, String> {
         std::collections::HashMap::new()
     }
 

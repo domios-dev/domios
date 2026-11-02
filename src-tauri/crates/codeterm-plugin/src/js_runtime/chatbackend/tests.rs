@@ -38,7 +38,9 @@ fn open_and_send_children_receive_host_tab_credential_and_nonce() {
     );
     assert!(vm.set_service(Arc::downgrade(&host)));
     let backend = JsChatBackend::new(vm, "test-chatbackend");
-    let session = backend.open_session(json!({"tabId":"chat-tab"})).unwrap();
+    let session = backend
+        .open_session(json!({"tabId":"chat-tab", "bindingNonce":"launch-nonce"}))
+        .unwrap();
     assert_eq!(
         backend.poll(&session, None).unwrap().messages[0].content,
         expected
