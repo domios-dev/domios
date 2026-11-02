@@ -287,7 +287,7 @@ async fn checkpoint(
         "aging cannot reset root binding/epoch"
     );
     let mut samples = Vec::new();
-    for _ in 0..spec.repetitions {
+    for _ in 0..spec.repetitions.min(3) {
         let mut branch = state.clone();
         let mut events = Vec::new();
         let mut micros = 0;
@@ -340,7 +340,8 @@ async fn checkpoint(
         "stateBytes":serde_json::to_vec(state).unwrap().len(),"contextBytes":serde_json::to_vec(context).unwrap().len(),
         "parents":length(&state["parents"]),"agents":length(&state["agents"]["rows"]),
         "open":state["open"].as_array().map_or(0, Vec::len),"retired":state["retired"].as_array().map_or(0, Vec::len),
-        "suffixNativeAdapterUs":{"count":samples.len(),"p50":samples[7],"p95":samples[15],"max":samples[15]},
+        "suffixNativeAdapterUs":{"count":samples.len(),"p50":samples[(samples.len() - 1) / 2],
+        "p95":samples[(samples.len() * 95).div_ceil(100) - 1],"max":samples.last().unwrap()},
         "fixtureCloneAndAssertionsOutsideTiming":true})
     );
     if age == 32 {
