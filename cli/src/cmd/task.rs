@@ -150,10 +150,11 @@ pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskS
         );
         return;
     } else if let Some(task) = val.get("task") {
-        let id = task.get("id").and_then(|v| v.as_str()).unwrap_or("?");
-        let name = task.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-        let status = task.get("status").and_then(|v| v.as_str()).unwrap_or("?");
-        let plan = val.get("plan_id").and_then(|v| v.as_str()).unwrap_or("?");
+        let row = crate::cmd::task_list_render::TaskSummaryRow::new(val);
+        let id = row.id;
+        let name = row.name;
+        let status = row.status;
+        let plan = row.plan_id;
         let plan_title = val
             .get("plan_title")
             .and_then(|v| v.as_str())
