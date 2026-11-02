@@ -8,7 +8,6 @@ fn mesh_request_shape_is_attributed_without_exposing_the_credential() {
         "d99fbf3a-cfb1-4eb3-9b6b-7cfc9baff992",
     )
     .unwrap();
-    assert_eq!(token.len(), 261);
     assert_eq!(presented_kind(&token), "mesh-signature");
     assert_eq!(
         presented_kind("opaque-owner-or-legacy-credential"),

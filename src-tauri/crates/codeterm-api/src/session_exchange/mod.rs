@@ -1,4 +1,4 @@
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -166,10 +166,9 @@ fn exported_plans(
 
 pub async fn export(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<Value>, Failure> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let value = tokio::task::spawn_blocking(move || {
         let snapshot = if name == "latest" {
@@ -218,10 +217,9 @@ pub async fn export(
 
 pub async fn import(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(document): Json<Value>,
 ) -> Result<Json<Value>, Failure> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if !import_target_allowed(
         codeterm_paths::is_dev_instance(),
         state.api_port,

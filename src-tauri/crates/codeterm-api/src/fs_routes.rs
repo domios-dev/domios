@@ -6,7 +6,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct ListDirQuery {
@@ -87,12 +87,10 @@ pub struct MkdirBody {
 /// "New folder". Same trust model as list_dir: a console-token holder
 /// can already run arbitrary shell commands.
 pub async fn mkdir(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    AxumState(_state): AxumState<AppState>,
+    _headers: HeaderMap,
     Json(body): Json<MkdirBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-
     let name = body.name.trim();
     if name.is_empty()
         || name == "."
@@ -124,11 +122,10 @@ pub async fn mkdir(
 }
 
 pub async fn list_dir(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    AxumState(_state): AxumState<AppState>,
+    _headers: HeaderMap,
     Query(query): Query<ListDirQuery>,
 ) -> Result<Json<ListDirResponse>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let requested = expand_path(query.path);
     let current = requested
         .canonicalize()

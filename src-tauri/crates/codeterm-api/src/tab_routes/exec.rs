@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 use super::await_pty_link;
 
@@ -24,11 +24,10 @@ pub struct ExecBody {
 /// is only the failure deadline around that wait.
 pub async fn exec_in_tab(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<ExecBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
     let preflight = state.clone();
     let preflight_tab = tab_id.clone();

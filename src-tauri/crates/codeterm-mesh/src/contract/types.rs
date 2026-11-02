@@ -115,8 +115,8 @@ pub fn should_proactive_sync(
 
 // ── Live address announce ───────────────────────────────────────────
 
-pub const RELAY_PROTOCOL_VERSION: u16 = 2;
-pub const MAX_SUPPORTED_RELAY_PROTOCOL_VERSION: u16 = 2;
+pub const RELAY_PROTOCOL_VERSION: u16 = 3;
+pub const MAX_SUPPORTED_RELAY_PROTOCOL_VERSION: u16 = 3;
 
 pub const fn is_supported_relay_protocol(version: u16) -> bool {
     version >= RELAY_PROTOCOL_VERSION && version <= MAX_SUPPORTED_RELAY_PROTOCOL_VERSION

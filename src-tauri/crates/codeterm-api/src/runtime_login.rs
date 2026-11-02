@@ -1,4 +1,4 @@
-use super::routes::{check_auth, AppState};
+use super::routes::AppState;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -9,10 +9,9 @@ use codeterm_service_core::service::agent_runtime::login::{operate, LoginRequest
 
 pub(super) async fn tab_usage(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::usage_for_tab(&state.svc, &tab)
         .map(Json)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
@@ -20,7 +19,7 @@ pub(super) async fn tab_usage(
 
 pub(super) async fn background_processes(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
     axum::extract::Query(request): axum::extract::Query<
         codeterm_service_core::service::agent_runtime::background::BackgroundProcessAuthority,
@@ -29,7 +28,6 @@ pub(super) async fn background_processes(
     Json<codeterm_service_core::service::agent_runtime::background::BackgroundProcessSnapshot>,
     (StatusCode, String),
 > {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::background::list_for_tab(
         &state.svc, &tab, request,
     )
@@ -40,7 +38,7 @@ pub(super) async fn background_processes(
 
 pub(super) async fn stop_background_process(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
     Json(request): Json<
         codeterm_service_core::service::agent_runtime::background::StopBackgroundProcessRequest,
@@ -49,7 +47,6 @@ pub(super) async fn stop_background_process(
     Json<codeterm_service_core::service::agent_runtime::background::BackgroundProcessSnapshot>,
     (StatusCode, String),
 > {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::background::stop_for_tab(
         &state.svc, &tab, request,
     )
@@ -60,7 +57,7 @@ pub(super) async fn stop_background_process(
 
 pub(super) async fn child_history(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((tab, thread)): Path<(String, String)>,
     axum::extract::Query(request): axum::extract::Query<
         codeterm_service_core::service::agent_runtime::children::ChildHistoryRequest,
@@ -69,7 +66,6 @@ pub(super) async fn child_history(
     Json<codeterm_service_core::service::agent_runtime::children::ChildHistoryPage>,
     (StatusCode, String),
 > {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::children::history(
         &state.svc, &tab, &thread, request,
     )
@@ -80,10 +76,9 @@ pub(super) async fn child_history(
 
 pub(super) async fn show_login(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::login::show(&state.svc, &tab)
         .map(login_response)
         .map_err(|reason| (StatusCode::CONFLICT, reason))
@@ -95,7 +90,6 @@ pub(super) async fn login(
     Path(tab): Path<String>,
     Json(request): Json<LoginRequest>,
 ) -> Result<(HeaderMap, Json<serde_json::Value>), (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     if request.api_key.is_some() && !super::auth::is_local_caller(&state, &headers) {
         return Err((
             StatusCode::FORBIDDEN,
@@ -116,13 +110,12 @@ pub(super) async fn login(
 
 pub(super) async fn reset_credits(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
     Json(request): Json<
         codeterm_service_core::service::agent_runtime::reset_credits::ResetCreditsRequest,
     >,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::reset_credits::operate(&state.svc, &tab, request)
         .await
         .map(Json)
@@ -131,11 +124,10 @@ pub(super) async fn reset_credits(
 
 pub(super) async fn goal(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
     Json(request): Json<codeterm_service_core::service::agent_runtime::goals::GoalRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::goals::operate(&state.svc, &tab, request)
         .await
         .map(Json)
@@ -144,13 +136,12 @@ pub(super) async fn goal(
 
 pub(super) async fn thread_history(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
     Json(request): Json<
         codeterm_service_core::service::agent_runtime::thread_history::ThreadHistoryRequest,
     >,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::thread_history::operate(
         &state.svc, &tab, request,
     )

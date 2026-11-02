@@ -7,7 +7,19 @@ pub(super) async fn authorize_message(
     body: &SendTextBody,
     service_push: bool,
 ) -> Result<(), SendRejection> {
-    if service_push || crate::auth::caller_peer_id(state, headers).is_some() {
+    if service_push
+        || crate::auth::caller_peer_id(state, headers).is_some()
+        || crate::auth::authenticated_origin(state, headers)
+            .is_ok_and(|origin| origin == crate::auth::AuthenticatedOrigin::Mesh)
+    {
+        return Ok(());
+    }
+    if crate::auth::remote_agent(state, headers)
+        .map_err(|_| {
+            SendRejection::from((StatusCode::FORBIDDEN, "Invalid remote agent credential"))
+        })?
+        .is_some()
+    {
         return Ok(());
     }
     let Some(caller) = crate::auth::tab_caller(state, headers)

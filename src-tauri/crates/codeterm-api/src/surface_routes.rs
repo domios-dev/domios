@@ -8,7 +8,7 @@ use futures_util::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::browser::viewport::ViewportRequest;
 use codeterm_service_core::service::surface::runtime_sse_payload as sse_payload;
 use codeterm_service_core::service::surface::{
@@ -53,18 +53,7 @@ fn internal() -> Refusal {
     )
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Refusal> {
-    check_auth(state, headers).map_err(|(status, message)| refusal(status, "unauthorized", message))
-}
-
-async fn on_blocking_pool<T: Serialize + Send + 'static>(
-    svc: ServiceState,
-    work: impl FnOnce(&ServiceContext) -> Result<T, SurfaceError> + Send + 'static,
-) -> RouteResult {
-    let result = tokio::task::spawn_blocking(move || work(svc.as_ref()))
-        .await
-        .map_err(|_| internal())?
-        .map_err(surface_refusal)?;
+fn authorize(_state: &AppState, _headers: &HeaderMap) -> Result<(), Refusal> {
     serde_json::to_value(result)
         .map(Json)
         .map_err(|_| internal())
@@ -159,10 +148,12 @@ pub(crate) async fn call(
     Json(request): Json<SurfaceCallRequest>,
 ) -> RouteResult {
     authorize(&state, &headers)?;
-    let origin = if crate::tab_routes::caller_tab_header(&headers).is_some() {
-        CallOrigin::Agent
-    } else {
+    let origin = if crate::auth::authenticated_origin(&state, &headers)
+        .is_ok_and(|origin| origin.owner_trusted())
+    {
         CallOrigin::View
+    } else {
+        CallOrigin::Agent
     };
     match call_surface(&state.svc, &tab_id, &request.method, request.args, origin).await {
         Ok(result) => Ok(Json(json!({ "result": result }))),
@@ -172,33 +163,4 @@ pub(crate) async fn call(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn surface_stream_viewport_needs_width_and_height() {
-        let query = StreamQuery {
-            w: Some(1280.0),
-            h: Some(720.0),
-            dpr: None,
-        };
-        assert_eq!(
-            stream_viewport(&query),
-            Some(ViewportRequest {
-                width: 1280.0,
-                height: 720.0,
-                dpr: 1.0
-            })
-        );
-        assert_eq!(stream_viewport(&StreamQuery::default()), None);
-    }
-
-    #[test]
-    fn surface_stream_refusals_are_conflicts_for_non_stream_tabs() {
-        let (status, body) = surface_refusal(SurfaceError::NotAStreamSurface("t".into()));
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(body.0["error"]["code"], "not_a_stream_surface");
-        let (status, _) = surface_refusal(SurfaceError::TabNotFound("t".into()));
-        assert_eq!(status, StatusCode::NOT_FOUND);
-    }
-}
+mod tests;

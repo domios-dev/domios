@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::agent_routes::{verify_spawn_delivery, SpawnRejection};
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::AiHelperRequest;
 
 /// Provider, workspace and cwd are daemon-owned, so a helper names only its work.
@@ -20,12 +20,9 @@ pub struct AiHelperSpawnBody {
 
 pub async fn spawn_ai_helper(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<AiHelperSpawnBody>,
 ) -> Result<Json<serde_json::Value>, SpawnRejection> {
-    check_auth(&state, &headers).map_err(|(status, message)| {
-        SpawnRejection::new(status, "unauthorized", message.to_string())
-    })?;
     let request = AiHelperRequest::new(body.title, body.description, body.task)
         .map_err(|message| SpawnRejection::new(StatusCode::BAD_REQUEST, "bad_request", message))?;
     let launch = state
