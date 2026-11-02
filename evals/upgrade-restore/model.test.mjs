@@ -8,7 +8,7 @@ import {peer} from './fake-peer.mjs';
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const fixture = () => worstCases(root, '/isolated-fixture-project');
 function ready(tab) {
-  return {...tab, agent_session_id: tab.claude_session_id, task_binding: tab.agent_identity?.task_binding,
+  return {...tab, task_binding: tab.agent_identity?.task_binding,
     session_binding_nonce: 'nonce-current', reported_session_binding_nonce: 'nonce-current',
     agent_runtime_state: {state: 'loaded', epoch: 1}};
 }
