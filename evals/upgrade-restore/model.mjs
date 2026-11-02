@@ -97,6 +97,23 @@ export function requireRestart(stage, boot, digest) {
   if (stage.fixture_sha256 !== digest) throw new Error('Fixture differs from the staged document');
 }
 
+export function historyMatches(expected, actual) {
+  if (!actual || actual.id !== expected.id || actual.type !== expected.type) return false;
+  let content = expected.content ?? '';
+  const images = expected.type === 'user' ? expected.attachments ?? [] : [];
+  for (const image of images) {
+    const url = `data:${image.mimeType ?? 'image/png'};base64,${image.data ?? 'eA=='}`;
+    content += `\n[image omitted: ${Buffer.byteLength(url)} bytes]`;
+  }
+  if ((actual.content ?? '') !== content) return false;
+  if (!images.length) return true;
+  return actual.attachments?.length === images.length && images.every((_, index) => {
+    const attachment = actual.attachments[index];
+    return attachment.id === `${expected.id}-image-${index + 1}` && attachment.mimeType === 'image/png'
+      && attachment.data == null && attachment.url == null;
+  });
+}
+
 export function verdict(expected, actual) {
   const id = expected.tab_id;
   if (!actual) return {tab_id: id, ready: false, reason: 'tab missing after restore'};
