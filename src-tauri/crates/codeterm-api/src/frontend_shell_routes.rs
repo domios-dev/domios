@@ -311,6 +311,32 @@ enum RequestFailureKind {
     Aborted,
 }
 
+fn redacted_chat_diagnostic(value: &Value) -> Value {
+    match value {
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(key, value)| {
+                    let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
+                    if normalized.contains("nonce")
+                        || normalized.contains("credential")
+                        || normalized.contains("token")
+                    {
+                        (
+                            format!("{key}Present"),
+                            Value::Bool(!value.is_null() && value.as_str() != Some("")),
+                        )
+                    } else {
+                        (key.clone(), redacted_chat_diagnostic(value))
+                    }
+                })
+                .collect(),
+        ),
+        Value::Array(values) => Value::Array(values.iter().map(redacted_chat_diagnostic).collect()),
+        _ => value.clone(),
+    }
+}
+
 async fn diagnostic(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -328,7 +354,7 @@ async fn diagnostic(
         log::debug!("[frontend-device] client={} build_sha={:?} entry={:?} version={:?} ua={} viewport={}x{} visual={}x{} dpr={} touch={} display={} scroll_end={} overflow_anchor={}", diagnostic_client(&headers), body.build_sha, device.entry_asset, device.app_version, device.user_agent_family, device.width, device.height, device.visual_width, device.visual_height, device.pixel_ratio, device.touch, device.display_mode, device.scroll_end, device.overflow_anchor);
     }
     if let Some(chat) = &body.chat {
-        let encoded = chat.to_string();
+        let encoded = redacted_chat_diagnostic(chat).to_string();
         if encoded.len() > 4096 {
             return Err((
                 StatusCode::BAD_REQUEST,
