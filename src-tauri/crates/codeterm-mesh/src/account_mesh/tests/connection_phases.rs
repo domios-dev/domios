@@ -15,6 +15,117 @@ fn record(machine: &Machine) -> Arc<Mutex<Vec<ConnectionPhase>>> {
 }
 
 #[tokio::test]
+async fn inventory_failures_preserve_health_without_relinks_or_cloud_permits() {
+    let clock = clock();
+    let (a, b) = (machine(1, &clock), machine(2, &clock));
+    enroll_all(&[&a, &b]);
+    a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+    let transport = Loopback::new(&[&a, &b]);
+    link_installation_with(&a.mesh, &transport, &b.installation_id)
+        .await
+        .unwrap();
+    let phases = record(&a);
+    let mut gate = a.mesh.lock().gate_watch();
+    let nonce = a
+        .mesh
+        .lock()
+        .link_record(&b.id())
+        .unwrap()
+        .link_nonce
+        .clone();
+    let mut relinks = 0;
+    for attempt in 0..12 {
+        clock.store(START + attempt * 61, Ordering::SeqCst);
+        for status in [403, 500, 0] {
+            a.mesh
+                .lock()
+                .record_peer_inventory_status(&b.id(), nonce.as_deref(), status);
+            assert!(a.mesh.lock().account_mesh_pairs()[0].online);
+            assert!(!gate.has_changed().unwrap());
+            if !a.mesh.lock().has_healthy_connection(&b.installation_id) {
+                relinks += 1;
+                link_installation_with(&a.mesh, &transport, &b.installation_id)
+                    .await
+                    .unwrap();
+            }
+        }
+        assert_eq!(
+            crate::health::check_peer_with(
+                &a.mesh,
+                &b.id(),
+                None,
+                |_| async { Ok(()) },
+                |(), payload| async { Ok(payload) },
+            )
+            .await,
+            Some(true)
+        );
+        gate.borrow_and_update();
+    }
+    assert_eq!(relinks, 0);
+    assert_eq!(transport.posts.load(Ordering::SeqCst), 3);
+    assert!(phases.lock().is_empty());
+    assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn inventory_refusals_keep_typed_suppression_without_liveness_events() {
+    for (status, phase) in [
+        (401, ConnectionPhase::AuthRefused),
+        (426, ConnectionPhase::PeerNeedsUpdate),
+    ] {
+        let clock = clock();
+        let (a, b) = (machine(1, &clock), machine(2, &clock));
+        enroll_all(&[&a, &b]);
+        a.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+        b.sign_in(1, ACCOUNT, START + MEMBERSHIP_TTL);
+        link_installation_with(&a.mesh, &Loopback::new(&[&a, &b]), &b.installation_id)
+            .await
+            .unwrap();
+        let phases = record(&a);
+        let gate = a.mesh.lock().gate_watch();
+        let nonce = a
+            .mesh
+            .lock()
+            .link_record(&b.id())
+            .unwrap()
+            .link_nonce
+            .clone();
+        {
+            let mut manager = a.mesh.lock();
+            manager.record_peer_inventory_status(&b.id(), Some("stale-link"), status);
+            assert!(manager.peer_requests_allowed(&b.id()));
+            manager.record_peer_inventory_status(&b.id(), nonce.as_deref(), status);
+            assert!(!manager.peer_requests_allowed(&b.id()));
+            assert_eq!(manager.connection_phases()[0].phase, phase);
+            assert!(manager.paired_peers[&b.id()].online);
+            assert!(manager.has_healthy_connection(&b.installation_id));
+        }
+        clock.store(START + 60, Ordering::SeqCst);
+        assert!(a.mesh.lock().peer_requests_allowed(&b.id()));
+        assert!(a.mesh.lock().has_healthy_connection(&b.installation_id));
+        assert!(!gate.has_changed().unwrap());
+        assert!(phases.lock().is_empty());
+        assert_eq!(
+            crate::health::check_peer_with(
+                &a.mesh,
+                &b.id(),
+                None,
+                |_| async { Ok(()) },
+                |(), payload| async { Ok(payload) },
+            )
+            .await,
+            Some(true)
+        );
+        assert!(a.mesh.lock().account_mesh_pairs()[0].online);
+        assert_eq!(a.authority.authorize_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(b.authority.authorize_calls.load(Ordering::SeqCst), 1);
+    }
+}
+
+#[tokio::test]
 async fn connection_phases_refusal_blocks_requests_and_ping_cannot_restore_ready() {
     let clock = clock();
     let (a, b) = (machine(1, &clock), machine(2, &clock));

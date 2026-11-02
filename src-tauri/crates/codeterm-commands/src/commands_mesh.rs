@@ -42,7 +42,7 @@ pub async fn fetch_peer_services_view(
 
     let mut m = mesh.lock();
     if !matches!(&outcome, FetchOutcome::Skipped) {
-        m.record_peer_http_status(instance_id, link_nonce.as_deref(), status.unwrap_or(0));
+        m.record_peer_inventory_status(instance_id, link_nonce.as_deref(), status.unwrap_or(0));
     }
     let online = m
         .account_mesh_pairs()

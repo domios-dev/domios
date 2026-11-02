@@ -296,14 +296,7 @@ pub(super) async fn run(
                         reconciliation.clear_peer(&row.installation_id);
                         continue;
                     };
-                    let connected = {
-                        let manager = mesh.lock();
-                        manager.account_mesh_pairs().iter().any(|peer| {
-                            peer.installation_id.as_deref() == Some(row.installation_id.as_str())
-                                && peer.online
-                                && manager.traffic_open(&peer.instance_id)
-                        })
-                    };
+                    let connected = mesh.lock().has_healthy_connection(&row.installation_id);
                     if connected {
                         reconciliation.clear_peer(&row.installation_id);
                         continue;
