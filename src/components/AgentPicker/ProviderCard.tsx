@@ -3,7 +3,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { providerAvailability } from "../../lib/providerAvailability";
 import { providerCardState } from "../../lib/providerCardState";
 
-export const PROVIDER_CARD_LAYOUT = "flex min-h-[8.5rem] w-[18rem] flex-col items-center justify-center gap-2.5 px-4 py-4";
+export const PROVIDER_CARD_LAYOUT = "flex h-[8.5rem] min-w-0 max-w-[18rem] flex-[1_1_10rem] flex-col items-center justify-center gap-2.5 px-4 py-4";
 
 interface ProviderCardProps {
   provider: ProviderDescriptor;
