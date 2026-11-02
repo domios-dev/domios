@@ -110,8 +110,8 @@ pub async fn recover_verified_hook_binding(
         crate::session::lifecycle::BindingSource::Hook,
         true,
     )
-    .await?;
-    Ok(())
+    .await
+    .map(|_| ())
 }
 
 #[cfg(test)]
