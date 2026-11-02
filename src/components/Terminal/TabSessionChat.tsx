@@ -66,7 +66,6 @@ import { ManagedTabBar } from "./ManagedTabBar";
 import { managedTabPresentation } from "../../lib/managedTab";
 import { BusyState } from "../shared/BusyState";
 import { PendingPromptCard } from "./PendingPromptCard";
-import { AutoConfirmedPromptRows, autoConfirmationsForSession } from "./PermissionAutoConfirm";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { TabStatusLineModelPicker } from "./StatusLineModelPicker";
 import { useTabActivity } from "../../lib/useTabActivity";
@@ -261,7 +260,6 @@ function TabSessionChatBody({
   const descriptor = getAgentDescriptor(tabProvider);
   const promptAnswers = descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
-  const autoConfirmations = autoConfirmationsForSession(tab?.permission_auto_confirmations, agentSessionId);
   const isActive = isVisible;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
   const resolvePluginName = usePluginDisplayNameResolver();
@@ -866,7 +864,6 @@ function TabSessionChatBody({
     && !chatLoading
     && renderedEnrichedMessages.length === 0
     && outboundReports.length === 0
-    && autoConfirmations.length === 0
     && !promptPart;
 
   return (
@@ -1026,7 +1023,6 @@ function TabSessionChatBody({
         </ChatMessageRow>}
         {isActive && reportPlacement.trailing.map(renderOutboundReport)}
         {isActive && askPlacement.trailing.map(renderAsk)}
-        <AutoConfirmedPromptRows records={autoConfirmations} />
         <ChatLiveOperation message={liveOperation} />
         </div>
       </div>
