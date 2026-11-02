@@ -99,6 +99,10 @@ debug = false
 [profile.dev.package.sha2]
 opt-level = 3
 
+# QuickJS interprets provider reducers and JSON codecs on every runtime frame.
+[profile.dev.package.rquickjs-sys]
+opt-level = 3
+
 # Building the CLI's clap command is ~10^4x slower unoptimized; dev/test parsing otherwise hangs for minutes.
 [profile.dev.package.codeterm-cli]
 opt-level = 1
@@ -113,4 +117,7 @@ debug = "line-tables-only"
 
 [profile.test.package."*"]
 debug = false
+
+[profile.test.package.rquickjs-sys]
+opt-level = 3
 

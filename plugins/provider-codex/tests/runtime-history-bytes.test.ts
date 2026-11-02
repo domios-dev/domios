@@ -8,6 +8,22 @@ const bmp = Array.from({ length: 65536 }, (_, point) => String.fromCharCode(poin
 assert.equal(utf8Bytes(bmp), Buffer.byteLength(bmp));
 const astral = Array.from({ length: 4096 }, (_, point) => String.fromCodePoint(0x10000 + point * 251)).join("");
 assert.equal(utf8Bytes(astral), Buffer.byteLength(astral));
+function previousStateBytes(value: string): number {
+  let bytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit < 0x80) bytes++;
+    else if (unit < 0x800) bytes += 2;
+    else if (unit >= 0xd800 && unit < 0xdc00) { bytes += 4; index++; }
+    else bytes += 3;
+  }
+  return bytes;
+}
+for (const text of [bmp, astral, "\0\n\"\\".repeat(2048), "\ud800x\udc00"]) {
+  const serialized = JSON.stringify({agent_result:text});
+  assert.equal(utf8Bytes(serialized), previousStateBytes(serialized));
+  assert.equal(utf8Bytes(serialized), Buffer.byteLength(serialized));
+}
 for (const character of ["x", "é", "漢", "🧪"]) {
   const limit = 16384 / Buffer.byteLength(character);
   const within = character.repeat(limit);
