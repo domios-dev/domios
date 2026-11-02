@@ -121,6 +121,8 @@ Task writes require current caller, session and binding authority (API). Executi
 | GET | `/api/plans/{id}/skills` | List announced plan skills. |
 | GET | `/api/plans/{id}/skills/{slug}` | Read an announced skill. |
 | GET | `/api/plans/{id}/state` | Read plan state. |
+| GET | `/api/plans/{id}/tasks` | Read one cursor page of task summaries. |
+| GET | `/api/plans/{id}/tasks/{tid}` | Read one task's full detail. |
 | GET | `/api/specs` | List specifications. |
 | GET | `/api/specs/{id}` | Read a specification. |
 | GET | `/api/specs/{id}/links` | List specification links. |
@@ -178,4 +180,4 @@ Task writes require current caller, session and binding authority (API). Executi
 | POST | `/api/tasks/{id}/drop` | Drop task ownership. |
 | POST | `/api/tasks/{id}/take` | Take task ownership. |
 
-<!-- revision: 41 -->
+<!-- revision: 42 -->
