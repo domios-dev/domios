@@ -11,9 +11,10 @@ pub fn ensure_integrations_for_all(
     registry: &crate::agent::registry::AgentRegistry,
     config: &crate::config::ConfigState,
     service: ServiceState,
-) {
+) -> Vec<std::sync::Arc<codeterm_notifications::provider_hooks::IntegrationCompletion>> {
+    let mut completions = Vec::new();
     for provider in registry.all_provider_arcs() {
-        spawn_reconciliation(
+        if let Some(completion) = spawn_reconciliation(
             provider,
             config.lock().agents.clone(),
             Some(config.clone()),
@@ -23,8 +24,11 @@ pub fn ensure_integrations_for_all(
                     service.log_system_notice(title, Some(body), Some("warning"));
                 }
             })),
-        );
+        ) {
+            completions.push(completion);
+        }
     }
+    completions
 }
 
 /// The same reconciliation for the one provider a plugin install or upgrade
@@ -38,7 +42,7 @@ pub fn ensure_integration_for_provider(
     for provider in registry.all_provider_arcs() {
         if provider.id() == provider_id {
             // Startup alone infers consent for existing marked installs.
-            spawn_reconciliation(provider, consented.clone(), None, None);
+            let _ = spawn_reconciliation(provider, consented.clone(), None, None);
         }
     }
 }

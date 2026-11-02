@@ -6,6 +6,7 @@ mod listener_policy;
 mod mesh_announce;
 mod model_catalogue;
 mod plan_restore;
+pub(crate) mod provider_writes;
 mod restore_complete;
 mod restored_backends;
 pub(crate) mod servers;
