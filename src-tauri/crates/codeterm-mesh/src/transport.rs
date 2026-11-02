@@ -218,6 +218,13 @@ impl From<TransportError> for String {
     }
 }
 
+#[derive(Debug)]
+pub enum SyncFailure {
+    Request,
+    Refused(u16),
+    InvalidReply,
+}
+
 /// HTTP client for communicating with a paired peer.
 pub struct PeerClient {
     client: reqwest::Client,
@@ -379,16 +386,15 @@ impl PeerClient {
     pub async fn send_sync(
         &self,
         payload: &super::types::MeshSyncPayload,
-    ) -> Result<super::types::MeshSyncPayload, String> {
+    ) -> Result<super::types::MeshSyncPayload, SyncFailure> {
         let resp = self
             .auth_post_within("/api/mesh/sync", payload, Some(PING_TIMEOUT))
-            .await?;
+            .await
+            .map_err(|_| SyncFailure::Request)?;
         if resp.status().is_success() {
-            resp.json()
-                .await
-                .map_err(|e| format!("Bad sync response: {}", e))
+            resp.json().await.map_err(|_| SyncFailure::InvalidReply)
         } else {
-            Err("Sync failed".to_string())
+            Err(SyncFailure::Refused(resp.status().as_u16()))
         }
     }
 

@@ -40,7 +40,10 @@ pub(crate) fn start_background_tasks(
                         let peers: Vec<_> = m
                             .paired_peers
                             .values()
-                            .filter(|peer| m.traffic_open(&peer.instance_id))
+                            .filter(|peer| {
+                                m.traffic_open(&peer.instance_id)
+                                    && m.peer_requests_allowed(&peer.instance_id)
+                            })
                             .cloned()
                             .collect();
                         let token = m.sign_request().ok();
@@ -139,9 +142,29 @@ pub(crate) fn start_background_tasks(
                             };
                             log::debug!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
                             let Some(client) = client else { continue };
-                            if client.send_sync(&sync_payload).await.is_ok() {
-                                last_sync_secs.insert(peer.instance_id.clone(), now_secs);
-                                changed = true;
+                            let link_nonce = mesh
+                                .lock()
+                                .link_record(&peer.instance_id)
+                                .and_then(|record| record.link_nonce.clone());
+                            last_sync_secs.insert(peer.instance_id.clone(), now_secs);
+                            match client.send_sync(&sync_payload).await {
+                                Ok(_) => {
+                                    mesh.lock().record_peer_http_status(
+                                        &peer.instance_id,
+                                        link_nonce.as_deref(),
+                                        200,
+                                    );
+                                    changed = true;
+                                }
+                                Err(mesh::transport::SyncFailure::Refused(status)) => {
+                                    mesh.lock().record_peer_http_status(
+                                        &peer.instance_id,
+                                        link_nonce.as_deref(),
+                                        status,
+                                    );
+                                    changed = true;
+                                }
+                                Err(_) => {}
                             }
                         }
                     }

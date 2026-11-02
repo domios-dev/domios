@@ -1,3 +1,4 @@
+import { connectionPresentation, type ConnectionPhase } from "./connectionPhase";
 import type { Notification } from "../../lib/notificationTypes";
 import { DEV_BUILD } from "../../lib/devBuild";
 import type { AccountMachineRow, AccountMeshFailure, AccountMeshSnapshot, LocalPairFact, MeshTarget } from "./accountMeshClient";
@@ -8,9 +9,10 @@ export const REMOVED_COPY = "This machine was removed from your mesh. Sign in ag
 export const REAUTH_REQUIRED_COPY = "This machine needs a fresh sign-in to rejoin your mesh.";
 export const PLAN_LOCKED_COPY = "Locked — this machine is outside your plan's machine limit";
 export type AccountPresence = "pending" | "signed_out" | "signed_in";
-export type MachineStatus = "signed_out" | "linked" | "linking" | "endpoint_missing" | "endpoint_stale" | "expired" | "revoked" | "over_limit" | "unverified" | "blocked" | "other_account";
+export type MachineStatus = "signed_out" | "linked" | "linking" | "unreachable" | "waiting" | "auth_refused" | "membership_expired" | "peer_needs_update" | "endpoint_missing" | "endpoint_stale" | "expired" | "revoked" | "over_limit" | "unverified" | "blocked" | "other_account";
 export interface MachineControls { plans?: boolean; revoke: MeshTarget | null }
 export interface MachineRowView {
+  connecting?: boolean;
   canSignOut?: boolean;
   transport?: import("./networkTransport").NetworkIdentity;
   key: string;
@@ -59,7 +61,8 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   const unique = new Map((snapshot.registry?.rows ?? []).map(row => [row.installation_id, row]));
   const machines = [...unique.values()].filter(row => row.installation_id !== selfId).map(row => {
     const pair = snapshot.pairs.find(pair => pair.installation_id === row.installation_id) ?? null;
-    const result = machineRow(row, pair, now, usable);
+    const phase = snapshot.connections?.find(connection => connection.installation_id === row.installation_id)?.phase;
+    const result = machineRow(row, pair, now, usable, phase);
     return machineLimit ? { ...result, controls: { ...result.controls, plans: true } } : result;
   });
   if (refusal && !snapshot.publication_failure) notes.push(enrollmentRetryMessage(snapshot, now) ?? failureMessage(refusal, DEV_BUILD, snapshot.retry_at ?? undefined, true));
@@ -78,7 +81,7 @@ export function myMachinesView({ account, snapshot, listFailure = null, now }: M
   };
 }
 
-function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: number, usable: boolean): MachineRowView {
+function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: number, usable: boolean, phase?: ConnectionPhase): MachineRowView {
   const name = row.display_name ?? "Unnamed machine";
   const target: MeshTarget = { installation_id: row.installation_id, key_id: row.key_id, key_generation: row.key_generation, slot_revision: row.slot_revision };
   const base = { key: row.installation_id, name, transport: row.endpoint?.transport, online: pair?.online ?? null,
@@ -90,10 +93,14 @@ function machineRow(row: AccountMachineRow, pair: LocalPairFact | null, now: num
   if (row.eligibility === "verification-unavailable") return { ...base, status: "unverified", detail: "Account verification is unavailable" };
   if (!usable) return { ...base, status: "blocked", detail: "Mesh is blocked on this machine" };
   if (row.membership_expires_at !== null && row.membership_expires_at <= now) return { ...base, status: "expired", detail: `Membership expired — open Domios on ${name} to renew`, online: false };
+  if (phase === "auth_refused" || phase === "membership_expired" || phase === "peer_needs_update") return { ...base, status: phase, detail: connectionPresentation(phase).label, online: false };
   if (pair?.online) return { ...base, status: "linked", detail: "Connected over your account mesh" };
+  const progress = connectionPresentation(phase);
+  if (progress.connecting) return { ...base, status: "linking", detail: progress.label, online: false, connecting: true };
+  if (phase === "failed" || phase === "retrying") return { ...base, status: "unreachable", detail: progress.label, online: false };
   if (!row.endpoint) return { ...base, status: "endpoint_missing", detail: `Open Domios on ${name} to publish its endpoint`, online: false };
   if (row.endpoint.expires_at <= now) return { ...base, status: "endpoint_stale", detail: "Stale endpoint — this installation may be offline", online: false };
-  return { ...base, status: "linking", detail: "Connecting automatically over your account mesh" };
+  return { ...base, status: pair ? "unreachable" : "waiting", detail: pair ? "Unreachable" : "Waiting for a connection attempt", online: false };
 }
 
 export function accountPresence(kind: "pending" | "signed_out" | "signed_in" | "error"): AccountPresence {
@@ -124,6 +131,8 @@ export function failureMessage(failure: AccountMeshFailure, devBuild = DEV_BUILD
     case "mesh.machines": return `Your plan allows ${failure.limit} machines.`;
     case "rate-limited": return `${retrying ? "Busy, retrying at" : "Busy until"} ${new Date((retryAt ?? Math.floor(Date.now() / 1000) + failure.retry_after_seconds) * 1000).toISOString()}`;
     case "offline": return "This machine is offline.";
+    case "auth-refused": return "The peer refused authentication.";
+    case "peer-needs-update": return "Update Domios on that machine to connect.";
     case "peer-unreachable": return "That machine could not be reached. Both machines must be online.";
     case "handshake-failed": return "The machines could not complete an authorized handshake.";
     case "signed-out": return SIGNED_OUT_COPY;

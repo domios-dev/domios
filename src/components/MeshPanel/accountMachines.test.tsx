@@ -1,3 +1,4 @@
+import { connectionPresentation } from "./connectionPhase";
 import { describe, expect, it } from "vitest";
 import { myMachinesView, type MyMachinesView } from "./accountMachines";
 import { accountCanvas } from "./accountCanvas";
@@ -60,7 +61,7 @@ describe("account installation projection", () => {
     expect(canvas(account(snapshot({ registry: { observed_at: NOW, rows: [selfRow, stale] } }))).nodes).toHaveLength(1);
   });
   it("shows automatic connection progress without a per-edge action", () => {
-    const view = account(snapshot());
+    const view = account(snapshot({ connections: [{ installation_id: macRow.installation_id, phase: "connecting" }] }));
     expect(view.machines[0].status).toBe("linking");
     expect(canvas(view).nodes.every(node => node.action === null)).toBe(true);
   });
@@ -83,3 +84,47 @@ describe("account installation projection", () => {
    expect(account(refused).reauthRequired).toBe(true);
    expect(account(snapshot({ ...refused, registry: { observed_at: NOW, rows: [{ ...selfRow, active: false }] } })).removed).toBe(true);
  });
+
+describe("mesh connection phase presentation", () => {
+  it.each(["discovering", "connecting", "verifying", "committing"] as const)("shows %s as active work", phase => {
+    expect(connectionPresentation(phase).connecting).toBe(true);
+  });
+  it.each(["ready", "failed", "retrying", "auth_refused", "membership_expired", "peer_needs_update", undefined] as const)("does not animate %s", phase => {
+    expect(connectionPresentation(phase).connecting).toBe(false);
+  });
+  it.each([
+    [undefined, "waiting"], ["ready", "waiting"], ["failed", "unreachable"], ["retrying", "unreachable"], ["verifying", "linking"], ["auth_refused", "auth_refused"], ["membership_expired", "membership_expired"], ["peer_needs_update", "peer_needs_update"],
+  ] as const)("requires a published phase and authenticated transport for %s", (phase, status) => {
+    const view = myMachinesView({ account: "signed_in", now: NOW, snapshot: snapshot({
+      connections: phase ? [{ installation_id: macRow.installation_id, phase }] : [],
+    }) });
+    expect(view.kind === "account" && view.machines[0].status).toBe(status);
+  });
+  it("uses a current authenticated pair as ready, and never uses a stale ready phase", () => {
+    const state = snapshot({ connections: [{ installation_id: macRow.installation_id, phase: "ready" }],
+      pairs: [pair("peer", "Mac", { installation_id: macRow.installation_id })] });
+    const input = { account: "signed_in" as const, now: NOW, snapshot: state };
+    const online = myMachinesView(input);
+    expect(online.kind === "account" && online.machines[0].status).toBe("linked");
+    state.pairs[0].online = false;
+    const offline = myMachinesView(input);
+    expect(offline.kind === "account" && offline.machines[0].status).toBe("unreachable");
+  });
+  it("blocks active progress when the peer or local account is signed out", () => {
+    const state = snapshot({ connections: [{ installation_id: macRow.installation_id, phase: "verifying" }],
+      traffic: "blocked_signed_out" });
+    const view = myMachinesView({ account: "signed_in", now: NOW, snapshot: state });
+    expect(view.kind === "account" && view.machines.some(peer => peer.connecting)).toBe(false);
+  });
+});
+
+
+describe("mesh refusal overrides", () => {
+  it.each(["auth_refused", "membership_expired", "peer_needs_update"] as const)("keeps %s visible despite a successful public ping", phase => {
+    const view = myMachinesView({ account: "signed_in", now: NOW, snapshot: snapshot({
+      connections: [{ installation_id: macRow.installation_id, phase }],
+      pairs: [pair("peer", "Mac", { installation_id: macRow.installation_id })],
+    }) });
+    expect(view.kind === "account" && view.machines[0]).toMatchObject({ status: phase, online: false });
+  });
+});

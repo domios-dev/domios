@@ -22,6 +22,7 @@ impl MeshManager {
     pub fn apply_account_state(&mut self, state: AccountMeshState) {
         if state.account_epoch != self.account.account_epoch {
             self.pending_links.clear();
+            self.clear_connection_phases();
         }
         if self.account_ready && self.account == state {
             return;
@@ -168,6 +169,9 @@ impl MeshManager {
 
     /// Outbound signing for one peer; refuses while that edge is blocked.
     pub fn sign_request_for(&self, peer_id: &str) -> Result<String, String> {
+        if !self.peer_requests_allowed(peer_id) {
+            return Err("Peer authentication refused — retry deferred".into());
+        }
         match self.traffic_decision(peer_id) {
             TrafficDecision::Open => self.sign_request(),
             TrafficDecision::Blocked(reason) => Err(blocked_message(reason)),
@@ -237,6 +241,7 @@ impl MeshManager {
                     installation_id: record.installation_id().map(str::to_string),
                     admission: record.admission.label().to_string(),
                     online: peer.online
+                        && !self.peer_auth_refused(&peer.instance_id)
                         && self.traffic_open(&peer.instance_id)
                         && !record.installation_id().is_some_and(|installation| {
                             self.account

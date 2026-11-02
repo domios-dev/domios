@@ -7,12 +7,14 @@ use codeterm_service_core::mesh::MeshManager;
 pub(super) struct Readiness {
     listeners: BTreeSet<SocketAddr>,
     peers: BTreeSet<String>,
+    membership: Option<String>,
 }
 
 impl Readiness {
     pub(super) fn snapshot(mesh: &MeshManager, enabled: bool) -> Self {
         let online = enabled && mesh.build_announce().online;
         Self {
+            membership: mesh.advertised_membership(),
             listeners: mesh.ready_listeners.iter().copied().collect(),
             peers: mesh
                 .paired_peers
@@ -26,7 +28,8 @@ impl Readiness {
     }
 
     pub(super) fn update(&mut self, next: Self) -> bool {
-        let announce = !next.peers.is_subset(&self.peers)
+        let announce = (next.membership != self.membership && !next.peers.is_empty())
+            || !next.peers.is_subset(&self.peers)
             || (self.listeners != next.listeners
                 && (!self.peers.is_empty() || !next.peers.is_empty()));
         *self = next;

@@ -161,6 +161,7 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
     let mut state = signed_in(2);
     state.cleanup = Cleanup::Pending;
     let snapshot = AccountMeshSnapshot {
+        connections: Vec::new(),
         local_installation_id: "installation-a".into(),
         view: state.view(),
         pairs: Vec::new(),
