@@ -24,11 +24,18 @@ fn completed_agent_delivery_ids_remain_inspectable_without_replay() {
         .unwrap());
     assert!(store.complete_written("own-tab", &written).unwrap());
     let restarted = AgentDeliveryStore::open(dir.path());
-    let failure = restarted.inspect(&held).unwrap().unwrap();
+    let failure = restarted
+        .inspect(&super::status::send_id("own-tab", &held))
+        .unwrap()
+        .unwrap();
     assert_eq!(failure.state, ChatSendState::Failed);
     assert_eq!(failure.error.as_deref(), Some("launch_ended_before_write"));
     assert_eq!(
-        restarted.inspect(&written).unwrap().unwrap().state,
+        restarted
+            .inspect(&super::status::send_id("own-tab", &written))
+            .unwrap()
+            .unwrap()
+            .state,
         ChatSendState::Unknown
     );
     assert!(restarted.pending_head("own-tab").unwrap().is_none());
@@ -83,13 +90,16 @@ fn restart_retires_claim_to_receipt_without_replaying_payload() {
     let delivery_id = original
         .enqueue(tab_id, "serialized payload", None)
         .unwrap();
-    let held = original.inspect(&delivery_id).unwrap().unwrap();
+    let held = original
+        .inspect(&super::status::send_id(tab_id, &delivery_id))
+        .unwrap()
+        .unwrap();
     assert_eq!(
         held.state,
         crate::service::chat_send_transaction::ChatSendState::Pending
     );
     assert_eq!(held.tab_id, tab_id);
-    assert_eq!(held.send_id, delivery_id);
+    assert_eq!(held.send_id, super::status::send_id(tab_id, &delivery_id));
     assert!(original
         .claim_with_recovery(
             tab_id,
@@ -105,7 +115,11 @@ fn restart_retires_claim_to_receipt_without_replaying_payload() {
         )
         .unwrap());
     assert_eq!(
-        original.inspect(&delivery_id).unwrap().unwrap().state,
+        original
+            .inspect(&super::status::send_id(tab_id, &delivery_id))
+            .unwrap()
+            .unwrap()
+            .state,
         crate::service::chat_send_transaction::ChatSendState::Unknown
     );
 
@@ -118,7 +132,11 @@ fn restart_retires_claim_to_receipt_without_replaying_payload() {
     assert_eq!(receipts[0].payload_kind, "worker_brief");
     assert_eq!(receipts[0].status, None);
     assert_eq!(
-        restarted.inspect(&delivery_id).unwrap().unwrap().state,
+        restarted
+            .inspect(&super::status::send_id(tab_id, &delivery_id))
+            .unwrap()
+            .unwrap()
+            .state,
         crate::service::chat_send_transaction::ChatSendState::Unknown
     );
     assert!(!super::payload_path(&restarted.tab(tab_id), &delivery_id)
@@ -128,13 +146,21 @@ fn restart_retires_claim_to_receipt_without_replaying_payload() {
     receipt.status = Some(super::AgentDeliveryReceiptStatus::SubmitUnconfirmed);
     restarted.complete_receipt(&mut receipt).unwrap();
     assert_eq!(
-        restarted.inspect(&delivery_id).unwrap().unwrap().state,
+        restarted
+            .inspect(&super::status::send_id(tab_id, &delivery_id))
+            .unwrap()
+            .unwrap()
+            .state,
         crate::service::chat_send_transaction::ChatSendState::Unknown
     );
     receipt.status = Some(super::AgentDeliveryReceiptStatus::Delivered);
     restarted.complete_receipt(&mut receipt).unwrap();
     assert_eq!(
-        restarted.inspect(&delivery_id).unwrap().unwrap().state,
+        restarted
+            .inspect(&super::status::send_id(tab_id, &delivery_id))
+            .unwrap()
+            .unwrap()
+            .state,
         crate::service::chat_send_transaction::ChatSendState::Sent
     );
     assert!(!restarted.has_pending(tab_id).unwrap());

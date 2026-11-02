@@ -35,7 +35,6 @@ fn crash_after_receipt_257_recovers_retention_and_flushes_later_sends() {
         )
         .unwrap();
         if sequence == 1 {
-            original.write_locator(tab_id, &id).unwrap();
             oldest = Some(id);
         }
     }
@@ -63,11 +62,54 @@ fn crash_after_receipt_257_recovers_retention_and_flushes_later_sends() {
     let restarted = AgentDeliveryStore::open(dir.path());
     assert_eq!(drain(&restarted, tab_id), [second, third]);
     assert_eq!(
-        restarted.inspect(&crashed).unwrap().unwrap().state,
+        restarted
+            .inspect(&send_id(tab_id, &crashed))
+            .unwrap()
+            .unwrap()
+            .state,
         ChatSendState::Unknown
     );
     assert!(fs::read_dir(&inspection).unwrap().count() <= MAX_INSPECTION_RECEIPTS);
-    assert!(restarted.inspect(&oldest.unwrap()).unwrap().is_none());
+    assert!(restarted
+        .inspect(&send_id(tab_id, &oldest.unwrap()))
+        .unwrap()
+        .is_none());
+    for entry in fs::read_dir(&inspection).unwrap() {
+        let path = entry.unwrap().path();
+        let mut receipt: ChatSendStatus =
+            serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        if receipt.send_id != crashed {
+            receipt.sequence += 1000;
+            fs::write(path, serde_json::to_vec(&receipt).unwrap()).unwrap();
+        }
+    }
+    let next = restarted.enqueue(tab_id, "after eviction", None).unwrap();
+    assert_eq!(drain(&restarted, tab_id), [next]);
+    assert!(!inspection.join(format!("{crashed}.json")).exists());
+    assert_eq!(
+        restarted
+            .inspect(&send_id(tab_id, &crashed))
+            .unwrap()
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+    let mut recovery = restarted
+        .pending_receipts(tab_id)
+        .unwrap()
+        .into_iter()
+        .find(|receipt| receipt.id == crashed)
+        .unwrap();
+    recovery.status = Some(AgentDeliveryReceiptStatus::Delivered);
+    restarted.complete_receipt(&mut recovery).unwrap();
+    assert_eq!(
+        restarted
+            .inspect(&send_id(tab_id, &crashed))
+            .unwrap()
+            .unwrap()
+            .state,
+        ChatSendState::Sent
+    );
     assert!(drain(&restarted, tab_id).is_empty());
 }
 
@@ -100,10 +142,26 @@ fn inspection_publication_failure_cannot_hold_a_written_claim() {
     let second = store.enqueue(tab_id, "second", None).unwrap();
     fs::create_dir(store.tab(tab_id).dir.join("inspection.next.json")).unwrap();
     assert_eq!(drain(&store, tab_id), [first, second]);
+    assert!(!store.root.join("locators").exists());
+    assert_eq!(
+        fs::read_dir(store.tab(tab_id).dir.join("inspection"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert!(store.records(tab_id).unwrap().is_empty());
+    let entries = fs::read_dir(store.tab(tab_id).dir.clone()).unwrap().count();
+    let later = store.enqueue(tab_id, "later", None).unwrap();
+    assert_eq!(drain(&store, tab_id), [later]);
+    assert_eq!(
+        fs::read_dir(store.tab(tab_id).dir.clone()).unwrap().count(),
+        entries
+    );
+    assert_eq!(fs::read_dir(&store.root).unwrap().count(), 1);
 }
 
 #[test]
-fn locator_lookup_never_locks_or_reads_foreign_outboxes() {
+fn self_locating_id_never_locks_or_reads_foreign_outboxes() {
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(AgentDeliveryStore::open(dir.path()));
     let own = store.enqueue("own-tab", "own payload", None).unwrap();
@@ -113,7 +171,8 @@ fn locator_lookup_never_locks_or_reads_foreign_outboxes() {
     let foreign = store.tab("foreign-tab");
     let guard = foreign.index.lock();
     let worker_store = store.clone();
-    let unknown = uuid::Uuid::new_v4().to_string();
+    let unknown = send_id("own-tab", &uuid::Uuid::new_v4().to_string());
+    let own = send_id("own-tab", &own);
     let (send, receive) = std::sync::mpsc::channel();
     let worker = std::thread::spawn(move || {
         send.send((worker_store.inspect(&own), worker_store.inspect(&unknown)))
@@ -126,4 +185,17 @@ fn locator_lookup_never_locks_or_reads_foreign_outboxes() {
     assert_eq!(known.unwrap().unwrap().tab_id, "own-tab");
     assert!(unknown.unwrap().is_none());
     assert!(store.has_pending("own-tab").unwrap());
+    let own_record = store.pending_head("own-tab").unwrap().unwrap();
+    assert!(store
+        .inspect(&send_id("foreign-tab", &own_record.id))
+        .unwrap()
+        .is_none());
+    assert!(store
+        .inspect("agent-pty:not-base64:not-uuid")
+        .unwrap()
+        .is_none());
+    assert!(store
+        .inspect(&send_id("absent-tab", &uuid::Uuid::new_v4().to_string()))
+        .unwrap()
+        .is_none());
 }

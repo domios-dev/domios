@@ -1,8 +1,25 @@
 use super::*;
 use crate::service::chat_send_transaction::{ChatSendState, ChatSendStatus};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 
 const MAX_INSPECTION_RECEIPTS: usize = 256;
-const MAX_LOCATOR_BYTES: u64 = 4096;
+
+pub(crate) fn send_id(tab_id: &str, id: &str) -> String {
+    format!("agent-pty:{}:{id}", URL_SAFE_NO_PAD.encode(tab_id))
+}
+
+fn parse_send_id(value: &str) -> Option<(String, String)> {
+    if value.len() > 512 {
+        return None;
+    }
+    let (tab, id) = value.strip_prefix("agent-pty:")?.split_once(':')?;
+    uuid::Uuid::parse_str(id).ok()?;
+    let tab_id = String::from_utf8(URL_SAFE_NO_PAD.decode(tab).ok()?).ok()?;
+    if tab_id.is_empty() || tab_id.len() > 256 || send_id(&tab_id, id) != value {
+        return None;
+    }
+    Some((tab_id, id.into()))
+}
 
 fn status(
     tab_id: &str,
@@ -37,27 +54,6 @@ fn publish_inspection(tab: &AgentDeliveryTab, receipt: &ChatSendStatus) -> Resul
 }
 
 impl AgentDeliveryStore {
-    fn locator_path(&self, id: &str) -> PathBuf {
-        self.root.join("locators").join(format!("{id}.json"))
-    }
-
-    pub(super) fn write_locator(&self, tab_id: &str, id: &str) -> Result<(), String> {
-        let dir = self.root.join("locators");
-        owner_directory(&dir)?;
-        let bytes = serde_json::to_vec(&(id, tab_id)).map_err(|error| error.to_string())?;
-        if bytes.len() as u64 > MAX_LOCATOR_BYTES {
-            return Err("agent delivery locator exceeds its bound".into());
-        }
-        write_new(&self.locator_path(id), &bytes)?;
-        sync_directory(&dir)
-    }
-
-    pub(super) fn remove_locator(&self, id: &str) {
-        if let Err(error) = remove_if_present(&self.locator_path(id)) {
-            log::debug!("[agent-delivery] inspection locator cleanup failed: {error}");
-        }
-    }
-
     fn prune_inspection(&self, tab: &AgentDeliveryTab) {
         let entries = match fs::read_dir(tab.dir.join("inspection")) {
             Ok(entries) => entries,
@@ -94,22 +90,22 @@ impl AgentDeliveryStore {
                     log::debug!(
                         "[agent-delivery] discarding invalid or unreadable inspection receipt"
                     );
-                    self.discard_inspection(&path, &id);
+                    self.discard_inspection(&path);
                     continue;
                 }
             };
             retained.insert((receipt.sequence, id), path);
             if retained.len() > MAX_INSPECTION_RECEIPTS {
-                if let Some(((_, id), path)) = retained.pop_first() {
-                    self.discard_inspection(&path, &id);
+                if let Some(((_, _id), path)) = retained.pop_first() {
+                    self.discard_inspection(&path);
                 }
             }
         }
     }
 
-    fn discard_inspection(&self, path: &Path, id: &str) {
+    fn discard_inspection(&self, path: &Path) {
         match remove_if_present(path) {
-            Ok(()) => self.remove_locator(id),
+            Ok(()) => {}
             Err(error) => {
                 log::debug!("[agent-delivery] inspection receipt cleanup failed: {error}")
             }
@@ -145,21 +141,22 @@ impl AgentDeliveryStore {
         self.prune_inspection(tab);
     }
 
-    pub(crate) fn inspect(&self, id: &str) -> Result<Option<ChatSendStatus>, String> {
-        if uuid::Uuid::parse_str(id).is_err() {
+    pub(crate) fn inspect(&self, public_id: &str) -> Result<Option<ChatSendStatus>, String> {
+        let Some((tab_id, id)) = parse_send_id(public_id) else {
             return Ok(None);
-        }
-        let path = self.locator_path(id);
+        };
+        Ok(self.inspect_owned(&tab_id, &id)?.map(|mut status| {
+            status.send_id = public_id.into();
+            status
+        }))
+    }
+
+    fn inspect_owned(&self, tab_id: &str, id: &str) -> Result<Option<ChatSendStatus>, String> {
+        let path = self.root.join(digest(tab_id.as_bytes())).join("index.json");
         if !path.try_exists().map_err(|error| error.to_string())? {
             return Ok(None);
         }
-        let (stored_id, tab_id): (String, String) =
-            serde_json::from_slice(&read_bounded(&path, MAX_LOCATOR_BYTES)?)
-                .map_err(|_| "agent delivery locator is invalid")?;
-        if stored_id != id {
-            return Err("agent delivery locator identity mismatch".into());
-        }
-        let tab = self.tab(&tab_id);
+        let tab = self.tab(tab_id);
         let loaded = tab.index.lock();
         let index = match loaded.as_ref() {
             Some(index) => index.clone(),
@@ -187,7 +184,7 @@ impl AgentDeliveryStore {
                 return Err("agent delivery receipt identity mismatch".into());
             }
             return Ok(Some(status(
-                &tab_id,
+                tab_id,
                 id,
                 receipt.sequence,
                 match receipt.status {
@@ -206,7 +203,7 @@ impl AgentDeliveryStore {
                 ChatSendState::Unknown
             };
             return Ok(Some(status(
-                &tab_id,
+                tab_id,
                 id,
                 record.sequence,
                 state,

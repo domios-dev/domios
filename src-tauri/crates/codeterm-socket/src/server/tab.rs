@@ -397,7 +397,10 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
-                gateway_send_response(delivery, pad_file)
+                gateway_send_response(
+                    svc.public_delivery_receipt(&resolved_target, delivery),
+                    pad_file,
+                )
             } else {
                 let (text, pad_file) = svc
                     .as_ref()

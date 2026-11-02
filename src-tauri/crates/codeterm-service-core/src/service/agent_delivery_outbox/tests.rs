@@ -99,9 +99,21 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
         panic!("pre-ready send must be queued");
     };
     assert!(writes.lock().is_empty());
+    let Delivery::Pending {
+        delivery_id: public_id,
+    } = fixture.service.public_delivery_receipt(
+        &tab,
+        Delivery::Pending {
+            delivery_id: delivery_id.clone(),
+        },
+    )
+    else {
+        panic!("queued receipt must remain pending");
+    };
+    assert!(public_id.starts_with("agent-pty:"));
     let inspected = fixture
         .service
-        .inspect_retained_send(&delivery_id)
+        .inspect_retained_send(&public_id)
         .unwrap()
         .unwrap();
     assert_eq!(inspected.tab_id, tab);
@@ -142,7 +154,7 @@ fn assert_fixture_auth_drains_once(fixture: ServiceFixture, tab: String) {
     assert_eq!(
         fixture
             .service
-            .inspect_retained_send(&delivery_id)
+            .inspect_retained_send(&public_id)
             .unwrap()
             .unwrap()
             .state,
