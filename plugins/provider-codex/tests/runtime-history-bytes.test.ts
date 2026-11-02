@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { utf8Bytes, sanitizeHistory } from "../src/runtimeHistoryBounds";
+import { utf8Bytes, serializedBytes, sanitizeHistory } from "../src/runtimeHistoryBounds";
 
 for (const value of ["", "ascii\0\n", "éЖ漢字", "🧪🌍", "\ud800", "\udc00", "\ud800x\udc00", "\ud800\ud800\udc00\udc00"]) {
   assert.equal(utf8Bytes(value), Buffer.byteLength(value), JSON.stringify(value));
@@ -23,6 +23,8 @@ for (const text of [bmp, astral, "\0\n\"\\".repeat(2048), "\ud800x\udc00"]) {
   const serialized = JSON.stringify({agent_result:text});
   assert.equal(utf8Bytes(serialized), previousStateBytes(serialized));
   assert.equal(utf8Bytes(serialized), Buffer.byteLength(serialized));
+  const reduction = {state:{agent_result:text},events:[]};
+  assert.equal(serializedBytes(reduction), Buffer.byteLength(JSON.stringify(reduction)));
 }
 for (const character of ["x", "é", "漢", "🧪"]) {
   const limit = 16384 / Buffer.byteLength(character);

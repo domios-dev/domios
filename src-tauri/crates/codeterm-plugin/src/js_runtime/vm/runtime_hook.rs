@@ -11,7 +11,8 @@ const INVOKE: &str = r#"
   const method = globalThis.__ct_runtime_method__;
   const fn = globalThis.__plugin__[method];
   if (typeof fn !== "function") throw new Error("missing runtime hook");
-  const value = fn.apply(globalThis.__plugin__, JSON.parse(globalThis.__ct_runtime_args__));
+  const args = JSON.parse(globalThis.__ct_runtime_args__);
+  const value = fn.apply(globalThis.__plugin__, args);
   if (globalThis.__ct_runtime_denied_binding__ !== undefined)
     throw new Error("runtime hook host binding unavailable: " + globalThis.__ct_runtime_denied_binding__);
   const result = JSON.stringify(value, function (_key, entry) {
@@ -117,7 +118,12 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                 .set("__ct_runtime_limit__", MAX_RUNTIME_VALUE_BYTES as u32)
                 .catch(&ctx)
                 .map_err(setup)?;
-            let result = eval_source::<String, _>(&ctx, INVOKE)
+            #[cfg(test)]
+            let profiled_invoke = tests::profile_invocation(method, INVOKE);
+            let invoke = INVOKE;
+            #[cfg(test)]
+            let invoke = profiled_invoke.as_deref().unwrap_or(invoke);
+            let result = eval_source::<String, _>(&ctx, invoke)
                 .catch(&ctx)
                 .map_err(|e| {
                     #[cfg(debug_assertions)]
@@ -136,6 +142,10 @@ fn call_runtime_hook_with_clock<R: serde::de::DeserializeOwned>(
                         format!("{method}: {}", caught_message(e)),
                     )
                 });
+            #[cfg(test)]
+            if profiled_invoke.is_some() {
+                tests::report_profile(&ctx);
+            }
             let _ = globals.remove("__ct_runtime_args__");
             result
         })
