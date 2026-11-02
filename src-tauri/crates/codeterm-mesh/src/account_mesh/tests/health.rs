@@ -133,7 +133,7 @@ async fn health_relink_during_production_ping_discards_old_endpoint_results() {
                 let nonce = manager.link_record(&target_id).unwrap().link_nonce.clone();
                 assert_ne!(nonce, old_nonce);
                 manager.paired_peers.get_mut(&target_id).unwrap().addresses =
-                    vec![PeerAddress::from_ip("100.64.0.99")];
+                    vec![PeerAddress::from_ip("192.0.2.99")];
                 if new_refused {
                     manager.record_peer_http_status(&target_id, nonce.as_deref(), 401);
                 }
