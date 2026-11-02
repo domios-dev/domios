@@ -126,27 +126,32 @@ impl MeshManager {
         let Some(installation) = installation else {
             return;
         };
-        match status {
+        let online = (200..=299).contains(&status);
+        if let Some(peer) = self.paired_peers.get_mut(peer_id) {
+            peer.online = online;
+            if online {
+                peer.last_seen = Some(chrono::Utc::now().to_rfc3339());
+                peer.consecutive_misses = 0;
+            }
+        }
+        let phase = match status {
             401 | 426 => {
                 self.peer_request_retry
                     .insert(peer_id.to_owned(), self.now().saturating_add(60));
-                self.bump_gate();
-                self.set_connection_phase(
-                    &installation,
-                    if status == 426 {
-                        ConnectionPhase::PeerNeedsUpdate
-                    } else {
-                        ConnectionPhase::AuthRefused
-                    },
-                );
-            }
-            200..=299 => {
-                if self.peer_request_retry.remove(peer_id).is_some() {
-                    self.set_connection_phase(&installation, ConnectionPhase::Ready);
+                if status == 426 {
+                    ConnectionPhase::PeerNeedsUpdate
+                } else {
+                    ConnectionPhase::AuthRefused
                 }
             }
-            _ => {}
-        }
+            200..=299 => {
+                self.peer_request_retry.remove(peer_id);
+                ConnectionPhase::Ready
+            }
+            _ => ConnectionPhase::Failed,
+        };
+        self.bump_gate();
+        self.set_connection_phase(&installation, phase);
     }
 
     pub fn retain_connection_phases(&mut self, retain: impl Fn(&str) -> bool) {

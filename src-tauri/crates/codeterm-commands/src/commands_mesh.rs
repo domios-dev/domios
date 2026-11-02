@@ -41,10 +41,13 @@ pub async fn fetch_peer_services_view(
     let (outcome, status) = outcome;
 
     let mut m = mesh.lock();
-    if let Some(status) = status {
-        m.record_peer_http_status(instance_id, link_nonce.as_deref(), status);
+    if !matches!(&outcome, FetchOutcome::Skipped) {
+        m.record_peer_http_status(instance_id, link_nonce.as_deref(), status.unwrap_or(0));
     }
-    let online = online && !m.peer_auth_refused(instance_id);
+    let online = m
+        .account_mesh_pairs()
+        .iter()
+        .any(|peer| peer.instance_id == instance_id && peer.online);
     if let FetchOutcome::Fetched(ref services) = outcome {
         m.peer_services.refresh(instance_id, services.clone(), now);
     }

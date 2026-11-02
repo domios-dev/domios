@@ -69,11 +69,7 @@ where
 /// their own budget below.
 const CLIENT_DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Liveness probe budget. A peer under load answers a trivial GET in seconds
-/// rather than milliseconds; declaring it dead at 5s painted a reachable machine
-/// offline while its own outbound traffic kept arriving (#319). Paired with the
-/// two-miss threshold in `health`, a peer has to stay unreachable for two full
-/// rounds before it flips.
+/// Deadline for reachability probes and authenticated health sync.
 const PING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// A relayed command carries real work on the peer — a build, a test run, a CLI

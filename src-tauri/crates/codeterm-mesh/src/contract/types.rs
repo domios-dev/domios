@@ -93,16 +93,15 @@ pub fn sanitize_addresses(addresses: &[PeerAddress]) -> Vec<PeerAddress> {
         .collect()
 }
 
-/// Sync with a paired peer on every offline→online transition and periodically while it
-/// stays online, so peer metadata (liveness, names) stays fresh.
+/// Reachable peers need authenticated sync before recovery and periodically while usable.
 pub fn should_proactive_sync(
-    online: bool,
+    reachable: bool,
     was_online: bool,
     now_secs: u64,
     last_sync_secs: Option<u64>,
     interval_secs: u64,
 ) -> bool {
-    if !online {
+    if !reachable {
         return false;
     }
     if !was_online {
