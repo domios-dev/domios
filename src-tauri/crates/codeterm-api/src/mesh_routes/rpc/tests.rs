@@ -190,11 +190,9 @@ fn mesh_rpc_never_erases_an_agent_actor_into_owner_authority() {
             "plan.task.remote_ack",
             "plan.task.remote_report",
         ] {
-            let expected = origin == AuthenticatedOrigin::Owner
-                || (matches!(
-                    origin,
-                    AuthenticatedOrigin::Mesh | AuthenticatedOrigin::Agent
-                ) && method.starts_with("plan.task.remote_"));
+            let expected = origin.owner_trusted()
+                || (origin == AuthenticatedOrigin::Agent
+                    && method.starts_with("plan.task.remote_"));
             assert_eq!(
                 super::origin_admitted(origin, method),
                 expected,

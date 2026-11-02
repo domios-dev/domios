@@ -3,7 +3,7 @@ use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct AttachmentQuery {
@@ -12,11 +12,10 @@ pub struct AttachmentQuery {
 
 pub async fn attachment(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     AxumPath(id): AxumPath<String>,
     Query(query): Query<AttachmentQuery>,
 ) -> Result<impl IntoResponse, (StatusCode, &'static str)> {
-    check_auth(&state, &headers).map_err(|_| (StatusCode::UNAUTHORIZED, "Unauthorized"))?;
     let plan = state
         .svc
         .plan_store

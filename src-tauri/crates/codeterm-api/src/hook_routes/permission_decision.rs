@@ -3,7 +3,7 @@ use codeterm_types::pty::{PromptIdentity, PromptKind};
 use serde_json::Value;
 use tokio::sync::oneshot;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::agent::provider::HookIngestionRoute;
 use codeterm_service_core::service::permission_decision::{
     answers, decision, enabled, is_permission_request, notify, prompt, sync_display,
@@ -68,8 +68,7 @@ pub(crate) async fn handle(
     let no_decision = || Some(decision(None));
     let session = body.get("session_id").and_then(Value::as_str);
     let nonce = super::header_str(headers, "x-codeterm-binding-nonce");
-    if check_auth(state, headers).is_err()
-        || !session.is_some_and(|session| !session.trim().is_empty())
+    if !session.is_some_and(|session| !session.trim().is_empty())
         || session != tab.agent_session_id.as_deref()
         || !nonce.is_some_and(|nonce| !nonce.trim().is_empty())
         || nonce != tab.session_binding_nonce.as_deref()

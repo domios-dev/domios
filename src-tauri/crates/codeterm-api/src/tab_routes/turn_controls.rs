@@ -58,7 +58,6 @@ pub async fn turn_controls(
     Path(tab_id): Path<String>,
     Query(query): Query<TurnControlsQuery>,
 ) -> Result<Json<TurnControls>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let nonce = headers
         .get("x-codeterm-binding-nonce")
         .and_then(|header| header.to_str().ok())

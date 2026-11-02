@@ -142,11 +142,9 @@ fn authority_refusal(message: String) -> MeshRpcResponse {
 }
 
 fn origin_admitted(origin: crate::auth::AuthenticatedOrigin, method: &str) -> bool {
-    origin == crate::auth::AuthenticatedOrigin::Owner
-        || (matches!(
-            origin,
-            crate::auth::AuthenticatedOrigin::Mesh | crate::auth::AuthenticatedOrigin::Agent
-        ) && matches!(method, "plan.task.remote_ack" | "plan.task.remote_report"))
+    origin.owner_trusted()
+        || (origin == crate::auth::AuthenticatedOrigin::Agent
+            && matches!(method, "plan.task.remote_ack" | "plan.task.remote_report"))
 }
 
 fn agent_lifecycle_matches(

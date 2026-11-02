@@ -1,27 +1,17 @@
 use axum::http::{HeaderMap, StatusCode};
 use codeterm_service_core::mesh::crown::{verify_request_claims, AuthenticatedAgent};
 
-use super::{authenticated_origin, AuthenticatedOrigin};
+use super::{authenticated_origin, AuthenticatedOrigin, RequestActor};
 use crate::routes::AppState;
 
 pub(crate) fn remote_agent(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<Option<AuthenticatedAgent>, (StatusCode, String)> {
-    let token = headers
-        .get("authorization")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.strip_prefix("Bearer "))
-        .unwrap_or_default();
-    if state.svc.identify_tab_credential(token).is_some()
-        || authenticated_origin(state, headers)? != AuthenticatedOrigin::Agent
-    {
-        return Ok(None);
-    }
-    authenticated_agent(state, headers)?.map(Some).ok_or((
-        StatusCode::FORBIDDEN,
-        "Authenticated remote agent identity required".into(),
-    ))
+    Ok(match RequestActor::authenticate(state, headers)? {
+        RequestActor::RemoteAgent(agent) => Some(agent),
+        _ => None,
+    })
 }
 
 pub(crate) fn authenticated_agent(

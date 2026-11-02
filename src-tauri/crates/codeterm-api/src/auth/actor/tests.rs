@@ -36,3 +36,48 @@ fn actor_authority_requires_owner_or_credential_bound_local_tab() {
         }
     }
 }
+
+#[test]
+fn actor_scope_matrix_never_grants_a_remote_agent_local_or_owner_authority() {
+    let local = TabCaller {
+        tab_id: "local".into(),
+        binding_nonce: "nonce".into(),
+    };
+    let remote = codeterm_service_core::mesh::crown::AuthenticatedAgent {
+        instance_id: "remote-machine".into(),
+        tab_id: "remote-tab".into(),
+        can_spawn: true,
+    };
+    for (actor, local_scope, agent_scope) in [
+        (RequestActor::Owner, true, true),
+        (RequestActor::LocalAgent(local), true, true),
+        (RequestActor::RemoteAgent(remote), false, true),
+        (RequestActor::Peer, false, true),
+        (RequestActor::Service, false, false),
+    ] {
+        for selected in [None, Some("local"), Some("foreign")] {
+            let mut headers = HeaderMap::new();
+            if let Some(selected) = selected {
+                headers.insert("x-codeterm-tab-id", selected.parse().unwrap());
+            }
+            let bound = !matches!(actor, RequestActor::LocalAgent(_))
+                || selected.is_none()
+                || selected == Some("local");
+            assert_eq!(
+                ActorHeaders::from_actor(actor.clone(), headers.clone()).is_ok(),
+                local_scope && bound,
+                "{actor:?} {selected:?}"
+            );
+            let result = AgentHeaders::from_actor(actor.clone(), headers);
+            assert_eq!(
+                result.is_ok(),
+                agent_scope && bound,
+                "{actor:?} {selected:?}"
+            );
+            if let (RequestActor::RemoteAgent(_), Ok(headers)) = (&actor, result) {
+                assert!(headers.local_tab_id().is_none());
+                assert!(headers.get("x-codeterm-tab-id").is_none());
+            }
+        }
+    }
+}

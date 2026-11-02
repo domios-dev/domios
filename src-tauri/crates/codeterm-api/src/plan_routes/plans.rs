@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path as FsPath, PathBuf};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::plan::{
     OrchestratorRef, PlanMode, PlanStatus, PlannerRef, PlanningAuthor, PlanningState,
 };
@@ -76,7 +76,6 @@ pub async fn create(
     headers: crate::auth::ActorHeaders,
     Json(body): Json<CreatePlanBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let project = body.project_path.unwrap_or_else(|| {
         std::env::current_dir()
             .map(|p| p.display().to_string())
@@ -149,11 +148,10 @@ pub async fn create(
 
 pub async fn list(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         if q.chat == Some(true) {
             if q.query.is_some()
                 && q.project
@@ -306,10 +304,9 @@ struct ResolvedRef {
 
 pub async fn resolve_refs(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<ResolveRefsBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let index = state.svc.plan_store.list_index();
     let refs = body
         .refs
@@ -560,11 +557,10 @@ mod tests;
 
 pub async fn get(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
             .map_err(team_plan_err)?;
         let plan = state
@@ -585,10 +581,9 @@ pub async fn get(
 
 pub async fn state(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let snapshot = state
         .svc
         .build_plan_state(&id, epoch_ms())
@@ -598,10 +593,9 @@ pub async fn state(
 
 pub async fn next(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let snapshot = state
         .svc
         .build_plan_state(&id, epoch_ms())
@@ -626,7 +620,6 @@ pub async fn reconcile(
     Path(id): Path<String>,
     Query(q): Query<ReconcileQuery>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let caller = crate::auth::caller_claim(&state, &headers, q.caller_tab_id.as_deref())
         .map_err(|(status, message)| text_err(status, message))?;
     let report = state
@@ -650,12 +643,11 @@ pub struct UpdatePlanBody {
 
 pub async fn update(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UpdatePlanBody>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         let status = body
             .status
             .as_deref()
@@ -705,7 +697,6 @@ pub async fn mode_set(
     Path(id): Path<String>,
     Json(body): Json<ModeBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
         .map_err(|_| plan_err(PlanError::BadMode))?;
@@ -778,7 +769,6 @@ pub async fn delete_plan(
     headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     state
         .svc
@@ -797,10 +787,9 @@ use lifecycle::{authorize_plan_mutation_http, team_plan_err};
 
 pub async fn disown(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -817,11 +806,10 @@ pub struct ClaimBody {
 
 pub async fn claim(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ClaimBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -838,11 +826,10 @@ pub struct KindsSetBody {
 
 pub async fn kinds_set(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<KindsSetBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -859,11 +846,10 @@ pub struct TagFacetsSetBody {
 
 pub async fn tag_facets_set(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<TagFacetsSetBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let facets = tag_facets_from_body(&body.facets)
         .map_err(|message| text_err(StatusCode::BAD_REQUEST, message))?;
     state

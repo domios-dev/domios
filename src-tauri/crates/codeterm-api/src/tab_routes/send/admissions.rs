@@ -8,14 +8,13 @@ pub struct AdmissionQuery {
 
 pub async fn chat_send_admissions(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(query): Json<AdmissionQuery>,
 ) -> Result<
     Json<Vec<codeterm_service_core::service::pending_delivery_payloads::user_sends::UserAdmissionEvidence>>,
     SendRejection,
 >{
-    check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;

@@ -9,13 +9,12 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 pub async fn clock_status(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let now_ms = state.cron.lock().now_ms();
     Ok(Json(serde_json::json!({
         "mocked": state.test_clock.is_some(),
@@ -32,10 +31,9 @@ pub struct AdvanceBody {
 /// jobs fire immediately instead of after its real-time sleep.
 pub async fn clock_advance(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<AdvanceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let clock = state.test_clock.as_ref().ok_or((
         StatusCode::CONFLICT,
         "clock is not mocked — start a debug build with CODETERM_TEST_CLOCK=1".to_string(),
@@ -60,10 +58,9 @@ pub async fn clock_advance(
 /// client `__ctEvents.received` stays flat is Tauri channel death.
 pub async fn event_stats(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use std::sync::atomic::Ordering;
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let pending = state
         .svc
         .ext::<codeterm_service_core::service::MuxEmitPending>()
@@ -119,10 +116,9 @@ pub(crate) fn event_stats_snapshot(
 /// deterministically instead of waiting for the soak to exhaust OS threads.
 pub async fn force_latch(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use std::sync::atomic::Ordering;
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if !cfg!(debug_assertions) {
         return Err((StatusCode::CONFLICT, "debug builds only".to_string()));
     }
@@ -152,10 +148,9 @@ pub async fn force_latch(
 /// that de-latching restores desktop event delivery.
 pub async fn reset_latch(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     use std::sync::atomic::Ordering;
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .ext::<std::sync::Arc<codeterm_service_core::service::MuxEmitStats>>()
@@ -176,9 +171,8 @@ pub async fn reset_latch(
 
 pub async fn clean_restart(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if !cfg!(debug_assertions) {
         return Err((
             StatusCode::CONFLICT,

@@ -6,7 +6,7 @@ use axum::{
 use codeterm_orchestration::TeamExt;
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct RenameTeamBody {
@@ -115,7 +115,6 @@ pub async fn rename_team(
     Path(team_id): Path<String>,
     Json(body): Json<RenameTeamBody>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_tab_id, name| {
         codeterm_commands::commands::mux_commands::mux_rename_team_service_core(
             &state.svc,
@@ -165,7 +164,6 @@ pub async fn close_team(
         CloseTeamBody,
     >,
 ) -> Result<Json<codeterm_orchestration::TeamCloseResult>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let service = state.svc.clone();
     let body = body.unwrap_or_default();
     let force_busy = body.force_busy;
@@ -203,7 +201,6 @@ pub async fn add_team_member(
     Path(team_id): Path<String>,
     Json(body): Json<AddTeamMemberBody>,
 ) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let result = add_team_member_adapter(
         &headers,
         team_id,

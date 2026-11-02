@@ -8,7 +8,7 @@ use futures_util::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::browser::viewport::ViewportRequest;
 use codeterm_service_core::service::surface::runtime_sse_payload as sse_payload;
 use codeterm_service_core::service::surface::{
@@ -53,18 +53,7 @@ fn internal() -> Refusal {
     )
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Refusal> {
-    check_auth(state, headers).map_err(|(status, message)| refusal(status, "unauthorized", message))
-}
-
-async fn on_blocking_pool<T: Serialize + Send + 'static>(
-    svc: ServiceState,
-    work: impl FnOnce(&ServiceContext) -> Result<T, SurfaceError> + Send + 'static,
-) -> RouteResult {
-    let result = tokio::task::spawn_blocking(move || work(svc.as_ref()))
-        .await
-        .map_err(|_| internal())?
-        .map_err(surface_refusal)?;
+fn authorize(_state: &AppState, _headers: &HeaderMap) -> Result<(), Refusal> {
     serde_json::to_value(result)
         .map(Json)
         .map_err(|_| internal())

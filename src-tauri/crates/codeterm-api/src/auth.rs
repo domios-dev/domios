@@ -11,7 +11,7 @@ mod relay_agent;
 pub(crate) use relay_agent::{authenticated_agent, remote_agent};
 mod credential_kind;
 pub(crate) mod remote;
-pub use actor::ActorHeaders;
+pub use actor::{ActorHeaders, AgentHeaders, RequestActor};
 mod tab;
 pub(crate) use tab::{actor_ref, caller_claim, tab_caller};
 #[cfg(test)]

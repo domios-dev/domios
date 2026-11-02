@@ -1,4 +1,4 @@
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use crate::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
     body::Body,
@@ -333,7 +333,6 @@ pub async fn mesh_relay_to_peer(
     headers: HeaderMap,
     Json(mut req): Json<PeerRelayCommand>,
 ) -> Result<Json<PeerRelayResponse>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let actor = crate::auth::ActorHeaders::authenticated(
         &identity,
         crate::auth::authenticated_origin(&state, &headers)?,
@@ -919,7 +918,6 @@ pub async fn mesh_relay_stream(
     headers: HeaderMap,
     Query(q): Query<RelayStreamQuery>,
 ) -> Result<Response, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let diagnostic_level = crate::stream_diagnostics::configured_level(
         state.config.lock().diagnostics.terminal_transport,
     );

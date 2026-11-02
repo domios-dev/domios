@@ -43,7 +43,7 @@ async fn actor_and_selected_tab_headers_cannot_forge_save_author() {
     let body = serde_json::from_value(serde_json::json!({"kind":"fact","title":"Authored fact","body":"a complete body","skip_extract":true})).unwrap();
     let Json(saved) = items::mem_save(
         State(state.clone()),
-        crate::auth::ActorHeaders::for_owner_test(headers.clone()),
+        crate::auth::AgentHeaders::for_owner_test(headers.clone()),
         Json(body),
     )
     .await

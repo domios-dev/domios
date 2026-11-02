@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 pub(crate) use crate::agent_restart_routes::{agent_restart_handler, agent_restart_response};
 
@@ -110,10 +110,9 @@ pub struct SpawnAgentBody {
 /// orchestrator's workers; otherwise returns the full `{ tab_id: [...] }` map.
 pub async fn remote_workers(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let reg = &state.svc.remote_workers;
     let value = match params.get("tab").filter(|s| !s.is_empty()) {
         Some(tab) => serde_json::json!(reg.for_orchestrator(tab)),
@@ -141,10 +140,9 @@ pub struct RecordRemoteWorkerBody {
 /// immediately. Called by the CLI right after a successful `agent spawn --mesh`.
 pub async fn record_remote_worker(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<RecordRemoteWorkerBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     if body.peer.trim().is_empty() || body.remote_tab.trim().is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -189,10 +187,9 @@ pub struct ForgetRemoteWorkerBody {
 /// when `{id}` is not a local tab.
 pub async fn forget_remote_worker(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<ForgetRemoteWorkerBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     if body.remote_tab.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "remote_tab required".into()));
     }
@@ -228,10 +225,6 @@ pub async fn spawn_agent(
     headers: HeaderMap,
     Json(mut body): Json<SpawnAgentBody>,
 ) -> Result<Json<serde_json::Value>, SpawnRejection> {
-    check_auth(&state, &headers).map_err(|(s, m)| SpawnRejection {
-        status: s,
-        body: serde_json::json!({"ok": false, "error": {"code": "unauthorized", "message": m.to_string()}}),
-    })?;
     let remote_agent = crate::auth::remote_agent(&state, &headers)
         .map_err(|(status, message)| SpawnRejection::new(status, "forbidden", message))?;
     if let Some(agent) = &remote_agent {
@@ -573,7 +566,6 @@ pub async fn batch_commands(
     headers: HeaderMap,
     Json(body): Json<BatchBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     if crate::auth::tab_caller(&state, &headers)?.is_some() {
         return Err((
             StatusCode::FORBIDDEN,
@@ -595,10 +587,9 @@ pub async fn batch_commands(
 
 pub async fn get_tab_status(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
@@ -636,7 +627,6 @@ pub async fn submit_report(
     Json(mut body): Json<ReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
         let id = state
             .svc
             .mux
@@ -727,11 +717,10 @@ pub struct ReportsQuery {
 
 pub async fn get_reports(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Query(query): Query<ReportsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let clear = query.clear.unwrap_or(false);
     let reports = state.svc.report_store.lock().get(&id, clear);
     Ok(Json(serde_json::to_value(&reports).unwrap_or_default()))
@@ -739,11 +728,10 @@ pub async fn get_reports(
 
 pub async fn respond_prompt(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Response, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
@@ -816,10 +804,9 @@ pub struct ProviderListQuery {
 
 pub async fn list_agent_providers(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(query): Query<ProviderListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     if query.metadata_only {
         let registry = state.svc.provider_registry.clone();
         return tokio::task::spawn_blocking(move || {
@@ -863,9 +850,8 @@ async fn list_agent_providers_blocking(
 /// same as the desktop command.
 pub async fn restart_general_agent(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let svc = state.svc.clone();
     let mux = svc.mux.clone();
     let pty = svc.pty.clone();
@@ -885,10 +871,9 @@ pub async fn restart_general_agent(
 
 pub async fn restart_general_agent_tab(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     axum::extract::Path(tab_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let svc = state.svc.clone();
     let mux = svc.mux.clone();
     let should_restart =
@@ -921,10 +906,9 @@ pub struct CompleteFirstRunBody {
 /// Web-mirror twin of `complete_general_agent_first_run`.
 pub async fn complete_general_agent_first_run(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<CompleteFirstRunBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::general_agent::complete_first_run_core(
             &state.svc,
@@ -948,11 +932,10 @@ pub struct InstallProviderQuery {
 
 pub async fn install_provider_in_tab(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(provider_id): Path<String>,
     Query(query): Query<InstallProviderQuery>,
 ) -> Result<Json<codeterm_commands::commands::InstallTabResult>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || install_provider_request(&svc, provider_id, query))
         .await

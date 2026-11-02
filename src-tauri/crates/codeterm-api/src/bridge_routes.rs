@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::bridge;
 use codeterm_service_core::bridge_host::AppAttachmentStorePort;
 use codeterm_service_core::config::schema::AppConfig;
@@ -33,10 +33,9 @@ fn ensure_telegram(service: &str) -> Result<(), (StatusCode, &'static str)> {
 
 pub async fn bridge_state(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(q): Query<ServiceQuery>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     ensure_telegram(&q.service)?;
 
     let snap = state
@@ -95,10 +94,9 @@ fn default_stop_timeout_ms() -> u64 {
 
 pub async fn bridge_stop(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<StopBody>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
     let _op = state
@@ -161,10 +159,9 @@ fn default_wait_for_lock_ms() -> u64 {
 
 pub async fn bridge_start(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<StartBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     ensure_telegram(&body.service).map_err(|(s, m)| (s, m.to_string()))?;
 
     let _op = state
@@ -339,10 +336,9 @@ fn first_allowed_bridge_user(svc: &codeterm_service_core::service::ServiceContex
 
 pub async fn bridge_announce(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<AnnounceBody>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
     let chat_id = body

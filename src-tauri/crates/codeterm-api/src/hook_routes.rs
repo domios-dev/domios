@@ -6,7 +6,7 @@ use axum::{
 use codeterm_service_core::service::MuxEmitCause;
 use std::collections::BTreeMap;
 
-use crate::routes::{check_auth, resolve_tab, AppState};
+use crate::routes::{resolve_tab, AppState};
 use codeterm_service_core::agent::provider::{HookEventBinding, HookIngestionRoute};
 use codeterm_service_core::agent::registry::AgentRegistry;
 use codeterm_service_core::api_support::OptionalJson;
@@ -81,9 +81,8 @@ fn resolve_hook_tab(
 pub async fn release_launch_artifacts_api(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(status, message)| (status, message.to_string()))?;

@@ -1,6 +1,6 @@
 //! Bounded read of a tab's checklist for the owner UI and authorized agents.
 
-use super::routes::{check_auth, AppState};
+use super::routes::AppState;
 use super::tab_routes::caller_tab_header;
 use axum::{
     extract::{Path, State},
@@ -40,7 +40,6 @@ async fn tab_todos(
     headers: crate::auth::ActorHeaders,
     Path(tab_id): Path<String>,
 ) -> Result<Json<Option<TabTodoChecklist>>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     let checklist = match reader_for(&tab_id, caller_tab_header(&headers)) {
         TodoReader::Owner(actor) => state.svc.tab_todo_list(&tab_id, actor.as_deref()).await,
         TodoReader::Parent(parent) => state.svc.tab_todo_parent_list(&tab_id, &parent).await,
@@ -73,7 +72,6 @@ async fn review_todos(
     Path(tab_id): Path<String>,
     Json(body): Json<ReviewTodos>,
 ) -> Result<Json<TabTodoChecklist>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     let actor = caller_tab_header(&headers);
     state
         .svc

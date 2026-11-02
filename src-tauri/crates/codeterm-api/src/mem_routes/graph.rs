@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::mem::graph::{Entity, Relation};
 use codeterm_service_core::mem_ops::graph::*;
 
@@ -13,7 +13,6 @@ pub async fn mem_graph_relate(
     headers: HeaderMap,
     Json(b): Json<GraphRelateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let r = Relation {
         from_id: b.from,
         relation_type: b.rel,
@@ -37,10 +36,9 @@ pub async fn mem_graph_relate(
 
 pub async fn mem_graph_related(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<GraphRelatedParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let rels = state
         .svc
         .mem
@@ -59,8 +57,6 @@ pub async fn mem_graph_create(
     headers: HeaderMap,
     Json(b): Json<GraphCreateEntityBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-
     if !b.id.contains('_') {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -87,10 +83,9 @@ pub async fn mem_graph_create(
 
 pub async fn mem_graph_invalidate(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<GraphInvalidateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let found = state
         .svc
         .mem
@@ -101,10 +96,9 @@ pub async fn mem_graph_invalidate(
 
 pub async fn mem_graph_timeline(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<GraphTimelineParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let relations = state
         .svc
         .mem
@@ -117,10 +111,9 @@ pub async fn mem_graph_timeline(
 
 pub async fn mem_graph_traverse(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<GraphTraverseParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let hops = p.hops.unwrap_or(2).min(5);
     let max_nodes = p.max_nodes.unwrap_or(100).min(500);
     let result = state
@@ -139,10 +132,9 @@ pub async fn mem_graph_traverse(
 
 pub async fn mem_graph_path(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<GraphPathParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let max_hops = p.max_hops.unwrap_or(4).min(8);
     let path = state
         .svc
@@ -156,10 +148,9 @@ pub async fn mem_graph_path(
 
 pub async fn mem_graph_alias(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<GraphAliasBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     validate_canonical(&b.canonical).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     state
         .svc
@@ -173,10 +164,9 @@ pub async fn mem_graph_alias(
 
 pub async fn mem_graph_tunnels(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<GraphTunnelsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let tunnels = state
         .svc
         .mem
@@ -187,9 +177,8 @@ pub async fn mem_graph_tunnels(
 
 pub async fn mem_graph_full(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let dump = state
         .svc
         .mem
@@ -241,10 +230,9 @@ pub async fn mem_graph_full(
 
 pub async fn mem_graph_repair_find_relations(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairFindRelationsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let groups = state
         .svc
         .mem
@@ -255,10 +243,9 @@ pub async fn mem_graph_repair_find_relations(
 
 pub async fn mem_graph_repair_delete_relations(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairDeleteRelationsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let deleted = state
         .svc
         .mem
@@ -269,10 +256,9 @@ pub async fn mem_graph_repair_delete_relations(
 
 pub async fn mem_graph_repair_merge_relations(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairMergeRelationsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state
         .svc
         .mem
@@ -283,10 +269,9 @@ pub async fn mem_graph_repair_merge_relations(
 
 pub async fn mem_graph_repair_find_entities(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairFindEntitiesBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let groups = state
         .svc
         .mem
@@ -297,10 +282,9 @@ pub async fn mem_graph_repair_find_entities(
 
 pub async fn mem_graph_repair_augment_entity(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairAugmentEntityBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .mem
@@ -311,10 +295,9 @@ pub async fn mem_graph_repair_augment_entity(
 
 pub async fn mem_graph_repair_delete_entity(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairDeleteEntityBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state
         .svc
         .mem
@@ -325,10 +308,9 @@ pub async fn mem_graph_repair_delete_entity(
 
 pub async fn mem_graph_repair_orphan_vectors(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairOrphanVectorsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state
         .svc
         .mem
@@ -339,10 +321,9 @@ pub async fn mem_graph_repair_orphan_vectors(
 
 pub async fn mem_graph_prune_thin_vectors(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairOrphanVectorsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state
         .svc
         .mem
@@ -353,10 +334,9 @@ pub async fn mem_graph_prune_thin_vectors(
 
 pub async fn mem_graph_collapse_synonym_edges(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairOrphanVectorsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state
         .svc
         .mem
@@ -367,10 +347,9 @@ pub async fn mem_graph_collapse_synonym_edges(
 
 pub async fn mem_graph_prune_dream_hub_edges(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairOrphanVectorsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state
         .svc
         .mem
@@ -381,10 +360,9 @@ pub async fn mem_graph_prune_dream_hub_edges(
 
 pub async fn mem_graph_repair_orphan_blobs(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<RepairOrphanBlobsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = state
         .svc
         .mem

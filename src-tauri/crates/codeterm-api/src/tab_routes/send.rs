@@ -6,7 +6,6 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::check_auth;
 use codeterm_service_core::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin};
 use codeterm_service_core::service::input_transport::{should_prepend_source, TabInputTransport};
 
@@ -44,7 +43,6 @@ pub async fn chat_send_text(
     Path(id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
-    check_auth(&state, &headers).map_err(SendRejection::from)?;
     if body.startup_override_nonce.is_some()
         && !matches!(
             caller.as_ref().map(|caller| &caller.0),
@@ -183,13 +181,12 @@ fn chat_send_target_refusal(
 
 pub async fn chat_send_status(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<
     Json<Vec<codeterm_service_core::service::chat_send_transaction::ChatSendStatus>>,
     SendRejection,
 > {
-    check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;
@@ -492,9 +489,7 @@ pub async fn send_text(
             .flatten()
         });
 
-    if svc_token_match.is_none() {
-        check_auth(&state, &headers)?;
-    }
+    if svc_token_match.is_none() {}
     neighbor::authorize_message(
         &state,
         &headers,

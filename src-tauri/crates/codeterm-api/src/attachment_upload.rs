@@ -10,7 +10,7 @@ use std::{io::Write, path::PathBuf, task::Poll};
 use tokio::sync::mpsc;
 
 use crate::{
-    routes::{check_auth, AppState},
+    routes::AppState,
     web_routes::{sanitize_filename, MAX_TEMP_FILE_DECODED_BYTES},
 };
 use codeterm_util::attachments::{bucket_dir, evict, EvictionPolicy, CHAT_UPLOAD_CACHE_BYTES};
@@ -195,12 +195,10 @@ pub(crate) async fn receive_upload(
 }
 
 pub(crate) async fn upload(
-    State(state): State<AppState>,
-    headers: HeaderMap,
+    State(_state): State<AppState>,
+    _headers: HeaderMap,
     request: Request,
 ) -> Result<Json<serde_json::Value>, UploadError> {
-    check_auth(&state, &headers)
-        .map_err(|(status, error)| UploadError::new(status, "unauthorized", error))?;
     receive_upload(
         streaming_multipart(request).await?,
         bucket_dir("chat"),

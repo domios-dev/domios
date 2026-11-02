@@ -1,4 +1,4 @@
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -25,7 +25,6 @@ fn local_caller(
     state: &AppState,
     headers: &crate::auth::ActorHeaders,
 ) -> Result<AuthenticatedPlanCaller, (StatusCode, String)> {
-    check_auth(state, headers).map_err(|(status, message)| (status, message.into()))?;
     if !crate::auth::is_local_caller(state, headers) {
         return Err((
             StatusCode::FORBIDDEN,
@@ -66,10 +65,9 @@ pub async fn reparent(
 
 pub async fn inventory(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(team): Path<String>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.into()))?;
     let service = state.svc.clone();
     tokio::task::spawn_blocking(move || {
         service

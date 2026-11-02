@@ -28,10 +28,6 @@ pub async fn mesh_sync(
     Json(payload): Json<codeterm_service_core::mesh::types::MeshSyncPayload>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     log::debug!("[mesh/sync] Incoming sync: {} peers", payload.peers.len());
-    check_auth(&state, &headers).map_err(|(s, e)| {
-        log::warn!("[mesh/sync] Auth FAILED: {}", e);
-        (s, e.to_string())
-    })?;
 
     let access = crate::auth::caller_access_level(&state, &headers)
         .map_err(|(status, message)| (status, message))?;
