@@ -29,6 +29,7 @@ process.env.CORE_JOURNEY_BUILD_CHECKOUT = options.checkout;
 
 const prefixes = [["agent", "set-orchestrator"], ["plan", "create"], ["plan", "task", "add"],
   ["plan", "approve"],
+  ["spec", "create"], ["spec", "section", "add"], ["plan", "goal", "set"], ["plan", "update"],
   ["plan", "task", "dispatch"], ["plan", "review", "bounce"], ["plan", "review", "accept"],
   ["plan", "rebind"], ["plan", "delete"]];
 function allowed(args) {

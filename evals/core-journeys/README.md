@@ -143,6 +143,9 @@ SessionStart hook and readback prove its own provider, session and launch nonce.
 Fixed CLI requests enter a private AgentPad queue for that nonce; claiming a
 request precedes execution, and uncertainty never resubmits it. A resumed runner
 uses a new queue generation and never executes the previous launch's requests.
+The fixture creates a linked spec, goal and task quality fields, records its
+single-task Planner waiver, then passes the normal Plan approval gate before
+dispatch. The same scoped Orchestrator performs those actions.
 The fixture is recorded separately from the complete paid-provider roster; every
 real installed provider still requires an explicit model selection. Cleanup
 removes this run's provider after closing its workspace. No fixture credential

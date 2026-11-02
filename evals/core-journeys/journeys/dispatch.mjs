@@ -26,14 +26,22 @@ async function orchestratorFixture(ctx) {
   if (!team) throw new JourneyFailure("set-orchestrator minted no Team");
   ctx.state.j3.team = team;
   ctx.state.teams.push({ leg: "fixture", id: team, orchestrator: id });
-  const plan = await ctx.fixtureCommand(["plan", "create", "--title", `core-journeys-${run}`, "--project", workspace.cwd]);
-  ctx.state.j3.plan = plan?.plan?.id ?? plan?.id;
-  ctx.state.plans.push(ctx.state.j3.plan);
   const body = join(ctx.out, "worker-brief.txt");
   writeFileSync(body, workerBrief(run));
+  const spec = await ctx.fixtureCommand(["spec", "create", "--title", `core-journeys-${run}`, "--project", workspace.cwd]);
+  ctx.state.j3.fixture_spec = spec.spec_id;
+  ctx.save();
+  await ctx.fixtureCommand(["spec", "section", "add", spec.spec_id, "--title", "Read-only Worker lifecycle", "--body-file", body]);
+  const plan = await ctx.fixtureCommand(["plan", "create", "--title", `core-journeys-${run}`, "--from-spec", spec.spec_id, "--project", workspace.cwd]);
+  ctx.state.j3.plan = plan?.plan?.id ?? plan?.id;
+  ctx.state.plans.push(ctx.state.j3.plan);
+  ctx.save();
+  await ctx.fixtureCommand(["plan", "goal", "set", ctx.state.j3.plan, "--vector", "The same read-only Worker acknowledges, reports and answers review bounces across restart"]);
+  await ctx.fixtureCommand(["plan", "update", ctx.state.j3.plan, "--planner", "none", "--note", "This deterministic single-task lifecycle fixture has no planning work to delegate"]);
   const task = await ctx.fixtureCommand(["plan", "task", "add", ctx.state.j3.plan, "--name", `Journey probe ${run}`,
     "--executor-role", "journey-probe", "--personality", "Probe", "--role-guidance", "Read-only release journey probe",
     "--criterion", "Worker acknowledges and reports in_review", "--test-plan", "none: read-only probe",
+    "--correctness", "The same Worker attempt reports after each bounce without changing repository files",
     "--execution-intent", "non_repository", "--body-file", body]);
   ctx.state.j3.task = findTask(task)?.id ?? task?.task?.id ?? task?.id;
   ctx.save();
