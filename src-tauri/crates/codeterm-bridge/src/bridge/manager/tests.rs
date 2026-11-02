@@ -1,12 +1,6 @@
 #![cfg(test)]
 use super::*;
 
-#[test]
-fn test_create_outbound_channel() {
-    let (sender, _rx) = create_outbound_channel();
-    assert!(sender.lock().is_some());
-}
-
 use super::text_hooks;
 use axum::{
     routing::{get, post},

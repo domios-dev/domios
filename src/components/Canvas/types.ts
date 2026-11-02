@@ -247,6 +247,126 @@ export interface Task {
   attachments?: PlanAttachment[];
 }
 
+export interface PlanTaskBoardSummary {
+  id: string;
+  position: number;
+  name: string;
+  status: TaskStatus;
+  created_at: number;
+  updated_at: number;
+  status_changed_at: number;
+  handle?: string | null;
+  key?: string | null;
+  assigned_tab_id?: string | null;
+  lane?: Pick<TaskLaneMetadata, "tab_id" | "branch">;
+  taken_by_role?: string | null;
+  pause_reason?: string | null;
+  model?: string | null;
+  peer?: string | null;
+  activity_at?: number;
+  review_stage?: string | null;
+  qa_state?: string | null;
+  status_label?: string | null;
+  qa_queue_position?: number;
+  locator?: PlanTaskBoardLocator | null;
+  latest_note?: string | null;
+  historical_executor?: PlanTaskHistoricalExecutor | null;
+  competition_badge?: PlanTaskCompetitionBadge | null;
+  loop_badge?: PlanTaskLoopBadge | null;
+}
+
+export interface PlanTaskBoardLocator {
+  groupKey: string | null;
+  groupLabel: string | null;
+  groupColor: string | null;
+  section: string | null;
+}
+
+export interface PlanTaskHistoricalExecutor {
+  tab_id: string | null;
+  tab_title: string | null;
+  role: string | null;
+  model: string | null;
+  branch: string | null;
+  report_status: string | null;
+  outcome: string | null;
+}
+
+export interface PlanTaskCompetitionAttemptSummary {
+  tab_id: string | null;
+  tab_title: string | null;
+  model: string | null;
+  competition_lane: number | null;
+}
+
+export interface PlanTaskCompetitionBadge {
+  count: number;
+  live_count: number;
+  judge_hint: string | null;
+  models: string[];
+  live_attempts: PlanTaskCompetitionAttemptSummary[];
+}
+
+export interface PlanTaskLoopBadge {
+  count: number;
+  budget: number;
+  status: LoopSpec["status"];
+  stopWhen: string | null;
+  warning: boolean;
+  tooltip: string;
+  loops: LoopSpec[];
+}
+
+export interface PlanTaskDetailContext {
+  plan_id: string;
+  title: string;
+  status: PlanStatus;
+  team_id?: string | null;
+  owner: OrchestratorRef;
+  sections: Array<Pick<Section, "id" | "title">>;
+  has_open_subtasks?: boolean;
+}
+
+export interface PlanTaskDetail {
+  plan_id: string;
+  task_id: string;
+  task: Task;
+  context: PlanTaskDetailContext;
+  loop_badge?: PlanTaskLoopBadge | null;
+}
+
+export type PlanTaskBoardColumnKey = "pending" | "in_progress" | "in_review" | "blocked" | "done";
+export type PlanTaskBoardStatus = PlanTaskBoardColumnKey | "cancelled";
+
+export interface PlanTaskBoardCursor {
+  created_at: number;
+  position: number;
+  task_id: string;
+}
+
+export interface PlanTaskBoardColumnPage {
+  status: PlanTaskBoardStatus;
+  items: PlanTaskBoardSummary[];
+  next_cursor: PlanTaskBoardCursor | null;
+}
+
+export interface PlanTaskBoardCounts {
+  pending: number;
+  in_progress: number;
+  in_review: number;
+  blocked: number;
+  done: number;
+  cancelled: number;
+  total: number;
+}
+
+export interface PlanTaskBoardPage {
+  plan_id: string;
+  counts?: PlanTaskBoardCounts;
+  columns?: Partial<Record<PlanTaskBoardStatus, PlanTaskBoardColumnPage>>;
+  column?: PlanTaskBoardColumnPage;
+}
+
 export interface LoopStage {
   key: string;
   role: string;

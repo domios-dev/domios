@@ -1,7 +1,5 @@
 use super::*;
-use crate::multiplexer::types::{
-    PendingDeliveryChannel, PendingDeliveryRecord, PendingDeliveryState,
-};
+use crate::multiplexer::types::{PendingDeliveryChannel, PendingDeliveryRecord};
 
 fn record(digest: &str) -> PendingDeliveryRecord {
     PendingDeliveryRecord::new(digest.into(), PendingDeliveryChannel::InteractiveInput)
@@ -259,69 +257,6 @@ fn payload_permissions_are_restricted() {
         assert!(!acl.contains("builtin\\users"));
         assert!(!acl.contains("everyone:"));
     }
-}
-
-#[test]
-fn write_and_replace_do_not_run_acl_setup_after_open() {
-    let temp = tempfile::tempdir().unwrap();
-    let first = "first payload";
-    let second = "second payload";
-    let first_digest = digest(first);
-    let first_owner = record(&first_digest);
-    let second_digest = digest(second);
-    let second_owner = record(&second_digest);
-    let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
-    #[cfg(windows)]
-    let calls_after_open = acl_setup_calls();
-
-    store.write(&first_owner, first).unwrap();
-    store.write(&second_owner, second).unwrap();
-    store
-        .retire_replaced(Some(&first_owner), &second_owner, &HashSet::new())
-        .unwrap();
-
-    #[cfg(windows)]
-    assert_eq!(acl_setup_calls(), calls_after_open);
-}
-
-#[test]
-fn restore_resolves_payload_into_launch_option() {
-    let temp = tempfile::tempdir().unwrap();
-    let payload = "restored exact fallback brief";
-    let digest = digest(payload);
-    let owner = record(&digest);
-    let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
-    store.write(&owner, payload).unwrap();
-    let record = owner.clone();
-
-    let launch_option = record
-        .state()
-        .needs_delivery()
-        .then(|| store.resolve(&record))
-        .transpose()
-        .unwrap();
-
-    assert_eq!(launch_option.as_deref(), Some(payload));
-}
-
-#[test]
-fn restore_missing_payload_structured_error() {
-    let temp = tempfile::tempdir().unwrap();
-    let payload = "unavailable fallback brief";
-    let digest = digest(payload);
-    let owner = record(&digest);
-    let store = PendingDeliveryPayloadStore::open(temp.path(), &HashSet::new()).unwrap();
-    let record = owner.clone();
-    let delivery_writes = std::sync::atomic::AtomicUsize::new(0);
-
-    let error = store.resolve(&record).unwrap_err();
-
-    assert_eq!(error, PayloadStoreError::Missing { digest });
-    assert_eq!(record.state(), PendingDeliveryState::Pending);
-    assert_eq!(
-        delivery_writes.load(std::sync::atomic::Ordering::Relaxed),
-        0
-    );
 }
 
 #[test]

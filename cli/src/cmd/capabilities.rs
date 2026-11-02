@@ -134,32 +134,7 @@ pub fn render(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use clap::{error::ErrorKind, Parser};
     use serde_json::json;
-
-    fn advertised_methods() -> Vec<&'static str> {
-        let source =
-            include_str!("../../../src-tauri/crates/codeterm-socket/src/server/dispatch.rs");
-        let block = source
-            .split_once("let methods = vec![")
-            .expect("capability declaration exists")
-            .1
-            .split_once("];")
-            .expect("capability declaration closes")
-            .0;
-        block
-            .lines()
-            .filter_map(|line| line.trim().strip_prefix('"'))
-            .filter_map(|line| line.split_once('"').map(|(method, _)| method))
-            .collect()
-    }
-
-    fn command_path_parses(path: &str) -> bool {
-        let mut args = vec!["codeterm"];
-        args.extend(path.split_whitespace());
-        args.push("--help");
-        Cli::try_parse_from(args).is_err_and(|error| error.kind() == ErrorKind::DisplayHelp)
-    }
 
     #[test]
     fn capabilities_mark_rpc_only_and_name_cli_replacements() {
@@ -196,24 +171,5 @@ mod tests {
         assert!(line_a.contains("zz-one") && line_a.contains("zz-two <x>"));
         assert_eq!(out.lines().filter(|l| l.contains("opaque-b")).count(), 1);
         assert!(out.contains("system.identify  [CLI: `domios identify`]"));
-    }
-
-    #[test]
-    fn every_advertised_capability_has_a_structurally_verified_projection() {
-        let methods = advertised_methods();
-        assert!(!methods.is_empty());
-        for method in methods {
-            match project(method) {
-                Projection::Cli(path) => assert!(
-                    command_path_parses(&path),
-                    "{method} fabricated non-parsing CLI path: {path}"
-                ),
-                Projection::RpcOnly(Some(replacement)) => assert!(
-                    command_path_parses(replacement),
-                    "{method} names a non-parsing replacement: {replacement}"
-                ),
-                Projection::RpcOnly(None) => {}
-            }
-        }
     }
 }

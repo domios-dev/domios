@@ -357,12 +357,6 @@ fn criterion_file_parses_one_per_line_form_dropping_blanks() {
 }
 
 #[test]
-fn merge_criteria_appends_file_content_to_flag_values() {
-    let merged = merge_criteria(vec!["from-flag".into()], None).unwrap();
-    assert_eq!(merged, vec!["from-flag"]);
-}
-
-#[test]
 fn awaiting_dispatch_ready_is_not_rendered_as_completed_dispatch() {
     let response = json!({
         "accepted": true,

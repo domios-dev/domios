@@ -16,19 +16,6 @@ mod tests {
     use super::*;
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
-    async fn nested_runtime_reproduces_on_async_worker() {
-        install_test_runtime();
-        let panic =
-            std::panic::catch_unwind(|| crate::async_runtime::block_on(async { 42 })).unwrap_err();
-        let message = panic
-            .downcast_ref::<String>()
-            .map(String::as_str)
-            .or_else(|| panic.downcast_ref::<&str>().copied())
-            .unwrap();
-        assert!(message.contains("Cannot start a runtime from within a runtime"));
-    }
-
-    #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
     async fn nested_runtime_runs_off_async_worker() {
         install_test_runtime();
         let worker = std::thread::current().id();

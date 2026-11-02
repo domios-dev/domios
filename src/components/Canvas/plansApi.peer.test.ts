@@ -20,6 +20,20 @@ async function main() {
   const remotePlan = { ...FIXTURE_PLAN, id: "pl_peer", project_path: "/home/peer/project" };
   const index = { plan_id: remotePlan.id, title: remotePlan.title };
   const skill = { slug: "check", title: "Check", body: "opaque", ledger: [] };
+  const taskBoardPage = {
+    plan_id: remotePlan.id,
+    column: {
+      status: "done",
+      items: [{ id: "task-1", position: 4, created_at: 7, name: "Task", status: "done" }],
+      next_cursor: null,
+    },
+  };
+  const taskDetail = {
+    plan_id: remotePlan.id,
+    task_id: "task-exact",
+    task: { id: "task-exact", name: "Peer detail" },
+    context: { plan_id: remotePlan.id, title: remotePlan.title, status: "active", owner: remotePlan.owner, sections: [] },
+  };
 
   globalThis.fetch = async (input, init) => {
     if (init?.signal?.aborted) throw new DOMException("Aborted", "AbortError");
@@ -31,6 +45,8 @@ async function main() {
     let data: unknown = remotePlan;
     if (request.path.startsWith("/api/plans?")) data = { plans: request.path.includes("full=1") ? [remotePlan] : [index] };
     if (request.path === "/api/plans") data = { plans: [index] };
+    if (request.path === `/api/plans/${remotePlan.id}/tasks/task-exact`) data = taskDetail;
+    if (request.path.startsWith(`/api/plans/${remotePlan.id}/tasks?`)) data = taskBoardPage;
     if (request.path.endsWith("/reconcile")) data = { drift: [{ id: "peer-drift" }] };
     if (request.path === "/api/plans/resolve-refs") data = { refs: [{ plan_id: remotePlan.id }] };
     if (request.path.startsWith("/api/specs/")) data = { spec: { sections: [{ id: "peer-section" }] } };
@@ -43,6 +59,14 @@ async function main() {
   assert.deepEqual((await plansApi.fetchPlans(API)).map((plan) => plan.id), [remotePlan.id]);
   assert.deepEqual((await plansApi.fetchPlanIndex(API)).map((plan) => plan.plan_id), [remotePlan.id]);
   assert.equal((await plansApi.fetchPlan(API, remotePlan.id)).id, remotePlan.id);
+  const taskPage = await plansApi.fetchPlanTaskBoardPage(API, remotePlan.id, {
+    status: "done",
+    cursor: { created_at: 3, position: 2, task_id: "cursor-task" },
+  });
+  assert.deepEqual(await plansApi.fetchPlanTaskDetail(API, remotePlan.id, "task-exact"), taskDetail);
+  assert.deepEqual(taskPage, taskBoardPage);
+  assert(requests.some((request) => request.path === `/api/plans/${remotePlan.id}/tasks/task-exact`));
+  assert(requests.some((request) => request.path === `/api/plans/${remotePlan.id}/tasks?page_size=25&status=done&after_created_at=3&after_position=2&after_task_id=cursor-task`));
   assert.deepEqual(await plansApi.fetchSpecSections(API, "spec/peer"), [{ id: "peer-section" }]);
   assert.deepEqual(await plansApi.fetchReconcile(API, remotePlan.id), [{ id: "peer-drift" }]);
   assert.deepEqual(await plansApi.resolvePlanRefs(API, [{ plan_id: remotePlan.id, target_kind: "plan" }]), [{ plan_id: remotePlan.id }]);
@@ -67,6 +91,8 @@ async function main() {
   const ctrl = new AbortController();
   ctrl.abort();
   await assert.rejects(plansApi.fetchPlans(API, ctrl.signal), { name: "AbortError" });
+  await assert.rejects(plansApi.fetchPlanTaskBoardPage(API, remotePlan.id, { signal: ctrl.signal }), { name: "AbortError" });
+  await assert.rejects(plansApi.fetchPlanTaskDetail(API, remotePlan.id, "task-exact", ctrl.signal), { name: "AbortError" });
 
   let finishOld!: (value: Response) => void;
   globalThis.fetch = () => new Promise<Response>((resolve) => { finishOld = resolve; });

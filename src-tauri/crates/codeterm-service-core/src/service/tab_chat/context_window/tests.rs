@@ -16,13 +16,25 @@ fn entry(id: &str, kind: &str, content: &str) -> ChatMsg {
 fn transcript_with_trailing_tool_pair(groups: usize) -> Vec<ChatMsg> {
     let mut entries = Vec::new();
     for index in 0..groups {
-        entries.push(entry(&format!("user-{index}"), "user", "ask"));
-        entries.push(entry(&format!("assistant-{index}"), "assistant", "answer"));
-        entries.push(entry(&format!("tool-call-{index}"), "tool_call", "call"));
+        entries.push(entry(
+            &format!("user-{index}"),
+            "user",
+            "opaque_current_query_f20a",
+        ));
+        entries.push(entry(
+            &format!("assistant-{index}"),
+            "assistant",
+            "opaque_history_answer_905e",
+        ));
+        entries.push(entry(
+            &format!("tool-call-{index}"),
+            "tool_call",
+            "opaque_tool_call_8cab",
+        ));
         entries.push(entry(
             &format!("tool-result-{index}"),
             "tool_result",
-            "result",
+            "opaque_tool_result_56e1",
         ));
     }
     entries
@@ -33,7 +45,12 @@ fn bounded_window_keeps_whole_turn_groups() {
     let transcript = transcript_with_trailing_tool_pair(4);
     // 4 transcript groups + the in-flight group; a limit of 3 must cut on a
     // group boundary, never between a tool call and its result.
-    let composed = compose("brief", &transcript, 3, "next ask");
+    let composed = compose(
+        "opaque_role_brief_6b31",
+        &transcript,
+        3,
+        "opaque_current_query_a91f",
+    );
 
     assert_eq!(composed.decision.groups_available, 5);
     assert_eq!(composed.decision.groups_sent, 3);
@@ -91,7 +108,12 @@ fn bounded_window_keeps_whole_turn_groups() {
 fn bounded_window_never_splits_a_tool_pair_at_any_limit() {
     let transcript = transcript_with_trailing_tool_pair(6);
     for limit in 1..=8 {
-        let composed = compose("brief", &transcript, limit, "next ask");
+        let composed = compose(
+            "opaque_role_brief_6b31",
+            &transcript,
+            limit,
+            "opaque_current_query_a91f",
+        );
         for group in &composed.turn.groups {
             let has_call = group.entries.iter().any(|e| e.kind == "tool_call");
             let has_result = group.entries.iter().any(|e| e.kind == "tool_result");
@@ -105,9 +127,9 @@ fn bounded_window_never_splits_a_tool_pair_at_any_limit() {
 
 #[test]
 fn bounded_window_never_drops_the_system_prompt() {
-    let brief = "You are CodeTerm. ".repeat(64);
+    let brief = "opaque_role_brief_3e14 ".repeat(64);
     let transcript = transcript_with_trailing_tool_pair(20);
-    let composed = compose(&brief, &transcript, 1, "next ask");
+    let composed = compose(&brief, &transcript, 1, "opaque_current_query_a91f");
 
     assert_eq!(
         composed.turn.system, brief,
@@ -132,10 +154,15 @@ fn bounded_window_never_drops_the_system_prompt() {
 fn the_in_flight_turn_is_never_the_dropped_group() {
     let transcript = transcript_with_trailing_tool_pair(9);
     for limit in [0usize, 1, 2] {
-        let composed = compose("brief", &transcript, limit, "the ask being sent");
+        let composed = compose(
+            "opaque_role_brief_6b31",
+            &transcript,
+            limit,
+            "opaque_current_query_c120",
+        );
         let last = composed.turn.groups.last().expect("at least one group");
         assert_eq!(last.entries[0].id, IN_FLIGHT_ENTRY_ID);
-        assert_eq!(last.entries[0].content, "the ask being sent");
+        assert_eq!(last.entries[0].content, "opaque_current_query_c120");
         assert_eq!(
             composed.decision.limit,
             limit.max(1),
@@ -151,7 +178,12 @@ fn the_in_flight_turn_is_never_the_dropped_group() {
 
 #[test]
 fn an_empty_transcript_composes_the_in_flight_turn_alone() {
-    let composed = compose("brief", &[], PROVISIONAL_GROUP_LIMIT, "first ask");
+    let composed = compose(
+        "opaque_role_brief_6b31",
+        &[],
+        PROVISIONAL_GROUP_LIMIT,
+        "opaque_current_query_8f4e",
+    );
     assert_eq!(composed.decision.groups_available, 1);
     assert_eq!(composed.decision.groups_sent, 1);
     assert_eq!(composed.decision.groups_dropped, 0);
@@ -163,11 +195,16 @@ fn an_empty_transcript_composes_the_in_flight_turn_alone() {
 #[test]
 fn entries_before_the_first_user_turn_keep_their_own_group() {
     let transcript = vec![
-        entry("orphan-1", "assistant", "restored preamble"),
-        entry("user-0", "user", "ask"),
+        entry("orphan-1", "assistant", "opaque_restored_preamble_a83d"),
+        entry("user-0", "user", "opaque_current_query_f20a"),
         entry("assistant-0", "assistant", "answer"),
     ];
-    let composed = compose("brief", &transcript, 12, "next ask");
+    let composed = compose(
+        "opaque_role_brief_6b31",
+        &transcript,
+        12,
+        "opaque_current_query_a91f",
+    );
     assert_eq!(composed.decision.groups_available, 3);
     assert_eq!(composed.turn.groups[0].entries[0].id, "orphan-1");
     assert_eq!(composed.turn.groups[1].entries.len(), 2);
@@ -177,10 +214,15 @@ fn entries_before_the_first_user_turn_keep_their_own_group() {
 fn an_oversized_payload_refuses_instead_of_truncating() {
     let huge = "x".repeat(MAX_PAYLOAD_BYTES + 1);
     let transcript = vec![
-        entry("user-0", "user", "ask"),
+        entry("user-0", "user", "opaque_current_query_f20a"),
         entry("assistant-0", "assistant", &huge),
     ];
-    let composed = compose("brief", &transcript, 12, "next ask");
+    let composed = compose(
+        "opaque_role_brief_6b31",
+        &transcript,
+        12,
+        "opaque_current_query_a91f",
+    );
 
     assert_eq!(composed.decision.outcome, ContextOutcome::PayloadTooLarge);
     assert!(!composed.is_sendable());
@@ -200,26 +242,31 @@ fn an_oversized_payload_refuses_instead_of_truncating() {
 fn the_final_group_is_a_lone_user_entry() {
     // The plugin echoes exactly this group back into its transcript; any other
     // shape and the user's own message stops rendering.
-    let composed = compose("brief", &transcript_with_trailing_tool_pair(3), 12, "ask");
+    let composed = compose(
+        "opaque_role_brief_6b31",
+        &transcript_with_trailing_tool_pair(3),
+        12,
+        "opaque_current_query_f20a",
+    );
     let last = composed.turn.groups.last().unwrap();
     assert_eq!(last.entries.len(), 1);
     assert_eq!(last.entries[0].kind, "user");
-    assert_eq!(last.entries[0].content, "ask");
+    assert_eq!(last.entries[0].content, "opaque_current_query_f20a");
 }
 
 #[test]
 fn the_role_brief_seed_is_excluded_from_groups_and_recorded() {
-    let brief = "You are CodeTerm.";
+    let brief = "opaque_role_brief_seed_4d8c";
     let transcript = vec![
         entry(
             "seed-1",
             "user",
             &crate::message_markers::system_prompt(brief),
         ),
-        entry("user-0", "user", "ask"),
+        entry("user-0", "user", "opaque_current_query_f20a"),
         entry("assistant-0", "assistant", "answer"),
     ];
-    let composed = compose(brief, &transcript, 12, "next ask");
+    let composed = compose(brief, &transcript, 12, "opaque_current_query_a91f");
 
     assert_eq!(
         composed.decision.system_prompt_seed_ids,
@@ -244,18 +291,18 @@ fn the_role_brief_seed_is_excluded_from_groups_and_recorded() {
 
 #[test]
 fn an_absent_brief_is_promoted_from_the_seed_entry() {
-    let brief = "You are CodeTerm.";
+    let brief = "opaque_role_brief_seed_4d8c";
     let transcript = vec![
         entry(
             "seed-1",
             "user",
             &crate::message_markers::system_prompt(brief),
         ),
-        entry("user-0", "user", "ask"),
+        entry("user-0", "user", "opaque_current_query_f20a"),
     ];
     // No `_meta` brief: the seed's payload moves into the field a slice cannot
     // reach, rather than being dropped with the entry.
-    let composed = compose("", &transcript, 12, "next ask");
+    let composed = compose("", &transcript, 12, "opaque_current_query_a91f");
 
     assert_eq!(composed.turn.system, brief);
     assert!(composed.decision.system_prompt_included);
@@ -265,11 +312,16 @@ fn an_absent_brief_is_promoted_from_the_seed_entry() {
 #[test]
 fn a_quoted_marker_inside_a_user_message_is_not_the_seed() {
     let quoted = format!(
-        "look at this: {}",
-        crate::message_markers::system_prompt("You are CodeTerm.")
+        "opaque_quoted_user_fragment_6cf2: {}",
+        crate::message_markers::system_prompt("opaque_role_brief_seed_4d8c")
     );
     let transcript = vec![entry("user-0", "user", &quoted)];
-    let composed = compose("brief", &transcript, 12, "next ask");
+    let composed = compose(
+        "opaque_role_brief_6b31",
+        &transcript,
+        12,
+        "opaque_current_query_a91f",
+    );
 
     assert!(
         composed.decision.system_prompt_seed_ids.is_empty(),
@@ -281,7 +333,12 @@ fn a_quoted_marker_inside_a_user_message_is_not_the_seed() {
 
 #[test]
 fn the_decision_records_messages_as_the_unit() {
-    let composed = compose("brief", &transcript_with_trailing_tool_pair(2), 12, "ask");
+    let composed = compose(
+        "opaque_role_brief_6b31",
+        &transcript_with_trailing_tool_pair(2),
+        12,
+        "opaque_current_query_f20a",
+    );
     let line = serde_json::to_value(&composed.decision).unwrap();
     assert_eq!(line["unit"], "messages");
     assert_eq!(line["entriesSent"], 9);

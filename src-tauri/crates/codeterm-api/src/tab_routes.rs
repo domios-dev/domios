@@ -37,8 +37,6 @@ pub(crate) use exec::ExecBody;
 pub(crate) use codeterm_service_core::service::input_transport::{
     should_prepend_source, TabInputTransport,
 };
-#[cfg(test)]
-pub(crate) use send::{send_action_bytes, SendAction, SendTextBody};
 
 pub async fn list_tabs(
     AxumState(state): AxumState<AppState>,

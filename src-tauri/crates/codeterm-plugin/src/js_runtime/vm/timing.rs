@@ -27,6 +27,17 @@ impl<'a> HookTiming<'a> {
     }
 
     fn record(&self) {
+        #[cfg(test)]
+        if self.method == "runtimeReduce"
+            && std::env::var_os("CODETERM_CHILD_RETENTION_TIMING").is_some()
+        {
+            eprintln!(
+                "CHILD_RETENTION_HOOK stage={} stage_us={} argument_bytes={}",
+                self.stage,
+                self.stage_started.elapsed().as_micros(),
+                self.bytes
+            );
+        }
         log::debug!(
             "[runtime-hook] method={} stage={} stage_us={} total_us={} argument_bytes={}",
             self.method,

@@ -188,6 +188,25 @@ export function useFullPlans(): UsePlansResult {
   return context.full;
 }
 
+export function useFullPlansOptional(enabled = true): UsePlansResult | null {
+  const context = useContext(PlansContext);
+  const [requested, setRequested] = useState(false);
+  const requestFull = context?.requestFull;
+  useEffect(() => {
+    if (!enabled || !requestFull) {
+      setRequested(false);
+      return;
+    }
+    setRequested(true);
+    return requestFull();
+  }, [enabled, requestFull]);
+  if (!context || !enabled) return null;
+  return {
+    ...context.full,
+    loading: !requested || context.full.loading,
+  };
+}
+
 export function useSidebarPlansOptional(): UsePlansResult {
   return useContext(PlansContext)?.chat ?? EMPTY_FULL;
 }

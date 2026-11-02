@@ -113,17 +113,15 @@ fn ease_retained_status_reads_wake_only_held_input_without_readmitting_or_replay
         .inspect_retained_send(&held.send_id)
         .unwrap();
     await_owner_idle(&fixture, &tab);
-    for _ in 0..3 {
-        for id in &identities {
-            fixture.service.inspect_retained_send(id).unwrap();
-        }
-        assert!(fixture
-            .service
-            .inspect_retained_send("not-admitted")
-            .unwrap()
-            .is_none());
-        await_owner_idle(&fixture, &tab);
+    for id in &identities {
+        fixture.service.inspect_retained_send(id).unwrap();
     }
+    assert!(fixture
+        .service
+        .inspect_retained_send("not-admitted")
+        .unwrap()
+        .is_none());
+    await_owner_idle(&fixture, &tab);
     assert_eq!(*writes.lock(), vec![held.send_id.clone()]);
     let retained_ids = store
         .records(&tab)

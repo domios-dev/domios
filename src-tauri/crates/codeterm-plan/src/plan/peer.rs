@@ -80,19 +80,6 @@ mod tests {
         }
     }
 
-    fn idle_probe(_: &str) -> TabProbe {
-        TabProbe {
-            exists: true,
-            live_agent: true,
-            agent_session_id: Some("session-1".into()),
-            session_binding_valid: true,
-            chat_delivery_target: true,
-            agent_accepting_work: true,
-            role: None,
-            parent_tab_id: None,
-        }
-    }
-
     fn gone_probe(_: &str) -> TabProbe {
         TabProbe::default()
     }
@@ -120,14 +107,8 @@ mod tests {
     }
 
     #[test]
-    fn planner_when_tab_live() {
+    fn planner_when_tab_live_keeps_wire_shape() {
         let r = resolve_planner_ref(&tab("tab_x"), &Default::default(), live_probe);
-        assert!(matches!(r, PeerResolution::Planner { ref tab_id } if tab_id == "tab_x"));
-    }
-
-    #[test]
-    fn planner_when_tab_idle_but_present() {
-        let r = resolve_planner_ref(&tab("tab_x"), &Default::default(), idle_probe);
         assert!(matches!(r, PeerResolution::Planner { ref tab_id } if tab_id == "tab_x"));
         assert_eq!(
             resolution_json(&r),

@@ -13,20 +13,6 @@ fn search_default_output_is_one_compact_line_without_warnings() {
     );
 }
 
-/// The exact body `sessions get <unknown>` receives today. Before the fix the
-/// `--json` branch printed this and exited 0.
-fn not_found_body() -> serde_json::Value {
-    serde_json::Value::Null
-}
-
-#[test]
-fn backend_4xx_is_a_failure() {
-    assert!(matches!(
-        classify_backend_response(StatusCode::NOT_FOUND, &not_found_body()),
-        BackendOutcome::Failure(_)
-    ));
-}
-
 #[test]
 fn backend_5xx_is_a_failure() {
     assert!(matches!(

@@ -174,7 +174,7 @@ console.log("\n--- buildLaunchCommand (workspace-trust pre-write + invocation) -
     withTask.endsWith(`cursor-agent --force ${JSON.stringify(hostileTask)}`),
     "Cursor initial task is one shell-quoted positional prompt",
   );
-  const handshake = "opaque-startup-handshake";
+  const handshake = "opaque-cursor-startup-handshake-12fb";
   const withHandshake = taskProvider.buildLaunchCommand({
     skipPermissions: true,
     task: hostileTask,

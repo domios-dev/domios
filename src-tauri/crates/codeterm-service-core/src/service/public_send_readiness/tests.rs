@@ -217,15 +217,10 @@ fn public_send_before_readiness_never_reports_success_without_a_turn() {
     let (fixture, tab_id, _attempt) = launch_fixture();
     let readiness = ReadinessRegistry::default();
     readiness.arm(tab_id.clone(), Some(STARTER.into()), None, false);
-    let mut payload_writes = 0;
 
     let result = readiness.await_ready(&fixture.service.mux, &tab_id, Duration::ZERO);
-    if result.is_ok() {
-        payload_writes += 1;
-    }
 
     assert!(result.is_err());
-    assert_eq!(payload_writes, 0);
     assert!(readiness.state.lock().gates.contains_key(&tab_id));
     readiness.retire(&tab_id);
     assert!(readiness

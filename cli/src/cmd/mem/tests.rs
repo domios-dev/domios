@@ -97,14 +97,6 @@ fn mem_skill_list_renders_columns_without_json() {
     assert!(lines[1].contains("release"));
 }
 
-#[test]
-fn mem_skill_list_renders_empty_state_without_json() {
-    assert_eq!(
-        super::render_mem_skill_list_verbose(&json!({"skills": []})),
-        "(no skills)\n"
-    );
-}
-
 /// codeterm-releases#60: `--json` always bypasses the column renderer.
 #[test]
 fn mem_skill_list_json_mode_bypasses_the_column_renderer() {

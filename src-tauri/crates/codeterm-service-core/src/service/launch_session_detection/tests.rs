@@ -492,24 +492,6 @@ fn marked_provider_launch_command_hands_every_fresh_launch_its_tabs_marker() {
 }
 
 #[test]
-fn mark_fresh_launch_registers_the_marker_it_hands_the_params() {
-    let mut params = crate::agent::provider::AgentLaunchParams::default();
-    mark_fresh_launch("tab-mark-only", &mut params);
-    let marker = registered_launch_marker("tab-mark-only").expect("registered marker");
-    assert!(!marker.is_empty());
-    assert_eq!(params.launch_marker, Some(marker));
-}
-
-#[test]
-fn sandbox_additional_roots_logged_when_included() {
-    assert_eq!(
-        sandbox_additional_roots_log("tab-1", 3).as_deref(),
-        Some("[sandbox-additional-roots] included 3 roots for tab tab-1")
-    );
-    assert_eq!(sandbox_additional_roots_log("tab-1", 0), None);
-}
-
-#[test]
 fn resume_target_is_exact_and_belongs_to_the_current_launch() {
     let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();

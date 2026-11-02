@@ -11,6 +11,683 @@ fn test_adapter(root: &std::path::Path) -> crate::session::store::StorageDeskAda
     crate::session::store::StorageDeskAdapter::from_storage(storage)
 }
 
+fn fixture_snapshot(id: &str) -> crate::session::SessionSnapshot {
+    serde_json::from_value(serde_json::json!({
+        "version":"3", "timestamp":37, "active_workspace_id":format!("ws-{id}"),
+        "workspaces":[{"id":format!("ws-{id}"), "name":id, "active_tab_id":id,
+            "tabs":[{"id":id,"title":"Fixture","split_tree":{"type":"Leaf","tab_id":id,
+                "agent_type":"fixture-provider","agent_session_id":format!("session-{id}"),
+                "role":"worker", "agent_identity":{"session_binding_nonce":format!("nonce-{id}"),
+                    "reported_session_binding_nonce":format!("nonce-{id}"),
+                    "prior_session_bindings":[], "agent_runtime_config":{"systemPrompt":"opaque-prompt"},
+                    "restorable_launch":{"identity_instructions":"opaque-identity"}}}}]}]
+    })).unwrap()
+}
+
+fn fixture_desk() -> (
+    crate::service::test_fixture::ServiceFixture,
+    tempfile::TempDir,
+    Storage,
+    PersistenceBackend,
+) {
+    let current = fixture_snapshot("current");
+    let service = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::from_session_snapshot(&current),
+    );
+    let root = tempfile::tempdir().unwrap();
+    let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    adapter
+        .import_snapshot(&current, desk_agent_session_identities(&current))
+        .unwrap();
+    for name in ["One", "Two", "Three"] {
+        let state = adapter.state().unwrap();
+        adapter
+            .rename_workspace(
+                "ws-current".into(),
+                state.workspace_revisions["ws-current"],
+                name.into(),
+            )
+            .unwrap();
+    }
+    let revision = adapter.state().unwrap().revision;
+    (
+        service,
+        root,
+        storage,
+        PersistenceBackend::Storage { adapter, revision },
+    )
+}
+
+#[test]
+fn fixture_import_into_initialized_revision_preserves_existing_and_reopens_exact_bindings() {
+    let (fixture, root, storage, mut backend) = fixture_desk();
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut("current")
+        .unwrap()
+        .hidden = true;
+    let hidden_before =
+        serde_json::to_value(fixture.service.mux.read().get_tab("current").unwrap()).unwrap();
+    let mut incoming = fixture_snapshot("imported");
+    incoming
+        .workspaces
+        .extend(fixture_snapshot("another").workspaces);
+    incoming.teams.push(codeterm_types::team::Team {
+        id: "fixture-team".into(),
+        name: Some("Fixture".into()),
+        lifecycle: codeterm_types::team::TeamLifecycle::Active,
+        created_at: 37,
+        workspace_id: "ws-imported".into(),
+        locked: false,
+    });
+    let binding = crate::multiplexer::types::TaskBinding {
+        plan_id: Some("fixture-plan".into()),
+        task_id: Some("fixture-task".into()),
+        bound_at: 37,
+        ..Default::default()
+    };
+    if let crate::session::store::SplitNodeSnapshot::Leaf {
+        team_id,
+        agent_identity,
+        ..
+    } = &mut incoming.workspaces[0].tabs[0].split_tree
+    {
+        *team_id = Some("fixture-team".into());
+        agent_identity.as_mut().unwrap().task_binding = Some(binding.clone());
+    }
+    let mut plan = codeterm_types::plan::Plan::new(
+        "Fixture".into(),
+        fixture.temp.path().to_string_lossy().into_owned(),
+        Default::default(),
+    );
+    plan.id = "fixture-plan".into();
+    plan.team_id = Some("fixture-team".into());
+    plan.tasks.push(
+        serde_json::from_value(
+            serde_json::json!({"id":"fixture-task","name":"Fixture task",
+        "type":"implementation","status":"in_progress","assigned_tab_id":"imported"}),
+        )
+        .unwrap(),
+    );
+    let expected = validate_fixture_snapshot(&incoming).unwrap();
+    let prior = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    assert_ne!(prior.revision.to_string(), "r0");
+    assert_eq!(
+        commit_fixture(
+            &fixture.service,
+            &mut backend,
+            incoming,
+            &[plan.clone()],
+            || Ok(()),
+            || {}
+        )
+        .unwrap()
+        .tabs,
+        2
+    );
+    let saved = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    assert_eq!(saved.snapshot.workspaces[0], prior.snapshot.workspaces[0]);
+    assert_eq!(saved.snapshot.workspaces[1], expected.workspaces[0]);
+    assert_eq!(saved.snapshot.workspaces[2], expected.workspaces[1]);
+    assert_eq!(saved.snapshot.teams, expected.teams);
+    assert_eq!(saved.snapshot.agent_session_identities.len(), 3);
+    assert_eq!(fixture.service.plan_store.get("fixture-plan"), Some(plan));
+    assert_eq!(
+        serde_json::to_value(fixture.service.mux.read().get_tab("current").unwrap()).unwrap(),
+        hidden_before
+    );
+    let live = fixture.service.mux.read();
+    let imported = live.get_tab("imported").unwrap();
+    assert_eq!(
+        imported.agent_session_id.as_deref(),
+        Some("session-imported")
+    );
+    assert_eq!(
+        imported.session_binding_nonce.as_deref(),
+        Some("nonce-imported")
+    );
+    assert_eq!(
+        imported.reported_session_binding_nonce.as_deref(),
+        Some("nonce-imported")
+    );
+    assert_eq!(
+        imported.restorable_launch.identity_instructions.as_deref(),
+        Some("opaque-identity")
+    );
+    assert_eq!(imported.task_binding.as_ref(), Some(&binding));
+    drop(live);
+    drop(backend);
+    storage.shutdown().wait(Duration::from_secs(5)).unwrap();
+    drop(storage);
+    let reopened = Storage::open(root.path(), StorageConfig::default()).unwrap();
+    let adapter = crate::session::store::StorageDeskAdapter::from_storage(reopened.clone());
+    assert_eq!(adapter.state().unwrap(), saved);
+    let restored = crate::multiplexer::state::MultiplexerState::from_session_snapshot(
+        &adapter.snapshot().unwrap(),
+    );
+    let imported = restored.get_tab("imported").unwrap();
+    assert_eq!(
+        imported.agent_session_id.as_deref(),
+        Some("session-imported")
+    );
+    assert_eq!(
+        imported.reported_session_binding_nonce.as_deref(),
+        Some("nonce-imported")
+    );
+    assert_eq!(
+        imported.agent_runtime_config.as_ref().unwrap()["systemPrompt"],
+        "opaque-prompt"
+    );
+    assert_eq!(
+        imported.restorable_launch.identity_instructions.as_deref(),
+        Some("opaque-identity")
+    );
+    assert_eq!(imported.task_binding.as_ref(), Some(&binding));
+}
+
+#[test]
+fn fixture_precommit_collisions_references_and_plan_text_preserve_desk_and_mux() {
+    for case in [
+        "workspace",
+        "tab",
+        "session",
+        "session-cross-provider",
+        "team",
+        "reference",
+        "plan-text",
+        "pty",
+        "preparation",
+    ] {
+        let (fixture, _root, storage, mut backend) = fixture_desk();
+        let mut incoming = serde_json::to_value(fixture_snapshot("imported")).unwrap();
+        let mut plans = Vec::new();
+        match case {
+            "workspace" => {
+                incoming["workspaces"][0]["id"] = serde_json::json!("ws-current");
+                incoming["active_workspace_id"] = serde_json::json!("ws-current");
+            }
+            "tab" => {
+                incoming["workspaces"][0]["tabs"][0]["id"] = serde_json::json!("current");
+                incoming["workspaces"][0]["tabs"][0]["split_tree"]["tab_id"] =
+                    serde_json::json!("current");
+                incoming["workspaces"][0]["active_tab_id"] = serde_json::json!("current");
+            }
+            "session" => {
+                incoming["workspaces"][0]["tabs"][0]["split_tree"]["agent_session_id"] =
+                    serde_json::json!("session-current")
+            }
+            "session-cross-provider" => {
+                incoming["workspaces"][0]["tabs"][0]["split_tree"]["agent_session_id"] =
+                    serde_json::json!("session-current");
+                incoming["workspaces"][0]["tabs"][0]["split_tree"]["agent_type"] =
+                    serde_json::json!("another-provider");
+            }
+            "team" => {
+                fixture
+                    .service
+                    .mux
+                    .write()
+                    .upsert_team(codeterm_types::team::Team {
+                        id: "team".into(),
+                        name: None,
+                        lifecycle: codeterm_types::team::TeamLifecycle::Active,
+                        created_at: 1,
+                        workspace_id: "ws-current".into(),
+                        locked: false,
+                    });
+                incoming["teams"] = serde_json::json!([{"id":"team","workspace_id":"ws-imported","created_at":1,"lifecycle":"active"}]);
+            }
+            "reference" => {
+                incoming["workspaces"][0]["active_tab_id"] = serde_json::json!("missing")
+            }
+            "plan-text" => {
+                let mut plan = codeterm_types::plan::Plan::new(
+                    "x".repeat(257),
+                    "/fixture".into(),
+                    Default::default(),
+                );
+                plan.id = "invalid-plan".into();
+                plans.push(plan);
+            }
+            "pty" => {
+                fixture
+                    .service
+                    .mux
+                    .write()
+                    .link_pty("current", "live-pty".into());
+            }
+            "preparation" => {}
+            _ => unreachable!(),
+        }
+        let before = storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value;
+        let mux_before = fixture_mux_value(&fixture.service.mux.read()).unwrap();
+        let error = commit_fixture(
+            &fixture.service,
+            &mut backend,
+            serde_json::from_value(incoming).unwrap(),
+            &plans,
+            || {
+                if case == "preparation" {
+                    Err("Injected fixture directory failure".into())
+                } else {
+                    Ok(())
+                }
+            },
+            || {},
+        )
+        .unwrap_err();
+        assert!(!error.terminal, "{case}: {}", error.reason);
+        assert_eq!(
+            storage
+                .desk()
+                .snapshot()
+                .wait(Duration::from_secs(5))
+                .unwrap()
+                .value,
+            before,
+            "{case}"
+        );
+        assert_eq!(
+            fixture_mux_value(&fixture.service.mux.read()).unwrap(),
+            mux_before,
+            "{case}"
+        );
+        assert!(fixture.service.plan_store.get("invalid-plan").is_none());
+    }
+}
+
+#[test]
+fn fixture_competing_revision_refuses_without_fixture_rows_or_retry() {
+    let (fixture, _root, storage, mut backend) = fixture_desk();
+    let competing = crate::session::store::StorageDeskAdapter::from_storage(storage.clone());
+    let mut after_competitor = None;
+    let error = commit_fixture(
+        &fixture.service,
+        &mut backend,
+        fixture_snapshot("imported"),
+        &[],
+        || {
+            let before = competing.state().unwrap();
+            competing
+                .rename_workspace(
+                    "ws-current".into(),
+                    before.workspace_revisions["ws-current"],
+                    "Competing".into(),
+                )
+                .unwrap();
+            after_competitor = Some(competing.state().unwrap());
+            Ok(())
+        },
+        || {},
+    )
+    .unwrap_err();
+    assert!(!error.terminal);
+    assert!(error.reason.contains("competing desk revision"));
+    assert_eq!(competing.state().unwrap(), after_competitor.unwrap());
+    assert!(fixture.service.mux.read().get_tab("imported").is_none());
+}
+
+#[test]
+fn fixture_catalogue_only_collision_preserves_the_initialized_desk() {
+    let (fixture, _root, storage, mut backend) = fixture_desk();
+    let mut before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    before
+        .snapshot
+        .agent_session_identities
+        .push(codeterm_storage::DeskAgentSessionIdentity {
+            provider: "fixture-provider".into(),
+            session_id: "session-imported".into(),
+            record_provider: "fixture-provider".into(),
+            role: "Worker".into(),
+            role_profile: None,
+            parent_tab_id: None,
+            can_spawn: false,
+        });
+    storage
+        .desk()
+        .save_preserving(before.snapshot, before.revision)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    let error = commit_fixture(
+        &fixture.service,
+        &mut backend,
+        fixture_snapshot("imported"),
+        &[],
+        || Ok(()),
+        || {},
+    )
+    .unwrap_err();
+    assert!(!error.terminal);
+    assert!(error.reason.contains("identity collision"));
+    assert_eq!(
+        storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value,
+        before
+    );
+}
+
+#[test]
+fn fixture_before_submission_pty_race_refuses_without_fixture_writes() {
+    let (fixture, _root, storage, mut backend) = fixture_desk();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    let error = commit_fixture(
+        &fixture.service,
+        &mut backend,
+        fixture_snapshot("imported"),
+        &[],
+        || {
+            fixture
+                .service
+                .mux
+                .write()
+                .link_pty("current", "admission-race-pty".into());
+            Ok(())
+        },
+        || panic!("a changed mux must refuse before submission"),
+    )
+    .unwrap_err();
+    assert!(!error.terminal);
+    assert!(error.reason.contains("mux changed before submission"));
+    assert_eq!(
+        storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value,
+        before
+    );
+    let live = fixture.service.mux.read();
+    assert_eq!(
+        live.get_tab("current").unwrap().pty_id.as_deref(),
+        Some("admission-race-pty")
+    );
+    assert!(live.get_tab("imported").is_none());
+}
+
+#[test]
+fn fixture_desk_commit_failure_reports_uncertain_once_without_plan_or_mux_publication() {
+    let (fixture, _root, storage, mut backend) = fixture_desk();
+    let before = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    storage
+        .inject_fault(codeterm_storage::Fault::FailNextCommit)
+        .wait(Duration::from_secs(5))
+        .unwrap();
+    let submissions = std::cell::Cell::new(0);
+    let error = commit_fixture(
+        &fixture.service,
+        &mut backend,
+        fixture_snapshot("imported"),
+        &[],
+        || Ok(()),
+        || {
+            submissions.set(submissions.get() + 1);
+        },
+    )
+    .unwrap_err();
+    assert!(error.terminal);
+    assert!(error
+        .reason
+        .contains("stage=desk desk=uncertain plans=not_started mux=not_published"));
+    assert_eq!(submissions.get(), 1);
+    assert_eq!(
+        storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value,
+        before
+    );
+    assert!(fixture.service.mux.read().get_tab("imported").is_none());
+}
+
+#[test]
+fn fixture_public_import_acknowledges_only_unchanged_committed_shutdown_state_without_write() {
+    let (fixture, _root, storage, backend) = fixture_desk();
+    let mailbox = Arc::new(PersistenceMailbox::default());
+    let worker = SessionPersistenceWorker {
+        mailbox: mailbox.clone(),
+        next_revision: Arc::new(AtomicU64::new(0)),
+        submission_order: Arc::new(parking_lot::Mutex::new(())),
+    };
+    assert!(fixture.service.set_ext(worker.clone()).is_ok());
+    std::thread::spawn(move || run_worker(mailbox, None, backend));
+    assert_eq!(
+        import_fixture(
+            &fixture.service,
+            fixture_snapshot("imported"),
+            vec![],
+            || Ok(())
+        )
+        .unwrap(),
+        1
+    );
+    let committed = storage
+        .desk()
+        .snapshot()
+        .wait(Duration::from_secs(5))
+        .unwrap()
+        .value;
+    assert!(matches!(
+        write_session_snapshot(&fixture.service, &fixture.service.mux),
+        Ok(SaveOutcome::Saved)
+    ));
+    assert_eq!(
+        storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value,
+        committed
+    );
+    let captured = fixture.service.mux.read().to_session_snapshot();
+    assert!(worker
+        .submit_snapshot(captured, SaveIntent::AuthorizedReduction, true)
+        .unwrap_err()
+        .contains("restart required"));
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut("current")
+        .unwrap()
+        .title = "Changed after import".into();
+    assert!(
+        write_session_snapshot(&fixture.service, &fixture.service.mux)
+            .unwrap_err()
+            .contains("restart required")
+    );
+    assert_eq!(
+        storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value,
+        committed
+    );
+    stop_worker(&fixture.service).unwrap();
+}
+
+#[test]
+fn fixture_post_submission_pty_race_keeps_live_mux_and_reports_committed_stages() {
+    let (fixture, _root, storage, backend) = fixture_desk();
+    let mux = fixture.service.mux.clone();
+    let (submitted_tx, submitted_rx) = mpsc::channel();
+    let (changed_tx, changed_rx) = mpsc::channel();
+    let race = std::thread::spawn(move || {
+        submitted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        mux.write().link_pty("current", "racing-pty".into());
+        let state = fixture_mux_value(&mux.read()).unwrap();
+        changed_tx.send(()).unwrap();
+        state
+    });
+    let mailbox = Arc::new(PersistenceMailbox::default());
+    let worker = SessionPersistenceWorker {
+        mailbox: mailbox.clone(),
+        next_revision: Arc::new(AtomicU64::new(0)),
+        submission_order: Arc::new(parking_lot::Mutex::new(())),
+    };
+    std::thread::spawn(move || run_worker(mailbox, None, backend));
+    let service = fixture.service.weak_self().upgrade().unwrap();
+    let (response, completion) = mpsc::channel();
+    worker
+        .configure(WorkerMessage::Fixture {
+            response,
+            operation: Box::new(move |backend| {
+                commit_fixture(
+                    &service,
+                    backend,
+                    fixture_snapshot("imported"),
+                    &[],
+                    || Ok(()),
+                    || {
+                        submitted_tx.send(()).unwrap();
+                        changed_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                    },
+                )
+            }),
+        })
+        .unwrap();
+    let error = completion
+        .recv_timeout(Duration::from_secs(5))
+        .unwrap()
+        .unwrap_err();
+    let racing_state = race.join().unwrap();
+    assert!(error.contains("stage=publication desk=committed plans=committed mux=not_published"));
+    assert_eq!(
+        fixture_mux_value(&fixture.service.mux.read()).unwrap(),
+        racing_state
+    );
+    assert_eq!(
+        worker
+            .submit_snapshot(test_snapshot(1), SaveIntent::AuthorizedReduction, false)
+            .unwrap_err(),
+        error
+    );
+    assert_eq!(worker.flush().unwrap_err(), error);
+    assert!(fixture.service.mux.read().get_tab("imported").is_none());
+    assert_eq!(
+        storage
+            .desk()
+            .snapshot()
+            .wait(Duration::from_secs(5))
+            .unwrap()
+            .value
+            .snapshot
+            .workspaces
+            .len(),
+        2
+    );
+    stop_test_worker(&worker);
+}
+
+#[test]
+fn fixture_owner_drains_normal_and_reduction_then_freezes_stale_requests_and_stops() {
+    let (started_tx, started_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let committed = Arc::new(AtomicU64::new(0));
+    let written = committed.clone();
+    let worker = test_worker(move |revision| {
+        started_tx.send(revision).unwrap();
+        if revision == 1 {
+            release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+        }
+        written.store(revision, Ordering::SeqCst);
+        Ok(SaveOutcome::Saved)
+    });
+    worker
+        .submit_snapshot(test_snapshot(1), SaveIntent::PreserveDesk, false)
+        .unwrap();
+    assert_eq!(started_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 1);
+    let completion = worker
+        .submit_snapshot_ordered(test_snapshot(2), SaveIntent::AuthorizedReduction, true)
+        .unwrap()
+        .unwrap();
+    let (response, imported) = mpsc::channel();
+    worker
+        .configure(WorkerMessage::Fixture {
+            operation: Box::new(move |_| {
+                assert_eq!(committed.load(Ordering::SeqCst), 2);
+                Ok(super::fixture_import::FixtureCommitted {
+                    tabs: 1,
+                    mux: serde_json::Value::Null,
+                })
+            }),
+            response,
+        })
+        .unwrap();
+    assert!(matches!(imported.try_recv(), Err(TryRecvError::Empty)));
+    assert!(worker
+        .submit_snapshot(test_snapshot(2), SaveIntent::AuthorizedReduction, false)
+        .unwrap_err()
+        .contains("suspended"));
+    release_tx.send(()).unwrap();
+    assert_eq!(started_rx.recv_timeout(Duration::from_secs(5)).unwrap(), 2);
+    assert!(matches!(
+        completion.recv_timeout(Duration::from_secs(5)).unwrap(),
+        Ok(SaveOutcome::Saved)
+    ));
+    assert_eq!(
+        imported
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap()
+            .unwrap(),
+        1
+    );
+    assert!(worker
+        .submit_snapshot(test_snapshot(3), SaveIntent::AuthorizedReduction, false)
+        .unwrap_err()
+        .contains("restart required"));
+    assert!(worker.flush().unwrap_err().contains("restart required"));
+    stop_test_worker(&worker);
+}
+
 fn pending_worker() -> SessionPersistenceWorker {
     let mailbox = Arc::new(PersistenceMailbox::default());
     let worker = SessionPersistenceWorker {
@@ -353,243 +1030,4 @@ fn failed_boot_resync_is_retried_by_the_next_mutation() {
     stop_test_worker(&worker);
 }
 
-#[test]
-fn storage_desk_app_adapter_imports_and_flushes_exact_selection() {
-    let root = tempfile::tempdir().unwrap();
-    let adapter = test_adapter(root.path());
-    let snapshot = crate::session::store::SessionSnapshot {
-        version: "test".into(),
-        timestamp: 17,
-        active_workspace_id: Some("ws-a".into()),
-        teams: vec![],
-        workspaces: vec![crate::session::store::WorkspaceSnapshot {
-            created_at_ms: 0,
-            id: "ws-a".into(),
-            name: "Alpha".into(),
-            tabs: vec![],
-            active_tab_id: None,
-            cwd: None,
-            provisioned_cwd: None,
-            protected: true,
-            sort_order: 8,
-            task_keys: Default::default(),
-        }],
-    };
-
-    adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-    let initial = adapter.state().unwrap();
-    let workspace_revision = initial.workspace_revisions["ws-a"];
-    let committed_revision = adapter
-        .rename_workspace("ws-a".into(), workspace_revision, "Renamed".into())
-        .unwrap();
-    assert!(committed_revision > initial.revision);
-    assert!(adapter
-        .rename_workspace("ws-a".into(), workspace_revision, "Stale".into())
-        .is_err());
-    let mut backup = snapshot.clone();
-    backup.timestamp = 99;
-    backup.active_workspace_id = Some("ws-b".into());
-    backup.workspaces[0].name = "Stale backup".into();
-    backup
-        .workspaces
-        .push(crate::session::store::WorkspaceSnapshot {
-            created_at_ms: 0,
-            id: "ws-b".into(),
-            name: "Restored".into(),
-            tabs: vec![],
-            active_tab_id: None,
-            cwd: None,
-            provisioned_cwd: None,
-            protected: false,
-            sort_order: 19,
-            task_keys: Default::default(),
-        });
-    adapter.additive_restore(&backup, Vec::new()).unwrap();
-    adapter.additive_restore(&backup, Vec::new()).unwrap();
-    adapter.flush().unwrap();
-    let restored = adapter.snapshot().unwrap();
-
-    assert_eq!(restored.active_workspace_id, Some("ws-a".into()));
-    assert_eq!(restored.workspaces[0].active_tab_id, None);
-    assert_eq!(restored.workspaces[0].name, "Renamed");
-    assert_eq!(restored.workspaces[0].cwd, None);
-    assert_eq!(restored.workspaces[0].provisioned_cwd, None);
-    assert_eq!(restored.workspaces[0].sort_order, 8);
-    assert!(restored.workspaces[0].protected);
-    assert_eq!(restored.timestamp, 17);
-    assert_eq!(restored.workspaces.len(), 2);
-    assert_eq!(restored.workspaces[1].name, "Restored");
-}
-
-#[test]
-fn storage_desk_restores_live_provider_sessions_for_each_provider() {
-    let root = tempfile::tempdir().unwrap();
-    let adapter = test_adapter(root.path());
-    let (mut mux, parent_id) = crate::multiplexer::state::MultiplexerState::new();
-    let workspace_id = mux.find_workspace_for_tab(&parent_id).unwrap();
-    let providers = ["claude", "codex", "opencode", "grok"];
-    let mut expected = Vec::new();
-
-    for provider in providers {
-        let tab_id = mux.create_tab(&workspace_id).unwrap();
-        mux.set_tab_role(
-            &tab_id,
-            crate::multiplexer::types::AgentRole::Worker,
-            Some(&parent_id),
-        )
-        .unwrap();
-        let session_id = format!("{provider}-session");
-        let nonce = format!("{provider}-nonce");
-        let tab = mux.get_tab_mut(&tab_id).unwrap();
-        tab.agent_type = Some(provider.into());
-        tab.agent_type_locked = true;
-        tab.agent_session_id = Some(session_id.clone());
-        tab.session_binding_nonce = Some(nonce.clone());
-        tab.reported_session_binding_nonce = Some(nonce);
-        expected.push((tab_id, provider, session_id));
-    }
-
-    let snapshot = mux.to_session_snapshot();
-    let identities = desk_agent_session_identities(&snapshot);
-    adapter.import_snapshot(&snapshot, identities).unwrap();
-    adapter.flush().unwrap();
-    assert_eq!(adapter.identity_catalog().unwrap().len(), providers.len());
-    let restored_snapshot = adapter.snapshot().unwrap();
-    let restored =
-        crate::multiplexer::state::MultiplexerState::from_session_snapshot(&restored_snapshot);
-
-    for (tab_id, provider, session_id) in expected {
-        let tab = restored.get_tab(&tab_id).expect("restored agent tab");
-        assert_eq!(tab.agent_type.as_deref(), Some(provider));
-        assert_eq!(tab.agent_session_id.as_deref(), Some(session_id.as_str()));
-        assert!(tab.agent_type_locked);
-    }
-}
-
-#[test]
-fn desk_delta_rename_touches_three_rows_in_a_large_inventory() {
-    let root = tempfile::tempdir().unwrap();
-    let adapter = test_adapter(root.path());
-    let mut snapshot = desk_delta_snapshot(512);
-    adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-    let initial = adapter.state().unwrap();
-    snapshot.workspaces[255].name = "Renamed".into();
-
-    let committed = adapter
-        .delta_snapshot(
-            &snapshot,
-            Vec::new(),
-            initial.revision,
-            crate::session::store::SaveIntent::PreserveDesk,
-        )
-        .unwrap()
-        .wait(std::time::Duration::from_secs(30))
-        .unwrap();
-
-    assert_eq!(committed.receipt.rows_written, 3);
-    let saved = adapter.state().unwrap();
-    assert_eq!(saved.snapshot.workspaces.len(), 512);
-    assert_eq!(saved.snapshot.workspaces[255].record.name, "Renamed");
-}
-
-#[test]
-fn desk_delta_adjacent_reorder_normalizes_the_full_large_inventory() {
-    let root = tempfile::tempdir().unwrap();
-    let adapter = test_adapter(root.path());
-    let mut snapshot = desk_delta_snapshot(512);
-    adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-    let initial = adapter.state().unwrap();
-    snapshot.workspaces.swap(255, 256);
-    snapshot.workspaces[255].sort_order = 255;
-    snapshot.workspaces[256].sort_order = 256;
-
-    let committed = adapter
-        .delta_snapshot(
-            &snapshot,
-            Vec::new(),
-            initial.revision,
-            crate::session::store::SaveIntent::PreserveDesk,
-        )
-        .unwrap()
-        .wait(std::time::Duration::from_secs(30))
-        .unwrap();
-
-    assert!(committed.receipt.rows_written >= 1024);
-    let saved = adapter.state().unwrap();
-    assert_eq!(saved.snapshot.workspaces[255].record.id.as_str(), "ws-256");
-    assert_eq!(saved.snapshot.workspaces[256].record.id.as_str(), "ws-255");
-}
-
-#[test]
-fn desk_delta_preserves_omissions_and_rejects_stale_reduction() {
-    let root = tempfile::tempdir().unwrap();
-    let adapter = test_adapter(root.path());
-    let mut snapshot = desk_delta_snapshot(2);
-    adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-    let initial = adapter.state().unwrap();
-    snapshot.workspaces.pop();
-
-    adapter
-        .delta_snapshot(
-            &snapshot,
-            Vec::new(),
-            initial.revision,
-            crate::session::store::SaveIntent::PreserveDesk,
-        )
-        .unwrap()
-        .wait(std::time::Duration::from_secs(30))
-        .unwrap();
-    assert_eq!(adapter.state().unwrap().snapshot.workspaces.len(), 2);
-
-    let mut newer = desk_delta_snapshot(2);
-    newer.workspaces[0].name = "Current".into();
-    adapter
-        .delta_snapshot(
-            &newer,
-            Vec::new(),
-            initial.revision,
-            crate::session::store::SaveIntent::PreserveDesk,
-        )
-        .unwrap()
-        .wait(std::time::Duration::from_secs(30))
-        .unwrap();
-    let stale = adapter
-        .delta_snapshot(
-            &snapshot,
-            Vec::new(),
-            initial.revision,
-            crate::session::store::SaveIntent::PreserveDesk,
-        )
-        .unwrap()
-        .wait(std::time::Duration::from_secs(30));
-
-    assert!(stale.is_err());
-    let saved = adapter.state().unwrap();
-    assert_eq!(saved.snapshot.workspaces.len(), 2);
-    assert_eq!(saved.snapshot.workspaces[0].record.name, "Current");
-}
-
-#[test]
-fn desk_delta_authorized_reduction_applies_a_workspace_close() {
-    let root = tempfile::tempdir().unwrap();
-    let adapter = test_adapter(root.path());
-    let mut snapshot = desk_delta_snapshot(2);
-    adapter.import_snapshot(&snapshot, Vec::new()).unwrap();
-    let initial = adapter.state().unwrap();
-    snapshot.workspaces.pop();
-
-    adapter
-        .delta_snapshot(
-            &snapshot,
-            Vec::new(),
-            initial.revision,
-            crate::session::store::SaveIntent::AuthorizedReduction,
-        )
-        .unwrap()
-        .wait(std::time::Duration::from_secs(30))
-        .unwrap();
-
-    let saved = adapter.state().unwrap();
-    assert_eq!(saved.snapshot.workspaces.len(), 1);
-    assert_eq!(saved.snapshot.workspaces[0].record.id.as_str(), "ws-0");
-}
+mod storage_desk;

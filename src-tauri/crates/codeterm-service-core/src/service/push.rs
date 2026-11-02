@@ -49,7 +49,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_bearer_returns_none() {
+    fn unknown_bearer_token_returns_none() {
         let dir = tempfile::tempdir().unwrap();
         let tokens = TokenStore::new_with_root(dir.path().to_path_buf());
         let result = extract_service_token("Bearer not-a-real-token", &tokens).unwrap();

@@ -19,7 +19,9 @@ interface Candidate {
   jsonQuote: boolean; jsonEscape: boolean;
 }
 const HEADER_LIMIT = 16_384;
-const INERT_NAMES = ["context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff", "environment_context", "system-reminder", "instructions", "INSTRUCTIONS", "previous_messages", "conversation_history"];
+const INERT_NAMES = ["context", "quoted-context", "quoted_context", "handoff", "provider-handoff", "provider_handoff", "environment_context", "system-reminder", "instructions", "INSTRUCTIONS", "previous_messages", "conversation_history", "tool_result", "tool_output", "transcript", "pasted_content"];
+
+const closesInert = (line: string, name: string) => new RegExp(`</${name}(?:\\s[^>]*)?>`).test(line);
 
 export class DsBlockScanner {
   private source = "";
@@ -168,13 +170,20 @@ export class DsBlockScanner {
         } else {
           if (!this.inert.length) { this.prose(start); this.inertStart = start; }
           this.inert.push(context[1]);
-          if (line.includes(`</${context[1]}>`)) {
+          if (closesInert(line.slice(context[0].length), context[1])) {
             this.inert.pop();
             if (!this.inert.length && this.inertStart !== null) {
               this.parts.push({ type: "inert", id: this.identity(this.inertStart), start: this.inertStart, end, text: this.source.slice(this.inertStart, end) });
               this.proseStart = end; this.inertStart = null;
             }
           }
+        }
+      } else if (completeLine && this.inert.length && closesInert(line, this.inert.get(this.inert.length - 1)!)) {
+        // Envelope closes can trail inner content and carry attributes, e.g. `</domios></pasted_content id="p1">`.
+        this.inert.pop();
+        if (!this.inert.length && this.inertStart !== null) {
+          this.parts.push({ type: "inert", id: this.identity(this.inertStart), start: this.inertStart, end, text: this.source.slice(this.inertStart, end) });
+          this.proseStart = end; this.inertStart = null; this.inlineTicks = 0;
         }
       }
       if (completeLine && !line.trim()) {

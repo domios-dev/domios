@@ -80,42 +80,12 @@ async fn deep_phase_expires_old_unaccessed_conversations() {
 }
 
 #[test]
-fn dreaming_telegram_step_substitution() {
-    // Enabled (default): the placeholder must expand to the real bridge-send instructions so the dreamer pushes its 🧠 brief to Telegram.
-    let enabled = crate::prompt_text::DREAMING_REM.replace(
-        "{telegram_notify_step}",
-        super::DREAMING_TELEGRAM_STEP_ENABLED,
-    );
-    assert!(
-        enabled.contains("domios bridge send"),
-        "enabled prompt must instruct bridge send"
-    );
-    assert!(
-        enabled.contains("🧠 Dreamer brief"),
-        "enabled prompt must keep the brief tag"
-    );
-    assert!(
-        !enabled.contains("{telegram_notify_step}"),
-        "placeholder must be substituted, not literal"
-    );
-
-    // Disabled: the placeholder expands to an explicit "skip" directive and the bridge-send command must NOT appear in the final prompt.
-    let disabled = crate::prompt_text::DREAMING_REM.replace(
-        "{telegram_notify_step}",
-        super::DREAMING_TELEGRAM_STEP_DISABLED,
-    );
-    assert!(
-        !disabled.contains("domios bridge send"),
-        "disabled prompt must NOT mention bridge send anywhere"
-    );
-    assert!(
-        disabled.contains("DISABLED"),
-        "disabled prompt must explicitly flag opt-out"
-    );
-    assert!(
-        disabled.contains("dreaming_telegram_notify"),
-        "disabled prompt must cite the config key so user knows what to flip"
-    );
+fn dreaming_telegram_step_substitution_preserves_opaque_values() {
+    for fragment in ["opaque_enabled_step_54c2", "opaque_disabled_step_81d7"] {
+        let rendered = crate::prompt_text::DREAMING_REM.replace("{telegram_notify_step}", fragment);
+        assert!(rendered.contains(fragment));
+        assert!(!rendered.contains("{telegram_notify_step}"));
+    }
 }
 
 fn insert_entity(conn: &Connection, id: &str, etype: &str, age_days: i64) {

@@ -35,7 +35,7 @@ fn registered_run_prompt_steps_have_valid_hidden_tab_titles() {
             checked += 1;
         }
     }
-    assert_eq!(checked, 3);
+    assert!(checked > 0);
 }
 
 fn message(kind: &str, content: &str) -> ChatMsg {

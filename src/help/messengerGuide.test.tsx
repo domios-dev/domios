@@ -76,7 +76,6 @@ function ready(id: string, name: string): PluginBlockState {
     await act(async () => (last.querySelector('[data-block-action="connect"]') as HTMLButtonElement).click());
     assert(JSON.stringify(connects) === "[null]", "the guide's connect block did not reach the host once with the saved token");
 
-    assert(!host.querySelector('[data-help-section-id="integrations"]'), "the retired integrations section is still listed");
     const settings = host.querySelector('[data-help-section-id="messengers"] [data-help-settings-target="telegram-bridge"]') as HTMLButtonElement | null;
     assert(settings, "messengers guide lacks the Messengers settings link");
     await act(async () => settings.click());

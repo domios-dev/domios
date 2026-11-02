@@ -1,6 +1,7 @@
 import { DEV_BUILD } from "../../lib/devBuild";
 import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
+import { useChatTabNameResolver } from "./useChatTabNameResolver";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
 import { ChatComposerSurface } from "./ChatComposerSurface";
 import { useTabLock } from "../billing/useTabLock";
@@ -582,30 +583,7 @@ function TabSessionChatBody({
   });
   const pasteIntoComposer = useLatestCallback(handlePasteEvent, [tabId]);
 
-  // Names change far more rarely than the transcript that carries them; keep the
-  // map (and resolveTabName below) stable while streaming only appends content.
-  const communicationTabNamesRef = useRef<{ key: string; value: Map<string, string> }>({
-    key: "",
-    value: new Map(),
-  });
-  const communicationTabNames = useMemo(() => {
-    const names = new Map(tabCommunicationNames);
-    for (const { origin } of enrichedMessages) {
-      if (origin?.kind !== "tab") continue;
-      const sender = origin.title.split("@")[0]?.trim();
-      if (sender && !names.has(origin.tabIdShort.slice(0, 8))) names.set(origin.tabIdShort.slice(0, 8), sender);
-    }
-    const key = JSON.stringify([...names]);
-    const prev = communicationTabNamesRef.current;
-    if (key === prev.key) return prev.value;
-    communicationTabNamesRef.current = { key, value: names };
-    return names;
-  }, [enrichedMessages, tabCommunicationNames]);
-
-  const resolveTabName = useLatestCallback(
-    (tabRef: string): string | undefined => communicationTabNames.get(tabRef.slice(0, 8)),
-    [communicationTabNames],
-  );
+  const resolveTabName = useChatTabNameResolver(tabCommunicationNames);
 
   const reportProjection = useAgentReportProjection(tabId);
   // The sender's own transcript never contains the report it just sent, so the

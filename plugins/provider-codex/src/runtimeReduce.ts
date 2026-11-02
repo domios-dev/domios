@@ -357,7 +357,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
     }
   }
   compactState(state);
-  return budgetReduction(json(state),events);
+  return budgetReduction(state,events);
 }
 
 function pendingStatus(state: ReduceState, threadId: string): AgentEvent | undefined {

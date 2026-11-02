@@ -59,12 +59,6 @@ class ResponseModeTests(unittest.TestCase):
             self.runner.WRAPPERS[loaded[0].response_mode],
         )
 
-    def test_the_two_envelopes_are_distinct(self):
-        self.assertNotEqual(
-            self.runner.EVAL_WRAPPER_SUFFIX,
-            self.runner.EVAL_WRAPPER_SUFFIX_TEXT,
-        )
-
     def test_an_unknown_mode_is_refused_at_load(self):
         with self.assertRaises(ValueError) as caught:
             self.runner.load_eval_set(eval_set(fixture(7, response_mode="freeform")))

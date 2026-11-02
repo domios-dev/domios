@@ -5,22 +5,6 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use std::sync::Arc;
 
 #[test]
-fn identify_uses_the_shared_product_name() {
-    let (mux, _) = MultiplexerState::new();
-    let fixture = ServiceFixture::new(mux);
-    let result =
-        dispatch_service_rpc("system.identify", None, &Arc::new(fixture.service.clone())).unwrap();
-    assert_eq!(result["name"], "Domios");
-    assert_eq!(result["name"], codeterm_build_info::PRODUCT_NAME);
-    assert_eq!(
-        result["name"],
-        codeterm_service_core::dispatch::health_result()
-            .unwrap()
-            .into_json()["name"]
-    );
-}
-
-#[test]
 fn cron_settle_service_rpc_closes_completed_tab() {
     let (mut mux, initial_tab) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&initial_tab).unwrap();

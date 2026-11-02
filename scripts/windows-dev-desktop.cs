@@ -16,6 +16,7 @@ public static class DevDesktop {
     const int Deadline = 30000;
     const int MaximumText = 32768;
     static readonly string[] EnvironmentKeys = {
+        "PATH", "PATHEXT",
         "CODETERM_DEV", "CODETERM_DEV_INSTANCE", "CODETERM_DEV_API_PORT",
         "CODETERM_DEV_WORKSPACE_ROOT", "CODETERM_WEB_DIST", "CODETERM_CLI_PATH", "CODETERM_CDP_PORT",
         "CODETERM_VITE_PORT", "CODETERM_DEV_IDENTIFIER", "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",

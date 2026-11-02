@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::routes::AppState;
 use codeterm_service_core::service::prompt_resolution_tests::{
-    assert_resolved_and_new_prompt_notifies, pending_prompt_fixture,
+    assert_previous_prompt_resolved_and_cleared, pending_prompt_fixture,
 };
 
 fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixture) -> AppState {
@@ -60,5 +60,5 @@ async fn stop_transition_resolves_the_prompt_through_hook() {
     .await
     .expect("stop hook accepted");
 
-    assert_resolved_and_new_prompt_notifies(&fixture, &tab_id, &previous_id);
+    assert_previous_prompt_resolved_and_cleared(&fixture, &tab_id, &previous_id);
 }

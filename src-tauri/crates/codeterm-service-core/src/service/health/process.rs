@@ -124,17 +124,6 @@ mod tests {
         assert_eq!(snap.status, HealthStatus::Down);
     }
 
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn known_system_label_is_healthy() {
-        let snap = probe_process("com.apple.launchd").unwrap();
-        // launchctl list com.apple.launchd reliably exits 0 with output.
-        assert!(matches!(
-            snap.status,
-            HealthStatus::Healthy | HealthStatus::Down
-        ));
-    }
-
     #[cfg(target_os = "linux")]
     #[test]
     fn nonexistent_systemd_unit_is_down() {

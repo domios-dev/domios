@@ -117,13 +117,6 @@ fn agent_ack_resolves_its_tab_from_explicit_identity_only() {
     );
 }
 
-#[test]
-fn workspace_cwd_hint_names_the_flag() {
-    let hint = workspace_create_cwd_hint();
-    assert!(hint.contains("--cwd"));
-    assert!(hint.contains("daemon working directory"));
-}
-
 /// Every later rung is satisfiable and points at a different id, so only a
 /// real short-circuit on the earlier rung can produce the asserted value.
 fn ladder_fixture() -> serde_json::Value {

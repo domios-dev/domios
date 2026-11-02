@@ -218,11 +218,13 @@ jobs:
           key: side-cargo-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: side-cargo-${{ runner.os }}-${{ runner.arch }}-
       - name: Hosted sccache
-        uses: mozilla-actions/sccache-action@7d986dd989559c6ecdb630a3fd2557667be217ad
+        uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba
       - name: Runner preflight
         run: node scripts/ci-runner-paths.mjs bash,cargo,git,node
       - name: Prepare compile fixtures
-        run: node scripts/ci-rust-prepare.mjs
+        run: |
+          node scripts/ci-rust-prepare.mjs
+          node scripts/prepare-test-bundle.mjs x86_64-unknown-linux-gnu
       - name: Check all workspace targets
         run: cargo check --manifest-path src-tauri/Cargo.toml --workspace --all-targets --locked
       - name: Clean compile fixtures

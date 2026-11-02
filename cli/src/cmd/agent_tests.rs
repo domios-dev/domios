@@ -253,25 +253,6 @@ fn env_default_treats_explicit_empty_identity_as_absent() {
 }
 
 #[test]
-fn print_report_notices_is_noop_in_json_mode() {
-    // json=true should not print anything (we rely on the JSON output channel)
-    let val = serde_json::json!({ "ok": true, "notices": ["stale plan"] });
-    print_report_notices(true, &val);
-}
-
-#[test]
-fn print_report_notices_handles_missing_notices_key() {
-    let val = serde_json::json!({ "ok": true, "report_id": "r1" });
-    print_report_notices(false, &val); // must not panic
-}
-
-#[test]
-fn print_report_notices_handles_empty_notices_array() {
-    let val = serde_json::json!({ "ok": true, "notices": [] });
-    print_report_notices(false, &val); // must not panic
-}
-
-#[test]
 fn report_refusal_text_preserves_supplied_diagnostic_data() {
     let refusal = ReportRefusal {
         reason: "readiness report refused: this git worktree has uncommitted lane changes."

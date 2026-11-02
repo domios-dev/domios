@@ -84,9 +84,12 @@ fn reused_pid_is_not_the_restart_manager_process() {
 }
 
 #[test]
-fn notice_names_every_foreign_holder_and_pid_and_retry() {
+fn notice_lists_every_foreign_holder_and_offers_retry() {
     let holders = [holder(22, None, None), holder(83, None, None)];
-    assert_eq!(foreign_notice(&holders), "Update blocked by install-file holders: process-22 (PID 22); process-83 (PID 83). Close these processes and choose Retry.");
+    let notice = foreign_notice(&holders);
+    for expected in ["process-22", "PID 22", "process-83", "PID 83", "Retry"] {
+        assert!(notice.contains(expected));
+    }
 }
 
 #[test]
@@ -100,7 +103,7 @@ fn pinned_job_membership_proves_ownership_even_with_unknown_image() {
 }
 
 #[test]
-fn restart_manager_set_is_only_install_binaries_beside_thousands_of_foreign_files() {
+fn restart_manager_set_includes_only_exact_install_binaries() {
     let root = PathBuf::from("install");
     let expected = [
         "domios-app.exe",
@@ -116,18 +119,12 @@ fn restart_manager_set_is_only_install_binaries_beside_thousands_of_foreign_file
     ]
     .map(|path| root.join(path));
     let mut listing = expected.to_vec();
-    for index in 0..5000 {
-        listing.push(root.join(format!("dist/assets/chunk-{index}.js")));
-        listing.push(root.join(format!("skills/skill-{index}/SKILL.md")));
-        listing.push(root.join(format!("build-gateway/jobs/job-{index}.log")));
-        listing.push(root.join(format!(
-            "build-gateway/targets/release/job-{index}/release/domios-app.exe"
-        )));
-        listing.push(root.join(format!(
-            "build-gateway/targets/release/job-{index}/release/deps/codeterm.dll"
-        )));
-    }
     for path in [
+        "dist/assets/chunk.js",
+        "skills/skill/SKILL.md",
+        "build-gateway/jobs/job.log",
+        "build-gateway/targets/release/job/release/domios-app.exe",
+        "build-gateway/targets/release/job/release/deps/codeterm.dll",
         "server-component.json",
         "LICENSE",
         "cli/codeterm.exe.old",

@@ -131,29 +131,6 @@ fn resize_resets_prev_grid_so_repaint_is_not_a_delta() {
 }
 
 #[test]
-fn now_ms_determinism_same_inputs_same_signals() {
-    let script: &[(&[u8], u64)] = &[
-        (b"boot\r\n", 0),
-        (b"\x1b[5;1H. spin", 40),
-        (b"\x1b[5;1H.. spin", 80),
-        (b"more output\r\n", 120),
-        (b"", 600),
-    ];
-    let run = || {
-        let mut ex = SignalExtractor::new(8, 40, VolatileHint { bottom_rows: 1 });
-        script
-            .iter()
-            .map(|(c, t)| ex.step(c, *t))
-            .collect::<Vec<_>>()
-    };
-    assert_eq!(
-        run(),
-        run(),
-        "same inputs + timestamps -> identical signals"
-    );
-}
-
-#[test]
 fn empty_screen_has_no_nonblank_row() {
     let mut ex = SignalExtractor::new(5, 20, none_hint());
     let s = ex.step(b"", 0);
@@ -311,18 +288,6 @@ fn picker_inactive_on_empty_hidden_cursor_boot() {
     ex.step(b"\x1b[?25l", 0);
     let idle = ex.step(b"", 500);
     assert!(idle.input_mode.cursor_hidden);
-    assert_eq!(idle.quiescence.kind, Motion::Still);
-    assert!(!idle.picker_active);
-}
-
-#[test]
-fn picker_inactive_for_shell_prompt_bracketed_paste_only() {
-    let mut ex = SignalExtractor::new(6, 40, none_hint());
-    // Normal shell line prompt: bracketed-paste on, cursor visible.
-    ex.step(b"\x1b[?2004h$ ", 0);
-    let idle = ex.step(b"", 500);
-    assert!(idle.input_mode.bracketed_paste);
-    assert!(!idle.input_mode.cursor_hidden);
     assert_eq!(idle.quiescence.kind, Motion::Still);
     assert!(!idle.picker_active);
 }

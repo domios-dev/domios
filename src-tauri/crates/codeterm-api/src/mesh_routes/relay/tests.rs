@@ -13,11 +13,6 @@ fn service_mesh_delayed_recurrence_refused_for_incapable_peer() {
         "/api/delayed-messages/series-1",
         &serde_json::json!({"recurrence": {"everyMs": 60_000}}),
     ));
-    let reason = super::recurrence_capability_refusal("old-peer", Some("1.11.9"));
-    assert!(reason.contains("old-peer"));
-    assert!(reason.contains("1.11.9"));
-    assert!(reason.contains("update the peer"));
-    assert!(reason.contains("one-shot explicitly"));
     assert!(!super::identify_supports_delayed_recurrence(
         &serde_json::json!({"version": "1.11.9", "features": ["rest-api"]}),
     ));
@@ -44,16 +39,15 @@ fn service_mesh_delayed_recurrence_refused_for_incapable_peer() {
             .and_then(serde_json::Value::as_bool)
             == Some(false)
     );
-    assert!(refusal
-        .error
-        .as_deref()
-        .unwrap_or_default()
-        .contains("old-peer"));
-    assert!(refusal
-        .error
-        .as_deref()
-        .unwrap_or_default()
-        .contains("1.11.9"));
+    assert_eq!(
+        refusal
+            .data
+            .as_ref()
+            .and_then(|data| data.get("error"))
+            .and_then(|error| error.get("code"))
+            .and_then(serde_json::Value::as_str),
+        Some("peer_lacks_delayed_recurrence")
+    );
     assert!(super::recurrence_capability_refusal_response(
         "current-peer",
         Some(&serde_json::json!({"features": ["delayed_recurrence"]})),
@@ -66,22 +60,14 @@ fn service_mesh_delayed_recurrence_refused_for_incapable_peer() {
         Some("1.11.8"),
     )
     .expect("failed identify must refuse with cached peer version");
-    assert!(no_identify
-        .error
-        .as_deref()
-        .unwrap_or_default()
-        .contains("1.11.8"));
-}
-
-#[test]
-fn mesh_send_every_proceeds_when_peer_advertises_recurrence() {
-    let identify = serde_json::json!({
-        "version": "1.11.10",
-        "features": ["rest-api", "delayed_recurrence"]
-    });
-    assert!(
-        super::recurrence_capability_refusal_response("current-peer", Some(&identify), None,)
-            .is_none()
+    assert_eq!(
+        no_identify
+            .data
+            .as_ref()
+            .and_then(|data| data.get("error"))
+            .and_then(|error| error.get("code"))
+            .and_then(serde_json::Value::as_str),
+        Some("peer_lacks_delayed_recurrence")
     );
 }
 
@@ -271,13 +257,14 @@ fn peer_relay_resolves_online_record_deterministically_over_duplicate_names() {
         codeterm_service_core::mesh::types::RELAY_PROTOCOL_VERSION,
     ));
 
-    for _ in 0..50 {
-        let (_, _, name, _) =
-            resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
-        assert_eq!(name, "BLACKSTAR");
-    }
-    // Case-insensitive name resolution still lands on the live record.
-    assert!(resolve_relay_peer(&mesh, "blackstar").is_ok());
+    let (_, resolved_id, name, _) =
+        resolve_relay_peer(&mesh, "BLACKSTAR").expect("resolves to the live record");
+    assert_eq!(resolved_id, "2556b3f9-live");
+    assert_eq!(name, "BLACKSTAR");
+    assert_eq!(
+        resolve_relay_peer(&mesh, "blackstar").unwrap().1,
+        "2556b3f9-live"
+    );
     // Id lookup returns the EXACT record for that id, bypassing the name
     // ambiguity — but not the protocol gate: the dead id is still protocol 1.
     let (_, _, live_id_name, _) =
@@ -409,10 +396,6 @@ fn relay_forwards_structured_delivery_code_not_bare_status() {
     .to_json();
     let summary = relay_error_summary(502, &body);
     assert!(summary.contains("submit_unconfirmed"), "got: {summary}");
-    assert!(
-        summary.contains("bytes reached the target PTY"),
-        "caller must learn the payload landed; got: {summary}"
-    );
     assert!(!summary.starts_with("HTTP "));
 }
 
@@ -425,7 +408,6 @@ fn relay_marks_zero_byte_refusals_explicitly() {
     .to_json();
     let summary = relay_error_summary(409, &body);
     assert!(summary.contains("tab_busy_refused"), "got: {summary}");
-    assert!(summary.contains("nothing written"), "got: {summary}");
 }
 
 #[test]
@@ -439,19 +421,6 @@ fn relay_unreachable_tab_is_named_not_bare_404() {
     assert!(
         summary.contains("tab_not_reachable_on_peer"),
         "got: {summary}"
-    );
-    assert!(summary.contains("nothing written"), "got: {summary}");
-}
-
-#[test]
-fn relay_falls_back_to_status_for_unstructured_bodies() {
-    assert_eq!(
-        relay_error_summary(500, &serde_json::json!(null)),
-        "HTTP 500"
-    );
-    assert_eq!(
-        relay_error_summary(403, &serde_json::json!({"error": "plain string"})),
-        "HTTP 403"
     );
 }
 

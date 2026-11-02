@@ -180,15 +180,29 @@ fn stored_records_filter_session_and_keep_native_and_text_projection() {
 fn undeclared_record_hooks_do_not_replace_text_hooks() {
     let provider = fixture(json!({}));
     let file = tempfile::NamedTempFile::new().unwrap();
-    std::fs::write(file.path(), "{\"type\":\"ignored\"}\n").unwrap();
-    assert!(provider
-        .parse_session_delta(file.path(), 0)
-        .messages
-        .is_empty());
-    assert!(provider
-        .runtime_stored_history("own", "{\"type\":\"ignored\"}\n")
-        .unwrap()
-        .is_empty());
+    std::fs::write(
+        file.path(),
+        concat!(
+            "{\"type\":\"user\",\"text\":\"visible\"}\n",
+            "{\"type\":\"ignored\",\"text\":\"must not leak\"}\n"
+        ),
+    )
+    .unwrap();
+    let delta = provider.parse_session_delta(file.path(), 0);
+    assert_eq!(delta.messages.len(), 1);
+    assert_eq!(delta.messages[0].blocks[0].data["text"], "visible");
+
+    let history = provider
+        .runtime_stored_history(
+            "own",
+            r#"{"type":"event","payload":{"thread_id":"foreign"},"id":"wrong","text":"foreign"}
+{"type":"event","payload":{"thread_id":"own"},"id":"a","text":"visible"}
+"#,
+        )
+        .unwrap();
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].id, "a");
+    assert_eq!(history[0].content, "visible");
 }
 
 #[test]
@@ -199,7 +213,10 @@ fn descriptor_without_a_records_sibling_keeps_text_and_forged_offset_is_refused(
     let vm = super::super::PluginVm::from_source_with(
         "record-fixture",
         r#"
-        module.exports = {parseSessionDelta(){ return {messages:[]}; }};
+        module.exports = {parseSessionDelta(text){
+            const value = JSON.parse(text);
+            return {messages:[{role:'user',blocks:[{kind:'text',data:{text:value.text}}]}]};
+        }};
     "#
         .into(),
         Some(text.clone()),
@@ -207,11 +224,22 @@ fn descriptor_without_a_records_sibling_keeps_text_and_forged_offset_is_refused(
     .unwrap();
     let absent = JsProvider::new(manifest.clone(), Arc::new(vm));
     assert!(absent.record_source("sessionTranscript").is_none());
+    let file = tempfile::NamedTempFile::new().unwrap();
+    std::fs::write(
+        file.path(),
+        "{\"type\":\"user\",\"text\":\"text hook retained\"}\n",
+    )
+    .unwrap();
+    let delta = absent.parse_session_delta(file.path(), 0);
+    assert_eq!(delta.messages.len(), 1);
+    assert_eq!(
+        delta.messages[0].blocks[0].data["text"],
+        "text hook retained"
+    );
     let vm = super::super::PluginVm::from_source_with("record-fixture", r#"
         module.exports = {parseSessionRecords(records, meta){ return {messages:[],new_offset:meta.newOffset+1}; }};
     "#.into(), Some(text)).unwrap();
     let forged = JsProvider::new(manifest, Arc::new(vm));
-    let file = tempfile::NamedTempFile::new().unwrap();
     std::fs::write(file.path(), "{\"type\":\"user\"}\n").unwrap();
     let window = crate::jsonl_window::records::read_records(
         file.path(),

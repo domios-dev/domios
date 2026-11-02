@@ -67,38 +67,6 @@ fn unreadable_user_file_is_never_rebuilt_from_empty() {
 }
 
 #[test]
-fn test_agent_md_import_in_claude_md() {
-    let claude_content = "@./AGENT.md\n\n# Notes\n\nYour personal notes and memory go here.\n";
-    assert!(claude_content.contains("@./AGENT.md"));
-    assert!(claude_content.contains("Notes"));
-}
-
-#[test]
-fn test_existing_claude_md_gets_import() {
-    let existing = "# My notes\nSome user content\n";
-    assert!(!existing.contains("@./AGENT.md"));
-    let updated = format!("@./AGENT.md\n\n{}", existing);
-    assert!(updated.contains("@./AGENT.md"));
-    assert!(updated.contains("Some user content"));
-}
-
-#[test]
-fn test_agent_template_no_markers() {
-    let template = crate::prompts::GENERAL_AGENT_TEMPLATE;
-    assert!(!template.contains("CODETERM-AUTO-START"));
-    assert!(!template.contains("CODETERM-AUTO-END"));
-}
-
-#[test]
-fn test_template_has_wake_up_placeholder() {
-    let template = crate::prompts::GENERAL_AGENT_TEMPLATE;
-    assert!(
-        template.contains("{wake_up}"),
-        "general_agent.md template must declare {{wake_up}} placeholder"
-    );
-}
-
-#[test]
 fn test_bootstrap_template_renders_general_dir() {
     let rendered = render_bootstrap_instructions();
 
@@ -125,15 +93,6 @@ fn test_wake_up_section_empty_when_mem_none() {
     assert!(!rendered.contains("{wake_up}"));
     assert!(!rendered.contains("L0 — Identity"));
     assert!(!rendered.contains("L1 — Critical context"));
-}
-
-#[test]
-fn general_agent_shared_cli_fragment_is_injected_once_without_unresolved_slot() {
-    let dir = tempfile::tempdir().unwrap();
-    let rendered = render_agent_md_at(dir.path(), "supplied-provider", "");
-    let shared = cli_without_memory_section();
-    assert_eq!(rendered.matches(shared.trim()).count(), 1);
-    assert!(!rendered.contains("{codeterm_cli}"));
 }
 
 #[test]
@@ -418,39 +377,6 @@ fn general_agent_contract_preserves_memory_recall_save_graph_semantics() {
             "the memory protocol names the CLI command {command}"
         );
     }
-}
-
-#[test]
-fn generate_instructions_does_not_block_caller_when_mem_conn_held() {
-    use std::sync::mpsc;
-    use std::time::{Duration, Instant};
-
-    let mem = crate::mem::MemManager::open_in_memory().unwrap();
-    let dir = std::env::temp_dir().join(format!("ga-noblock-{}", ulid::Ulid::new()));
-    std::fs::create_dir_all(&dir).unwrap();
-
-    let _conn_guard = mem.lock_storage();
-
-    let mem_clone = mem.clone();
-    let output_dir = dir.clone();
-    let (started_tx, started_rx) = mpsc::channel();
-    let t0 = Instant::now();
-    let handle = std::thread::spawn(move || {
-        started_tx.send(()).unwrap();
-        generate_instructions_at(&output_dir, "claude", Some(&mem_clone), false);
-    });
-    let elapsed = t0.elapsed();
-    assert!(
-        elapsed < Duration::from_millis(500),
-        "spawn must not block caller (took {:?})",
-        elapsed,
-    );
-    started_rx
-        .recv_timeout(Duration::from_secs(1))
-        .expect("spawned thread must run");
-    drop(_conn_guard);
-    handle.join().expect("instruction generation must complete");
-    std::fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]

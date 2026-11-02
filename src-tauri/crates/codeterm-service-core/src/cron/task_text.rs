@@ -25,44 +25,33 @@ pub fn build_cron_task_text(
 mod tests {
     use super::*;
     use crate::cron::skill_block::cron_skill_block;
-    use crate::service::spawn::AgentSpawnSpec;
 
     #[test]
     fn resolved_skill_path_reaches_the_spawned_agent_spawn_spec_task() {
         // Nonexistent slug -> cron_skill_block resolves the real MISSING branch,
         // deterministic without touching a real skill folder.
         let block = cron_skill_block("nonexistent-drill-slug");
-        let task_text = build_cron_task_text("do the thing", Some(&block), None, "run-1");
-
-        let spec = AgentSpawnSpec {
-            task: Some(task_text),
-            ..Default::default()
-        };
-
-        let task = spec.task.expect("task must be set");
+        let task = build_cron_task_text("opaque-cron-task", Some(&block), None, "run-1");
         assert!(task.contains("nonexistent-drill-slug"));
-        assert!(task.to_lowercase().contains("cron complete"));
-        assert!(task.contains("cron complete --run-id run-1"));
+        assert!(task.contains("SKILL.md"));
+        assert!(task.contains("opaque-cron-task"));
+        assert!(task.contains("run-1"));
     }
 
     #[test]
     fn no_skill_declared_means_no_skill_block_in_the_spawned_task() {
-        let task_text = build_cron_task_text("do the thing", None, None, "run-1");
-        let spec = AgentSpawnSpec {
-            task: Some(task_text),
-            ..Default::default()
-        };
-        let task = spec.task.unwrap();
-        assert!(!task.contains("SKILL AVAILABLE"));
-        assert!(!task.contains("SKILL MISSING"));
-        assert!(task.contains("cron complete --run-id run-1"));
+        let task = build_cron_task_text("opaque-cron-task", None, None, "opaque-run");
+        let suffix = crate::prompts::CRON_COMPLETE_SUFFIX.replace("{}", "opaque-run");
+        assert_eq!(task, format!("opaque-cron-task{suffix}"));
     }
 
     #[test]
     fn report_hint_only_appended_when_report_target_is_present() {
-        let with_target = build_cron_task_text("t", None, Some("tab-1"), "r1");
-        let without_target = build_cron_task_text("t", None, None, "r1");
-        assert!(with_target.contains("report progress"));
-        assert!(!without_target.contains("report progress"));
+        let hint = crate::prompts::CRON_REPORT_HINT;
+        let with_target =
+            build_cron_task_text("opaque-task", None, Some("opaque-tab"), "opaque-run");
+        let without_target = build_cron_task_text("opaque-task", None, None, "opaque-run");
+        assert!(with_target.contains(hint));
+        assert!(!without_target.contains(hint));
     }
 }

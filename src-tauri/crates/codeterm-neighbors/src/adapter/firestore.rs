@@ -16,10 +16,8 @@ pub(super) mod endpoint;
 const MAX_ENVELOPE_STRING_BYTES: usize = crate::wire::MAX_CIPHERTEXT_BYTES
     .saturating_mul(4)
     .div_ceil(3);
-mod pending;
 pub(super) mod registry;
 pub(super) mod state;
-pub(super) use pending::count as pending_count;
 mod watch;
 
 async fn connection(
@@ -326,6 +324,9 @@ impl Listener {
 
 #[async_trait]
 impl InboxListener for Listener {
+    fn pending_count(&self) -> Result<u64> {
+        self.membership.pending_count()
+    }
     async fn next(&mut self) -> Result<Option<InboxEvent>> {
         if let Some(messages) = self.pending.take() {
             return Ok(Some(InboxEvent::Snapshot(messages)));

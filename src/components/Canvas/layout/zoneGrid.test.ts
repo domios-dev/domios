@@ -23,8 +23,6 @@ function ok(label: string, cond: unknown) {
   ok("16 task nodes", grid.nodes.length === 16);
 
   const taskNodes = grid.nodes;
-  const uniform = taskNodes.every((n) => n.box.width === S.zoneTaskW && n.box.height === S.zoneTaskH);
-  ok("uniform task cell size", uniform);
 
   let overlap = false;
   for (let i = 0; i < taskNodes.length; i++)

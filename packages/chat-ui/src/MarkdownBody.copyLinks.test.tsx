@@ -9,6 +9,7 @@ for (const name of ["window", "document", "navigator", "HTMLElement", "SVGElemen
   Object.defineProperty(globalThis, name, { value: name === "window" ? window : window[name], configurable: true });
 }
 window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) as unknown as MediaQueryList;
+Object.defineProperty(window.Element.prototype, "animate", { configurable: true, value: undefined });
 const { RichMarkdown } = await import("./MarkdownBody");
 let passed = 0;
 for (const [markdown, expected] of [

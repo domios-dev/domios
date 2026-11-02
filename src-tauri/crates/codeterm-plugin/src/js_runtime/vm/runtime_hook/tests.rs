@@ -4,6 +4,79 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+pub(super) fn profile_invocation(method: &str, source: &str) -> Option<String> {
+    if method != "runtimeReduce" || std::env::var_os("CODETERM_CHILD_RETENTION_TIMING").is_none() {
+        return None;
+    }
+    Some(
+        source
+            .replace(
+                "  const args = JSON.parse",
+                "  const profileStarted = Date.now();\n  const args = JSON.parse",
+            )
+            .replace(
+                "  const value = fn.apply",
+                "  const profileParsed = Date.now();\n  const value = fn.apply",
+            )
+            .replace(
+                "  if (globalThis.__ct_runtime_denied_binding__",
+                "  const profileReduced = Date.now();\n  if (globalThis.__ct_runtime_denied_binding__",
+            )
+            .replace(
+                "  return result;",
+                "  globalThis.__ct_runtime_profile__ = JSON.stringify({parse_ms:profileParsed-profileStarted,reducer_ms:profileReduced-profileParsed,stringify_ms:Date.now()-profileReduced});\n  return result;",
+            ),
+    )
+}
+
+pub(super) fn report_profile(ctx: &rquickjs::Ctx<'_>) {
+    if let Ok(Some(profile)) = ctx
+        .globals()
+        .get::<_, Option<String>>("__ct_runtime_profile__")
+    {
+        eprintln!("CHILD_RETENTION_EXECUTE {profile}");
+    }
+    let _ = ctx.globals().remove("__ct_runtime_profile__");
+}
+
+#[test]
+fn runtime_argument_serialization_preserves_exact_byte_boundaries() {
+    for value in [
+        json!(null),
+        json!(["\0\n\"\\", "é雪😀"]),
+        json!({"nested":[1,true,null]}),
+    ] {
+        let expected = serde_json::to_string(&value).unwrap();
+        let exact = crate::agent_runtime::serialize_runtime_value(&value, expected.len()).unwrap();
+        assert_eq!(exact, expected);
+        let limit = expected.len() - 1;
+        let expected_error =
+            crate::agent_runtime::validate_runtime_size(&value, limit).unwrap_err();
+        let actual_error =
+            crate::agent_runtime::serialize_runtime_value(&value, limit).unwrap_err();
+        assert_eq!(actual_error.code, expected_error.code);
+        assert_eq!(actual_error.message, expected_error.message);
+    }
+}
+
+#[test]
+fn oversized_runtime_arguments_refuse_before_context_initialization() {
+    let vm = PluginVm::from_source(
+        "argument-budget",
+        "module.exports={runtimePlan(){throw new Error('must not execute')}}".into(),
+    )
+    .unwrap();
+    let error = call_runtime_hook::<Value>(
+        &vm,
+        "runtimePlan",
+        &[json!("x".repeat(MAX_RUNTIME_VALUE_BYTES))],
+        Instant::now() + Duration::from_secs(60),
+    )
+    .unwrap_err();
+    assert_eq!(error.code, RuntimeFailureCode::SizeLimit);
+    assert!(vm.runtime_inner.lock().is_none());
+}
+
 #[test]
 fn runtime_history_deadline_distinguishes_vm_contention_from_projection() {
     let expired = Instant::now();

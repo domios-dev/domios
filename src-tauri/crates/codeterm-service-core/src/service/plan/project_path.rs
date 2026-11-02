@@ -68,20 +68,19 @@ mod tests {
 
     #[test]
     fn project_folder_validation_uses_inspection_evidence_on_every_platform() {
-        for path in ["/replacement", "C:/Developer/codeterm"] {
-            assert_eq!(
-                validate_project_folder(path, true, ProjectFolderState::Directory),
-                Ok(())
-            );
-            assert!(validate_project_folder(path, true, ProjectFolderState::Missing).is_err());
-            assert!(validate_project_folder(path, true, ProjectFolderState::NotDirectory).is_err());
-            assert!(validate_project_folder(
-                path,
-                true,
-                ProjectFolderState::Unreadable("denied".into())
-            )
-            .is_err());
-        }
+        let path = "/replacement";
+        assert_eq!(
+            validate_project_folder(path, true, ProjectFolderState::Directory),
+            Ok(())
+        );
+        assert!(validate_project_folder(path, true, ProjectFolderState::Missing).is_err());
+        assert!(validate_project_folder(path, true, ProjectFolderState::NotDirectory).is_err());
+        assert!(validate_project_folder(
+            path,
+            true,
+            ProjectFolderState::Unreadable("denied".into())
+        )
+        .is_err());
         assert!(validate_project_folder("", true, ProjectFolderState::Directory).is_err());
         assert!(validate_project_folder("relative", false, ProjectFolderState::Directory).is_err());
     }

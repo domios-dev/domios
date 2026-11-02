@@ -106,21 +106,50 @@ fn restarting_a_completed_item_keeps_its_id_and_counts_the_attempt() {
 
 #[test]
 fn per_item_history_keeps_the_newest_events_and_folds_older_ones_into_counters() {
-    let (_root, storage, repository) = open_repository();
-    let mut list = seed(&repository, "tab-h", &["loop", "other"]);
+    let (root, storage, repository) = open_repository();
+    let list = seed(&repository, "tab-h", &["loop", "other"]);
     let rounds = MAX_TAB_TODO_ITEM_EVENTS as u64;
-    for round in 0..rounds {
-        list = move_to(
-            &repository,
-            &list,
-            "loop",
-            "in_progress",
-            None,
-            1000 + round * 2,
-        )
-        .unwrap();
-        list = move_to(&repository, &list, "loop", "done", None, 1001 + round * 2).unwrap();
-    }
+    let mut list = wait(storage.submit_mutation(256, move |cx| {
+        let mut list = list;
+        for round in 0..rounds - 1 {
+            for (state, at) in [
+                ("in_progress", 1000 + round * 2),
+                ("done", 1001 + round * 2),
+            ] {
+                list = crate::repositories::tab_todo::lifecycle::set_state(
+                    cx,
+                    list.tab_id.clone(),
+                    list.generation,
+                    "loop".into(),
+                    live(&list, "loop").revision,
+                    state.into(),
+                    None,
+                    Some(list.tab_id.clone()),
+                    at,
+                )?;
+            }
+        }
+        Ok(list)
+    }))
+    .value;
+    list = move_to(
+        &repository,
+        &list,
+        "loop",
+        "in_progress",
+        None,
+        1000 + (rounds - 1) * 2,
+    )
+    .unwrap();
+    list = move_to(
+        &repository,
+        &list,
+        "loop",
+        "done",
+        None,
+        1001 + (rounds - 1) * 2,
+    )
+    .unwrap();
     let step = live(&list, "loop");
     assert_eq!(step.events.len(), MAX_TAB_TODO_ITEM_EVENTS);
     assert_eq!(step.counters.started, rounds);
@@ -134,7 +163,26 @@ fn per_item_history_keeps_the_newest_events_and_folds_older_ones_into_counters()
         step.events.last().unwrap().happened_at,
         1001 + (rounds - 1) * 2
     );
+    let retained_rounds = MAX_TAB_TODO_ITEM_EVENTS as u64 / 2;
+    assert_eq!(
+        step.events
+            .iter()
+            .map(|event| (event.kind.as_str(), event.attempt, event.happened_at))
+            .collect::<Vec<_>>(),
+        (rounds - retained_rounds..rounds)
+            .flat_map(|round| [
+                ("started", round + 1, 1000 + round * 2),
+                ("completed", round + 1, 1001 + round * 2),
+            ])
+            .collect::<Vec<_>>()
+    );
     assert!(live(&list, "other").events.is_empty());
+    shutdown(storage);
+    let storage = Storage::open(root.path(), StorageConfig::default()).unwrap();
+    assert_eq!(
+        wait(storage.tab_todos().get("tab-h".into())).value,
+        Some(list)
+    );
     shutdown(storage);
 }
 

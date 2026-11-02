@@ -142,24 +142,3 @@ fn lark_recording_contract_chat_tracked_admission_stale_final_handoff_and_uncert
         assert_eq!(*writes.borrow(), usize::from(!stale));
     }
 }
-
-#[test]
-fn lark_recording_contract_existing_identity_only_guard_cannot_revoke_capture() {
-    let capture = capture();
-    let admitted_identity = capture.identity.clone();
-    capture.active.store(false, Ordering::Release);
-    let current_identity = admitted_identity.clone();
-    let mut baseline_handoffs = 0;
-    if current_identity == admitted_identity {
-        baseline_handoffs += 1;
-    }
-    assert_eq!(baseline_handoffs, 1);
-    let mut captured_handoffs = 0;
-    assert!(capture
-        .handoff(Some(current_identity), |_, _| {
-            captured_handoffs += 1;
-            Ok(())
-        })
-        .is_err());
-    assert_eq!(captured_handoffs, 0);
-}

@@ -1,10 +1,18 @@
 // Caller: CI frontend-release.yml; scripts ci-scope.mjs, tests/ci-scope.test.mjs, ts-test-asset-hook.mjs
 // Vite resolves an asset import to a URL string. Node does not, so a component
 // that imports one is untestable under the unit runner unless we do the same.
+import { pathToFileURL } from "node:url";
+
 const ASSET = /\.(png|jpe?g|gif|svg|webp|avif|ico|woff2?|ttf|mp3|wav)$/i;
 const STYLE = /\.css$/i;
+let happyDom;
+
+export function initialize(data) {
+  happyDom = data?.happyDom;
+}
 
 export async function resolve(specifier, context, next) {
+  if (specifier === "happy-dom" && happyDom) return next(pathToFileURL(happyDom).href, context);
   if (!ASSET.test(specifier) && !STYLE.test(specifier)) return next(specifier, context);
   const url = context.parentURL
     ? new URL(specifier, context.parentURL).href

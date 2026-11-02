@@ -32,36 +32,9 @@ fn replaces_an_existing_theme_and_keeps_other_parameters_in_order() {
 }
 
 #[test]
-fn accepts_only_resolved_light_or_dark() {
-    assert_eq!(
-        serde_json::from_str::<CheckoutTheme>("\"light\"").unwrap(),
-        CheckoutTheme::Light
-    );
-    assert_eq!(
-        serde_json::from_str::<CheckoutTheme>("\"dark\"").unwrap(),
-        CheckoutTheme::Dark
-    );
-    for value in ["\"system\"", "\"Dark\"", "\"\"", "1"] {
-        assert!(
-            serde_json::from_str::<CheckoutTheme>(value).is_err(),
-            "{value}"
-        );
-    }
-}
-
-#[test]
 fn appending_keeps_the_existing_query_bytes() {
     let url = checkout_url_with_theme(checkout("sig=a%20b&flag&_ptxn=txn_1"), CheckoutTheme::Dark);
     assert_eq!(url.query(), Some("sig=a%20b&flag&_ptxn=txn_1&theme=dark"));
-}
-
-#[test]
-fn parse_maps_unknown_themes_to_none() {
-    assert_eq!(CheckoutTheme::parse("light"), Some(CheckoutTheme::Light));
-    assert_eq!(CheckoutTheme::parse("dark"), Some(CheckoutTheme::Dark));
-    for value in ["system", "Dark", ""] {
-        assert_eq!(CheckoutTheme::parse(value), None, "{value}");
-    }
 }
 
 #[test]

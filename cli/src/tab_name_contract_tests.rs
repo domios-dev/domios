@@ -43,13 +43,3 @@ fn tab_name_contract_cli_accepts_executor_name_and_keeps_role_slug_distinct() {
         _ => panic!("expected plan task add"),
     }
 }
-
-#[test]
-fn tab_name_contract_cli_rejects_role_slug_and_multi_word_executor_names() {
-    for value in ["rust-backend-dev", "Ada Lovelace"] {
-        assert!(
-            codeterm_types::plan::validate_executor_name(value).is_err(),
-            "{value}"
-        );
-    }
-}

@@ -99,7 +99,10 @@ pub fn router() -> Router<AppState> {
             "/api/plans/{id}/spec-links/{spec_id}",
             delete(plan_routes::spec::link_rm),
         )
-        .route("/api/plans/{id}/tasks", post(plan_routes::task_add))
+        .route(
+            "/api/plans/{id}/tasks",
+            get(plan_routes::tasks::task_board_page).post(plan_routes::task_add),
+        )
         .route("/api/tasks", get(task_routes::list))
         .route("/api/tasks/{id}", get(task_routes::show))
         .route("/api/tasks/{id}/take", post(task_routes::take))
@@ -107,7 +110,9 @@ pub fn router() -> Router<AppState> {
         .route("/api/canvas/focus", post(task_routes::canvas_focus))
         .route(
             "/api/plans/{id}/tasks/{tid}",
-            patch(plan_routes::task_update).delete(plan_routes::task_rm),
+            get(plan_routes::tasks::task_detail)
+                .patch(plan_routes::task_update)
+                .delete(plan_routes::task_rm),
         )
         .route(
             "/api/plans/{id}/tasks/{tid}/close",

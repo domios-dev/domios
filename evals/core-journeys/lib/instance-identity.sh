@@ -127,6 +127,8 @@ dev_run() {
     "$product_data_dir_env=$EVAL_LIB_RESOLVED_DATA_DIR"
     "$product_socket_env=$EVAL_LIB_RESOLVED_SOCKET_PATH"
   )
+  # The product pairs a supplied binding nonce with the claimed caller tab; a nonce without a tab is refused.
+  [ -z "$caller_tab_id" ] || vars+=("$(core_journey_product_env TAB_ID)=$caller_tab_id")
   local -a unset_context=()
   for suffix in INSTANCE API_PORT API_URL API_TOKEN DATA_DIR SOCKET_PATH VITE_PORT CDP_PORT DEV_INSTANCE DEV_API_PORT DEV_VITE_PORT DEV_CDP_PORT DEV_DATA_DIR DEV_IDENTIFIER \
     STARTUP_ATTEMPT_ID SESSION_BINDING_NONCE SESSION_ID TEAM_ID PLAN_ID TASK_ID ATTEMPT_ID TAB_ID PARENT_TAB_ID; do

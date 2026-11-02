@@ -12,6 +12,20 @@ fn validate(bindings: Vec<PlanTeamBinding>, live_teams: &[&str]) -> Result<(), T
     )
 }
 
+fn validate_plan_without_materializing(
+    svc: &ServiceContext,
+    plan_id: &str,
+) -> Result<(), TeamPlanError> {
+    let _ = svc.plan_store.take_plan_touches();
+    let result = validate_plan_team_binding(svc, plan_id);
+    let touches = svc.plan_store.take_plan_touches();
+    assert!(
+        touches.is_empty(),
+        "plan-team validation loaded complete plans: {touches:?}"
+    );
+    result
+}
+
 #[test]
 fn store_reads_finish_without_mux_guard_before_one_team_snapshot() {
     let mux = parking_lot::RwLock::new(BTreeSet::from(["team_a", "team_b"]));
@@ -172,9 +186,9 @@ fn service_validation_uses_live_team_state_and_skips_archived_and_orphaned_plans
         .unwrap();
 
     assert!(validate_active_team_plan_bindings(svc).is_ok());
-    assert!(validate_plan_team_binding(svc, &plan.id).is_ok());
+    assert!(validate_plan_without_materializing(svc, &plan.id).is_ok());
     assert!(matches!(
-        validate_plan_team_binding(svc, "absent"),
+        validate_plan_without_materializing(svc, "absent"),
         Err(TeamPlanError::Plan(PlanError::NotFound))
     ));
 
@@ -189,7 +203,7 @@ fn service_validation_uses_live_team_state_and_skips_archived_and_orphaned_plans
         Err(TeamPlanError::Team(_))
     ));
     assert!(matches!(
-        validate_plan_team_binding(svc, &plan.id),
+        validate_plan_without_materializing(svc, &plan.id),
         Err(TeamPlanError::Team(_))
     ));
 
@@ -200,7 +214,7 @@ fn service_validation_uses_live_team_state_and_skips_archived_and_orphaned_plans
         })
         .unwrap();
     assert!(validate_active_team_plan_bindings(svc).is_ok());
-    assert!(validate_plan_team_binding(svc, &plan.id).is_ok());
+    assert!(validate_plan_without_materializing(svc, &plan.id).is_ok());
 
     svc.plan_store
         .with_plan(&plan.id, 4, |plan| {
@@ -216,5 +230,5 @@ fn service_validation_uses_live_team_state_and_skips_archived_and_orphaned_plans
         })
         .unwrap();
     assert!(validate_active_team_plan_bindings(svc).is_ok());
-    assert!(validate_plan_team_binding(svc, &plan.id).is_ok());
+    assert!(validate_plan_without_materializing(svc, &plan.id).is_ok());
 }

@@ -673,7 +673,7 @@ Claude Code should auto-load this skill whenever the user mentions:
 
 Don't preemptively run `./build.sh dev` on every edit — only when the user asks or when you have a Rust/prompt change that definitely needs a live binary to verify.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
 
 ### REST listener bind recovery
 
@@ -747,11 +747,20 @@ Symptom: verified DEV artifacts reach launch, then human start reports Access de
 CREATE_BREAKAWAY_FROM_JOB request. Confirm the actual spawn boundary before attributing
 an arbitrary permission failure to jobs.
 
-The host admits explicit breakaway only for persisted Team Dev utility shells. Their
+The host admits explicit breakaway only for persisted Team dev/build/qa utility shells. Their
 job retains KILL_ON_JOB_CLOSE; ordinary descendants remain contained. Default, agent,
 non-Team and other-purpose shells cannot request that policy. No silent breakaway or
 runtime environment switch exists. The server still refuses residual ancestor-job
 membership through ensure_detached.
+
+Git Bash-launched native helpers can leave that PTY job and enter a separate
+non-breakaway job, so exit 250 can occur even with the correct Team policy.
+Use split `dev-front`/`dev-back` mode, or launch the detached frontend through
+`scripts/windows-breakaway-run.ps1` directly from a native PowerShell Team dev
+shell before entering Git Bash. Keep the selected instance, ports and process
+record. Inspect job limits and membership first; an immediate job with flags 0
+does not prove that every ancestor job permits survival. Keep the refusal when
+detachment cannot be proved.
 
 Activation requires a reviewed host carrying this policy to create a NEW utility PTY.
 A newly built DEV client cannot retrofit jobs created by the older installed host.

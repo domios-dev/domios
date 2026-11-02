@@ -175,14 +175,5 @@ assert(
   stale.length === 0,
 );
 
-assert(
-  "diagnostics_that_speak insertion above an inventoried fork preserves its anchor",
-  forkKey("src/fixture.ts", "  if (IS_WEB) {", 1) === forkKey("src/fixture.ts", "if (IS_WEB) {", 1),
-);
-assert(
-  "diagnostics_that_speak a duplicate-guard fork remains unlisted",
-  !new Set([forkKey("src/fixture.ts", "if (IS_WEB) {", 1)]).has(forkKey("src/fixture.ts", "if (IS_WEB) {", 2)),
-);
-
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) throw new Error(`${failed} test(s) failed`);

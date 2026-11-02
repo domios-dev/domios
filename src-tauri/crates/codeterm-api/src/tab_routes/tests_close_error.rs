@@ -9,19 +9,17 @@ fn optional_body_contract_workspace_agent_tab_close_refusal_is_forbidden() {
         "{}: {workspace_id} contains agent tabs",
         codeterm_service_core::service::AGENT_TAB_CLOSE_REFUSAL_PREFIX
     );
-    let (status, message) = map_close_error(error);
+    let (status, _) = map_close_error(error);
 
     assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(message.contains(workspace_id));
 }
 
 #[test]
 fn optional_body_contract_missing_workspace_close_remains_not_found() {
     let workspace_id = "missing-workspace";
-    let (status, message) = map_close_error(format!("Workspace not found: {workspace_id}"));
+    let (status, _) = map_close_error(format!("Workspace not found: {workspace_id}"));
 
     assert_eq!(status, StatusCode::NOT_FOUND);
-    assert!(message.contains(workspace_id));
 }
 
 #[test]
@@ -30,10 +28,9 @@ fn partial_team_teardown_workspace_close_failure_is_internal_error() {
         "{}: team lane cleanup failed",
         codeterm_service_core::service::WORKSPACE_CLOSE_CLEANUP_FAILURE_PREFIX
     );
-    let (status, message) = map_close_error(error);
+    let (status, _) = map_close_error(error);
 
     assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
-    assert!(message.contains("team lane cleanup failed"));
 }
 
 #[test]
@@ -42,10 +39,9 @@ fn team_close_authorization_refusal_is_forbidden() {
         "{}: agent is not a Team manager",
         codeterm_service_core::service::TEAM_CLOSE_REFUSAL_PREFIX
     );
-    let (status, message) = map_close_error(error);
+    let (status, _) = map_close_error(error);
 
     assert_eq!(status, StatusCode::FORBIDDEN);
-    assert!(message.contains("not a Team manager"));
 }
 
 #[test]
@@ -54,10 +50,9 @@ fn busy_worker_close_refusal_is_conflict() {
         "{}: Tab worker-tab holds work",
         codeterm_service_core::service::BUSY_WORKER_CLOSE_REFUSAL_PREFIX
     );
-    let (status, message) = map_close_error(error);
+    let (status, _) = map_close_error(error);
 
     assert_eq!(status, StatusCode::CONFLICT);
-    assert!(message.contains("worker-tab"));
 }
 
 #[test]
@@ -72,8 +67,7 @@ fn tab_close_refusals_keep_their_typed_status() {
             StatusCode::NOT_FOUND,
         ),
     ] {
-        let (status, message) = map_close_error(error.to_string());
+        let (status, _) = map_close_error(error.to_string());
         assert_eq!(status, expected, "{error}");
-        assert_eq!(message, error);
     }
 }

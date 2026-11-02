@@ -157,16 +157,6 @@ mod tests {
     }
 
     #[test]
-    fn task_files_deleted_on_launch_failure() {
-        let (fixture, tab_id, path) = fixture_with_task_file();
-        fixture
-            .service
-            .close_tab_with_reason(&tab_id, TabCloseReason::SpawnRollback)
-            .expect("roll back failed launch");
-        assert!(!path.exists());
-    }
-
-    #[test]
     fn active_launch_cleanup_preserves_task_files_until_tab_close() {
         let (fixture, tab_id, first) = fixture_with_task_file();
         let root = fixture

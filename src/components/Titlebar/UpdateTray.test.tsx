@@ -8,9 +8,15 @@ import { MultiplexerActionsContext, type MultiplexerActionsContextType } from ".
 const fake = vi.hoisted(() => ({
   offer: null as { releaseId: string; version: string } | null, check: vi.fn(), install: vi.fn(), plugin: vi.fn(), accept: vi.fn(), hold: vi.fn(),
   availabilityChanged: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null,
+  native: {
+    phase: "idle" as "idle" | "checking" | "downloading" | "applying" | "success" | "error",
+    installing: false,
+    downloadedBytes: 0,
+    downloadTotalBytes: null as number | null,
+  },
 }));
 vi.mock("../../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
-vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ installing: false, error: null, applyUpdate: fake.install }) }));
+vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ ...fake.native, error: null, applyUpdate: fake.install, captureFailureBoundary: () => ({ frontendRevision: 0, nativeRevision: null }) }) }));
 vi.mock("../../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
 vi.mock("../../lib/frontendUpdate/browser", () => ({
   acceptFrontendUpdate: fake.accept, setFrontendUpdateHeld: fake.hold,
@@ -37,7 +43,15 @@ const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
   { id: "frontend", kind: "frontend", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "update_available", reason: "newer", channel: null },
   { id: "core", kind: "plugin", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "core_silent", reason: "silent", channel: "core" },
 ] };
-afterEach(() => { localStorage.clear(); fake.offer = null; vi.clearAllMocks(); });
+afterEach(() => {
+  localStorage.clear();
+  fake.offer = null;
+  fake.native.phase = "idle";
+  fake.native.installing = false;
+  fake.native.downloadedBytes = 0;
+  fake.native.downloadTotalBytes = null;
+  vi.clearAllMocks();
+});
 
 const coreUnavailable = "Plugin channel unavailable: repository not found or not readable without access (github.com/rollacode/codeterm.git). Domios will retry.";
 const communityUnavailable = "Plugin channel unavailable: network unavailable (example.com/community.git). Domios will retry.";
@@ -52,7 +66,7 @@ it("keeps an unreachable core channel silent and names its cause as a diagnostic
   const root = createRoot(host);
   try {
     await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
-    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+    expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
     expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector('[aria-label="Installed plugin ahead of channel"]')).toBeNull();
     expect(host.querySelector('[role="alert"]')).toBeNull();
@@ -71,7 +85,7 @@ it("wires local-ahead information for a non-core plugin without a failure badge"
     await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
     expect(host.querySelector('[role="status"][aria-label="Installed plugin ahead of channel"]')?.textContent)
       .toBe(classifyUpdateStatus(ahead).information[0]);
-    expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+    expect(host.querySelector('button[aria-label="Update"]')).not.toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -96,6 +110,49 @@ it("opens grouped offers and the Update all handler persists intent before insta
     expect(fake.install).toHaveBeenCalledTimes(1);
     expect(fake.plugin).not.toHaveBeenCalled();
     expect(fake.accept).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("announces native app phases and shows determinate progress only for known valid bytes", async () => {
+  fake.check.mockResolvedValue(snapshot);
+  fake.native.installing = true;
+  fake.native.phase = "downloading";
+  fake.native.downloadedBytes = 250;
+  fake.native.downloadTotalBytes = 1000;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  const render = () => act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
+  try {
+    await render();
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    expect(trigger.getAttribute("aria-description")).toBe("Downloading app update. 25% downloaded.");
+    expect(trigger.querySelector('[role="progressbar"]')?.getAttribute("aria-valuenow")).toBe("25");
+
+    fake.native.phase = "checking";
+    await render();
+    expect(trigger.getAttribute("aria-description")).toBe("Checking for app updates.");
+    expect(trigger.querySelector('[role="progressbar"]')).toBeNull();
+    fake.native.phase = "downloading";
+
+    for (const total of [null, 0]) {
+      fake.native.downloadTotalBytes = total;
+      await render();
+      expect(trigger.getAttribute("aria-description")).toBe("Downloading app update.");
+      expect(trigger.querySelector('[role="progressbar"]')).toBeNull();
+      expect(trigger.getAttribute("data-activity-state")).toBe("active");
+    }
+
+    fake.native.downloadTotalBytes = 1000;
+    fake.native.phase = "applying";
+    await render();
+    expect(trigger.getAttribute("aria-description")).toBe("Applying app update.");
+    expect(trigger.querySelector('[role="progressbar"]')).toBeNull();
+
+    fake.native.installing = false;
+    fake.native.phase = "downloading";
+    await render();
+    expect(trigger.getAttribute("aria-description")).toBe("Updates available.");
+    expect(trigger.querySelector('[role="progressbar"]')).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
@@ -226,7 +283,7 @@ it("resumes the next plugin from availability values and ignores equivalent snap
 });
 
 for (const origin of ["startup", "event"] as const) {
-  it(`keeps ${origin} check failures invisible and recovers on subsequent availability`, async () => {
+  it(`keeps ${origin} check failures out of the titlebar error state and recovers`, async () => {
     if (origin === "startup") fake.check.mockRejectedValue(new Error("invalid daemon JSON"));
     else fake.check.mockResolvedValue({ items: [], errors: {} });
     const host = document.createElement("div"); document.body.append(host);
@@ -234,7 +291,7 @@ for (const origin of ["startup", "event"] as const) {
     try {
       await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /><UpdatePanel waves={false} /></UpdatePanelProvider>));
       if (origin === "event") await act(async () => fake.availabilityChanged!({ payload: { items: [], errors: { app: "offline" } } }));
-      expect(host.querySelector('button[aria-label="Update"]')).toBeNull();
+      expect(host.querySelector('button[aria-label="Update"]')?.getAttribute("data-activity-state")).toBe("idle");
       expect(host.querySelector('[role="alert"]')).toBeNull();
       expect(host.querySelector("details")).toBeNull();
       await act(async () => fake.availabilityChanged!({ payload: snapshot }));

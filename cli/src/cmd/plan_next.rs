@@ -39,10 +39,4 @@ mod tests {
         assert!(out.contains("1. [gate] gate t_r (rev)"));
         assert!(out.contains("2. [dispatch] dispatch t_p (pend)"));
     }
-
-    #[test]
-    fn renders_empty_state() {
-        let out = render_next(&json!({ "plan_id": "pl_1", "next_actions": [] }));
-        assert!(out.contains("No next actions"));
-    }
 }

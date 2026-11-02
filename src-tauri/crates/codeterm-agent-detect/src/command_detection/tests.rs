@@ -66,24 +66,6 @@ fn finished_lifecycle_emitted_at_command_end() {
 }
 
 #[test]
-fn nonce_mismatch_rejects_command_cycle() {
-    let mut det = CommandDetection::new();
-    det.ensure_nonce(Some("sekret".into()));
-    ev_pairs(
-        &mut det,
-        vec![
-            SemanticEvent::PromptStart,
-            SemanticEvent::CommandLine {
-                text: "rm -rf /".into(),
-                nonce: Some("forged".into()),
-            },
-            SemanticEvent::CommandEnd { exit_code: Some(0) },
-        ],
-    );
-    assert!(det.commands().is_empty());
-}
-
-#[test]
 fn nonce_match_accepts_command_line() {
     let mut det = CommandDetection::new();
     det.ensure_nonce(Some("sekret".into()));

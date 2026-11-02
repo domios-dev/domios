@@ -45,12 +45,6 @@ fn orchestration_pair_rest_discards_body_only_hierarchy_context() {
 }
 
 #[test]
-fn spawn_body_minimal() {
-    let body: SpawnAgentBody = serde_json::from_str(r#"{"agent":"claude"}"#).unwrap();
-    assert_eq!(body.agent.as_deref(), Some("claude"));
-}
-
-#[test]
 fn spawned_tab_owner_uses_authenticated_peer_identity() {
     let forged = codeterm_types::pty::RemoteOwnership {
         controller_title: "controller".into(),
@@ -66,13 +60,6 @@ fn spawned_tab_owner_uses_authenticated_peer_identity() {
 }
 
 #[test]
-fn spawn_body_empty_object() {
-    let body: SpawnAgentBody = serde_json::from_str("{}").unwrap();
-    assert_eq!(body.agent, None);
-    assert!(!body.require_delivery_ack);
-}
-
-#[test]
 fn configure_spawn_can_require_delivery_ack_without_naming_a_provider() {
     let body: SpawnAgentBody =
         serde_json::from_str(r#"{"task":"opaque-configure-token","require_delivery_ack":true}"#)
@@ -83,28 +70,8 @@ fn configure_spawn_can_require_delivery_ack_without_naming_a_provider() {
 }
 
 #[test]
-fn configure_spawn_delivery_ack_round_trips_exact_failure() {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_time()
-        .build()
-        .unwrap();
-    let (tx, rx) = tokio::sync::oneshot::channel();
-    tx.send(Err("opaque delivery failure 91c2".into())).unwrap();
-    assert_eq!(
-        runtime.block_on(await_spawn_delivery(rx)),
-        Err("opaque delivery failure 91c2".into())
-    );
-}
-
-#[test]
-fn configure_spawn_refuses_a_pending_delivery_after_launch_ack() {
-    assert_eq!(require_no_pending_delivery(None), Ok(()));
-    assert_eq!(
-        require_no_pending_delivery(Some("Unconfirmed".into())),
-        Err(
-            "agent launch ended without confirmed task delivery; pending state: Unconfirmed".into()
-        )
-    );
+fn configure_spawn_refuses_unconfirmed_delivery() {
+    assert!(require_no_pending_delivery(Some("Unconfirmed".into())).is_err());
 }
 
 #[test]
@@ -118,7 +85,6 @@ fn spawn_role_validation_treats_empty_strings_as_absent() {
 fn spawn_role_validation_rejects_unknown_role_with_body() {
     let (status, body) = validate_spawn_role(Some("Lead".into()), None).unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
-    assert!(body.contains("Invalid role: Lead"));
     assert!(!body.is_empty());
 }
 

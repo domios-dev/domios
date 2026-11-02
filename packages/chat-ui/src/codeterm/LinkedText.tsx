@@ -14,6 +14,7 @@ export interface ResolvedChatPlanRef {
   title: string;
   planTitle: string;
   taskTitle?: string;
+  taskKey?: string;
   sectionTitle?: string;
   state: "resolved" | "archived" | "unowned" | "stale" | "missing" | "loading" | "unreachable" | "permission";
   rawLabel: string;

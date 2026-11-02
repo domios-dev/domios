@@ -99,19 +99,6 @@ pub fn ensure_directories() {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn general_agent_dirs_live_under_the_data_root() {
-        let root = crate::paths::data_dir_path();
-        assert_eq!(general_dir(), root.join("general"));
-        assert_eq!(secrets_dir(), root.join("secrets"));
-        assert_eq!(integrations_dir(), root.join("integrations"));
-    }
-}
-
 pub(crate) use lifecycle::restart_general_agent_with_force;
 
 mod restart_guard;

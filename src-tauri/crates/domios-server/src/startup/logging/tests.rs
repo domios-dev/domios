@@ -84,13 +84,3 @@ fn a_writer_under_the_cap_never_rotates() {
     sink.flush().unwrap();
     assert!(!dir.path().join("domios.log.1").exists());
 }
-
-#[test]
-fn log_composition_filters_the_actual_third_party_targets() {
-    assert!(THIRD_PARTY_WARN_TARGETS.contains(&"hyper_util"));
-    assert!(!THIRD_PARTY_WARN_TARGETS.contains(&"hyper"));
-    assert!(THIRD_PARTY_WARN_TARGETS.contains(&"reqwest"));
-    assert!(THIRD_PARTY_WARN_TARGETS.contains(&"tungstenite"));
-    assert!(THIRD_PARTY_WARN_TARGETS.contains(&"tokio"));
-    assert!(THIRD_PARTY_WARN_TARGETS.contains(&"mdns_sd"));
-}

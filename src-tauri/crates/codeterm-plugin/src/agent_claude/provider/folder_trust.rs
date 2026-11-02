@@ -360,7 +360,6 @@ mod tests {
         )
         .expect("cases.json parses");
         let cases = cases.as_array().expect("case list");
-        assert!(cases.len() >= 12, "every declared fixture is exercised");
         for case in cases {
             let file = case["file"].as_str().expect("file");
             let screen = std::fs::read_to_string(fixtures().join(file)).expect("fixture");

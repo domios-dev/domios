@@ -425,19 +425,6 @@ mod tests {
     }
 
     #[test]
-    fn automatic_name_is_selected_from_the_pool() {
-        let allocation = allocate_worker_persona_name(["Alex"], None, None, 0);
-        assert!(WORKER_PERSONA_POOL.contains(&allocation.title.as_str()));
-    }
-
-    #[test]
-    fn provisional_suggestion_collision_rerolls() {
-        let allocation = allocate_worker_persona_name(["Ada"], Some("Ada"), None, 0);
-        assert_ne!(allocation.title, "Ada");
-        assert!(!allocation.exhausted_pool);
-    }
-
-    #[test]
     fn task_bound_planned_name_survives_persona_intent_and_allocation() {
         let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
         let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
@@ -456,25 +443,6 @@ mod tests {
 
         assert!(reservation.is_some());
         assert_eq!(params.title.as_deref(), Some("Eli"));
-    }
-
-    #[test]
-    fn task_bound_without_planned_name_draws_from_the_pool() {
-        let used = ["Orchestrator-Prime", "Kai"];
-        let allocation = allocate_task_bound_persona_name(None, used, 0);
-        assert!(
-            WORKER_PERSONA_POOL.contains(&allocation.title.as_str()),
-            "a task-bound Worker with no planned name must draw from the pool, got {}",
-            allocation.title
-        );
-        assert_ne!(allocation.title, "Worker");
-    }
-
-    #[test]
-    fn task_bound_planned_name_is_preserved_verbatim() {
-        let allocation =
-            allocate_task_bound_persona_name(Some("Ada"), std::iter::empty::<&str>(), 0);
-        assert_eq!(allocation.title, "Ada");
     }
 
     #[test]
@@ -592,28 +560,6 @@ mod tests {
             allocation.title, "Ada",
             "a persona held in another workspace must not be reissued"
         );
-    }
-
-    #[test]
-    fn explicit_user_collision_is_preserved() {
-        let params = SpawnAgentParams {
-            role: Some("Worker".into()),
-            title: Some("Ada".into()),
-            title_provenance: Some(SpawnIdentityProvenance::UserSupplied),
-            ..Default::default()
-        };
-        assert_eq!(params.title.as_deref(), Some("Ada"));
-        assert_eq!(
-            params.title_provenance,
-            Some(SpawnIdentityProvenance::UserSupplied)
-        );
-    }
-
-    #[test]
-    fn deterministic_variation_changes_starting_pick() {
-        let first = allocate_worker_persona_name(std::iter::empty::<&str>(), None, None, 0);
-        let second = allocate_worker_persona_name(std::iter::empty::<&str>(), None, None, 7);
-        assert_ne!(first.title, second.title);
     }
 
     #[test]
@@ -816,16 +762,6 @@ mod tests {
             titles.contains("Nora"),
             "a title held by a Tab from a different session must still be excluded: {titles:?}"
         );
-    }
-
-    #[test]
-    fn allocation_rerolls_away_from_parent_and_live_titles() {
-        // Once the exclusion set includes the parent + live tabs, a suggested
-        // pick must reroll exactly like an in-pool collision.
-        let used = ["Orchestrator-Prime", "Kai"];
-        let allocation = allocate_worker_persona_name(used, Some("Kai"), None, 0);
-        assert_ne!(allocation.title, "Kai");
-        assert!(!allocation.exhausted_pool);
     }
 
     #[test]

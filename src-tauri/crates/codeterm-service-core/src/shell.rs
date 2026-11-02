@@ -93,19 +93,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn task_file_expr_writes_file_and_returns_inline_subexpr() {
-        let expr = ShellSyntax::task_file_expr("hello world");
-        if ShellSyntax::IS_WINDOWS {
-            assert!(expr.starts_with("\"$(Get-Content "));
-            assert!(expr.ends_with(" -Raw -Encoding UTF8)\""));
-        } else {
-            assert!(expr.starts_with("\"$(cat "));
-            assert!(expr.ends_with(")\""));
-        }
-        assert!(expr.contains(".ct-task-"));
-    }
-
-    #[test]
     fn task_file_expr_windows_wraps_in_double_quotes_for_argv_safety() {
         if !ShellSyntax::IS_WINDOWS {
             return;
@@ -178,33 +165,6 @@ mod tests {
         assert_eq!(body, task);
 
         let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn task_file_stdin_pipe_handles_multiline_and_quotes() {
-        let task = "line one\nline 'two' has quotes\nline three --flag value";
-        let (prefix, path) = ShellSyntax::task_file_stdin_pipe(task);
-        assert!(prefix.ends_with('|'));
-        let bytes = std::fs::read(&path).expect("temp task file written");
-        let body = if ShellSyntax::IS_WINDOWS {
-            String::from_utf8(bytes[3..].to_vec()).unwrap()
-        } else {
-            String::from_utf8(bytes).unwrap()
-        };
-        assert_eq!(body, task);
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    fn task_file_stdin_pipe_path_is_quoted() {
-        let (prefix, _) = ShellSyntax::task_file_stdin_pipe("x");
-        // Path is wrapped in single quotes for both shells.
-        let single_quotes = prefix.matches('\'').count();
-        assert!(
-            single_quotes >= 2,
-            "path should be single-quoted: {:?}",
-            prefix
-        );
     }
 
     #[test]

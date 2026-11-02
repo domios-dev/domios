@@ -2,7 +2,7 @@ use super::store_rows;
 use super::store_sync::{self, RowWrites, StoredStrides};
 use super::{Plan, PlanError, Spec};
 use parking_lot::Mutex;
-use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use std::path::PathBuf;
 
 /// `PRAGMA user_version` of the 1.18 row schema; older databases are converted once on open.
@@ -75,7 +75,7 @@ impl PlanDatabase {
             std::fs::create_dir_all(parent).map_err(io_error)?;
         }
         let mut connection = if path.exists() {
-            Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+            Connection::open(&path)
         } else {
             Connection::open_in_memory()
         }
@@ -84,14 +84,20 @@ impl PlanDatabase {
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
-        create_schema(&connection).map_err(db_error)?;
         connection
+            .pragma_update(None, "journal_mode", "WAL")
+            .map_err(db_error)?;
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        create_schema(&transaction).map_err(db_error)?;
+        transaction
             .pragma_update(None, "user_version", SCHEMA_VERSION)
             .map_err(db_error)?;
+        transaction.commit().map_err(db_error)?;
         connection
             .execute_batch(
-                "PRAGMA journal_mode = WAL;
-                 PRAGMA synchronous = NORMAL;
+                "PRAGMA synchronous = NORMAL;
                  PRAGMA foreign_keys = ON;",
             )
             .map_err(db_error)?;
@@ -274,6 +280,46 @@ impl PlanDatabase {
             );
         }
         result
+    }
+
+    pub(super) fn prepare_fixture_plans(
+        plans: &[Plan],
+    ) -> Result<Vec<store_rows::PlanRows>, PlanError> {
+        plans
+            .iter()
+            .map(|plan| {
+                i64::try_from(plan.updated_at).map_err(|_| {
+                    PlanError::Io("Fixture plan timestamp exceeds SQLite integer range".into())
+                })?;
+                for task in &plan.tasks {
+                    i64::try_from(task.updated_at).map_err(|_| {
+                        PlanError::Io("Fixture task timestamp exceeds SQLite integer range".into())
+                    })?;
+                }
+                let rows = store_rows::split_plan(serde_json::to_value(plan).map_err(json_error)?)
+                    .map_err(PlanError::Io)?;
+                store_rows::validate_row_sizes(&rows).map_err(PlanError::InvalidPlanText)?;
+                Ok(rows)
+            })
+            .collect()
+    }
+
+    pub(super) fn persist_fixture_plans(
+        &self,
+        plans: &[Plan],
+        rows: &[store_rows::PlanRows],
+    ) -> Result<(), PlanError> {
+        if plans.len() != rows.len() {
+            return Err(PlanError::Io("Fixture plan row count mismatch".into()));
+        }
+        let mut connection = self.connection.lock();
+        let transaction = connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        for (plan, rows) in plans.iter().zip(rows) {
+            upsert_plan(&transaction, plan, rows)?;
+        }
+        transaction.commit().map_err(db_error)
     }
 
     pub(super) fn persist_spec(&self, spec: &Spec) -> Result<PathBuf, PlanError> {
@@ -524,5 +570,6 @@ mod schema_tests;
 #[cfg(test)]
 mod snapshot_check;
 mod startup_queries;
+pub(in crate::service_plan) mod task_page_queries;
 #[cfg(test)]
 mod tests;

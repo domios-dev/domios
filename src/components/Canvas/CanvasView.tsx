@@ -23,7 +23,7 @@ import { DEFAULT_CANVAS_SETTINGS } from "./settings";
 import { nextWorld, worldThresholds, type World } from "./worlds";
 import { assignedTaskIdsForTab } from "./planOpenFocus";
 import { filterPlansForCanvas } from "./planTabMatch";
-import { useCanvasPlans, usePlanDataContextKey } from "./PlansProvider";
+import { usePlanDataContextKey, usePlanIndex } from "./PlansProvider";
 import { canvasFocusStore, useCanvasWorkspaceTarget } from "./canvasFocusStore";
 import { isTagFilterActive, taskMatchesTagFilter, toggleTagFilter, type TagFilterSelection } from "./tagModel";
 import type { PlanGhostModel } from "./canvasView/models";
@@ -929,11 +929,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
   const teamId = mode === "workspace" ? workspaceTarget?.teamId : undefined;
   const scopeWorkspaceId =
     mode === "workspace" ? workspaceId ?? state.active_workspace_id ?? undefined : undefined;
-  const { plans: livePlans, loading, reconnecting, error, refetch } = useCanvasPlans(
-    mode,
-    projectPath,
-    { workspaceId: scopeWorkspaceId, workspaces: state.workspaces, teams: state.teams },
-  );
+  const { index: planIndex, loading, reconnecting, error, refetch } = usePlanIndex();
   // Dev harness: real exported plan, or a synthetic N-task plan, when flagged.
   const perfN = perfFixtureCount();
   const perfProfile = perfFixtureProfile();
@@ -956,8 +952,8 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
             : buildPerfFixturePlans(perfN);
   }, [fixtureActive, useReal, perfProfile, perfN]);
   const plans = useMemo(
-    () => (fixtureActive ? selectCanvasPlans(livePlans, fixturePlans, requestedPlanId) : livePlans),
-    [fixtureActive, fixturePlans, livePlans, requestedPlanId],
+    () => (fixtureActive ? selectCanvasPlans(EMPTY_PLANS, fixturePlans, requestedPlanId) : EMPTY_PLANS),
+    [fixtureActive, fixturePlans, requestedPlanId],
   );
   // (the live-tab gate filters real plans correctly; this only feeds the demo plan).
   const tabs = useMemo(() => {
@@ -985,6 +981,7 @@ export function CanvasView({ mode, workspaceId, planId, orchestratorTabId, focus
       key={planDataContextKey}
       mode={mode}
       plans={plans}
+      planIndex={fixtureActive ? undefined : planIndex}
       loading={loading}
       reconnecting={reconnecting}
       error={error}

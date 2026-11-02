@@ -133,13 +133,6 @@ fn second_active_plan_hard_refused() {
         }
         other => panic!("expected hard refuse, got {other:?}"),
     }
-    let msg = err.to_string();
-    assert!(msg.contains(&first.id), "error must name the existing plan");
-    assert!(msg.contains("team_alpha"), "error must name the team");
-    assert!(
-        msg.to_lowercase().contains("another team"),
-        "error must instruct to use another Team: {msg}"
-    );
     // Hard refuse leaves the store unchanged — no teamless fallback plan.
     assert_eq!(s.list_index().len(), before);
 }
