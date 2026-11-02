@@ -2,39 +2,39 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { dcJson } from "../lib/env.mjs";
 import { workerBrief } from "../lib/fixtures.mjs";
-import { bindFixtureSession, promoteFixtureOrchestrator } from "../lib/setup.mjs";
+import { promoteFixtureOrchestrator } from "../lib/setup.mjs";
+import { connectFixture, installFixture } from "../lib/fixture-control.mjs";
 import { attemptBindingVerdict, findTask, isChatBackend, taskVerdict } from "../lib/oracle.mjs";
 import { readTab, waitReady, withEvents } from "../lib/tabs.mjs";
 import { JourneyFailure, anyOf, observe, touchesPlan, touchesTab } from "../lib/wait.mjs";
 
 const firstTab = (value) => (Array.isArray(value) ? value[0] : value?.tabs?.[0] ?? value);
 
-// A shell-tab Orchestrator keeps review deterministic: a live LLM Orchestrator would race the bench's verdicts.
-async function orchestratorFixture(ctx, provider) {
+async function orchestratorFixture(ctx) {
   const { workspace, run } = ctx.state;
-  const created = await dcJson(["tab", "new", "--workspace", workspace.id, "--cwd", workspace.cwd,
-    "--title", "cjorch", "--no-team", "--eager"]);
+  const provider = await installFixture(ctx);
+  const created = await dcJson(["agent", "spawn", provider, "--workspace", workspace.id, "--cwd", workspace.cwd,
+    "--title", "cjorch", "--non-user-facing", "--description", "Deterministic Plan credential fixture", "--model", "control"]);
   const id = created?.tab_id ?? created?.id;
-  if (!id) throw new JourneyFailure(`tab new returned no id: ${JSON.stringify(created)}`);
-  const session = `cj-orch-${run}`;
-  ctx.state.j3 = { orchestrator: id, orchestrator_session: session, orchestrator_provider: provider };
-  ctx.state.tabs.push({ id, journey: "J3", role: "fixture_orchestrator", shell: true });
+  if (!id) throw new JourneyFailure(`fixture agent spawn returned no id: ${JSON.stringify(created)}`);
+  Object.assign(ctx.state.j3, { orchestrator: id, orchestrator_provider: provider });
+  ctx.state.tabs.push({ id, journey: "J3", role: "fixture_orchestrator", control_fixture: true });
   ctx.save();
-  await bindFixtureSession(ctx, id, session, provider);
-  await promoteFixtureOrchestrator(id);
+  await connectFixture(ctx);
+  await promoteFixtureOrchestrator(id, ctx.fixtureCommand);
   const team = firstTab(await dcJson(["tab", "inspect", "--tab", id]))?.team_id;
   if (!team) throw new JourneyFailure("set-orchestrator minted no Team");
   ctx.state.j3.team = team;
   ctx.state.teams.push({ leg: "fixture", id: team, orchestrator: id });
-  const plan = await dcJson(["plan", "create", "--title", `core-journeys-${run}`, "--project", workspace.cwd], { asTab: id });
+  const plan = await ctx.fixtureCommand(["plan", "create", "--title", `core-journeys-${run}`, "--project", workspace.cwd]);
   ctx.state.j3.plan = plan?.plan?.id ?? plan?.id;
   ctx.state.plans.push(ctx.state.j3.plan);
   const body = join(ctx.out, "worker-brief.txt");
   writeFileSync(body, workerBrief(run));
-  const task = await dcJson(["plan", "task", "add", ctx.state.j3.plan, "--name", `Journey probe ${run}`,
+  const task = await ctx.fixtureCommand(["plan", "task", "add", ctx.state.j3.plan, "--name", `Journey probe ${run}`,
     "--executor-role", "journey-probe", "--personality", "Probe", "--role-guidance", "Read-only release journey probe",
     "--criterion", "Worker acknowledges and reports in_review", "--test-plan", "none: read-only probe",
-    "--execution-intent", "non_repository", "--body-file", body], { asTab: id });
+    "--execution-intent", "non_repository", "--body-file", body]);
   ctx.state.j3.task = findTask(task)?.id ?? task?.task?.id ?? task?.id;
   ctx.save();
   return ctx.state.j3;
@@ -55,7 +55,7 @@ function waitTask(ctx, want, label, deadlineMs = ctx.deadlines.report) {
 
 export async function review(ctx, verb, note) {
   const { plan, task, orchestrator } = ctx.state.j3;
-  const call = () => (ctx.command ?? dcJson)(["plan", "review", verb, plan, task, "--note", note], { asTab: orchestrator });
+  const call = () => (ctx.command ?? ctx.fixtureCommand)(["plan", "review", verb, plan, task, "--note", note], { asTab: orchestrator });
   return verb === "bounce" ? ctx.policy.send(ctx.state.j3.worker, call) : call();
 }
 
@@ -63,7 +63,7 @@ export async function journeyThree(ctx, provider) {
   const check = (name, body) => ctx.check("J3", name, provider?.id ?? "none", body);
   const fixture = await check("fixture_orchestrator_plan", async () => {
     if (!provider) throw new JourneyFailure("no installed provider runs without a PTY (agent_runtime/chat_backend)");
-    const value = await orchestratorFixture(ctx, provider.id);
+    const value = await orchestratorFixture(ctx);
     return { summary: `plan ${value.plan} task ${value.task}`, evidence: value };
   });
   if (!fixture) return;
@@ -120,11 +120,12 @@ export async function journeyThreeAfterRestart(ctx) {
     if (verdict.fail) throw new JourneyFailure(verdict.fail, { task_binding: record.task_binding });
     return { summary: `attempt ${verdict.done.attempt_id}`, evidence: verdict.done };
   });
-  await check("fixture_orchestrator_rebind", async () => {
-    await bindFixtureSession(ctx, j3.orchestrator, j3.orchestrator_session, j3.orchestrator_provider);
-    return "fixture Orchestrator session rebound";
+  const rebound = await check("fixture_orchestrator_rebind", async () => {
+    const runner = await connectFixture(ctx, { restored: true });
+    await ctx.fixtureCommand(["plan", "rebind", j3.plan]);
+    return { summary: "fixture resumed with a fresh scoped launch environment", evidence: runner };
   });
-  if (!bound) return;
+  if (!bound || !rebound) return;
   const rechecked = await bounceAndReport(ctx, (name, body) => ctx.check("J3", name, j3.worker, body), "restored_bounce_then_report");
   if (!rechecked) return;
   await ctx.check("J3", "review_accept_done", j3.worker, async () => {
@@ -135,7 +136,7 @@ export async function journeyThreeAfterRestart(ctx) {
 }
 
 export function dispatchWorker(ctx, provider, plan, task, orchestrator, workspace) {
-  return ctx.policy.launch(provider, "J3-dispatch", (model) => (ctx.command ?? dcJson)(["plan", "task", "dispatch", plan, task,
+  return ctx.policy.launch(provider, "J3-dispatch", (model) => (ctx.command ?? ctx.fixtureCommand)(["plan", "task", "dispatch", plan, task,
     "--agent", provider, "--model", model, "--workspace", workspace.id, "--cwd", workspace.cwd,
     "--execution-intent", "read_only"], { asTab: orchestrator }));
 }

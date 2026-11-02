@@ -26,7 +26,7 @@ printf '%s\n' '[api]' 'token = "wrong-config-token"' > "$FIXTURE/home/.domios-de
 cat > "$FIXTURE/home/.domios-dev/bin/codeterm" <<'CLI'
 #!/usr/bin/env bash
 if [ "${1:-}" = identify ] && [ "${2:-}" = --json ]; then
-  printf '{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7686,"socket_path":"domios-dev.sock","instance":null}}\n' \
+  printf '{"result":{"connection":{"data_dir":"%s","host":"127.0.0.1","port":7686,"socket_path":"domios-dev.sock","instance":null}}}\n' \
     "$HOME/.domios-dev"
   exit 0
 fi
