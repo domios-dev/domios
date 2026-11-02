@@ -2,10 +2,12 @@ import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { UpdateAvailabilitySnapshot } from "../../lib/updateAvailability";
+import type { FrontendReleaseSummary } from "../../lib/frontendUpdate/releaseNotes";
 import { UPDATE_INTENT_KEY } from "../../lib/updatePanelModel";
 import { MultiplexerActionsContext, type MultiplexerActionsContextType } from "../../store/multiplexer/context";
 
 const fake = vi.hoisted(() => ({
+  summary: null as FrontendReleaseSummary | null,
   offer: null as { releaseId: string; version: string } | null, check: vi.fn(), install: vi.fn(), plugin: vi.fn(), accept: vi.fn(), hold: vi.fn(),
   availabilityChanged: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null,
   native: {
@@ -21,6 +23,9 @@ vi.mock("../../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.
 vi.mock("../../lib/frontendUpdate/browser", () => ({
   acceptFrontendUpdate: fake.accept, setFrontendUpdateHeld: fake.hold,
   frontendUpdateOffer: () => fake.offer, subscribeFrontendUpdateOffer: () => () => {},
+}));
+vi.mock("../../lib/frontendUpdate/releaseNotes", () => ({
+  appliedFrontendRelease: () => fake.summary, subscribeAppliedFrontendRelease: () => () => {},
 }));
 vi.mock("../../lib/bridge", () => ({ listen: async (_event: string, handler: typeof fake.availabilityChanged) => {
   fake.availabilityChanged = handler;
@@ -46,6 +51,7 @@ const snapshot: UpdateAvailabilitySnapshot = { errors: {}, items: [
 afterEach(() => {
   localStorage.clear();
   fake.offer = null;
+  fake.summary = null;
   fake.native.phase = "idle";
   fake.native.installing = false;
   fake.native.downloadedBytes = 0;
@@ -113,6 +119,27 @@ it("opens grouped offers and the Update all handler persists intent before insta
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
+it("offers a frontend-only update through the single accessible entry without installing the app", async () => {
+  fake.check.mockResolvedValue({ items: [snapshot.items[2]], errors: {} });
+  fake.offer = { releaseId: "frontend-v2.0.0", version: "2.0.0" };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
+    const triggers = host.querySelectorAll<HTMLButtonElement>('button[aria-label="Update"]');
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].getAttribute("aria-description")).toContain("no restart");
+    await act(async () => triggers[0].click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
+    const apply = dialog.querySelector<HTMLButtonElement>('button[aria-label="Update Interface"]')!;
+    expect(apply).not.toBeNull();
+    await act(async () => apply.click());
+    expect(fake.accept).toHaveBeenCalledTimes(1);
+    expect(fake.install).not.toHaveBeenCalled();
+    expect(fake.plugin).not.toHaveBeenCalled();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 it("announces native app phases and shows determinate progress only for known valid bytes", async () => {
   fake.check.mockResolvedValue(snapshot);
   fake.native.installing = true;
@@ -151,7 +178,7 @@ it("announces native app phases and shows determinate progress only for known va
     fake.native.installing = false;
     fake.native.phase = "downloading";
     await render();
-    expect(trigger.getAttribute("aria-description")).toBe("Updates available.");
+    expect(trigger.getAttribute("aria-description")).toContain("restart");
     expect(trigger.querySelector('[role="progressbar"]')).toBeNull();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
@@ -374,5 +401,22 @@ it("keeps completed outcomes reachable after the offers disappear", async () => 
     await act(async () => trigger.click());
     expect(dialog().querySelector('[aria-label="plugin update completed"]')).not.toBeNull();
     expect(dialog().querySelector('progress')).toBeNull();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it("presents the rendered frontend notes in the same entry and a short completion notice", async () => {
+  fake.check.mockResolvedValue({ items: [], errors: {} });
+  fake.summary = { releaseId: "frontend-v2.0.0", version: "2.0.0", notes: "Preserves drafts" };
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
+    const trigger = host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!;
+    expect(trigger.getAttribute("aria-description")).toBe("Updates completed.");
+    await act(async () => trigger.click());
+    const dialog = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
+    expect(dialog.querySelector('[role="status"][aria-label="Interface updated"]')?.textContent).toContain("Preserves drafts");
+    expect(testActions.upsertToast).toHaveBeenCalledWith(expect.objectContaining({ id: "frontend-update-completed", body: "What’s new: Preserves drafts" }));
+    expect(fake.install).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

@@ -1,5 +1,5 @@
 import { memo, useCallback } from "react";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { contextMeter } from "./composerModels";
 
 export const ComposerContextMeter = memo(function ComposerContextMeter({ tabId }: { tabId: string }) {

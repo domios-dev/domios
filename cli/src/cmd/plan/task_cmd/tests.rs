@@ -552,7 +552,7 @@ fn assigned_only_attempt_labels_each_timestamp() {
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=xhigh session_model=gpt-runtime\n  assigned_at=100 acknowledged_at=none reported_at=none closed_at=none\n",
+        "attempt_id=attempt-assigned executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=xhigh session_model=gpt-runtime\n  assigned_at=100 acknowledged_at=- reported_at=- closed_at=-\n",
     );
 }
 
@@ -570,7 +570,7 @@ fn acknowledged_in_progress_attempt_separates_ack_from_assignment() {
             "reported_at": null,
             "closed_at": null,
         }),
-        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=none closed_at=none\n",
+        "attempt_id=attempt-acknowledged executor_tab_id=tab-worker status=assigned provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=- closed_at=-\n",
     );
 }
 
@@ -588,7 +588,7 @@ fn reported_partial_attempt_separates_report_from_ack() {
             "reported_at": 120,
             "closed_at": null,
         }),
-        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=none\n",
+        "attempt_id=attempt-partial executor_tab_id=tab-worker status=partial provider=codex model=gpt-test requested_model=- provider_resolved_model=- reasoning_effort=- session_model=-\n  assigned_at=100 acknowledged_at=110 reported_at=120 closed_at=-\n",
     );
 }
 
@@ -661,6 +661,7 @@ fn attempts_json_returns_explicit_timestamp_fields_unchanged() {
 fn attempt_detail_labels_dispatched_and_session_models() {
     let rendered = render_attempt(&json!({
         "attempt": {
+            "acknowledged_at": 731,
             "provider": "codex",
             "model": "gpt-6-luna",
             "requested_model": "gpt-6-luna",
@@ -677,6 +678,7 @@ fn attempt_detail_labels_dispatched_and_session_models() {
     }));
 
     assert!(rendered.contains("provider: codex\n"), "{rendered}");
+    assert!(rendered.contains("acknowledged_at: 731\n"), "{rendered}");
     assert!(rendered.contains("model: gpt-6-luna\n"), "{rendered}");
     assert!(
         rendered.contains("requested_model: gpt-6-luna\n"),

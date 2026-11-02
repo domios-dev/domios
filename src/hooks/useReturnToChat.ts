@@ -1,6 +1,6 @@
 import { setClientTabUiMode } from "../lib/clientTabUiMode";
 import { activateReturnToChat, type ReturnTo } from "../lib/returnTo";
-import { useMultiplexer } from "../store/multiplexer";
+import { useMultiplexer } from "../store/multiplexer/hooks";
 import { useMuxStateStore } from "../store/multiplexer/selectorStore";
 import { canvasFocusStore } from "../components/Canvas/canvasFocusStore";
 

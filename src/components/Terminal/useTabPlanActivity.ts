@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabsRecordEqual } from "../../store/multiplexer/selectors";
 import { useSidebarPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { activeWorkForTab, selectActiveWork } from "../Canvas/planView/activeWork";

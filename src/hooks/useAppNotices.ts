@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useMultiplexer } from "../store/multiplexer";
+import { useMultiplexer } from "../store/multiplexer/hooks";
 import { connectNoticeToasts, publishNotice } from "../lib/notices";
 import { checkBuildMismatch, installBuildDriftTriggers, onMismatch, type BuildMismatch } from "../lib/buildMismatchGuard";
 import { reloadInterface } from "../lib/serviceWorkerRegistration";

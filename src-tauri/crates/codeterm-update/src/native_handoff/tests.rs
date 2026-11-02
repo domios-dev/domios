@@ -122,6 +122,53 @@ fn handoff() -> NativeUpdateHandoff {
     handoff
 }
 
+#[test]
+fn installer_refusal_survives_relaunch_with_holder_details() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut record = handoff();
+    record.target_version = Some("1.18.3".into());
+    record.advance(NativeUpdateApplyPhase::Relaunching).unwrap();
+    let message = "Install-file holder editor.exe (PID 735)";
+    std::fs::write(
+        installer_refusal::path(dir.path()),
+        format!(
+            "\u{feff}{}",
+            serde_json::json!({ "target_version": "1.18.3", "message": message })
+        ),
+    )
+    .unwrap();
+    assert!(installer_refusal::recover(dir.path(), &mut record).unwrap());
+    assert_eq!(record.terminal_cause.as_deref(), Some(message));
+    assert_eq!(
+        record.result.phase,
+        NativeUpdateApplyPhase::Failed {
+            message: message.into()
+        }
+    );
+    let ready = ready_for(&record.request);
+    let connection = record.result.connection.clone();
+    assert!(!record.recover("1.18.2", "old-build", &connection, &ready));
+    assert_eq!(record.terminal_cause.as_deref(), Some(message));
+}
+
+#[test]
+fn installer_refusal_ignores_other_targets_and_terminal_operations_and_bounds_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut record = handoff();
+    record.target_version = Some("1.18.3".into());
+    record.advance(NativeUpdateApplyPhase::Relaunching).unwrap();
+    std::fs::write(
+        installer_refusal::path(dir.path()),
+        br#"{"target_version":"1.18.2","message":"stale"}"#,
+    )
+    .unwrap();
+    assert!(!installer_refusal::recover(dir.path(), &mut record).unwrap());
+    std::fs::write(installer_refusal::path(dir.path()), vec![b' '; 8193]).unwrap();
+    assert!(installer_refusal::recover(dir.path(), &mut record).is_err());
+    record.advance(NativeUpdateApplyPhase::NoUpdate).unwrap();
+    assert!(!installer_refusal::recover(dir.path(), &mut record).unwrap());
+}
+
 fn replacement(record: &NativeUpdateHandoff) -> (NativeHostConnection, ServerReady) {
     let mut ready = ready_for(&record.request);
     ready.epoch = "replacement-epoch".into();

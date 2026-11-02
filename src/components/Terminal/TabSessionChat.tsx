@@ -1,4 +1,6 @@
 import { DEV_BUILD } from "../../lib/devBuild";
+import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
+import { tabActivity } from "../../lib/tabActivity";
 import { createNoticePublisher } from "../../lib/notices";
 import { useLatestCallback } from "../../hooks/useLatestCallback";
 import { useChatTabNameResolver } from "./useChatTabNameResolver";
@@ -37,7 +39,7 @@ import {
 import { ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import {
   tabAgentTypesEqual,
   tabFieldsEqual,
@@ -251,7 +253,11 @@ function TabSessionChatBody({
   const effectiveChatBackend = chatBackend || chatBacking !== null;
   const watcherSpec = tab?.watcher ?? null;
   const isWatcherTab = watcherSpec != null;
-  const pendingPrompt: PendingPrompt | null = manualPendingPrompt(tab);
+  const promptLifecycle = useProviderPromptLifecycle(tab);
+  const pendingPrompt: PendingPrompt | null = manualPendingPrompt(promptLifecycle.tab);
+  const composerActivity = promptLifecycle.resolved
+    ? tabActivity(promptLifecycle.tab, agentActivity.status === "Waiting" ? null : agentActivity.status)
+    : agentActivity;
   const descriptor = getAgentDescriptor(tabProvider);
   const promptAnswers = descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
@@ -480,6 +486,7 @@ function TabSessionChatBody({
       if (pendingPrompt && !structuredPrompts) setAnsweredPromptQuestion(pendingPrompt.question);
       try {
         await invoke("mux_respond_prompt", promptResponseArgs(tabId, value, pendingPrompt, tab?.pending_prompt_kind ?? "structured"));
+        promptLifecycle.resolve(promptLifecycle.key);
       } catch (error) {
         setAnsweredPromptQuestion(null);
         showComposerError(error instanceof Error ? error.message : String(error));
@@ -488,7 +495,7 @@ function TabSessionChatBody({
         promptResponseInFlight.current = false;
       }
     },
-    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError],
+    [pendingPrompt, structuredPrompts, tabId, tab?.pending_prompt_kind, showComposerError, promptLifecycle.key, promptLifecycle.resolve],
   );
   // input path the composer uses; jump surfaces the live terminal output.
   const handleRerunShellCommand = useLatestCallback((command: string) => {
@@ -1073,7 +1080,7 @@ function TabSessionChatBody({
       <div className="ct-composer-status w-full">
         <AgentStateIndicator
           tab={tab}
-          activity={agentActivity}
+          activity={composerActivity}
           activeTool={allMessages.find((message) => message.type === "tool_call" && message.toolStatus === "running")}
           runtimeState={runtime.state}
           showActivity={setupView.kind === "none" && !chatLoading}

@@ -969,6 +969,7 @@ pub async fn send_text(
     })
     .await?;
     record_push_activity(&state, &svc_token_match, &tab_id, &raw_text);
+    let delivery = state.svc.public_delivery_receipt(&tab_id, delivery);
     use codeterm_service_core::service::messenger::Delivery;
     let (delivery_state, send_id, bytes_written) = match delivery {
         Delivery::Pending { delivery_id } => ("pending", Some(delivery_id), false),

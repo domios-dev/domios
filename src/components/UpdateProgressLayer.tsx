@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useUpdate } from "../hooks/useUpdate";
-import { useMultiplexer } from "../store/multiplexer";
+import { useMultiplexer } from "../store/multiplexer/hooks";
 import { createNoticePublisher } from "../lib/notices";
 import { updateNotice } from "../lib/updateNotice";
 import { updatePresentation } from "../lib/updatePresentation";

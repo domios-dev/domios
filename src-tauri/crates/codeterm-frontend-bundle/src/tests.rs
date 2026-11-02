@@ -28,6 +28,18 @@ fn claims() -> BTreeMap<String, String> {
 }
 
 #[test]
+fn release_notes_are_bounded_and_signature_protected() {
+    let mut manifest = fixture();
+    manifest.release_notes = Some("Interface changes".into());
+    let canonical = manifest.canonical_bytes().unwrap();
+    let value: serde_json::Value = serde_json::from_slice(&canonical).unwrap();
+    assert_eq!(value["releaseNotes"], "Interface changes");
+    assert!(manifest::verify_metadata(&canonical, SIGNATURE, PUBLIC_KEY, 2, false).is_err());
+    manifest.release_notes = Some("x".repeat(4097));
+    assert!(manifest.canonical_bytes().is_err());
+}
+
+#[test]
 fn frontend_bundle_compatibility_inclusive_api_range() {
     let mut manifest = fixture();
     assert!(manifest.compatible(2));

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { SurfaceTabView } from "./SurfaceTabView";
 import { useSurfaceDecl } from "../Surface/useSurfaceDecl";
 import { workspaceIdOfTab } from "../../lib/surfaceTab";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import type { ApiConfig, SurfaceTabBacking, Tab } from "../../lib/types";
 
 interface SurfaceTabHostProps {

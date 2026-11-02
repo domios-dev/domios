@@ -127,14 +127,20 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
 |---|---|
 | J1 | Per installed provider: spawn reaches `agent_ready`; an exact marker reply arrives as a new assistant item in the tab's own `/chat` with the same bound session and idle status; a long turn reaches `working`, `tab stop` returns `stopped:true` and the tab returns to idle on the same session. Providers that run without a PTY (`agent_runtime`) also answer after a ~320 KiB filler turn. |
 | J2 | `POST /api/orchestration/new` with exactly the dialog's body and no caller claim creates a Team whose Orchestrator and Planner reach ready. Then, in the DEV window, with a Manager tab and then a chat_backend Worker tab selected (`tab focus`, proven by its visible pane), the Start-a-session dialog in Team mode (PTY provider, then runtime provider) closes without an alert and a new two-member Team reaches ready. |
-| J3 | A shell-tab Orchestrator fixture (bound session, `set-orchestrator`) creates a Plan and a read-only task and dispatches it to a runtime provider. The Worker's backing is `chat_backend`; the attempt is acknowledged; the task reaches `in_review` with a report; `review bounce` is delivered and answered with a newer report. After the restart: bounce again, newer report, `review accept` reaches `done`. |
+| J3 | A deterministic control provider, launched through the normal provider lifecycle, creates a Plan and a read-only task using its own scoped launch credential and dispatches to the selected real runtime provider. The Worker's backing is `chat_backend`; the attempt is acknowledged; the task reaches `in_review` with a report; `review bounce` is delivered and answered with a newer report. After restart the control provider resumes, reacquires its scoped launch environment, rebinds the Plan, bounces again and accepts a newer report. |
 | J4 | The listener PID and kernel start time changed. Every agent tab recorded before the restart reaches ready with the same session, backing and `task_binding.attempt_id`; the restored Worker's attempt id is the task's current attempt; J1 tabs and the J2 Manager answer a new exact marker on their restored session. |
 
-A deterministic shell-tab Orchestrator owns J3's review verdicts because a live
-Orchestrator would race the bench on the Worker's reports. Its SessionStart hook
-names the selected installed provider explicitly and carries this tab's launch
-nonce, as a provider hook does. The fixture reads back the provider, session and
-acknowledged nonce before creating its plan, and repeats that proof after restart.
+A run-specific control provider owns J3's review verdicts so model-driven
+Orchestrator decisions cannot race the bench. Its ordinary launch/resume path
+supplies a scoped credential kept only in the runner process environment. Its
+SessionStart hook and readback prove its own provider, session and launch nonce.
+Fixed CLI requests enter a private AgentPad queue for that nonce; claiming a
+request precedes execution, and uncertainty never resubmits it. A resumed runner
+uses a new queue generation and never executes the previous launch's requests.
+The fixture is recorded separately from the complete paid-provider roster; every
+real installed provider still requires an explicit model selection. Cleanup
+removes this run's provider after closing its workspace. No fixture credential
+is written to results, state, discovery files or request receipts.
 
 ## Today's BLACKSTAR regressions
 

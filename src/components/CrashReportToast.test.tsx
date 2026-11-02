@@ -12,7 +12,7 @@ const fakes = vi.hoisted(() => ({
   listeners: new Map<string, (event: { payload: unknown }) => void>(),
   update: { status: "up-to-date" as string, latestVersion: "2", error: null as string | null, toastOpen: true, blocking: false, installing: false, dismissUpdateToast: vi.fn(), applyUpdate: vi.fn() },
 }));
-vi.mock("../store/multiplexer", () => ({
+vi.mock("../store/multiplexer/hooks", () => ({
   useMultiplexer: () => ({ upsertToast: fakes.upsert, addNotification: fakes.add, dismissToast: fakes.dismiss }),
   useMuxState: () => ({ workspaces: [], active_workspace_id: null }),
 }));

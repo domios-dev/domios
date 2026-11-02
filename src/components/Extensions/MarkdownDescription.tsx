@@ -4,7 +4,7 @@
  * aren't fetched (a README could beacon arbitrary hosts) — rendered as a caption instead.
  */
 import Markdown from "react-markdown";
-import { MarkdownLink } from "@codeterm/chat-ui";
+import { MarkdownLink } from "@codeterm/chat-ui/MarkdownLink";
 import remarkGfm from "remark-gfm";
 import type { CSSProperties } from "react";
 

@@ -16,7 +16,7 @@ const fixture = vi.hoisted(() => ({
   accept: vi.fn(),
   actions: null as { upsertToast: (toast: Omit<Notification, "timestamp" | "read">) => void; dismissToast: (id: string) => void } | null,
 }));
-vi.mock("../store/multiplexer", () => ({ useMultiplexer: () => fixture.actions }));
+vi.mock("../store/multiplexer/hooks", () => ({ useMultiplexer: () => fixture.actions }));
 vi.mock("../lib/buildMismatchGuard", () => ({
   onMismatch: (listener: typeof fixture.mismatch) => { fixture.mismatch = listener; return () => { fixture.mismatch = null; }; },
   checkBuildMismatch: () => fixture.pendingMismatch ?? Promise.resolve(fixture.initialMismatch), installBuildDriftTriggers: () => () => {},

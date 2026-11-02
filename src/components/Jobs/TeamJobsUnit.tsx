@@ -1,4 +1,4 @@
-import { sentinelStateLabel } from "./JobRow";
+import { sentinelStateLabel } from "./jobRowModel";
 import { Network, Workflow } from "lucide-react";
 import { usePlanPeerContext } from "../Canvas/usePlanPeerContext";
 import { hostAutomationAdapter } from "../Automation/hostAdapter";

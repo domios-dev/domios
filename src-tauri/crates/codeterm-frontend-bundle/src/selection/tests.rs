@@ -12,6 +12,7 @@ fn release(version: &str, min_api: u32, max_api: u32) -> Manifest {
         sha256: "0".repeat(64),
         url: format!("https://example.test/frontend-v{version}.tar.gz"),
         release_id: format!("frontend-v{version}"),
+        release_notes: None,
     }
 }
 

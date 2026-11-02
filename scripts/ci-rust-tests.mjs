@@ -138,7 +138,7 @@ function classify(lane, messages, config) {
 const LISTENER = 'test(/startup::rest_api::tests::/)';
 const jsonCommand = (args) => JSON.parse(execFileSync('cargo-nextest', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, stdio: ['ignore', 'pipe', 'inherit'] }));
 
-// REST API listener lifecycle tests hold real sockets and run as a curated suite (evals/rest-api-listeners), not in CI.
+// Real listener lifecycle fixtures run through evals/rest-api-listeners, outside the unit tier.
 export function executionGroups(selected) {
   const units = selected.filter(test => !test.name.includes('startup::rest_api::tests::'));
   return [{ listener: false, selected: units }].filter((group) => group.selected.length > 0);
@@ -202,12 +202,6 @@ export async function captureCommand(command, args, logPath, env = process.env, 
   }
 }
 
-// Serial confirmation costs longer than the suite, so release runs and non-baseline OSes report parallel timings only.
-// Test duration never fails a run: timeouts catch hangs only, and slow tests surface as warnings.
-export function timingPlan() {
-  return { confirm: false, policy: 'advisory' };
-}
-
 export const SLOW_TEST_WARNING_SECONDS = 0.5;
 
 // Every test above the warning line, slowest first, as one step-summary table.
@@ -219,10 +213,6 @@ export function slowTestReport(entries, mode, runner) {
   const markdown = [`\n### Rust ${mode} tests over ${SLOW_TEST_WARNING_SECONDS} s on ${runner} (${slow.length})\n`,
     '| Seconds | Binary | Test |', '|---:|---|---|', ...rows, ''].join('\n');
   return { count: slow.length, markdown };
-}
-
-export function timingAuditArgs(guard, aloneLog, policy) {
-  return [...guard, ...(aloneLog ? ['--alone', aloneLog] : []), '--policy', policy];
 }
 
 export function requireTestSuccess(result, report, label, { warn = console.log, summary = process.env.GITHUB_STEP_SUMMARY } = {}) {
@@ -240,7 +230,7 @@ export function requireTestSuccess(result, report, label, { warn = console.log, 
 }
 
 
-const tomlConfig = (filter, listener) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
+const tomlConfig = (filter, listener = false) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
 
 // compileOnly builds every lane's test binaries and stops, so a CI step can time compilation apart from the run.
 async function run(mode, { compileOnly = false } = {}) {
@@ -250,7 +240,6 @@ async function run(mode, { compileOnly = false } = {}) {
   if (process.platform === 'linux') process.env.TAURI_CONFIG = TEST_SERVER_RESOURCES;
   const env = { ...process.env, TEST_CAP_SECS: '1800', CODETERM_CONPTY_TEST_ISOLATION: '1' };
   const os = process.env.RUNNER_OS || { win32: 'Windows', darwin: 'macOS', linux: 'Linux' }[process.platform];
-  const plan = timingPlan({ release: process.env.CI_RELEASE_TESTS === 'true', os });
   const start = performance.now();
   const receipt = { mode, os, run_id: process.env.GITHUB_RUN_ID, repository: process.env.GITHUB_REPOSITORY, run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT || 1), producer: process.env.GITHUB_JOB, arch: process.env.RUNNER_ARCH, runner: process.env.RUNNER_NAME, sha: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), executed: 0, exit: 1, seconds: 0 };
   const directory = path.resolve('ci-rust-receipts');
@@ -274,9 +263,9 @@ async function run(mode, { compileOnly = false } = {}) {
       const listArgs = ['--manifest-path', lane.manifest, ...lane.targets, '--locked'];
       const testArgs = (config, alone = false) => runArgs(lane, config, alone);
       const config = path.join(directory, `${mode}-${lane.lane}.toml`);
-      fs.writeFileSync(config, tomlConfig('all()', false));
+      fs.writeFileSync(config, tomlConfig('all()'));
       let scope = mode === 'embeddings' ? 'package(=codeterm-mem) | (package(=codeterm-service-core) & test(/^mem::/))' : 'all()';
-      fs.writeFileSync(config, tomlConfig(scope, false));
+      fs.writeFileSync(config, tomlConfig(scope));
       if (mode === 'platform' && !lane.whole) {
         const rows = classify(lane, messages, config);
         for (const row of rows.filter((r) => r.ignored)) console.log(`[explicit ignore on ${receipt.runner}] ${row.id}: ${row.reason}`);
@@ -284,12 +273,11 @@ async function run(mode, { compileOnly = false } = {}) {
         if (scope === 'none()') continue;
       }
       scope = withOverlayExclusions(scope, OVERLAY, os, lane);
-      fs.writeFileSync(config, tomlConfig(scope, false));
+      fs.writeFileSync(config, tomlConfig(scope));
       const listed = jsonCommand(['nextest', 'list', ...listArgs, '--config-file', config, '--message-format', 'json']);
       const selected = Object.values(listed['rust-suites']).flatMap((suite) => Object.entries(suite.testcases)
         .filter(([, test]) => test['filter-match'].status === 'matches')
         .map(([name]) => ({ binary: suite['binary-id'], name })));
-      // Listener lifecycle cases need a process boundary without concurrent fork holders (#620).
       for (const { listener, selected: group } of executionGroups(selected)) {
         const unitFilter = listener ? LISTENER : `not (${LISTENER})`;
         const filter = `(${scope}) & (${unitFilter})`;
@@ -300,20 +288,8 @@ async function run(mode, { compileOnly = false } = {}) {
         requireTestSuccess(result, report, `Rust tests failed on ${receipt.runner}`);
         receipt.executed += executedCount(report);
         try { timings.push(...parseTimings(report)); } catch (error) { console.log(`[rust-tests] timings unavailable for ${log}: ${error.message}`); }
-        const guard = ['scripts/check-slow-unit-tests.mjs', log, '--base', process.env.SLOW_UNIT_TESTS_BASE || 'origin/develop'];
-        let aloneLog;
-        if (plan.confirm) {
-          const candidatePath = log.replace(/\.log$/, '.candidates');
-          execFileSync(process.execPath, [...guard, '--candidates', candidatePath], { stdio: 'inherit' });
-          const exact = candidateFilter(JSON.parse(fs.readFileSync(candidatePath, 'utf8')), group);
-          if (exact) {
-            aloneLog = log.replace(/\.log$/, '.alone.log');
-            fs.writeFileSync(config, tomlConfig(`(${filter}) & (${exact})`, false));
-            const alone = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config, true)], aloneLog, env);
-            requireTestSuccess(alone, fs.readFileSync(aloneLog, 'utf8'), `Candidate rerun failed on ${receipt.runner}`);
-          }
-        }
-        const audit = await captureCommand(process.execPath, timingAuditArgs(guard, aloneLog, plan.policy), log.replace(/\.log$/, '.audit.log'));
+        const guard = ['scripts/check-slow-unit-tests.mjs', log];
+        const audit = await captureCommand(process.execPath, [...guard, ...(listener ? ['--serial'] : [])], log.replace(/\.log$/, '.audit.log'));
         if (audit.error || audit.status !== 0) throw new Error(`Slow unit ratchet failed on ${receipt.runner}: ${audit.error || audit.status}`);
       }
     }

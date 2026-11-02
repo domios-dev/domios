@@ -7,7 +7,6 @@ macro_rules! doc {
         EmbeddedDoc {
             name: $name,
             purpose: $purpose,
-            source: $path,
             body: include_str!($path),
         }
     };
@@ -16,10 +15,6 @@ macro_rules! doc {
 pub(crate) struct EmbeddedDoc {
     pub name: &'static str,
     pub purpose: &'static str,
-    /// Include path relative to this file — the only link back to the repository
-    /// file, so coverage checks key on provenance rather than guessing from `name`.
-    #[cfg_attr(not(test), allow(dead_code))]
-    pub source: &'static str,
     pub body: &'static str,
 }
 

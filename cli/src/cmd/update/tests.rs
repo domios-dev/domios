@@ -180,10 +180,9 @@ fn install_refusal_decoding_preserves_code_message_and_status() {
 
 #[test]
 fn install_refusal_is_printed_in_human_and_json_modes() {
-    let error = crate::cmd::print::CliError::http(
-        503,
-        r#"{"code":"native_capability_unavailable","message":"Install the official file."}"#,
-    );
+    let message = "Use the desktop app, or domios update install --from-file <official installer>.";
+    let body = serde_json::json!({"code": "native_capability_unavailable", "message": message});
+    let error = crate::cmd::print::CliError::http(409, &body.to_string());
     for json in [false, true] {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
@@ -194,12 +193,15 @@ fn install_refusal_is_printed_in_human_and_json_modes() {
             assert_eq!(envelope["ok"], false);
             assert_eq!(
                 envelope["error"]["message"],
-                "HTTP 503: native_capability_unavailable: Install the official file."
+                format!("HTTP 409: native_capability_unavailable: {message}")
             );
+            assert_eq!(envelope["result"]["code"], "native_capability_unavailable");
+            assert_eq!(envelope["result"]["message"], message);
         } else {
             assert!(stdout.is_empty());
             let text = String::from_utf8(stderr).unwrap();
-            assert!(text.contains("native_capability_unavailable: Install the official file."));
+            assert!(text.contains("native_capability_unavailable"));
+            assert!(text.contains(message));
         }
     }
 }

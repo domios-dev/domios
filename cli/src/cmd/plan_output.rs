@@ -67,7 +67,24 @@ fn plan_list_line(item: &Value) -> String {
 
 fn print_plan_body(val: &Value) {
     if is_list_response(val) && !crate::cmd::output::verbose() {
-        print!("{}", crate::cmd::output::compact_list(val, None));
+        let rendered = crate::cmd::output::compact_list(val, None);
+        if rendered.is_empty() {
+            println!(
+                "{}",
+                val.get("task_list_message")
+                    .and_then(Value::as_str)
+                    .unwrap_or(if val.get("tasks").is_some() {
+                        "(no tasks)"
+                    } else {
+                        "(no plans)"
+                    })
+            );
+        } else {
+            print!("{rendered}");
+        }
+        if let Some(summary) = val.get("task_list_summary").and_then(Value::as_str) {
+            println!("{summary}");
+        }
         return;
     }
     if is_list_response(val) {

@@ -77,6 +77,10 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
         service::test_fixture::ServiceFixture,
     };
     use codeterm_neighbors::permissions::MachineAccess;
+    let shared = ServiceFixture::new(MultiplexerState::new().0);
+    register_neighbor_runtime(&shared.service);
+    shared.install_seeded_storage_desk();
+    let mut shared = Some(shared);
     for (access, sandbox, mode) in [
         (MachineAccess::ReadOnly, Some("read-only"), "opaque-pad"),
         (
@@ -107,20 +111,23 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
             let data_dir = tempfile::tempdir().unwrap();
             let disk_restart = access == MachineAccess::Folder && resumed;
             let fixture = if disk_restart {
-                ServiceFixture::new_at(mux, data_dir.path())
+                let fixture = ServiceFixture::new_at(mux, data_dir.path());
+                register_neighbor_runtime(&fixture.service);
+                fixture.install_seeded_storage_desk();
+                fixture
             } else {
-                ServiceFixture::new(mux)
+                let fixture = shared.take().unwrap();
+                *fixture.service.mux.write() = mux;
+                fixture
             };
             fixture
                 .service
                 .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
             let svc = &fixture.service;
-            register_neighbor_runtime(svc);
             let cwd = data_dir.path().join("friend");
             std::fs::create_dir(&cwd).unwrap();
             svc.mux.write().get_tab_mut(&tab_id).unwrap().cwd =
                 Some(cwd.to_string_lossy().into_owned());
-            fixture.install_seeded_storage_desk();
             let mut params = SpawnAgentParams {
                 agent: Some("pad-runtime".into()),
                 cwd: Some(cwd.to_string_lossy().into_owned()),
@@ -233,6 +240,9 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                     "fresh-thread"
                 })
             );
+            if !disk_restart {
+                shared = Some(fixture);
+            }
         }
     }
 }

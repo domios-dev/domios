@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { probeStateLabel } from "./probeProgress";
-import { sentinelStateLabel } from "../Jobs/JobRow";
+import { sentinelStateLabel } from "../Jobs/jobRowModel";
 import { sourceStage } from "./blueprintModel.testdata";
 
 const stage = sourceStage("watch", { type: "probe" }).nodes[0];

@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { prepareHappyDomBundle } from "./ts-test-dependency-cache.mjs";
+import { prepareTestSources } from "./ts-test-source-cache.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const testWorkerBootstrap = `
@@ -28,7 +29,7 @@ process.on("exit", () => {
   } catch {}
 });
 
-await import(pathToFileURL(process.argv[1]).href);
+await import(pathToFileURL(process.argv[2] || process.argv[1]).href);
 `;
 
 function positiveInteger(value, name) {
@@ -221,6 +222,7 @@ function startWorker({
   spawnProcess,
   trace,
   happyDomBundle,
+  compiledTest,
 }) {
   const logFile = path.join(logDirectory, `${index}.log`);
   const logFd = openSync(logFile, "w");
@@ -242,6 +244,7 @@ function startWorker({
         "--eval",
         testWorkerBootstrap,
         absoluteTestPath,
+        compiledTest,
       ],
       {
         cwd: root,
@@ -460,6 +463,7 @@ export async function runTsUnitTests({
     ? undefined
     : AbortSignal.timeout(suiteTimeoutSeconds * 1_000);
   const happyDomBundle = await prepareHappyDomBundle(root, deadlineSignal);
+  const compiledTests = await prepareTestSources(root, tests, deadlineSignal, env);
   const logDirectory = mkdtempSync(path.join(tmpdir(), "codeterm-ts-unit-"));
   const states = tests.map((testFile, index) => ({
     index,
@@ -503,6 +507,7 @@ export async function runTsUnitTests({
       spawnProcess,
       trace,
       happyDomBundle,
+      compiledTest: compiledTests[state.testFile],
     });
     running.set(index, worker);
     trace(`launched index=${index} active=${running.size} file=${state.testFile}`);
@@ -510,6 +515,9 @@ export async function runTsUnitTests({
   };
 
   const finish = (result) => {
+    if (result.elapsedMs >= 1_000) {
+      writeLine(errorOutput, `${env.CI ? '::warning::' : 'WARNING:'} Unit file over 1s (${jobs === 1 ? 'serial' : 'parallel'}): ${result.testFile} (${result.elapsedMs}ms)`);
+    }
     const state = states[result.index];
     running.delete(result.index);
     state.status = result.status;

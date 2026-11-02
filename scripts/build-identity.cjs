@@ -5,7 +5,9 @@ const path = require("node:path");
 
 function gitExecutable(env = process.env, platform = process.platform) {
   if (platform !== "win32") return "git";
-  const candidates = [env.ProgramFiles, env["ProgramFiles(x86)"]]
+  // A copied env object is case-sensitive; launchers may export PROGRAMFILES instead of ProgramFiles.
+  const read = (name) => env[name] ?? Object.entries(env).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1];
+  const candidates = [read("ProgramFiles"), read("ProgramW6432"), read("ProgramFiles(x86)")]
     .filter(Boolean)
     .map((programFiles) => path.join(programFiles, "Git", "cmd", "git.exe"));
   return candidates.find((candidate) => existsSync(candidate)) ?? "git";

@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer } from "../../store/multiplexer/hooks";
 import { useMuxStateStore } from "../../store/multiplexer/selectorStore";
 import type { ProviderAvailabilityChange } from "../../lib/providerAvailability";
 

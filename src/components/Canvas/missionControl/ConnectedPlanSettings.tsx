@@ -1,4 +1,4 @@
-import { useGuideNavigation } from "@codeterm/chat-ui";
+import { useGuideNavigation } from "@codeterm/chat-ui/GuideDirective";
 import type { ApiConfig } from "../../../lib/types";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import type { PlanControlLoop } from "../planControlLoop";

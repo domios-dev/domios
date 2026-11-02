@@ -179,4 +179,21 @@ impl OwnedProcessTree {
             },
         )
     }
+
+    pub fn wait_for_exit(&self, timeout: Duration) -> io::Result<()> {
+        let deadline = Instant::now() + timeout;
+        for handle in &self.0 {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            if unsafe {
+                WaitForSingleObject(
+                    handle.as_raw_handle(),
+                    remaining.as_millis().min(u128::from(u32::MAX - 1)) as u32,
+                )
+            } != WAIT_OBJECT_0
+            {
+                return Err(io::Error::other("Owned install process tree exit deadline"));
+            }
+        }
+        Ok(())
+    }
 }

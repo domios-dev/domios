@@ -1,4 +1,5 @@
 import { installed, selectProviders } from "./oracle.mjs";
+import { fixtureProviderId } from "./fixture-control.mjs";
 
 const refuse = (reason) => { throw new Error(`model policy refused: ${reason}`); };
 const nonempty = (value) => typeof value === "string" && value.trim() === value && value.length > 0;
@@ -61,16 +62,21 @@ export function generalSelection(config, provider, selected) {
   if (general?.first_run_complete && general.agent_provider !== provider) refuse("conflicting General provider");
 }
 
-export async function freshCatalogue(api, provider, selected, expectedRoster) {
+export async function freshCatalogue(api, provider, selected, expectedRoster, fixture = () => undefined) {
   const refresh = await api("/api/agents/providers/refresh", { method: "POST", body: { provider_id: provider } });
-  const descriptors = await api("/api/agents/providers");
+  const descriptors = (await api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
   if (expectedRoster && !same(descriptors.filter(installed).map((descriptor) => descriptor.id), expectedRoster)) refuse("installed provider roster changed");
   return catalogueSelection(descriptors.find((descriptor) => descriptor.id === provider), selected, refresh);
 }
 
 export async function preparePolicy(ctx, { readRecord, configure = false, required } = {}) {
   const selections = Object.freeze({ ...ctx.options.models });
-  const descriptors = await ctx.api("/api/agents/providers");
+  const fixture = () => {
+    const id = ctx.state.j3?.fixture_provider;
+    if (id && id !== fixtureProviderId(ctx.state.run)) refuse("control fixture identity differs from this run");
+    return id;
+  };
+  const descriptors = (await ctx.api("/api/agents/providers")).filter(descriptor => descriptor.id !== fixture());
   const roster = selectProviders(descriptors, { required });
   if (roster.missing.length) refuse(`required providers missing: ${roster.missing.map((entry) => entry.id).join(",")}`);
   const ids = roster.run.map((provider) => provider.id);
@@ -81,7 +87,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
   if (previous && (!same(previous.roster, ids) || !same(Object.entries(previous.selections).map((entry) => JSON.stringify(entry)), Object.entries(selections).map((entry) => JSON.stringify(entry))))) refuse("persisted restart policy differs from explicit selections or roster");
   if (!configure && !previous) refuse("persisted restart policy absent");
   const catalogues = {};
-  for (const provider of ids) catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), ids);
+  for (const provider of ids) catalogues[provider] = await freshCatalogue(ctx.api, provider, selectedModel(selections, provider), ids, fixture);
   const policy = previous ?? { selections: { ...selections }, roster: ids, catalogues: {}, launches: [], identities: {}, first_sends: {} };
   Object.assign(policy.catalogues, catalogues);
   const config = await ctx.api("/api/config");
@@ -120,7 +126,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
     roster,
     async launch(provider, path, call) {
       const model = selectedModel(selections, provider);
-      const catalogue = await freshCatalogue(ctx.api, provider, model, ids);
+      const catalogue = await freshCatalogue(ctx.api, provider, model, ids, fixture);
       await assertConfiguration(provider);
       policy.catalogues[provider] = catalogue;
       policy.launches.push({ provider, model, path, catalogue, checked_at: new Date().toISOString() });
@@ -132,7 +138,7 @@ export async function preparePolicy(ctx, { readRecord, configure = false, requir
       let record = await readRecord(id);
       const provider = record?.agent_type;
       const selected = selectedModel(selections, provider);
-      policy.catalogues[provider] = await freshCatalogue(ctx.api, provider, selected, ids);
+      policy.catalogues[provider] = await freshCatalogue(ctx.api, provider, selected, ids, fixture);
       await assertConfiguration(provider);
       record = await readRecord(id);
       if (record?.id !== id) refuse(`tab ${id} own identity unavailable`);

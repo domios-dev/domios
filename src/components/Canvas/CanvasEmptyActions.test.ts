@@ -1,5 +1,5 @@
 import type { ApiConfig } from "../../lib/types";
-import { createCanvasPlan } from "./CanvasEmptyActions";
+import { createCanvasPlan } from "./createCanvasPlan";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
