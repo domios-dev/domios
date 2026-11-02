@@ -503,7 +503,7 @@ fn declared_pty_turn_rejects_stale_classifier_idle_and_keeps_stop_available() {
     use crate::service::tab_stop::StopDecision;
 
     let manifest_json = r#"{"id":"opaque-state-provider","version":"0.1.0","displayName":"Fixture",
-        "spawn":{"structuredPromptServer":true,"agentStateStatusReconciliation":true}}"#;
+        "spawn":{"readinessStrategy":{"kind":"fixed_delay","durationMs":0},"taskDelivery":"pty_input","verifySubmit":{"kind":"none"},"structuredPromptServer":true,"agentStateStatusReconciliation":true}}"#;
     let manifest: PluginManifest = serde_json::from_str(manifest_json).unwrap();
     let vm = PluginVm::from_source_with(
         &manifest.id,
