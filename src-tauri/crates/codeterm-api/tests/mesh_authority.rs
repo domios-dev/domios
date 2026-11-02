@@ -329,10 +329,12 @@ async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer
     pair(&target, &source);
     let writes =
         std::sync::Arc::new(fixture.bind_recorded_agent_recipient(&recipient, "session", "nonce"));
+    let _pty = fixture.bind_test_pty_session(&recipient, "session", "nonce");
+    let pty_id = fixture.service.resolve_pty_id(&recipient).unwrap();
     fixture
         .service
         .screen_state
-        .process(&format!("recorded-{recipient}"), b"matrix screen");
+        .process(&pty_id, b"matrix screen");
     let local_token = target
         .svc
         .frontend_pty_env(Some(&local))
@@ -435,10 +437,7 @@ async fn registered_agent_operation_matrix_preserves_owner_local_remote_and_peer
         .await;
         assert_eq!(status, StatusCode::OK, "{kind}: {sent}");
         assert_eq!(sent["ok"], true);
-        let completed = writes.clone();
-        tokio::task::spawn_blocking(move || completed.wait_for_flush())
-            .await
-            .unwrap();
+
         if kind == "peer" {
             let (status, rpc) = request(app.clone(), &token, "POST", "/api/mesh/rpc", json!({
                 "method":"plan.list", "params":{}, "request_id":"trusted-peer-plan-list", "protocol_version":1,
@@ -471,10 +470,12 @@ async fn owner_and_agent_mesh_workflows_reach_the_same_registered_target_routes(
     let writes = std::sync::Arc::new(
         target_fixture.bind_recorded_agent_recipient(&recipient, "session", "nonce"),
     );
+    let _pty = target_fixture.bind_test_pty_session(&recipient, "session", "nonce");
+    let pty_id = target_fixture.service.resolve_pty_id(&recipient).unwrap();
     target_fixture
         .service
         .screen_state
-        .process(&format!("recorded-{recipient}"), b"mesh screen");
+        .process(&pty_id, b"mesh screen");
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let source = state(&source_fixture, "source", 0);
     let target = state(
@@ -544,10 +545,7 @@ async fn owner_and_agent_mesh_workflows_reach_the_same_registered_target_routes(
         )
         .await;
         assert_eq!(sent["ok"], true);
-        let completed = writes.clone();
-        tokio::task::spawn_blocking(move || completed.wait_for_flush())
-            .await
-            .unwrap();
+
         let saved = relay(app.clone(), token, "POST", "/api/mem/items", json!({
             "kind":"fact", "title":format!("mesh-{kind}"), "body":format!("mesh authority {kind}"), "skip_extract":true,
         })).await;

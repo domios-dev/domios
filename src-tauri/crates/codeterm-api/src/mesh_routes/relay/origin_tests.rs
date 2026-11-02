@@ -291,6 +291,7 @@ async fn relay_to_v2_peer_returns_typed_actionable_upgrade_before_sending() {
 async fn todo_review_never_treats_a_relay_without_local_actor_as_the_owner() {
     let (mux, tab) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
+    fixture.install_seeded_storage_desk();
     let state = state(&fixture, "todo-origin");
     let written = state
         .svc
@@ -413,6 +414,10 @@ async fn agent_mesh_send_and_tab_list_succeed_without_owner_authority() {
             axum::routing::get(crate::tab_routes::list_tabs),
         )
         .route("/api/tabs/{id}/send", post(crate::tab_routes::send_text))
+        .route(
+            "/api/tabs/{id}/chat-send",
+            post(crate::tab_routes::chat_send_text),
+        )
         .layer(axum::middleware::from_fn_with_state(
             second.clone(),
             crate::auth::auth_middleware,
@@ -432,6 +437,12 @@ async fn agent_mesh_send_and_tab_list_succeed_without_owner_authority() {
             format!("/api/tabs/{target_tab}/send"),
             json!({"text":"remote-agent-payload"}),
             StatusCode::OK,
+        ),
+        (
+            "POST",
+            format!("/api/tabs/{target_tab}/chat-send"),
+            json!({"text":"remote-chat-refused"}),
+            StatusCode::FORBIDDEN,
         ),
     ] {
         let cmd = RelayCommand {
@@ -463,7 +474,7 @@ async fn agent_mesh_send_and_tab_list_succeed_without_owner_authority() {
         let response = app.clone().oneshot(wire_request(request)).await.unwrap();
         assert_eq!(response.status(), status);
         let body = to_bytes(response.into_body(), 65536).await.unwrap();
-        if method == "POST" {
+        if method == "POST" && status == StatusCode::OK {
             let result: Value = serde_json::from_slice(&body).unwrap();
             assert_eq!(result["ok"], true);
         } else if status == StatusCode::OK {
@@ -476,10 +487,6 @@ async fn agent_mesh_send_and_tab_list_succeed_without_owner_authority() {
         }
         caller.insert("x-codeterm-authenticated-origin", "Owner".parse().unwrap());
     }
-    let recorded = writes.texts.clone();
-    tokio::task::spawn_blocking(move || writes.wait_for_flush())
-        .await
-        .unwrap();
-    assert_eq!(recorded.lock().len(), 1);
-    assert!(recorded.lock()[0].contains("remote-agent-payload"));
+    assert_eq!(writes.texts.lock().len(), 1);
+    assert!(writes.texts.lock()[0].contains("remote-agent-payload"));
 }
