@@ -3,7 +3,6 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
     let (fixture, tab) = queue_fixture(true, None);
-    attach_fixture_pty(&fixture, &tab);
     fixture.service.record_provisional_launch(
         &crate::service::launch_readiness::LaunchAttempt {
             tab_id: tab.clone(),
@@ -25,6 +24,7 @@ async fn late_verified_hook_flushes_held_send_once_without_replaying_written_inp
             Ok(())
         }),
     );
+    attach_fixture_pty(&fixture, &tab);
     fixture.service.drain_user_owner(&tab).unwrap();
     assert_eq!(writes.load(Ordering::SeqCst), 0);
     for _ in 0..2 {

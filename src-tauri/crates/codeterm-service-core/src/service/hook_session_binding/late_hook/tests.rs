@@ -13,6 +13,7 @@ fn deadline_fixture() -> (ServiceFixture, String) {
     tab.agent_session_id = Some("own-session".into());
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.pty_id = Some("own-pty".into());
+    tab.agent_booting = true;
     let fixture = ServiceFixture::new(mux);
     fixture
         .service

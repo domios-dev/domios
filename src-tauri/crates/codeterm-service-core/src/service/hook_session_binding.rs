@@ -159,15 +159,17 @@ pub async fn finish_session_binding(
     };
     log::info!(
         "[delivery-timeline] event=session-binding tab={} provider={} session={} source={} binding_source={} \
-         report_nonce={} current_nonce={} reported_nonce={} nonce_verified={} changed={}",
+         report_nonce_present={} current_nonce_present={} reported_nonce_present={} report_matches_current={} reported_matches_current={} nonce_verified={} changed={}",
         tab_id,
         provider_id,
         sid,
         source,
         crate::service::integration_silence::binding_source_label(binding_source),
-        report_nonce.unwrap_or("-"),
-        current_nonce.as_deref().unwrap_or("-"),
-        reported_nonce.as_deref().unwrap_or("-"),
+        report_nonce.is_some(),
+        current_nonce.is_some(),
+        reported_nonce.is_some(),
+        report_nonce.is_some() && report_nonce == current_nonce.as_deref(),
+        current_nonce.is_some() && current_nonce == reported_nonce,
         claim.nonce_verified,
         claim.changed,
     );

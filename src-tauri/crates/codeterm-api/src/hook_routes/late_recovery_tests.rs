@@ -10,6 +10,7 @@ fn stuck_fixture() -> (ServiceFixture, String) {
     tab.agent_session_id = Some("sid-a".into());
     tab.session_binding_nonce = Some("own-nonce".into());
     tab.pty_id = Some("own-pty".into());
+    tab.agent_booting = true;
     tab.boot_stage = Some(BootStage::LaunchDeadlineElapsed);
     tab.provisional_launch = Some(ProvisionalLaunch {
         pty_id: "own-pty".into(),
@@ -48,6 +49,62 @@ async fn stop_hook_recovers_dropped_session_start_before_returning() {
     assert!(tab.launch_session_authenticated());
 }
 
+#[tokio::test]
+async fn late_hook_refuses_unknown_and_foreign_provider_sessions_with_own_nonce() {
+    for session in ["invented-session", "foreign-session"] {
+        let (fixture, tab_id) = stuck_fixture();
+        tests::register_hook_providers(
+            &fixture.service.agent_registry,
+            vec![("foreign-provider", vec!["foreign-session"])],
+        );
+        let result =
+            codeterm_service_core::service::hook_session_binding::recover_verified_hook_binding(
+                &fixture.service,
+                &tab_id,
+                None,
+                Some(session),
+                Some("own-nonce"),
+            )
+            .await;
+        assert_eq!(result.unwrap_err().0, StatusCode::CONFLICT);
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab_id).unwrap();
+        assert_eq!(tab.agent_session_id.as_deref(), Some("sid-a"));
+        assert_eq!(tab.boot_stage, Some(BootStage::LaunchDeadlineElapsed));
+        assert!(tab.reported_session_binding_nonce.is_none());
+    }
+}
+
+#[tokio::test]
+async fn late_hook_accepts_a_new_session_only_from_its_exact_provider_record() {
+    let (fixture, tab_id) = stuck_fixture();
+    tests::register_hook_providers(
+        &fixture.service.agent_registry,
+        vec![("late-hook-fixture", vec!["sid-a", "sid-b"])],
+    );
+    fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .agent_session_id = None;
+    codeterm_service_core::service::hook_session_binding::recover_verified_hook_binding(
+        &fixture.service,
+        &tab_id,
+        None,
+        Some("sid-b"),
+        Some("own-nonce"),
+    )
+    .await
+    .unwrap();
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.agent_session_id.as_deref(), Some("sid-b"));
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert!(tab.launch_session_authenticated());
+}
+
 struct HookLogs(parking_lot::Mutex<Vec<String>>);
 static HOOK_LOGS: HookLogs = HookLogs(parking_lot::Mutex::new(Vec::new()));
 
@@ -57,7 +114,10 @@ impl log::Log for HookLogs {
     }
     fn log(&self, record: &log::Record<'_>) {
         let line = record.args().to_string();
-        if line.contains("[hook-refusal]") || line.contains("[hook-deferred]") {
+        if line.contains("[hook-refusal]")
+            || line.contains("[hook-deferred]")
+            || line.contains("event=session-binding")
+        {
             let mut lines = self.0.lock();
             if lines.len() < 100 {
                 lines.push(line);
@@ -104,6 +164,26 @@ async fn session_start_refusals_claim_failures_and_deferrals_log_reasons() {
         serde_json::Value::Null,
     )
     .unwrap();
+    assert!(
+        codeterm_service_core::service::hook_session_binding::recover_verified_hook_binding(
+            &fixture.service,
+            &tab_id,
+            None,
+            Some("invented-session"),
+            Some("own-nonce"),
+        )
+        .await
+        .is_err()
+    );
+    codeterm_service_core::service::hook_session_binding::recover_verified_hook_binding(
+        &fixture.service,
+        &tab_id,
+        None,
+        Some("sid-a"),
+        Some("own-nonce"),
+    )
+    .await
+    .unwrap();
     let lines = HOOK_LOGS.0.lock();
     let own_lines: Vec<_> = lines.iter().filter(|line| line.contains(&tab_id)).collect();
     assert!(own_lines.iter().any(|line| line.contains("[hook-refusal]")
@@ -114,4 +194,16 @@ async fn session_start_refusals_claim_failures_and_deferrals_log_reasons() {
         && line.contains("unknown provider_id")));
     assert!(own_lines.iter().any(|line| line.contains("[hook-deferred]")
         && line.contains("reason=transcript_not_materialized")));
+    assert!(own_lines.iter().any(|line| line.contains("[hook-refusal]")
+        && line.contains("reason=session_not_owned_by_launch_provider")));
+    let timeline = own_lines
+        .iter()
+        .find(|line| line.contains("event=session-binding"))
+        .unwrap();
+    assert!(timeline.contains("report_nonce_present=true"));
+    assert!(timeline.contains("current_nonce_present=true"));
+    assert!(timeline.contains("reported_nonce_present=true"));
+    assert!(timeline.contains("report_matches_current=true"));
+    assert!(timeline.contains("reported_matches_current=true"));
+    assert!(!timeline.contains("own-nonce"));
 }
