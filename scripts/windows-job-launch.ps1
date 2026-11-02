@@ -235,7 +235,7 @@ try {
                     $stderrTask = $cliProcess.StandardError.ReadToEndAsync()
                     Assert-Proof ($cliProcess.WaitForExit(15000)) 'Candidate CLI identify exit deadline'
                     $identified = $stdoutTask.GetAwaiter().GetResult() | ConvertFrom-Json
-                    Assert-Proof ($cliProcess.ExitCode -eq 0 -and $identified.ok -ne $false -and $null -ne $identified.result) ('Candidate CLI could not identify the isolated server: ' + $stderrTask.GetAwaiter().GetResult())
+                    Assert-Proof ($cliProcess.ExitCode -eq 0 -and (-not $identified.PSObject.Properties['ok'] -or $identified.ok -ne $false) -and $null -ne $identified.PSObject.Properties['result']) ('Candidate CLI could not identify the isolated server: ' + $stderrTask.GetAwaiter().GetResult())
                     Assert-Proof ($identified.result.cli.build_sha -eq $Build -and $identified.result.connection.instance -eq $instance) 'CLI SHA/instance mismatch'
                 } finally { if (!$cliProcess.HasExited) { $cliProcess.Kill() }; $cliProcess.Dispose() }
                 $rows.Add(@{ case = $case.name; flags = $tree.JobFlags; launcher_exit = 0;
