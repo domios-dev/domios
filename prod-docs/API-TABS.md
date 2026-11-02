@@ -161,7 +161,6 @@ Custom themes are `.toml` files in `~/.domios/themes/` on every platform.
 | Method | Path | Body / Query | Description |
 |--------|------|------|-------------|
 | GET | `/api/mesh/ping` | — | Lightweight mesh liveness probe |
-| GET | `/api/mesh/debug/sign` | — | Mint a signed mesh auth token for diagnostics |
 | GET | `/api/account/mesh/summary` | — | Read-only account mesh state for authenticated local agents and the owner |
 | GET | `/api/mesh/status` | — | Mesh identity and account connection count |
 | GET | `/api/mesh/peers` | — | List account installations and authenticated connections |
@@ -186,7 +185,7 @@ Mesh-disabled gate (503), peer access levels with spawned-tab ownership, and the
 
 **Relay streaming (`relay-stream` / `relay-asset`).** These let a browser reach a paired peer without knowing its address. `relay-stream` opens a signed mesh request to the peer's own `/api/events/stream` or `/api/output/stream` (the only whitelisted paths) and copies bytes straight through, never buffered, filtered, or reordered, so the stream's cursor/overflow contract carries over. `relay-asset` is scoped to read-only `plugins/{id}/ui/*` GETs (path traversal rejected) because an `<iframe src>` can't send a `Bearer` header: the `.html` entry self-verifies the caller's LOCAL api token via `?token=` (an exact path allowlist exempts it from bearer auth), and the daemon reaches the peer with a server-minted signed mesh token never serialized to the browser.
 
-**Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access policy. `/api/secrets/*` and `/api/mesh/debug/sign` are local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset accept announced `relay_protocol_version` values `1` and `2`; unknown versions receive `426 Upgrade Required`. Send bodies remain raw across the relay and are framed once by the destination daemon.
+**Relay security.** Direct signed peer requests and `/api/mesh/relay` share one access policy. `/api/secrets/*` is local-only for every peer access level. REST `GET /api/config` always returns `api.token: null`; the browser retains only its gateway token locally. Relay, relay-stream, and relay-asset accept only announced `relay_protocol_version` `3`; other versions receive `426 Upgrade Required` with `peer_relay_protocol_mismatch`. Send bodies remain raw across the relay and are framed once by the destination daemon.
 
 **Tauri IPC (Mesh):**
 | Command | Params | Description |
@@ -227,4 +226,4 @@ Session changes retain caller and binding checks. Provider hook ingress methods:
 
 `POST /api/tabs` with `cmd` returns the created tab id and `command_submission`. `submitted` is backed by a shell command-start mark. Once bytes are queued, absent confirmation returns success with `submit_unconfirmed`, `bytes_written: true` and the exact PTY id; never replay it. Proven pre-write failure remains an error. Use `tab exec` for final completion and exit status.
 
-<!-- revision: 69 -->
+<!-- revision: 70 -->
