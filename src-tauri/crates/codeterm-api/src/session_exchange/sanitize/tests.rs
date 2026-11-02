@@ -25,9 +25,9 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
                 "continuation":{"epoch":1, "state":"continued"},
                 "interruption":{"owner_epoch":1, "reason":"private interruption"},
                 "report":{"id":"report-bound", "status":"in_review", "message":"private report"}},
-                {"id":"attempt-private", "executor_tab_id":"worker-tab", "role":"private role",
+                {"id":"attempt-unrecognized", "executor_tab_id":"worker-tab", "role":"private role",
                     "continuation":{"epoch":1, "state":"private state"},
-                    "report":{"id":"report-private", "status":"private status"}}]
+                    "report":{"id":"report-unrecognized", "status":"private status"}}]
         })).collect();
         let plan: Plan = serde_json::from_value(json!({
             "id":"plan-bound", "title":"private plan", "status":"active", "mode":"paused",
@@ -52,7 +52,21 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
             serde_json::to_vec(&safe).unwrap().len()
         );
         assert!(!safe.to_string().contains("private"));
-        assert_eq!(safe["owner"]["title"], filler("private owner"));
+        for pointer in [
+            "/title",
+            "/owner/title",
+            "/project_path",
+            "/planner/note",
+            "/planning_log/0/note",
+            "/planner_requests/0/payload",
+            "/planner_inbox/0/last_error",
+            "/pause_operations/0/reason",
+            "/pause_operations/0/agents/0/name",
+            "/pause_operations/0/agents/0/pause_notice/error",
+            "/elements/0/kind",
+        ] {
+            assert_masked_text(&raw, &safe, pointer);
+        }
         assert!(!safe["elements"].to_string().contains("Worker"));
         let restored = serde_json::from_value::<Vec<Plan>>(json!([safe.clone()]))
             .unwrap()
@@ -78,6 +92,20 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
             assert_eq!(safe.pointer(pointer), raw.pointer(pointer), "{pointer}");
         }
         for (index, task) in restored.tasks.iter().enumerate() {
+            for field in [
+                "name",
+                "type",
+                "body",
+                "executor_role",
+                "model",
+                "execution_attempts/0/interruption/reason",
+                "execution_attempts/0/report/message",
+                "execution_attempts/1/role",
+                "execution_attempts/1/continuation/state",
+                "execution_attempts/1/report/status",
+            ] {
+                assert_masked_text(&raw, &safe, &format!("/tasks/{index}/{field}"));
+            }
             assert_eq!(task.status, plan.tasks[index].status);
             assert_eq!(task.priority, plan.tasks[index].priority);
             assert_eq!(task.execution_intent, plan.tasks[index].execution_intent);
@@ -96,6 +124,8 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
                 filler("private role")
             );
             let private_attempt = &safe["tasks"][index]["execution_attempts"][1];
+            assert_eq!(private_attempt["id"], "attempt-unrecognized");
+            assert_eq!(private_attempt["report"]["id"], "report-unrecognized");
             assert_eq!(
                 private_attempt["continuation"]["state"],
                 filler("private state")
@@ -109,6 +139,19 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
         invalid["planning_state"] = json!("xxxxxxxx");
         assert!(serde_json::from_value::<Plan>(invalid).is_err());
     }
+}
+
+fn assert_masked_text(raw: &Value, safe: &Value, pointer: &str) {
+    let text = raw.pointer(pointer).unwrap().as_str().unwrap();
+    assert!(
+        text.contains("private"),
+        "Missing fixture sentinel at {pointer}"
+    );
+    assert_eq!(
+        safe.pointer(pointer),
+        Some(&json!(filler(text))),
+        "{pointer}"
+    );
 }
 
 #[test]
