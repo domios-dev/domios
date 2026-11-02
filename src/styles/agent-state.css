@@ -24,6 +24,27 @@
   padding: 4px 0;
 }
 
+.ct-busy-brand {
+  display: inline-flex;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--ct-accent);
+}
+
+@keyframes ct-busy-brand-breathe {
+  0%, 100% { opacity: 0.65; transform: scale(0.94); }
+  50% { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ct-busy-brand[data-active="true"] {
+    animation: ct-busy-brand-breathe calc(var(--ct-duration-recording-pulse) * 2) var(--ct-ease-liquid-breathe) infinite;
+  }
+}
+
 .ct-agent-row--chat {
   padding: 4px 0 8px;
   /* The Stop button is 2px taller than the status text, so the row grew by that
