@@ -7,110 +7,50 @@ function Get-InstalledCaptureHolders {
     }
     $holders = @{}
     foreach ($record in $Capture.Table.Values) {
-        if (Test-InstalledBinaryImage $Root $record.Image) {
+        if (-not $record.Process.HasExited -and (Test-InstalledBinaryImage $Root $record.Image)) {
             $holders["$($record.Pid)/$($record.Created)"] = $record
         }
     }
     foreach ($holder in $Capture.Holders) {
         if ($null -eq $holder) { throw 'Install-holder discovery is incomplete.' }
-        $holders["$($holder.Pid)/$($holder.Created)"] = $holder
+        if (-not $holder.Process.HasExited) { $holders["$($holder.Pid)/$($holder.Created)"] = $holder }
     }
     return @($holders.Values | Sort-Object Pid, Created)
 }
 
-function Assert-NoInstalledHolders {
-    param([string]$Root, [hashtable]$Ports)
-    $current = & $Ports.Capture $Root
-    try {
-        if (@(Get-InstalledCaptureHolders $Root $current).Count -ne 0) {
-            throw 'Install files still have live or unproven holders; installation cancelled.'
-        }
-    } finally {
-        & $Ports.Dispose $current
-    }
+function Format-InstallHolder {
+    param($Holder)
+    return "$($Holder.Image) (PID $($Holder.Pid))"
 }
 
 function Invoke-InstallerPreflight {
-    param([string]$InstallRoot, [hashtable]$Ports, $DevelopmentTarget = $null)
+    param([string]$InstallRoot, [hashtable]$Ports, [int]$GracefulMilliseconds = 10000, [int]$ExitMilliseconds = 15000)
     $root = (Get-InstalledImagePath ([IO.Path]::GetFullPath($InstallRoot))).TrimEnd('\')
-    $serverImage = "$root\domios-server\domios-server.exe"
-    $desktopImage = "$root\domios-app.exe"
-    if ($null -ne $DevelopmentTarget) { $desktopImage = "$root\domios-dev-app.exe" }
-    $treeImages = @($serverImage, "$root\conpty\x64\OpenConsole.exe", "$root\conpty\arm64\OpenConsole.exe")
-    $capture = & $Ports.Capture $root
-    try {
-        $holders = @(Get-InstalledCaptureHolders $root $capture)
-        if ($holders.Count -eq 0) {
-            Assert-NoInstalledHolders $root $Ports
-            return $true
-        }
-        foreach ($holder in $holders) {
-            if ($treeImages -notcontains $holder.Image -and $holder.Image -ine $desktopImage) {
-                throw 'An install-file holder has unknown ownership; close it and retry.'
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $deadline = $GracefulMilliseconds + $ExitMilliseconds
+    while ($true) {
+        $capture = & $Ports.Capture $root
+        try {
+            $holders = @(Get-InstalledCaptureHolders $root $capture)
+            if ($holders.Count -eq 0) { return $true }
+            $foreign = @($holders | Where-Object { -not (Test-DomiosInstalledImage $root $_.Image) })
+            if ($foreign.Count -ne 0) {
+                throw "Close the install-file holders and choose Retry: $(($foreign | ForEach-Object { Format-InstallHolder $_ }) -join ', ')."
             }
-        }
-        if (@($holders | Where-Object { $_.Image -ieq $serverImage }).Count -eq 0) {
-            throw 'An installed desktop or holder is running without a provable server.'
-        }
-        $token = & $Ports.Token $root
-        $snapshot = & $Ports.Snapshot $token
-        if ($null -ne $DevelopmentTarget -and (
-            (Get-InstalledImagePath $snapshot.ready.identity.data) -ine $DevelopmentTarget.Data -or
-            (Get-InstalledImagePath $snapshot.ready.identity.config) -ine "$($DevelopmentTarget.Config)\config.toml" -or
-            $snapshot.ready.api_address -ne "127.0.0.1:$($DevelopmentTarget.Port)")) {
-            throw 'The running server does not match the isolated update context.'
-        }
-        $serverPid = [int]$snapshot.ready.process.pid
-        $serverCreated = [long]$snapshot.ready.process.created
-        $server = $capture.Table[$serverPid]
-        if ($null -eq $server -or $server.Image -ine $serverImage -or
-            $server.Created -ne $serverCreated -or
-            (Get-InstalledImagePath $snapshot.ready.process.executable) -ine $serverImage) {
-            throw 'The running server does not belong to this install directory.'
-        }
-        $client = $null
-        if ($null -ne $snapshot.client) {
-            $client = $capture.Table[[int]$snapshot.client.process.pid]
-            if ($null -eq $client -or $client.Image -ine $desktopImage -or
-                $client.Created -ne [long]$snapshot.client.process.created -or
-                (Get-InstalledImagePath $snapshot.client.process.executable) -ine $desktopImage) {
-                throw 'The attached desktop does not belong to this install directory.'
+            if ($clock.ElapsedMilliseconds -ge $deadline) {
+                throw "Install-file holder exit deadline: $(($holders | ForEach-Object { Format-InstallHolder $_ }) -join ', ')."
             }
-        }
-        $owned = @()
-        foreach ($holder in $holders) {
-            $record = $capture.Table[[int]$holder.Pid]
-            if ($null -eq $record -or $record.Created -ne $holder.Created -or $record.Image -ine $holder.Image) {
-                throw 'An install-file holder identity is unproven.'
+            foreach ($record in $holders) {
+                $remaining = [Math]::Max(0, $GracefulMilliseconds - [int]$clock.ElapsedMilliseconds)
+                $null = & $Ports.Wait $record $remaining
             }
-            if ($holder.Image -ieq $desktopImage) {
-                if ($null -eq $client -or $holder.Pid -ne $client.Pid -or $holder.Created -ne $client.Created) {
-                    throw 'An installed desktop is not the attached client.'
+            foreach ($record in $holders) { & $Ports.Terminate $record }
+            foreach ($record in $holders) {
+                $remaining = [Math]::Max(0, $deadline - [int]$clock.ElapsedMilliseconds)
+                if (-not (& $Ports.Wait $record $remaining)) {
+                    throw "Install-file holder exit deadline: $(Format-InstallHolder $record)."
                 }
-                continue
             }
-            if (-not (Test-InstalledDescendant -Table $capture.Table -Images $treeImages -RootPid $serverPid -RootCreated $serverCreated -SubjectPid $holder.Pid -SubjectCreated $holder.Created)) {
-                throw 'An installed process has unproven ancestry; close that instance and retry.'
-            }
-            $owned += $record
-        }
-        $saved = & $Ports.Save $token
-        if ($saved.ok -ne $true) { throw 'Domios did not persist restore state; installation cancelled.' }
-        $reply = & $Ports.Quit $token $snapshot
-        if (-not (Test-InstallerCanStopTree -SnapshotSaved $saved.ok -QuitOutcome $reply.outcome)) {
-            throw 'Domios refused graceful quit; installation cancelled.'
-        }
-        foreach ($record in $owned) { & $Ports.Terminate $record }
-        $clock = [Diagnostics.Stopwatch]::StartNew()
-        foreach ($record in $owned) {
-            $remaining = [Math]::Max(0, 15000 - [int]$clock.ElapsedMilliseconds)
-            if (-not (& $Ports.Wait $record $remaining)) { throw 'Owned install process exit deadline.' }
-        }
-        $remaining = [Math]::Max(0, 15000 - [int]$clock.ElapsedMilliseconds)
-        if ($null -ne $client -and -not (& $Ports.Wait $client $remaining)) { throw 'Desktop exit deadline.' }
-        Assert-NoInstalledHolders $root $Ports
-        return $true
-    } finally {
-        & $Ports.Dispose $capture
+        } finally { & $Ports.Dispose $capture }
     }
 }

@@ -133,9 +133,14 @@ pub(super) struct OwnedServerHolders {
 
 impl OwnedServerHolders {
     pub(super) fn confirm_exited(self) -> Result<(), String> {
+        self.confirm_exited_after(std::time::Duration::from_secs(10))
+    }
+
+    fn confirm_exited_after(self, grace: std::time::Duration) -> Result<(), String> {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        let _ = self.tree.wait_for_exit(grace);
         self.tree
-            .terminate_remaining(std::time::Duration::from_secs(30))
+            .terminate_remaining(deadline.saturating_duration_since(std::time::Instant::now()))
             .map_err(|error| error.to_string())?;
         for holder in self.holders {
             let handle = holder

@@ -29,7 +29,7 @@ The tab side panel offers Documents and Changes. Changes shows recorded edits fr
 
 Domios runs as two processes: a headless server that owns every core part, and a native window that attaches to it as a thin client. The code follows the same split in three layers:
 
-- **Client**: the native window and its shell: window and tray lifecycle, the webview, operating-system integrations such as clipboard, notification permission, autostart and file reveal, and the app updater, which stops the attached server before it installs the pair.
+- **Client**: the native window and its shell: window and tray lifecycle, the webview, operating-system integrations such as clipboard, notification permission, autostart and file reveal, and the app updater, which stops the attached server before it installs the pair. Windows installers ignore exited processes, wait for exact processes running installed Domios binaries, and stop remaining pinned identities within a failure deadline. Foreign install-file holders receive a named Retry/Cancel prompt; refusal details appear in Update after relaunch.
 - **Shared**: plain contracts both processes speak: wire and bootstrap types, instance paths, process and build identity, the update model, and the frontend shell contract of navigation origins and branded fallback pages.
 - **Server**: everything else. It never links the window.
 
