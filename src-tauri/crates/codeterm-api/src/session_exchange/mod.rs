@@ -259,7 +259,9 @@ pub async fn import(
             }
         }
         let count = codeterm_service_core::service::session_persist::import_fixture(
-            &svc, snapshot, plans,
+            &svc,
+            snapshot,
+            plans,
             move || std::fs::create_dir_all(&fixture_cwd).map_err(|error| error.to_string()),
         )?;
         svc.emit_state_changed(MuxEmitCause::SessionRestore);
@@ -273,12 +275,16 @@ pub async fn import(
     Ok(Json(result))
 }
 
-fn fixture_document(document: &Value) -> Result<(SessionSnapshot, Vec<codeterm_types::plan::Plan>), String> {
+fn fixture_document(
+    document: &Value,
+) -> Result<(SessionSnapshot, Vec<codeterm_types::plan::Plan>), String> {
     if document["sanitized"] != true || document["format"] != "upgrade-restore-v1" {
         return Err("Import requires an upgrade-restore-v1 sanitized document".into());
     }
-    let snapshot: SessionSnapshot = serde_json::from_value(document["snapshot"].clone()).map_err(|error| error.to_string())?;
-    let plans = serde_json::from_value(document["plans"].clone()).map_err(|error| error.to_string())?;
+    let snapshot: SessionSnapshot =
+        serde_json::from_value(document["snapshot"].clone()).map_err(|error| error.to_string())?;
+    let plans =
+        serde_json::from_value(document["plans"].clone()).map_err(|error| error.to_string())?;
     codeterm_service_core::service::session_persist::validate_fixture_snapshot(&snapshot)?;
     Ok((snapshot, plans))
 }

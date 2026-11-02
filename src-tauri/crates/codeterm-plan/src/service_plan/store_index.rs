@@ -350,7 +350,9 @@ impl PlanStore {
         self.database
             .persist_fixture_plans(plans, &rows)
             .map_err(|error| {
-                format!("Fixture stage=plans desk=committed plans=uncertain; do not replay: {error}")
+                format!(
+                    "Fixture stage=plans desk=committed plans=uncertain; do not replay: {error}"
+                )
             })?;
         for plan in plans {
             self.plan_cache

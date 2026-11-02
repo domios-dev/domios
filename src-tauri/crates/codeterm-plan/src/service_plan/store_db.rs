@@ -279,18 +279,23 @@ impl PlanDatabase {
     pub(super) fn prepare_fixture_plans(
         plans: &[Plan],
     ) -> Result<Vec<store_rows::PlanRows>, PlanError> {
-        plans.iter().map(|plan| {
-            i64::try_from(plan.updated_at)
-                .map_err(|_| PlanError::Io("Fixture plan timestamp exceeds SQLite integer range".into()))?;
-            for task in &plan.tasks {
-                i64::try_from(task.updated_at)
-                    .map_err(|_| PlanError::Io("Fixture task timestamp exceeds SQLite integer range".into()))?;
-            }
-            let rows = store_rows::split_plan(serde_json::to_value(plan).map_err(json_error)?)
-                .map_err(PlanError::Io)?;
-            store_rows::validate_row_sizes(&rows).map_err(PlanError::InvalidPlanText)?;
-            Ok(rows)
-        }).collect()
+        plans
+            .iter()
+            .map(|plan| {
+                i64::try_from(plan.updated_at).map_err(|_| {
+                    PlanError::Io("Fixture plan timestamp exceeds SQLite integer range".into())
+                })?;
+                for task in &plan.tasks {
+                    i64::try_from(task.updated_at).map_err(|_| {
+                        PlanError::Io("Fixture task timestamp exceeds SQLite integer range".into())
+                    })?;
+                }
+                let rows = store_rows::split_plan(serde_json::to_value(plan).map_err(json_error)?)
+                    .map_err(PlanError::Io)?;
+                store_rows::validate_row_sizes(&rows).map_err(PlanError::InvalidPlanText)?;
+                Ok(rows)
+            })
+            .collect()
     }
 
     pub(super) fn persist_fixture_plans(

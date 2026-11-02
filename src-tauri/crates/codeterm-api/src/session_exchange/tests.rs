@@ -25,20 +25,33 @@ fn fixture_document_refuses_malformed_and_unpublishable_snapshots() {
     let mut missing_tab = valid.clone();
     missing_tab["snapshot"]["workspaces"][0]["active_tab_id"] = json!("missing");
     let mut orphan_team = valid.clone();
-    orphan_team["snapshot"]["teams"] = json!([{"id":"team","workspace_id":"missing","created_at":1,"lifecycle":"active"}]);
+    orphan_team["snapshot"]["teams"] =
+        json!([{"id":"team","workspace_id":"missing","created_at":1,"lifecycle":"active"}]);
     let mut malformed = valid.clone();
     malformed["plans"] = json!([{"id":"not-a-plan"}]);
     let mut mismatched_leaf = valid.clone();
-    mismatched_leaf["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"]["tab_id"] = json!("different");
+    mismatched_leaf["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"]["tab_id"] =
+        json!("different");
     let mut incomplete_backend = valid.clone();
-    incomplete_backend["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"]["chatbackend_plugin_id"] = json!("fixture-backend");
+    incomplete_backend["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"]
+        ["chatbackend_plugin_id"] = json!("fixture-backend");
     let mut empty = valid.clone();
     empty["snapshot"]["workspaces"] = json!([]);
     empty["snapshot"]["active_workspace_id"] = serde_json::Value::Null;
     let mut split = valid.clone();
     let leaf = split["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"].clone();
     split["snapshot"]["workspaces"][0]["tabs"][0]["split_tree"] = json!({"type":"Split","orientation":"Horizontal","ratio":0.5,"children":[leaf.clone(),leaf]});
-    for document in [unsigned, wrong_format, missing_tab, orphan_team, malformed, mismatched_leaf, incomplete_backend, empty, split] {
+    for document in [
+        unsigned,
+        wrong_format,
+        missing_tab,
+        orphan_team,
+        malformed,
+        mismatched_leaf,
+        incomplete_backend,
+        empty,
+        split,
+    ] {
         assert!(super::fixture_document(&document).is_err());
     }
 }
@@ -52,26 +65,45 @@ fn fixture_cwd_replay_preserves_history_and_launch_binding_identities() {
     assert_eq!(value["cwd"], "/fixture/project");
     assert_eq!(value["tab_id"], "tab");
     assert_eq!(value["agent_session_id"], "history-session");
-    assert_eq!(value["agent_identity"]["session_binding_nonce"], "launch-nonce");
-    assert_eq!(value["agent_identity"]["reported_session_binding_nonce"], "launch-nonce");
-    assert_eq!(value["agent_identity"]["restorable_launch"]["identity_instructions"], "opaque-identity");
+    assert_eq!(
+        value["agent_identity"]["session_binding_nonce"],
+        "launch-nonce"
+    );
+    assert_eq!(
+        value["agent_identity"]["reported_session_binding_nonce"],
+        "launch-nonce"
+    );
+    assert_eq!(
+        value["agent_identity"]["restorable_launch"]["identity_instructions"],
+        "opaque-identity"
+    );
 }
 
 #[tokio::test]
 async fn fixture_import_auth_middleware_refuses_missing_and_wrong_tokens_without_mutation() {
     use axum::{body::Body, http::Request, routing::post, Router};
-    use codeterm_service_core::{multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture};
+    use codeterm_service_core::{
+        multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
+    };
     use tower::ServiceExt;
     let fixture = ServiceFixture::new(MultiplexerState::new().0);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     let before = serde_json::to_value(fixture.service.mux.read().to_session_snapshot()).unwrap();
-    let app = Router::new().route("/api/session/backups/import", post(super::import))
+    let app = Router::new()
+        .route("/api/session/backups/import", post(super::import))
         .with_state(state.clone())
-        .layer(axum::middleware::from_fn_with_state(state, crate::auth::auth_middleware));
+        .layer(axum::middleware::from_fn_with_state(
+            state,
+            crate::auth::auth_middleware,
+        ));
     for token in ["", "invalid-fixture-token"] {
-        let request = Request::builder().method("POST").uri("/api/session/backups/import")
-            .header("content-type", "application/json").header("authorization", format!("Bearer {token}"))
-            .body(Body::from(fixture_document().to_string())).unwrap();
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/session/backups/import")
+            .header("content-type", "application/json")
+            .header("authorization", format!("Bearer {token}"))
+            .body(Body::from(fixture_document().to_string()))
+            .unwrap();
         let response = app.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), axum::http::StatusCode::UNAUTHORIZED);
     }
