@@ -115,7 +115,11 @@ Scopes select one subtree: `dialog`, `sidebar` (complementary landmark), `compos
 
 At the end of a QA run, close ephemeral sessions. For a persistent per-instance session, run `open --profile clean`, then `profile remove dev-qa`, then `close`. Remove each per-instance profile used by the run.
 
-Native file picker driving returns `unsupported` on all platforms, including Windows: the current host has no lifecycle-owned native dialog handle or file chooser interception. Use Take control to choose files in a dialog the page opened.
+`upload <ref|"button text"> <path>...` selects files on Windows without opening an OS dialog. Use an exact file-input ref or the upload button's text from the latest snapshot. Relative paths resolve inside the calling agent's pad, including with `--of`; absolute paths must stay inside that pad. Owner profile folder grants are not available. Symlinks, reparse points, device names, parent traversal, directories and alternate data streams refuse. Other platforms report `unsupported` until secure file admission is available.
+
+The live view shows filenames, byte sizes and the input's target origin. Successful selection reads back the input's file list; it does not establish server upload completion. Re-snapshot and verify the page's result. `upload_unconfirmed` means selection or upload may have happened: inspect the page before another attempt. Up to 64 files may be selected per browser lifetime. Files stay read-locked until that browser closes; close it to release them.
+
+Native `file-picker` driving remains unsupported. Use `upload` before opening a chooser; an already open native dialog requires Take control.
 
 ## Accessible state waits
 
@@ -150,4 +154,4 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 On every outcome other than `read`, `text` holds the reason.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
