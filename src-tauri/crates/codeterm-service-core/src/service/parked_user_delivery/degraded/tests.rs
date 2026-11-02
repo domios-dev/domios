@@ -1,20 +1,23 @@
 use super::*;
 
 #[test]
-fn only_never_written_pre_ready_input_settles_on_degraded_launch_evidence() {
+fn only_never_written_pre_ready_input_settles_on_definitive_launch_failure() {
     for stage in [
         BootStage::LaunchDeadlineElapsed,
         BootStage::LaunchBindingUnconfirmed,
         BootStage::SpawnFailed,
     ] {
-        assert!(can_settle_degraded(
-            UserSendState::Queued,
-            true,
-            false,
-            false,
-            false,
-            Some(stage),
-        ));
+        assert_eq!(
+            can_settle_degraded(
+                UserSendState::Queued,
+                true,
+                false,
+                false,
+                false,
+                Some(stage),
+            ),
+            stage == BootStage::SpawnFailed
+        );
         for state in [
             UserSendState::Claimed,
             UserSendState::Uncertain,

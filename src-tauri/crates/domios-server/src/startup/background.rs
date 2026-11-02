@@ -35,119 +35,31 @@ pub(crate) fn start_background_tasks(
                         // Offline: skip peer polling/cleanup; peers timeout naturally.
                         continue;
                     }
-                    let (peers, sync_payload, signed_token) = {
-                        let mut m = mesh.lock();
-                        let peers: Vec<_> = m
-                            .paired_peers
-                            .values()
-                            .filter(|peer| m.traffic_open(&peer.instance_id))
-                            .cloned()
-                            .collect();
-                        let token = m.sign_request().ok();
-                        let payload = m.build_sync_payload();
-                        (peers, payload, token)
-                    };
+                    let peers: Vec<_> = mesh
+                        .lock()
+                        .paired_peers
+                        .values()
+                        .map(|peer| (peer.instance_id.clone(), peer.online))
+                        .collect();
                     let mut changed = false;
-                    for peer in &peers {
-                        if peer.addresses.is_empty() {
-                            continue;
-                        }
-                        // Multi-address ping: online if any cached address responds.
-                        let ping_result = mesh::transport::try_peer(&peer.addresses, |addr| {
-                            let signed_token = signed_token.clone();
-                            let port = peer.api_port;
-                            let ip = addr.ip.clone();
-                            async move {
-                                let Some(ref token) = signed_token else {
-                                    return mesh::transport::TryNext::Retry(
-                                        "missing mesh signing key".to_owned(),
-                                    );
-                                };
-                                let client =
-                                    mesh::transport::PeerClient::new_signed(&ip, port, token);
-                                if client.ping_reply().await.is_ok() {
-                                    mesh::transport::TryNext::Success(client)
-                                } else {
-                                    mesh::transport::TryNext::Retry("ping failed".to_string())
-                                }
-                            }
-                        })
-                        .await;
-                        let (ping_ok, client) = match ping_result {
-                            Ok(c) => (true, Some(c)),
-                            Err(_) => (false, None),
-                        };
-                        if !mesh.lock().paired_peers.contains_key(&peer.instance_id) {
-                            changed = true;
-                            continue;
-                        }
-                        let (online, was_online) = {
-                            let mut m = mesh.lock();
-                            if let Some(p) = m.paired_peers.get_mut(&peer.instance_id) {
-                                let was = p.online;
-                                let out = mesh::health::apply_ping_result(
-                                    p.online,
-                                    p.consecutive_misses,
-                                    ping_ok,
-                                );
-                                p.consecutive_misses = out.misses;
-                                if ping_ok {
-                                    p.last_seen = Some(chrono::Utc::now().to_rfc3339());
-                                }
-                                if p.online != out.online {
-                                    log::info!(
-                                        "[mesh/health] peer {} online: {} -> {} (misses {})",
-                                        peer.instance_id,
-                                        p.online,
-                                        out.online,
-                                        out.misses
-                                    );
-                                    p.online = out.online;
-                                    changed = true;
-                                }
-                                (out.online, was)
-                            } else {
-                                (false, false)
-                            }
-                        };
-                        if online != was_online {
-                            mesh.lock().notify_connection_change();
-                        }
-                        let now_secs = std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs();
-                        // Re-sync on reconnect/periodic; keep TTL fresh.
-                        let should_sync = mesh::types::should_proactive_sync(
-                            online,
-                            was_online,
-                            now_secs,
-                            last_sync_secs.get(&peer.instance_id).copied(),
-                            mesh::discovery::PROACTIVE_SYNC_INTERVAL_SECS,
-                        );
-                        if online
-                            && !was_online
-                            && mesh.lock().has_unacked_announce(&peer.instance_id)
+                    for (peer_id, was_online) in &peers {
+                        let now = mesh.lock().now();
+                        if let Some(online) = mesh::health::check_peer(
+                            &mesh,
+                            peer_id,
+                            last_sync_secs.get(peer_id).copied(),
+                        )
+                        .await
                         {
-                            let _ = mesh::broadcast_announce(&mesh, Some(&peer.instance_id)).await;
-                        }
-                        if should_sync {
-                            let reason = if !was_online {
-                                "reconnected"
-                            } else {
-                                "periodic refresh"
-                            };
-                            log::debug!("[mesh] Peer {} {} — syncing", peer.instance_name, reason);
-                            let Some(client) = client else { continue };
-                            if client.send_sync(&sync_payload).await.is_ok() {
-                                last_sync_secs.insert(peer.instance_id.clone(), now_secs);
-                                changed = true;
+                            last_sync_secs.insert(peer_id.clone(), now);
+                            changed = true;
+                            if online && !was_online && mesh.lock().has_unacked_announce(peer_id) {
+                                let _ = mesh::broadcast_announce(&mesh, Some(peer_id)).await;
                             }
                         }
                     }
-                    // Drop last_sync entries for unpaired peers.
-                    let paired_ids: std::collections::HashSet<String> =
-                        peers.iter().map(|p| p.instance_id.clone()).collect();
+                    let paired_ids: std::collections::HashSet<_> =
+                        peers.into_iter().map(|(id, _)| id).collect();
                     last_sync_secs.retain(|id, _| paired_ids.contains(id));
                     if changed {
                         ui.emit("mesh-state-changed", serde_json::Value::Null);

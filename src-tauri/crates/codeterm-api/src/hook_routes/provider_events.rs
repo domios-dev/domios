@@ -36,6 +36,13 @@ pub(crate) async fn hook_provider_event(
         StatusCode::UNAUTHORIZED,
         "binding nonce missing".to_string(),
     ))?;
+    super::hook_authority::recover_launch(
+        &state.svc,
+        &tab_id,
+        &headers,
+        &serde_json::json!({"session_id": &body.session_id}),
+    )
+    .await?;
     let owner = state.clone();
     let target = tab_id.clone();
     let (tab_provider, session_id, expected_nonce, acknowledged_nonce, pty_id) =

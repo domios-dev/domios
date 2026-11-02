@@ -2,6 +2,7 @@ use super::Readiness;
 
 fn readiness(listener: bool, gate: bool) -> Readiness {
     Readiness {
+        membership: Some("membership-one".into()),
         listeners: listener
             .then(|| "192.0.2.1:7685".parse().unwrap())
             .into_iter()
@@ -55,4 +56,15 @@ fn another_peer_becomes_ready() {
     let mut next = readiness(true, true);
     next.peers.insert("another-peer".into());
     assert!(state.update(next));
+}
+
+#[test]
+fn membership_renewal_announces_without_waiting_for_heartbeat() {
+    let mut state = readiness(true, true);
+    let mut next = readiness(true, true);
+    next.membership = Some("membership-two".into());
+    assert!(state.update(next));
+    let mut unchanged = readiness(true, true);
+    unchanged.membership = Some("membership-two".into());
+    assert!(!state.update(unchanged));
 }

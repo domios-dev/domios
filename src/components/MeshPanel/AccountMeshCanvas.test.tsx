@@ -22,6 +22,7 @@ vi.mock("@codeterm/canvas-camera", async (original) => ({
 }));
 
 const { AccountMeshCanvas } = await import("./AccountMeshCanvas");
+const { useMeshConnections } = await import("./useMeshConnections");
 
 const peer = (instanceId: string, name: string, patch: Partial<PeerStatus> = {}): PeerStatus => ({
   instance_id: instanceId, name, ip: "100.64.0.2", api_port: 7685, online: true, access_level: "full", last_seen: null, relay_protocol_version: 2, ...patch,
@@ -65,6 +66,27 @@ describe("Mesh canvas wiring", () => {
     expect(element).not.toBeNull();
     await act(async () => element!.click());
   };
+
+  it("counts active lifecycle work and clears the overall count on backoff", async () => {
+    const state = snapshot({ connections: [{ installation_id: macRow.installation_id, phase: "verifying" }] });
+    const client = new FakeAccountMeshClient(state);
+    function Count() { return <output aria-label="Peers connecting">{useMeshConnections(true)}</output>; }
+    await act(async () => root.render(<AccountMeshClientProvider value={client}><Count /></AccountMeshClientProvider>));
+    expect(host.querySelector('output[aria-label="Peers connecting"]')?.textContent).toBe("1");
+    await act(async () => client.emit({ ...state, connections: [{ installation_id: macRow.installation_id, phase: "retrying" }] }));
+    expect(host.querySelector('output[aria-label="Peers connecting"]')?.textContent).toBe("0");
+  });
+
+  it("announces published handshake progress and clears busy state on failure", async () => {
+    const state = snapshot({ connections: [{ installation_id: macRow.installation_id, phase: "verifying" }] });
+    const client = new FakeAccountMeshClient(state);
+    await mount(client);
+    expect(node("MacBook")?.querySelector('[role="status"][aria-busy="true"]')).not.toBeNull();
+    expect(node("MacBook")?.querySelector('[aria-label="Connecting — verifying identity"]')).not.toBeNull();
+    await act(async () => client.emit({ ...state, connections: [{ installation_id: macRow.installation_id, phase: "retrying" }] }));
+    expect(node("MacBook")?.querySelector('[aria-busy="true"]')).toBeNull();
+    expect(node("MacBook")?.querySelector('[role="status"]')?.textContent).toBe("Unreachable — retry scheduled");
+  });
 
   it.each(["unavailable", "offline", "authority-unavailable"] as const)("restarts stopped %s enrollment through its visible retry and reloads the snapshot", async reason => {
     const refusal = { reason };

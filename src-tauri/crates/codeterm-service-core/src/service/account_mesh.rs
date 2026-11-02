@@ -170,6 +170,7 @@ pub struct AccountMeshSnapshot {
     #[serde(flatten)]
     pub view: AccountMeshView,
     pub pairs: Vec<serde_json::Value>,
+    pub connections: Vec<codeterm_mesh::manager::PeerConnection>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -367,6 +368,10 @@ impl ServiceContext {
             local_installation_id: service.installation_id.clone(),
             view: service.mesh.state().view(),
             pairs: self.account_mesh_pairs(),
+            connections: self
+                .try_ext::<crate::MeshStateHandle>()
+                .map(|mesh| mesh.lock().connection_phases())
+                .unwrap_or_default(),
         })
     }
 

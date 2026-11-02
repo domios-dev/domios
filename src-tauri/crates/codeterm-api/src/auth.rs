@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 mod actor;
 mod relay_agent;
 pub(crate) use relay_agent::{authenticated_agent, remote_agent};
+mod credential_kind;
 pub(crate) mod remote;
 pub use actor::ActorHeaders;
 mod tab;
@@ -756,9 +757,12 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                 );
             }
             log::warn!(
-                "[auth-401] {} {} presented[{}] expected[{}]",
+                "[auth-401] {} {} remote={} credential_kind={} reason={} presented[{}] expected[{}]",
                 method,
                 path,
+                remote_address.map(|address| address.to_string()).unwrap_or_else(|| "unknown".into()),
+                credential_kind::presented_kind(presented),
+                credential_kind::refusal_reason(&state, presented),
                 if presented.is_empty() {
                     "MISSING".to_string()
                 } else {

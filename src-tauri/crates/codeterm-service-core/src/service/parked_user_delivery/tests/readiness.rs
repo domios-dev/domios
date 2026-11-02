@@ -1,5 +1,95 @@
 use super::*;
 
+// Sync test: the park helper blocks on the service runtime, which cannot nest inside a tokio test.
+#[test]
+fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
+    let (fixture, tab) = queue_fixture(true, None);
+    let accepted = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "late-hook-client");
+    refuse_and_park_current_send(&fixture.service, accepted.clone(), FIRST_PAYLOAD);
+    let writes = Arc::new(AtomicUsize::new(0));
+    let count = writes.clone();
+    let _submit = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |_, text| {
+            assert_eq!(text, FIRST_PAYLOAD.replace("\r\n", "\n"));
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }),
+    );
+    fixture.service.record_provisional_launch(
+        &crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab.clone(),
+            pty_id: "opaque-pty".into(),
+            binding_nonce: "opaque-current-nonce".into(),
+        },
+        codeterm_types::pty::BootStage::LaunchDeadlineElapsed,
+        "dropped SessionStart",
+    );
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
+        Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed)
+    );
+    attach_fixture_pty(&fixture, &tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    let held = fixture
+        .service
+        .chat_send_ledger
+        .status(&accepted.send_id)
+        .unwrap();
+    assert_eq!(held.state, ChatSendState::Pending);
+    assert!(held.pending_reason.is_some());
+    assert_eq!(
+        fixture
+            .service
+            .pending_delivery_payloads
+            .user_sends
+            .original(&tab, &accepted.send_id)
+            .unwrap(),
+        FIRST_PAYLOAD
+    );
+    for _ in 0..2 {
+        crate::async_runtime::block_on(
+            crate::service::hook_session_binding::recover_verified_hook_binding(
+                &fixture.service,
+                &tab,
+                None,
+                Some("opaque-session"),
+                Some("opaque-current-nonce"),
+            ),
+        )
+        .unwrap();
+        let mux = fixture.service.mux.read();
+        let recovered = mux.get_tab(&tab).unwrap();
+        assert_eq!(
+            recovered.boot_stage,
+            Some(codeterm_types::pty::BootStage::AgentReady)
+        );
+        assert!(recovered.provisional_launch.is_none());
+        assert!(recovered.launch_session_authenticated());
+        drop(mux);
+        fixture.service.drain_user_owner(&tab).unwrap();
+    }
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
+}
+
 #[test]
 fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding() {
     let (fixture, tab) = queue_fixture(true, None);

@@ -1,6 +1,8 @@
 mod account_admission;
 mod account_gate;
+mod connection_lifecycle;
 mod connection_observer;
+pub use connection_lifecycle::{ConnectionPhase, PeerConnection};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -38,6 +40,9 @@ pub struct MeshManager {
     pub protocol_refusals: crate::protocol_refusals::ProtocolRefusals,
     pub last_activity: Arc<dyn LastActivityProvider>,
     connection_observer: Option<connection_observer::ConnectionObserver>,
+    connection_phases: HashMap<String, ConnectionPhase>,
+    peer_request_retry: HashMap<String, u64>,
+    connection_phase_observer: Option<Arc<dyn Fn(PeerConnection) + Send + Sync>>,
     links: LinkLedger,
     account: account_mesh::AccountMeshState,
     account_authority: Option<Arc<dyn account_mesh::AccountMeshAuthority>>,
@@ -107,6 +112,9 @@ impl MeshManager {
             protocol_refusals: Default::default(),
             last_activity: default_last_activity(),
             connection_observer: None,
+            connection_phases: HashMap::new(),
+            peer_request_retry: HashMap::new(),
+            connection_phase_observer: None,
             links: LinkLedger::default(),
             account: account_mesh::AccountMeshState::default(),
             account_authority: None,
@@ -227,7 +235,13 @@ impl MeshManager {
                                 .any(|row| row.installation_id == id && row.active)
                         })
             })
-            .cloned()
+            .map(|peer| {
+                let mut peer = peer.clone();
+                peer.online = peer.online
+                    && self.traffic_open(&peer.instance_id)
+                    && !self.peer_auth_refused(&peer.instance_id);
+                peer
+            })
             .collect();
         let mut installations: std::collections::BTreeMap<_, _> = self
             .account_installations
@@ -265,6 +279,7 @@ impl MeshManager {
 
     pub fn remove_account_peer(&mut self, instance_id: &str) {
         self.paired_peers.remove(instance_id);
+        self.peer_request_retry.remove(instance_id);
         self.links.remove(instance_id);
         self.peer_services.prune(instance_id);
         self.protocol_refusals.forget(instance_id);

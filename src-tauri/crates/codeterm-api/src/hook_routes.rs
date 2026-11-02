@@ -15,6 +15,8 @@ pub(crate) mod context_feed;
 mod hook_authority;
 pub(crate) mod permission_decision;
 use hook_authority::{stop_report_verdict, StopReportVerdict};
+#[cfg(test)]
+mod late_recovery_tests;
 mod provider_events;
 mod reconciliation;
 mod recording;
@@ -242,6 +244,13 @@ pub async fn hook_permission(
     if let Some(response) = hook_authority::telemetry_response(&state.svc, &tab_id, "permission") {
         return Ok(response);
     }
+    hook_authority::recover_launch(
+        &state.svc,
+        &tab_id,
+        &headers,
+        body.as_ref().unwrap_or(&serde_json::Value::Null),
+    )
+    .await?;
     if let Some(raw) = body.as_ref() {
         if let Some(response) = permission_decision::handle(&state, &tab_id, &headers, raw).await {
             return Ok(Json(response));
@@ -374,6 +383,24 @@ pub async fn hook_session_start(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
+    let result = session_start(state, raw_tab_id.clone(), headers, body).await;
+    if let Err((status, reason)) = &result {
+        log::warn!(
+            "[hook-refusal] tab={} event=session_start status={} reason={}",
+            escaped_hook_log_field(&raw_tab_id),
+            status.as_u16(),
+            escaped_hook_log_field(reason)
+        );
+    }
+    result
+}
+
+async fn session_start(
+    state: AppState,
+    raw_tab_id: String,
+    headers: HeaderMap,
+    body: Option<serde_json::Value>,
+) -> Result<axum::response::Response, (StatusCode, String)> {
     let owner = state.clone();
     let prepared = tokio::task::spawn_blocking(move || {
         let state = owner;
@@ -416,7 +443,7 @@ pub async fn hook_session_start(
 
     let Some(sid) = session_id else {
         log::warn!(
-            "[hook_session_start] tab={} source={} body had no session_id",
+            "[hook-refusal] tab={} source={} event=session_start reason=missing_session_id",
             tab_id,
             source
         );
@@ -666,14 +693,30 @@ pub(crate) fn defer_session_binding(
             .await;
         });
     });
-    let binding = state.svc.deferred_session_bindings.defer(
-        tab_id,
-        provider_id,
-        sid,
-        previous_session_id,
-        transcript_path,
-        on_materialized.clone(),
-    )?;
+    let binding = state
+        .svc
+        .deferred_session_bindings
+        .defer(
+            tab_id,
+            provider_id,
+            sid,
+            previous_session_id,
+            transcript_path,
+            on_materialized.clone(),
+        )
+        .map_err(|reason| {
+            log::warn!(
+                "[hook-refusal] tab={} event=session_start reason=defer_failed detail={}",
+                escaped_hook_log_field(tab_id),
+                escaped_hook_log_field(&reason)
+            );
+            reason
+        })?;
+    log::info!(
+        "[hook-deferred] tab={} event=session_start reason=transcript_not_materialized session={}",
+        escaped_hook_log_field(tab_id),
+        escaped_hook_log_field(sid)
+    );
     if binding.transcript_path.is_file() {
         on_materialized(binding.tab_id, binding.generation);
     }
@@ -709,7 +752,7 @@ async fn complete_deferred_session_binding(
             .clear_generation(&tab_id, generation);
         state.svc.emit_session_binding_state(&tab_id);
         log::info!(
-            "[session-binding-deferral] dropping sid {} for Tab {}: current session moved from {} to {}",
+            "[hook-refusal] event=session_start reason=deferred_session_changed session={} tab={} previous={} current={}",
             binding.session_id,
             tab_id,
             binding.previous_session_id,
@@ -718,6 +761,7 @@ async fn complete_deferred_session_binding(
         return None;
     }
     if !binding.transcript_path.is_file() {
+        log::info!("[hook-deferred] tab={} event=session_start reason=transcript_still_missing", escaped_hook_log_field(&tab_id));
         return None;
     }
         Some(binding)
@@ -734,7 +778,7 @@ async fn complete_deferred_session_binding(
     .unwrap_or(false);
     if !evidence_recorded {
         log::warn!(
-            "[session-binding-deferral] could not record materialized transcript for sid {} Tab {}",
+            "[hook-refusal] event=session_start reason=transcript_evidence_not_recorded session={} tab={}",
             binding.session_id,
             tab_id,
         );
@@ -763,7 +807,7 @@ async fn complete_deferred_session_binding(
     };
     match claim {
         Ok(claim) => {
-            let _ = finish_session_binding(
+            if let Err((status, reason)) = finish_session_binding(
                 &state.svc,
                 &tab_id,
                 &binding.provider_id,
@@ -776,7 +820,10 @@ async fn complete_deferred_session_binding(
                 codeterm_service_core::session::lifecycle::BindingSource::Hook,
                 true,
             )
-            .await;
+            .await
+            {
+                log::warn!("[hook-refusal] tab={} event=session_start reason=deferred_binding_finish_failed status={} detail={}", escaped_hook_log_field(&tab_id), status.as_u16(), escaped_hook_log_field(&reason));
+            }
         }
         Err((_, message, deferrable)) => {
             let _ = tokio::task::spawn_blocking(move || {

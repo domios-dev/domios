@@ -133,7 +133,7 @@ fn registry_with_sessions(items: Vec<(&'static str, Vec<&'static str>)>) -> Agen
     registry
 }
 
-fn register_hook_providers(
+pub(super) fn register_hook_providers(
     registry: &AgentRegistry,
     items: Vec<(&'static str, Vec<&'static str>)>,
 ) {
