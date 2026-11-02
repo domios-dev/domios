@@ -408,6 +408,7 @@ fn open_and_reopen_authenticate_the_exact_chatbackend_provider_session() {
         plugin_id: "local".into(),
         session_id: "session-1".into(),
     };
+    tab.session_binding_nonce = Some("nonce-1".into());
     super::authenticate_chatbackend_tab(tab, "local", "session-1", "nonce-1").unwrap();
     assert_eq!(tab.agent_session_id.as_deref(), Some("session-1"));
     assert_eq!(tab.session_binding_nonce.as_deref(), Some("nonce-1"));
@@ -420,6 +421,8 @@ fn open_and_reopen_authenticate_the_exact_chatbackend_provider_session() {
         plugin_id: "local".into(),
         session_id: "session-2".into(),
     };
+    assert!(super::authenticate_chatbackend_tab(tab, "local", "session-2", "nonce-2").is_err());
+    tab.session_binding_nonce = Some("nonce-2".into());
     super::authenticate_chatbackend_tab(tab, "local", "session-2", "nonce-2").unwrap();
     assert_eq!(tab.agent_session_id.as_deref(), Some("session-2"));
     assert_eq!(

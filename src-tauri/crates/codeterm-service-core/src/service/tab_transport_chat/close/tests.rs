@@ -113,7 +113,7 @@ fn plugin_close_receipt_is_required_before_removing_the_bound_adapter() {
         let fixture = ServiceFixture::new(mux);
         let vm = codeterm_plugin::js_runtime::PluginVm::from_source("plugin-fixture", source.into()).unwrap();
         let adapter = codeterm_plugin::js_runtime::JsChatBackend::new(Arc::new(vm), "plugin-fixture");
-        let bound = Arc::new(super::super::liveness::BoundSession::new(id.clone(), Arc::new(adapter)));
+        let bound = Arc::new(super::super::liveness::BoundSession::new(id.clone(), Arc::new(adapter), "nonce".into()));
         let key = ("plugin-fixture".into(), "thread".into());
         let guards = fixture.service.ext::<Arc<TabReopenGuards>>();
         guards.sessions.lock().insert(key.clone(), bound.clone());
