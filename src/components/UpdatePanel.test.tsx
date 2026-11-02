@@ -101,6 +101,29 @@ it("shows a channel failure once, keeps its rows non-actionable, and reports the
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
+it.each(["1.18.2", "1.18.3"])("silently clears a restored app target satisfied by host %s", async (installed) => {
+  localStorage.setItem("codeterm.update-all.intent", JSON.stringify({ stage: "app", appTarget: "1.18.2", pluginIds: [], interfaceRequested: false }));
+  Object.assign(fake.app, { currentVersion: installed, nativeStatusObserved: true });
+  fake.check.mockResolvedValue({ errors: {}, items: [{ id: "app", kind: "app", installed, latest: installed, compatible: true, state: "up_to_date", reason: "same_version", channel: null }] });
+  let panel!: ReturnType<typeof useUpdatePanel>;
+  function Probe() { panel = useUpdatePanel(); return <UpdatePanel />; }
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><Probe /></UpdatePanelProvider>));
+    expect(localStorage.getItem("codeterm.update-all.intent")).toBeNull();
+    expect(panel.error).toBeFalsy();
+    expect(panel.history).toEqual([]);
+    expect(panel.busy).toBe(false);
+    expect(panel.awaitingRetry).toBe(false);
+    expect(panel.activeId).toBeNull();
+    expect(host.querySelector('[role="alert"]')).toBeNull();
+    expect(fake.app.applyUpdate).not.toHaveBeenCalled();
+    expect(fake.plugin).not.toHaveBeenCalled();
+    expect(fake.check).toHaveBeenCalledTimes(1);
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 it("reconciles only a restored app intent after native idle is observed without replay", async () => {
   const saved = JSON.stringify({ stage: "app", appTarget: "2.0.0", pluginIds: [], interfaceRequested: false });
   localStorage.setItem("codeterm.update-all.intent", saved);
