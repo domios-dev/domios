@@ -17,9 +17,6 @@ use super::pty_output_pipeline::{prepare_batches, OutputBatch};
 use super::ServiceState;
 use crate::multiplexer::types::TabCloseReason;
 
-mod terminal_queries;
-use terminal_queries::TerminalQueries;
-
 fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -138,10 +135,9 @@ async fn backend_read_loop(
     generation: u64,
     frontend_tx: tokio::sync::mpsc::Sender<Vec<u8>>,
     _measure_first_byte: bool,
-    _headless: bool,
+    headless: bool,
 ) {
     let mut first_byte_logged = false;
-    let mut terminal_queries = TerminalQueries::default();
     let rd_trace = std::env::var("CODETERM_RD_TRACE").is_ok();
     const FEED_QUEUE_CAPACITY: usize = 1024;
     let (feed_tx, feed_rx) = tokio::sync::mpsc::channel(FEED_QUEUE_CAPACITY);
@@ -191,25 +187,19 @@ async fn backend_read_loop(
                     }
                 }
 
-                let replies = terminal_queries.replies(&data);
-                let reply_count = replies.len();
-                if !replies.is_empty() {
+                let mut reply_count = 0;
+                for reply in terminal_query_replies(&data, headless) {
+                    reply_count += 1;
                     let reply_svc = svc.clone();
                     let reply_pty_id = pty_id.clone();
-                    if let Err(error) = tokio::task::spawn_blocking(move || {
-                        for reply in replies {
-                            let _ =
-                                crate::service::pty_io::submit_transaction::write_terminal_reply(
-                                    &reply_svc,
-                                    &reply_pty_id,
-                                    reply,
-                                );
-                        }
-                    })
-                    .await
-                    {
-                        log::warn!("[backend-reader] terminal reply task failed: {error}");
-                    }
+                    let reply = reply.to_vec();
+                    tokio::task::spawn_blocking(move || {
+                        let _ = crate::service::pty_io::submit_transaction::write_terminal_reply(
+                            &reply_svc,
+                            &reply_pty_id,
+                            &reply,
+                        );
+                    });
                 }
                 let _ = frontend_tx.try_send(data.clone());
                 let data_len = data.len();
@@ -583,6 +573,20 @@ fn handle_pty_screen_death_after_validation(
     screen_state.remove_if_generation(pty_id, generation)
 }
 
+fn terminal_query_replies(data: &[u8], _headless: bool) -> Vec<&'static [u8]> {
+    let mut replies = Vec::with_capacity(3);
+    if data.windows(3).any(|window| window == b"\x1b[c") {
+        replies.push(b"\x1b[?1;2c".as_slice());
+    }
+    if data.windows(4).any(|window| window == b"\x1b[5n") {
+        replies.push(b"\x1b[0n".as_slice());
+    }
+    if data.windows(4).any(|window| window == b"\x1b[6n") {
+        replies.push(b"\x1b[1;1R".as_slice());
+    }
+    replies
+}
+
 #[cfg(test)]
 mod tests {
     use crate::crash::lifecycle::ShutdownReason;
@@ -689,7 +693,7 @@ mod tests {
     #[test]
     fn device_attributes_query_is_answered_without_frontend_input() {
         assert_eq!(
-            super::TerminalQueries::default().replies(b"\x1b[c"),
+            super::terminal_query_replies(b"\x1b[c", false),
             vec![b"\x1b[?1;2c".as_slice()]
         );
     }
@@ -697,7 +701,7 @@ mod tests {
     #[test]
     fn status_and_cursor_queries_are_answered_after_frontend_input_attaches() {
         assert_eq!(
-            super::TerminalQueries::default().replies(b"\x1b[5n\x1b[6n"),
+            super::terminal_query_replies(b"\x1b[5n\x1b[6n", false),
             vec![b"\x1b[0n".as_slice(), b"\x1b[1;1R".as_slice()]
         );
     }
@@ -705,7 +709,7 @@ mod tests {
     #[test]
     fn terminal_queries_are_answered_for_headless_tabs() {
         assert_eq!(
-            super::TerminalQueries::default().replies(b"\x1b[c\x1b[6n"),
+            super::terminal_query_replies(b"\x1b[c\x1b[6n", true),
             vec![b"\x1b[?1;2c".as_slice(), b"\x1b[1;1R".as_slice()]
         );
     }

@@ -101,10 +101,6 @@ export function useXterm({
       });
       // Renderer status queries must not become input on a shared PTY.
       term.parser.registerDcsHandler({ intermediates: "$", final: "q" }, () => true);
-      term.parser.registerCsiHandler({ final: "n" }, params => {
-        const first = Array.isArray(params[0]) ? params[0][0] : params[0];
-        return first === 5 || first === 6;
-      });
 
       const fitAddon = new FitAddon();
       term.loadAddon(fitAddon);
