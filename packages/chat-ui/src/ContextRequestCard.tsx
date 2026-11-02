@@ -1,3 +1,4 @@
+import { ExpandableReader } from "./ExpandableReader";
 import * as React from "react";
 import { FileJson } from "lucide-react";
 import { ChevronIcon, PRE_WRAP_CLASS } from "./CodeBlock";
@@ -14,6 +15,7 @@ export function ContextRequestCard({ content, fontScale }: ContextRequestCardPro
   const bodyText = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
 
   return (
+    <ExpandableReader label={"Context sent"}>{(fullscreen) => (
     <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto">
       <div
         data-testid="chat-context-request-card"
@@ -39,7 +41,7 @@ export function ContextRequestCard({ content, fontScale }: ContextRequestCardPro
           </span>
           <ChevronIcon expanded={expanded} className="opacity-60" />
         </button>
-        {expanded && (
+        {(expanded || fullscreen) && (
           <div
             className={`border-t px-3 py-2 ${bodyText} ${TEXT_WRAP_CLASS}`}
             style={{ borderColor: "color-mix(in srgb, var(--ct-accent, #58a6ff) 18%, transparent)" }}
@@ -51,5 +53,6 @@ export function ContextRequestCard({ content, fontScale }: ContextRequestCardPro
         )}
       </div>
     </div>
+    )}</ExpandableReader>
   );
 }

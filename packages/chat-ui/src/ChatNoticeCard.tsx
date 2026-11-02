@@ -1,3 +1,4 @@
+import { ExpandableReader } from "./ExpandableReader";
 import type { CSSProperties, ReactNode } from "react";
 import { ChevronIcon } from "./CodeBlock";
 
@@ -18,6 +19,8 @@ interface Props {
 /** Collapsible inline notice in the transcript, on the shared ct-card surface. */
 export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, onToggle, bodyClassName = "", role, children }: Props) {
   return (
+    <ExpandableReader label={typeof title === "string" ? title : "Notice"} enabled={true}>{(fullscreen) => (
+
     <div className="mb-3 w-full max-w-4xl min-w-0 mx-auto" role={role}>
       <div data-testid={testId} className="ct-card" style={tone ? ({ "--ct-card-tone": tone } as CSSProperties) : undefined}>
         <button type="button" aria-expanded={expanded} onClick={onToggle} className="ct-card__head">
@@ -28,8 +31,9 @@ export function ChatNoticeCard({ testId, icon, title, subtitle, tone, expanded, 
           </span>
           <ChevronIcon expanded={expanded} className="opacity-60" />
         </button>
-        {expanded && <div className={`ct-card__body ct-card__body--reveal ${bodyClassName}`}>{children}</div>}
+        {(expanded || fullscreen) && <div className={`ct-card__body ct-card__body--reveal ${bodyClassName}`}>{children}</div>}
       </div>
     </div>
+    )}</ExpandableReader>
   );
 }

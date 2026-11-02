@@ -373,5 +373,6 @@
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
   "src/hooks/terminal/useXterm.composition.test.tsx",
-  "plugins/provider-shared/tests/runPromptStep.test.ts"
+  "plugins/provider-shared/tests/runPromptStep.test.ts",
+  "packages/chat-ui/src/ExpandableReader.test.tsx"
 ]

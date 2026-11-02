@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { agentActionStream, type AgentActivityState, type AgentNode, type ToolEvent } from "@codeterm/chat-core";
 import { ArrowRight, ChevronRight, Network } from "lucide-react";
 import { Fragment, useId, useState } from "react";
@@ -57,6 +58,7 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
   });
 
   return (
+    <ExpandableReader label={"Agent activity"}>{(fullscreen) => (
     <section
       data-testid="chat-agent-activity"
       aria-label={`Agent activity, ${counts}`}
@@ -93,8 +95,8 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
           style={{ color: "var(--ct-muted-fg)" }}
         />
       </button>
-      <div id={regionId} role="region" aria-label="Agent activity details" hidden={!expanded} className="px-3 pb-2">
-        {expanded && tree.agents.length > 0 && (
+      <div id={regionId} role="region" aria-label="Agent activity details" hidden={!expanded && !fullscreen} className="px-3 pb-2">
+        {(expanded || fullscreen) && tree.agents.length > 0 && (
           <ul aria-label="Agents" className="m-0 list-none p-0">
             {tree.agents.map((agent) => {
               const facts = agentFacts(agent);
@@ -144,7 +146,7 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
             })}
           </ul>
         )}
-        {expanded && tree.messages.length > 0 && (
+        {(expanded || fullscreen) && tree.messages.length > 0 && (
           <ul aria-label="Messages" className="m-0 mt-1 list-none p-0">
             {tree.messages.map((edge) => (
               <li
@@ -164,5 +166,6 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
         )}
       </div>
     </section>
+    )}</ExpandableReader>
   );
 }

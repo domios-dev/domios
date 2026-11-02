@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { shellFileOperations, toolCommand, type ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight, FileDiff } from "lucide-react";
 import { useId, useState } from "react";
@@ -16,7 +17,7 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
   const count = replacement?.fragments.length ?? 0;
   const previewKind = replacement ? "replacement" : operation.action;
   const filename = operation.path?.split(/[\\/]/).pop() || operation.path;
-  return <>
+  return <ExpandableReader label={filename || "File preview"}>{(fullscreen) => <>
     <FloatingTooltip content={operation.path} focusable={false} className="block min-w-0">
       <button type="button" aria-expanded={open} aria-controls={regionId}
         aria-label={`${open ? "Hide" : "Show"} ${previewKind} preview for ${filename}`}
@@ -36,9 +37,9 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
         <ChevronRight size={12} aria-hidden className={`shrink-0 ${open ? "rotate-90" : ""}`} />
       </button>
     </FloatingTooltip>
-    <div id={regionId} hidden={!open}>
-      {open && <BoundedMessageContent unbounded collapsedHeight="160px" data-testid="shell-replacement-fragments"
-        className="mt-1" style={{ maxHeight: "400px", overflow: "auto" }}>
+    <div id={regionId} hidden={!open && !fullscreen}>
+      {(open || fullscreen) && <BoundedMessageContent unbounded collapsedHeight="160px" data-testid="shell-replacement-fragments"
+        className="mt-1" style={{ maxHeight: fullscreen ? "none" : "400px", overflow: "auto" }}>
         <div className="mb-1 text-[10.5px]">{replacement ? "Requested replacements" : operation.action === "append" ? "Content to append" : "Content to write"}</div>
         {operation.content !== undefined && <pre className="m-0 whitespace-pre-wrap break-words px-2 py-0.5" style={{ background: "var(--ct-diff-add-bg)", color: "var(--ct-fg)" }}>{operation.content}</pre>}
         {replacement?.fragments.map((fragment, index) => <div key={index} className="mb-1">
@@ -50,7 +51,7 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
         {replacement?.unsupported && <div role="note" aria-label="Partial replacement preview">Some replacements cannot be previewed. See command details.</div>}
       </BoundedMessageContent>}
     </div>
-  </>;
+  </>}</ExpandableReader>;
 }
 
 export function shellFileOperationPreview(event: ToolEvent) {

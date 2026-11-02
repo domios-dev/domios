@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { type FileDiff, type FileDiffHunk, type ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight, Copy, FileDiff as FileDiffIcon, FileText, SquareTerminal } from "lucide-react";
 import { useId, useMemo, useState, type CSSProperties, type ReactNode } from "react";
@@ -135,6 +136,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
   if (rawCommand) menu.push({ label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
     onSelect: () => { setTechnicalOpen((open) => !open); setExpanded(true); } });
   return (
+    <ExpandableReader label={heading}>{(fullscreen) => (
     <section
       data-testid="file-diff-card"
       data-tool-status={event.status}
@@ -169,11 +171,11 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
         <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />
       </button>
       </div>
-      <div id={regionId} role="region" aria-label={`Diff for ${name}`} hidden={!expanded} className="overflow-x-auto pb-1.5">
-        {expanded && diff.hunks.length === 0 && (
+      <div id={regionId} role="region" aria-label={`Diff for ${name}`} hidden={!expanded && !fullscreen} className="overflow-x-auto pb-1.5">
+        {(expanded || fullscreen) && diff.hunks.length === 0 && (
           <div className="px-3 font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>Empty file</div>
         )}
-        {expanded && diff.hunks.map((hunk, hunkIndex) => (
+        {(expanded || fullscreen) && diff.hunks.map((hunk, hunkIndex) => (
           <div key={hunkIndex} data-testid="file-diff-hunk" className={`${SYNTAX_HIGHLIGHT_ROOT_CLASS} group/hunk min-w-max`}>
             <div data-testid="file-diff-hunk-header" className="flex items-center gap-2 px-3 py-0.5 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>
               <span>{changedLines(hunk)}</span>
@@ -182,12 +184,13 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
             <HunkLines hunk={hunk} language={language} />
           </div>
         ))}
-        {expanded && showResult && failed && event.result && (
+        {(expanded || fullscreen) && showResult && failed && event.result && (
           <div data-testid="toolcard-result" className="px-3 pt-1"><ToolOutputContent text={event.result} maxHeight="12rem" /></div>
         )}
-        {expanded && technicalOpen && rawCommand && <BoundedMessageContent as="pre" data-testid="message-raw-content" collapsedHeight="12rem" className="m-0 whitespace-pre-wrap break-words px-3 pt-1 font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>{rawToolPayload(event)}</BoundedMessageContent>}
+        {(expanded || fullscreen) && technicalOpen && rawCommand && <BoundedMessageContent as="pre" data-testid="message-raw-content" collapsedHeight="12rem" className="m-0 whitespace-pre-wrap break-words px-3 pt-1 font-mono text-xs" style={{ color: "var(--ct-muted-fg)" }}>{rawToolPayload(event)}</BoundedMessageContent>}
       </div>
     </section>
+    )}</ExpandableReader>
   );
 }
 

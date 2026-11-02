@@ -1,7 +1,8 @@
+import { ExpandableReader } from "./ExpandableReader";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
-import { FullscreenOverlay, useFullscreenViewer } from "./FullscreenOverlay";
-import { ChevronDown, Copy, Check, Maximize2, Minimize2 } from "lucide-react";
+import { useFullscreenViewer } from "./FullscreenOverlay";
+import { ChevronDown, Copy, Check } from "lucide-react";
 import { copyCodeText } from "./copyCodeText";
 import { SyntaxHighlighter } from "./syntaxHighlighter";
 import { themeAwarePrismStyle, SYNTAX_HIGHLIGHT_ROOT_CLASS } from "./syntaxTheme";
@@ -226,12 +227,10 @@ export function CodeBlock({
   const [mermaidLoading, setMermaidLoading] = useState(false);
   const mermaidCandidates = useMemo(() => (mermaidMode ? getMermaidRenderCandidates(normalizedText) : []), [mermaidMode, normalizedText]);
   const mermaidRenderKey = mermaidCandidates.join("\u0000");
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const highlightEligible = highlightSourceEligible(normalizedText, richRequested || isFullscreen);
+  const highlightEligible = highlightSourceEligible(normalizedText, richRequested);
   const shouldUsePlainRenderer = (!mermaidMode && (normalizedText.length > CODE_BLOCK_PLAIN_FALLBACK_THRESHOLD || isToolTraceLanguage(language) || !highlightEligible))
     || (mermaidMode && (mermaidCandidates[0]?.length ?? 0) > MERMAID_RENDER_LENGTH_LIMIT);
   const copyTimer = useRef<number | null>(null);
-  const fullscreenRef = useRef<HTMLDivElement>(null);
   const mermaidNodeId = useMemo(() => `ct-mermaid-${Math.random().toString(36).slice(2, 11)}`, []);
   const copyText = useCallback(async (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -359,7 +358,6 @@ export function CodeBlock({
     };
   }, [mermaidMode, expanded, shouldUsePlainRenderer, mermaidRenderKey, mermaidNodeId, mermaidCandidates.length]);
 
-  const dismissFullscreen = useCallback(() => setIsFullscreen(false), []);
 
   useEffect(() => {
     if (!canCollapse) {
@@ -382,20 +380,8 @@ export function CodeBlock({
   const showMermaidFallback = mermaidMode && !shouldUsePlainRenderer && !mermaidError && !mermaidSvg;
   const shouldDisplayMermaid = mermaidMode && !shouldUsePlainRenderer && expanded && mermaidSvg !== null;
   const suppressMermaidErrorOutput = mermaidMode && !shouldUsePlainRenderer && mermaidError !== null && mermaidSvg === null;
-  const openFullscreen = (event?: React.MouseEvent) => {
-    if (event?.currentTarget instanceof HTMLElement) event.currentTarget.focus();
-    event?.stopPropagation();
-    setExpanded(true);
-    setIsFullscreen(true);
-  };
-
-  const closeFullscreen = (event?: React.MouseEvent) => {
-    event?.stopPropagation();
-    setIsFullscreen(false);
-  };
-
-
   return (
+    <ExpandableReader label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"} actionLabel="Fullscreen" onOpen={() => { setExpanded(true); setRichRequested(true); }}>{(fullscreen) => (
     <div className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
       <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
         <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
@@ -432,35 +418,28 @@ export function CodeBlock({
             {copied ? <Check size={12} /> : <Copy size={12} />}
             <span>{copied ? "Copied" : "Copy"}</span>
           </button>
-          <button
-            type="button"
-            onClick={openFullscreen}
-            hidden={Boolean(outerFullscreen)}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-            style={{ color: "var(--ct-muted-fg)", display: outerFullscreen ? "none" : undefined }}
-            title="Open in fullscreen"
-          >
-            <Maximize2 size={12} />
-            <span>Fullscreen</span>
-          </button>
+
         </div>
         {!mermaidMode && !highlightEligible && <button type="button" onClick={() => { setRichRequested(true); setExpanded(true); }}
           className="select-none px-2 py-1 text-xs" aria-label="Highlight code">Highlight code</button>}
-        <CodeBlockContent
+        {fullscreen && mermaidMode && shouldDisplayMermaid ? <div style={{ height: "75dvh" }}><MermaidCanvas svg={mermaidSvg!} /></div> : <div className={fullscreen ? "ct-code-reader" : undefined} data-testid={fullscreen ? "code-reader" : undefined}>
+        {fullscreen && fullscreenAside && <aside className="ct-code-reader__aside" aria-label="About this code">{fullscreenAside}</aside>}
+        <div className={fullscreen ? "ct-code-reader__stage" : undefined}><div className={fullscreen ? "ct-code-reader__sheet" : undefined}><CodeBlockContent
           wrapLines={wrapLines}
-          showLineNumbers={showLineNumbers}
-          fullSize={false}
+          showLineNumbers={fullscreen || showLineNumbers}
+          fullSize={fullscreen || Boolean(outerFullscreen)}
+          reading={fullscreen}
           maxHeight={maxHeight}
-          displayedText={displayedText}
+          displayedText={fullscreen || outerFullscreen ? normalizedText : displayedText}
           language={language}
           mermaidMode={mermaidMode}
           mermaidSvg={mermaidSvg}
           forcePlainText={shouldUsePlainRenderer}
-          explicitHighlight={richRequested || isFullscreen}
+          explicitHighlight={richRequested}
           shouldDisplayMermaid={shouldDisplayMermaid}
           showMermaidFallback={showMermaidFallback}
           suppressMermaidErrorOutput={suppressMermaidErrorOutput}
-        />
+        /></div></div></div>}
         {showMermaidFallback && !mermaidError && mermaidLoading && (
           <div className="px-2 pb-1.5 text-[10px] opacity-60 text-[var(--ct-muted-fg)]">Rendering mermaid diagram...</div>
         )}
@@ -475,69 +454,9 @@ export function CodeBlock({
           </div>
         )}
       </div>
-      {isFullscreen && (
-        <FullscreenOverlay panelRef={fullscreenRef} closeButton={false} onClose={dismissFullscreen} label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"}>
-            <div
-              className="flex select-none items-center gap-1.5 px-2 py-1.5 text-xs"
-              style={{
-                color: "var(--ct-muted-fg)",
-                paddingTop: "4px",
-              }}
-            >
-              <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
-              <span className="font-mono opacity-70">{language}</span>
-              <span className="opacity-70">·</span>
-              <span className="opacity-70">{lineCountValue} lines</span>
-              <span className="ml-auto" />
-              <button
-                type="button"
-                onClick={copyText}
-                aria-label="Copy code"
-                title={copied ? "Copied" : "Copy code"}
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-                style={{ color: "var(--ct-muted-fg)" }}
-              >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
-                <span>{copied ? "Copied" : "Copy"}</span>
-              </button>
-              <button
-                type="button"
-                onClick={closeFullscreen}
-                className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-                style={{ color: "var(--ct-muted-fg)" }}
-              >
-                <Minimize2 size={12} />
-                <span>Close</span>
-              </button>
-            </div>
-            <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-              {mermaidMode && shouldDisplayMermaid ? <MermaidCanvas svg={mermaidSvg!} /> : <div className="ct-code-reader" data-testid="code-reader">
-                {fullscreenAside && <aside className="ct-code-reader__aside" aria-label="About this code">{fullscreenAside}</aside>}
-                <div className="ct-code-reader__stage">
-                  <div className="ct-code-reader__sheet">
-                    <CodeBlockContent
-                wrapLines={wrapLines}
-                showLineNumbers
-                fullSize
-                reading
-                maxHeight={maxHeight}
-                displayedText={displayedText}
-                language={language}
-                mermaidMode={mermaidMode}
-                mermaidSvg={mermaidSvg}
-                forcePlainText={shouldUsePlainRenderer}
-                explicitHighlight={richRequested || isFullscreen}
-                shouldDisplayMermaid={shouldDisplayMermaid}
-                showMermaidFallback={showMermaidFallback}
-                suppressMermaidErrorOutput={suppressMermaidErrorOutput}
-                    />
-                  </div>
-                </div>
-              </div>}
-            </div>
-        </FullscreenOverlay>
-      )}
+
     </div>
+    )}</ExpandableReader>
   );
 }
 

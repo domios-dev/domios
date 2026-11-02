@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { toolStreamLabel, type ToolEvent } from "@codeterm/chat-core";
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
@@ -117,6 +118,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
   };
 
   return (
+    <ExpandableReader label="Tool activity">{(fullscreen) => (
     <section
       data-testid="chat-tool-stream"
       data-flow-active={stream.active ? "true" : "false"}
@@ -125,7 +127,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
       className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
       style={{
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
-        maxHeight: miniView ? MINI_VIEW_MAX_PX : undefined,
+        maxHeight: miniView && !fullscreen ? MINI_VIEW_MAX_PX : undefined,
       }}
     >
       <button
@@ -153,7 +155,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
         <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </button>
-      {miniView && (
+      {miniView && !fullscreen && (
         <ol data-testid="chat-tool-stream-mini" aria-label="Recent actions" className="m-0 list-none px-3 pb-1.5 pl-8">
           {stream.members.slice(-MINI_VIEW_ROWS).map((member) => (
             <li key={member.id} className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
@@ -164,8 +166,8 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
           ))}
         </ol>
       )}
-      <div id={regionId} role="region" aria-label="Tool actions" hidden={!expanded} className="px-2 pb-1.5">
-        {expanded && (
+      <div id={regionId} role="region" aria-label="Tool actions" hidden={!expanded && !fullscreen} className="px-2 pb-1.5">
+        {(expanded || fullscreen) && (
           <ul className="m-0 list-none p-0">
             {stream.entries.map((entry) => entry.kind === "action" ? renderMember(entry.event) : (
               <li key={entry.id} data-testid="chat-tool-stream-thought">
@@ -176,5 +178,6 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         )}
       </div>
     </section>
+    )}</ExpandableReader>
   );
 }

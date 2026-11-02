@@ -88,5 +88,5 @@ export function FullscreenOverlay({ panelRef, label, onClose, children, returnFo
     </FullscreenViewerContext.Provider>
   );
   if (open === undefined) return createPortal(content, portalHost);
-  return <dialog ref={dialogRef} role="presentation" style={{ display: expanded ? "block" : "contents", position: "fixed", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", overflow: "visible", padding: 0, border: 0, margin: 0, color: "inherit", background: "transparent" }} onCancel={(event) => { event.preventDefault(); onClose(); }}>{content}</dialog>;
+  return <dialog ref={dialogRef} role="generic" style={{ display: expanded ? "block" : "contents", position: "fixed", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", overflow: "visible", padding: 0, border: 0, margin: 0, color: "inherit", background: "transparent" }} onCancel={(event) => { event.preventDefault(); onClose(); }}>{content}</dialog>;
 }

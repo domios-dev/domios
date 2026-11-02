@@ -104,7 +104,7 @@ test("CodeBlock renders highlighted code structure and copy button", async () =>
   const highlightedSpan = Array.from(host.querySelectorAll("span"))
     .find((node) => node.textContent === "const");
   assert(highlightedSpan, "highlighted token span should render");
-  assert(host.querySelector("button")?.textContent?.includes("Copy"), "copy action should be a button");
+  assert(host.querySelector('button[aria-label="Copy code"]')?.textContent?.includes("Copy"), "copy action should be a button");
 
   await act(async () => root.unmount());
 });
