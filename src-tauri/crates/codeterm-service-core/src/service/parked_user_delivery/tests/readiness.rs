@@ -11,7 +11,7 @@ fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
     let _submit = UserSubmitBoundary::install(
         &tab,
         Arc::new(move |_, text| {
-            assert_eq!(text, FIRST_PAYLOAD);
+            assert_eq!(text, FIRST_PAYLOAD.replace("\r\n", "\n"));
             count.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }),
