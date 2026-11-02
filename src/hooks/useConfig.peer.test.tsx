@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { withFailureDeadline } from "../test/withFailureDeadline";
 import type { AppConfig } from "../lib/types";
+import { RELAY_PROTOCOL_VERSION } from "../lib/types";
 
 register(`data:text/javascript,${encodeURIComponent(`
 const leaves = {
@@ -144,7 +145,7 @@ async function fixture(local = false) {
     if (path === "/api/mesh/peers") {
       return Response.json({ local_instance_name: local ? "eight" : "gateway", paired: (local ? [B] : [A, B]).map((id) => ({
         instance_id: id, instance_name: stores.get(id)!.mesh.instance_name, addresses: [], api_port: 7685,
-        online: true, relay_protocol_version: 2,
+        online: true, relay_protocol_version: RELAY_PROTOCOL_VERSION,
       })) });
     }
     if (path === "/api/config") {
@@ -223,6 +224,7 @@ async function fixture(local = false) {
       const rows = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')];
       const row = rows.find((entry) => entry.dataset.peerName === (id === A ? "eight" : "rollacodebot"));
       assert(row);
+      assert.equal(row.disabled, false, "peer switch requires an available compatible peer");
       await act(async () => row.click());
     }
   }
