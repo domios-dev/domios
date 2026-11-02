@@ -166,6 +166,14 @@ fn fixtures(dir: &Path) -> Vec<(PathBuf, Fixture)> {
     fixtures_with_load(dir, false)
 }
 
+fn load_fixture(path: &Path) -> Fixture {
+    let pad = std::env::temp_dir().join("runtime-replay-agent-pad");
+    assert!(pad.is_absolute());
+    let pad_json = serde_json::to_string(&pad).unwrap();
+    let raw = std::fs::read_to_string(path).unwrap();
+    serde_json::from_str(&raw.replace(r#""/work/agent-pad""#, &pad_json)).unwrap()
+}
+
 // captured/load holds rate-measurement recordings: same frame kinds at larger volume, so only benchmarks replay them.
 fn fixtures_with_load(dir: &Path, load: bool) -> Vec<(PathBuf, Fixture)> {
     let mut paths = scenario_paths(dir);
@@ -185,8 +193,7 @@ fn fixtures_with_load(dir: &Path, load: bool) -> Vec<(PathBuf, Fixture)> {
     paths
         .into_iter()
         .map(|path| {
-            let fixture: Fixture =
-                serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            let fixture = load_fixture(&path);
             let mut previous = 0.0;
             for record in &fixture.rpc {
                 let (receipt, adapter_step) = match record {
@@ -539,9 +546,7 @@ fn observed_rates(fixtures: &[(PathBuf, Fixture)]) -> (f64, f64) {
 async fn runtime_large_history_streams_bounded_quickjs_state() {
     let (inputs, _) = history_bounds_inputs();
     let provider = load_provider(&inputs.manifest, &inputs.declaration);
-    let fixture: Fixture =
-        serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
-            .unwrap();
+    let fixture = load_fixture(&inputs.dir.join("resume.json"));
     let context = fixture.context;
     let op = RuntimeOperation::ReadHistory {
         thread_id: context.thread_id.clone().unwrap(),
@@ -606,9 +611,7 @@ async fn runtime_large_history_streams_bounded_quickjs_state() {
 async fn runtime_multi_mib_history_is_bounded_before_and_after_quickjs() {
     let (inputs, sizes) = history_bounds_inputs();
     let provider = load_provider(&inputs.manifest, &inputs.declaration);
-    let fixture: Fixture =
-        serde_json::from_str(&std::fs::read_to_string(inputs.dir.join("resume.json")).unwrap())
-            .unwrap();
+    let fixture = load_fixture(&inputs.dir.join("resume.json"));
     let context = fixture.context;
     let op = RuntimeOperation::ReadHistory {
         thread_id: context.thread_id.clone().unwrap(),

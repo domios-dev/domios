@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import type { CSSProperties } from "react";
 import { actionVisual } from "../toolcard/CodetermActionCard";
 import { ToolCardActionButton } from "../toolcard/ToolCardFrame";
@@ -38,6 +39,7 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolveTabName, 
   const Glyph = visual.glyph;
   const showDetail = Boolean(card.detail) && !expanded;
   return (
+    <ExpandableReader label={card.title}>{(fullscreen) => (
     <div className="mb-1.5 w-full max-w-4xl min-w-0 mx-auto">
       <div className={`ct-card${expanded ? "" : " ct-card--quiet"}`} style={{ "--ct-card-tone": visual.color } as CSSProperties}>
         <button type="button" aria-expanded={expanded} onClick={onToggle} className="ct-card__head">
@@ -49,14 +51,14 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolveTabName, 
             </span>
           )}
         </button>
-        {(showDetail || canOpenPlan || expanded) && (
+        {(showDetail || canOpenPlan || expanded || fullscreen) && (
           <div className="ct-card__body grid gap-1.5">
             {showDetail && (
               <div className="truncate" style={{ color: "var(--ct-muted-fg)" }}>
                 {hasPlanRefs(card.detail!) ? <LinkedText text={card.detail!} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} /> : card.detail}
               </div>
             )}
-            {expanded && (
+            {(expanded || fullscreen) && (
               <div className="ct-card__body--reveal grid gap-1 font-mono text-[11px]">
                 <pre className="m-0 whitespace-pre-wrap break-all" style={{ color: "var(--ct-muted-fg)" }}>{inv.raw}</pre>
                 {result && <pre className="m-0 whitespace-pre-wrap break-all" style={{ color: "var(--ct-fg)" }}>{result}</pre>}
@@ -69,5 +71,6 @@ export function CodetermCard({ inv, result, expanded, onToggle, resolveTabName, 
         )}
       </div>
     </div>
+    )}</ExpandableReader>
   );
 }

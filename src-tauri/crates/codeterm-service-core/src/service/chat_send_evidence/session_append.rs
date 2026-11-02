@@ -59,12 +59,13 @@ impl ServiceContext {
             None if evidence.absence_witness.is_some() => 0,
             _ => return,
         };
+        let provisional = self.provisional_append_stream_allowed(tab_id, session, nonce);
         let cfg = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
                 return;
             };
-            if !tab.launch_session_authenticated()
+            if (!tab.launch_session_authenticated() && !provisional)
                 || tab.agent_session_id.as_deref() != Some(session)
                 || tab.session_binding_nonce.as_deref() != Some(nonce)
             {

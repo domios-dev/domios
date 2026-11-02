@@ -4,10 +4,10 @@ mod codeterm_bin;
 mod json_output;
 
 use std::io::Write;
-use std::process::{Command, Output, Stdio};
+use std::process::{Output, Stdio};
 
 fn command(root: &std::path::Path, args: &[&str], key: &str) -> Output {
-    let mut child = Command::new(codeterm_bin::codeterm_bin())
+    let mut child = codeterm_bin::command()
         .args(args)
         .env("CODETERM_DATA_DIR", root)
         .env("CODETERM_INSTANCE", "key-fixture")

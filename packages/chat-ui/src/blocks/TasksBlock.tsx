@@ -1,3 +1,4 @@
+import { useFullscreenViewer } from "../FullscreenOverlay";
 import { useState } from "react";
 import { ListTodo } from "lucide-react";
 import { ChatBlockFrame } from "./ChatBlockFrame";
@@ -51,6 +52,7 @@ function TasksCard({ state, spec, host, source }: { state: Extract<TasksBlockSta
 }
 
 function TaskGroup({ group, onOpen }: { group: TasksBlockGroup; onOpen: (taskId: string) => void }) {
+  const fullscreen = useFullscreenViewer();
   const [open, setOpen] = useState(!group.collapsedByDefault);
   const heading = (
     <>
@@ -75,7 +77,7 @@ function TaskGroup({ group, onOpen }: { group: TasksBlockGroup; onOpen: (taskId:
       ) : (
         <div className={headingClass} style={{ color: "var(--ct-muted-fg)" }}>{heading}</div>
       )}
-      {open && (
+      {(open || fullscreen) && (
         <ul className="m-0 grid list-none gap-0.5 p-0">
           {group.rows.map((row) => <TaskRow key={row.id} row={row} onOpen={onOpen} />)}
         </ul>

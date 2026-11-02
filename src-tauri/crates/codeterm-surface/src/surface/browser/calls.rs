@@ -91,6 +91,7 @@ impl BrowserRuntime {
                 let input: InputArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
                 self.shared.invalidate_snapshot();
+                self.shared.invalidate_action();
                 self.dispatch_input(&page, &input).await?;
                 Value::Null
             }

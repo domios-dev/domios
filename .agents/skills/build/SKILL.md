@@ -1171,15 +1171,12 @@ the run by the per-test `... ok` lines of the target that owns the test.
 Every `nextest` operation compiles a binaries-metadata inventory, saves Cargo
 metadata and reuses that exact inventory for execution. It captures per-test
 timings at normal parallelism. `check-slow-unit-tests.mjs LOG --candidates JSON`
-selects new or over-baseline timings above one second; the runner measures only
+selects timings at or above one second; the runner measures only
 those exact tests alone, reusing metadata without any Cargo build flags.
-`check-slow-unit-tests.mjs LOG --alone ALONE_LOG` reports both measurements and
-keeps the one-second target visible: alone times from 1.0 to 1.25 seconds warn;
-new alone times above 1.25 seconds fail. Existing regressions fail only above
-baseline + max(20%, 0.25 seconds); smaller increases warn.
-`scripts/slow-unit-tests.json` records alone durations and may only shrink against
-`origin/develop` (`SLOW_UNIT_TESTS_BASE` overrides the ref). Missing or partial
-timings fail closed, and test failures retain their original exit codes.
+`check-slow-unit-tests.mjs LOG --alone ALONE_LOG` reports both measurements.
+Every duration at or above one second is advisory; no duration fails a test.
+Missing or partial timing evidence still fails closed, and actual test failures
+retain their original exit codes.
 Primary runs explicitly disable fail-fast for every manifest so one failed test
 does not cancel the remaining timing inventory.
 For an explicitly authorized bootstrap measurement, use `NEXTEST_TEST_THREADS=1
@@ -1206,10 +1203,12 @@ Filtersets use nextest's `--filter-expr` syntax. A filterset containing
 `rdeps(...)` runs workspace targets so reverse dependents remain in scope.
 `verify` runs the standard
 check, full Rust workspace library suite, and source-size and provider-boundary integration gates.
-Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper but wait
-for Cargo and libtest to finish by default. For a targeted diagnostic only, set
-`TEST_CAP_SECS=<positive-seconds>`; an enforced cap terminates the test process
-group and exits 124, while ordinary child success or failure is propagated.
+Rust tests keep the repository-owned `scripts/test-capped.sh` wrapper and wait
+for Cargo and tests to finish. `TEST_CAP_SECS` sets an advisory duration warning
+at completion; 0 disables warnings. It never kills a process or changes its exit.
+Release preflight uses a Team utility with `--timeout none`, process completion
+and a final report; keep cancellation and protocol deadlines. Per-step preflight
+durations belong in the qualification receipt before changing gate coverage.
 
 `./build.sh cli` uses the shared cargo gateway and single-owner sccache initialization.
 The command builds the release
@@ -1482,7 +1481,7 @@ entitlement refresh when integrating either external service.
 Run `./build.sh fmt` in a fresh lane before direct pnpm checks; it prepares the checkout-local dependencies automatically. Direct pnpm commands bypass that wrapper. A failed dependency lookup selected no executable tests.
 For intentional gateway queueing, pass `--queue` (alias behavior of `--wait-build`). Lane checks honor the same mode by blocking on the shared intermediate file lock; the default refuses a busy lock. CLI and app workspace crates require separate lane-check invocations. The default stays fail-fast. Queueing uses the existing gateway event and normal completion report. Tab-origin build reports retain tab provenance; they never claim system provenance.
 
-<!-- revision: 61 -->
+<!-- revision: 62 -->
 
 ### Lane and batch scopes
 

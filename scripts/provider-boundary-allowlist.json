@@ -2,6 +2,12 @@
   "version": 1,
   "splits": [
     {
+      "from": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle.rs",
+      "to": [
+        "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle/tests.rs"
+      ]
+    },
+    {
       "from": "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests.rs",
       "to": [
         "src-tauri/crates/codeterm-service-core/src/service/session_persist/tests/storage_desk.rs"
@@ -9162,21 +9168,21 @@
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle/tests.rs",
       "token": "claude",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle/tests.rs",
       "token": "codex",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle/tests.rs",
       "token": "opencode",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",

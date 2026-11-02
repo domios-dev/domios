@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import React, { useId, useRef, useState } from "react";
 import { ChevronRight, Loader2, MessageSquarePlus, Pin } from "lucide-react";
 import { ChatCardMenu } from "../ChatCardMenu";
@@ -89,6 +90,8 @@ export function ChatBlockFrame({
   const hasFooter = confirming !== null || actions.length > 0 || fullPage !== undefined || details !== undefined || !body;
 
   return (
+    <ExpandableReader label={title} enabled={Boolean(details || body)}>{(fullscreen) => (
+
     <section
       data-testid="chat-block"
       data-chat-block={name}
@@ -116,7 +119,7 @@ export function ChatBlockFrame({
 
       {body && <div data-testid="chat-block-body" className="ct-card__body" style={hasFooter ? { paddingBottom: 0 } : undefined}>{body}</div>}
 
-      {details && expanded && (
+      {details && (expanded || fullscreen) && (
         <div id={detailsId} data-testid="chat-block-details" className="ct-card__body ct-card__body--reveal mt-2" style={{ paddingBottom: 0, color: "var(--ct-muted-fg)" }}>
           {details}
         </div>
@@ -172,6 +175,7 @@ export function ChatBlockFrame({
         {outcome.kind === "failed" && <span role="alert" style={{ color: "var(--ct-err)" }}>{outcome.message}</span>}
       </div>
     </section>
+    )}</ExpandableReader>
   );
 }
 

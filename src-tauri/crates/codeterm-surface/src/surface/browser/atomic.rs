@@ -99,6 +99,7 @@ impl BrowserRuntime {
         fill: bool,
         desired: Option<bool>,
     ) -> Result<String, String> {
+        let _guard = self.action_gate.lock().await;
         let epoch = self.evaluate(page, BEGIN, false).await?;
         let capture = self
             .shared
@@ -136,14 +137,12 @@ impl BrowserRuntime {
             .pointer("/object/objectId")
             .and_then(|v| v.as_str())
             .ok_or("stale: detached element")?;
-        let result = self.send(page,"Runtime.callFunctionOn",json!({"objectId":id,"functionDeclaration":ACT,"arguments":[{"value":epoch},{"value":if fill {"fill"} else {"click"}},{"value":args.text}],"returnByValue":true})).await;
+        let result = self.complete_action(page, false, self.send(page,"Runtime.callFunctionOn",json!({"objectId":id,"functionDeclaration":ACT,"arguments":[{"value":epoch},{"value":if fill {"fill"} else {"click"}},{"value":args.text}],"returnByValue":true}))).await;
         let _ = self
             .send(page, "Runtime.releaseObject", json!({"objectId":id}))
             .await;
         self.shared.invalidate_snapshot();
-        let result = result.map_err(|_| {
-            "action_unconfirmed: action may have occurred; inspect before continuing"
-        })?;
+        let (result, completion) = result?;
         match result.pointer("/result/value").and_then(|v| v.as_str()) {
             Some("performed") => {
                 if let Some(desired) = desired {
@@ -161,7 +160,9 @@ impl BrowserRuntime {
                     }
                     .into())
                 } else {
-                    Ok("action performed; re-snapshot to prove the resulting state".into())
+                    Ok(format!(
+                        "{completion}; re-snapshot to prove the resulting state"
+                    ))
                 }
             }
             Some(reason) => Err(format!("{reason}: atomic action refused")),

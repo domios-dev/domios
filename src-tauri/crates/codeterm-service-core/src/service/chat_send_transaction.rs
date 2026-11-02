@@ -4,6 +4,7 @@ use std::sync::{Arc, Weak};
 mod dismissal;
 mod durable_restore;
 mod live_evidence;
+mod provisional_launch;
 mod rpc_evidence;
 mod service_context;
 mod settlement;

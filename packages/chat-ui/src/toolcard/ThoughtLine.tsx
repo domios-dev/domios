@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { ChevronRight } from "lucide-react";
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { thoughtPresentation } from "./thoughtModel";
@@ -29,15 +30,15 @@ export function ThoughtLine({ text, expanded, onToggle, label = "Thinking", test
   if (!headline) return null;
   const canExpand = expandable || clipped || open;
   const caption = <span className="text-[10.5px] leading-[16px]" style={{ color: "var(--ct-muted-fg)", opacity: 0.7 }}>{label}</span>;
-  return <div data-testid={testId} className="min-w-0 py-1">
+  return <ExpandableReader label={label} enabled={canExpand}>{(fullscreen) => <div data-testid={testId} className="min-w-0 py-1">
     {canExpand ? <button type="button" aria-expanded={open} aria-controls={regionId}
       onClick={() => toggle(!open)} className="flex w-fit items-center gap-1 rounded text-left hover:brightness-125">
       {caption}<ChevronRight aria-hidden size={11} className={open ? "rotate-90" : ""} style={{ color: "var(--ct-muted-fg)" }} />
     </button> : caption}
     <p ref={body} id={regionId} role="region" aria-label={label} data-testid="chat-thought-line"
       className="m-0 whitespace-pre-wrap break-words text-xs leading-[18px]"
-      style={{ color: "var(--ct-muted-fg)", ...(!open ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 3, overflow: "hidden" } as const : { maxHeight: 400, overflowY: "auto", overscrollBehavior: "contain", scrollbarGutter: "stable" }) }}>
+      style={{ color: "var(--ct-muted-fg)", ...(!open && !fullscreen ? { display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: 3, overflow: "hidden" } as const : { maxHeight: fullscreen ? "none" : 400, overflowY: "auto", overscrollBehavior: "contain", scrollbarGutter: "stable" }) }}>
       <span data-testid="chat-thought-text">{text}</span>
     </p>
-  </div>;
+  </div>}</ExpandableReader>;
 }

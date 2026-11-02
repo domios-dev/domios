@@ -7,7 +7,50 @@ struct FakeChrome {
     outbound: mpsc::UnboundedSender<Message>,
 }
 
+#[tokio::test]
+async fn browser_cdp_completion_observation_overflow_reports_lost_authority() {
+    let (connection, _receiver) = batch_connection();
+    let stream = connection.subscribe(EventFilter::any());
+    for _ in 0..=SUBSCRIBER_CAPACITY {
+        connection.0.fan_out(Arc::new(CdpEvent {
+            method: "Page.lifecycleEvent".into(),
+            params: json!({}),
+            session_id: None,
+        }));
+    }
+    assert!(stream.has_lost_events());
+    assert!(!stream.is_closed());
+}
+
+#[tokio::test]
+async fn browser_cdp_completion_cancellation_releases_pending_command_receipts() {
+    let (connection, _receiver) = batch_connection();
+    {
+        let action = connection.send_to(
+            Some("session"),
+            "Page.navigate",
+            json!({"url":"https://page/"}),
+            COMMAND_DEADLINE,
+        );
+        tokio::pin!(action);
+        assert!(futures_util::poll!(&mut action).is_pending());
+        assert_eq!(connection.0.state.lock().pending.len(), 1);
+    }
+    assert!(connection.0.state.lock().pending.is_empty());
+}
+
 impl FakeChrome {
+    fn protocol_event(&self, method: &str, params: Value, session_id: &str) {
+        self.outbound
+            .send(Message::text(
+                json!({
+                    "method":method, "params":params, "sessionId":session_id,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+    }
+
     fn reply(&self, request: &Value, body: Value) {
         let mut message = body;
         message["id"] = request["id"].clone();
@@ -25,6 +68,87 @@ impl FakeChrome {
             .send(Message::text(message.to_string()))
             .unwrap();
     }
+}
+
+#[tokio::test]
+async fn browser_cdp_completion_correlates_withheld_navigation_response_and_load() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    let page = PageChannel {
+        client,
+        session_id: "session".into(),
+        target_id: "target".into(),
+    };
+    let observing = tokio::spawn({
+        let page = page.clone();
+        async move { crate::completion::ActionCompletion::observe(&page).await }
+    });
+    for method in [
+        "Page.enable",
+        "Page.setLifecycleEventsEnabled",
+        "Page.getFrameTree",
+    ] {
+        let request = chrome.inbound.recv().await.unwrap();
+        assert_eq!(request["method"], method);
+        let result = if method == "Page.getFrameTree" {
+            json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}})
+        } else {
+            json!({})
+        };
+        chrome.reply(&request, json!({"result":result}));
+    }
+    let observing = observing.await.unwrap().unwrap();
+    let mut barrier = page.subscribe_session(&["Fixture.barrier"]);
+    let action = observing.finish(
+        async {
+            page.send("Page.navigate", json!({"url":"https://delayed/"}))
+                .await
+                .map_err(|error| error.to_string())
+        },
+        true,
+        Duration::from_secs(15),
+    );
+    tokio::pin!(action);
+    let request = tokio::select! {
+        result = &mut action => panic!("completed before navigation request: {result:?}"),
+        request = chrome.inbound.recv() => request.unwrap(),
+    };
+    assert_eq!(request["method"], "Page.navigate");
+    assert_eq!(request["sessionId"], "session");
+    chrome.protocol_event(
+        "Page.frameRequestedNavigation",
+        json!({"frameId":"main"}),
+        "session",
+    );
+    chrome.protocol_event("Fixture.barrier", json!({}), "session");
+    barrier.recv().await.unwrap();
+    assert!(futures_util::poll!(&mut action).is_pending());
+    chrome.reply(
+        &request,
+        json!({"result":{"frameId":"main","loaderId":"own"}}),
+    );
+    chrome.protocol_event(
+        "Page.frameNavigated",
+        json!({"frame":{"id":"main","loaderId":"own","url":"https://delayed/"}}),
+        "session",
+    );
+    chrome.protocol_event(
+        "Page.lifecycleEvent",
+        json!({"frameId":"child","loaderId":"own","name":"load"}),
+        "session",
+    );
+    chrome.protocol_event("Fixture.barrier", json!({}), "session");
+    barrier.recv().await.unwrap();
+    assert!(futures_util::poll!(&mut action).is_pending());
+    chrome.protocol_event(
+        "Page.lifecycleEvent",
+        json!({"frameId":"main","loaderId":"own","name":"load"}),
+        "session",
+    );
+    assert_eq!(
+        action.await.unwrap().1,
+        "navigation loaded: https://delayed/"
+    );
 }
 
 async fn fake_chrome() -> FakeChrome {

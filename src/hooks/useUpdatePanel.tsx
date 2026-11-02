@@ -38,6 +38,10 @@ function useUpdatePanelController() {
   const updateable = panelItems(updateableItems(snapshot.items, status.errors));
   const diagnostics = channelDiagnostics(status.errors, new Set());
 
+  useEffect(() => {
+    if (app.installing || app.phase === "success") setHistory(previous => previous.length ? [] : previous);
+  }, [app.installing, app.phase]);
+
   const save = useCallback((next: UpdateIntent | null) => {
     restoredIntent.current = null;
     persistIntent(next);
@@ -122,6 +126,7 @@ function useUpdatePanelController() {
     running.current = true;
     setStarting(true);
     setError(null);
+    setHistory([]);
     setRunItems(items.filter(item => !item.channelError));
     setOutcomes({});
     try {
@@ -151,6 +156,7 @@ function useUpdatePanelController() {
     running.current = true;
     setStarting(true);
     setError(null);
+    setHistory([]);
     try {
       setRunItems(panelItems([item]));
       setOutcomes({});
@@ -179,6 +185,7 @@ function useUpdatePanelController() {
     try {
       const fresh = await refresh(true);
       const available = panelItems(updateableItems(fresh.items, classifyUpdateStatus(fresh).errors));
+      if (available.length) setHistory([]);
       if (app.error) await app.refresh(true, { retirementBoundary });
       setRunItems([]);
       setOutcomes({});

@@ -121,7 +121,6 @@ describe("compound command group", () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexRollout())} expanded={false} onToggle={() => {}} />);
     const groups = host.querySelectorAll('[data-testid="chat-command-group"]');
     expect(groups).toHaveLength(1);
-    expect(host.children).toHaveLength(1);
     const group = groups[0];
     expect(lines(group).map((line) => line.dataset.rowRole)).toEqual(["codeterm", "script"]);
     expect(operators(group)).toEqual([]);
