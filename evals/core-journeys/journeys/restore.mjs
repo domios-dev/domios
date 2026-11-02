@@ -2,6 +2,7 @@ import { restartObserved } from "../../restart-endurance/restart.mjs";
 import { listenerIdentity } from "../lib/listener.mjs";
 import { marker } from "../lib/fixtures.mjs";
 import { dc } from "../lib/env.mjs";
+import { connectPage, selectTabInPage } from "../lib/cdp.mjs";
 import { probeReply, readTabs, waitReady } from "../lib/tabs.mjs";
 import { JourneyFailure } from "../lib/wait.mjs";
 
@@ -21,7 +22,7 @@ export async function snapshotBeforeRestart(ctx) {
     listener: listenerIdentity(ctx.dev.port),
     build_sha: ctx.health.build_sha ?? ctx.health.build,
     tabs: tabs.filter((tab) => tab.agent_type && (ctx.options.allTabs || owned.has(tab.id))).map((tab) => ({
-      id: tab.id, title: tab.title, agent_type: tab.agent_type, session: tab.agent_session_id ?? null,
+      id: tab.id, title: tab.title, workspace_id: tab.workspace_id, agent_type: tab.agent_type, session: tab.agent_session_id ?? null,
       role: tab.role ?? null, owned: owned.has(tab.id), backing: tab.backing?.kind ?? null,
       attempt_id: tab.task_binding?.attempt_id ?? null,
       model_identity: ctx.state.model_policy.identities[tab.id] ?? null,
@@ -47,7 +48,11 @@ export async function restoredTabsReady(ctx) {
   const tabs = ctx.state.before_restart?.tabs ?? [];
   for (const tab of tabs) await ctx.check("J4", "restored_tab_ready", `${tab.id} ${tab.agent_type}${tab.role ? `/${tab.role}` : ""}`, async () => {
     const fixture = ctx.state.tabs.find((entry) => entry.id === tab.id);
-    if (!fixture?.control_fixture) {
+    if (!fixture?.control_fixture && fixture) {
+      const page = await connectPage(ctx.dev);
+      try { await selectTabInPage(page, tab.workspace_id ?? ctx.state.workspace.id, tab.id, ctx.deadlines.ui); }
+      finally { page.close(); }
+    } else if (!fixture?.control_fixture) {
       const focused = await dc(["tab", "focus", "--tab", tab.id]);
       if (focused.code !== 0) throw new JourneyFailure(`restored tab focus refused: ${focused.stdout || focused.stderr}`);
     }

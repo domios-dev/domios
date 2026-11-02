@@ -53,7 +53,7 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
       read: () => readTab(ctx.api, id, signal), judge: (record) => readiness(record, { allowFirstTurn: true }),
     });
     const baselineIds = new Set((await chat(ctx, id, signal)).map((message) => message.id));
-    const receipt = await sendText(ctx, id, prompt ?? `Reply with exactly ${marker} and nothing else. Do not run tools.`);
+    const receipt = await sendText(ctx, id, prompt ?? `Reply with exactly ${marker} as one contiguous string with no spaces between its characters, and nothing else. Do not run tools.`);
     let boundSession = ready.agent_session_id ?? null;
     const outcome = await observe({
       events, filter: touchesTab(id), label: `tab ${id} reply ${marker}`,

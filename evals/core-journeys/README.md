@@ -132,7 +132,7 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
 | Id | Observable pass |
 |---|---|
 | J1 | Per installed provider: spawn reaches `agent_ready`; an exact marker reply arrives as a new assistant item in the tab's own `/chat` with the same bound session and idle status; a long turn reaches `working`, `tab stop` returns `stopped:true` and the tab returns to idle on the same session. Providers that run without a PTY (`agent_runtime`) also answer after a ~320 KiB filler turn. |
-| J2 | `POST /api/orchestration/new` with exactly the dialog's body and no caller claim creates a Team whose Orchestrator and Planner reach ready. Then, in the DEV window, with a Manager tab and then a chat_backend Worker tab selected (`tab focus`, proven by its visible pane), the Start-a-session dialog in Team mode (PTY provider, then runtime provider) closes without an alert and a new two-member Team reaches ready. |
+| J2 | `POST /api/orchestration/new` with exactly the dialog's body and no caller claim creates a Team whose Orchestrator and Planner reach ready. Then, in the DEV window, with a Manager tab and then a chat_backend Worker tab selected through its visible sidebar control and proven by its mounted pane, the Start-a-session dialog in Team mode (PTY provider, then runtime provider) closes without an alert and a new two-member Team reaches ready. |
 | J3 | A deterministic control provider, launched through the normal provider lifecycle, creates a Plan and a read-only task using its own scoped launch credential and dispatches to the selected real runtime provider. The Worker's backing is `chat_backend`; the attempt is acknowledged; the task reaches `in_review` with a report; `review bounce` is delivered and answered with a newer report. After restart the control provider resumes, reacquires its scoped launch environment, rebinds the Plan, bounces again and accepts a newer report. |
 | J4 | The listener PID and kernel start time changed. Every agent tab recorded before the restart reaches ready with the same session, backing and `task_binding.attempt_id`; the restored Worker's attempt id is the task's current attempt; J1 tabs and the J2 Manager answer a new exact marker on their restored session. |
 
@@ -155,7 +155,7 @@ Before the restart snapshot, every J2 pair member answers an exact marker on its
 own session. This establishes a real conversation for providers that create
 resumable history only after their first turn. The restore check still requires
 the exact same session, backing and attempt identity. J4 selects each real tab
-serially through the native window to materialize lazy restored tabs before
+serially through visible sidebar controls in the native window to materialize lazy restored tabs before
 requiring readiness; selecting a tab alone never counts as ready.
 
 ## Today's BLACKSTAR regressions
@@ -190,4 +190,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 5 -->
+<!-- revision: 6 -->
