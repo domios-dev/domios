@@ -154,9 +154,11 @@ is written to results, state, discovery files or request receipts.
 Before the restart snapshot, every J2 pair member answers an exact marker on its
 own session. This establishes a real conversation for providers that create
 resumable history only after their first turn. The restore check still requires
-the exact same session, backing and attempt identity. J4 selects each real tab
+the exact same session, backing and attempt identity. J4 selects each owned tab
 serially through visible sidebar controls in the native window to materialize lazy restored tabs before
 requiring readiness; selecting a tab alone never counts as ready.
+Reply probes use compact nonces derived from the run, provider or tab, and phase;
+only an exact new assistant reply in the bound session passes.
 
 ## Today's BLACKSTAR regressions
 
@@ -190,4 +192,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

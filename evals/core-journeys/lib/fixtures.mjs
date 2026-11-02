@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 const WORDS = ["amber", "basalt", "cobalt", "delta", "ember", "fjord", "garnet", "harbor", "indigo", "juniper"];
 
 export function runId(now = Date.now(), entropy = Math.random()) {
@@ -5,7 +7,7 @@ export function runId(now = Date.now(), entropy = Math.random()) {
 }
 
 export function marker(run, provider, suffix) {
-  return `CJ${run}${provider}${suffix}`.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return `CJ${createHash("sha256").update(JSON.stringify([run, provider, suffix])).digest("hex").slice(0, 12).toUpperCase()}`;
 }
 
 export function historyFiller(bytes) {

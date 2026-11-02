@@ -48,7 +48,7 @@ export async function restoredTabsReady(ctx) {
   const tabs = ctx.state.before_restart?.tabs ?? [];
   for (const tab of tabs) await ctx.check("J4", "restored_tab_ready", `${tab.id} ${tab.agent_type}${tab.role ? `/${tab.role}` : ""}`, async () => {
     const fixture = ctx.state.tabs.find((entry) => entry.id === tab.id);
-    if (!fixture?.control_fixture && fixture) {
+    if (fixture) {
       const page = await connectPage(ctx.dev);
       try { await selectTabInPage(page, tab.workspace_id ?? ctx.state.workspace.id, tab.id, ctx.deadlines.ui); }
       finally { page.close(); }

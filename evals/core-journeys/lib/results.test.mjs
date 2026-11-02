@@ -32,6 +32,7 @@ test("markdown escapes table separators", () => {
 test("fixtures: filler has the exact size, markers are alphanumeric and run ids unique", () => {
   assert.equal(historyFiller(327_680).length, 327_680);
   assert.equal(historyFiller(0), "");
-  assert.match(marker("ab1", "open-code", "h"), /^CJAB1OPENCODEH$/);
+  assert.match(marker("ab1", "open-code", "h"), /^CJ[A-Z0-9]+$/);
+  assert.notEqual(marker("ab1", "open-code", "a"), marker("ab1", "open-code", "h"));
   assert.notEqual(runId(1, 0.1), runId(1, 0.9));
 });
