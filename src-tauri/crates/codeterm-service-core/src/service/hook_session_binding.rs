@@ -6,7 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::http::StatusCode;
 use axum::Json;
 
+mod late_hook;
 mod run_session;
+pub use late_hook::recover_verified_hook_binding;
 mod session_ack;
 mod session_claim;
 mod session_start_payload;

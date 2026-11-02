@@ -1,5 +1,71 @@
 use super::*;
 
+#[tokio::test]
+async fn owner_same_session_rebind_acknowledges_current_launch_and_recovers_deadline() {
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    use codeterm_service_core::session::lifecycle::AgentTypeWriteOrigin;
+    use codeterm_types::pty::{BootStage, ProvisionalLaunch};
+
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.agent_type = Some("rebind-fixture".into());
+    tab.agent_session_id = Some("sid-a".into());
+    tab.session_binding_nonce = Some("current-nonce".into());
+    tab.pty_id = Some("current-pty".into());
+    tab.boot_stage = Some(BootStage::LaunchDeadlineElapsed);
+    tab.agent_booting = true;
+    tab.provisional_launch = Some(ProvisionalLaunch {
+        pty_id: "current-pty".into(),
+        binding_nonce: "current-nonce".into(),
+        reason: "dropped SessionStart".into(),
+        awaiting_binding_ack: false,
+        first_turn_input_ready: false,
+        first_turn_payload_written: false,
+        first_turn_admitted_send_id: None,
+    });
+    let fixture = ServiceFixture::new(mux);
+    register_hook_providers(
+        &fixture.service.agent_registry,
+        vec![("rebind-fixture", vec!["sid-a"])],
+    );
+    let outcome = crate::session_binding_routes::validate_and_commit_rebind(
+        &fixture.service,
+        &tab_id,
+        "sid-a",
+        None,
+        AgentTypeWriteOrigin::Rebind,
+    )
+    .await
+    .unwrap();
+    let crate::session_binding_routes::VerifiedRebindOutcome::Committed(commit) = outcome else {
+        panic!("owner rebind must commit");
+    };
+    assert!(!commit.claim.changed);
+    assert!(commit.claim.nonce_verified);
+    assert_eq!(commit.binding_nonce.as_deref(), Some("current-nonce"));
+    finish_session_binding(
+        &fixture.service,
+        &tab_id,
+        &commit.provider_id,
+        "sid-a",
+        commit.binding_nonce.as_deref(),
+        None,
+        "cli-rebind",
+        &serde_json::Value::Null,
+        commit.claim,
+        codeterm_service_core::session::lifecycle::BindingSource::Hook,
+        false,
+    )
+    .await
+    .unwrap();
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&tab_id).unwrap();
+    assert_eq!(tab.boot_stage, Some(BootStage::AgentReady));
+    assert!(tab.provisional_launch.is_none());
+    assert!(tab.launch_session_authenticated());
+    assert!(!tab.agent_booting);
+}
+
 #[test]
 fn verified_rebind_preserves_same_session_nonce_authority() {
     let (mux, tab_id) = shared_mux();

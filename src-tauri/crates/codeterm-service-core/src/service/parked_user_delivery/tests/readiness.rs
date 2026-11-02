@@ -1,5 +1,64 @@
 use super::*;
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    fixture.service.record_provisional_launch(
+        &crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab.clone(),
+            pty_id: "opaque-pty".into(),
+            binding_nonce: "opaque-current-nonce".into(),
+        },
+        codeterm_types::pty::BootStage::LaunchDeadlineElapsed,
+        "dropped SessionStart",
+    );
+    let accepted = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "late-hook-client");
+    refuse_and_park_current_send(&fixture.service, accepted.clone(), FIRST_PAYLOAD);
+    let writes = Arc::new(AtomicUsize::new(0));
+    let count = writes.clone();
+    let _submit = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |_, text| {
+            assert_eq!(text, FIRST_PAYLOAD);
+            count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }),
+    );
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 0);
+    for _ in 0..2 {
+        crate::service::hook_session_binding::recover_verified_hook_binding(
+            &fixture.service,
+            &tab,
+            None,
+            Some("opaque-session"),
+            Some("opaque-current-nonce"),
+        )
+        .await
+        .unwrap();
+        fixture.service.drain_user_owner(&tab).unwrap();
+    }
+    await_owner_idle(&fixture, &tab);
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+    assert!(fixture
+        .service
+        .pending_delivery_payloads
+        .user_sends
+        .records(&tab)
+        .unwrap()
+        .is_empty());
+}
+
 #[test]
 fn restored_head_waits_with_reason_then_writes_once_after_current_nonce_binding() {
     let (fixture, tab) = queue_fixture(true, None);

@@ -13,8 +13,11 @@ pub(crate) async fn ingest(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    super::hook_authority::recover_launch(&state.svc, &tab_id, &headers, &body)
+        .await
+        .map_err(|(status, _)| (status, "launch binding recovery failed"))?;
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers)?;
         let provider = state
             .svc
             .mux
