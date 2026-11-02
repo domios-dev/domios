@@ -24,6 +24,16 @@ function Assert-Proof($Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
 }
 function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+# DEV provenance records hash a file artifact as "." NUL bytes NUL (scripts/dev-prep.mjs hashPath).
+function Provenance-Hash([string]$Path) {
+    $digest = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        $digest.AppendData([byte[]](0x2E, 0x00))
+        $digest.AppendData([IO.File]::ReadAllBytes($Path))
+        $digest.AppendData([byte[]](0x00))
+        return ([BitConverter]::ToString($digest.GetHashAndReset()) -replace '-', '').ToLowerInvariant()
+    } finally { $digest.Dispose() }
+}
 function Normal-Path([string]$Path) {
     if ($Path.StartsWith('\\?\')) { $Path = $Path.Substring(4) }
     return [IO.Path]::GetFullPath($Path).TrimEnd('\')
@@ -136,9 +146,9 @@ $cli = Join-Path $Resources 'cli/codeterm.exe'
 $provenanceRecord = Get-Content -LiteralPath $Provenance -Raw | ConvertFrom-Json
 Assert-Proof ($provenanceRecord.schema -eq 3 -and $provenanceRecord.buildSha -eq $Build) 'Require the actual schema3 DEV candidate record'
 Assert-Proof ((Split-Path -Leaf $Client) -eq 'domios-dev-app.exe' -and $provenanceRecord.instance.identifier.StartsWith('com.domios.dev.')) 'Refuse an artifact without named DEV provenance'
-Assert-Proof ((Same-Path $provenanceRecord.artifacts.app.path $Client) -and (Hash $Client) -eq $provenanceRecord.artifacts.app.sha256) 'DEV client provenance differs'
-Assert-Proof ((Same-Path $provenanceRecord.artifacts.server.path $server) -and (Hash $server) -eq $provenanceRecord.artifacts.server.sha256) 'DEV server provenance differs'
-Assert-Proof ((Hash $cli) -eq $provenanceRecord.artifacts.cli.sha256) 'DEV bundled CLI provenance differs'
+Assert-Proof ((Same-Path $provenanceRecord.artifacts.app.path $Client) -and (Provenance-Hash $Client) -eq $provenanceRecord.artifacts.app.sha256) 'DEV client provenance differs'
+Assert-Proof ((Same-Path $provenanceRecord.artifacts.server.path $server) -and (Provenance-Hash $server) -eq $provenanceRecord.artifacts.server.sha256) 'DEV server provenance differs'
+Assert-Proof ((Provenance-Hash $cli) -eq $provenanceRecord.artifacts.cli.sha256) 'DEV bundled CLI provenance differs'
 Assert-Proof ($manifest.schema -eq 2 -and $manifest.server_build -eq $Build) 'Candidate manifest schema/build mismatch'
 Assert-Proof ($manifest.client_identity.kind -eq 'sha256') 'Require a paired Windows DEV resource inventory'
 Assert-Proof ((Hash $Client) -eq $manifest.client_identity.sha256) 'Exact candidate client bytes differ'
