@@ -16,12 +16,6 @@ pub(crate) mod test_boundary;
 
 struct WakeRequest(String);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum WakeIntent {
-    Resume,
-    Restart,
-}
-
 impl Drop for WakeRequest {
     fn drop(&mut self) {
         WAKING.lock().remove(&self.0);
@@ -80,7 +74,7 @@ pub fn initialize(svc: &ServiceContext, active_window_hours: u64) {
 
 impl ServiceContext {
     pub(crate) fn thaw_tab_for_restart(&self, tab_id: &str) -> Result<(), String> {
-        wake_with_intent(self, tab_id, false, WakeIntent::Restart, |_, _| Ok(()))
+        wake_with(self, tab_id, false, |_, _| Ok(()))
     }
 
     pub fn wake_frozen_tab(&self, tab_id: &str) -> Result<(), String> {
@@ -126,16 +120,6 @@ fn wake_with(
     allow_failed: bool,
     materialize: impl FnOnce(&str, bool) -> Result<(), String>,
 ) -> Result<(), String> {
-    wake_with_intent(svc, tab_id, allow_failed, WakeIntent::Resume, materialize)
-}
-
-fn wake_with_intent(
-    svc: &ServiceContext,
-    tab_id: &str,
-    allow_failed: bool,
-    intent: WakeIntent,
-    materialize: impl FnOnce(&str, bool) -> Result<(), String>,
-) -> Result<(), String> {
     let retirement = {
         let mut mux = svc.mux.write();
         let resolved = mux
@@ -176,7 +160,7 @@ fn wake_with_intent(
         .get_tab(&id)
         .is_some_and(|tab| tab.restorable_launch.permission_bypass_requested);
     svc.require_neighbor_restore_grant(&id, bypass)?;
-    let (retry_started_agent, retained_pty_progress) = {
+    let retry_started_agent = {
         let mut mux = svc.mux.write();
         let tab = mux.get_tab_mut(&id).ok_or("Sleeping tab closed")?;
         if !wake_eligible(tab, allow_failed) {
@@ -188,23 +172,16 @@ fn wake_with_intent(
             && tab.agent_type.is_some();
         tab.frozen = false;
         tab.record_activity();
-        let chat_backend = matches!(
+        let stage = if matches!(
             tab.backing,
             crate::multiplexer::types::TabBacking::ChatBackend { .. }
-        );
-        let retained_pty_progress = intent == WakeIntent::Resume
-            && !retry_started_agent
-            && !chat_backend
-            && tab.pty_id.is_some();
-        if !retained_pty_progress {
-            let stage = if chat_backend {
-                BootStage::AgentLaunching
-            } else {
-                BootStage::PtyStarting
-            };
-            super::boot_stage::apply_boot_stage(tab, stage, None);
-        }
-        (retry_started_agent, retained_pty_progress)
+        ) {
+            BootStage::AgentLaunching
+        } else {
+            BootStage::PtyStarting
+        };
+        super::boot_stage::apply_boot_stage(tab, stage, None);
+        retry_started_agent
     };
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     let result = materialize(&id, retry_started_agent);
@@ -214,11 +191,8 @@ fn wake_with_intent(
             super::boot_stage::apply_boot_stage(tab, BootStage::SpawnFailed, Some(reason));
         }
     }
-    if result.is_err() || retained_pty_progress {
+    if result.is_err() {
         svc.wake_agent_deliveries_on_state_change(&id);
-    }
-    if result.is_ok() && retained_pty_progress {
-        svc.wake_user_owner_on_state_change(&id);
     }
     svc.emit_state_changed(MuxEmitCause::TabLifecycle);
     result
@@ -226,6 +200,3 @@ fn wake_with_intent(
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-mod wake_readiness_tests;
