@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { spawn } from 'node:child_process';
 import { readFileSync, writeFileSync, mkdirSync, existsSync, unlinkSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +24,7 @@ let sequence = 0;
 async function bridge(mode, ...args) {
   const started = performance.now();
   return new Promise((resolve, reject) => {
-    const child = spawn('bash', [join(here, 'bridge.sh'), mode, ...args], {
+    const child = spawn(bashInterpreter(), [join(here, 'bridge.sh'), mode, ...args], {
       stdio: ['ignore', 'pipe', 'pipe'], signal: AbortSignal.timeout(cap),
     });
     let stdout = '', stderr = '';

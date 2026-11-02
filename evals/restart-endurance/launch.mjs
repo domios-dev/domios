@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { spawn, execFileSync } from "node:child_process";
 import { writeFileSync, renameSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -18,7 +19,7 @@ const record = (evidence) => {
 };
 const snapshot = () => JSON.parse(execFileSync("python3", [join(directory, "listener.py"), String(port), instance], { encoding: "utf8", timeout: 30_000 }));
 const command = (...args) => new Promise((accept, reject) => {
-  const child = spawn(process.env.ENDURE_BASH || "bash", [join(root, "build.sh"), ...args], {
+  const child = spawn(process.env.ENDURE_BASH || bashInterpreter(), [join(root, "build.sh"), ...args], {
     cwd: root, stdio: "inherit", signal: AbortSignal.timeout(600_000),
   });
   child.on("error", reject);

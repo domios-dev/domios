@@ -1,6 +1,7 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { spawn } from "node:child_process";
 
-const child = spawn(process.env.ENDURE_BASH ?? "bash", process.argv.slice(2), {
+const child = spawn(process.env.ENDURE_BASH ?? bashInterpreter(), process.argv.slice(2), {
   stdio: "inherit", signal: AbortSignal.timeout(30_000),
 });
 child.on("error", (error) => {

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {bashInterpreter} from './bash-interpreter.mjs';
 import { writeLegacyRefusals } from './legacy-updater-refusal.mjs';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -69,7 +70,7 @@ export function storeTimeoutMs(bytes = 0) {
   return STORE_BASE_MS + Math.ceil(bytes / STORE_FLOOR_BYTES_PER_SECOND) * 1000;
 }
 function runStore(verb, key, destination, timeout) {
-  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+  const bash = bashInterpreter();
   execFileSync(bash, ['scripts/ci-artifact.sh', verb, key, destination.replaceAll('\\', '/')],
     { cwd: root, stdio: 'inherit', timeout });
 }

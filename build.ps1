@@ -16,19 +16,9 @@ if ($PSBoundParameters.ContainsKey("NotifyTab")) {
   $BuildArgs += @("--notify-tab", $NotifyTab)
 }
 
-$candidates = @(
-  "$env:ProgramFiles\Git\bin\bash.exe",
-  "$env:ProgramFiles\Git\usr\bin\bash.exe",
-  "${env:ProgramFiles(x86)}\Git\bin\bash.exe",
-  "C:\msys64\usr\bin\bash.exe"
-) | Where-Object { $_ -and (Test-Path -LiteralPath $_) }
-
-if (-not $candidates -or $candidates.Count -eq 0) {
-  throw "Git Bash/MSYS bash not found. Install Git for Windows or run build.sh from a real bash."
-}
-
-$bash = $candidates[0]
 $repo = Split-Path -Parent $MyInvocation.MyCommand.Path
+$bash = & node (Join-Path $repo 'scripts/bash-interpreter.mjs')
+if ($LASTEXITCODE -ne 0 -or -not $bash) { throw 'Git Bash resolution failed.' }
 function Invoke-CdpReload {
   param([int]$TimeoutSeconds = 90)
   $vitePort = if ($env:CODETERM_DEV_VITE_PORT) { [int]$env:CODETERM_DEV_VITE_PORT } else { 1420 }

@@ -1,4 +1,8 @@
 """Codex and OpenCode live matrix; all CLI operations go through the DEV-pinned dc."""
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
 import concurrent.futures
 import json
 import os
@@ -6,7 +10,6 @@ import pathlib
 import re
 import shlex
 import subprocess
-import sys
 import time
 import uuid
 
@@ -47,7 +50,7 @@ class Matrix:
         return path
 
     def cli(self, label, *args, caller=None, body=None, json_output=True):
-        command = ['bash', '-c', 'source "$1/evals/_lib/lib.sh"; shift; dc "$@"', 'restore-bench', str(ROOT)]
+        command = [bash_interpreter(), '-c', 'source "$1/evals/_lib/lib.sh"; shift; dc "$@"', 'restore-bench', str(ROOT)]
         if caller:
             command += ['--as-tab', caller]
         command += list(args)
@@ -131,9 +134,9 @@ class Matrix:
             env.pop('RL_GUI_MODE', None)
             env.pop('NODE_OPTIONS', None)
         with (OUT / (label + '-restart.log')).open('w') as log:
-            stopped = subprocess.run(['bash', 'build.sh', 'kill'], cwd=PREBUILT, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=60)
+            stopped = subprocess.run([bash_interpreter(), 'build.sh', 'kill'], cwd=PREBUILT, env=env, stdout=log, stderr=subprocess.STDOUT, timeout=60)
             oracle.require(stopped.returncode == 0, f'{label}: build.sh kill failed')
-            launch = subprocess.Popen(['bash', 'build.sh', 'dev-prebuilt', '--wait'], cwd=PREBUILT, env=env, stdout=log, stderr=subprocess.STDOUT)
+            launch = subprocess.Popen([bash_interpreter(), 'build.sh', 'dev-prebuilt', '--wait'], cwd=PREBUILT, env=env, stdout=log, stderr=subprocess.STDOUT)
             # build.sh's readiness receipt is an event; the daemon may still be restoring tabs.
             oracle.require(launch.wait(timeout=120) == 0, f'{label}: dev-prebuilt failed')
         self.health()

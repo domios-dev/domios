@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import {execFile} from 'node:child_process';
 import {promisify,stripVTControlCharacters} from 'node:util';
 import {readFile} from 'node:fs/promises';
@@ -8,7 +9,7 @@ const exec = promisify(execFile);
 const wrapper = fileURLToPath(new URL('./dc.sh',import.meta.url));
 const nativePath = fileURLToPath(new URL('./native.py',import.meta.url));
 export async function dc(args) {
-  const {stdout} = await exec('bash',[wrapper,...args],{timeout:30_000,maxBuffer:32*1024*1024});
+  const {stdout} = await exec(bashInterpreter(),[wrapper,...args],{timeout:30_000,maxBuffer:32*1024*1024});
   const value = JSON.parse(stdout);
   if (value.ok === false) throw new Error('DEV CLI refused: '+JSON.stringify(value.error));
   return value.result;

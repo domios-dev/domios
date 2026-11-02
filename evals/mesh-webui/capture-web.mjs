@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import {execFile} from 'node:child_process';
@@ -40,7 +41,7 @@ try {
       if ((current || null) !== intendedPeer) await switchPeer(page, intendedPeer);
       await selectTab(page, item.tabId, { mode: 'terminal' });
       const remote = item.home === 'windows' ? ['--mesh', manifest.windows.peerId] : [];
-      const home = await execute('bash', [dcPath, 'tab', 'get-text', '--tab', item.tabId, '--json', ...remote],
+      const home = await execute(bashInterpreter(), [dcPath, 'tab', 'get-text', '--tab', item.tabId, '--json', ...remote],
         { timeout: 30000, maxBuffer: 4000000 });
       await diagnostics.waitForOutput({ origin: manifest[item.gateway].origin, peerId: intendedPeer,
         tabId: item.tabId, homePeerId: manifest[item.home].peerId }, JSON.parse(home.stdout));

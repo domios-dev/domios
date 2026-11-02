@@ -4,8 +4,11 @@ Realistic mem recall bench against loaded.py seed data (50 items).
 Saves through full pipeline (with extraction workers), waits, then runs queries.
 """
 
-import json, os, subprocess, sys, time
+import sys
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
+import json, os, subprocess, sys, time
 
 EVAL_LIB = Path(__file__).resolve().parents[1] / "_lib" / "lib.sh"
 RECORD_CACHE = {}
@@ -14,7 +17,7 @@ RECORD_CACHE = {}
 def api(method, path, body=None):
     result = subprocess.run(
         [
-            "bash",
+            bash_interpreter(),
             "-c",
             'source "$1"; case "$2" in GET) dev_get "$3" ;; POST) dev_post "$3" "$4" ;; *) exit 2 ;; esac',
             "mem-recall",
@@ -38,7 +41,7 @@ def search(query, limit=10):
 
 def dc_json(*args):
     result = subprocess.run(
-        ["bash", "-c", 'source "$1"; shift; dc "$@"', "mem-recall", str(EVAL_LIB), *args],
+        [bash_interpreter(), "-c", 'source "$1"; shift; dc "$@"', "mem-recall", str(EVAL_LIB), *args],
         capture_output=True,
         text=True,
         check=False,

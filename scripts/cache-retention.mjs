@@ -1,4 +1,5 @@
 // Caller: scripts cache-policy.sh, cache-retention.test.mjs
+import {bashInterpreter} from './bash-interpreter.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
@@ -27,7 +28,7 @@ function noLinks(value) {
 
 export function physical(value) {
   const absolute = noLinks(value);
-  const resolved = execFileSync(process.env.CT_CACHE_BASH || 'bash', ['-c', 'cd -- "$1" && pwd -P', 'cache-policy', absolute],
+  const resolved = execFileSync(process.env.CT_CACHE_BASH || bashInterpreter(), ['-c', 'cd -- "$1" && pwd -P', 'cache-policy', absolute],
     { encoding: 'utf8' }).trim();
   const native = process.platform === 'win32'
     ? execFileSync('cygpath', ['-w', resolved], { encoding: 'utf8' }).trim() : resolved;

@@ -203,12 +203,15 @@ jobs:
       - admission
       - fast
       - rust
+      - release-dry-run
     if: ${{ !cancelled() && inputs.scope != 'fast' && inputs.source_ref == '' && needs.fast.outputs.heavy != '' }}
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:
       source_ref: ${{ needs.fast.outputs.source_sha || github.ref }}
       report_name: rust-warnings-tests-all-report
+      comment: ${{ needs.admission.outputs.release_head == 'true' }}
+      additional_artifacts: ${{ needs.admission.outputs.release_head == 'true' && '["rust-warnings-release-macOS-aarch64-apple-darwin","rust-warnings-release-macOS-x86_64-apple-darwin","rust-warnings-release-Linux-aarch64-unknown-linux-gnu","rust-warnings-release-Linux-x86_64-unknown-linux-gnu","rust-warnings-release-Windows-x86_64-pc-windows-msvc","rust-warnings-release-Windows-aarch64-pc-windows-msvc"]' || '[]' }}
       artifacts: ${{ needs.fast.outputs.heavy == 'true' && format('["{0}","rust-warnings-tests-platform-macOS-aarch64-apple-darwin","rust-warnings-tests-platform-Windows-x86_64-pc-windows-msvc"]', needs.rust.outputs.warnings) || '[]' }}
   qualification:
     name: qualification receipt

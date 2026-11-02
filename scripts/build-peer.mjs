@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Caller: build.sh check-queue|nextest --peer, check-linux, peer-setup, peer-status, peer-route; scripts build-peer.test.mjs; skill build
+import {bashInterpreter} from './bash-interpreter.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawn, spawnSync } from 'node:child_process';
@@ -254,7 +255,7 @@ function jobLogPath(id) {
 
 function spawnBuild(args, log, deadlineAt) {
   return new Promise((resolve) => {
-    const child = spawn('bash', ['./build.sh', ...args, '--wait-build'], {
+    const child = spawn(bashInterpreter(), ['./build.sh', ...args, '--wait-build'], {
       detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true,
     });
     let timedOut = false;
@@ -350,7 +351,7 @@ function setupLocal(argv) {
   const logPath = jobLogPath(opts.id);
   // The gateway's check worktree inherits this repo-local setting; fixture paths exceed MAX_PATH on Windows.
   if (process.platform === 'win32') git(['config', 'core.longpaths', 'true']);
-  const toolchain = spawnSync('bash', ['./build.sh', 'peer-toolchain', ...(opts['install-toolchain'] ? ['--install'] : [])],
+  const toolchain = spawnSync(bashInterpreter(), ['./build.sh', 'peer-toolchain', ...(opts['install-toolchain'] ? ['--install'] : [])],
     { encoding: 'utf8', timeout: opts['install-toolchain'] ? 900000 : 300000, windowsHide: true });
   const output = `${toolchain.stdout ?? ''}${toolchain.stderr ?? ''}`;
   fs.writeFileSync(logPath, output);
