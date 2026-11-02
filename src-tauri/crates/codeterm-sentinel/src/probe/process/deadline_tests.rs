@@ -1,6 +1,19 @@
 use super::*;
 
 #[test]
+fn completion_driven_fixture_waits_for_events_past_the_operation_budget() {
+    let admitted = Instant::now();
+    let mut deadlines = Deadlines::at(Duration::from_secs(3), Duration::from_secs(3), admitted)
+        .unwrap()
+        .with_completion_driven();
+    let returned = admitted + Duration::from_secs(20);
+    deadlines.spawn_with(|| (), || returned);
+    assert!(!deadlines.expired_operation_at(returned));
+    assert_eq!(deadlines.operation_wait(), None);
+    assert!(!deadlines.expired_hard());
+}
+
+#[test]
 fn receipt_clamps_runtime_and_reserves_cleanup_time() {
     let admitted = Instant::now();
     let deadlines =

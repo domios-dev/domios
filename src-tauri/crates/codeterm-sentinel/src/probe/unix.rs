@@ -311,7 +311,7 @@ impl UnixRun {
                 });
                 break;
             }
-            match self.wait_streams(Some(self.deadlines.remaining_operation())) {
+            match self.wait_streams(self.deadlines.operation_wait()) {
                 Ok(true) => {}
                 Ok(false) => {
                     self.set_failure("probe_timeout");
@@ -325,7 +325,7 @@ impl UnixRun {
             }
         }
         if self.failure.is_none() && !self.has_open_streams() && self.all_streams_eof() {
-            match self.wait_parent(self.deadlines.remaining_operation()) {
+            match self.wait_parent(self.deadlines.operation_wait()) {
                 Ok(true) => self.observe_final_group(),
                 Ok(false) => self.set_failure("probe_timeout"),
                 Err(error) => {
@@ -345,7 +345,7 @@ impl UnixRun {
             self.finish_failure_with(failure)
         } else if self.status.is_some() && self.group_retired && self.all_streams_eof() {
             let status = self.status.unwrap();
-            if Instant::now() >= self.deadlines.operation {
+            if self.deadlines.expired_operation() {
                 let mut failure = ProbeFailure::new("probe_timeout");
                 self.cleanup(&mut failure);
                 self.deadlines.record_lateness(&mut failure);
@@ -356,11 +356,11 @@ impl UnixRun {
                 self.mark_unconfirmed(ResourceKind::Capture);
                 let failure = self.failure.take().unwrap();
                 self.finish_failure_with(failure)
-            } else if Instant::now() >= self.deadlines.operation {
+            } else if self.deadlines.expired_operation() {
                 let mut failure = ProbeFailure::new("probe_timeout");
                 self.deadlines.record_lateness(&mut failure);
                 self.finish_failure_with(failure)
-            } else if Instant::now() > self.deadlines.hard {
+            } else if self.deadlines.expired_hard() {
                 let mut failure = ProbeFailure::new("probe_cleanup_deadline");
                 self.deadlines.record_lateness(&mut failure);
                 self.finish_failure_with(failure)
@@ -386,7 +386,7 @@ impl UnixRun {
                     failure.unconfirmed(ResourceKind::Capture);
                     return Err(failure.with_output(&output));
                 }
-                if Instant::now() > self.deadlines.hard {
+                if self.deadlines.expired_hard() {
                     let mut failure = ProbeFailure::new("probe_cleanup_deadline");
                     self.deadlines.record_lateness(&mut failure);
                     return Err(failure.with_output(&output));
@@ -522,7 +522,7 @@ impl UnixRun {
         Ok(changed)
     }
 
-    fn wait_parent(&mut self, timeout: Duration) -> Result<bool, String> {
+    fn wait_parent(&mut self, timeout: Option<Duration>) -> Result<bool, String> {
         let Some(child) = self.child.as_mut() else {
             return Ok(self.status.is_some());
         };
@@ -536,7 +536,10 @@ impl UnixRun {
                 ParentEvent::Complete => child.wait().map(Some),
             }
         } else {
-            child.wait_timeout(timeout)
+            match timeout {
+                Some(timeout) => child.wait_timeout(timeout),
+                None => child.wait().map(Some),
+            }
         };
         match result {
             Ok(Some(status)) => {
@@ -657,7 +660,9 @@ impl UnixRun {
             && self.group_retired
             && self.ownership == LeaderOwnership::Retained(self.child_id)
         {
-            match self.wait_parent(retirement_deadline.saturating_duration_since(Instant::now())) {
+            match self.wait_parent(Some(
+                retirement_deadline.saturating_duration_since(Instant::now()),
+            )) {
                 Ok(true) => {}
                 Ok(false) => failure.unconfirmed(ResourceKind::Child),
                 Err(error) => {
