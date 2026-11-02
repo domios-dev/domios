@@ -2,6 +2,116 @@ use super::*;
 use serde_json::json;
 
 #[test]
+fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
+    use codeterm_types::plan::Plan;
+
+    for planning_state in ["drafting", "structure_ready", "approved"] {
+        let statuses = [
+            "pending",
+            "in_progress",
+            "in_review",
+            "blocked",
+            "paused",
+            "done",
+            "cancelled",
+        ];
+        let tasks: Vec<Value> = statuses.into_iter().map(|status| json!({
+            "id":format!("task-{status}"), "name":"private task", "type":"private kind",
+            "status":status, "priority":"p0", "review_stage":"qa", "qa_state":"running",
+            "execution_intent":"repository_mutation", "body":"private body", "executor_role":"private role",
+            "taken_by_role":"Worker", "model":"private model",
+            "execution_attempts":[{"id":"attempt-bound", "executor_tab_id":"worker-tab",
+                "role":"Worker", "placement":"shared", "remote_dispatch_state":"acknowledged",
+                "continuation":{"state":"continued"},
+                "interruption":{"reason":"private interruption"},
+                "report":{"id":"report-bound", "status":"in_review", "message":"private report"}},
+                {"id":"attempt-private", "executor_tab_id":"worker-tab", "role":"private role",
+                    "continuation":{"state":"private state"},
+                    "report":{"id":"report-private", "status":"private status"}}]
+        })).collect();
+        let plan: Plan = serde_json::from_value(json!({
+            "id":"plan-bound", "title":"private plan", "status":"active", "mode":"paused",
+            "paused_from_mode":"execution", "planning_state":planning_state,
+            "owner":{"tab_id":"owner-tab", "session_id":"owner-session", "title":"private owner"},
+            "project_path":"private path", "created_at":1, "updated_at":2, "tasks":tasks,
+            "planner":{"kind":"waived", "note":"private waiver"},
+            "planning_log":[{"from":"drafting", "to":"approved", "by":{"kind":"planner", "tab_id":"planner-tab"}, "note":"private note", "at":3}],
+            "planner_requests":[{"request_id":"request-bound", "payload":"private request", "state":"in_progress", "created_at":3}],
+            "planner_inbox":[{"request_id":"request-bound", "phase":"provider_accepted", "transport":"pty_agent", "last_error":"private error", "updated_at":4}],
+            "pause_operations":[{"id":"pause-bound", "paused_at":5, "paused_from_mode":"execution",
+                "reason":"private pause", "stage":"incomplete", "effects":["team_schedules"],
+                "agents":[{"tab_id":"worker-tab", "name":"private agent", "role":"worker",
+                    "pause_notice":{"state":"failed", "error":"private failure"},
+                    "resume_notice":{"state":"delivered"}}]}],
+            "elements":[{"id":"element-bound", "kind":"private kind", "content":{"status":"private nested status", "role":"Worker", "id":"private nested id"}}]
+        })).unwrap();
+        let raw = serde_json::to_value(&plan).unwrap();
+        let safe = sanitize_plan(&plan).unwrap();
+        assert_eq!(
+            serde_json::to_vec(&raw).unwrap().len(),
+            serde_json::to_vec(&safe).unwrap().len()
+        );
+        assert!(!safe.to_string().contains("private"));
+        assert_eq!(safe["owner"]["title"], filler("private owner"));
+        assert!(!safe["elements"].to_string().contains("Worker"));
+        let restored = serde_json::from_value::<Vec<Plan>>(json!([safe.clone()]))
+            .unwrap()
+            .remove(0);
+        assert_eq!(restored.planning_state, plan.planning_state);
+        for pointer in [
+            "/status",
+            "/mode",
+            "/paused_from_mode",
+            "/planner/kind",
+            "/planning_log/0/from",
+            "/planning_log/0/to",
+            "/planning_log/0/by/kind",
+            "/planner_requests/0/state",
+            "/planner_inbox/0/phase",
+            "/planner_inbox/0/transport",
+            "/pause_operations/0/stage",
+            "/pause_operations/0/effects",
+            "/pause_operations/0/agents/0/role",
+            "/pause_operations/0/agents/0/pause_notice/state",
+            "/pause_operations/0/agents/0/resume_notice/state",
+        ] {
+            assert_eq!(safe.pointer(pointer), raw.pointer(pointer), "{pointer}");
+        }
+        for (index, task) in restored.tasks.iter().enumerate() {
+            assert_eq!(task.status, plan.tasks[index].status);
+            assert_eq!(task.priority, plan.tasks[index].priority);
+            assert_eq!(task.execution_intent, plan.tasks[index].execution_intent);
+            assert_eq!(task.review_stage, plan.tasks[index].review_stage);
+            assert_eq!(task.qa_state, plan.tasks[index].qa_state);
+            assert_eq!(task.kind, filler("private kind"));
+            let attempt = &safe["tasks"][index]["execution_attempts"][0];
+            assert_eq!(attempt["role"], "Worker");
+            assert_eq!(attempt["placement"], "shared");
+            assert_eq!(attempt["remote_dispatch_state"], "acknowledged");
+            assert_eq!(attempt["continuation"]["state"], "continued");
+            assert_eq!(attempt["report"]["status"], "in_review");
+            assert_eq!(attempt["id"], "attempt-bound");
+            assert_eq!(
+                safe["tasks"][index]["execution_attempts"][1]["role"],
+                filler("private role")
+            );
+            let private_attempt = &safe["tasks"][index]["execution_attempts"][1];
+            assert_eq!(
+                private_attempt["continuation"]["state"],
+                filler("private state")
+            );
+            assert_eq!(
+                private_attempt["report"]["status"],
+                filler("private status")
+            );
+        }
+        let mut invalid = safe;
+        invalid["planning_state"] = json!("xxxxxxxx");
+        assert!(serde_json::from_value::<Plan>(invalid).is_err());
+    }
+}
+
+#[test]
 fn filler_preserves_utf8_utf16_and_json_escape_sizes() {
     let original = "secreté中🙂\"\\\n\r\t\u{8}\u{c}\u{0}\u{1f}";
     let safe = filler(original);
@@ -109,8 +219,16 @@ fn sanitized_plan_keeps_durable_attempt_state_and_deserializes() {
         plan.control_loop.last_round = Some(last_round);
         let raw = serde_json::to_value(&plan).unwrap();
         for document in [raw.clone(), json!([raw.clone()])] {
-            let safe = sanitize_plans(&document).unwrap();
-            assert_same_inventory_and_sizes(&document, &safe);
+            let safe_plan = sanitize_plan(&plan).unwrap();
+            let safe = if document.is_array() {
+                json!([safe_plan])
+            } else {
+                safe_plan
+            };
+            assert_eq!(
+                serde_json::to_vec(&document).unwrap().len(),
+                serde_json::to_vec(&safe).unwrap().len()
+            );
             assert!(!safe.to_string().contains("private"));
             let restored = if safe.is_array() {
                 serde_json::from_value::<Vec<codeterm_types::plan::Plan>>(safe)
