@@ -222,12 +222,22 @@ try {
                 $health = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 5
                 Assert-Proof ($health.status -eq 'ok' -and $health.startup.state -eq 'ready') 'Post-launcher health is not ready'
                 Assert-Proof ($health.build_sha -eq $Build -and $health.instance.name -eq $instance) 'Post-launcher health SHA/instance mismatch'
-                $cliTree = Start-Owned $cli @('identify', '--json') $environment -1
+                # identify --json is multi-line; read stdout to EOF and the real exit instead of one framed line.
+                $probe = New-Object Diagnostics.ProcessStartInfo $cli
+                $probe.Arguments = 'identify --json'
+                $probe.UseShellExecute = $false
+                $probe.RedirectStandardOutput = $true
+                $probe.RedirectStandardError = $true
+                foreach ($name in $environment.Keys) { $probe.EnvironmentVariables[$name] = [string]$environment[$name] }
+                $cliProcess = [Diagnostics.Process]::Start($probe)
                 try {
-                    $identified = $cliTree.Line(10000) | ConvertFrom-Json
-                    Assert-Proof ($cliTree.Exit($cliTree.Pid, 5000) -eq 0 -and $identified.ok) 'Candidate CLI could not identify the isolated server'
+                    $stdoutTask = $cliProcess.StandardOutput.ReadToEndAsync()
+                    $stderrTask = $cliProcess.StandardError.ReadToEndAsync()
+                    Assert-Proof ($cliProcess.WaitForExit(15000)) 'Candidate CLI identify exit deadline'
+                    $identified = $stdoutTask.GetAwaiter().GetResult() | ConvertFrom-Json
+                    Assert-Proof ($cliProcess.ExitCode -eq 0 -and $identified.ok -ne $false -and $null -ne $identified.result) ('Candidate CLI could not identify the isolated server: ' + $stderrTask.GetAwaiter().GetResult())
                     Assert-Proof ($identified.result.cli.build_sha -eq $Build -and $identified.result.connection.instance -eq $instance) 'CLI SHA/instance mismatch'
-                } finally { Stop-Owned $cliTree }
+                } finally { if (!$cliProcess.HasExited) { $cliProcess.Kill() }; $cliProcess.Dispose() }
                 $rows.Add(@{ case = $case.name; flags = $tree.JobFlags; launcher_exit = 0;
                     server = $tree.Identity($ready.process.pid); server_in_job = $tree.InJob($ready.process.pid);
                     build = $health.build_sha; epoch = $ready.epoch; cli_exit = 0;
