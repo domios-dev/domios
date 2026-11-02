@@ -1,11 +1,11 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 #[test]
 fn secret_delete_non_tty_fails_fast() {
-    let output = Command::new(codeterm_bin::codeterm_bin())
+    let output = codeterm_bin::command()
         .args(["mem", "secret", "delete", "--name", "no-such-secret"])
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

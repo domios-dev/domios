@@ -44,12 +44,7 @@ fn run_rest_api(verb: &str, json_mode: bool, result: Value) -> std::process::Out
         }
     });
     let scratch = tempfile::tempdir().unwrap();
-    let mut command = Command::new(codeterm_bin::codeterm_bin());
-    for (key, _) in std::env::vars() {
-        if key.starts_with("CODETERM_") {
-            command.env_remove(key);
-        }
-    }
+    let mut command = codeterm_bin::command();
     command
         .env("CODETERM_SOCKET_PATH", socket)
         .env("CODETERM_API_TOKEN", "fixture-host-token")

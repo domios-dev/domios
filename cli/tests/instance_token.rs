@@ -4,12 +4,7 @@ mod codeterm_bin;
 mod json_output;
 
 fn command(root: &std::path::Path) -> std::process::Command {
-    let mut command = std::process::Command::new(codeterm_bin::codeterm_bin());
-    for (key, _) in std::env::vars() {
-        if key.starts_with("CODETERM_") {
-            command.env_remove(key);
-        }
-    }
+    let mut command = codeterm_bin::command();
     command
         .env("CODETERM_DATA_DIR", root)
         .env(
