@@ -45,6 +45,8 @@ pub(super) async fn mesh_rpc_from_mesh_peer(
     state: &AppState,
     peer_id: &str,
     body: &serde_json::Value,
+    origin: crate::auth::AuthenticatedOrigin,
+    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     let request: super::super::rpc::MeshRpcRequest =
         serde_json::from_value(body.clone()).map_err(|error| {
@@ -54,7 +56,9 @@ pub(super) async fn mesh_rpc_from_mesh_peer(
             )
         })?;
     let peer_id = peer_id.to_string();
-    let response = super::super::rpc::handle_mesh_rpc(state, request, move || Ok(peer_id)).await;
+    let response =
+        super::super::rpc::handle_mesh_rpc(state, request, origin, agent, move || Ok(peer_id))
+            .await;
     Ok(codeterm_service_core::mesh::types::RelayResponse {
         ok: true,
         status: StatusCode::OK.as_u16(),

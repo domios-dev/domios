@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_update::apply::{ApplyOptions, ApplyResult};
 use codeterm_update::single_flight;
 use codeterm_update::UpdatePhase;
@@ -36,8 +36,6 @@ pub async fn check_update(
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
     installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    check_auth(&state, &headers)
-        .map_err(|(status, error)| availability_error(status, error.to_string()))?;
     if let Some(error) = container_refusal(installed) {
         return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
     }
@@ -91,9 +89,8 @@ pub async fn check_update(
 
 pub async fn update_status(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     if let Some(port) = codeterm_update::headless::backend().cloned() {
         if let Ok(Some(status)) = tokio::task::spawn_blocking(move || port.status()).await {
             return Ok(Json(status));
@@ -151,22 +148,16 @@ fn validate_initiating_tab(
 
 pub async fn install_update(
     state: AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     query: Query<InstallUpdateQuery>,
     installed: Option<axum::Extension<InstalledExecutable>>,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
 
     if let Some(error) = container_refusal(installed) {
-        if let Err(error) = check_auth(&state.0, &headers) {
-            return error.into_response();
-        }
         return (StatusCode::CONFLICT, Json(serde_json::json!(error))).into_response();
     }
     if let Some(port) = codeterm_update::headless::backend() {
-        if let Err(error) = check_auth(&state.0, &headers) {
-            return error.into_response();
-        }
         if query.manifest_url.is_some() || query.after_update.is_some() {
             return (StatusCode::BAD_REQUEST, Json(serde_json::json!({
                 "code": "headless_update_options_refused",
@@ -215,10 +206,9 @@ pub async fn install_update(
 
 async fn install_update_inner(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Query(q): Query<InstallUpdateQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     if q.after_update.is_some() {
         validate_after_update_enabled(true, state.svc.configuration().agent.continue_after_restart)
             .map_err(|reason| (StatusCode::BAD_REQUEST, reason))?;
@@ -381,9 +371,8 @@ async fn install_update_inner(
 
 pub async fn get_channel(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let channel = state.update_state.lock().channel;
     Ok(Json(serde_json::json!({ "channel": channel.to_string() })))
 }
@@ -396,10 +385,9 @@ pub struct SetChannelBody {
 
 pub async fn set_channel(
     AxumState(_state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(_body): Json<SetChannelBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&_state, &headers)?;
     Err((StatusCode::CONFLICT, "update channel switching is disabled"))
 }
 
@@ -408,7 +396,7 @@ mod tests;
 
 pub async fn availability(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     query: Result<Query<CheckUpdateQuery>, axum::extract::rejection::QueryRejection>,
     bundles: Option<axum::Extension<std::sync::Arc<codeterm_frontend_bundle::FrontendBundles>>>,
     installed: Option<axum::Extension<InstalledExecutable>>,
@@ -416,8 +404,6 @@ pub async fn availability(
     Json<codeterm_update::update_state::AvailabilitySnapshot>,
     (StatusCode, Json<serde_json::Value>),
 > {
-    check_auth(&state, &headers)
-        .map_err(|(status, error)| availability_error(status, error.to_string()))?;
     if let Some(error) = container_refusal(installed) {
         return Err((StatusCode::CONFLICT, Json(serde_json::json!(error))));
     }

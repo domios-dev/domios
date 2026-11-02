@@ -9,7 +9,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::agent::kpi_ledger::DailyTokenUsage;
 use codeterm_service_core::plan::PlanStatus;
 use codeterm_service_core::service::ServiceContext;
@@ -673,12 +673,10 @@ pub(crate) fn project_team_spend(
 
 pub(crate) async fn team_spend(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(team_id): Path<String>,
     Query(query): Query<TeamSpendQuery>,
 ) -> Result<Json<TeamSpendResponse>, (StatusCode, Json<Value>)> {
-    check_auth(&state, &headers)
-        .map_err(|(status, message)| (status, Json(serde_json::json!({ "error": message }))))?;
     tokio::task::spawn_blocking(move || project_team_spend(&state.svc, &team_id, &query))
         .await
         .map_err(|error| {

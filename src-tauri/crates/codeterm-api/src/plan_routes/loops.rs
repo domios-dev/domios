@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::plan::PlanError;
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
@@ -20,11 +20,10 @@ pub struct LoopCreateBody {
 
 pub async fn loop_create(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<LoopCreateBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let lid = state
         .svc
         .plan_store
@@ -50,11 +49,10 @@ pub struct LoopSetBody {
 
 pub async fn loop_set(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((_id, lid)): Path<(String, String)>,
     Json(body): Json<LoopSetBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -80,10 +78,9 @@ pub async fn loop_set(
 
 pub async fn loop_status(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((_id, lid)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let spec = state
         .svc
         .plan_store
@@ -103,11 +100,10 @@ pub struct LoopRecordBody {
 
 pub async fn loop_record(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((id, lid)): Path<(String, String)>,
     Json(body): Json<LoopRecordBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let result = state
         .svc
         .plan_store
@@ -125,10 +121,9 @@ pub async fn loop_record(
 
 pub async fn loop_stop(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((_id, lid)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store

@@ -17,7 +17,7 @@ use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::broadcast;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use crate::stream_diagnostics::{configured_level, StreamDiagnostics, StreamTabStart};
 use crate::tab_routes::resolve_pty_id_with_fallback;
 use codeterm_service_core::agent::status::TabStatus;
@@ -193,14 +193,13 @@ pub struct StreamQuery {
 
 pub async fn stream_tab_output(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<StreamQuery>,
 ) -> Result<
     Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>,
     (StatusCode, &'static str),
 > {
-    check_auth(&state, &headers)?;
     let activity = state
         .svc
         .ext::<codeterm_service_core::service::output_stream_activity::OutputStreamActivityTx>()
@@ -686,11 +685,10 @@ fn sweep(
 /// `{boot_changed, boot}` once on a boot mismatch. Disposed tabs go silent.
 pub async fn output_stream(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(q): Query<OutputStreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
 {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let cursor = q.since.as_deref().and_then(parse_cursor);
     let tab_id = q.tab_id;

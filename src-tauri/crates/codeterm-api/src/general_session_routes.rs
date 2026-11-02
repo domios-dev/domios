@@ -2,16 +2,15 @@ use axum::extract::State as AxumState;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::general_agent::FreshGeneralSessionRequest;
 use codeterm_service_core::service::transport::AtomicSpawn;
 
 pub async fn spawn(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(request): Json<FreshGeneralSessionRequest>,
 ) -> Result<Json<AtomicSpawn<serde_json::Value>>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     tokio::task::spawn_blocking(move || {
         state
             .svc

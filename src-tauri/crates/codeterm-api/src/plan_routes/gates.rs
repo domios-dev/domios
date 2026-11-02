@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::plan::peer::{resolve_planner_ref, PeerResolution};
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
@@ -39,7 +39,6 @@ pub async fn gate_ask(
     Path(id): Path<String>,
     Json(mut body): Json<GateAskBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     body.asked_by_tab_id =
         crate::auth::caller_claim(&state, &headers, body.asked_by_tab_id.as_deref())
             .map_err(|(status, message)| text_err(status, message))?;
@@ -205,11 +204,10 @@ pub struct GateListQuery {
 
 pub async fn gate_list(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Query(q): Query<GateListQuery>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let gates = state
         .svc
         .plan_store
@@ -231,7 +229,6 @@ pub async fn gate_answer(
     Path((id, gid)): Path<(String, String)>,
     Json(mut body): Json<GateAnswerBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     body.answered_by_tab_id =
         crate::auth::caller_claim(&state, &headers, body.answered_by_tab_id.as_deref())
             .map_err(|(status, message)| text_err(status, message))?;
@@ -261,11 +258,10 @@ pub struct GateEscalateBody {
 
 pub async fn gate_escalate(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((id, gid)): Path<(String, String)>,
     Json(body): Json<GateEscalateBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let gate = state
         .svc
         .plan_store

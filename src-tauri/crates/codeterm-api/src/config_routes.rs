@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct ConfigQuery {
@@ -109,10 +109,9 @@ pub(crate) fn redact_rest_config(mut config: serde_json::Value) -> serde_json::V
 
 pub async fn get_config_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(q): Query<ConfigQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let cfg = state.config.lock().clone();
     let full = serde_json::to_value(&cfg).map_err(|_| {
         (
@@ -180,7 +179,6 @@ pub async fn patch_config_api(
     headers: HeaderMap,
     Json(body): Json<PatchConfigBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let cfg = state.config.lock().clone();
     let mut cfg_json = serde_json::to_value(&cfg)
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
@@ -215,6 +213,7 @@ pub async fn patch_config_api(
             "Only the owner can change browser upload folders".into(),
         ));
     }
+    let headers = crate::auth::ActorHeaders::authenticate(&state, headers)?;
     if admit_config_write(
         crate::tab_routes::caller_tab_header(&headers).as_deref(),
         body.key.as_deref(),
@@ -412,10 +411,9 @@ fn dot_set(val: &mut serde_json::Value, path: &str, new_val: serde_json::Value) 
 
 pub async fn bridge_send_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let text = body
         .get("text")
         .and_then(|v| v.as_str())

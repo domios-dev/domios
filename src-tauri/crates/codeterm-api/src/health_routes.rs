@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::ports::socket::REMOTE_TASK_DISPATCH_FEATURE;
 
 #[derive(Clone)]
@@ -122,10 +122,9 @@ pub async fn health(AxumState(state): AxumState<AppState>) -> Json<serde_json::V
 }
 
 pub async fn identify(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    AxumState(_state): AxumState<AppState>,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     Ok(Json(serde_json::json!({
         "name": codeterm_build_info::PRODUCT_NAME,
         "version": codeterm_build_info::version(),

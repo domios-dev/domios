@@ -1,4 +1,4 @@
-use super::routes::{check_auth, AppState};
+use super::routes::AppState;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -7,10 +7,9 @@ use axum::{
 
 pub(crate) async fn status(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(provider): Path<String>,
 ) -> Result<Json<codeterm_plugin::provider_cli::ProviderCliStatus>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_owned()))?;
     let registry = state.svc.provider_registry.clone();
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::provider_cli_provider_cli_status(
@@ -40,7 +39,6 @@ pub(crate) async fn run(
     Json<codeterm_service_core::service::provider_cli_actions::CliLaunch>,
     (StatusCode, String),
 > {
-    check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_owned()))?;
     let caller = crate::auth::caller_claim(&state, &headers, body.caller_tab_id.as_deref())?;
     let service = state.svc.clone();
     tokio::task::spawn_blocking(move || {

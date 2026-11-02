@@ -6,7 +6,6 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::check_auth;
 use codeterm_service_core::service::delivery_error::{DeliveryError, PayloadTooLarge, SendOrigin};
 use codeterm_service_core::service::input_transport::{should_prepend_source, TabInputTransport};
 
@@ -15,6 +14,7 @@ use super::AppState;
 mod dismissal;
 pub use dismissal::{chat_send_delete, chat_send_dismissals};
 mod admissions;
+mod authority;
 mod neighbor;
 mod preparation;
 pub use admissions::chat_send_admissions;
@@ -43,7 +43,6 @@ pub async fn chat_send_text(
     Path(id): Path<String>,
     Json(body): Json<SendTextBody>,
 ) -> Result<Json<codeterm_service_core::service::agent_pad::ChatSendResult>, SendRejection> {
-    check_auth(&state, &headers).map_err(SendRejection::from)?;
     if body.startup_override_nonce.is_some()
         && !matches!(
             caller.as_ref().map(|caller| &caller.0),
@@ -53,6 +52,14 @@ pub async fn chat_send_text(
         return Err(SendRejection::from((
             StatusCode::FORBIDDEN,
             "Startup override requires authenticated owner authority",
+        )));
+    }
+    if crate::auth::authenticated_origin(&state, &headers)
+        .is_ok_and(|origin| origin == crate::auth::AuthenticatedOrigin::Agent)
+    {
+        return Err(SendRejection::from((
+            StatusCode::FORBIDDEN,
+            "Agents must use programmatic message delivery",
         )));
     }
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
@@ -174,13 +181,12 @@ fn chat_send_target_refusal(
 
 pub async fn chat_send_status(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<
     Json<Vec<codeterm_service_core::service::chat_send_transaction::ChatSendStatus>>,
     SendRejection,
 > {
-    check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;
@@ -483,9 +489,7 @@ pub async fn send_text(
             .flatten()
         });
 
-    if svc_token_match.is_none() {
-        check_auth(&state, &headers)?;
-    }
+    if svc_token_match.is_none() {}
     neighbor::authorize_message(
         &state,
         &headers,
@@ -501,32 +505,7 @@ pub async fn send_text(
         .map_err(|_| DeliveryError::TabNotReachableOnPeer {
             tab: raw_tab_id.clone(),
         })?;
-    if svc_token_match.is_none() && crate::auth::caller_peer_id(&state, &headers).is_none() {
-        body.source_tab = crate::auth::caller_claim(&state, &headers, body.source_tab.as_deref())
-            .map_err(|(status, message)| SendRejection {
-            status,
-            body: serde_json::json!({"ok":false,"error":{"code":"forbidden","message":message}}),
-        })?;
-        if crate::auth::tab_caller(&state, &headers)
-            .map_err(|_| SendRejection::from((StatusCode::FORBIDDEN, "Invalid caller credential")))?
-            .is_some()
-            && (body.source_peer.is_some() || body.system_context.is_some())
-        {
-            return Err(SendRejection::from((
-                StatusCode::FORBIDDEN,
-                "Tab credentials cannot supply peer or system provenance",
-            )));
-        }
-    } else if svc_token_match.is_some()
-        && (body.source_tab.is_some()
-            || body.source_peer.is_some()
-            || body.system_context.is_some())
-    {
-        return Err(SendRejection::from((
-            StatusCode::FORBIDDEN,
-            "Service push cannot claim a tab sender",
-        )));
-    }
+    authority::bind_source(&state, &headers, &mut body, svc_token_match.is_some())?;
     let owner = state.clone();
     let target = tab_id.clone();
     let source_tab = body.source_tab.clone();
@@ -997,96 +976,7 @@ pub async fn send_text(
 }
 
 #[cfg(test)]
-mod delivery_classification_tests {
-    use super::{
-        chat_send_target_refusal, classify_delivery_failure, public_send_readiness_refusal,
-        SendRejection,
-    };
-    use axum::http::StatusCode;
-    use codeterm_service_core::service::delivery_error::DeliveryError;
-
-    /// #240: a submit that failed AFTER the paste reached the PTY must never be
-    /// reported as a missing tab — the caller would retry onto parked text.
-    #[test]
-    fn submit_failure_is_not_reported_as_missing_tab() {
-        let err = classify_delivery_failure(
-            "53854ac8",
-            "submit not confirmed after 3s; screen_tail: \"> parked body\"",
-        );
-        assert_eq!(err.code(), "submit_unconfirmed");
-        assert!(err.bytes_written());
-    }
-
-    #[test]
-    fn booting_tab_refusal_is_a_zero_byte_busy_error() {
-        let typed = DeliveryError::TabBusyRefused {
-            tab: "53854ac8".into(),
-            detail: "Agent in Tab 53854ac8 is still booting — input would be lost".into(),
-        };
-        let err = classify_delivery_failure("53854ac8", &typed.ledger_message());
-        assert_eq!(err.code(), "tab_busy_refused");
-        assert!(!err.bytes_written());
-    }
-
-    #[test]
-    fn pre_write_refusal_is_never_submit_unconfirmed() {
-        let typed = DeliveryError::TabBusyRefused {
-            tab: "53854ac8".into(),
-            detail: "provider-classified update dialog is visible".into(),
-        };
-        let err = classify_delivery_failure("53854ac8", &typed.ledger_message());
-
-        assert_eq!(err.code(), "tab_busy_refused");
-        assert_eq!(err.status(), StatusCode::CONFLICT);
-        assert!(!err.bytes_written());
-        let rejection = SendRejection::from(err);
-        assert_eq!(rejection.status, StatusCode::CONFLICT);
-        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
-        assert_eq!(rejection.body["error"]["bytes_written"], false);
-    }
-
-    #[test]
-    fn public_send_readiness_deadline_is_a_zero_byte_route_refusal() {
-        let rejection = public_send_readiness_refusal(
-            "new-agent-tab",
-            "public input readiness deadline elapsed; no input was written".into(),
-        );
-
-        assert_eq!(rejection.status, StatusCode::CONFLICT);
-        assert_eq!(rejection.body["ok"], false);
-        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
-        assert_eq!(rejection.body["error"]["bytes_written"], false);
-    }
-
-    #[test]
-    fn written_payload_failure_reports_submit_unconfirmed_with_bytes_written() {
-        let rejection = SendRejection::from(DeliveryError::SubmitUnconfirmed {
-            tab: "53854ac8".into(),
-            detail: "provider modal appeared before recovery Enter".into(),
-        });
-
-        assert_eq!(rejection.status, StatusCode::BAD_GATEWAY);
-        assert_eq!(rejection.body["error"]["code"], "submit_unconfirmed");
-        assert_eq!(rejection.body["error"]["bytes_written"], true);
-    }
-
-    #[test]
-    fn chat_send_to_shell_without_agent_identity_refuses_without_writing() {
-        let error = chat_send_target_refusal("shell-tab", false, false).unwrap();
-        let rejection = SendRejection::from(error);
-
-        assert_eq!(rejection.status, StatusCode::CONFLICT);
-        assert_eq!(rejection.body["ok"], false);
-        assert_eq!(rejection.body["error"]["code"], "tab_busy_refused");
-        assert_eq!(rejection.body["error"]["bytes_written"], false);
-    }
-
-    #[test]
-    fn chat_send_target_guard_allows_booting_agent_identity_or_chat_backend() {
-        assert!(chat_send_target_refusal("booting-agent-tab", true, false).is_none());
-        assert!(chat_send_target_refusal("backend-tab", false, true).is_none());
-    }
-}
+mod delivery_classification_tests;
 
 #[cfg(test)]
 mod action_delivery_tests;
@@ -1095,91 +985,7 @@ mod action_delivery_tests;
 mod purpose_tests;
 
 #[cfg(test)]
-mod payload_preflight_tests {
-    use super::{route_payload_bytes, route_send_origin, BatchCommand};
-    use codeterm_service_core::service::delivery_error::{
-        preflight_payload_size, SendOrigin, PROGRAMMATIC_SEND_MAX_BYTES,
-    };
-
-    /// The route seam: the preflight decision gates the delivery closure — a
-    /// refusal must leave the closure uninvoked (zero delivery-path invocation).
-    fn route_gate(origin: SendOrigin, payload_bytes: usize) -> (bool, bool) {
-        let mut delivered = false;
-        let passed = preflight_payload_size("53854ac8", origin, payload_bytes)
-            .map(|()| delivered = true)
-            .is_ok();
-        (passed, delivered)
-    }
-
-    #[test]
-    fn api_route_payload_preflight_refuses_over_bound_programmatic_without_delivery() {
-        // Every existing programmatic marker: service push, source tab, mesh peer.
-        for (push, src, peer) in [
-            (true, false, false),
-            (false, true, false),
-            (false, false, true),
-        ] {
-            let origin = route_send_origin(push, src, peer);
-            assert_eq!(origin, SendOrigin::Programmatic);
-            let (passed, delivered) = route_gate(origin, PROGRAMMATIC_SEND_MAX_BYTES + 1);
-            assert!(!passed);
-            assert!(!delivered, "refused send must never reach delivery");
-        }
-    }
-
-    #[test]
-    fn api_route_payload_preflight_refusal_is_the_typed_pre_write_error() {
-        let err = preflight_payload_size(
-            "53854ac8",
-            route_send_origin(false, true, false),
-            PROGRAMMATIC_SEND_MAX_BYTES + 1,
-        )
-        .unwrap_err();
-        assert_eq!(err.code(), "payload_too_large");
-        assert_eq!(err.tab, "53854ac8");
-        assert_eq!(err.payload_bytes, PROGRAMMATIC_SEND_MAX_BYTES + 1);
-        assert_eq!(err.max_bytes, PROGRAMMATIC_SEND_MAX_BYTES);
-    }
-
-    #[test]
-    fn api_route_payload_preflight_passes_at_bound_programmatic_send() {
-        let (passed, delivered) = route_gate(
-            route_send_origin(false, true, false),
-            PROGRAMMATIC_SEND_MAX_BYTES,
-        );
-        assert!(passed);
-        assert!(delivered);
-    }
-
-    #[test]
-    fn api_route_payload_preflight_exempts_user_origin_over_bound_send() {
-        // No marker on the request ⇒ the existing classification is a user turn.
-        let origin = route_send_origin(false, false, false);
-        assert_eq!(origin, SendOrigin::User);
-        let (passed, delivered) = route_gate(origin, PROGRAMMATIC_SEND_MAX_BYTES + 1);
-        assert!(passed);
-        assert!(delivered);
-    }
-
-    #[test]
-    fn api_route_payload_preflight_measures_text_and_batch_byte_length() {
-        assert_eq!(route_payload_bytes(None, None), 0);
-        // Byte length, not char count.
-        assert_eq!(route_payload_bytes(Some("абв"), None), 6);
-        let batch = [
-            BatchCommand {
-                text: "12345".into(),
-                delay_ms: None,
-            },
-            BatchCommand {
-                text: "678".into(),
-                delay_ms: Some(1),
-            },
-        ];
-        assert_eq!(route_payload_bytes(None, Some(&batch)), 8);
-        assert_eq!(route_payload_bytes(Some("ab"), Some(&batch)), 10);
-    }
-}
+mod payload_preflight_tests;
 
 #[cfg(test)]
 mod admission_tests;

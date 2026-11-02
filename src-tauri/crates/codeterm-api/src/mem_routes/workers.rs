@@ -5,25 +5,23 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::mem::workers::{self, GraphWorkerInfo, WorkerStatus};
 use codeterm_service_core::mem_host::cancel_worker;
 use codeterm_service_core::multiplexer::types::TabCloseReason;
 
 pub async fn workers_list(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<Vec<GraphWorkerInfo>>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     Ok(Json(state.svc.workers.list()))
 }
 
 pub async fn workers_get(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<GraphWorkerInfo>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .workers
@@ -44,11 +42,9 @@ pub struct WorkerSpawnBody {
 
 pub async fn workers_spawn(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(b): Json<WorkerSpawnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-
     let mem_cfg = state.svc.configuration().memory;
     let parent = b
         .parent
@@ -94,7 +90,6 @@ pub async fn workers_progress(
     Path(id): Path<String>,
     Json(b): Json<WorkerProgressBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
         if !state
             .svc
@@ -148,7 +143,6 @@ pub async fn workers_report(
     Path(id): Path<String>,
     Json(b): Json<WorkerReportBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
         if !state
             .svc
@@ -258,10 +252,9 @@ pub async fn workers_report(
 
 pub async fn workers_kill(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let worker_id = id.clone();
     codeterm_service_core::service::blocking_run(move || Ok(cancel_worker(&svc, &worker_id)))
@@ -283,8 +276,6 @@ pub async fn workers_log(
     ),
     (StatusCode, String),
 > {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-
     tokio::task::spawn_blocking(move || {
         let worker = state
             .svc
