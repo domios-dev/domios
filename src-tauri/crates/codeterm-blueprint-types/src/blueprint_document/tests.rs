@@ -15,6 +15,7 @@ steps:
     id: {lit: own-tab}
     pattern: {lit: 'ready|failed'}
     idle_ms: {lit: 1000}
+  timeout: {lit: 1h}
 - id: decide
   uses: ask
   with: {question: {lit: Is the command ready?}}
