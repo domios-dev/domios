@@ -250,8 +250,8 @@ mod tests {
 
         assert!(out.contains("<codeterm-worker-charter"));
         assert!(out.contains(&task_id));
-        assert!(out.contains("opaque-acceptance-61"));
-        assert!(out.contains("opaque-test-plan-62"));
+        assert!(out.contains(prompts_plan::TESTING_DISCIPLINE.trim()));
+        assert!(out.contains(prompts_plan::QA_PIPELINE_DISCIPLINE.trim()));
         assert!(out.trim_end().ends_with("continue"));
     }
 
@@ -290,7 +290,8 @@ mod tests {
 
         let out = store.prepend_worker_charter_for_tab("worker-tab", "continue");
 
-        assert!(out.contains("seed-fixtures"));
+        assert!(out.contains(prompts_plan::PLAN_SKILLS_WORKER_LINE));
+        assert!(!out.contains(super::super::skill_registry::PLAN_SKILL_REGISTRY_POINTER));
         assert!(!out.contains("opaque-skill-body-63"));
     }
 

@@ -950,11 +950,18 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
         )
         .unwrap();
 
-    assert!(draft.task_prompt.starts_with("opaque-guidance-72"));
+    let task = store.show_task(&task_id).unwrap().task;
+    let expected = crate::service_plan::worker_identity::compose_task_worker_identity(
+        &task,
+        Some("Hopper"),
+    );
+    let (identity, _) =
+        crate::service_plan::worker_identity::split_worker_identity(&draft.task_prompt);
+    assert_eq!(identity, Some(expected.as_str()));
+    assert!(draft.task_prompt.starts_with(&expected));
     assert_eq!(draft.task_prompt.matches("opaque-guidance-72").count(), 1);
-    assert!(draft
-        .task_prompt
-        .contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
+    let ack = draft.task_prompt.find("domios agent ack").unwrap();
+    assert!(ack < draft.task_prompt.find("When done, run exactly:").unwrap());
 }
 
 #[test]
@@ -996,7 +1003,15 @@ fn competition_prompt_starts_with_same_canonical_identity() {
         .unwrap();
     let prompt = &drafts[0].task_prompt;
 
-    assert!(prompt.starts_with("opaque-guidance-73"));
+    let task = store.show_task(&task_id).unwrap().task;
+    let expected = crate::service_plan::worker_identity::compose_task_worker_identity(
+        &task,
+        Some("Hopper"),
+    );
+    let (identity, _) = crate::service_plan::worker_identity::split_worker_identity(prompt);
+    assert_eq!(identity, Some(expected.as_str()));
+    assert!(prompt.starts_with(&expected));
     assert_eq!(prompt.matches("opaque-guidance-73").count(), 1);
-    assert!(prompt.contains(crate::service_plan::worker_identity::WORKER_IDENTITY_END));
+    let ack = prompt.find("domios agent ack").unwrap();
+    assert!(ack < prompt.find("When done, run exactly:").unwrap());
 }
