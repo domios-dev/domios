@@ -206,21 +206,35 @@ pub async fn keepawake_stop_handler(
 pub async fn restart_app(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
-    let app = codeterm_commands::application_host::require(&state.svc)
-        .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+
+    if let Err(error) = check_auth(&state, &headers) {
+        return error.into_response();
+    }
+    let app = match codeterm_commands::application_host::require(&state.svc) {
+        Ok(app) if app.admit_restart().is_ok() => app,
+        _ => {
+            return (
+                StatusCode::CONFLICT,
+                Json(serde_json::json!({
+                    "code": "native_capability_unavailable",
+                    "message": "Restart requires a native application host with restart capability. This server has no restart-capable host registered; a running desktop client alone does not provide this capability. Restart this instance using its local launcher. For development, stop and start the exact named DEV instance."
+                })),
+            ).into_response();
+        }
+    };
     tokio::task::spawn_blocking(move || {
-        codeterm_service_core::crash::shutdown::mark_shutting_down_for(
-            codeterm_service_core::crash::lifecycle::ShutdownReason::Restart,
-        );
-        codeterm_util::restart_stdio::detach_for_restart();
         if let Err(error) = app.restart() {
             log::error!("[restart] {error}");
         }
     });
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Json(serde_json::json!({ "ok": true })).into_response()
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "network_routes/restart_tests.rs"]
+mod restart_tests;
