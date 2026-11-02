@@ -87,7 +87,7 @@ async function output(term: Terminal, ...chunks: string[]) {
 }
 
 describe("xterm composition delivery", () => {
-  it("leaves the backend as the sole status responder with two attached renderers", async () => {
+  it("two attached renderers produce no duplicate backend status replies", async () => {
     const writes: Array<Record<string, unknown> | undefined> = [];
     const native = await fixture(writes);
     const browser = await fixture(writes);
@@ -95,15 +95,14 @@ describe("xterm composition delivery", () => {
     native.term.onData(data => replies.push(data));
     browser.term.onData(data => replies.push(data));
     try {
-      for (const [query, backendReply] of [["\x1b[5n", "\x1b[0n"], ["\x1b[6n", "\x1b[1;1R"]]) {
+      for (const query of ["\x1b[5n", "\x1b[6n", "\x1b[005n", "\x1b[006n", "\x1b[6;1n", "\x1b[5:2n"]) {
         for (let split = 0; split <= query.length; split += 1) {
           replies.length = 0;
-          replies.push(backendReply);
           await act(async () => {
             await output(native.term, query.slice(0, split), query.slice(split));
             await output(browser.term, query.slice(0, split), query.slice(split));
           });
-          expect(replies).toEqual([backendReply]);
+          expect(replies).toEqual([]);
           expect(native.data).toEqual([]);
           expect(browser.data).toEqual([]);
           expect(writes).toEqual([]);
