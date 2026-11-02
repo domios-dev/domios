@@ -1,7 +1,8 @@
 use super::*;
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
+// Sync test: the park helper blocks on the service runtime, which cannot nest inside a tokio test.
+#[test]
+fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
     let (fixture, tab) = queue_fixture(true, None);
     let accepted = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "late-hook-client");
     refuse_and_park_current_send(&fixture.service, accepted.clone(), FIRST_PAYLOAD);
@@ -32,14 +33,15 @@ async fn late_verified_hook_flushes_held_send_once_without_replaying_written_inp
     fixture.service.drain_user_owner(&tab).unwrap();
     assert_eq!(writes.load(Ordering::SeqCst), 0);
     for _ in 0..2 {
-        crate::service::hook_session_binding::recover_verified_hook_binding(
-            &fixture.service,
-            &tab,
-            None,
-            Some("opaque-session"),
-            Some("opaque-current-nonce"),
+        crate::async_runtime::block_on(
+            crate::service::hook_session_binding::recover_verified_hook_binding(
+                &fixture.service,
+                &tab,
+                None,
+                Some("opaque-session"),
+                Some("opaque-current-nonce"),
+            ),
         )
-        .await
         .unwrap();
         fixture.service.drain_user_owner(&tab).unwrap();
     }
