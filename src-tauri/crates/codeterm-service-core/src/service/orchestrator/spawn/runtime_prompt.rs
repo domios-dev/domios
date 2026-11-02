@@ -255,8 +255,9 @@ pub fn ensure_tab_runtime_prompt(
         return Ok(());
     }
     let manager = tab.role == Some(crate::multiplexer::types::AgentRole::Manager);
+    let preserve_current = !manager || !tab.restored_from_snapshot;
     if current.is_some_and(|prompt| prompt.contains(ROLE_AUTHORITY))
-        && !manager
+        && preserve_current
         && !tab
             .restorable_launch
             .execution_sandbox
@@ -280,7 +281,7 @@ pub fn ensure_tab_runtime_prompt(
             .as_ref()
             .and_then(|binding| binding.plan_id.clone()),
         cwd: tab.cwd.clone(),
-        system_prompt: (!manager)
+        system_prompt: preserve_current
             .then(|| current.map(str::to_string).or_else(|| saved_identity(&tab)))
             .flatten(),
         ..Default::default()

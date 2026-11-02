@@ -403,6 +403,82 @@ fn runtime_brief_rides_instructions_when_manifest_declares_system_prompt() {
 }
 
 #[test]
+fn runtime_fresh_brief_survives_launch_ensure_for_every_role_and_system_channel() {
+    use crate::agent::test_provider::MockProvider;
+    use crate::service::orchestrator::{compose_runtime_system_prompt, ensure_tab_runtime_prompt};
+
+    const BRIEF: &str = " \tfragment-97α\r\n$opaque `x` \\\" {task}\ntrailing\t ";
+    const OVERLAY: &str = "fragment-overlay-62β";
+    let providers = [
+        MockProvider::with_system_prompt_flag("opaque-file", "--append-system-prompt-file"),
+        MockProvider::with_system_prompt_flag("opaque-runtime", "-c developer_instructions"),
+        MockProvider::new("opaque-config").with_session_config_delivery(),
+    ];
+    for (role, kind) in [
+        (None, None),
+        (Some("Worker"), None),
+        (Some("Worker"), Some("release_manager")),
+        (Some("Manager"), None),
+        (Some("Manager"), Some("orchestrator")),
+        (Some("Manager"), Some("planner")),
+        (Some("Manager"), Some("watcher")),
+    ] {
+        let mut params = crate::service::SpawnAgentParams {
+            role: role.map(str::to_string),
+            role_profile: kind.map(str::to_string),
+            task: Some(BRIEF.into()),
+            system_prompt: Some(OVERLAY.into()),
+            ..Default::default()
+        };
+        let prompt = compose_runtime_system_prompt(&mut params).unwrap();
+        let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+        let tab = mux.get_tab_mut(&id).unwrap();
+        let identity = codeterm_types::agent::restore_role(role, kind);
+        tab.role = identity.as_ref().map(|identity| identity.role);
+        tab.role_profile = identity.and_then(|identity| identity.role_profile);
+        tab.agent_type = Some("opaque-runtime".into());
+        tab.session_binding_nonce = Some("opaque-nonce".into());
+        tab.agent_runtime_config = Some(json!({"systemPrompt":prompt}));
+        let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+
+        for _ in 0..2 {
+            ensure_tab_runtime_prompt(&fixture.service, &id).unwrap();
+        }
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&id).unwrap();
+        let actual = tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"]
+            .as_str()
+            .unwrap();
+        assert_eq!(actual, prompt, "{role:?}/{kind:?}");
+        assert_eq!(actual.matches(BRIEF).count(), 1);
+        assert_eq!(actual.matches(OVERLAY).count(), 1);
+        assert!(tab.pending_delivery.is_none());
+        for provider in &providers {
+            let launch = crate::service::launch_delivery::command_task(provider, Some(actual));
+            assert_eq!(launch.system_prompt.as_deref(), Some(actual));
+            assert!(!launch.task_is_first_turn);
+            let agent = crate::service::spawn::AgentSpawnSpec {
+                task: Some(BRIEF.into()),
+                role: params.role.clone(),
+                role_profile: params.role_profile.clone(),
+                ..Default::default()
+            };
+            let Some(super::RuntimeFirstTurn::Starter(turn)) =
+                super::runtime_initial_payload(&agent, Some(provider))
+            else {
+                panic!("system channel must carry the brief before the starter");
+            };
+            assert!(!turn.contains(BRIEF));
+            assert!(turn.starts_with(
+                &crate::agent::provider::StarterPrompt::AssignedTask
+                    .system_prefix()
+                    .unwrap()
+            ));
+        }
+    }
+}
+
+#[test]
 fn runtime_worker_identity_is_stamped_before_launch() {
     let (mut mux, _) = crate::multiplexer::state::MultiplexerState::new();
     let workspace = mux.create_workspace("fixture".into(), None);
