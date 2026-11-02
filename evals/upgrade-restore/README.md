@@ -115,3 +115,17 @@ skips, and unit fixtures are not pre/post DEV proof. The capture command require
 a daemon that exposes the new export route; a new CLI cannot invent that route in
 an older running PROD daemon. Read-only export compatibility and cross-platform
 live replay remain canonical integration work.
+
+Generated leaves read `LEAF_SESSION_ID_KEY` from the product's
+`SplitNodeSnapshot::Leaf` contract in `codeterm-pty/src/session/store.rs` and
+refuse generation if it no longer names an optional string field. Regenerate
+worst-case and B4 documents after schema changes; B4's `worstCases` consumer
+inherits the same contract.
+
+Imported fixtures restore the typed snapshot and plans, not `live_tab_metadata`.
+The snapshot writer excludes hidden tabs (`multiplexer/state/snapshot/mod.rs`),
+and its leaf restore initializes `hidden = false`, `show_in_tabbar = true`.
+The generated imported Worker therefore expects visible tabbar membership.
+`live_tab_metadata` remains capture evidence checked by the verifier; it does
+not request visibility changes during import. A captured hidden tab without
+persisted backing remains unsupported and fails closed.

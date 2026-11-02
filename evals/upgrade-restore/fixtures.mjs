@@ -2,6 +2,7 @@ import {readFileSync, writeFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {resolve} from 'node:path';
 import {measurements} from './model.mjs';
+import {leafSessionIdKey} from './snapshot-contract.mjs';
 
 export function worstCases(root, cwd) {
   const manualFiles = ['prod-docs/ORCHESTRATION.md', 'prod-docs/ROUTING.md',
@@ -14,13 +15,13 @@ export function worstCases(root, cwd) {
     ['fixture-general', 'Manager', 'general_agent', fullManual, fullManual],
     ['fixture-long-history', null, null, '', ''],
     ['fixture-legacy-worker', 'Worker', null, '', 'x'.repeat(1024)],
-    ['fixture-hidden-worker', 'Worker', null, '', 'x'.repeat(1024)],
+    ['fixture-imported-worker', 'Worker', null, '', 'x'.repeat(1024)],
     ['fixture-planner', 'Manager', 'planner', '', ''],
   ];
   const tabs = rows.map(([id, role, profile, prompt, identity]) => ({
     id, title: id.replace('fixture-', '').replaceAll('-', ''), split_tree: {
       type: 'Leaf', tab_id: id, cwd, shell_profile: null, agent_type: 'codex',
-      claude_session_id: `thread-${id}`, agent_type_locked: true, role, role_profile: profile,
+      [leafSessionIdKey]: `thread-${id}`, agent_type_locked: true, role, role_profile: profile,
       team_id: id === 'fixture-general' ? null : 'team_fixture',
       parent_tab_id: ['Worker', 'Manager'].includes(role) && profile !== 'orchestrator' && profile !== 'general_agent'
         ? 'fixture-orchestrator' : null,
@@ -30,7 +31,7 @@ export function worstCases(root, cwd) {
         session_binding_nonce: `nonce-${id}`, reported_session_binding_nonce: `nonce-${id}`,
         agent_runtime_config: {systemPrompt: prompt},
         restorable_launch: {captured: true, identity_instructions: identity},
-        ...(['fixture-legacy-worker', 'fixture-hidden-worker'].includes(id)
+        ...(['fixture-legacy-worker', 'fixture-imported-worker'].includes(id)
           ? {task_binding: {plan_id: 'plan_fixture', task_id: `task_${id}`, bound_at: 1}} : {}),
       },
     },
@@ -44,11 +45,11 @@ export function worstCases(root, cwd) {
     workspaces: [{id: 'workspace_fixture', name: 'Fixture', cwd, active_tab_id: tabs[0].id, tabs}]};
   return {format: 'upgrade-restore-v1', sanitized: true, snapshot, histories,
     measurements: measurements(snapshot, histories),
-    live_tab_metadata: [{tab_id: 'fixture-hidden-worker', hidden: true, show_in_tabbar: false}],
+    live_tab_metadata: [{tab_id: 'fixture-imported-worker', hidden: false, show_in_tabbar: true}],
     plans: [{id: 'plan_fixture', title: 'Fixture', status: 'active', mode: 'execution',
       owner: {tab_id: 'fixture-orchestrator', session_id: 'thread-fixture-orchestrator', title: 'Fixture'},
       team_id: 'team_fixture', project_path: cwd, canonical_project_path: cwd, created_at: 1, updated_at: 1,
-      tasks: ['fixture-legacy-worker', 'fixture-hidden-worker'].map(id => ({
+      tasks: ['fixture-legacy-worker', 'fixture-imported-worker'].map(id => ({
         id: `task_${id}`, name: 'Fixture', type: 'implementation', status: 'in_progress',
         assigned_tab_id: id, execution_intent: 'non_repository',
         execution_attempts: [{id: `attempt_${id}`, executor_tab_id: id, provider: 'codex',
