@@ -190,7 +190,7 @@ export function TabContent({
             className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
             {restore.phase === "failed"
               ? <div className="pointer-events-auto"><InlineErrorNotice error={restore.detail} operation="resuming this session" /></div>
-              : <BusyState inline label="Restoring…" phase="work" className="ct-bar-pill" />}
+              : <BusyState inline indicator="brand" label="Restoring…" phase="work" className="ct-bar-pill" />}
           </DeferredPresence>
           <div ref={bodyRef} className="min-h-0 flex-1" inert={showRestore || undefined} aria-hidden={showRestore || undefined}>{body}</div>
           <DeferredPresence present={showRestore && isVisible} className="absolute inset-0 z-20">{restorePanel}</DeferredPresence>
