@@ -14,6 +14,7 @@ pub const VERBS: &[&str] = &[
     "profile",
     "connect-secret",
     "file-picker",
+    "upload",
     "goto",
     "back",
     "forward",
@@ -263,6 +264,7 @@ impl BrowserRuntime {
                 let text = self.snapshot_verb(page, &args).await?;
                 self.output_verb(ctx, output, text).await
             }
+            "upload" => self.upload_verb(ctx, page, args).await,
             "expand" | "collapse" => self.disclosure_verb(page, args, verb == "expand").await,
             "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
                 self.atomic_action(page, args, verb == "fill").await
@@ -335,7 +337,11 @@ impl BrowserRuntime {
         self.shared.resolve(&parts)
     }
 
-    async fn click_node(&self, page: &PageChannel, backend_node_id: i64) -> Result<(), String> {
+    pub(super) async fn click_node(
+        &self,
+        page: &PageChannel,
+        backend_node_id: i64,
+    ) -> Result<(), String> {
         let node = json!({ "backendNodeId": backend_node_id });
         let _ = self
             .send(page, "DOM.scrollIntoViewIfNeeded", node.clone())
