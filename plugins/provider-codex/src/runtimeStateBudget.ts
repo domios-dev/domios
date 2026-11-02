@@ -1,5 +1,6 @@
 import type { ChatMsg } from "@codeterm/plugin-sdk";
 import type { RuntimeItem } from "./runtimeAbandonedTurns";
+import { utf8Bytes } from "./runtimeHistoryBounds";
 
 // The host closes the app-server, killing the live turn, when reducer state exceeds 256 KiB.
 export const STATE_TEXT_CAP = 16 * 1024;
@@ -132,18 +133,6 @@ export function compactState(state: BudgetState): void {
   state.abandoned = tail(state.abandoned);
   state.childCompleted = tail(state.childCompleted);
   fitTotal(state);
-}
-
-function utf8Bytes(value: string): number {
-  let bytes = 0;
-  for (let index = 0; index < value.length; index++) {
-    const unit = value.charCodeAt(index);
-    if (unit < 0x80) bytes += 1;
-    else if (unit < 0x800) bytes += 2;
-    else if (unit >= 0xd800 && unit < 0xdc00) { bytes += 4; index++; }
-    else bytes += 3;
-  }
-  return bytes;
 }
 
 const MIN_RUNNING_CAP = 1024;

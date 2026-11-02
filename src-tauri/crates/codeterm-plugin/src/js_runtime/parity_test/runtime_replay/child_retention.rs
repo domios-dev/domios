@@ -82,15 +82,26 @@ async fn step(
     state: &Value,
     frame: RuntimeFrame,
 ) -> (RuntimeReduction, u64) {
+    let fixture_started = Instant::now();
     let before = state.clone();
+    let clone_us = fixture_started.elapsed().as_micros();
+    let frame_started = Instant::now();
     assert!(serde_json::to_vec(&frame).unwrap().len() <= MAX_RUNTIME_VALUE_BYTES);
+    let frame_us = frame_started.elapsed().as_micros();
     let started = Instant::now();
     let result = provider
         .runtime_reduce(context, state, &[frame])
         .await
         .unwrap_or_else(|error| panic!("child retention native hook refused: {error:?}"));
     let elapsed = started.elapsed().as_micros().min(u64::MAX as u128) as u64;
+    let assertion_started = Instant::now();
     assert_eq!(state, &before, "native fixture input remains reusable");
+    if std::env::var_os("CODETERM_CHILD_RETENTION_TIMING").is_some() {
+        eprintln!(
+            "CHILD_RETENTION_STEP clone_us={clone_us} frame_encode_us={frame_us} adapter_us={elapsed} assertion_us={}",
+            assertion_started.elapsed().as_micros()
+        );
+    }
     (result, elapsed)
 }
 

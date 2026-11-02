@@ -2951,10 +2951,10 @@ function capAgentPayload(input, cap) {
   const bounded2 = { ...input };
   const fields = ["agent_result", "agent_description"].filter((key) => typeof input[key] === "string" && input[key].length > 0).sort((a, b) => input[b].length - input[a].length);
   for (const key of fields) {
-    if (utf8Bytes3(JSON.stringify(bounded2)) <= cap) break;
+    if (utf8Bytes2(JSON.stringify(bounded2)) <= cap) break;
     const text7 = bounded2[key];
     const body = text7.startsWith(TRUNCATED) ? text7.slice(TRUNCATED.length) : text7;
-    const room = cap - utf8Bytes3(JSON.stringify({ ...bounded2, [key]: "" })) - utf8Bytes3(JSON.stringify(TRUNCATED));
+    const room = cap - utf8Bytes2(JSON.stringify({ ...bounded2, [key]: "" })) - utf8Bytes2(JSON.stringify(TRUNCATED));
     const keep = Math.max(0, Math.floor(room / 6));
     let start = Math.max(0, body.length - keep);
     const unit = body.charCodeAt(start), previous = body.charCodeAt(start - 1);
@@ -2974,7 +2974,7 @@ function capRow(row3, cap) {
   if (row3.toolInput !== void 0) {
     const serialized = JSON.stringify(row3.toolInput);
     const agentInput = row3.toolKind === "agent" && row3.toolName === "agent_activity" && row3.toolInput !== null && typeof row3.toolInput === "object" && !Array.isArray(row3.toolInput);
-    if ((agentInput ? utf8Bytes3(serialized) : serialized.length) > cap) {
+    if ((agentInput ? utf8Bytes2(serialized) : serialized.length) > cap) {
       capped ?? (capped = { ...row3 });
       if (agentInput) capped.toolInput = capAgentPayload(row3.toolInput, cap);
       else delete capped.toolInput;
@@ -3036,30 +3036,17 @@ function compactState(state) {
   state.childCompleted = tail(state.childCompleted);
   fitTotal(state);
 }
-function utf8Bytes3(value) {
-  let bytes2 = 0;
-  for (let index = 0; index < value.length; index++) {
-    const unit = value.charCodeAt(index);
-    if (unit < 128) bytes2 += 1;
-    else if (unit < 2048) bytes2 += 2;
-    else if (unit >= 55296 && unit < 56320) {
-      bytes2 += 4;
-      index++;
-    } else bytes2 += 3;
-  }
-  return bytes2;
-}
 var MIN_RUNNING_CAP = 1024;
 function fitTotal(state) {
-  if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+  if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
   const retiredOrder = () => (state.retired ?? []).filter((id) => state.items[id]);
-  while (retiredOrder().length > 0 && utf8Bytes3(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
+  while (retiredOrder().length > 0 && utf8Bytes2(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
     const drop = retiredOrder().slice(0, Math.max(1, Math.ceil(retiredOrder().length / 4)));
     for (const id of drop) delete state.items[id];
     state.retired = retiredOrder();
   }
   for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
-    if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+    if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
     for (const [id, row3] of Object.entries(state.items)) state.items[id] = capRow(row3, cap);
     for (const parts of Object.values(state.reasoning ?? {})) {
       parts.summary = parts.summary.map((part) => capText(part, cap));
