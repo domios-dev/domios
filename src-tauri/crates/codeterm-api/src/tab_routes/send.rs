@@ -54,12 +54,16 @@ pub async fn chat_send_text(
             "Startup override requires authenticated owner authority",
         )));
     }
-    if crate::auth::authenticated_origin(&state, &headers)
-        .is_ok_and(|origin| origin == crate::auth::AuthenticatedOrigin::Agent)
+    if crate::auth::remote_agent(&state, &headers)
+        .map_err(|(status, message)| SendRejection {
+            status,
+            body: serde_json::json!({"ok":false,"error":{"code":"forbidden","message":message}}),
+        })?
+        .is_some()
     {
         return Err(SendRejection::from((
             StatusCode::FORBIDDEN,
-            "Agents must use programmatic message delivery",
+            "Remote agents must use programmatic message delivery",
         )));
     }
     let tab_id = crate::routes::resolve_tab_async(&state, &id)
