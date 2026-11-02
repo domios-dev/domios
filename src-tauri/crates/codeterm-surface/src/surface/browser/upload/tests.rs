@@ -91,7 +91,8 @@ fn upload_refuses_junction_ancestors() {
     std::fs::create_dir(root.path().join("caller")).unwrap();
     std::fs::create_dir(root.path().join("outside")).unwrap();
     std::fs::write(root.path().join("outside/secret.txt"), b"private").unwrap();
-    let link = root.path().join("caller/linked");
+    // mklink rejects forward slashes, so build native separators.
+    let link = root.path().join("caller").join("linked");
     let status = Command::new("cmd")
         .args(["/c", "mklink", "/J"])
         .arg(&link)
