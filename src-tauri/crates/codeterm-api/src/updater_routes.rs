@@ -230,12 +230,8 @@ async fn install_update_inner(
     }
     let application_host = if q.method.as_deref() == Some("auto") {
         Some(
-            codeterm_commands::application_host::require(&state.svc).map_err(|_| {
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    "native_capability_unavailable",
-                )
-            })?,
+            codeterm_commands::application_host::require(&state.svc)
+                .map_err(|_| (StatusCode::CONFLICT, "native_capability_unavailable"))?,
         )
     } else {
         None

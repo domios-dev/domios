@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus } from "./updateStatusModel";
+import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, updateIndicator, updateRestartDescription } from "./updateStatusModel";
+import type { UpdateRow } from "./updatePanelModel";
 import type { UpdateAvailabilitySnapshot } from "./updateAvailability";
 
 const ahead = "system plugin 'codex' is not installable: local_ahead";
@@ -43,3 +44,19 @@ const channelFailure = classifyUpdateFailure("update", new Error(`community: ${u
 assert.deepEqual(channelFailure, { message: unavailable, details: `Error: community: ${unavailable}`, channelUnavailable: true });
 assert.equal(classifyUpdateFailure("check", unavailable)?.message, unavailable);
 console.log("update failure classification names channel causes: 9 cases passed");
+
+const interfaceRow: UpdateRow = { id: "frontend", name: "Interface", group: "Interface", currentVersion: "1.0.0", targetVersion: "1.0.1", state: "available", alreadyCurrent: false };
+const appRow: UpdateRow = { ...interfaceRow, id: "app", name: "Domios", group: "App" };
+const idle = { busy: false, checking: false, failed: false };
+assert.equal(updateIndicator([interfaceRow], idle).description, "Updates available. Interface update needs no restart.");
+for (const rows of [[appRow], [interfaceRow, appRow]]) {
+  assert.equal(updateIndicator(rows, idle).description, "Updates available. App update requires a restart.");
+  assert.equal(updateIndicator(rows, idle).state, "available");
+}
+assert.equal(updateIndicator([{ ...interfaceRow, state: "active" }], idle).state, "active");
+assert.equal(updateIndicator([{ ...interfaceRow, state: "failed" }], { ...idle, busy: true }).state, "failed");
+assert.equal(updateIndicator([], { ...idle, completed: true }).state, "completed");
+assert.equal(updateIndicator([], idle).state, "idle");
+assert.equal(updateRestartDescription("Interface"), "No restart required");
+assert.equal(updateRestartDescription("App"), "Restart required");
+console.log("unified update indicator: frontend, app, both, applying, failed and completed passed");

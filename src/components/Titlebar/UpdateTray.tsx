@@ -7,6 +7,7 @@ import { useUpdate, type UpdatePhase } from "../../hooks/useUpdate";
 import { useMultiplexer } from "../../store/multiplexer/context";
 import { describeError } from "../../lib/describeError";
 import { UpdatePanel } from "../UpdatePanel";
+import { updateIndicator } from "../../lib/updateStatusModel";
 
 function knownDownloadPercent(completed: number, total: number | null): number | null {
   if (total === null || !Number.isFinite(total) || total <= 0
@@ -41,6 +42,15 @@ export function UpdateTray() {
   const { upsertToast } = useMultiplexer();
   const [open, setOpen] = useState(false);
   const toastedError = useRef<string | null>(null);
+  const toastedFrontend = useRef<string | null>(null);
+  useEffect(() => {
+    const release = update.frontendRelease;
+    if (!release || toastedFrontend.current === release.releaseId) return;
+    toastedFrontend.current = release.releaseId;
+    createNoticePublisher({ upsertToast })({ kind: "toast", id: "frontend-update-completed",
+      title: `Interface ${release.version} updated`, detail: release.notes ? `What’s new: ${release.notes}` : "No restart required.",
+      severity: "Info", tabId: null, workspaceId: null });
+  }, [update.frontendRelease, upsertToast]);
   useEffect(() => {
     if (!update.error) { toastedError.current = null; return; }
     if (toastedError.current === update.error) return;
@@ -70,23 +80,15 @@ export function UpdateTray() {
   useEffect(() => {
     if (open) panel.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
   }, [open]);
-  const offers = update.items.some(item => !item.channelError);
-  const failed = Boolean(update.error) || update.rows.some(row => row.state === "failed")
-    || update.diagnostics.some(item => item.channel !== "codeterm-core");
-  const active = update.busy || update.checking;
+  const indicator = updateIndicator(update.rows, { busy: update.busy, checking: update.checking,
+    failed: Boolean(update.error) || update.diagnostics.some(item => item.channel !== "codeterm-core"), completed: Boolean(update.frontendRelease) });
+  const { offers, active, state: activityState } = indicator;
+  const failed = activityState === "failed";
   const appPhase = app.installing ? appPhaseDescription(app.phase) : null;
   const downloadPercent = !failed && app.installing && app.phase === "downloading"
     ? knownDownloadPercent(app.downloadedBytes, app.downloadTotalBytes) : null;
-  const activeRow = update.rows.find(row => row.state === "active");
-  const activityDescription = failed ? "Update failed. Open updates for details."
-    : update.checking ? "Checking for updates."
-      : appPhase ? `${appPhase}${downloadPercent === null ? "" : ` ${downloadPercent}% downloaded.`}`
-        : active ? activeRow ? `Updating ${activeRow.name}.` : "Updating components."
-          : offers ? "Updates available."
-            : update.rows.some(row => row.state === "completed") ? "Updates completed."
-              : "Open updates.";
-  const activityState = failed ? "failed" : active ? "active"
-    : offers ? "available" : update.rows.some(row => row.state === "completed") ? "completed" : "idle";
+  const activityDescription = !failed && !update.checking && appPhase
+    ? `${appPhase}${downloadPercent === null ? "" : ` ${downloadPercent}% downloaded.`}` : indicator.description;
   const triggerTone = failed ? "bg-[var(--ct-surface)] text-[var(--ct-red)]"
     : active || offers ? "bg-[var(--ct-accent)] text-[var(--ct-on-accent)]"
       : activityState === "completed" ? "bg-[var(--ct-surface)] text-[var(--ct-green)]"

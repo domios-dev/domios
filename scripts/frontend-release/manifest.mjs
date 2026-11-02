@@ -9,7 +9,9 @@ export function validateTag(tag, contract) {
   return tag.slice(10);
 }
 export function validateManifest(value) {
-  if (!value || Object.keys(value).sort().join() !== fields.join()) throw new Error('Unexpected manifest fields');
+  const keys = value && Object.keys(value).filter(key => key !== 'releaseNotes').sort();
+  if (!keys || keys.join() !== fields.join()) throw new Error('Unexpected manifest fields');
+  if (value.releaseNotes !== undefined && (typeof value.releaseNotes !== 'string' || Buffer.byteLength(value.releaseNotes, 'utf8') > 4096)) throw new Error('Invalid frontend release notes');
   if (typeof value.version !== 'string' || !semver.test(value.version)) throw new Error('Invalid frontend version');
   if (value.releaseId !== `frontend-v${value.version}`) throw new Error('Invalid release identity');
   if (!Number.isSafeInteger(value.minApiVersion) || value.minApiVersion < 1 ||
@@ -21,12 +23,12 @@ export function validateManifest(value) {
 }
 export function canonicalManifest(value) {
   validateManifest(value);
-  return Buffer.from(JSON.stringify(Object.fromEntries(fields.map(key => [key, value[key]]))), 'utf8');
+  return Buffer.from(JSON.stringify(Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]))), 'utf8');
 }
 export function checksum(bytes) { return createHash('sha256').update(bytes).digest('hex'); }
 export function createManifest(tag, contract, archive) {
   const version = validateTag(tag, contract);
   return validateManifest({ version, minApiVersion: contract.minApiVersion, maxApiVersion: contract.maxApiVersion,
-    sha256: checksum(archive), releaseId: tag,
+    sha256: checksum(archive), releaseId: tag, ...(contract.releaseNotes === undefined ? {} : { releaseNotes: contract.releaseNotes }),
     url: `https://github.com/${contract.repository}/releases/download/${tag}/${tag}.tar.gz` });
 }

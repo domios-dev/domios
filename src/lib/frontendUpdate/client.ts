@@ -1,6 +1,6 @@
 import { FrontendUpdateError } from "./bootstrapModel";
 import type { CheckpointWrite } from "./checkpoint";
-import { swapEvent, type SwapEvent, type SwapState, type Ticket } from "./model";
+import { swapEvent, type Release, type SwapEvent, type SwapState, type Ticket } from "./model";
 
 export interface FrontendHttp {
   json<T>(method: string, path: string, body?: unknown): Promise<T>;
@@ -62,6 +62,7 @@ export function createSwapController(initial: SwapState, api: ReturnType<typeof 
 
 
 export interface BootContext {
+  release?: Release;
   apiOrigin: string;
   token: string;
   clientId: string;
