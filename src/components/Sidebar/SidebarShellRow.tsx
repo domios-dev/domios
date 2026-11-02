@@ -1,9 +1,10 @@
+import { isTabDragDisabled } from "./tabDragModel";
 import { memo, type ReactNode } from "react";
 import type { Tab } from "../../lib/types";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
 import { resolveTabTabActivity } from "../Canvas/tabTabActivity";
 import { surfaceOwnerTitle } from "../../lib/surfaceTab";
-import { isTabDragDisabled, sameIds, sameTabItemRow, SidebarSingleTabRow, type SidebarSingleTabRowProps, type SidebarTabItemRowProps } from "./SidebarPlanPeerPair";
+import { sameIds, sameTabItemRow, SidebarSingleTabRow, type SidebarSingleTabRowProps, type SidebarTabItemRowProps } from "./SidebarPlanPeerPair";
 import { SurfaceOwnerBlock } from "./SurfaceAttachments";
 import { attachmentInset, ownerRowInset, type OwnerRowContext } from "./surfaceAttachmentModel";
 import { SortableContext, SortableRow, TAB_PREFIX, verticalListSortingStrategy } from "./sortable";

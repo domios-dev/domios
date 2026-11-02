@@ -4,7 +4,7 @@ import { invoke } from "../../lib/bridge";
 import { KeyRound, LogIn, FlaskConical, Settings2, Clock, RefreshCw } from "lucide-react";
 import { BusySpinner } from "../shared/BusyState";
 import type { AppConfig, SecretsConfig } from "../../lib/types";
-import { useMuxState } from "../../store/multiplexer";
+import { useMuxState } from "../../store/multiplexer/hooks";
 import { setPendingCommand } from "../../lib/pendingCommands";
 import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
 import { SettingsCard, SettingsPill } from "./shared";

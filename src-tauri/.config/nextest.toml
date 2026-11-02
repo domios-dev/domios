@@ -1,4 +1,5 @@
 [profile.default]
+slow-timeout = { period = "1s" }
 fail-fast = false
 status-level = "pass"
 

@@ -2,7 +2,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import {memo, useCallback, useState} from "react";
 import {invoke} from "../../lib/bridge";
 import {capabilityBadge} from "../../lib/providerCapabilities";
-import {useMuxSelector} from "../../store/multiplexer";
+import {useMuxSelector} from "../../store/multiplexer/hooks";
 export const ProviderCapabilityBadge = memo(function ProviderCapabilityBadge({tabId}:{tabId:string}) {
   const label=useMuxSelector(useCallback(state=>capabilityBadge(state.tabs[tabId]?.provider_signals?.capabilities),[tabId]));
   const [busy,setBusy]=useState(false);

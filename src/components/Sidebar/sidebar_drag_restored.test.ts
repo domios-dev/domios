@@ -1,11 +1,11 @@
 import type { DragEndEvent } from "@dnd-kit/core";
-import { isTabDragDisabled } from "./SidebarPlanPeerPair";
+import { isTabDragDisabled } from "./tabDragModel";
 import {
   POINTER_DRAG_ACTIVATION_DISTANCE,
   commitSidebarDrag,
   type ReorderHandlers,
   type SortableGroupData,
-} from "./sortable";
+} from "./sidebarReorderModel";
 
 type TestFn = () => void;
 

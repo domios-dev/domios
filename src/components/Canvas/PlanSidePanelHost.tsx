@@ -6,7 +6,7 @@ import { tabPanelNavigationStore } from "../Terminal/tabPanel/tabPanelNavigation
 import { chatChangesStore } from "../Terminal/chatChangesStore";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { ApiConfig, Tab } from "../../lib/types";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import { planNavContextEqual, selectPlanNavContext } from "../../store/multiplexer/selectors";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { revealAssignedAgentTab } from "./planRevealAgentTab";

@@ -25,7 +25,7 @@ vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async 
   return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
 }) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
-vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
+vi.mock("../../store/multiplexer/hooks", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
 // The shared confirmation is Courier's and tested there; here it only has to say which mode it was opened in and confirm.
 vi.mock("./NeighborReceiveHere", () => ({
   NeighborReceiveHere: (props: { receiver: ReceiverState; friendName?: string; operation?: string; friendCount?: number; targetMachine?: string; onReceive: (revision: number) => Promise<void> }) =>

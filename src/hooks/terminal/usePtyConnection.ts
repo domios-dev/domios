@@ -2,7 +2,7 @@ import { useEffect, useCallback, useRef } from "react";
 import type { Terminal } from "@xterm/xterm";
 import { invoke } from "../../lib/bridge";
 import { subscribeTabOutput, type TabOutputSink } from "../../lib/outputStream";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { consumePendingCwd } from "../../lib/pendingCommands";
 import { uid } from "../../lib/uid";
 import { isPlanLockedRefusal } from "../../lib/spawnErrorMessage";

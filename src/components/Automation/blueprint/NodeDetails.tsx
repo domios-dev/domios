@@ -1,5 +1,5 @@
 import { Fragment, type CSSProperties, type RefObject } from "react";
-import { CodeBlock } from "@codeterm/chat-ui";
+import { CodeBlock } from "@codeterm/chat-ui/CodeBlock";
 import type { BlueprintExpandedCall } from "../../../lib/blueprintApi";
 import type { PresenceState } from "../../Canvas/usePresence";
 import { BlueprintProjectionValue } from "../BlueprintProjectionValue";

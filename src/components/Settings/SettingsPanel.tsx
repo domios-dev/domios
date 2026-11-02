@@ -4,7 +4,7 @@ import { nativeBridge } from "../../lib/nativeBridge";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { invoke } from "../../lib/bridge";
 import type { AppConfig } from "../../lib/types";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { HYDRATED_GENERATION } from "../../store/multiplexer/initialState";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import {

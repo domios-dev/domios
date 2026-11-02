@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { chatSetupView } from "./chatSetupModel";
 import { createStartupSendGate } from "./startupSendGate";
 

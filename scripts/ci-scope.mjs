@@ -17,6 +17,7 @@ const frontendFiles = new Set([
   "biome.json", "knip.json", "scripts/vitest-owned-tests.json",
   "scripts/run-ts-unit-tests.mjs",
   "scripts/ts-test-dependency-cache.mjs",
+  "scripts/ts-test-source-cache.mjs",
   "scripts/ts-unit-tests.sh", "scripts/ts-test-assets.mjs", "scripts/ts-test-asset-hook.mjs",
 ]);
 

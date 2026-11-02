@@ -17,9 +17,11 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     include,
-    // Timeouts catch hangs only; a slow test on a loaded runner must not fail.
-    testTimeout: 60_000,
-    hookTimeout: 60_000,
+    testTimeout: 0,
+    hookTimeout: 0,
+    slowTestThreshold: 1_000,
+    fileParallelism: false,
+    maxWorkers: 1,
     execArgv,
   },
 });

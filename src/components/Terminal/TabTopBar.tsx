@@ -1,6 +1,6 @@
 import { createNoticePublisher } from "../../lib/notices";
 import { describeError } from "../../lib/describeError";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer } from "../../store/multiplexer/hooks";
 import { tabActivity } from "../../lib/tabActivity";
 import { ComposerContextMeter } from "./ComposerContextMeter";
 import { DocumentsButton } from "./DocumentsPanel";

@@ -1,4 +1,4 @@
-import { RichMarkdown } from "@codeterm/chat-ui";
+import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { AgentIcon } from "../../AgentIcon";

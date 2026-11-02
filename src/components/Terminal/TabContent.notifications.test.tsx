@@ -22,7 +22,7 @@ vi.mock("./TabSessionChat", () => ({ TabSessionChat: () => <main aria-label="Cha
 vi.mock("./TabTopBar", () => ({ TabTopBar: () => <nav aria-label="Tab controls" /> }));
 vi.mock("./RestoredShell", () => ({ RestoredShell: () => null }));
 vi.mock("./SurfaceTabHost", () => ({ SurfaceTabHost: () => <main aria-label="Plugin surface" /> }));
-vi.mock("../../store/multiplexer", () => ({
+vi.mock("../../store/multiplexer/hooks", () => ({
   useMuxSelector: (select: (state: unknown) => unknown) => select(fixture.state),
   useMultiplexer: () => ({ markRead: vi.fn(), answerNotification: vi.fn() }),
 }));

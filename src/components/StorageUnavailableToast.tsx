@@ -1,6 +1,6 @@
 import { createNoticePublisher } from "../lib/notices";
 import { useEffect, useRef } from "react";
-import { useMultiplexer } from "../store/multiplexer";
+import { useMultiplexer } from "../store/multiplexer/hooks";
 
 const TOAST_ID = "storage-unavailable";
 

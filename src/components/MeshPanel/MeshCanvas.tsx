@@ -9,7 +9,7 @@ import { AccountMachineCard, AccountNotes, AccountStateCard, MachineReauthentica
 import { formatAge } from "../../lib/timeLabels";
 import { meshEdgeModel } from "./meshEdgeModel";
 import type { PeerStatus } from "./useMeshData";
-import { CanvasToolbar } from "@codeterm/chat-ui";
+import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import { useCanvasViewport, formatLayerTransform, AUTO_FIT_MAX_SCALE } from "@codeterm/canvas-camera";
 import { webLinkWithTokenAndRelay } from "../../lib/webAccess";
 import { RELAY_PROTOCOL_VERSION } from "../../lib/types";

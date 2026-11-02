@@ -35,6 +35,7 @@ export async function prepareHappyDomBundle(root, signal) {
     target: "node22",
     format: "esm",
     keepNames: true,
+    minify: true,
     write: false,
     plugins: [{
       name: "external-packages",

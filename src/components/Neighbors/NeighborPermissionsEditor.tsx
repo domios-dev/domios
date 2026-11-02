@@ -9,7 +9,7 @@ import { useFolderPicker } from "../../hooks/useFolderPicker";
 import { Segmented } from "../shared/Segmented";
 import { DropdownMenu } from "../shared/DropdownMenu";
 import { useMemoryAreas } from "./useMemoryAreas";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { applyTrustPreset, TRUST_OPTIONS, trustPresetOf, type TrustPreset } from "./neighborTrustPresets";
 import { UI_INPUT } from "../shared/design";
 import { validNeighborLimit, type Neighbor } from "./neighborModel";

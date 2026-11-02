@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { fixtureNode } from "../Automation/fixtures.testdata";
 import { blueprintTitle, type BlueprintScenarioJob } from "../Automation/scenarios";
 import type { AutomationIdentity } from "../Automation/types";
-import { sentinelRowText } from "./JobRow";
+import { sentinelRowText } from "./jobRowModel";
 
 const root: AutomationIdentity = { kind: "blueprint", id: "sentinel_7f3a9c", owner_tab_id: null, workspace_id: "ws", team_id: null };
 

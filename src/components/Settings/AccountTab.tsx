@@ -20,7 +20,7 @@ import { useAccountEnrollmentFailure } from "./useAccountEnrollmentFailure";
 import { failureMessage } from "../MeshPanel/accountMachines";
 import { SettingsCardAnchor } from "./SettingsCardAnchor";
 import type { SettingsCardAnchorId } from "./sections";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer } from "../../store/multiplexer/hooks";
 import { billingFailureToast } from "./accountFailureToast";
 import { SESSION_REVOKED_MESSAGE, accountInitials, type LoginHint } from "./accountModel";
 

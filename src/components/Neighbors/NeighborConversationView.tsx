@@ -15,7 +15,7 @@ import { ChatDeliveryState } from "../Terminal/ChatDeliveryState";
 import { UI_PANEL } from "../shared/design";
 import { ActivityDots } from "../shared/ActivityDots";
 import { AgentIcon } from "../AgentIcon";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabActivity } from "../../lib/tabActivity";
 import type { Tab } from "../../lib/types";
 import { askGeneralAgent, permissionInterviewTask } from "./neighborAgent";

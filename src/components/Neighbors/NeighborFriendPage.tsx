@@ -9,7 +9,7 @@ import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useBackDismissal } from "../../lib/backDismissal";
 import { trapDialogTab, useDialogFocus } from "../shared/dialogFocusTrap";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { ChangeConciergeDialog } from "./ChangeConciergeDialog";
 import { focusTab, workspaceOfTab } from "./neighborAgent";
 import type { HistoryPage, NeighborConciergeClient, NeighborNotify } from "./neighborConciergeClient";
