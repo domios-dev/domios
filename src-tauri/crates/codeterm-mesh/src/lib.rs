@@ -29,7 +29,7 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 pub use broadcast::{
-    broadcast_announce, broadcast_sync, refresh_local_addresses, refresh_local_addresses_blocking,
+    broadcast_announce, refresh_local_addresses, refresh_local_addresses_blocking,
     refresh_local_addresses_blocking_force, AnnounceReport,
 };
 pub use manager::MeshManager;

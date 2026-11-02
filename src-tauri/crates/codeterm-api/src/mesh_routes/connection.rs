@@ -12,6 +12,8 @@ pub(crate) fn refusal_status(refusal: &AdmissionRefusal) -> StatusCode {
         AdmissionRefusal::Offline | AdmissionRefusal::PeerUnreachable => {
             StatusCode::SERVICE_UNAVAILABLE
         }
+        AdmissionRefusal::AuthRefused => StatusCode::UNAUTHORIZED,
+        AdmissionRefusal::PeerNeedsUpdate => StatusCode::UPGRADE_REQUIRED,
         AdmissionRefusal::Cancelled => StatusCode::CONFLICT,
         AdmissionRefusal::HandshakeFailed { .. } => StatusCode::UNPROCESSABLE_ENTITY,
     }

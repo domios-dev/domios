@@ -69,11 +69,7 @@ where
 /// their own budget below.
 const CLIENT_DEFAULT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Liveness probe budget. A peer under load answers a trivial GET in seconds
-/// rather than milliseconds; declaring it dead at 5s painted a reachable machine
-/// offline while its own outbound traffic kept arriving (#319). Paired with the
-/// two-miss threshold in `health`, a peer has to stay unreachable for two full
-/// rounds before it flips.
+/// Deadline for reachability probes and authenticated health sync.
 const PING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 
 /// A relayed command carries real work on the peer — a build, a test run, a CLI
@@ -216,6 +212,13 @@ impl From<TransportError> for String {
     fn from(error: TransportError) -> String {
         error.to_string()
     }
+}
+
+#[derive(Debug)]
+pub enum SyncFailure {
+    Request,
+    Refused(u16),
+    InvalidReply,
 }
 
 /// HTTP client for communicating with a paired peer.
@@ -379,16 +382,15 @@ impl PeerClient {
     pub async fn send_sync(
         &self,
         payload: &super::types::MeshSyncPayload,
-    ) -> Result<super::types::MeshSyncPayload, String> {
+    ) -> Result<super::types::MeshSyncPayload, SyncFailure> {
         let resp = self
             .auth_post_within("/api/mesh/sync", payload, Some(PING_TIMEOUT))
-            .await?;
+            .await
+            .map_err(|_| SyncFailure::Request)?;
         if resp.status().is_success() {
-            resp.json()
-                .await
-                .map_err(|e| format!("Bad sync response: {}", e))
+            resp.json().await.map_err(|_| SyncFailure::InvalidReply)
         } else {
-            Err("Sync failed".to_string())
+            Err(SyncFailure::Refused(resp.status().as_u16()))
         }
     }
 

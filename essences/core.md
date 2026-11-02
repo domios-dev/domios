@@ -153,6 +153,8 @@ Neighbor accounts exchange signed, encrypted envelopes through a ciphertext-only
 
 One flat, trusted fabric of the owner's machines, and the relay that carries commands, agents, payloads and reports between them.
 
+Mesh cards and the overall indicator show connection progress from published handshake phases. Failed or refused authorization remains visible and backs off; a reachable public ping never proves an authenticated connection is ready.
+
 Account slots carry explicit signed-in presence separately from endpoint availability. A confirmed sign-out appears as Signed out on other machines with actions disabled; an offline sign-out leaves their last confirmed observation until the registry accepts a transition. Connected peers refresh their registry observation after a signed transition notice; the notice never supplies presence or opens traffic. The local sign-out traffic block is authoritative.
 
 The local web UI/API binds assigned Tailscale addresses while Tailscale is connected and both the API and Mesh are enabled, independently of account sign-in. Native address changes update these health-proven listeners; account sign-out and revocation close peer traffic while preserving web API access with the instance token. Signed-in machines publish their endpoint to the account. The Mesh UI card offers QR and token-bearing Open/Copy links only for a proven listener. These listeners never bind wildcard or LAN addresses.

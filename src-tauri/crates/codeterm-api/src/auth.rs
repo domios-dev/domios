@@ -6,6 +6,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 
+mod credential_kind;
 pub(crate) mod remote;
 mod tab;
 pub(crate) use tab::{actor_ref, caller_claim, tab_caller};
@@ -716,9 +717,12 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                 );
             }
             log::warn!(
-                "[auth-401] {} {} presented[{}] expected[{}]",
+                "[auth-401] {} {} remote={} credential_kind={} reason={} presented[{}] expected[{}]",
                 method,
                 path,
+                remote_address.map(|address| address.to_string()).unwrap_or_else(|| "unknown".into()),
+                credential_kind::presented_kind(presented),
+                credential_kind::refusal_reason(&state, presented),
                 if presented.is_empty() {
                     "MISSING".to_string()
                 } else {

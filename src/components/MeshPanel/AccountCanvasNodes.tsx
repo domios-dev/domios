@@ -83,7 +83,7 @@ export function AccountMachineCard({ node, busy, now, actions, hint }: { node: A
         <LockBadge view={lock} />
         <SettingsPill tone={PILL_TONE[node.tone]}>{node.status}</SettingsPill>
       </div>
-      <div className="text-[12px] text-[var(--ct-muted-fg)]">{node.detail}</div>
+      <div role="status" aria-busy={node.row.connecting || undefined} className="text-[12px] text-[var(--ct-muted-fg)]">{node.row.connecting ? <BusyState inline label={node.detail} phase="work" /> : node.detail}</div>
       {seen && <div className={UI_TEXT.metaMuted}>Last seen {seen}</div>}
       {hint}
       <SessionControls row={node.row} busy={busy} actions={actions} />
@@ -126,7 +126,7 @@ export function PeerAccountFooterView({ footer, name, lastSeen, busy, actions, h
 
         </div>
       </div>
-      <p role="status" className={UI_TEXT.metaMuted}>{footer.row.detail}</p>
+      <div role="status" aria-busy={footer.row.connecting || undefined} className={UI_TEXT.metaMuted}>{footer.row.connecting ? <BusyState inline label={footer.row.detail} phase="work" /> : footer.row.detail}</div>
       {hint}
       <SessionControls row={footer.row} busy={busy} actions={actions} />
     </div>

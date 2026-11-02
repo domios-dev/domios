@@ -13,7 +13,7 @@ pub async fn fetch_peer_services_view(
         .unwrap_or_default()
         .as_secs();
 
-    let (addresses, port, online, token, cache_fresh) = {
+    let (addresses, port, online, token, cache_fresh, link_nonce) = {
         let m = mesh.lock();
         let peer = m
             .paired_peers
@@ -28,16 +28,26 @@ pub async fn fetch_peer_services_view(
             peer.online,
             token,
             m.peer_services.is_fresh(instance_id, now),
+            m.link_record(instance_id)
+                .and_then(|record| record.link_nonce.clone()),
         )
     };
 
     let outcome = if cache_fresh || !online {
-        FetchOutcome::Skipped
+        (FetchOutcome::Skipped, None)
     } else {
         fetch_peer_services(&addresses, port, &token).await
     };
+    let (outcome, status) = outcome;
 
     let mut m = mesh.lock();
+    if !matches!(&outcome, FetchOutcome::Skipped) {
+        m.record_peer_http_status(instance_id, link_nonce.as_deref(), status.unwrap_or(0));
+    }
+    let online = m
+        .account_mesh_pairs()
+        .iter()
+        .any(|peer| peer.instance_id == instance_id && peer.online);
     if let FetchOutcome::Fetched(ref services) = outcome {
         m.peer_services.refresh(instance_id, services.clone(), now);
     }
@@ -56,7 +66,10 @@ async fn fetch_peer_services(
     addresses: &[codeterm_service_core::mesh::types::PeerAddress],
     port: u16,
     token: &str,
-) -> codeterm_service_core::mesh::peer_services::FetchOutcome {
+) -> (
+    codeterm_service_core::mesh::peer_services::FetchOutcome,
+    Option<u16>,
+) {
     use codeterm_service_core::mesh::peer_services::FetchOutcome;
     use codeterm_service_core::mesh::transport::TryNext;
 
@@ -67,7 +80,7 @@ async fn fetch_peer_services(
         .build()
     {
         Ok(c) => c,
-        Err(e) => return FetchOutcome::Failed(e.to_string()),
+        Err(e) => return (FetchOutcome::Failed(e.to_string()), None),
     };
 
     let result = codeterm_service_core::mesh::transport::try_peer(addresses, |addr| {
@@ -85,18 +98,17 @@ async fn fetch_peer_services(
                 Err(e) => return TryNext::Retry(format!("request: {}", e)),
             };
             if !resp.status().is_success() {
-                return TryNext::Stop(format!("HTTP {}", resp.status()));
+                return TryNext::Success(Err(resp.status().as_u16()));
             }
             match resp
                 .json::<codeterm_service_core::mesh_host::MeshInventoryView>()
                 .await
             {
-                Ok(view) => TryNext::Success(
-                    view.resources
-                        .into_iter()
-                        .filter_map(|resource| serde_json::to_value(resource).ok())
-                        .collect(),
-                ),
+                Ok(view) => TryNext::Success(Ok(view
+                    .resources
+                    .into_iter()
+                    .filter_map(|resource| serde_json::to_value(resource).ok())
+                    .collect())),
                 Err(e) => TryNext::Stop(format!("parse: {}", e)),
             }
         }
@@ -104,8 +116,9 @@ async fn fetch_peer_services(
     .await;
 
     match result {
-        Ok(services) => FetchOutcome::Fetched(services),
-        Err(e) => FetchOutcome::Failed(e),
+        Ok(Ok(services)) => (FetchOutcome::Fetched(services), Some(200)),
+        Ok(Err(status)) => (FetchOutcome::Failed(format!("HTTP {status}")), Some(status)),
+        Err(e) => (FetchOutcome::Failed(e), None),
     }
 }
 
