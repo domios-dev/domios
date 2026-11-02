@@ -104,6 +104,46 @@ impl MeshManager {
         self.peer_request_retry.contains_key(peer_id)
     }
 
+    pub fn has_healthy_connection(&self, installation_id: &str) -> bool {
+        self.paired_peers.values().any(|peer| {
+            peer.online
+                && !self
+                    .account
+                    .unavailable_installations
+                    .contains(installation_id)
+                && self.traffic_open(&peer.instance_id)
+                && self
+                    .links
+                    .get(&peer.instance_id)
+                    .is_some_and(|record| record.installation_id() == Some(installation_id))
+        })
+    }
+
+    pub fn record_peer_inventory_status(
+        &mut self,
+        peer_id: &str,
+        link_nonce: Option<&str>,
+        status: u16,
+    ) {
+        let phase = match status {
+            401 => ConnectionPhase::AuthRefused,
+            426 => ConnectionPhase::PeerNeedsUpdate,
+            _ => return,
+        };
+        let Some(record) = self.links.get(peer_id) else {
+            return;
+        };
+        if record.link_nonce.as_deref() != link_nonce || !self.traffic_open(peer_id) {
+            return;
+        }
+        let Some(installation) = record.installation_id().map(str::to_owned) else {
+            return;
+        };
+        self.peer_request_retry
+            .insert(peer_id.to_owned(), self.now().saturating_add(60));
+        self.connection_phases.insert(installation, phase);
+    }
+
     pub fn record_peer_http_status(
         &mut self,
         peer_id: &str,
