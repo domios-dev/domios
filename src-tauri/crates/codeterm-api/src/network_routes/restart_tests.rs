@@ -94,13 +94,22 @@ async fn restart_admission_api_capability_matrix() {
         .await
         .expect("restart response must not wait for restart execution")
         .unwrap();
-        assert_eq!(response.headers()["content-type"], "application/json");
-        let expected = if capability == Some(true) {
-            StatusCode::OK
-        } else {
-            StatusCode::CONFLICT
+        let expected = match capability {
+            None => StatusCode::SERVICE_UNAVAILABLE,
+            Some(false) => StatusCode::CONFLICT,
+            Some(true) => StatusCode::OK,
         };
         assert_eq!(response.status(), expected, "{capability:?}");
+        if capability.is_none() {
+            assert_eq!(
+                to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
+                b"native_capability_unavailable"
+            );
+            assert_eq!(host.admissions.load(Ordering::SeqCst), 0);
+            assert_eq!(host.restarts.load(Ordering::SeqCst), 0);
+            continue;
+        }
+        assert_eq!(response.headers()["content-type"], "application/json");
         let body: serde_json::Value =
             serde_json::from_slice(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap();
         assert_eq!(

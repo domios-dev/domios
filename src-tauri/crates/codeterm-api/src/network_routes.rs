@@ -204,17 +204,20 @@ pub async fn restart_app(
     use axum::response::IntoResponse;
 
     let app = match codeterm_commands::application_host::require(&state.svc) {
-        Ok(app) if app.admit_restart().is_ok() => app,
-        _ => {
-            return (
+        Ok(app) => app,
+        Err(error) => {
+            return (StatusCode::SERVICE_UNAVAILABLE, error.to_string()).into_response();
+        }
+    };
+    if app.admit_restart().is_err() {
+        return (
                 StatusCode::CONFLICT,
                 Json(serde_json::json!({
                     "code": "native_capability_unavailable",
                     "message": "Restart requires a native application host with restart capability. This server has no restart-capable host registered; a running desktop client alone does not provide this capability. Restart this instance using its local launcher. For development, stop and start the exact named DEV instance."
                 })),
             ).into_response();
-        }
-    };
+    }
     tokio::task::spawn_blocking(move || {
         if let Err(error) = app.restart() {
             log::error!("[restart] {error}");
