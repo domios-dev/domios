@@ -1,6 +1,7 @@
+import { ExpandableReader } from "./ExpandableReader";
 import { MarkdownPlanLinksContext, MarkdownPlanRef, rehypePlanRefs, type MarkdownPlanLinks } from "./MarkdownPlanRefs";
 import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
-import { boundedMessageLayout, expandedMessageHeight } from "./boundedMessageModel";
+import { boundedMessageLayout } from "./boundedMessageModel";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React, { useMemo, useContext, useRef, useState, useId } from "react";
 import type { SlashCommand, EditPair, DsFenceSpan } from "@codeterm/chat-core";
@@ -43,7 +44,6 @@ export const TEXT_WRAP_CLASS = "break-words [overflow-wrap:anywhere]";
 export const DIFF_HIGHLIGHT_MAX_LINES = 400;
 export const LONG_ARTIFACT_PREVIEW_LINES = 36;
 export const LONG_ARTIFACT_PREVIEW_MAX_HEIGHT = 320;
-export const LONG_ARTIFACT_FULL_MAX_HEIGHT = expandedMessageHeight(LONG_ARTIFACT_PREVIEW_MAX_HEIGHT);
 
 function extractCodeText(children: unknown): string {
   if (Array.isArray(children)) {
@@ -289,13 +289,13 @@ function MarkdownProse({
           <li className="my-1 pl-0.5" {...props}>{children}</li>
         ),
         table: ({ node: _node, ...props }) => (
-          <div className="overflow-x-auto my-2">
+          <ExpandableReader label="Table">{() => <div className="overflow-x-auto my-2">
             <table
               className="text-xs border-collapse"
               style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg) 30%, transparent)" }}
               {...props}
             />
-          </div>
+          </div>}</ExpandableReader>
         ),
         thead: ({ node: _node, ...props }) => (
           <thead style={{ background: "color-mix(in srgb, var(--ct-fg, #c9d1d9) 8%, transparent)" }} {...props} />
@@ -591,6 +591,7 @@ export function LongArtifact({
   React.useEffect(() => setShowAll(false), [expanded, text]);
   const visibleText = hasFullView && !showAll ? longArtifactContentPreview(text) : text;
   return (
+    <ExpandableReader label={label}>{(fullscreen) => (
     <div className="mb-2 w-full max-w-4xl min-w-0 mx-auto">
       <div
         className="max-w-full min-w-0 rounded-md border"
@@ -617,7 +618,7 @@ export function LongArtifact({
           <span className="shrink-0 font-mono text-[10px] opacity-50">{lines} lines</span>
           <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
         </button>
-        {expanded && (
+        {(expanded || fullscreen) && (
           <div className="border-t" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 16%, transparent)" }}>
             <div
               data-testid="long-artifact-content"
@@ -627,19 +628,19 @@ export function LongArtifact({
               className="px-3 py-2 text-xs"
               style={{
                 color: "var(--ct-fg)",
-                ...boundedMessageLayout(`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`, showAll),
+                ...boundedMessageLayout(`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`, showAll || fullscreen),
                 overflowX: "auto",
               }}
             >
               {markdown ? (
                 <div className="text-sm leading-relaxed">
-                  <RichMarkdown text={visibleText} />
+                  <RichMarkdown text={fullscreen ? text : visibleText} />
                 </div>
               ) : (
-                <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{visibleText}</pre>
+                <pre className={`${PRE_WRAP_CLASS} m-0 font-mono`}>{fullscreen ? text : visibleText}</pre>
               )}
             </div>
-            {hasFullView && (
+            {hasFullView && !fullscreen && (
               <div className="flex justify-center border-t px-3 py-1.5" style={{ borderColor: "color-mix(in srgb, var(--ct-muted-fg, #8b949e) 12%, transparent)" }}>
                 <button
                   type="button"
@@ -656,6 +657,7 @@ export function LongArtifact({
         )}
       </div>
     </div>
+    )}</ExpandableReader>
   );
 }
 

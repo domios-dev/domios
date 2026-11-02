@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
 import { ArrowUpRight, Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
@@ -96,6 +97,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   }] : baseMenu;
 
   return (
+    <ExpandableReader label={labelText} enabled={canExpand}>{(fullscreen) => (
     <div
       data-testid={testId}
       data-tool-status={event.status}
@@ -146,11 +148,11 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         id={detailsId}
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
-        hidden={!open}
+        hidden={!open && !fullscreen}
         className={communication || inlineCommand ? "px-3 pb-3 pt-0.5" : "pb-2 pl-12 pr-3 pt-0.5"}
         style={{ boxSizing: "border-box" }}
       >
-        {open ? (
+        {open || fullscreen ? (
           <>
             {children}
             {technicalOpen && showTechnicalDetails && <><div className="mt-2 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Command</div><BoundedMessageContent collapsedHeight="12rem" as="pre"
@@ -160,6 +162,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         ) : null}
       </BoundedMessageContent>
     </div>
+    )}</ExpandableReader>
   );
 }
 
