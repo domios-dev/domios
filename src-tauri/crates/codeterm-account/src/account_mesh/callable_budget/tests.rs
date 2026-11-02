@@ -1,5 +1,7 @@
 use super::*;
 
+mod outages;
+
 #[test]
 fn account_wide_budget_uses_the_longer_deadline_and_serializes_the_probe() {
     let neighbors = account("budget-fixture");
