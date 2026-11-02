@@ -11,9 +11,13 @@ pub fn ensure_integrations_for_all(
     registry: &crate::agent::registry::AgentRegistry,
     config: &crate::config::ConfigState,
     service: ServiceState,
-) -> Vec<std::sync::Arc<codeterm_notifications::provider_hooks::IntegrationCompletion>> {
+) -> Vec<(
+    String,
+    std::sync::Arc<codeterm_notifications::provider_hooks::IntegrationCompletion>,
+)> {
     let mut completions = Vec::new();
     for provider in registry.all_provider_arcs() {
+        let id = provider.id().to_string();
         if let Some(completion) = spawn_reconciliation(
             provider,
             config.lock().agents.clone(),
@@ -25,7 +29,7 @@ pub fn ensure_integrations_for_all(
                 }
             })),
         ) {
-            completions.push(completion);
+            completions.push((id, completion));
         }
     }
     completions

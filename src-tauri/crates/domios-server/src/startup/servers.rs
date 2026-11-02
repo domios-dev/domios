@@ -179,7 +179,7 @@ fn restored_backend_tab_ids(service_state: &ServiceState) -> Vec<String> {
 
 /// Start socket server, REST API server, and cron scheduler.
 pub(crate) fn start_servers(
-    _provider_writes: super::provider_writes::ProviderWritesComplete,
+    _provider_writes: super::provider_writes::ProviderWritesSettled,
     states: &AppStates,
     service_state: &ServiceState,
     frontend_dev_url: Option<url::Url>,

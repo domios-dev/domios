@@ -175,9 +175,10 @@ fn concurrent_startup_reconciliation_waits_for_the_existing_writer_completion() 
         super::spawn_reconciliation(provider.clone(), Default::default(), None, None).unwrap();
     assert!(Arc::ptr_eq(&completion, &joined));
     assert!(!*joined.finished.lock());
+    assert!(!joined.wait_until(std::time::Instant::now()));
     let (ready, received) = std::sync::mpsc::channel();
     let waiter = std::thread::spawn(move || {
-        joined.wait();
+        assert!(joined.wait_until(std::time::Instant::now() + Duration::from_secs(5)));
         ready.send(()).unwrap();
     });
     assert!(received.try_recv().is_err());
@@ -185,6 +186,7 @@ fn concurrent_startup_reconciliation_waits_for_the_existing_writer_completion() 
     received.recv_timeout(Duration::from_secs(5)).unwrap();
     waiter.join().unwrap();
     assert!(*completion.finished.lock());
+    assert!(completion.wait_until(std::time::Instant::now()));
     assert!(!super::reconciling().lock().contains_key(id));
     assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
 }

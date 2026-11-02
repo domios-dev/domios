@@ -173,11 +173,15 @@ pub struct IntegrationCompletion {
 }
 
 impl IntegrationCompletion {
-    pub fn wait(&self) {
+    pub fn wait_until(&self, deadline: std::time::Instant) -> bool {
         let mut finished = self.finished.lock();
         while !*finished {
-            self.changed.wait(&mut finished);
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            self.changed.wait_for(&mut finished, remaining);
         }
+        true
     }
 
     fn finish(&self) {

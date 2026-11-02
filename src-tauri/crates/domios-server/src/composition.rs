@@ -554,26 +554,30 @@ pub(crate) fn compose_observed(
         &states.config,
         service_state.clone(),
     );
+    let writer_service = service_state.clone();
+    let writer_config = states.config.clone();
     let provider_writes = startup::provider_writes::complete(
         cli_install,
-        integrations
-            .into_iter()
-            .map(|completion| move || completion.wait()),
-        || {
+        integrations.into_iter().map(|(id, completion)| {
+            (format!("provider integration {id}"), move |deadline| {
+                completion.wait_until(deadline)
+            })
+        }),
+        move || {
             service::sync_watcher::start(
                 codeterm_service_core::paths::data_dir(),
-                service_state.agent_registry.clone(),
+                writer_service.agent_registry.clone(),
             );
-            let general = states.config.lock().general_agent.clone();
+            let general = writer_config.lock().general_agent.clone();
             if general.enabled && general.first_run_complete {
                 service::general_agent::generate_instructions(
                     general.capability_hints,
                     &general.agent_provider,
-                    Some(&service_state.mem),
+                    Some(&writer_service.mem),
                 );
             }
         },
-    )?;
+    );
     codeterm_service_core::service::agent_runtime::restore_all(&service_state);
     drop(startup::restore_complete(&service_state));
     let bundles = startup::start_servers(
