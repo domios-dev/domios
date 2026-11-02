@@ -43,7 +43,7 @@ async fn owner_same_session_rebind_acknowledges_current_launch_and_recovers_dead
     assert!(!commit.claim.changed);
     assert!(commit.claim.nonce_verified);
     assert_eq!(commit.binding_nonce.as_deref(), Some("current-nonce"));
-    finish_session_binding(
+    let _ = finish_session_binding(
         &fixture.service,
         &tab_id,
         &commit.provider_id,
