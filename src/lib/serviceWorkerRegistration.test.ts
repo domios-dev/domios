@@ -56,7 +56,7 @@ async function withFreshModule(controllerAtRegisterTime: unknown) {
   win.window = win;
   delete win.__TAURI_INTERNALS__;
 
-  const mod = await import(`./serviceWorkerRegistration.ts?t=${Date.now()}-${Math.random()}`);
+  const mod = await import(new URL(`./serviceWorkerRegistration.ts?t=${Date.now()}-${Math.random()}`, import.meta.url).href);
   mod.__resetServiceWorkerForTest();
   return { mod, container, reloadCalls, replacements };
 }

@@ -3,8 +3,10 @@ export { commitSidebarDrag, rawId, sortByOrder, WS_PREFIX, TAB_PREFIX, TEAM_PREF
 import { useMemo, useRef, type ComponentProps, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
 import {
   type CollisionDetection,
+  type DragEndEvent,
   DndContext,
   type Modifier,
+  type UniqueIdentifier,
   closestCenter,
   useDndContext,
   useSensor,
