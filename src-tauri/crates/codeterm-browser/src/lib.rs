@@ -1,6 +1,7 @@
 mod capture;
 pub mod cdp;
 pub mod cdp_wire;
+pub mod completion;
 pub mod launch;
 pub mod locator;
 pub mod process;

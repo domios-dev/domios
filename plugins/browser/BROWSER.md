@@ -90,6 +90,10 @@ Treat it as a precise pointer: find the code behind the element, answer or chang
 
 ## Scoped atomic actions
 
+Direct and scoped clicks report either synchronous action acknowledgement, same-document navigation, or a main-frame navigation loaded (or restored from the back/forward cache). Action acknowledgement confirms the input/CDP action reply, including synchronous handlers; it does not settle later asynchronous effects. Use an explicit state wait for those effects. Once navigation is observed during the action, completion requires that main frame's matching loader, never network silence. Goto and history commands require their own navigation evidence; an absent history entry reports that no navigation was performed.
+
+`action_unconfirmed` means the action may have occurred but its completion could not be established before the deadline, page closure, observation loss, or a browser authority change. Inspect the current page before continuing and never automatically replay the action.
+
 `click --within 'dialog:Settings' --role button --name Save` and `fill --within 'form:Composer' --role textbox --name Message --text 'hello'` resolve exact role/name matches from a fresh accessibility snapshot at action time. Missing, ambiguous, stale, hidden and disabled targets refuse with a reason code. The page performs the action in one JavaScript turn only if its document and mutation/input epoch still match the capture. An `action_unconfirmed` result means the action may have happened: inspect the page, never replay it.
 
 ## Bounded structured snapshots
