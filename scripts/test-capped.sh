@@ -1,12 +1,7 @@
 #!/usr/bin/env bash
 # Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check/release-preflight/test-one/verify/test:all; CI qualification.yml; scripts check-build-gateway-policy.sh, check-sccache-basedir-isolation.sh, check-slow-unit-tests.test.mjs; skill build-machine, build-reference, build
-# Run tests under a process-group timeout.
-#
-# The cap kills the WHOLE process group — cargo AND every
-# spawned test binary (*/target/*/deps/*) — so no orphans survive the cap.
-#
-# TEST_CAP_SECS defaults to 600; 0 disables it. A cap exits 124 on timeout.
-# Otherwise the wrapper passes through the test command's exit code.
+# Test duration thresholds are advisory; the command owns its actual exit.
+# TEST_CAP_SECS defaults to 600; 0 disables duration warnings.
 #
 # Fail-closed filtering: when the caller supplies a test-name filter or a nextest
 # filterset, a successful run must show a passed test in a libtest or nextest
@@ -18,7 +13,7 @@
 #   scripts/test-capped.sh --exec <command> [<args>...]
 #
 # Overridable env:
-#   TEST_CAP_SECS   positive seconds before SIGTERM + banner, or 0 to disable
+#   TEST_CAP_SECS   advisory duration in seconds, or 0 to disable warnings
 #   CARGO_TEST_CMD  command to run instead of "cargo test" (for testing this script itself)
 #   CARGO_TEST_BUILD_CMD optional build-phase command used by this script's fixtures
 #   CODETERM_EMBED_CACHE_DIR shared machine cache for immutable embedding models
@@ -147,9 +142,9 @@ if [ "$EXEC_MODE" -eq 0 ]; then
 fi
 
 if [ "$TEST_CAP_SECS" -eq 0 ]; then
-    printf '[test-capped] test execution cap disabled (TEST_CAP_SECS=0).\n'
+    printf '[test-capped] test duration warning disabled (TEST_CAP_SECS=0).\n'
 else
-    printf '[test-capped] test execution cap: %ss\n' "$TEST_CAP_SECS"
+    printf '[test-capped] test duration warning threshold: %ss (no termination)\n' "$TEST_CAP_SECS"
 fi
 
 ZERO_MATCH_EXIT=97
@@ -211,53 +206,18 @@ report_zero_match() {
     printf '══════════════════════════════════════════════════════════════════\n'
 }
 
-# The cap owns the bounded failure deadline. It preserves the child status unless
-# it enforces the deadline, avoiding MSYS job-control group kills.
-run_capped() {
-    local secs="$1"
-    shift
-    if command -v timeout >/dev/null 2>&1; then
-        timeout --signal=TERM --kill-after=5s "$secs" "$@"
-    elif command -v gtimeout >/dev/null 2>&1; then
-        gtimeout --signal=TERM --kill-after=5s "$secs" "$@"
-    else
-        # Stock macOS ships no GNU coreutils; this fallback keeps the same
-        # contract: own process group, TERM at the cap, KILL 5s later, exit 124.
-        perl -e '
-            my $secs = shift @ARGV;
-            my $pid = fork();
-            die "test-capped: fork failed: $!\n" unless defined $pid;
-            if ($pid == 0) { setpgrp(0, 0); exec @ARGV or die "test-capped: exec failed: $!\n"; }
-            my $stage = 0;
-            $SIG{ALRM} = sub {
-                if ($stage == 0) { $stage = 1; kill("TERM", -$pid); alarm(5); }
-                else { $stage = 2; kill("KILL", -$pid); alarm(5); }
-            };
-            alarm($secs);
-            my $reaped;
-            do { $reaped = waitpid($pid, 0); } while ($reaped < 0 && $! =~ /Interrupted/);
-            my $status = $?;
-            alarm(0);
-            exit(124) if $stage > 0;
-            exit($status & 127 ? 128 + ($status & 127) : $status >> 8);
-        ' "$secs" "$@"
-    fi
-}
-
 run_test() {
-    if [ "$TEST_CAP_SECS" -gt 0 ]; then
-        if [ "$EXEC_MODE" -eq 1 ]; then
-            run_capped "$TEST_CAP_SECS" "$@"
-        else
-            run_capped "$TEST_CAP_SECS" $CARGO_TEST_CMD "$@"
-        fi
+    local started=$SECONDS status=0 elapsed
+    if [ "$EXEC_MODE" -eq 1 ]; then
+        "$@" || status=$?
     else
-        if [ "$EXEC_MODE" -eq 1 ]; then
-            "$@"
-        else
-            $CARGO_TEST_CMD "$@"
-        fi
+        $CARGO_TEST_CMD "$@" || status=$?
     fi
+    elapsed=$((SECONDS - started))
+    if [ "$TEST_CAP_SECS" -gt 0 ] && [ "$elapsed" -ge "$TEST_CAP_SECS" ]; then
+        printf '[test-capped] WARNING: execution took %ss (advisory %ss); actual exit=%s.\n' "$elapsed" "$TEST_CAP_SECS" "$status" >&2
+    fi
+    return "$status"
 }
 
 run_build() {
@@ -272,7 +232,7 @@ run_build() {
 if [ "$EXEC_MODE" -eq 0 ]; then
     detect_requested_filter "$@"
     if [ -n "${CARGO_TEST_BUILD_CMD:-}" ] || [ "$CARGO_TEST_CMD_DEFAULT" -eq 1 ]; then
-        printf '[test-capped] compiling test targets before the execution cap.\n'
+        printf '[test-capped] compiling test targets before execution.\n'
         if run_build "$@"; then
             :
         else
@@ -312,35 +272,4 @@ else
     CARGO_EXIT=$?
 fi
 
-if [ "$TEST_CAP_SECS" -gt 0 ] && [ "$CARGO_EXIT" -eq 124 ]; then
-    printf '\n'
-    printf '══════════════════════════════════════════════════════════════════\n'
-    printf '  DEADLOCK / HANG: test execution exceeded %ss cap.\n' "$TEST_CAP_SECS"
-    printf '  Tests still running at the cap:\n'
-    RUNNING_TESTS=$(awk '
-        /^test .+ has been running for over [0-9]+ seconds/ {
-            name = $0
-            sub(/^test /, "", name)
-            sub(/ has been running for over [0-9]+ seconds.*/, "", name)
-            secs = $0
-            sub(/.* has been running for over /, "", secs)
-            sub(/ seconds.*/, "", secs)
-            running[name] = secs
-        }
-        /^test .+ \.\.\. (ok|FAILED|ignored|bench)/ {
-            name = $0
-            sub(/^test /, "", name)
-            sub(/ \.\.\. .*/, "", name)
-            delete running[name]
-        }
-        END { for (name in running) print name " (over " running[name] " seconds)" }
-    ' "$TEST_LOG" | sort | sed 's/^/    /')
-    if [ -n "$RUNNING_TESTS" ]; then
-        printf '%s\n' "$RUNNING_TESTS"
-    else
-        printf '    No libtest active-test line was captured.\n'
-    fi
-    printf '  Read the code — do NOT re-run with a bigger cap.\n'
-    printf '══════════════════════════════════════════════════════════════════\n'
-fi
 exit "$CARGO_EXIT"

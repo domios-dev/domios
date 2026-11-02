@@ -64,33 +64,19 @@ gh api --method DELETE repos/domios-dev/domios/actions/runners/REVIEWED_RUNNER_I
 gh api repos/domios-dev/domios/actions/runners --jq '.total_count' # must be 0
 ```
 
-The current organization is `domios-dev`. Apply runner group changes only after owner approval, with reviewed group/runner IDs. No wildcards or PR refs are admitted. Enumerate every reviewed release branch explicitly; add a branch before its first release push. Include the reusable workflows themselves, since their jobs own the runner requests.
+The authoritative release runner readback procedure is read-only:
 
 ```bash
-org=domios-dev
-repo="$org/domios"
-group_id=REVIEWED_GROUP_ID
-repo_id=$(gh api "repos/$repo" --jq .id)
-gh api "orgs/$org/actions/runner-groups" --paginate
-node --input-type=module - "$repo" release/REVIEWED_VERSION > runner-group.json <<'NODE'
-import fs from 'node:fs';
-const [repo, branch] = process.argv.slice(2);
-if (!/^release\/[^/]+$/.test(branch)) throw new Error('one exact release branch required');
-const workflows = fs.readdirSync('.github/workflows').filter(name => name.endsWith('.yml') &&
-  fs.readFileSync(`.github/workflows/${name}`, 'utf8').includes('self-hosted'));
-console.log(JSON.stringify({name:'trusted-builds', visibility:'selected', allows_public_repositories:true,
-  restricted_to_workflows:true, selected_workflows:workflows.flatMap(name =>
-    ['master','develop','rename/domios',branch].map(ref => `${repo}/.github/workflows/${name}@refs/heads/${ref}`))}));
-NODE
-gh api --method PATCH "orgs/$org/actions/runner-groups/$group_id" --input runner-group.json
-gh api --method PUT "orgs/$org/actions/runner-groups/$group_id/repositories" -F "selected_repository_ids[]=$repo_id"
-gh api --method PUT "orgs/$org/actions/runner-groups/$group_id/runners/REVIEWED_ORG_RUNNER_ID"
-gh api "orgs/$org/actions/runner-groups/$group_id"
-gh api "orgs/$org/actions/runner-groups/$group_id/repositories"
-gh api "orgs/$org/actions/runner-groups/$group_id/runners"
+gh api orgs/domios-dev/actions/runner-groups --paginate --jq '.runner_groups[] | {id,name,visibility,allows_public_repositories,restricted_to_workflows,selected_workflows}'
+gh api orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID
+gh api orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID/repositories
+gh api orgs/domios-dev/actions/runner-groups/REVIEWED_GROUP_ID/runners
+gh api repos/domios-dev/domios/actions/runners --paginate
 ```
 
-Verify all fleet runners belong exclusively to the restricted group; remove repository-level registrations and broader group grants. The API output must show `restricted_to_workflows: true`, exactly the trusted refs, and only the intended repository. Until that is proven, public self-hosted Actions stays disabled.
+Select `domios-trusted` by its returned ID. Its current policy is selected-repository access for `domios-dev/domios`, `allows_public_repositories=true`, `restricted_to_workflows=false` and `selected_workflows=[]`. Release preparation adds no workflow refs. Compare the returned policy and the reviewed workflow definitions before requesting runners; if the policy differs, stop and reconcile the procedure with the owner. Never change group policy, runner registrations or secrets as a release-preparation side effect.
+
+This current unrestricted workflow policy does not meet the isolation prerequisite above. Public self-hosted isolation requires a separately owner-approved hardening change: remove unrestricted repository runners and use `restricted_to_workflows=true` with every approved acquiring workflow at explicit reviewed branch refs, including reusable workflows. Wildcards and PR refs do not establish that isolation. Read back all selected workflow refs, repository grants and fleet membership after that owner operation before claiming enforcement. Outside-contributor approval alone is not workflow isolation.
 
 Some GitHub plans support environment reviewers only on public repositories. If policy application refuses while private, keep Actions disabled across the separately owner-approved visibility change, then apply and verify the protections. After the owner has reviewed runner isolation, secret scope and all effective settings, the final enable command is:
 

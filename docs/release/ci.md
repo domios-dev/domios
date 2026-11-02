@@ -73,7 +73,9 @@ green jobs, exact SHA, producing run and attempt. All retained artifacts are
 verified before publication; the master merge commit is never a build source.
 The existing release environment and publication switch still protect shipping.
 CI runs from the owner's release/X.Y.Z PR, so the trusted runner group serves this
-repository's workflows without a ref list. A fork PR's run waits for owner approval,
+repository's workflows without a ref list (`restricted_to_workflows=false`,
+`selected_workflows=[]`). Use the [read-only runner policy procedure](public-repo.md#runner-isolation-is-a-publicization-prerequisite)
+before requesting runners; release preparation changes no live policy. A fork PR's run waits for owner approval,
 fork PRs receive no secrets, and only the owner merges into master. Hosted unsigned
 compile jobs receive only their existing public build configuration; signing
 credentials remain in protected signing jobs. Branch synchronization after

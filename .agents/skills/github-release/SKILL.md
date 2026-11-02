@@ -27,7 +27,7 @@ each failed run. An untested proposal must not become an established recipe.
 - Use the authorized self-hosted fleet. Honor physical-machine exclusions for every job,
   including preparation/tests and that machine's WSL/VM runners. Verify eligible labels and
   actual job runner names through the runners/jobs REST APIs. Do not change labels, repository
-  variables or shared routing to evade an exclusion. BLACKSTAR carries no CI runners.
+  variables or shared routing to evade an exclusion. An online registration never overrides a physical-machine exclusion.
 - Read [gates](../gates/SKILL.md) before qualification, [build](../build/SKILL.md) for build and
   install verbs, [build-machine](../build-machine/SKILL.md) for runner/image recovery, and
   [release-signing](../release-signing/SKILL.md) before credential changes. A busy build gateway
@@ -111,10 +111,10 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    evidence; do not rerun identical suites in the release graph.
 4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
    preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
-   Before the first push of a new `release/X.Y.Z`, add that exact ref to the organization runner
-   group `domios-trusted` (`restricted_to_workflows`): every workflow that acquires a self-hosted
-   runner needs `<workflow path>@refs/heads/release/X.Y.Z`. The `release/*` wildcard entry alone
-   leaves jobs queued forever. Read the group's `selected_workflows` back before pushing.
+   Read back `domios-trusted` through the [runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
+   Its current policy has `restricted_to_workflows=false` and `selected_workflows=[]`;
+   release preparation does not edit the group or add workflow refs. If readback differs,
+   stop and reconcile the owner-approved procedure before requesting a runner.
    Push `release/X.Y.Z` and open its PR to master for CI and dry-run packaging. Do not manually create
    `vX.Y.Z`; release.yml owns tag creation and promotion.
 5. The final manifest job requires all builds and test gates, publishes and verifies served
@@ -390,7 +390,7 @@ lost ubunta never strands a draft. If ubunta is down during promotion, set
 Arm64 compiles run on GitHub-hosted arm64 runners without signing or cache credentials; the
 self-hosted rows above sign their handoff. All self-hosted runners except `ubunta-linux-build`
 (still repository-level) belong to the organization group `domios-trusted`, visible only to
-this repository and restricted to its listed workflow refs (see train step 4).
+this repository, without workflow-ref restrictions (see train step 4).
 
 A persistent self-hosted runner accumulates job PATH entries in its `.path` file. On Windows an
 oversized `.path` truncates PATH and Bash loses tools such as pnpm; keep it to the base toolchain
@@ -502,7 +502,7 @@ succeeded in one job before any failure/cancellation. Missing/unverifiable bound
 never inferred from asset presence or release ownership.
 Set repository variable `RELEASE_CLOSE_PUBLIC_ISSUES=false` when the owner closes public issues
 manually; this skips only automatic closure, preserving publication verification and boundary evidence.
-Included-history resolution prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
+Included-history resolution first atomically fetches the exact source history and remote product tags without force. Fetch failures, conflicting tags and absence of a verified published boundary refuse resolution. It retains the fully qualified tag ref in evidence and prefers a reachable `vX.Y.Z` tag over a historical `release-X.Y.Z`
 alias of the same version, resolves fully qualified tag refs, and still requires verified publication boundaries.
 Associated PRs come from closed PRs sorted by update time, filtered by included merge SHA.
 The scan ends at history exhaustion or two days before the boundary commit date; hitting its page bound first refuses.
@@ -522,4 +522,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->
