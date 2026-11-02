@@ -18,7 +18,7 @@ fn fresh_read_only_manager_keeps_assignment_while_applying_reporting_authority()
     tab.agent_type = Some("opaque-runtime".into());
     tab.session_binding_nonce = Some("opaque-nonce".into());
     tab.agent_runtime_config = Some(serde_json::json!({"systemPrompt":prompt}));
-    tab.restorable_launch.execution_sandbox = Some(crate::plan::ExecutionSandboxPolicy {
+    tab.restorable_launch.execution_sandbox = Some(codeterm_types::plan::ExecutionSandboxPolicy {
         intent: crate::plan::ExecutionIntent::ReadOnly,
         cwd: String::new(),
         launch_args: vec![],

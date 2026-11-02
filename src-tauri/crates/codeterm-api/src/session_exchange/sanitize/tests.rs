@@ -22,11 +22,11 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
             "taken_by_role":"Worker", "model":"private model",
             "execution_attempts":[{"id":"attempt-bound", "executor_tab_id":"worker-tab",
                 "role":"Worker", "placement":"shared", "remote_dispatch_state":"acknowledged",
-                "continuation":{"state":"continued"},
-                "interruption":{"reason":"private interruption"},
+                "continuation":{"epoch":1, "state":"continued"},
+                "interruption":{"owner_epoch":1, "reason":"private interruption"},
                 "report":{"id":"report-bound", "status":"in_review", "message":"private report"}},
                 {"id":"attempt-private", "executor_tab_id":"worker-tab", "role":"private role",
-                    "continuation":{"state":"private state"},
+                    "continuation":{"epoch":1, "state":"private state"},
                     "report":{"id":"report-private", "status":"private status"}}]
         })).collect();
         let plan: Plan = serde_json::from_value(json!({
