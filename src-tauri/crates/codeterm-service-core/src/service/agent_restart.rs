@@ -936,7 +936,7 @@ impl ServiceContext {
         log::info!(
             "[delivery-timeline] event=restart-return result={} tab={} old_pty={} \
              new_pty={} current_pty={} boot_stage={:?} agent_booting={} session={} \
-             current_nonce={} reported_nonce={}",
+             current_nonce_present={} reported_nonce_present={} binding_matches={}",
             result,
             outcome.tab_id,
             outcome.old_pty_id.as_deref().unwrap_or("-"),
@@ -945,8 +945,9 @@ impl ServiceContext {
             boot_stage,
             agent_booting,
             session_id.as_deref().unwrap_or("-"),
-            current_nonce.as_deref().unwrap_or("-"),
-            reported_nonce.as_deref().unwrap_or("-"),
+            current_nonce.is_some(),
+            reported_nonce.is_some(),
+            current_nonce.is_some() && current_nonce == reported_nonce,
         );
     }
 

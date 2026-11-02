@@ -198,7 +198,7 @@ pub fn maybe_start_subscriber(svc: &ServiceContext, tab_id: &str) {
     if let Some(previous) = previous {
         *previous.live.lock() = false;
     }
-    log::info!("[structured-channel] tab={tab_id} status=subscribing endpoint={} session={} binding_nonce={}", binding.base_url, binding.session_id, binding.nonce);
+    log::info!("[structured-channel] tab={tab_id} status=subscribing endpoint={} session={} binding_nonce_present={}", binding.base_url, binding.session_id, !binding.nonce.is_empty());
     let svc = svc.clone();
     let tab_id = tab_id.to_string();
     crate::async_runtime::spawn(subscriber::run(svc, tab_id, binding, receiver, live));

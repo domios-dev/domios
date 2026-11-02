@@ -386,3 +386,46 @@ fn readiness_latches_for_the_current_pty_generation() {
         .unwrap()
         .is_empty());
 }
+
+#[test]
+fn held_send_reports_readiness_before_supporter_availability() {
+    use codeterm_types::pty::BootStage;
+
+    let (fixture, tab) = queue_fixture(true, None);
+    let runtime = Arc::new(crate::service::supporter::SupporterRuntime::new(
+        fixture.temp.path().join("supporter"),
+    ));
+    let _config = fixture.service.override_supporter_decision_for_test(
+        codeterm_types::config::SupporterConfig::default(),
+        runtime,
+    );
+    let accepted =
+        admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "wait-reason-client");
+    refuse_and_park_current_send(&fixture.service, accepted.clone(), FIRST_PAYLOAD);
+    attach_fixture_pty(&fixture, &tab);
+
+    for (stage, expected) in [
+        (BootStage::LaunchWritten, "awaiting_agent_ready"),
+        (BootStage::AgentReady, "supporter_adapter_unavailable"),
+    ] {
+        fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&tab)
+            .unwrap()
+            .boot_stage = Some(stage);
+        fixture.service.drain_user_owner(&tab).unwrap();
+        let pending = fixture
+            .service
+            .chat_send_ledger
+            .status(&accepted.send_id)
+            .unwrap();
+        assert_eq!(pending.state, ChatSendState::Pending);
+        assert_eq!(pending.pending_reason.as_deref(), Some(expected));
+        assert!(!fixture
+            .service
+            .chat_send_ledger
+            .user_payload_may_have_been_written(&accepted.send_id));
+    }
+}

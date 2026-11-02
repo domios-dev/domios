@@ -339,3 +339,22 @@ async fn frontend_diagnostic_identity_route_accepts_and_bounds_metadata() {
         assert_eq!(response.status(), expected);
     }
 }
+
+#[test]
+fn chat_diagnostic_encoding_redacts_nested_binding_credentials() {
+    let encoded = redacted_chat_diagnostic(&json!({
+        "edge": "event_arrival",
+        "state": {"sessionBindingNonce": "private-launch", "tab_credential": "private-tab",
+            "nested": [{"apiToken": "private-token"}, {"binding_nonce": null}]}
+    }))
+    .to_string();
+    assert!(!encoded.contains("private-"));
+    assert_eq!(
+        serde_json::from_str::<Value>(&encoded).unwrap(),
+        json!({
+            "edge": "event_arrival",
+            "state": {"sessionBindingNoncePresent": true, "tab_credentialPresent": true,
+                "nested": [{"apiTokenPresent": true}, {"binding_noncePresent": false}]}
+        })
+    );
+}
