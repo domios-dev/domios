@@ -9,7 +9,7 @@ import { BusySpinner, BusyState } from "../shared/BusyState";
 import { Button } from "../shared/Button";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { UI_PANEL, UI_TEXT } from "../shared/design";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { AddNeighborDialog } from "./AddNeighborDialog";
 import { NeighborPrivacyNote, NeighborRequestPanel } from "./NeighborPanel";
 import { NeighborFriendPage } from "./NeighborFriendPage";

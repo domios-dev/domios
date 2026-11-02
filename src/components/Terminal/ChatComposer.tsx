@@ -39,7 +39,7 @@ import type { PendingPrompt } from "../../lib/types";
 import { createPortal } from "react-dom";
 import { ComposerContextHeader } from "./ComposerContextHeader";
 import { DelayedMessageModal, type DelayedModalTarget } from "./DelayedMessageModal";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { COMPOSER_MIN_HEIGHT, COMPOSER_MAX_HEIGHT } from "./composerAutosize";
 import { ComposerExpandHandle, ExpandedComposer } from "./ExpandedComposer";
 import {

@@ -23,10 +23,21 @@ export async function cleanup(ctx) {
   for (const plan of await ownedPlans(ctx)) {
     await ctx.check("CLEAN", "plan_deleted", plan, async () => {
       const owner = await dc(["plan", "delete", plan, "--yes"]);
-      if (owner.code !== 0 && ctx.state.j3?.orchestrator) await ok(["plan", "delete", plan, "--yes"], { asTab: ctx.state.j3.orchestrator });
+      if (owner.code !== 0 && ctx.state.j3?.orchestrator) {
+        const { connectFixture } = await import("../lib/fixture-control.mjs");
+        if (!ctx.fixtureCommand) await connectFixture(ctx);
+        await ctx.fixtureCommand(["plan", "delete", plan, "--yes"]);
+      }
       else if (owner.code !== 0) throw new JourneyFailure(`plan delete exit ${owner.code}: ${owner.stdout || owner.stderr}`);
       return "deleted";
     });
+  }
+  if (ctx.state.j3?.fixture_spec) {
+    const listed = await dcJson(["spec", "list"]);
+    if (listed.specs.some(spec => spec.spec_id === ctx.state.j3.fixture_spec)) {
+      await ctx.check("CLEAN", "fixture_spec_deleted", ctx.state.j3.fixture_spec, async () =>
+        (await ok(["spec", "delete", ctx.state.j3.fixture_spec, "--yes"]), "deleted the run's orphan spec"));
+    }
   }
   for (const team of ctx.state.teams.filter((entry) => entry.id)) {
     await ctx.check("CLEAN", "team_closed", team.id, async () => (await ok(["team", "close", team.id, "--force"]), "closed"));
@@ -36,5 +47,9 @@ export async function cleanup(ctx) {
     const left = (await readTabs(ctx.api)).filter((tab) => tab.workspace_id === workspace.id);
     if (left.length) throw new JourneyFailure(`tabs remain in the closed workspace: ${left.map((tab) => tab.id).join(", ")}`);
     return "closed; no owned tabs remain";
+  });
+  if (ctx.state.j3?.fixture_provider) await ctx.check("CLEAN", "fixture_provider_removed", ctx.state.j3.fixture_provider, async () => {
+    await ok(["plugin", "remove", ctx.state.j3.fixture_provider]);
+    return "removed the run's control fixture";
   });
 }

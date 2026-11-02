@@ -59,9 +59,26 @@ impl super::super::ServiceContext {
         Ok(())
     }
 
+    pub fn public_delivery_receipt(
+        &self,
+        tab_id: &str,
+        delivery: crate::service::messenger::Delivery,
+    ) -> crate::service::messenger::Delivery {
+        use crate::service::messenger::Delivery;
+        match delivery {
+            Delivery::Pending { delivery_id } if self.chat_send_ledger.status(&delivery_id).is_none() => Delivery::Pending {
+                delivery_id: crate::service::pending_delivery_payloads::agent_deliveries::agent_delivery_send_id(tab_id, &delivery_id),
+            },
+            other => other,
+        }
+    }
+
     pub fn inspect_retained_send(&self, send_id: &str) -> Result<Option<ChatSendStatus>, String> {
         let Some(retained) = self.chat_send_ledger.status(send_id) else {
-            return Ok(None);
+            return self
+                .pending_delivery_payloads
+                .agent_deliveries
+                .inspect(send_id);
         };
         let statuses = self.reconcile_user_send_statuses(&retained.tab_id)?;
         Ok(Some(

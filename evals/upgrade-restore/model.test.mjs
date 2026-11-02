@@ -2,13 +2,13 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
 import {worstCases} from './fixtures.mjs';
-import {leaves, validateCapture, requireBackings, verdict, failureReason, measurements, requireRestart} from './model.mjs';
+import {leaves, validateCapture, requireBackings, verdict, failureReason, measurements, requireRestart, historyMatches} from './model.mjs';
 import {peer} from './fake-peer.mjs';
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const fixture = () => worstCases(root, '/isolated-fixture-project');
 function ready(tab) {
-  return {...tab, agent_session_id: tab.claude_session_id, task_binding: tab.agent_identity?.task_binding,
+  return {...tab, task_binding: tab.agent_identity?.task_binding,
     session_binding_nonce: 'nonce-current', reported_session_binding_nonce: 'nonce-current',
     agent_runtime_state: {state: 'loaded', epoch: 1}};
 }
@@ -104,6 +104,20 @@ test('fake app-server refuses unknown threads and unsupported mutations', () => 
   const respond = peer(fixture());
   assert.throws(() => respond({method: 'thread/resume', params: {threadId: 'foreign'}}), /no thread/);
   assert.throws(() => respond({method: 'turn/start', params: {threadId: 'thread-fixture-general'}}), /Unsupported/);
+});
+
+test('restored image history requires the exact bounded marker and retained attachment', () => {
+  const expected = fixture().histories[2].messages.at(-1);
+  const actual = {id: 'message-319', type: 'user',
+    content: 'x'.repeat(4096) + '\n[image omitted: 16406 bytes]',
+    attachments: [{id: 'message-319-image-1', mimeType: 'image/png'}]};
+  assert.equal(historyMatches(expected, actual), true);
+  assert.equal(historyMatches(expected, {...actual, content: actual.content.replace('16406', '16384')}), false);
+  assert.equal(historyMatches(expected, {...actual, attachments: []}), false);
+  assert.equal(historyMatches(expected, {...actual, attachments: [{id: 'foreign', mimeType: 'image/png'}]}), false);
+  const plain = {id: 'text', type: 'assistant', content: 'xx'};
+  assert.equal(historyMatches(plain, {...plain}), true);
+  assert.equal(historyMatches(plain, {...plain, content: 'xy'}), false);
 });
 
 test('oracle names SizeLimit without converting it to a timeout', () => {

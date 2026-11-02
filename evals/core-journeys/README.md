@@ -10,8 +10,8 @@ as success. It spends real provider tokens.
 
 ## Run
 
-Canonical checkout only, in one Team-bound QA utility shell, under the
-Orchestrator's serialized QA authority. The run needs a named isolated instance
+Run in one Team-bound QA utility shell under the Orchestrator's serialized QA
+authority. The run needs a named isolated instance
 with its own port, already running the exact build under test, with its window
 open with a CDP port because J2 drives the dialog. Launch it from the canonical
 Team DEV utility shell using the dev-run skill, with explicit isolated ports:
@@ -35,6 +35,12 @@ CODETERM_INSTANCE=curated CODETERM_API_PORT=7697 bash evals/core-journeys/run.sh
   --model codex=EXACT_ADVERTISED_CODEX_ID
 node evals/core-journeys/lib/evidence-contract.mjs <run-dir>
 ```
+
+For lane-owned bench repairs against an existing candidate, set
+`CORE_JOURNEY_BUILD_CHECKOUT` to the candidate checkout's absolute path. CLI
+selection and restart use that checkout's validated artifacts and provenance;
+the journeys and control runner use the lane's sources. Keep the candidate
+checkout and build stable through the run. This does not compile a new product.
 
 `all` runs `setup`, a bench-owned DEV restart (`./build.sh kill`, then
 `./build.sh dev-prebuilt --wait --wait-build` on the same instance; never port
@@ -126,15 +132,41 @@ malformed. Exit 3: evidence complete but a check failed. It requires:
 | Id | Observable pass |
 |---|---|
 | J1 | Per installed provider: spawn reaches `agent_ready`; an exact marker reply arrives as a new assistant item in the tab's own `/chat` with the same bound session and idle status; a long turn reaches `working`, `tab stop` returns `stopped:true` and the tab returns to idle on the same session. Providers that run without a PTY (`agent_runtime`) also answer after a ~320 KiB filler turn. |
-| J2 | `POST /api/orchestration/new` with exactly the dialog's body and no caller claim creates a Team whose Orchestrator and Planner reach ready. Then, in the DEV window, with a Manager tab and then a chat_backend Worker tab selected (`tab focus`, proven by its visible pane), the Start-a-session dialog in Team mode (PTY provider, then runtime provider) closes without an alert and a new two-member Team reaches ready. |
-| J3 | A shell-tab Orchestrator fixture (bound session, `set-orchestrator`) creates a Plan and a read-only task and dispatches it to a runtime provider. The Worker's backing is `chat_backend`; the attempt is acknowledged; the task reaches `in_review` with a report; `review bounce` is delivered and answered with a newer report. After the restart: bounce again, newer report, `review accept` reaches `done`. |
+| J2 | `POST /api/orchestration/new` with exactly the dialog's body and no caller claim creates a Team whose Orchestrator and Planner reach ready. Then, in the DEV window, with a Manager tab and then a chat_backend Worker tab selected through its visible sidebar control and proven by its mounted pane, the Start-a-session dialog in Team mode (PTY provider, then runtime provider) closes without an alert and a new two-member Team reaches ready. |
+| J3 | A deterministic control provider, launched through the normal provider lifecycle, creates a Plan and a read-only task using its own scoped launch credential and dispatches to the selected real runtime provider. The Worker's backing is `chat_backend`; the attempt is acknowledged; the task reaches `in_review` with a report; `review bounce` is delivered and answered with a newer report. After restart the control provider resumes, reacquires its scoped launch environment, rebinds the Plan, bounces again and accepts a newer report. |
 | J4 | The listener PID and kernel start time changed. Every agent tab recorded before the restart reaches ready with the same session, backing and `task_binding.attempt_id`; the restored Worker's attempt id is the task's current attempt; J1 tabs and the J2 Manager answer a new exact marker on their restored session. |
 
-A deterministic shell-tab Orchestrator owns J3's review verdicts because a live
-Orchestrator would race the bench on the Worker's reports. Its SessionStart hook
-names the selected installed provider explicitly and carries this tab's launch
-nonce, as a provider hook does. The fixture reads back the provider, session and
-acknowledged nonce before creating its plan, and repeats that proof after restart.
+A run-specific control provider owns J3's review verdicts so model-driven
+Orchestrator decisions cannot race the bench. Its ordinary launch/resume path
+supplies a scoped credential kept only in the runner process environment. Its
+SessionStart hook and readback prove its own provider, session and launch nonce.
+Fixed CLI requests enter a private AgentPad queue for that nonce; claiming a
+request precedes execution, and uncertainty never resubmits it. A resumed runner
+uses a new queue generation and never executes the previous launch's requests.
+The fixture creates a linked spec, goal and task quality fields, records its
+single-task Planner waiver, then passes the normal Plan approval gate before
+dispatch. The same scoped Orchestrator performs those actions.
+The fixture is recorded separately from the complete paid-provider roster; every
+real installed provider still requires an explicit model selection. Cleanup
+removes this run's provider after closing its workspace. No fixture credential
+is written to results, state, discovery files or request receipts.
+
+Before the restart snapshot, every J2 pair member answers an exact marker on its
+own session. This establishes a real conversation for providers that create
+resumable history only after their first turn. The restore check still requires
+the exact same session, backing and attempt identity. J4 selects each owned tab
+serially through visible sidebar controls in the native window to materialize lazy restored tabs before
+requiring readiness; selecting a tab alone never counts as ready.
+For owned PTY tabs, J4 invokes the supported browser Terminal spawn route to
+materialize the saved session; mounting a Chat transcript alone need not start it.
+Reply probes use compact nonces derived from the run, provider or tab, and phase;
+only an exact new assistant reply in the bound session passes.
+
+For an extra non-gating observation, set `CORE_JOURNEY_OBSERVE_CHAT_ACTIVATION=1`.
+Before J4 activation, one still-lazy owned Claude PTY receives one normal Chat
+send without pre-spawning it. `chat-activation-observation.json` records the
+lifecycle, receipt and exact new own-session user/reply counts. Its outcome does
+not enter the gate verdict; uncertain input is never resubmitted.
 
 ## Today's BLACKSTAR regressions
 
@@ -168,4 +200,4 @@ argument parsing. They are not live proof.
 | `deadline: Start a session dialog opened` | First-run onboarding is active, so the picker ignores the open event | Finish first run on that instance, then rerun. |
 | `restart_not_observed` | `build.sh dev-prebuilt` refused stale provenance or the same listener survived | Run `./build.sh dev --wait` once to record provenance, then rerun `all`. |
 
-<!-- revision: 4 -->
+<!-- revision: 8 -->

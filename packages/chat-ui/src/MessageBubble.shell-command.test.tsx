@@ -1,3 +1,4 @@
+import { mock } from "node:test";
 import { Window } from "happy-dom";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -35,8 +36,6 @@ Object.defineProperty(windowAny.navigator, "clipboard", {
 
 async function waitForEffects() {
   await act(async () => {
-    await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
   });
 }
@@ -92,6 +91,7 @@ test("renders a failed command with exit code and cwd", async () => {
 });
 
 test("copy affordance writes the command to the clipboard", async () => {
+  mock.timers.enable({ apis: ["setTimeout"] });
   clipboardWrites.length = 0;
   const { host, root } = await render(base({ shellCommand: "ls -la", shellStatus: "ok" }));
   const copyBtn = byTestId(host, "chat-shell-copy");
@@ -99,6 +99,10 @@ test("copy affordance writes the command to the clipboard", async () => {
   await act(async () => { click(copyBtn!); });
   await waitForEffects();
   assert(clipboardWrites.includes("ls -la"), "command copied to clipboard");
+  assert(copyBtn.getAttribute("title") === "Copied", "copy feedback is visible");
+  await act(async () => mock.timers.tick(1200));
+  assert(copyBtn.getAttribute("title") === "Copy command", "copy feedback expires");
+  mock.timers.reset();
   await act(async () => { root.unmount(); });
 });
 

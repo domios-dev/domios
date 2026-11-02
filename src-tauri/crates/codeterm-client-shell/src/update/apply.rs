@@ -182,6 +182,20 @@ async fn check_and_apply_plugin(
 
     let target_version = update.version.clone();
     let server_identity = server_stop.install_identity()?;
+    #[cfg(windows)]
+    if let Some(root) = std::env::current_exe()
+        .ok()
+        .and_then(|path| path.parent().map(std::path::Path::to_path_buf))
+    {
+        let path = codeterm_update::native_handoff::installer_refusal::path(&root);
+        tokio::task::spawn_blocking(move || match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(format!("cannot clear prior installer refusal: {error}")),
+        })
+        .await
+        .map_err(|error| format!("installer refusal cleanup task failed: {error}"))??;
+    }
     let server_stopped = std::sync::atomic::AtomicBool::new(false);
     let outcome = super::orchestrate::install_after_shutdown(
         bytes,

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { nativeBridge, nativeFolderDialog } from "../../lib/nativeBridge";
 import type { Workspace } from "../../lib/types";
-import { useMultiplexer } from "../../store/multiplexer";
+import { useMultiplexer } from "../../store/multiplexer/hooks";
 
 export function useFolderRecovery(workspace: Workspace, onRelocate?: (path: string) => Promise<unknown>) {
   const { setWorkspaceCwd } = useMultiplexer();

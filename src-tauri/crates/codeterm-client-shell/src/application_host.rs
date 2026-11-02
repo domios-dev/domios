@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use codeterm_update::application_host::ApplicationHost;
+use codeterm_update::application_host::{ApplicationHost, NativeUnavailable};
 use codeterm_update::apply::{ApplyOptions, ApplyResult};
 use codeterm_update::UpdateStateHandle;
 
@@ -57,11 +57,19 @@ pub struct DesktopApplicationHost {
 
 #[async_trait::async_trait]
 impl ApplicationHost for DesktopApplicationHost {
+    fn admit_restart(&self) -> Result<(), NativeUnavailable> {
+        Ok(())
+    }
+
     async fn copy_image_to_clipboard(&self, path: String) -> Result<(), String> {
         crate::commands::copy_image_to_clipboard(path).await
     }
 
     fn restart(&self) -> Result<(), String> {
+        codeterm_crash::crash::shutdown::mark_shutting_down_for(
+            codeterm_crash::crash::lifecycle::ShutdownReason::Restart,
+        );
+        codeterm_util::restart_stdio::detach_for_restart();
         crate::update::restart::restart(&self.app)
     }
 

@@ -15,6 +15,7 @@ mod sessions;
 mod snapshots;
 mod snip;
 mod stream;
+mod upload;
 mod verbs;
 
 use std::collections::VecDeque;
@@ -96,6 +97,8 @@ pub struct BrowserRuntime {
     snips: Mutex<SnipStore>,
     inbox: Mutex<AnnotationInbox>,
     secrets: Mutex<Vec<String>>,
+    uploads: Mutex<Vec<upload::AdmittedFile>>,
+    upload_gate: tokio::sync::Mutex<()>,
 }
 
 fn cdp_error(error: codeterm_browser::CdpError) -> String {
@@ -132,6 +135,8 @@ impl BrowserRuntime {
             snips: Mutex::new(SnipStore::default()),
             inbox: Mutex::new(AnnotationInbox::default()),
             secrets: Mutex::new(Vec::new()),
+            uploads: Mutex::new(Vec::new()),
+            upload_gate: tokio::sync::Mutex::new(()),
         }
     }
 

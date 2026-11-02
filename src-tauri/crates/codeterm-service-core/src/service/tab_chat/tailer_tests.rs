@@ -23,7 +23,7 @@ use crate::agent::chat_types::RichMessage;
 use crate::agent::registry::AgentRegistry;
 use crate::service::tab_chat::store_watch::{spawn_store_watch_with_test_hook, StoreWatchTestHook};
 use crate::service::tab_chat::{
-    spawn_store_watch, spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
+    spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
 };
 
 mod host_wake;
@@ -35,6 +35,14 @@ struct Collector {
 impl DeltaSink for Collector {
     fn emit(&self, _tab_id: &str, messages: Vec<RichMessage>, _start_offset: u64, _offset: u64) {
         self.msgs.lock().extend(messages);
+    }
+}
+
+struct BatchCollector(std::sync::mpsc::Sender<Vec<RichMessage>>);
+
+impl DeltaSink for BatchCollector {
+    fn emit(&self, _: &str, messages: Vec<RichMessage>, _: u64, _: u64) {
+        let _ = self.0.send(messages);
     }
 }
 
@@ -264,9 +272,6 @@ fn event_tailer_keeps_the_session_across_file_replacement() {
     handle.shutdown();
 }
 
-/// A pending store watch has no missing-poll budget at all: a store that
-/// flaps unavailable/available for longer than a materialized tailer's own
-/// reap window must not cost the watch its eligibility for promotion.
 #[test]
 fn pending_store_watch_survives_flapping_availability_before_promotion() {
     let tmp = TempDir::new().unwrap();
@@ -280,10 +285,13 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
     }));
 
     let chat_registry = ChatRegistry::new();
-    let sink = Arc::new(Collector {
-        msgs: Mutex::new(vec![]),
-    });
-    let watch = spawn_store_watch(
+    let (messages, delivered) = std::sync::mpsc::channel();
+    let sink = Arc::new(BatchCollector(messages));
+    let (step, steps) = std::sync::mpsc::channel();
+    let (observed, observations) = std::sync::mpsc::channel();
+    let (store_seen, _) = std::sync::mpsc::sync_channel(1);
+    let (authority_rejected, _) = std::sync::mpsc::sync_channel(1);
+    let watch = spawn_store_watch_with_test_hook(
         StoreWatchConfig {
             tab_id: "p-flap".into(),
             provider_id: "delayed-store".into(),
@@ -294,15 +302,24 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
         },
         Arc::new(agent_registry),
         chat_registry.clone(),
-        sink.clone() as Arc<dyn DeltaSink>,
+        sink as Arc<dyn DeltaSink>,
+        StoreWatchTestHook {
+            store_seen,
+            resume_after_store_seen: Arc::new(std::sync::Barrier::new(1)),
+            authority_rejected,
+            absent_polls: None,
+            poll_steps: Some((steps, observed)),
+        },
     );
     assert!(watch.register(&chat_registry, "desktop".into()));
 
     for _ in 0..5 {
         available.store(true, Ordering::Release);
-        std::thread::sleep(Duration::from_millis(15));
+        step.send(()).unwrap();
+        observations.recv_timeout(Duration::from_secs(2)).unwrap();
         available.store(false, Ordering::Release);
-        std::thread::sleep(Duration::from_millis(15));
+        step.send(()).unwrap();
+        observations.recv_timeout(Duration::from_secs(2)).unwrap();
     }
 
     assert!(
@@ -313,10 +330,11 @@ fn pending_store_watch_survives_flapping_availability_before_promotion() {
     std::fs::write(&jsonl, "materialized\n").unwrap();
     available.store(true, Ordering::Release);
 
-    assert!(
-        wait_until(2000, || !sink.msgs.lock().is_empty()),
-        "watch must still promote once the store settles",
-    );
+    step.send(()).unwrap();
+    assert!(!delivered
+        .recv_timeout(Duration::from_secs(2))
+        .expect("watch must promote after the acknowledged availability changes")
+        .is_empty());
     chat_registry.stop("p-flap", "desktop");
 }
 
@@ -524,6 +542,7 @@ fn pending_store_watch_promotes_to_tailer_and_streams_initial_batch() {
             resume_after_store_seen: Arc::new(std::sync::Barrier::new(1)),
             authority_rejected,
             absent_polls: Some(absent_polls),
+            poll_steps: None,
         },
     );
     assert!(watch.register(&chat_registry, "desktop".into()));
@@ -572,9 +591,8 @@ fn pending_store_watch_needs_registration_authority_before_promotion() {
     }));
 
     let chat_registry = ChatRegistry::new();
-    let sink = Arc::new(Collector {
-        msgs: Mutex::new(vec![]),
-    });
+    let (messages, delivered) = std::sync::mpsc::channel();
+    let sink = Arc::new(BatchCollector(messages));
     let (store_seen_tx, store_seen_rx) = mpsc::sync_channel(1);
     let (authority_rejected_tx, authority_rejected_rx) = mpsc::sync_channel(1);
     let resume_after_store_seen = Arc::new(Barrier::new(2));
@@ -595,6 +613,7 @@ fn pending_store_watch_needs_registration_authority_before_promotion() {
             resume_after_store_seen: resume_after_store_seen.clone(),
             authority_rejected: authority_rejected_tx,
             absent_polls: None,
+            poll_steps: None,
         },
     );
 
@@ -607,10 +626,10 @@ fn pending_store_watch_needs_registration_authority_before_promotion() {
         .expect("unregistered watch must decline promotion");
 
     assert!(watch.register(&chat_registry, "desktop".into()));
-    assert!(
-        wait_until(2000, || !sink.msgs.lock().is_empty()),
-        "registered watch must promote and emit its initial batch",
-    );
+    assert!(!delivered
+        .recv_timeout(Duration::from_secs(2))
+        .expect("registered watch must promote and emit its initial batch")
+        .is_empty());
     chat_registry.stop("p-registration-race", "desktop");
 }
 

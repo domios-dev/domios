@@ -84,12 +84,26 @@ fn spawn_store_watch_inner(
             #[cfg(test)]
             let mut test_hook = test_hook;
             while !stop.load(Ordering::Acquire) {
+                #[cfg(test)]
+                if let Some((steps, _)) =
+                    test_hook.as_ref().and_then(|hook| hook.poll_steps.as_ref())
+                {
+                    if steps.recv_timeout(Duration::from_secs(2)).is_err() {
+                        return;
+                    }
+                }
                 let path = agent_registry
                     .with_provider(&cfg.provider_id, |provider| {
                         provider.session_jsonl_path(&cfg.cwd, &cfg.session_id)
                     })
                     .flatten()
                     .filter(|path| path.exists());
+                #[cfg(test)]
+                if let Some((_, observed)) =
+                    test_hook.as_ref().and_then(|hook| hook.poll_steps.as_ref())
+                {
+                    let _ = observed.send(());
+                }
                 if path.is_some() {
                     #[cfg(test)]
                     let first_store_seen = test_hook.take();
@@ -133,6 +147,13 @@ fn spawn_store_watch_inner(
                 {
                     let _ = polls.send(());
                 }
+                #[cfg(test)]
+                if test_hook
+                    .as_ref()
+                    .is_some_and(|hook| hook.poll_steps.is_some())
+                {
+                    continue;
+                }
                 thread::sleep(cfg.poll_interval);
             }
         })
@@ -153,6 +174,7 @@ pub(crate) struct StoreWatchTestHook {
     pub resume_after_store_seen: Arc<std::sync::Barrier>,
     pub authority_rejected: std::sync::mpsc::SyncSender<()>,
     pub absent_polls: Option<std::sync::mpsc::Sender<()>>,
+    pub poll_steps: Option<(std::sync::mpsc::Receiver<()>, std::sync::mpsc::Sender<()>)>,
 }
 
 #[cfg(test)]

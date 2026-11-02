@@ -160,7 +160,7 @@ steps:
     uses: notify
 ```
 
-A watch starts with one source and an `ask` decision. Sources are `probe` with a fixed `command`, `observe` with `kind` (`tab` or `cron_run`) and `id`, or `input` with a media `kind` and `text`, absolute `file` or `url`. An input source can request `convert_to` and `convert_timeout_ms`. Terminal observations use `uses: terminal` with tab binding, `pattern` and/or `idle_ms`.
+A watch starts with one source and an `ask` decision. Sources are `probe` with a fixed `command`, `observe` with `kind` (`tab` or `cron_run`) and `id`, or `input` with a media `kind` and `text`, absolute `file` or `url`. An input source can request `convert_to` and `convert_timeout_ms`. Terminal observations use `uses: terminal` with `with: {kind: {lit: tab}, id: {lit: <same-Team tab id>}, pattern: {lit: <regex>}}`; optional `idle_ms: {lit: 1000}` also belongs under `with`.
 
 Source `every` defaults to 20 seconds and is at least 10 seconds. Durations use `s`, `m`, `h`, `d` or combinations, bounded to 366 days. `timeout`, `paused` and `session` belong on the source. The decision owns `matches`, `until`, `rearm_on_change`, `model_classification` and `escalation_timeout_ms`. Keep waiting silent by routing it to `@stop`; this ends that watch's action chain without stopping future observations.
 
@@ -231,4 +231,4 @@ R10 and environment scrubbing prevent accidents, not hostile code. R10 joins spl
 
 `blueprint list` and `blueprint show` allow an Orchestrator or the owner’s General Agent to inspect scheduled Blueprints across Teams and workspaces. `blueprint list --all` requires that authority explicitly. Other readers retain their scope. This read access grants no permission to apply, edit, input, stop or delete a foreign Blueprint.
 
-<!-- revision: 81 -->
+<!-- revision: 82 -->

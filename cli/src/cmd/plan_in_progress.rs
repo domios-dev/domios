@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use crate::client::RpcClient;
 use crate::cmd::plan::{call_plan_rpc, render_empty_reason};
-use crate::cmd::task_list_render::{build_task_tree, task_str, task_value};
+use crate::cmd::task_list_render::{build_task_tree, task_str, TaskSummaryRow};
 use serde_json::{json, Value};
 
 const IN_PROGRESS_STATUSES: [&str; 3] = ["in_progress", "in_review", "blocked"];
@@ -70,10 +70,7 @@ fn is_in_progress_status(status: &str) -> bool {
 }
 
 fn lane_str<'a>(item: &'a Value, field: &str) -> Option<&'a str> {
-    task_value(item)
-        .get("lane")
-        .and_then(|v| v.get(field))
-        .and_then(|v| v.as_str())
+    TaskSummaryRow::new(item).lane_str(field)
 }
 
 fn task_sort_key(item: &Value) -> (&str, &str) {
@@ -131,15 +128,16 @@ fn render_in_progress_task(
     depth: usize,
     children: &HashMap<&str, Vec<&Value>>,
 ) {
-    let id = task_str(item, "id").unwrap_or("?");
-    let status = task_str(item, "status").unwrap_or("?");
+    let row = TaskSummaryRow::new(item);
+    let id = row.id;
+    let status = row.status;
     let assignee = task_str(item, "assigned_tab_id")
         .or_else(|| lane_str(item, "tab_id"))
         .unwrap_or("-");
     let workspace = lane_str(item, "workspace_id").unwrap_or("-");
     let branch = lane_str(item, "branch").unwrap_or("-");
     let cleanup = lane_str(item, "cleanup_status").unwrap_or("-");
-    let name = task_str(item, "name").unwrap_or("?");
+    let name = row.name;
     out.push_str(&format!(
         "{}{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
         "  ".repeat(depth),
@@ -159,114 +157,4 @@ fn render_in_progress_task(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::client::SocketCallError;
-
-    #[derive(Default)]
-    struct FakeRpc {
-        calls: Vec<(String, Option<Value>)>,
-        response: Value,
-    }
-
-    impl FakeRpc {
-        fn responding_with(response: Value) -> Self {
-            Self {
-                response,
-                ..Default::default()
-            }
-        }
-
-        fn params(&self) -> &Value {
-            self.calls[0].1.as_ref().expect("task.list params")
-        }
-    }
-
-    impl RpcClient for FakeRpc {
-        fn call_detailed(
-            &mut self,
-            method: &str,
-            params: Option<Value>,
-        ) -> Result<Value, SocketCallError> {
-            self.calls.push((method.to_string(), params));
-            Ok(self.response.clone())
-        }
-    }
-
-    #[test]
-    fn explicit_address_scope_named_plan_ignores_ambient_project() {
-        let mut client = FakeRpc::responding_with(json!({ "tasks": [] }));
-
-        run(&mut client, true, Some("pl_foreign".into()), false).unwrap();
-
-        assert_eq!(client.params()["plan_id"], "pl_foreign");
-        assert!(client.params().get("project").is_none());
-    }
-
-    #[test]
-    fn explicit_address_scope_unnamed_plan_keeps_ambient_project() {
-        let mut client = FakeRpc::responding_with(json!({ "tasks": [] }));
-
-        run(&mut client, true, None, false).unwrap();
-
-        assert!(client.params()["project"].as_str().is_some());
-        assert!(client.params().get("plan_id").is_none());
-    }
-
-    #[test]
-    fn explicit_address_scope_unreachable_named_plan_is_not_an_empty_negative() {
-        let reason = json!({ "kind": "plan_not_found", "plan_id": "pl_missing" });
-        let mut client = FakeRpc::responding_with(json!({
-            "tasks": [],
-            "empty_reason": reason,
-        }));
-
-        let value = run(&mut client, true, Some("pl_missing".into()), false)
-            .unwrap()
-            .expect("json output");
-
-        assert_eq!(value["empty_reason"], reason);
-        assert_eq!(
-            render_in_progress_tasks(&value),
-            "Plan pl_missing was not found.\n"
-        );
-    }
-
-    #[test]
-    fn renders_in_progress_tasks_with_subtask_indentation_and_assignee() {
-        let rendered = render_in_progress_tasks(&json!({
-            "tasks": [
-                {
-                    "plan_id": "pl_1",
-                    "plan_title": "Plan",
-                    "task": {
-                        "id": "task_parent",
-                        "name": "Parent",
-                        "status": "in_progress",
-                        "assigned_tab_id": "tab1234",
-                        "lane": {
-                            "workspace_id": "ws1",
-                            "branch": "lane/one",
-                            "cleanup_status": "pending"
-                        }
-                    }
-                },
-                {
-                    "plan_id": "pl_1",
-                    "plan_title": "Plan",
-                    "task": {
-                        "id": "task_child",
-                        "name": "Child",
-                        "status": "blocked",
-                        "parent_task_id": "task_parent"
-                    }
-                }
-            ]
-        }));
-
-        assert!(rendered.contains("pl_1\tPlan\n"));
-        assert!(rendered
-            .contains("  task_parent\tin_progress\ttab1234\tws1\tlane/one\tpending\tParent\n"));
-        assert!(rendered.contains("    task_child\tblocked\t-\t-\t-\t-\tChild\n"));
-    }
-}
+mod tests;

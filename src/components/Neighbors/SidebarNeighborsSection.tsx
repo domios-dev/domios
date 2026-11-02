@@ -15,7 +15,7 @@ import { RowMenuButton } from "../shared/RowMenuButton";
 import { pickUiFontScaleValue } from "../../lib/uiFontScale";
 import { tabActivity } from "../../lib/tabActivity";
 import { publishNotice } from "../../lib/notices";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { askGeneralAgent, focusTab, permissionInterviewTask, workspaceOfTab } from "./neighborAgent";
 import type { NeighborClient } from "./neighborClient";
 import { neighborConciergeClient, type NeighborConciergeClient } from "./neighborConciergeClient";

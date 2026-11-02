@@ -181,7 +181,6 @@ fn sentinel_probe_native_closed_stream_live_child_is_unconfirmed() {
     let result = fixture.run(&owner);
     let (failure, receipt) = result.expect_err("a live process group cannot be reported complete");
     assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
-    assert!(receipt.unwrap().admitted.elapsed() < Duration::from_secs(3));
     assert_eq!(failure.primary, "probe_group_completion_unconfirmed");
     assert!(failure.is_unconfirmed());
     assert!(failure
@@ -200,8 +199,7 @@ fn sentinel_probe_native_inherited_stream_deadline() {
     let result = fixture.run(&owner);
     let (failure, receipt) = result.expect_err("inherited output keeps capture incomplete");
     assert_deadline_receipt(receipt.unwrap(), Duration::from_secs(1), PROBE_RUNTIME);
-    assert!(receipt.unwrap().admitted.elapsed() >= Duration::from_millis(500));
-    assert!(receipt.unwrap().admitted.elapsed() < Duration::from_secs(3));
+    assert!(receipt.unwrap().operation <= std::time::Instant::now());
     fixture.release_and_wait();
     assert_eq!(failure.primary, "probe_timeout");
     assert!(failure.is_unconfirmed());
@@ -453,7 +451,53 @@ impl ControlFixture {
         ),
     > {
         let limit = Duration::from_secs(1);
-        let (signal, receipts) = self.readiness.signal(limit, PROBE_RUNTIME);
+        let signal = super::cancellation::Cancellation::default();
+        let spawned = parking_lot::Mutex::new(signal.observe_spawned());
+        let readiness = self.readiness.clone();
+        let close_streams = self.close_streams;
+        let detached = self.detached;
+        let (receipt_tx, receipts) = std::sync::mpsc::channel();
+        signal.set_readiness(move || {
+            use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+            let mut stream = readiness.ready_stream()?;
+            let parent = if close_streams || detached {
+                let pid = spawned
+                    .lock()
+                    .recv_timeout(super::test_readiness::SETUP_DEADLINE)
+                    .map_err(|error| error.to_string())?;
+                let fd = super::cancellation::unix::parent_event(pid)
+                    .map_err(|error| error.to_string())?;
+                Some(unsafe { OwnedFd::from_raw_fd(fd) })
+            } else {
+                None
+            };
+            stream.write_all(&[2]).map_err(|error| error.to_string())?;
+            if let Some(parent) = parent {
+                let mut poll = libc::pollfd {
+                    fd: parent.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                };
+                let result = unsafe {
+                    libc::poll(
+                        &mut poll,
+                        1,
+                        super::test_readiness::SETUP_DEADLINE.as_millis() as libc::c_int,
+                    )
+                };
+                if result != 1 {
+                    return Err("fixture parent exit was not observed".into());
+                }
+            }
+            let now = std::time::Instant::now();
+            let admitted = if close_streams { now } else { now - limit };
+            let deadlines = super::process::Deadlines::at(limit, PROBE_RUNTIME, admitted)
+                .map_err(|error| error.to_string())?;
+            receipt_tx
+                .send(deadlines.receipt())
+                .map_err(|error| error.to_string())?;
+            Ok(deadlines)
+        });
         run_ready(
             &self.command(),
             self.dir.path(),

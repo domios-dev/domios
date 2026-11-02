@@ -12,8 +12,8 @@ mod relaunch_supervision;
 mod structural_wait;
 use super::{
     build_agent_command, command_with_binding_nonce_for_shell, replacement_pty_candidate,
-    take_reader_termination, worker_brief_delivery_incident, AgentRegistry, LaunchFailure,
-    LaunchGeneration, LaunchRegistry, ProviderSessionBinding, LAUNCH_REGISTRY,
+    take_reader_termination, AgentRegistry, LaunchFailure, LaunchGeneration, LaunchRegistry,
+    ProviderSessionBinding, LAUNCH_REGISTRY,
 };
 use crate::chatbackend::{ChatBackendError, ChatBackendProvider, ChatBackendRegistry};
 use crate::multiplexer::state::MultiplexerState;

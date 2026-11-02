@@ -3,6 +3,7 @@ import { useUpdateAvailability } from "./useUpdateAvailability";
 import { appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
+import { appliedFrontendRelease, subscribeAppliedFrontendRelease } from "../lib/frontendUpdate/releaseNotes";
 import { useUpdate } from "./useUpdate";
 import { channelDiagnostics, classifyUpdateFailure, classifyUpdateStatus, type UpdateFailure } from "../lib/updateStatusModel";
 
@@ -17,6 +18,7 @@ function persistIntent(intent: UpdateIntent | null): void {
 
 function useUpdatePanelController() {
   const app = useUpdate();
+  const frontendRelease = useSyncExternalStore(subscribeAppliedFrontendRelease, appliedFrontendRelease, () => null);
   const { snapshot, setSnapshot, ready, refresh } = useUpdateAvailability();
   const [intent, setIntent] = useState(savedIntent);
   const restoredIntent = useRef(intent);
@@ -193,7 +195,7 @@ function useUpdatePanelController() {
   const failure = error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null) ?? restoredFailure?.message;
   return { snapshot, items, rows, activeId, awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0
     ? Math.min(100, Math.max(0, app.downloadedBytes / app.downloadTotalBytes * 100)) : null,
-    history, checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
+    frontendRelease, history, checking, checkResult, information: status.information, diagnostics, busy: starting || (!failure && intent !== null) || app.installing, error: failure,
     errorDetails: error ? [error.details, app.error].filter(Boolean).join("\n") : app.error ?? restoredFailure?.details,
     updateAll, applyItem, retry, refresh, pluginHasUpdate: (id: string) => hasUpdateBadge(snapshot.items.find(item => item.kind === "plugin" && item.id === id && (!item.channel || !status.errors[item.channel]))) };
 }

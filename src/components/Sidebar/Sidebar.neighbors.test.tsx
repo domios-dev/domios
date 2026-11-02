@@ -6,7 +6,7 @@ import type { AppConfig } from "../../lib/types";
 import type { NeighborList } from "../Neighbors/neighborModel";
 
 const data = vi.hoisted(() => ({ friends: [] as NeighborList["friends"] }));
-vi.mock("../../store/multiplexer", () => ({
+vi.mock("../../store/multiplexer/hooks", () => ({
   useMultiplexer: () => ({}),
   useMuxSelector: (select: (state: object) => unknown) => select({
     workspaces: [], tabs: {}, teams: [], notifications: [], tabStatuses: {},

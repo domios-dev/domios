@@ -23,7 +23,7 @@ core_journey_product_env_for() {
 
 core_journey_product_env() { core_journey_product_env_for "$CORE_JOURNEY_CLI_INSTANCE_ENV" "$1"; }
 if [ -z "${CORE_JOURNEY_CLI_PATH:-}" ]; then
-  core_journey_select_build_identity "$ROOT" || return 7
+  core_journey_select_build_identity "${CORE_JOURNEY_BUILD_CHECKOUT:-$ROOT}" || return 7
 fi
 
 dev_bootstrap_cli() { printf '%s\n' "$CORE_JOURNEY_CLI_PATH"; }
@@ -52,7 +52,7 @@ dev_resolve_identity() {
   fi
   if ! parsed="$(printf '%s\n' "$output" | python3 -c '
 import json, sys
-connection = json.load(sys.stdin)["connection"]
+connection = json.load(sys.stdin)["result"]["connection"]
 print("\t".join([connection["data_dir"], connection["host"], str(connection["port"]),
                   connection["socket_path"], (connection.get("instance") or "").strip()]))
 ')"; then
@@ -66,7 +66,7 @@ print("\t".join([connection["data_dir"], connection["host"], str(connection["por
   EVAL_LIB_RESOLVED_DATA_DIR="$(dev_shell_path "$data_dir")"
   EVAL_LIB_DEV_HOST="$host"
   EVAL_LIB_DEV_API_PORT="$port"
-  EVAL_LIB_RESOLVED_SOCKET_PATH="$(dev_shell_path "$socket")"
+  EVAL_LIB_RESOLVED_SOCKET_PATH="$socket"
   EVAL_LIB_RESOLVED_INSTANCE="$instance"
   EVAL_LIB_DEV_VITE_PORT="$(dev_vite_port_from_instance "$instance")"
   EVAL_LIB_DEV_CDP_PORT="$(dev_cdp_port_from_instance "$instance")"
@@ -80,6 +80,16 @@ print("\t".join([connection["data_dir"], connection["host"], str(connection["por
 }
 
 dev_api_url() { printf 'http://%s:%s' "$EVAL_LIB_DEV_HOST" "$EVAL_LIB_DEV_API_PORT"; }
+
+core_journey_socket_matches() {
+  local name display
+  name="$(dev_expected_socket_name)"
+  if is_windows; then display="\\\\.\\pipe\\$name"
+  elif is_linux; then display="@$name"
+  else display="/tmp/$name"; fi
+  { [ "$1" = "$name" ] || [ "$1" = "$display" ]; } &&
+    { [ "$2" = "$name" ] || [ "$2" = "$display" ]; }
+}
 
 dev_assert_target() {
   local health
@@ -108,13 +118,30 @@ dev_run() {
   product_api_token_env="$(core_journey_product_env API_TOKEN)"
   product_data_dir_env="$(core_journey_product_env DATA_DIR)"
   product_socket_env="$(core_journey_product_env SOCKET_PATH)"
+  local token="$EVAL_LIB_RESOLVED_API_TOKEN" caller_vars=()
+  if [ -n "$caller_tab_id" ]; then
+    if [ "$caller_tab_id" != "$EVAL_LIB_CALLER_TAB_ID" ] ||
+       [ -z "$EVAL_LIB_CALLER_API_TOKEN" ] ||
+       [ "$EVAL_LIB_CALLER_API_TOKEN" = "$EVAL_LIB_RESOLVED_API_TOKEN" ] ||
+       [ "$EVAL_LIB_CALLER_API_PORT" != "$EVAL_LIB_DEV_API_PORT" ] ||
+       ! core_journey_socket_matches "$EVAL_LIB_CALLER_SOCKET_PATH" "$EVAL_LIB_RESOLVED_SOCKET_PATH" ||
+       { [ "$EVAL_LIB_CALLER_API_URL" != "$(dev_api_url)" ] &&
+         [ "$EVAL_LIB_CALLER_API_URL" != "http://localhost:$EVAL_LIB_DEV_API_PORT" ]; }; then
+      echo "ERROR [dev-tab]: --as-tab requires that DEV tab's own scoped launch environment." >&2
+      return 7
+    fi
+    token="$EVAL_LIB_CALLER_API_TOKEN"
+    caller_vars+=("$(core_journey_product_env SESSION_ID)=$EVAL_LIB_CALLER_SESSION_ID"
+      "$(core_journey_product_env SESSION_BINDING_NONCE)=$EVAL_LIB_CALLER_NONCE"
+      "$(core_journey_product_env TAB_ID)=$caller_tab_id")
+  fi
   local -a vars=(
     "$CORE_JOURNEY_CLI_INSTANCE_ENV=$EVAL_LIB_RESOLVED_INSTANCE"
     "$CORE_JOURNEY_CLI_PORT_ENV=$EVAL_LIB_DEV_API_PORT"
     "CORE_JOURNEY_INSTANCE=$EVAL_LIB_RESOLVED_INSTANCE"
     "CORE_JOURNEY_API_PORT=$EVAL_LIB_DEV_API_PORT"
     "CORE_JOURNEY_API_URL=http://$EVAL_LIB_DEV_HOST:$EVAL_LIB_DEV_API_PORT"
-    "CORE_JOURNEY_API_TOKEN=$EVAL_LIB_RESOLVED_API_TOKEN"
+    "CORE_JOURNEY_API_TOKEN=$token"
     "CORE_JOURNEY_DATA_DIR=$EVAL_LIB_RESOLVED_DATA_DIR"
     "CORE_JOURNEY_CLI_PATH=$CORE_JOURNEY_CLI_PATH"
     "CORE_JOURNEY_CLI_NAME=$CORE_JOURNEY_CLI_NAME"
@@ -123,18 +150,16 @@ dev_run() {
     "$product_instance_env=$EVAL_LIB_RESOLVED_INSTANCE"
     "$product_port_env=$EVAL_LIB_DEV_API_PORT"
     "$product_api_url_env=http://$EVAL_LIB_DEV_HOST:$EVAL_LIB_DEV_API_PORT"
-    "$product_api_token_env=$EVAL_LIB_RESOLVED_API_TOKEN"
+    "$product_api_token_env=$token"
     "$product_data_dir_env=$EVAL_LIB_RESOLVED_DATA_DIR"
     "$product_socket_env=$EVAL_LIB_RESOLVED_SOCKET_PATH"
   )
-  # The product pairs a supplied binding nonce with the claimed caller tab; a nonce without a tab is refused.
-  [ -z "$caller_tab_id" ] || vars+=("$(core_journey_product_env TAB_ID)=$caller_tab_id")
   local -a unset_context=()
   for suffix in INSTANCE API_PORT API_URL API_TOKEN DATA_DIR SOCKET_PATH VITE_PORT CDP_PORT DEV_INSTANCE DEV_API_PORT DEV_VITE_PORT DEV_CDP_PORT DEV_DATA_DIR DEV_IDENTIFIER \
     STARTUP_ATTEMPT_ID SESSION_BINDING_NONCE SESSION_ID TEAM_ID PLAN_ID TASK_ID ATTEMPT_ID TAB_ID PARENT_TAB_ID; do
     unset_context+=(-u "$(core_journey_product_env "$suffix")")
   done
-  env "${unset_context[@]}" "${vars[@]}" "$@"
+  env "${unset_context[@]}" "${vars[@]}" ${caller_vars[@]+"${caller_vars[@]}"} "$@"
 }
 
 dc() {
@@ -147,13 +172,7 @@ dc() {
   dev_assert_target || return 7
   dev_assert_cached_identity || return 7
   if [ -n "$caller_tab_id" ]; then
-    local inspect session nonce binding=()
-    inspect="$(dev_run "$cli" tab inspect "$caller_tab_id" --json 2>/dev/null)" || true
-    session="$(printf '%s' "$inspect" | { grep -m1 -oE '"agent_session_id": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
-    nonce="$(printf '%s' "$inspect" | { grep -m1 -oE '"session_binding_nonce": *"[^"]+"' || true; } | sed -E 's/.*"([^"]+)"$/\1/')"
-      [ -z "$session" ] || binding+=("$(core_journey_product_env SESSION_ID)=$session")
-      [ -z "$nonce" ] || binding+=("$(core_journey_product_env SESSION_BINDING_NONCE)=$nonce")
-    dev_run --as-tab "$caller_tab_id" env ${binding[@]+"${binding[@]}"} "$cli" "$@"
+    dev_run --as-tab "$caller_tab_id" "$cli" "$@"
   else
     dev_run "$cli" "$@"
   fi

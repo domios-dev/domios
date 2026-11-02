@@ -22,7 +22,11 @@ it("both settings entrypoints can reuse a choice that cancels without writes and
   };
   const clickButton = async (name: string) => act(async () => {
     const button = [...host.querySelectorAll<HTMLButtonElement>("button")]
-      .find((candidate) => (candidate.getAttribute("aria-label") ?? accessibleText(candidate).replace(/\s+/g, " ").trim()) === name);
+      .find((candidate) => {
+        const label = candidate.getAttribute("aria-label") ?? accessibleText(candidate).replace(/\s+/g, " ").trim();
+        // Provider cards announce "Name: status" in one fixed text slot.
+        return label === name || label.startsWith(`${name}: `);
+      });
     if (!button) throw new Error(`No button named "${name}"`);
     button.click();
   });

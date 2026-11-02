@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import { TaskStatus, type Plan } from "../Canvas/types";
-import { deriveCardStatusCounts, deriveTeamTaskBuckets } from "./TeamUnit";
+import { deriveCardStatusCounts, deriveTeamTaskBuckets } from "./teamTaskStatus";
 
 const plan: Plan = {
   ...FIXTURE_PLAN,

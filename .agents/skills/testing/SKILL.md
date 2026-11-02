@@ -114,37 +114,27 @@ or renamed key; crate moves pass. A deliberate rename is listed in a reviewed ma
 `docs/architecture/test-renames/<task>.txt` (`old_key -> new_key` per line),
 passed with `--renames`; a map line that hides nothing fails too.
 
-Nextest keeps normal suite parallelism. A parallel timing above one second is a
-candidate when new or above its recorded alone allowance. The gate reruns only
-those candidates serially from the same binaries/Cargo metadata, reports both
-timings, and keeps the one-second target visible. New alone times above 1.25 seconds
-fail; times over 1.0 through 1.25 seconds warn. Existing regressions fail only
-above baseline + max(20%, 0.25 seconds); smaller increases warn.
-`scripts/slow-unit-tests.json` records alone durations;
-its exact identities and recorded times may only shrink against the base ref.
-Release CI skips the serial reruns (they took ~10 minutes, longer than the suite):
-`--policy advisory` without `--alone` prints each candidate's parallel timing against
-its limit as a warning and fails only on baseline-file errors. Local `build.sh nextest`
-defaults to advisory too; CI jobs that enforce pass `--policy enforce` explicitly.
+CI unit timing is advisory. Rust CI runs serially, reports every test's time,
+and emits a warning for each duration at or above one second. Nextest's
+one-second slow notification has no termination count. The timing guard never
+fails a run for slowness and does not consult slow-test allowance files. Missing
+or malformed timing evidence and actual test failures still fail normally.
+Local nextest uses the same warning threshold. The real REST listener lifecycle
+suite remains curated through `evals/rest-api-listeners/run.sh`.
 
-```bash
-node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --candidates CANDIDATES_JSON [--base REF]
-node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --alone ALONE_LOG [--base REF]
-node scripts/check-slow-unit-tests.mjs PARALLEL_LOG --policy advisory   # parallel-only advice
-```
+The standalone TS runner compiles each selected test graph into an isolated
+bundle before execution, then times the whole child process, including real
+module initialization, fixture setup, rendering, assertions and cleanup.
+Original source locations are retained for relative corpus/resource reads, and
+all bundled input hashes are validated before cache reuse. React DOM stays
+inside each graph so DOM fixtures precede its feature probes. Compilation time
+is printed separately. CI selects one worker for comparable serial timings;
+local parallel runs label their timing warnings accordingly.
 
-The app baseline is `scripts/slow-unit-tests.json`; separately bootstrapped
-crate measurements live in `scripts/slow-crate-unit-tests.json`. Each baseline
-may only shrink after its first landing. `scripts/unit-test-benchmarks.json`
-contains exact benchmark identities with explicit throughput/latency reasons.
-Exemptions print their identity, timing and reason, preserve test failures,
-and cannot be added or changed after their first landing without review.
-Benchmarks never receive a slow-unit baseline allowance.
-
-Candidate JSON contains exact validated binary/test IDs and a nextest filter,
-never shell commands. No candidates means no rerun; missing/incomplete timing
-logs or missing candidate confirmations fail closed. A plain log-only guard
-works when no serial confirmations are required.
+Every TS file at or above 1000ms emits a warning without changing its exit status
+or terminating its process. Vitest has no case/hook duration limit and marks
+slow cases at the same threshold. Preserve every meaningful oracle when
+isolating decisions, mocking a boundary or separating fixture contracts.
 
 ### QuickJS frame-mapping performance check
 
@@ -286,7 +276,8 @@ embedding executable.
 The TypeScript scheduler still waits for every file and the full suite by
 default. Set `TS_UNIT_TIMEOUT_SECONDS=<positive-seconds>` or
 `TS_UNIT_SUITE_TIMEOUT_SECONDS=<positive-seconds>` for an explicit diagnostic
-deadline; ordinary `npm run test:unit` has neither implicit limit.
+deadline for an explicit local diagnostic run. Ordinary execution has no
+implicit per-file limit; CI reports slow files as warnings.
 
 On Linux, a repository-watcher silence test that reports existing `refs/`
 directories is an inotify access event from recursive watch registration, not
@@ -724,7 +715,7 @@ Build each Rust configuration once per batch: run every focused selector of a cr
 
 Prompt templates under `src-tauri/prompts/` are embedded by codeterm-service-core. The affected-test mapper selects `./build.sh nextest codeterm-service-core 'test(/^prompts::tests::/)'`; the shell crate has no such tests, and a zero-test shell selection is a failure rather than coverage.
 
-<!-- revision: 10 -->
+<!-- revision: 11 -->
 
 ## Independent server process oracle
 

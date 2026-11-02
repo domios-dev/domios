@@ -1,7 +1,7 @@
 import { MemoryProvenance } from "./MemoryProvenance";
 import { useProvenanceRings } from "./useProvenanceRings";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { CanvasToolbar } from "@codeterm/chat-ui";
+import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import Sigma from "sigma";
 import Graph from "graphology";
 import EdgeCurveProgram from "@sigma/edge-curve";

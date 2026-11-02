@@ -18,6 +18,9 @@ pub trait ApplicationHost: Send + Sync {
     fn available(&self) -> bool {
         true
     }
+    fn admit_restart(&self) -> Result<(), NativeUnavailable> {
+        Err(NativeUnavailable)
+    }
     fn restart(&self) -> Result<(), String>;
     fn exit(&self, code: i32) -> Result<(), String>;
     async fn copy_image_to_clipboard(&self, path: String) -> Result<(), String>;

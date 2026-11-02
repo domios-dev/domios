@@ -11,6 +11,9 @@ function harness(responses: unknown[], boot = context, pageOrigin = boot.apiOrig
   const listeners = new Map<string, Listener>();
   const calls: { path: string; body: unknown; authorization: string }[] = [];
   const stored: string[] = [];
+  const published: Event[] = [];
+  let publish!: (event: Event) => void;
+  const publication = new Promise<Event>(resolve => { publish = resolve; });
   let deadline!: () => void;
   let navigate!: (path: string) => void;
   const navigated = new Promise<string>(resolve => { navigate = resolve; });
@@ -19,13 +22,14 @@ function harness(responses: unknown[], boot = context, pageOrigin = boot.apiOrig
     const response = responses.shift();
     return { ok: response !== undefined, json: async () => response };
   };
-  new Function("sessionStorage", "location", "addEventListener", "fetch", "AbortSignal", script)(
+  new Function("sessionStorage", "location", "addEventListener", "fetch", "AbortSignal", "dispatchEvent", "CustomEvent", script)(
     { getItem: () => JSON.stringify(boot), setItem: (_key: string, value: string) => stored.push(value) },
     { origin: pageOrigin, pathname: `/frontend/${ticket.releaseId}/index.html`, replace: navigate },
     (name: string, listener: Listener) => listeners.set(name, listener), fetcher,
     { timeout: () => ({ addEventListener: (_name: string, listener: () => void) => { deadline = listener; } }) },
+    (event: Event) => { published.push(event); publish(event); }, CustomEvent,
   );
-  return { listeners, calls, stored, deadline: () => deadline(), navigated };
+  return { listeners, calls, stored, published, publication, deadline: () => deadline(), navigated };
 }
 
 describe("stable frontend observer", () => {
@@ -48,6 +52,11 @@ describe("stable frontend observer", () => {
     h.listeners.get("codeterm:frontend-root-rendered")!({ detail: { ...ticket, generation: 0 } });
     expect(h.calls).toEqual([]);
     h.listeners.get("codeterm:frontend-root-rendered")!({ detail: ticket });
+    expect(h.published).toEqual([]);
+    await h.publication;
+    expect(h.published).toHaveLength(1);
+    expect(h.published[0].type).toBe("codeterm:frontend-healthy");
+    expect((h.published[0] as CustomEvent).detail).toEqual({ releaseId: ticket.releaseId, generation: ticket.generation });
     expect(h.calls).toHaveLength(1);
     expect(h.calls[0].path).toContain("/healthy");
     expect(h.calls[0].authorization).toBe("Bearer owner");

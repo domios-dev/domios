@@ -21,6 +21,10 @@ async fn missing_native_attachment_refuses_before_registering_continuation() {
         update_state,
     });
     assert!(!host.available());
+    assert_eq!(
+        host.admit_restart(),
+        Err(codeterm_update::application_host::NativeUnavailable)
+    );
     let result = host
         .check_and_apply(ApplyOptions {
             channel: Default::default(),

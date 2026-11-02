@@ -178,12 +178,24 @@ pub(super) fn recover(client: &NativeHostClient) -> Result<(), String> {
     else {
         return Ok(());
     };
-    if record.recover(
-        codeterm_build_info::version(),
-        codeterm_build_info::sha(),
-        &client.connection,
-        &client.ready,
-    ) {
+    let installer_refused = std::env::current_exe()
+        .ok()
+        .and_then(|executable| executable.parent().map(std::path::Path::to_path_buf))
+        .is_some_and(|root| {
+            codeterm_update::native_handoff::installer_refusal::recover(&root, &mut record)
+                .unwrap_or_else(|error| {
+                    log::warn!("[updater] could not read installer refusal: {error}");
+                    false
+                })
+        });
+    if installer_refused
+        || record.recover(
+            codeterm_build_info::version(),
+            codeterm_build_info::sha(),
+            &client.connection,
+            &client.ready,
+        )
+    {
         if let Err(error) = persist_at(&client.ready.identity.data, &record) {
             log::warn!("[updater] could not persist recovered native handoff: {error}");
         }

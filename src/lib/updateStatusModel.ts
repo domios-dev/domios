@@ -1,4 +1,25 @@
 import type { UpdateAvailabilitySnapshot } from "./updateAvailability";
+import type { UpdateItem, UpdateRow } from "./updatePanelModel";
+
+export function updateRestartDescription(group: UpdateItem["group"]): string | null {
+  return group === "App" ? "Restart required" : group === "Interface" ? "No restart required" : null;
+}
+
+export function updateIndicator(rows: readonly UpdateRow[], options: { busy: boolean; checking: boolean; failed: boolean; completed?: boolean }) {
+  const offers = rows.some(row => !row.channelError && row.state === "available");
+  const failed = options.failed || rows.some(row => row.state === "failed");
+  const active = options.busy || options.checking || rows.some(row => row.state === "active");
+  const completed = options.completed || rows.some(row => row.state === "completed");
+  const restart = rows.some(row => !row.channelError && row.group === "App" && row.state !== "completed");
+  const activeRow = rows.find(row => row.state === "active");
+  const state = failed ? "failed" : active ? "active" : offers ? "available" : completed ? "completed" : "idle";
+  const description = failed ? "Update failed. Open updates for details."
+    : options.checking ? "Checking for updates."
+      : active ? activeRow ? `Updating ${activeRow.name}.` : "Updating components."
+        : offers ? `Updates available. ${restart ? "App update requires a restart." : rows.some(row => row.group === "Interface" && row.state === "available") ? "Interface update needs no restart." : ""}`.trim()
+          : completed ? "Updates completed." : "Open updates.";
+  return { state, description, active, offers };
+}
 
 export const CORE_PLUGIN_CHANNEL = "codeterm-core";
 const CHANNEL_UNAVAILABLE_PREFIX = "Plugin channel unavailable: ";

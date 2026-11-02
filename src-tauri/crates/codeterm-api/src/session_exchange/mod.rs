@@ -154,7 +154,7 @@ fn exported_plans(
 ) -> Result<Value, String> {
     let mut plans = Vec::new();
     let mut failure = None;
-    store.for_each_plan_uncached(|plan| match serde_json::to_value(&plan) {
+    store.for_each_plan_uncached(|plan| match sanitize::sanitize_plan(&plan) {
         Ok(value) => plans.push(value),
         Err(error) => failure = failure.take().or(Some(error.to_string())),
     });
@@ -191,7 +191,7 @@ pub async fn export(
             )
             .map(|(messages, _)| messages)
         })?;
-        let plans = sanitize::sanitize_plans(&exported_plans(&svc.plan_store)?)?;
+        let plans = exported_plans(&svc.plan_store)?;
         serde_json::from_value::<Vec<codeterm_types::plan::Plan>>(plans.clone())
             .map_err(|error| format!("Sanitized plan schema refused: {error}"))?;
         let live = svc.mux.read().snapshot();

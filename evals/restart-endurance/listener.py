@@ -47,14 +47,8 @@ def linux_start(pid):
 
 def identity(port):
     if platform.system() == "Windows":
-        script = f"""$ErrorActionPreference='Stop'
-$ids=@(Get-NetTCPConnection -LocalPort {port} -State Listen | Select-Object -ExpandProperty OwningProcess -Unique)
-if ($ids.Count -ne 1) {{ throw 'Expected one listener' }}
-$process=Get-Process -Id $ids[0]
-$epoch=[DateTime]::SpecifyKind([DateTime]'1970-01-01',[DateTimeKind]::Utc)
-@{{pid=$process.Id;started_us=[long](($process.StartTime.ToUniversalTime().Ticks-$epoch.Ticks)/10)}} | ConvertTo-Json -Compress
-"""
-        return json.loads(output(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script]))
+        from windows_listener import identity as windows_identity
+        return windows_identity(port)
     pid = unix_listener(port)
     return {"pid": pid, "started_us": mac_start(pid) if platform.system() == "Darwin" else linux_start(pid)}
 

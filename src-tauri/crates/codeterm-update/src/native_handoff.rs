@@ -1,3 +1,4 @@
+pub mod installer_refusal;
 pub mod replay;
 use codeterm_types::{
     native_host::NativeHostConnection,

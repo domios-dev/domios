@@ -10,6 +10,7 @@ import { launchApiPair, uiPairChoice } from "../journeys/team.mjs";
 import { completeFirstRun } from "./setup.mjs";
 import { sendText } from "./tabs.mjs";
 import { catalogueSelection, modelIdentity, modelSelections, preparePolicy } from "./model-policy.mjs";
+import { fixtureProviderId } from "./fixture-control.mjs";
 
 const provider = "arbitrary-harness", model = "vendor/exact-identity";
 const descriptor = () => ({ id: provider, availability: "available", transport: "pty", catalogue_version: 12,
@@ -51,6 +52,23 @@ function fixture() {
 }
 
 const paidCalls = (calls) => calls.filter((call) => call.args || call.path?.endsWith("/chat-send") || ["/api/agents/general/complete-first-run", "/api/orchestration/new"].includes(call.path));
+
+test("the run's control fixture never narrows the complete real provider roster", async () => {
+  const f = fixture();
+  const control = fixtureProviderId(f.ctx.state.run);
+  f.ctx.state.j3 = { fixture_provider: control };
+  f.descriptors.push({ id: control, availability: "available" });
+  await f.prepare();
+  assert.deepEqual(f.ctx.policy.roster.run.map(value => value.id), [provider]);
+  f.descriptors.push({ ...descriptor(), id: "another-real-provider" });
+  let launches = 0;
+  await assert.rejects(f.ctx.policy.launch(provider, "must-refuse", () => { launches++; }), /roster changed/);
+  assert.equal(launches, 0);
+  const spoofed = fixture();
+  spoofed.ctx.state.j3 = { fixture_provider: provider };
+  await assert.rejects(spoofed.prepare(), /control fixture identity differs/);
+  assert.deepEqual(paidCalls(spoofed.calls), []);
+});
 
 test("repeat selectors are exact and duplicate/conflicting/malformed selections are refused", () => {
   assert.equal(parseArgs(["setup", "--out", "owned", "--model", `${provider}=${model}`]).models[provider], model);

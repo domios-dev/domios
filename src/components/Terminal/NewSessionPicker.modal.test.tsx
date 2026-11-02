@@ -37,7 +37,7 @@ const fixture = vi.hoisted(() => {
 });
 const workspace: Workspace = fixture.workspace;
 
-vi.mock("../../store/multiplexer", () => ({
+vi.mock("../../store/multiplexer/hooks", () => ({
   useMuxState: () => fixture.state,
   useMultiplexer: () => fixture.actions,
 }));

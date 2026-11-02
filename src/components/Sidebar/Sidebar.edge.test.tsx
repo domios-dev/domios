@@ -6,7 +6,7 @@ import { Titlebar } from "../Titlebar/Titlebar";
 import { useSidebarViewport } from "../../hooks/useSidebarViewport";
 import type { AppConfig, ThemeConfig } from "../../lib/types";
 
-vi.mock("../../store/multiplexer", () => ({
+vi.mock("../../store/multiplexer/hooks", () => ({
   useMultiplexer: () => ({}),
   useMuxSelector: () => ({
     workspaces: [], tabs: {}, teams: [], notifications: [], tabStatuses: {},

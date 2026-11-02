@@ -107,8 +107,6 @@ windowAny.mermaid = {
 export async function waitForEffects() {
   await act(async () => {
     await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    await Promise.resolve();
   });
 }
 

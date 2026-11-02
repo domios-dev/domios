@@ -109,7 +109,7 @@ test("mixed soft and hard verse breaks each render one newline", async () => {
 
 test("arbitrary delta splits preserve verse blocks through completion", async () => {
   for (const ending of ["\n", "\r\n"]) {
-    const source = ["first  ", "second", "third\\", "fourth", "", "fifth  ", "sixth"].join(ending);
+    const source = ["a  ", "b", "c\\", "d", "", "e  ", "f"].join(ending);
     const { host: whole, root: wholeRoot } = await render(<RichMarkdown text={source} />);
     const { host, root } = await render(<RichMarkdown text={""} />);
     try {

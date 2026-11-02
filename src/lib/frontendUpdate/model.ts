@@ -3,6 +3,7 @@ import { checkpointAcknowledged, checkpointWrite, type CheckpointWrite, type Cli
 export interface Release {
   releaseId: string;
   version: string;
+  releaseNotes?: string;
   minApiVersion: number;
   maxApiVersion: number;
 }

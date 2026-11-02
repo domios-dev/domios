@@ -5,7 +5,7 @@ import {
   listenCurrentTabUiMode,
   resolveInitialTabUiMode,
 } from "../../lib/clientTabUiMode";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabFieldsEqual, selectTab } from "../../store/multiplexer/selectors";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 

@@ -1,6 +1,45 @@
 use super::*;
 use serde_json::json;
 const ECHO: &str = include_str!("../../../../../resources/blueprints/echo.yaml");
+
+#[test]
+fn terminal_watch_lowers_native_source_parameters() {
+    let raw = r#"schema_version: 2
+kind: watch
+name: terminal-verdict
+steps:
+- id: source
+  uses: terminal
+  with:
+    kind: {lit: tab}
+    id: {lit: own-tab}
+    pattern: {lit: 'ready|failed'}
+    idle_ms: {lit: 1000}
+  timeout: {lit: 1h}
+- id: decide
+  uses: ask
+  with: {question: {lit: Is the command ready?}}
+  buckets: [ready]
+  matches: {ready: {lit: ready}}
+  until: ready
+  routes: {ready: '@stop'}
+"#;
+    let checked = check("terminal.yaml", raw, &[]);
+    assert!(checked.ok, "{:?}", checked.diagnostics);
+    let lowered = parse("terminal.yaml", raw)
+        .unwrap()
+        .document
+        .lower()
+        .unwrap();
+    assert_eq!(
+        lowered["create"]["observe"],
+        json!({"kind": "tab", "id": "own-tab"})
+    );
+    assert_eq!(
+        lowered["create"]["terminal"],
+        json!({"pattern": "ready|failed", "idle_ms": 1000})
+    );
+}
 #[test]
 fn command_stdin_bind_is_data_but_run_bind_is_positioned_validation() {
     let raw = "schema_version: 2\nkind: pipeline\nname: command-stdin\ntrigger: {type: schedule, every: {lit: 20s}}\nsteps:\n- id: prior\n  run: {lit: echo ready}\n  out: {type: string}\n- id: consume\n  run: {lit: echo fixed}\n  in: {type: string}\n  bind: {in: prior.out}\nresult: {to: notify}\n";

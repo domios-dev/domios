@@ -2,6 +2,48 @@ use super::*;
 use crate::service::role_preset::{FragmentSource, PresetFragment};
 
 #[test]
+fn fresh_read_only_manager_keeps_assignment_while_applying_reporting_authority() {
+    const BRIEF: &str = "fragment-81α\n$opaque `x` {brief}";
+    let mut params = SpawnAgentParams {
+        role: Some("Manager".into()),
+        role_profile: Some("planner".into()),
+        task: Some(BRIEF.into()),
+        ..Default::default()
+    };
+    let prompt = compose_runtime_system_prompt(&mut params).unwrap();
+    let (mut mux, id) = crate::multiplexer::state::MultiplexerState::new();
+    let tab = mux.get_tab_mut(&id).unwrap();
+    tab.role = Some(AgentRole::Manager);
+    tab.role_profile = Some("planner".into());
+    tab.agent_type = Some("opaque-runtime".into());
+    tab.session_binding_nonce = Some("opaque-nonce".into());
+    tab.agent_runtime_config = Some(serde_json::json!({"systemPrompt":prompt}));
+    tab.restorable_launch.execution_sandbox = Some(codeterm_types::plan::ExecutionSandboxPolicy {
+        intent: crate::plan::ExecutionIntent::ReadOnly,
+        cwd: String::new(),
+        launch_args: vec![],
+        runtime_mode: Some("opaque-mode".into()),
+        writable_roots: vec![],
+        environment: Default::default(),
+    });
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    ensure_tab_runtime_prompt(&fixture.service, &id).unwrap();
+    let tab = fixture.service.mux.read().get_tab(&id).unwrap().clone();
+    let actual = tab.agent_runtime_config.as_ref().unwrap()["systemPrompt"]
+        .as_str()
+        .unwrap();
+    assert_eq!(actual.matches(BRIEF).count(), 1);
+    assert_eq!(
+        actual
+            .matches(crate::prompts::READ_ONLY_WORKER_GUIDANCE.trim())
+            .count(),
+        1
+    );
+    assert!(!actual.contains(crate::prompts::AGENT_PAD_RULE.trim()));
+    assert!(tab.pending_delivery.is_none());
+}
+
+#[test]
 fn general_runtime_prompt_preserves_fresh_context_and_rebuilds_restored_identity() {
     const CONTEXT: &str = "fragment-a19\nfragment-b72 λ $() `opaque`";
     for (restored, supplied) in [
@@ -253,6 +295,7 @@ fn restored_runtime_identity_is_persisted_once_without_fabricating_kickoff() {
     let workspace = mux.create_workspace("opaque-workspace".into(), None);
     let tab_id = mux.create_tab(&workspace.id).unwrap();
     let target = mux.get_tab_mut(&tab_id).unwrap();
+    target.restored_from_snapshot = true;
     target.agent_type = Some("runtime-fixture".into());
     target.role = Some(AgentRole::Manager);
     target.role_profile = Some("planner".into());
@@ -286,6 +329,7 @@ fn restored_manager_prompt_uses_its_live_team_instead_of_cached_identity() {
     let live_team = "team_live_7f3a";
     let stale_team = "team_stale_91c2";
     let target = mux.get_tab_mut(&tab_id).unwrap();
+    target.restored_from_snapshot = true;
     target.agent_type = Some("runtime-fixture".into());
     target.role = Some(AgentRole::Manager);
     target.role_profile = Some("orchestrator".into());
@@ -320,6 +364,7 @@ fn restored_runtime_worker_keeps_its_saved_persona_once() {
     let workspace = mux.create_workspace("opaque-workspace".into(), None);
     let tab_id = mux.create_tab(&workspace.id).unwrap();
     let target = mux.get_tab_mut(&tab_id).unwrap();
+    target.restored_from_snapshot = true;
     target.agent_type = Some("runtime-fixture".into());
     target.role = Some(AgentRole::Worker);
     target.session_binding_nonce = Some("opaque-nonce".into());

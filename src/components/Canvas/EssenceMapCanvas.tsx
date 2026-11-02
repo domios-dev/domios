@@ -1,10 +1,10 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { List, Network, X } from "lucide-react";
-import { CanvasToolbar } from "@codeterm/chat-ui";
+import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import { DropdownSelect } from "../shared/DropdownMenu";
 import { BusyState } from "../shared/BusyState";
-import { useMultiplexer, useMuxState } from "../../store/multiplexer";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import type { ProviderDescriptor, Tab, Workspace } from "../../lib/types";
 import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { CartographerMapDialog } from "./CartographerMapDialog";

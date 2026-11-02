@@ -36,6 +36,7 @@
 - Merge and finish edits before formatting/generating once. Never change sources while compiling. Batch selectors into one compile per crate/profile; fix reported failures together and recheck only failed or newly affected proof.
 - Commit, then hand the exact SHA to live QA immediately; its candidate build is the compile check. Long regressions run on CI in parallel, with one broad release gate on the release SHA. Do not block live QA behind repeated local suites.
 - Run owning focused checks, changed TS/JS tests, formatting and size/boundary guards; run `pnpm check:api-effects` when effects change. Require zero compiler errors/warnings; any unavoidable lint exception must be narrow and justified. Report unrun checks honestly.
+- No git hooks: never add hook scripts or set `core.hooksPath`; checks run through explicit gates and CI.
 - Use Team utility tabs with timeouts for builds/checks; DEV servers have no timeout. Follow `utility-shell-reports`. A busy gateway refuses: continue source work, never poll/retry or evade it. `--wait-build` requires intentional blocking.
 - Never hand-edit generated files. Regenerate CLI contracts only when definitions change; use the owning skill for generators and self-install.
 

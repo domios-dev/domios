@@ -28,7 +28,7 @@ function sameAvailability(a: ProviderDescriptor[], b: ProviderDescriptor[]): boo
 }
 
 function availabilitySignature(providers: ProviderDescriptor[]): string {
-  return JSON.stringify(providers.map((p) => [p.id, p.availability, p.display_name, p.install_command]));
+  return JSON.stringify(providers.map((p) => [p.id, p.availability, p.availability_checking, p.display_name, p.install_command]));
 }
 
 export function useProviderAvailability(providers: ProviderDescriptor[]) {

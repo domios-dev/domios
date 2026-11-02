@@ -11,7 +11,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabFieldsEqual, selectTab, selectActiveWorkspaceId } from "../../store/multiplexer/selectors";
 import {
   useXterm,
@@ -502,7 +502,7 @@ export const TerminalTab = memo(function TerminalTab({
       )}
       <DeferredPresence present={isVisible && uiMode === "terminal" && framePtyId !== null && (!terminalIoReady || !frameReady) && !lock.locked}
         className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">
-        <BusyState inline label="Restoring…" phase="work" className="ct-bar-pill" />
+        <BusyState inline indicator="brand" label="Restoring…" phase="work" className="ct-bar-pill" />
       </DeferredPresence>
       {/* Search bar */}
       {searchOpen && (

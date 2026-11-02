@@ -1,5 +1,5 @@
 import { useCallback, useId, useLayoutEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { CanvasToolbar } from "@codeterm/chat-ui";
+import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import { CircleAlert, Network, PauseCircle } from "lucide-react";
 import type { ViewportTransform } from "@codeterm/canvas-camera";
 import { BlueprintNodeCard, evidenceText, type PinWatch } from "./NodeCard";
