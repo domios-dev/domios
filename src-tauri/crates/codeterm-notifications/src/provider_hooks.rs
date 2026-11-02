@@ -166,13 +166,48 @@ fn has_unowned_plugin_file(kind: crate::agent::provider::IntegrationKind, status
         && status.get("plugin_file_owned").and_then(Json::as_bool) != Some(true)
 }
 
-/// One reconciliation per provider at a time. Daemon start and a plugin reload
-/// both reach this, and the hook files are machine-global: two interleaved
-/// read-modify-writes over one file is the duplication being fixed.
-fn reconciling() -> &'static parking_lot::Mutex<std::collections::HashSet<String>> {
-    static IN_FLIGHT: std::sync::OnceLock<parking_lot::Mutex<std::collections::HashSet<String>>> =
-        std::sync::OnceLock::new();
+#[derive(Default)]
+pub struct IntegrationCompletion {
+    finished: parking_lot::Mutex<bool>,
+    changed: parking_lot::Condvar,
+}
+
+impl IntegrationCompletion {
+    pub fn wait_until(&self, deadline: std::time::Instant) -> bool {
+        let mut finished = self.finished.lock();
+        while !*finished {
+            let Some(remaining) = deadline.checked_duration_since(std::time::Instant::now()) else {
+                return false;
+            };
+            self.changed.wait_for(&mut finished, remaining);
+        }
+        true
+    }
+
+    fn finish(&self) {
+        *self.finished.lock() = true;
+        self.changed.notify_all();
+    }
+}
+
+fn reconciling() -> &'static parking_lot::Mutex<
+    std::collections::HashMap<String, std::sync::Arc<IntegrationCompletion>>,
+> {
+    static IN_FLIGHT: std::sync::OnceLock<
+        parking_lot::Mutex<
+            std::collections::HashMap<String, std::sync::Arc<IntegrationCompletion>>,
+        >,
+    > = std::sync::OnceLock::new();
     IN_FLIGHT.get_or_init(Default::default)
+}
+
+struct ReconciliationGuard(String, std::sync::Arc<IntegrationCompletion>);
+
+impl Drop for ReconciliationGuard {
+    fn drop(&mut self) {
+        reconciling().lock().remove(&self.0);
+        self.1.finish();
+    }
 }
 
 pub fn spawn_reconciliation(
@@ -180,9 +215,9 @@ pub fn spawn_reconciliation(
     mut consented: ProviderConfigs,
     config: Option<crate::config::ConfigState>,
     notice: Option<Box<dyn FnOnce(String, String) + Send>>,
-) {
+) -> Option<std::sync::Arc<IntegrationCompletion>> {
     if !codeterm_plugin::global_writes::machine_global_write_allowed() {
-        return;
+        return None;
     }
     let id = provider.id().to_string();
     if !provider.has_installable_integration() {
@@ -191,22 +226,24 @@ pub fn spawn_reconciliation(
             &IntegrationRepairOutcome::Skipped("provider has no installable integration".into()),
             false,
         );
-        return;
+        return None;
     }
-    if !reconciling().lock().insert(id.clone()) {
-        log_reconciliation(
-            &id,
-            &IntegrationRepairOutcome::Skipped("reconciliation is already in progress".into()),
-            false,
-        );
-        return;
-    }
+    let completion = {
+        let mut active = reconciling().lock();
+        if let Some(completion) = active.get(&id) {
+            return Some(completion.clone());
+        }
+        let completion = std::sync::Arc::new(IntegrationCompletion::default());
+        active.insert(id.clone(), completion.clone());
+        completion
+    };
     let port = runtime_api_port();
-    let done = id.clone();
+    let guard = ReconciliationGuard(id.clone(), completion.clone());
     let failed_id = id.clone();
     if let Err(error) = std::thread::Builder::new()
         .name(format!("integration-repair-{id}"))
         .spawn(move || {
+            let _guard = guard;
             if let Ok(api_port) = port.as_ref() {
                 provider.ensure_integration_on_startup(*api_port);
             }
@@ -231,7 +268,6 @@ pub fn spawn_reconciliation(
                                 )),
                                 false,
                             );
-                            reconciling().lock().remove(&done);
                             return;
                         }
                     }
@@ -266,16 +302,15 @@ pub fn spawn_reconciliation(
                     &outcome,
                 );
             }
-            reconciling().lock().remove(&done);
         })
     {
-        reconciling().lock().remove(&failed_id);
         log_reconciliation(
             &failed_id,
             &IntegrationRepairOutcome::Skipped(format!("repair thread failed: {error}")),
             false,
         );
     }
+    Some(completion)
 }
 
 fn infer_consent_for_owned_install(

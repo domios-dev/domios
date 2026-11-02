@@ -508,7 +508,6 @@ pub(crate) fn compose_observed(
     service_state.sync_limit_gate();
     drop(phase);
     let _phase = startup::StartupStep::debug("post-account restore and platform");
-    codeterm_service_core::service::agent_runtime::restore_all(&service_state);
 
     {
         let service = service_state.clone();
@@ -549,9 +548,40 @@ pub(crate) fn compose_observed(
     let platform_started = std::time::Instant::now();
     let startup_step = startup::StartupStep::logged("platform and server initialization");
 
-    startup::install_bundled_cli(service_state.shell.as_ref());
+    let cli_install = startup::install_bundled_cli(service_state.shell.as_ref());
+    let integrations = service::provider_hooks::ensure_integrations_for_all(
+        &service_state.agent_registry,
+        &states.config,
+        service_state.clone(),
+    );
+    let writer_service = service_state.clone();
+    let writer_config = states.config.clone();
+    let provider_writes = startup::provider_writes::complete(
+        cli_install,
+        integrations.into_iter().map(|(id, completion)| {
+            (format!("provider integration {id}"), move |deadline| {
+                completion.wait_until(deadline)
+            })
+        }),
+        move || {
+            service::sync_watcher::start(
+                codeterm_service_core::paths::data_dir(),
+                writer_service.agent_registry.clone(),
+            );
+            let general = writer_config.lock().general_agent.clone();
+            if general.enabled && general.first_run_complete {
+                service::general_agent::generate_instructions(
+                    general.capability_hints,
+                    &general.agent_provider,
+                    Some(&writer_service.mem),
+                );
+            }
+        },
+    );
+    codeterm_service_core::service::agent_runtime::restore_all(&service_state);
     drop(startup::restore_complete(&service_state));
     let bundles = startup::start_servers(
+        provider_writes,
         &states,
         &service_state,
         frontend_dev_url,
@@ -564,11 +594,6 @@ pub(crate) fn compose_observed(
     api.complete_subsystem("mesh");
     api.complete_subsystem("neighbors");
     service_state.schedule_restored_agent_delivery_reconciliation();
-    codeterm_service_core::service::provider_hooks::ensure_integrations_for_all(
-        &service_state.agent_registry,
-        &states.config,
-        service_state.clone(),
-    );
     let (api_port, allow_non_prod_updates) = {
         let config = states.config.lock();
         (
@@ -638,10 +663,6 @@ pub(crate) fn compose_observed(
             rejection.reason.detail()
         );
     }
-    service::sync_watcher::start(
-        codeterm_service_core::paths::data_dir(),
-        service_state.agent_registry.clone(),
-    );
     startup::start_background_tasks(&service_state, &states, bundles.clone());
     agent::state_reactor::start(service_state.clone());
     agent::live_state::start(service_state.clone());

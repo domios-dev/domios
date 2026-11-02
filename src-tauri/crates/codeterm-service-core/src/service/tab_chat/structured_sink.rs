@@ -561,6 +561,9 @@ pub(crate) fn current_binding_turn_confirmations(
     let (Some(ledger), Some(source_session_id)) = (ledger, source_session_id) else {
         return Vec::new();
     };
+    if let Some(nonce) = source_binding_nonce {
+        ledger.reconcile_provisional_launch(tab_id, Some((source_session_id, nonce)));
+    }
     if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
         return Vec::new();
     }

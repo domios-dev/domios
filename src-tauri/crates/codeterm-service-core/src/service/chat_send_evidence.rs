@@ -456,6 +456,8 @@ impl ServiceContext {
     /// Reconcile unconfirmed sends against their recorded session append
     /// windows, emitting a `chat-send-status` update for each confirmation.
     pub(crate) fn reconcile_chat_send_evidence(&self, tab_id: &str) {
+        self.chat_send_ledger
+            .reconcile_provisional_launch(tab_id, None);
         scan_transcript_evidence(
             &self.agent_registry,
             &self.chat_send_ledger,
