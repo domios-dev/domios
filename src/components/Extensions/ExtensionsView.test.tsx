@@ -57,7 +57,7 @@ async function renderExtensionsView(): Promise<{ host: HTMLDivElement; root: Roo
 
 async function flush() {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await Promise.resolve();
   });
 }
 

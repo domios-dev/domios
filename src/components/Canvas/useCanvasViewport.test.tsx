@@ -1,5 +1,6 @@
 // Run: npx tsx src/components/Canvas/useCanvasViewport.test.tsx
 
+import { mock } from "node:test";
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -17,8 +18,10 @@ function assert(condition: unknown, message: string): asserts condition {
 let win: Window;
 
 function setupDom() {
+  mock.timers.enable({ apis: ["setTimeout"] });
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   win = new Window({ url: "http://localhost/viewport" });
+  Object.assign(win, { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout });
   (win as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
   for (const key of ["window", "document", "navigator", "HTMLElement", "Node", "Event"] as const) {
     Object.defineProperty(globalThis, key, { value: (win as unknown as Record<string, unknown>)[key], configurable: true });
@@ -76,7 +79,7 @@ function wheel(el: Element, init: { deltaX?: number; deltaY?: number; ctrlKey?: 
 
 async function flush() {
   await act(async () => {
-    await new Promise((r) => setTimeout(r, 180));
+    mock.timers.tick(180);
   });
 }
 
@@ -264,6 +267,8 @@ async function main() {
       process.exit(1);
     }
   }
+  mock.timers.reset();
+  await win.happyDOM.close();
   console.log(`\n✓ ${passed}/${tests.length} useCanvasViewport tests passed`);
 }
 

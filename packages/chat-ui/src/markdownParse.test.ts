@@ -110,7 +110,7 @@ test("an unchanged source returns the same tree and separate streams stay indepe
 
 test("a long streamed list re-parses only its last item and keeps list semantics", () => {
   const full = unified().use(remarkParse).use(remarkGfm);
-  const items = Array.from({ length: 300 }, (_, index) => `${index + 1}. fact ${index + 1} about computing${index === 150 ? "\n\n     with a second paragraph" : ""}`);
+  const items = Array.from({ length: 300 }, (_, index) => `${index + 1}. item ${index + 1}${index === 150 ? "\n\n     second paragraph" : ""}`);
   const document = `Intro\n\n${items.join("\n")}\n\nDone.`;
   const parsed: number[] = [];
   const parse = createIncrementalMarkdownParser((source) => { parsed.push(source.length); return full.parse(source); });

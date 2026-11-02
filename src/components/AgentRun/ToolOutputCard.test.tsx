@@ -1,4 +1,5 @@
 // Run: npx tsx src/components/AgentRun/ToolOutputCard.test.tsx
+import { mock } from "node:test";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
@@ -30,6 +31,8 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
 }
 
 setupDom();
+mock.timers.enable({ apis: ["setTimeout"] });
+Object.assign(window, { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout });
 
 test("normalizes exec/wait, SSH, mesh, and plugin envelopes without losing metadata", () => {
   const samples = [
@@ -68,6 +71,9 @@ test("copy full output uses the exact stored payload and error status stays outs
   const copy = Array.from(host.querySelectorAll("button")).find((button) => button.textContent === "Copy full output");
   assert(copy, "expanded card must expose Copy full output");
   await act(async () => copy.click());
+  assert(String(copy.textContent) === "Copied", "copy feedback is visible");
+  await act(async () => mock.timers.tick(1500));
+  assert(copy.textContent === "Copy full output", "copy feedback expires");
   assert(copied === payload, "clipboard payload must not be truncated or reformatted");
   assert(host.querySelector('[data-testid="tool-output-status"]')?.textContent === "failed", "error metadata must remain outside collapsed body");
   await act(async () => root.unmount());
@@ -90,6 +96,7 @@ async function main() {
     try { await fn(); console.log(`✓ ${name}`); }
     catch (error) { failed += 1; console.error(`✗ ${name}`, error); }
   }
+  mock.timers.reset();
   if (failed) throw new Error(`${failed} ToolOutputCard test(s) failed`);
 }
 
