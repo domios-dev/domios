@@ -125,6 +125,9 @@ test("missing policy, narrowed roster and substituted prelaunch evidence are inv
   assert.match(errorsOf(run((results) => { results.state.model_policy.launches[0].model = "substitution"; })), /model substituted/);
   assert.match(errorsOf(run((results) => { results.state.model_policy.configurations.setup.general_model = "substitution"; })), /General selection absent or substituted/);
   assert.match(errorsOf(run((results) => { results.state.model_policy.catalogues.claude.refresh.refreshed = false; })), /refresh unavailable/);
+  assert.match(errorsOf(run((results) => { results.state.tabs[0].control_fixture = true; })), /control fixture row absent or ambiguous/);
+  assert.match(errorsOf(run((results) => { results.state.j3.fixture_provider = "claude"; })), /control fixture provider differs/);
+  assert.match(errorsOf(run((results) => { results.state.tabs[0].shell = true; delete results.state.model_policy.identities.tab1; })), /selected identity absent/);
 });
 
 test("requested, resolved and actual model identities and restart proof must all persist", () => {

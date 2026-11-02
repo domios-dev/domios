@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { emptyResults, saveResults } from "./results.mjs";
+import { fixtureProviderId } from "./fixture-control.mjs";
 
 const PNG = Buffer.from("89504e470d0a1a0a0000000d4948445200000001000000010806000000" + "1f15c4890000000d49444154789c6360000002000001e221bc330000000049454e44ae426082", "hex");
 const check = (journey, name, subject, extra = {}) => ({
@@ -58,6 +59,14 @@ export function fixtureResults() {
     launches: ["J1-spawn", "J2-api-pair", "J2-ui-pair", "J3-dispatch"].map((path) => ({
       path, provider: "claude", model: selections.claude, catalogue: catalogues.claude, checked_at: results.started_at,
     })),
+  };
+  const control = { id: "c0c0c0c0", provider: fixtureProviderId(results.state.run), session: "00000000-0000-4000-8000-000000000001", nonce: "00000000-0000-4000-8000-000000000002" };
+  results.state.tabs.push({ id: control.id, journey: "J3", role: "fixture_orchestrator", control_fixture: true });
+  results.state.before_restart.tabs.push({ id: control.id, agent_type: control.provider, session: control.session, owned: true, backing: "pty" });
+  results.state.j3 = { fixture_provider: control.provider, orchestrator_provider: control.provider,
+    orchestrator: control.id, orchestrator_session: control.session,
+    runner: { tab_id: control.id, session_id: control.session, binding_nonce: control.nonce, pid: 300,
+      queue: `/tmp/ws1/runtime/agent-pads/${control.id}/cj-runner/${control.nonce}` },
   };
   return results;
 }
