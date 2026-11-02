@@ -141,7 +141,15 @@ fn per_item_history_keeps_the_newest_events_and_folds_older_ones_into_counters()
         1000 + (rounds - 1) * 2,
     )
     .unwrap();
-    list = move_to(&repository, &list, "loop", "done", None, 1001 + (rounds - 1) * 2).unwrap();
+    list = move_to(
+        &repository,
+        &list,
+        "loop",
+        "done",
+        None,
+        1001 + (rounds - 1) * 2,
+    )
+    .unwrap();
     let step = live(&list, "loop");
     assert_eq!(step.events.len(), MAX_TAB_TODO_ITEM_EVENTS);
     assert_eq!(step.counters.started, rounds);

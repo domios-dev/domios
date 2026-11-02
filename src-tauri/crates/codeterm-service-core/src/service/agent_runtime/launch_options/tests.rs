@@ -181,9 +181,11 @@ async fn concierge_runtime_access_matrix_prepares_own_pad_before_fresh_resume_an
                 let fixture = ServiceFixture::new_at(restored_mux, data_dir.path());
                 register_neighbor_runtime(&fixture.service);
                 fixture.install_seeded_storage_desk();
-                fixture
-                    .service
-                    .set_neighbor_friend_receiver_for_test(&"a".repeat(64), Some(true), 1);
+                fixture.service.set_neighbor_friend_receiver_for_test(
+                    &"a".repeat(64),
+                    Some(true),
+                    1,
+                );
                 assert_eq!(
                     super::restore(&fixture.service, &tab_id).unwrap_err(),
                     codeterm_neighbors::Error::MachineAccessUnsupported.to_string()
