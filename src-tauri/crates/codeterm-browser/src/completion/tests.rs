@@ -31,6 +31,69 @@ fn event(method: &str, params: Value) -> Arc<CdpEvent> {
 }
 
 #[tokio::test]
+async fn completion_ignores_loading_starts_outside_its_main_frame_session() {
+    let (observation, sender) = observation();
+    let result = observation
+        .finish(
+            async {
+                sender
+                    .send(event(
+                        "Page.frameStartedLoading",
+                        json!({"frameId":"child"}),
+                    ))
+                    .await
+                    .unwrap();
+                let mut foreign =
+                    (*event("Page.frameStartedLoading", json!({"frameId":"main"}))).clone();
+                foreign.session_id = Some("foreign".into());
+                sender.send(Arc::new(foreign)).await.unwrap();
+                Ok(Value::Null)
+            },
+            false,
+            Duration::from_secs(15),
+        )
+        .await
+        .unwrap();
+    assert!(result.1.starts_with("action acknowledged;"));
+}
+
+#[tokio::test(start_paused = true)]
+async fn completion_loading_start_without_commit_stays_uncertain_on_close_or_deadline() {
+    for close in [false, true] {
+        let (observation, sender) = observation();
+        let result = observation
+            .finish(
+                async {
+                    sender
+                        .send(event("Page.frameStartedLoading", json!({"frameId":"main"})))
+                        .await
+                        .unwrap();
+                    if close {
+                        sender
+                            .send(event("Inspector.detached", json!({})))
+                            .await
+                            .unwrap();
+                    }
+                    Ok(Value::Null)
+                },
+                false,
+                Duration::from_secs(15),
+            )
+            .await;
+        let error = result.unwrap_err();
+        assert!(
+            error.contains(if close {
+                "page closed"
+            } else {
+                "deadline exceeded"
+            }),
+            "{error}"
+        );
+        assert!(error.contains("never replay"));
+    }
+}
+
+#[tokio::test]
 async fn completion_withheld_navigation_needs_its_main_frame_loader_load() {
     let (observation, sender) = observation();
     let finish = observation.finish(
