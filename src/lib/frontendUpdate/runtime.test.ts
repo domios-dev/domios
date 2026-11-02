@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT } from "./runtime";
+import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, FRONTEND_HEALTHY_EVENT } from "./runtime";
 import { createFrontendSignals } from "./signals";
 import { TransportError } from "../transportClient";
 import { frontendUpdateDiagnostic } from "./bootstrapModel";
@@ -7,8 +7,35 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import type { StreamEnd, TransportClient } from "../transportClient";
 import type { CheckpointWrite, ClientCheckpoint } from "./checkpoint";
 import { frontendApiContract } from "../frontendApiContract";
+import { appliedFrontendRelease, frontendReleaseSummary } from "./releaseNotes";
 
 const API = frontendApiContract.maxApiVersion;
+
+it("carries the selected release notes through reload and exposes them only after exact health acknowledgement", async () => {
+  const f = fixture({ focused: true });
+  const selected = { ...release, releaseId: "frontend-v2.0.0", version: "2.0.0", releaseNotes: "- Keeps your drafts" };
+  f.client.localJson = async <T>(method: string, path: string, body?: unknown): Promise<T> => {
+    if (path.endsWith("checkpoint")) return (method === "GET" ? null : body) as T;
+    if (path.endsWith("activate")) return { ...selected, generation: 8, claims: { clientA: "health" } } as T;
+    return { apiVersion: API, pending: selected, quarantined: [] } as T;
+  };
+  const original = await initializeFrontendUpdateRuntime(f.client, { ...f.options, boot: null });
+  original.consent();
+  await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
+  const boot = JSON.parse(f.stored.get("codeterm.frontend.boot")!);
+  expect(boot.release).toEqual(selected);
+  expect(f.navigated).toEqual(["/frontend/frontend-v2.0.0/index.html?generation=8"]);
+  original.dispose();
+  const reloaded = await initializeFrontendUpdateRuntime(f.client, { ...f.options, boot });
+  expect(appliedFrontendRelease()).toBeNull();
+  reloaded.rootRendered();
+  expect(appliedFrontendRelease()).toBeNull();
+  f.options.events.dispatchEvent(new CustomEvent(FRONTEND_HEALTHY_EVENT, { detail: { releaseId: selected.releaseId, generation: 7 } }));
+  expect(appliedFrontendRelease()).toBeNull();
+  f.options.events.dispatchEvent(new CustomEvent(FRONTEND_HEALTHY_EVENT, { detail: { releaseId: selected.releaseId, generation: 8 } }));
+  expect(appliedFrontendRelease()).toEqual({ releaseId: selected.releaseId, version: "2.0.0", notes: "Keeps your drafts" });
+  reloaded.dispose();
+});
 
 const checkpoint: ClientCheckpoint = { activeWorkspaceId: "w", activeTabId: "t", drafts: { t: { text: "last edit", attachmentIds: ["a"], replyTo: null } }, scroll: { t: { chat: "anchor", terminal: "42" } } };
 const safety = { focused: false, idle: true, typing: false, composing: false, modalOpen: false, pendingUploads: 0 };
@@ -329,4 +356,15 @@ it("reopens a closed frontend from current local drafts without resurrecting an 
     browser.dispose();
     localStorage.clear();
   }
+});
+
+it("summarizes only the rendered frontend release notes and rejects rollback identities", () => {
+  const release = { releaseId: "frontend-v2.0.0", version: "2.0.0", minApiVersion: 3, maxApiVersion: 3,
+    releaseNotes: "# Faster interface\n\n- Preserves drafts\n- Restores scroll\n- More details" };
+  const ticket = { releaseId: release.releaseId, generation: 1, token: "health" };
+  expect(frontendReleaseSummary(release, ticket, [])).toEqual({ releaseId: release.releaseId, version: "2.0.0", notes: "Faster interface · Preserves drafts · Restores scroll" });
+  expect(frontendReleaseSummary(release, { ...ticket, releaseId: "previous" }, [])).toBeNull();
+  expect(frontendReleaseSummary(release, ticket, [release.releaseId])).toBeNull();
+  expect(frontendReleaseSummary(undefined, ticket, [])).toBeNull();
+  expect(frontendReleaseSummary({ ...release, releaseNotes: "x".repeat(4096) }, ticket, [])?.notes).toHaveLength(480);
 });

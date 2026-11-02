@@ -51,7 +51,9 @@
   addEventListener("codeterm:frontend-root-rendered", event => {
     if (failing || rendered || !event.detail || event.detail.releaseId !== ticket.releaseId || event.detail.generation !== ticket.generation) return;
     rendered = true;
-    void request("/api/frontend/healthy", { ...ticket, clientId: context.clientId }).catch(() => { void fail(); });
+    void request("/api/frontend/healthy", { ...ticket, clientId: context.clientId }).then(() => {
+      if (!failing) dispatchEvent(new CustomEvent("codeterm:frontend-healthy", { detail: { releaseId: ticket.releaseId, generation: ticket.generation } }));
+    }).catch(() => { void fail(); });
   });
   AbortSignal.timeout(30000).addEventListener("abort", () => { if (!rendered) void fail(); }, { once: true });
 })();

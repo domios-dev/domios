@@ -115,6 +115,7 @@ async fn auto_install_without_native_host_returns_actionable_typed_refusal() {
     let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
     let state = crate::transport_tabs::fixture::app_state(&fixture);
     assert!(codeterm_commands::application_host::require(&state.svc).is_err());
+    let update = state.update_state.clone();
     let app = crate::routes::create_router(state);
     let response = app
         .oneshot(
@@ -125,15 +126,70 @@ async fn auto_install_without_native_host_returns_actionable_typed_refusal() {
         )
         .await
         .unwrap();
-    assert_eq!(
-        response.status(),
-        axum::http::StatusCode::SERVICE_UNAVAILABLE
-    );
+    assert_eq!(response.status(), axum::http::StatusCode::CONFLICT);
     assert_eq!(response.headers()["content-type"], "application/json");
     let bytes = to_bytes(response.into_body(), 4096).await.unwrap();
     let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     assert_eq!(body["code"], "native_capability_unavailable");
-    assert!(body["message"]
-        .as_str()
-        .is_some_and(|message| !message.is_empty()));
+    let message = body["message"].as_str().unwrap();
+    assert!(message.contains("desktop client"));
+    assert!(message.contains("domios update install --from-file <installer-path>"));
+    assert_eq!(update.lock().phase, codeterm_update::UpdatePhase::Idle);
+    assert!(update.lock().last_error.is_none());
+}
+
+#[tokio::test]
+async fn auto_install_with_native_host_reaches_the_registered_updater() {
+    use axum::{body::Body, http::Request};
+    use codeterm_update::{
+        application_host::ApplicationHost,
+        apply::{ApplyOptions, ApplyResult},
+    };
+    use std::sync::Arc;
+    use tower::ServiceExt;
+
+    struct Host(parking_lot::Mutex<Option<tokio::sync::oneshot::Sender<ApplyOptions>>>);
+    #[codeterm_update::application_host::async_trait]
+    impl ApplicationHost for Host {
+        fn restart(&self) -> Result<(), String> {
+            Err("Unexpected restart".into())
+        }
+        fn exit(&self, _: i32) -> Result<(), String> {
+            Err("Unexpected exit".into())
+        }
+        async fn copy_image_to_clipboard(&self, _: String) -> Result<(), String> {
+            Err("Unexpected clipboard".into())
+        }
+        async fn check_and_apply(&self, options: ApplyOptions) -> Result<ApplyResult, String> {
+            assert!(self.0.lock().take().unwrap().send(options).is_ok());
+            Ok(ApplyResult::NoUpdate)
+        }
+    }
+    let (mux, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
+    let fixture = codeterm_service_core::service::test_fixture::ServiceFixture::new(mux);
+    let (sender, received) = tokio::sync::oneshot::channel();
+    assert!(fixture
+        .service
+        .register_host_extension(Arc::new(
+            codeterm_commands::application_host::ApplicationHostState(Arc::new(Host(
+                parking_lot::Mutex::new(Some(sender))
+            )))
+        ))
+        .is_ok());
+    let state = crate::transport_tabs::fixture::app_state(&fixture);
+    let response = crate::routes::create_router(state)
+        .oneshot(
+            Request::post("/api/update/install?method=auto")
+                .header("authorization", "Bearer preview-test-token")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), axum::http::StatusCode::OK);
+    let options = tokio::time::timeout(std::time::Duration::from_secs(1), received)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(options.manifest_url.is_none());
 }

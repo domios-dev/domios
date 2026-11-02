@@ -2,6 +2,7 @@ import { FrontendUpdateError } from "./bootstrapModel";
 import { frontendApiCompatible } from "../frontendApiContract";
 import { streamRecoveryAction } from "../streamRecoveryModel";
 import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
+import { frontendReleaseSummary, publishAppliedFrontendRelease } from "./releaseNotes";
 import type { TransportClient } from "../transportClient";
 import { createFrontendUpdateClient, createSwapController, preparePageReload, type BootContext } from "./client";
 import type { ClientCheckpoint } from "./checkpoint";
@@ -15,6 +16,7 @@ import {
 } from "./model";
 
 export const ROOT_RENDERED_EVENT = "codeterm:frontend-root-rendered";
+export const FRONTEND_HEALTHY_EVENT = "codeterm:frontend-healthy";
 export const BOOT_CONTEXT_KEY = "codeterm.frontend.boot";
 
 export interface FrontendSignals {
@@ -70,7 +72,7 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
     const token = client.currentToken();
     if (!token) { options.onError(new Error("Frontend reload requires daemon credentials")); return; }
     preparePageReload({ apiOrigin: client.origin(), token, clientId: options.clientId, ticket,
-      attempted: options.boot?.attempted ?? [], bundled: options.bundled }, options.storage, options.navigate);
+      attempted: options.boot?.attempted ?? [], bundled: options.bundled, release: controller.snapshot().pending ?? undefined }, options.storage, options.navigate);
   }, state => options.onOffer?.(updateOffer(state)));
   const setConnection = (connection: FrontendUpdateConnection) => controller.dispatch({ type: "connection", status: connection });
   controller.dispatch({ type: "hold", held: options.held?.() === true });
@@ -130,6 +132,14 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
   connect();
   updateStatus(status);
   let rendered = false;
+  const healthy = (event: Event) => {
+    const ticket = options.boot?.ticket;
+    const detail: unknown = (event as CustomEvent).detail;
+    if (!rendered || !ticket || !detail || typeof detail !== "object" || !("releaseId" in detail) || !("generation" in detail)
+      || detail.releaseId !== ticket.releaseId || detail.generation !== ticket.generation) return;
+    publishAppliedFrontendRelease(frontendReleaseSummary(options.boot?.release, ticket, options.boot?.attempted ?? []));
+  };
+  options.events.addEventListener(FRONTEND_HEALTHY_EVENT, healthy);
   return {
     snapshot: () => structuredClone(controller.snapshot()) as Omit<SwapState, "checkpoint"> & { checkpoint: ClientCheckpoint },
     hold(held: boolean) { controller.dispatch({ type: "hold", held }); },
@@ -138,8 +148,10 @@ export async function initializeFrontendUpdateRuntime(client: TransportClient, o
       if (rendered) return;
       rendered = true;
       const ticket = options.boot?.ticket;
-      if (ticket) options.events.dispatchEvent(options.event({ releaseId: ticket.releaseId, generation: ticket.generation }));
+      if (ticket) {
+        options.events.dispatchEvent(options.event({ releaseId: ticket.releaseId, generation: ticket.generation }));
+      }
     },
-    dispose() { disposed = true; options.events.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recovered); stopStream(); stopSignals(); controller.dispose(); },
+    dispose() { disposed = true; options.events.removeEventListener(FRONTEND_HEALTHY_EVENT, healthy); options.events.removeEventListener(TERMINAL_VIEWER_RECONNECTED_EVENT, recovered); stopStream(); stopSignals(); controller.dispose(); },
   };
 }

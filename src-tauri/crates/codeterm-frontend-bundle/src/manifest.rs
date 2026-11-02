@@ -12,6 +12,8 @@ pub struct Manifest {
     pub sha256: String,
     pub url: String,
     pub release_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_notes: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -46,7 +48,7 @@ impl Manifest {
     }
 
     pub fn canonical_bytes(&self) -> Result<Vec<u8>, String> {
-        let fields = BTreeMap::from([
+        let mut fields = BTreeMap::from([
             ("version", serde_json::json!(self.version)),
             ("minApiVersion", serde_json::json!(self.min_api_version)),
             ("maxApiVersion", serde_json::json!(self.max_api_version)),
@@ -54,6 +56,12 @@ impl Manifest {
             ("url", serde_json::json!(self.url)),
             ("releaseId", serde_json::json!(self.release_id)),
         ]);
+        if let Some(notes) = &self.release_notes {
+            if notes.len() > 4096 {
+                return Err("Frontend release notes exceed 4096 bytes".into());
+            }
+            fields.insert("releaseNotes", serde_json::json!(notes));
+        }
         serde_json::to_vec(&fields).map_err(|e| e.to_string())
     }
 }

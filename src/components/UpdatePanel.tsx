@@ -11,6 +11,7 @@ import { BrandMark } from "./brand/BrandMark";
 import { DotMatrixCanvas } from "./brand/DotMatrixCanvas";
 import { useBusyWaves } from "./brand/useBusyWaves";
 import { usePrefersReducedMotion } from "./brand/usePrefersReducedMotion";
+import { updateRestartDescription } from "../lib/updateStatusModel";
 
 const STATE_TEXT: Record<UpdateRow["state"], string> = {
   available: "Available",
@@ -59,6 +60,10 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
   const update = useUpdatePanel();
   return (
       <div className="flex flex-col gap-3">
+        {update.frontendRelease && <div role="status" aria-label="Interface updated" className="text-xs text-[var(--ct-muted-fg)]">
+          Interface {update.frontendRelease.version} updated. No restart required.
+          {update.frontendRelease.notes && <p>What’s new: {update.frontendRelease.notes}</p>}
+        </div>}
         {groupUpdates(update.rows).map(section => (
           <section key={section.group} aria-label={`${section.group} updates`}>
             <h3 className="mb-0.5 text-[11px] font-medium text-[var(--ct-muted)]">{section.group}</h3>
@@ -78,6 +83,7 @@ function UpdatePanelContents({ children }: { children?: ReactNode }) {
                     {(row.state !== "available" || !canApply) && <RowState row={row} />}
                     {canApply && <Button variant="accent" size="compact" disabled={update.busy || update.checking} aria-label={`Update ${item.name}`} onClick={() => void update.applyItem(item.id)}>Update</Button>}
                   </div>
+                  {updateRestartDescription(item.group) && row.state !== "completed" && <div className="col-span-2 text-[11px] text-[var(--ct-muted-fg)]">{updateRestartDescription(item.group)}</div>}
                   {row.state === "active" && <progress aria-label={`${item.name} update progress`} max={100} value={item.group === "App" ? update.appProgress ?? undefined : undefined} className="ct-progress col-span-2" />}
                   {((row.channelError && !row.channel) || row.sourceWarning) && <div className="col-span-2"><InlineErrorNotice description={{
                     title: row.sourceWarning ? "Cached update remains available" : `${item.name} updates unavailable`,
