@@ -35,11 +35,11 @@ answers in seconds and you read its output directly. Anything that takes
 minutes and prints thousands of lines goes to a sub-agent: the transcript is
 the cost, not the wall time.
 
-Rust `test-one` calls default to a 600-second process-group cap. `test` and
-`verify` use 3600 seconds per Cargo test invocation; Cargo compiles targets with
-`--no-run` before each deadline starts. `TEST_CAP_SECS` overrides either value,
-and `TEST_CAP_SECS=0` disables the execution cap. Expiry exits 124 and prints
-active libtest case names captured from the execution output.
+Rust test commands retain `scripts/test-capped.sh` as their entrypoint.
+`TEST_CAP_SECS` selects an advisory execution duration (0 disables warnings).
+Exceeding it prints a warning after completion and preserves the actual child exit;
+it never terminates tests. Compilation happens before execution timing. Cancellation,
+protocol deadlines, failed tests and incomplete evidence remain failures.
 
 ## Focused checks (Rust commands are canonical only)
 
@@ -105,9 +105,15 @@ The provider boundary guard compares exact exceptions with `origin/develop`; CI 
 
 ## Broad, delegate
 
+Run the broad gate in its owner's Team utility shell with `--timeout none`;
+completion is the process exit and final report, never elapsed time. Preserve
+owner cancellation and protocol/cleanup deadlines. Each completed preflight step
+prints its name, duration and actual exit; retain the full log for the profile.
+Do not rerun the broad gate to obtain timings already captured on the candidate.
+
 The broad gate is `./build.ps1 release-preflight`: fmt, size, bundles,
 versions, cargo check, clippy, the release Rust set, tsc, knip,
-489 TS test files, biome. It runs **once, on the release SHA, immediately
+the TS unit suite, biome. It runs **once, on the release SHA, immediately
 before cutting** — never per merge.
 
 The release Rust set is every `release`-tier Rust runner in
@@ -116,7 +122,7 @@ every src-tauri workspace member, the shell package as its lib, the
 `codeterm-devtools` `tests/main.rs` target, `crates/mem-store` and the CLI.
 `codeterm-paths` is a normal app workspace member. `pty-fork` stays `manual`. Preflight runs it
 through `./build.sh release-rust [runner-id...]`, which runs each runner's
-`./build.sh nextest <scope>` with its `budget_secs` as the cap, keeps going past
+`./build.sh nextest <scope>` with its `budget_secs` as an advisory duration, keeps going past
 a red runner, prints `release-rust: RED <ids>` per failure and one closing
 summary, and skips only the `stale` and this platform's `platform_red` markers of
 `tests/catalogue.overlay.json`. A red is fixed or recorded there as
@@ -225,7 +231,7 @@ plugin-only releases are outside this gate.
 
 An intentional `--queue` uses the same event-based queue as `--wait-build`; it does not grant verification authority or change a Worker’s assigned gates. Default busy-slot refusal remains in effect.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->
 
 ## Rust warning inventory and cleanup
 
