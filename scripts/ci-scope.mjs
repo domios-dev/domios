@@ -16,6 +16,7 @@ const frontendFiles = new Set([
   "pnpm-lock.yaml", "pnpm-workspace.yaml", "frontend-release-contract.json",
   "biome.json", "knip.json", "scripts/vitest-owned-tests.json",
   "scripts/run-ts-unit-tests.mjs",
+  "scripts/ts-test-dependency-cache.mjs",
   "scripts/ts-unit-tests.sh", "scripts/ts-test-assets.mjs", "scripts/ts-test-asset-hook.mjs",
 ]);
 
