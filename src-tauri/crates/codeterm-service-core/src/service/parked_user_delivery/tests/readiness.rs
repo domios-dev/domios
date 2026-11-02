@@ -3,15 +3,6 @@ use super::*;
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn late_verified_hook_flushes_held_send_once_without_replaying_written_input() {
     let (fixture, tab) = queue_fixture(true, None);
-    fixture.service.record_provisional_launch(
-        &crate::service::launch_readiness::LaunchAttempt {
-            tab_id: tab.clone(),
-            pty_id: "opaque-pty".into(),
-            binding_nonce: "opaque-current-nonce".into(),
-        },
-        codeterm_types::pty::BootStage::LaunchDeadlineElapsed,
-        "dropped SessionStart",
-    );
     let accepted = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "late-hook-client");
     refuse_and_park_current_send(&fixture.service, accepted.clone(), FIRST_PAYLOAD);
     let writes = Arc::new(AtomicUsize::new(0));
@@ -23,6 +14,19 @@ async fn late_verified_hook_flushes_held_send_once_without_replaying_written_inp
             count.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }),
+    );
+    fixture.service.record_provisional_launch(
+        &crate::service::launch_readiness::LaunchAttempt {
+            tab_id: tab.clone(),
+            pty_id: "opaque-pty".into(),
+            binding_nonce: "opaque-current-nonce".into(),
+        },
+        codeterm_types::pty::BootStage::LaunchDeadlineElapsed,
+        "dropped SessionStart",
+    );
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
+        Some(codeterm_types::pty::BootStage::LaunchDeadlineElapsed)
     );
     attach_fixture_pty(&fixture, &tab);
     fixture.service.drain_user_owner(&tab).unwrap();
