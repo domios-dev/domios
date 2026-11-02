@@ -1,3 +1,5 @@
+export type { TeamTaskBucket } from "./teamTaskStatus";
+import { EMPTY_BUCKETS, deriveCardStatusCounts, deriveTeamTaskBuckets, type TeamTaskBucket } from "./teamTaskStatus";
 import { createNoticePublisher } from "../../lib/notices";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { describeError } from "../../lib/describeError";
@@ -8,12 +10,12 @@ import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
-import { TaskStatus, type Plan } from "../Canvas/types";
+import type { Plan } from "../Canvas/types";
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ActivityDots } from "../shared/ActivityDots";
 import { KebabGlyph } from "../shared/RowMenuButton";
-import { PLAN_STATUS_COLORS, SegmentedDonut } from "../shared/SegmentedDonut";
+import { SegmentedDonut } from "../shared/SegmentedDonut";
 import { TeamStatusTally } from "./TeamStatusTally";
 import { LockBadge } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
@@ -37,59 +39,6 @@ export interface SidebarTeamActions {
     model?: string,
   ) => void | Promise<void>;
   onCloseTeam?: (teamId: string) => Promise<TeamCloseInventory>;
-}
-
-export interface TeamTaskBucket {
-  key: "todo" | "review" | "blocked" | "paused" | "done";
-  label: string;
-  count: number;
-  color: string;
-}
-
-const EMPTY_BUCKETS: TeamTaskBucket[] = [
-  { key: "todo", label: "todo", count: 0, color: PLAN_STATUS_COLORS.todo },
-  { key: "review", label: "review", count: 0, color: PLAN_STATUS_COLORS.review },
-  { key: "blocked", label: "blocked", count: 0, color: PLAN_STATUS_COLORS.blocked },
-  { key: "paused", label: "paused", count: 0, color: PLAN_STATUS_COLORS.paused },
-  { key: "done", label: "done", count: 0, color: PLAN_STATUS_COLORS.done },
-];
-
-export function deriveTeamTaskBuckets(
-  plan: Plan,
-  _tabs: Record<string, Tab>,
-): TeamTaskBucket[] {
-  const counts = new Map<TeamTaskBucket["key"], number>(EMPTY_BUCKETS.map((bucket) => [bucket.key, 0]));
-  for (const task of plan.tasks) {
-    const key: TeamTaskBucket["key"] | null =
-      task.status === TaskStatus.Pending || task.status === TaskStatus.InProgress
-        ? "todo"
-        : task.status === TaskStatus.InReview
-          ? "review"
-          : task.status === TaskStatus.Blocked
-            ? "blocked"
-            : task.status === TaskStatus.Paused
-              ? "paused"
-              : task.status === TaskStatus.Done
-                ? "done"
-                : null;
-    if (key) counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return EMPTY_BUCKETS.map((bucket) => ({
-    ...bucket,
-    count: counts.get(bucket.key) ?? 0,
-  }));
-}
-
-export function deriveCardStatusCounts(buckets: TeamTaskBucket[]): PlanStatusCounts {
-  const count = (key: TeamTaskBucket["key"]) => buckets.find((bucket) => bucket.key === key)?.count ?? 0;
-  const paused = count("paused");
-  return {
-    todo: count("todo") + paused,
-    review: count("review"),
-    blocked: count("blocked"),
-    paused,
-    done: count("done"),
-  };
 }
 
 export function useTeamPlanMotion(buckets: TeamTaskBucket[]) {

@@ -11,7 +11,7 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import { SquareTerminal, X } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { listen } from "../../lib/bridge";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabFieldsEqual, selectTab, selectActiveWorkspaceId } from "../../store/multiplexer/selectors";
 import {
   useXterm,

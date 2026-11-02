@@ -19,7 +19,7 @@ import { presentSystemReminder } from "./systemReminderModel";
 import { SystemHeartbeatDetail } from "./SystemHeartbeatDetail";
 import { useResolvedTabActivity, useTabHasPlan } from "./useTabPlanActivity";
 import { usePhoneViewport } from "../../hooks/useSidebarViewport";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 import { goalVisible } from "./goalModel";
 import { ComposerBackgroundWorkPanel } from "./ComposerBackgroundWorkPanel";

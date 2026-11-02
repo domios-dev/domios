@@ -8,7 +8,7 @@ vi.mock("../../hooks/terminal/terminalInputWrite", async (actual) => ({ ...await
 import { useTerminalInput } from "../../hooks/terminal/useTerminalInput";
 import { isInputBlockedTab } from "../../lib/tabInputPolicy";
 import type { MultiplexerState } from "../../lib/types";
-import { useMuxState } from "../../store/multiplexer";
+import { useMuxState } from "../../store/multiplexer/hooks";
 import { TabItem } from "../Sidebar/TabItem";
 import { TeamUnit } from "../Sidebar/TeamUnit";
 import { SidebarDnd } from "../Sidebar/sortable";

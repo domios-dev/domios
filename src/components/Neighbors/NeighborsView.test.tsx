@@ -30,7 +30,7 @@ vi.mock("../../lib/bridge", () => ({ invoke: bridge.invoke, listen: vi.fn(async 
   return () => { handlers.delete(handler); if (handlers.size === 0) delete bridge.handlers[event]; };
 }) }));
 vi.mock("../Settings/useAccount", () => ({ useAccount: () => ({ model: account.model, signIn: account.signIn, signOut: vi.fn() }) }));
-vi.mock("../../store/multiplexer", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
+vi.mock("../../store/multiplexer/hooks", () => ({ useMuxSelector: (select: (state: typeof mux) => unknown) => select(mux) }));
 
 const { neighbor, signedIn, mounted, button, hasButton, emit, runtime, render, sentText, concierge, pendingClient } = createNeighborsViewFixture({ notices, transport, bridge, account, mux });
 

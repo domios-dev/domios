@@ -1,6 +1,6 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useState } from "react";
-import { CodeBlock } from "@codeterm/chat-ui";
+import { CodeBlock } from "@codeterm/chat-ui/CodeBlock";
 import type { ProviderDescriptor } from "../../lib/types";
 import { Button } from "../shared/Button";
 import { Card } from "../shared/Card";

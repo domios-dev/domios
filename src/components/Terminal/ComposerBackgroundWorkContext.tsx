@@ -1,7 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import { useComposerBackgroundWork } from "./useComposerBackgroundWork";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { useAgentDescriptor } from "../../lib/useAgentDescriptor";
 
 type BackgroundWork = ReturnType<typeof useComposerBackgroundWork>;

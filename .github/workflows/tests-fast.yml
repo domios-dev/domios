@@ -508,6 +508,7 @@ jobs:
       CI_CANCEL_RUN: "false"
       CODETERM_SCCACHE_VERIFY_ONLY: "0"
       TS_UNIT_SHARD: ${{ matrix.shard }}/4
+      TS_UNIT_JOBS: '1'
     steps:
       - name: Setup Node.js
         id: ci-2

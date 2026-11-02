@@ -4,10 +4,10 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { BookOpen, LayoutGrid, Map as MapIcon, RotateCcw, X } from "lucide-react";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
-import { useMultiplexer, useMuxState } from "../../store/multiplexer";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import { resolveCanvasFocusNodeIds, type CanvasFocusPayload } from "./canvasFocusPayload";
 import { CanvasEmptyActions } from "./CanvasEmptyActions";
-import { CanvasToolbar } from "@codeterm/chat-ui";
+import { CanvasToolbar } from "@codeterm/chat-ui/CanvasToolbar";
 import { CanvasMinimap } from "./CanvasMinimap";
 import { CanvasTagLegend } from "./CanvasTagLegend";
 import {

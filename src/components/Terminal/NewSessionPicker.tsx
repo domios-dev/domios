@@ -6,7 +6,7 @@ import { useAgentProviders } from "../../hooks/useAgentProviders";
 import { useModelPresets } from "../../hooks/useModelPresets";
 import { invoke } from "../../lib/bridge";
 import { DEV_BUILD } from "../../lib/devBuild";
-import { useMultiplexer, useMuxState } from "../../store/multiplexer";
+import { useMultiplexer, useMuxState } from "../../store/multiplexer/hooks";
 import { setAgentSettings } from "../../lib/clientSettings";
 import {
   allowedNewSessionModes,

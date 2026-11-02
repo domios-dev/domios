@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { ReturnToRoute } from "../../lib/returnTo";
 import type { Team, Workspace } from "../../lib/types";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import {
   planNavContextEqual,
   selectPlanNavContext,

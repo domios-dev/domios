@@ -10,7 +10,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 
 const fixture = vi.hoisted(() => ({ state: null as ExtendedState | null }));
 
-vi.mock("../../store/multiplexer", () => ({
+vi.mock("../../store/multiplexer/hooks", () => ({
   useMuxState: () => fixture.state,
   useMuxSelector: (select: (state: unknown) => unknown) => select(fixture.state),
   useMultiplexer: () => ({}),

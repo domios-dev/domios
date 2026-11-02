@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useMuxSelector } from "../store/multiplexer";
+import { useMuxSelector } from "../store/multiplexer/hooks";
 import type { ExtendedState } from "../store/multiplexer/tree";
 import { tabActivity } from "./tabActivity";
 import type { TabActivity } from "./tabActivity";

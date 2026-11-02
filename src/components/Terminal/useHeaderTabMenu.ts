@@ -4,7 +4,7 @@ import { useCallback } from "react";
 import { anchorsTeam } from "../../lib/roleKind";
 import type { ProviderDescriptor, Tab } from "../../lib/types";
 import { useAgentDescriptors } from "../../lib/useAgentDescriptor";
-import { useMultiplexer, useMuxSelector } from "../../store/multiplexer";
+import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { resolveTabTabActivity, type TabTabActivity } from "../Canvas/tabTabActivity";

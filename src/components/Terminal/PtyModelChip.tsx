@@ -4,7 +4,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { reasoningEffortsForModel, resolveEffort } from "../../lib/newSessionChoice";
 import { composerPickerState } from "./composerModels";
 import { modelSwitchLabel } from "../../lib/modelSwitch";
-import { useMuxSelector } from "../../store/multiplexer";
+import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { getTabModelApi, type ModelSwitchResult } from "../Sidebar/tabModelApi";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 

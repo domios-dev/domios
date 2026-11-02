@@ -45,6 +45,29 @@ impl Readiness {
         (signal, receipts)
     }
 
+    pub fn ready_stream(&self) -> Result<TcpStream, String> {
+        let mut stream = self
+            .connection
+            .lock()
+            .recv_timeout(SETUP_DEADLINE)
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())?;
+        stream
+            .set_read_timeout(Some(SETUP_DEADLINE))
+            .map_err(|error| error.to_string())?;
+        stream
+            .set_write_timeout(Some(SETUP_DEADLINE))
+            .map_err(|error| error.to_string())?;
+        let mut marker = [0];
+        stream
+            .read_exact(&mut marker)
+            .map_err(|error| error.to_string())?;
+        if marker != [1] {
+            return Err("invalid child readiness marker".into());
+        }
+        Ok(stream)
+    }
+
     pub fn arm(
         self: &Arc<Self>,
         signal: &Cancellation,
@@ -54,25 +77,7 @@ impl Readiness {
         let ready = self.clone();
         let (tx, rx) = mpsc::channel();
         signal.set_readiness(move || {
-            let mut stream = ready
-                .connection
-                .lock()
-                .recv_timeout(SETUP_DEADLINE)
-                .map_err(|error| error.to_string())?
-                .map_err(|error| error.to_string())?;
-            stream
-                .set_read_timeout(Some(SETUP_DEADLINE))
-                .map_err(|error| error.to_string())?;
-            stream
-                .set_write_timeout(Some(SETUP_DEADLINE))
-                .map_err(|error| error.to_string())?;
-            let mut marker = [0];
-            stream
-                .read_exact(&mut marker)
-                .map_err(|error| error.to_string())?;
-            if marker != [1] {
-                return Err("invalid child readiness marker".into());
-            }
+            let mut stream = ready.ready_stream()?;
             let deadlines = Deadlines::start(limit, runtime).map_err(|error| error.to_string())?;
             tx.send(deadlines.receipt())
                 .map_err(|error| error.to_string())?;

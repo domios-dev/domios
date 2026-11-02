@@ -1,3 +1,6 @@
+mod fixture;
+use fixture::{prepared_switch_worker_fixture, switch_worker_fixture};
+
 use super::*;
 use crate::multiplexer::types::TaskBinding;
 use crate::plan::{OrchestratorRef, Plan, PlanMode};
@@ -639,6 +642,16 @@ fn completed_resume_target_carry_fails_closed_on_history_or_generation_races() {
 
 #[test]
 fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation() {
+    let (fixture, task_id, _) = prepared_switch_worker_fixture(false);
+    complete_switch_task(&fixture, &task_id);
+    let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
+    let valid_tab = fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&fixture.tab)
+        .cloned()
+        .unwrap();
     for invalid in [
         "plan",
         "task",
@@ -664,9 +677,25 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         "lifecycle_epoch",
         "sleeping",
     ] {
-        let (fixture, task_id, _) = prepared_switch_worker_fixture(false);
-        complete_switch_task(&fixture, &task_id);
-        let detail = fixture.service.plan_store.show_task(&task_id).unwrap();
+        clear_switch_cooldown(&fixture);
+        *fixture
+            .service
+            .mux
+            .write()
+            .get_tab_mut(&fixture.tab)
+            .unwrap() = valid_tab.clone();
+        fixture
+            .service
+            .plan_store
+            .with_plan(&detail.plan_id, 5, |plan| {
+                *plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == task_id)
+                    .unwrap() = detail.task.clone();
+                Ok(())
+            })
+            .unwrap();
         match invalid {
             "plan" | "task" | "attempt" | "partial" | "session" | "nonce" | "unverified"
             | "pty_id" | "empty_pty" | "lifecycle_epoch" | "sleeping" => {
@@ -1039,102 +1068,6 @@ fn failed_runtime_restart_releases_the_task_attempt_authority() {
             .count(),
         1
     );
-}
-
-fn switch_worker_fixture() -> (RuntimeFixture, String, String) {
-    prepared_switch_worker_fixture(true)
-}
-
-fn prepared_switch_worker_fixture(storage: bool) -> (RuntimeFixture, String, String) {
-    let fixture = RuntimeFixture::prepared(SOURCE, storage);
-    let source_transcript = fixture.temp.path().join("source-thread.jsonl");
-    std::fs::write(&source_transcript, []).unwrap();
-    fixture.service.agent_registry.register_provider(Box::new(
-        crate::agent::test_provider::MockProvider::with_session_file(
-            "source-provider",
-            source_transcript,
-        ),
-    ));
-    {
-        let mut mux = fixture.service.mux.write();
-        let tab = mux.get_tab_mut(&fixture.tab).unwrap();
-        tab.agent_type = Some("source-provider".into());
-        tab.agent_session_id = Some("source-thread".into());
-        tab.session_binding_nonce = Some("source-nonce".into());
-        tab.reported_session_binding_nonce = Some("source-nonce".into());
-        tab.backing = TabBacking::Pty;
-        tab.pty_id = Some("source-pty-generation".into());
-        tab.lifecycle_epoch = Some(1);
-        tab.agent_booting = false;
-    }
-    let store = &fixture.service.plan_store;
-    let mut plan = Plan::new(
-        "switch fixture".into(),
-        fixture.temp.path().display().to_string(),
-        OrchestratorRef::from_tab("orchestrator"),
-    );
-    plan.mode = PlanMode::Execution;
-    store.save(&mut plan, 1).unwrap();
-    let task = store
-        .add_task(
-            &plan.id,
-            NewTask {
-                name: "opaque work".into(),
-                ..Default::default()
-            },
-            2,
-        )
-        .unwrap();
-    store
-        .assign_task_with_runtime_binding(
-            &plan.id,
-            &task,
-            &fixture.tab,
-            None,
-            Some("worker"),
-            Some(&AssignmentRuntimeBinding {
-                session_id: "source-thread".into(),
-                session_binding_nonce: "source-nonce".into(),
-                provider: Some("source-provider".into()),
-                model: None,
-                session_model: None,
-                reasoning_effort: None,
-            }),
-            None,
-            3,
-        )
-        .unwrap();
-    store
-        .with_plan(&plan.id, 3, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|entry| entry.id == task)
-                .unwrap();
-            task.interruption.execution_intent = crate::plan::ExecutionIntent::Mutating;
-            task.lane.worktree_path = Some(fixture.temp.path().display().to_string());
-            Ok(())
-        })
-        .unwrap();
-    let attempt = store.show_task(&task).unwrap().task.execution_attempts[0]
-        .id
-        .clone();
-    store
-        .acknowledge_task_attempt(&plan.id, &task, &fixture.tab, &attempt, 4)
-        .unwrap();
-    fixture
-        .service
-        .mux
-        .write()
-        .get_tab_mut(&fixture.tab)
-        .unwrap()
-        .task_binding = Some(TaskBinding {
-        plan_id: Some(plan.id.clone()),
-        task_id: Some(task.clone()),
-        attempt_id: Some(attempt.clone()),
-        ..Default::default()
-    });
-    (fixture, task, attempt)
 }
 
 #[test]

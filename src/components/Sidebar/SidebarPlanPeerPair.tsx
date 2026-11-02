@@ -1,3 +1,4 @@
+import { isTabDragDisabled } from "./tabDragModel";
 import { memo } from "react";
 import type { Tab, TabStatus } from "../../lib/types";
 import type { Plan } from "../Canvas/types";
@@ -164,9 +165,7 @@ export interface SidebarSingleTabRowProps extends SidebarTabItemRowProps {
   toWorkspaceOrder?: SortableGroupData["toWorkspaceOrder"];
 }
 
-export function isTabDragDisabled(tab: Pick<Tab, "protected">): boolean {
-  return tab.protected === true;
-}
+
 
 /** Renders only when its own row changes; callers pass stable handlers and `toWorkspaceOrder`. */
 export const SidebarSingleTabRow = memo(function SidebarSingleTabRow({

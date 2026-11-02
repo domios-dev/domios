@@ -1,4 +1,4 @@
-import { RichMarkdown } from "@codeterm/chat-ui";
+import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
 import type { ReactNode } from "react";
 import type { Tab } from "../../../lib/types";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";

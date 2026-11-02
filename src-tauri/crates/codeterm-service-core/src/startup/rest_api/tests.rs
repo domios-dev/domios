@@ -205,7 +205,9 @@ async fn occupied_port_release_event_rebinds_the_real_listener() {
 async fn manual_restart_rebinds_a_real_listener() {
     let _listeners = LISTENER_FIXTURES.lock().await;
     let control = Arc::new(RestApiControl::new());
-    let address = reserve_initial_listener(&control).await;
+    let listener = reserve_restart_listener().await;
+    let address = listener.local_addr().unwrap();
+    control.install_initial_listener(listener);
     let mut status = control.subscribe_status();
     let task = tokio::spawn(start(control.clone(), address.to_string(), health_router()));
     let mut previous = wait_for_status(&control, &mut status, |s| {
@@ -226,6 +228,18 @@ async fn manual_restart_rebinds_a_real_listener() {
     let stream = tokio::net::TcpStream::connect(address).await.unwrap();
     drop(stream);
     task.abort();
+}
+
+async fn reserve_restart_listener() -> std::net::TcpListener {
+    // Ephemeral outgoing connections must not claim the address between listener generations.
+    for port in 20_000..21_024 {
+        match bind_listener(&format!("127.0.0.1:{port}")).await {
+            Ok(listener) => return listener,
+            Err(error) if error.kind() == std::io::ErrorKind::AddrInUse => continue,
+            Err(error) => panic!("restart fixture listener: {error}"),
+        }
+    }
+    panic!("restart fixture has no available non-ephemeral listener port");
 }
 
 #[tokio::test]

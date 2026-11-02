@@ -2,7 +2,7 @@ import { tabActivity } from "../../lib/tabActivity";
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { listen } from "../../lib/bridge";
-import { useMuxState } from "../../store/multiplexer";
+import { useMuxState } from "../../store/multiplexer/hooks";
 import { useSwarmCanvas } from "./useSwarmCanvas";
 import { computeTreeLayout } from "./layout";
 import type { SwarmState, SwarmNode, SwarmEdge, ReportParticle } from "./types";

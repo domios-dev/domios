@@ -1,4 +1,4 @@
-import { RichMarkdown } from "@codeterm/chat-ui";
+import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
 import type { Plan } from "../types";
 import { latestRetrospective, showRetrospectiveBlock } from "./planRetrospective";
 
