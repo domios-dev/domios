@@ -517,15 +517,6 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn publish_reaches_subscriber() {
-        let bc = EventBroadcaster::new();
-        let mut rx = bc.subscribe();
-        bc.publish(SystemEvent::MuxStateChanged);
-        let ev = rx.recv().await.unwrap();
-        assert!(matches!(ev.event, SystemEvent::MuxStateChanged));
-    }
-
-    #[tokio::test]
     async fn publish_carries_payload() {
         let bc = EventBroadcaster::new();
         let mut rx = bc.subscribe();

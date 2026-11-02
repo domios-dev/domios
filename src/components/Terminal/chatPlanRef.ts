@@ -1,6 +1,6 @@
 import type { Workspace } from "../../lib/types";
 import type { PlanIndexEntry, ResolvedPlanRef } from "../Canvas/plansApi";
-import { taskReferenceLabel } from "../Canvas/taskDisplayKey";
+import { taskDisplayKey, taskReferenceLabel } from "../Canvas/taskDisplayKey";
 import { findPlanOwnerWorkspace } from "../Canvas/workspacePlanEntry";
 import { planRefViewState } from "./planRefViewState";
 
@@ -25,6 +25,9 @@ export function chatPlanRefView(
     title: refTitle(resolved),
     planTitle: resolved.plan_title,
     taskTitle: resolved.task_title,
+    taskKey: resolved.target_kind === "task" && resolved.target_id
+      ? taskDisplayKey({ id: resolved.target_id, key: resolved.task_key })
+      : undefined,
     sectionTitle: resolved.section_title,
     state: planRefViewState(resolved.state, ownerWorkspace != null, resolverUnreachable),
     rawLabel: resolved.target_id ?? resolved.plan_id,

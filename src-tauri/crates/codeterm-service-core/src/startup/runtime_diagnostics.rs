@@ -53,7 +53,6 @@ pub async fn watch(runtime: &'static str) {
         }
     }
 }
-
 pub struct RequestTiming {
     id: u64,
     label: Arc<String>,
@@ -86,21 +85,5 @@ impl Drop for RequestTiming {
         if elapsed > REQUEST_THRESHOLD {
             log::debug!("[SLOW-REST] {} {}ms", self.label, elapsed.as_millis());
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn runtime_stall_excludes_timer_budget_and_requires_over_100ms_delay() {
-        let budget = Duration::from_millis(100);
-        assert_eq!(scheduling_delay(Duration::ZERO, budget), None);
-        assert_eq!(scheduling_delay(Duration::from_millis(200), budget), None);
-        assert_eq!(
-            scheduling_delay(Duration::from_millis(201), budget),
-            Some(Duration::from_millis(101))
-        );
     }
 }

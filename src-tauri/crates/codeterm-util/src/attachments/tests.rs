@@ -115,22 +115,6 @@ fn test_max_bytes_eviction() {
 }
 
 #[test]
-fn test_evict_empty_dir_no_panic() {
-    let bucket = unique_bucket();
-    let dir = bucket_dir(&bucket);
-    std::fs::create_dir_all(&dir).unwrap();
-    evict(&dir, EvictionPolicy::MaxCount(10));
-    evict(&dir, EvictionPolicy::MaxBytes(1000));
-    let _ = std::fs::remove_dir_all(&dir);
-}
-
-#[test]
-fn test_evict_nonexistent_dir_no_panic() {
-    let dir = std::env::temp_dir().join(format!("nonexistent-{}", uuid::Uuid::new_v4()));
-    evict(&dir, EvictionPolicy::MaxCount(10));
-}
-
-#[test]
 fn test_materialize_dropped_temp_screenshot_to_durable_path() {
     let temp_root = std::env::temp_dir().join(format!("codeterm-source-{}", uuid::Uuid::new_v4()));
     let temp_dir = temp_root

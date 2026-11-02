@@ -15,8 +15,6 @@ export function resolveTabNavigationTarget(
   const tabId = exact ?? (prefixMatches.length === 1 ? prefixMatches[0] : null);
   if (!tabId) return null;
 
-  const workspace = workspaces.find((candidate) =>
-    candidate.tabs.includes(tabId),
-  );
-  return workspace ? { tabId, workspaceId: workspace.id } : null;
+  const owners = workspaces.filter((candidate) => candidate.tabs.includes(tabId));
+  return owners.length === 1 ? { tabId, workspaceId: owners[0].id } : null;
 }

@@ -30,14 +30,6 @@ fn coalesced_navigation_always_opens_the_latest_event_target() {
 }
 
 #[test]
-fn test_add_notification() {
-    let mut store = NotificationStore::new(100);
-    let id = store.add("Test".into(), None, NotificationSeverity::Info, None, None);
-    assert!(!id.is_empty());
-    assert_eq!(store.list(false).len(), 1);
-}
-
-#[test]
 fn test_notification_defaults_unread() {
     let mut store = NotificationStore::new(100);
     store.add("Test".into(), None, NotificationSeverity::Info, None, None);

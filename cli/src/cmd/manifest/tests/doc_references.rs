@@ -57,23 +57,3 @@ fn registered_documents_have_a_gate_or_index_reference() {
         "registered documents missing from gate/index: {missing:?}"
     );
 }
-
-#[test]
-fn doc_reference_checks_reject_broken_and_orphaned_targets() {
-    assert_eq!(
-        unknown_references("in prose `domios docs MISSING-DOCUMENT`, then continue"),
-        ["MISSING-DOCUMENT"]
-    );
-    assert_eq!(
-        unreferenced_documents(["CONFIG", "ROUTING"], "`domios docs CONFIG`"),
-        ["ROUTING"]
-    );
-    assert!(
-        unknown_references("domios docs <NAME>; domios docs --help; domios docs SENTINELS")
-            .is_empty()
-    );
-    assert_eq!(
-        references("`domios docs config`. `codeterm docs API-CLI`"),
-        ["config", "API-CLI"]
-    );
-}

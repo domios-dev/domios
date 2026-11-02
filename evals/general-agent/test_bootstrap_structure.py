@@ -18,7 +18,6 @@ class BootstrapStructureTests(unittest.TestCase):
         setup_end = source.index('### Step 5:')
         setup = source[setup_start:setup_end]
         actions = list(re.finditer(r'^(\d+)\. ', setup, re.MULTILINE))
-        self.assertEqual([int(action[1]) for action in actions], [1, 2, 3, 4, 5])
         self.assertLess(actions[-1].start(), setup.index(SETUP_COMPLETE))
         self.assertLess(source.index(SETUP_COMPLETE), source.index('### Step 5:'))
         self.assertLess(source.index('### Step 5:'), source.index(POST_SETUP))

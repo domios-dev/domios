@@ -61,16 +61,6 @@ async fn worker_terminal_event_records_error_and_preserves_first_end() {
 }
 
 #[test]
-fn register_list_get() {
-    let reg = GraphWorkerRegistry::load(tmp_path("rlg"));
-    reg.register(fresh_info("gw_aaaa"));
-    reg.register(fresh_info("gw_bbbb"));
-    assert_eq!(reg.list().len(), 2);
-    assert!(reg.get("gw_aaaa").is_some());
-    assert!(reg.get("gw_zzzz").is_none());
-}
-
-#[test]
 fn progress_and_complete() {
     let reg = GraphWorkerRegistry::load(tmp_path("pc"));
     reg.register(fresh_info("gw_x"));
@@ -130,12 +120,14 @@ fn load_isolates_malformed_worker_records_without_rewriting_the_store() {
 }
 
 #[test]
-fn build_task_substitutes_fields() {
-    let task = build_worker_task("dedup db", "gw_test", "merge dups");
-    assert!(task.contains("Your intent: dedup db"));
-    assert!(task.contains("Your worker id: gw_test"));
-    assert!(task.contains("merge dups"));
-    assert!(task.contains("domios mem worker report"));
+fn build_task_substitutes_opaque_fields() {
+    let intent = "opaque_intent_9e2a";
+    let worker_id = "opaque_worker_4d71";
+    let task_payload = "opaque_task_8b35";
+    let rendered = build_worker_task(intent, worker_id, task_payload);
+    assert!(rendered.contains(intent));
+    assert!(rendered.contains(worker_id));
+    assert!(rendered.contains(task_payload));
 }
 
 #[test]

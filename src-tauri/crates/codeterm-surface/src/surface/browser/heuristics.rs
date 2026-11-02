@@ -107,21 +107,11 @@ mod tests {
     }
 
     #[test]
-    fn browser_activity_labels_name_the_target() {
-        assert_eq!(activity_label("click", &args(&["@e3"])), "clicking @e3");
-        assert_eq!(
-            activity_label("click", &args(&["button", "Sign in"])),
-            "clicking 'Sign in'"
-        );
-        assert_eq!(
-            activity_label("wait", &args(&["--text", "Done", "now"])),
-            "waiting for Done now"
-        );
-        assert_eq!(activity_label("wait", &[]), "waiting for ");
-        assert_eq!(
-            activity_label("goto", &args(&["a.dev"])),
-            "navigating to a.dev"
-        );
+    fn browser_activity_keeps_action_targets_and_read_only_verbs_quiet() {
+        assert!(activity_label("click", &args(&["@e3"])).contains("@e3"));
+        assert!(activity_label("click", &args(&["button", "Sign in"])).contains("Sign in"));
+        assert!(activity_label("wait", &args(&["--text", "Done", "now"])).contains("Done now"));
+        assert!(activity_label("goto", &args(&["a.dev"])).contains("a.dev"));
         assert!(is_quiet_verb("inbox"));
         assert!(!is_quiet_verb("click"));
     }

@@ -25,6 +25,14 @@ pub(super) const TASK_SCHEMA: &str = r#"
         FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS plan_tasks_status ON plan_tasks(status);
+    CREATE INDEX IF NOT EXISTS plan_tasks_board_cursor
+        ON plan_tasks(
+            plan_id,
+            CASE WHEN status IN ('pending', 'paused') THEN 'pending' ELSE status END,
+            coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0),
+            position,
+            task_id
+        );
     CREATE INDEX IF NOT EXISTS plan_tasks_assigned_tab_id
         ON plan_tasks(assigned_tab_id) WHERE assigned_tab_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_worktree_path

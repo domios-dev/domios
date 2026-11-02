@@ -38,24 +38,13 @@ mod tests {
 
     #[test]
     fn render_fills_plan_id_everywhere() {
-        let out = render(REORIENT, "pl_42");
-        assert!(out.contains("domios plan state pl_42"));
-        assert!(out.contains("domios plan handoff show pl_42"));
-        assert!(!out.contains("{plan_id}"));
+        let out = render("first<{plan_id}> second<{plan_id}>", "opaque-plan");
+        assert_eq!(out, "first<opaque-plan> second<opaque-plan>");
     }
 
     #[test]
     fn render_strips_unfilled_mem_marker() {
-        let out = render(REORIENT, "pl_1");
-        assert!(!out.contains("<<MEM_PREFERENCES>>"));
-        // The marker's removal must not weld the surrounding lines together.
-        assert!(out.contains("set current_focus.\nResume work now."));
-    }
-
-    #[test]
-    fn handoff_request_carries_plan_id() {
-        let out = render(HANDOFF_REQUEST, "pl_7");
-        assert!(out.contains("--plan pl_7"));
-        assert!(out.contains("plan record pl_7"));
+        let out = render("before\n<<MEM_PREFERENCES>>\nafter", "opaque-plan");
+        assert_eq!(out, "before\nafter");
     }
 }

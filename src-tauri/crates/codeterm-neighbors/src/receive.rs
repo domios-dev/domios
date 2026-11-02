@@ -34,6 +34,9 @@ pub trait NeighborTransport: Send + Sync {
 #[async_trait]
 pub trait InboxListener: Send {
     async fn next(&mut self) -> Result<Option<InboxEvent>>;
+    fn pending_count(&self) -> Result<u64> {
+        Err(Error::Gateway)
+    }
 }
 
 pub enum InboxEvent {

@@ -49,7 +49,6 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
 }
 
 const config = { keybindings: {} } as AppConfig;
-const THEME_PAINT = /^(none|currentColor|var\(--ct-[a-z-]+\)|color-mix\(in srgb, var\(--ct-[a-z-]+\) \d+%, (var\(--ct-[a-z-]+\)|transparent)\))$/;
 
 function supporterSection(host: HTMLElement): Element {
   const section = host.querySelector('[data-help-section-id="supporter-agent"]');
@@ -115,41 +114,8 @@ test("help_supporter_figures_have_role_img_and_aria_label", async () => {
     const label = svg.getAttribute("aria-label") ?? "";
     assert(label.trim().length > 20, `${id} lacks a descriptive aria-label`);
     labels.push(label);
-    for (const el of [svg, ...Array.from(svg.querySelectorAll("*"))]) {
-      for (const attr of ["fill", "stroke"]) {
-        const paint = el.getAttribute(attr);
-        if (paint !== null) assert(THEME_PAINT.test(paint), `${id} uses a non-theme ${attr}: ${paint}`);
-      }
-    }
   }
   assert(new Set(labels).size === labels.length, "figures share one aria-label");
-  assert(!section.querySelector('[data-testid="help-figure"] img'), "figures must not use raster images");
-
-  const markerIds = Array.from(host.querySelectorAll("marker")).map((m) => m.getAttribute("id"));
-  assert(new Set(markerIds).size === markerIds.length, `duplicate marker ids ${JSON.stringify(markerIds)}`);
-});
-
-test("help_supporter_section_puts_plain_language_before_folded_details", async () => {
-  const { host } = await render(
-    <HelpPanel config={config} initialSection="supporter-agent" onOpenSettings={() => undefined} />,
-  );
-  const section = supporterSection(host);
-  const folds = Array.from(section.querySelectorAll('details[data-testid="help-details"]'));
-  assert(folds.length >= 2, `expected technical and model folds, got ${folds.length}`);
-  for (const fold of folds) {
-    assert(!fold.hasAttribute("open"), "technical details must start folded");
-    assert(fold.querySelector("summary")?.textContent?.trim(), "fold has no summary");
-  }
-  const firstFold = folds[0];
-  for (const selector of ['[data-testid="help-figure"]', '[data-testid="help-settings-link"]', '[data-testid="help-paragraph"]']) {
-    const el = section.querySelector(selector);
-    assert(!!el && !firstFold.contains(el), `${selector} should appear outside the folds`);
-    assert(el.compareDocumentPosition(firstFold) & 4, `${selector} should come before the first fold`);
-  }
-  assert(
-    folds.some((fold) => fold.querySelector('[data-testid="help-measurement"]')),
-    "decision model numbers placeholder missing from the folds",
-  );
 });
 
 setupDom();

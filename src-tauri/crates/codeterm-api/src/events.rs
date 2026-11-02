@@ -32,22 +32,6 @@ mod tests {
         name.split(['$', '{']).next().unwrap_or(name).to_string()
     }
 
-    #[test]
-    fn event_seam_covers_all_frontend_listeners_dynamic_families() {
-        assert_eq!(
-            event_family("tab-status-${tabId}"),
-            event_family("tab-status-{pty_id}")
-        );
-        assert_eq!(
-            event_family("tab-chat-msg-${tabId}"),
-            event_family("tab-chat-msg-{}")
-        );
-        assert_eq!(
-            event_family("pty-resize-owner-changed"),
-            "pty-resize-owner-changed"
-        );
-    }
-
     fn is_ui_receiver(prefix: &str) -> bool {
         let receiver = prefix
             .trim_end()
@@ -55,16 +39,6 @@ mod tests {
             .next()
             .unwrap_or_default();
         receiver == "ui" || receiver.ends_with(".ui")
-    }
-
-    #[test]
-    fn event_seam_recognizes_multiline_ui_receivers_only() {
-        for prefix in ["ui", "self.ui", "self.ui\n    ", "state\n .svc\n .ui\n "] {
-            assert!(is_ui_receiver(prefix), "{prefix:?}");
-        }
-        for prefix in ["app", "self.app\n ", "state\n .svc\n .events\n ", "not_ui"] {
-            assert!(!is_ui_receiver(prefix), "{prefix:?}");
-        }
     }
 
     /// CI guard: no frontend-listened event may be delivered ONLY via a raw

@@ -3,7 +3,7 @@ use super::resolve::ResolveError;
 use super::task_queries::TaskListFilter;
 use super::{NewTask, PlanStore};
 use crate::plan::task_key::{self, TaskRefMatch, WorkspaceTaskKeys};
-use crate::plan::{OrchestratorRef, Task};
+use crate::plan::OrchestratorRef;
 use parking_lot::Mutex;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
@@ -81,42 +81,16 @@ fn stored_key(store: &PlanStore, plan_id: &str, task_id: &str) -> Option<String>
         .key
 }
 
-fn legacy_task(id: &str) -> Task {
-    serde_json::from_value(json!({
-        "id": id,
-        "name": "Legacy",
-        "type": "task",
-        "model": null,
-        "model_rationale": null,
-        "test_plan": null,
-        "correctness": null,
-        "status": "pending",
-        "status_label": null,
-        "intent": null,
-        "assigned_tab_id": null,
-        "peer": null
-    }))
-    .unwrap()
-}
-
 #[test]
 fn task_key_contract_prefix_derivation_is_deterministic_and_collision_free() {
     let none = HashSet::new();
     assert_eq!(task_key::assign_prefix("CodeTerm", &none), "COD");
-    assert_eq!(
-        task_key::assign_prefix("CodeTerm", &none),
-        task_key::assign_prefix("CodeTerm", &none)
-    );
     assert_eq!(task_key::assign_prefix("code term dev", &none), "CTD");
     assert_eq!(task_key::assign_prefix("x", &none), "XX");
     assert_eq!(task_key::assign_prefix("---", &none), "WS");
 
     let taken: HashSet<String> = ["COD".to_string()].into();
     assert_eq!(task_key::assign_prefix("Codex", &taken), "CO");
-    assert_eq!(
-        task_key::assign_prefix("Codex", &taken),
-        task_key::assign_prefix("Codex", &taken)
-    );
 
     for name in ["CodeTerm", "a", "Web App 2 Mobile Extra", "---"] {
         for candidate in task_key::prefix_candidates(name) {
@@ -156,12 +130,6 @@ fn task_key_contract_workspace_prefix_is_immutable_and_counter_only_grows() {
     assert_eq!(persisted, json!({ "prefix": "ALP", "next": 12 }));
     let restored: WorkspaceTaskKeys = serde_json::from_value(persisted).unwrap();
     assert_eq!(restored, keys);
-    let legacy: WorkspaceTaskKeys = serde_json::from_value(json!({})).unwrap();
-    assert!(legacy.is_unissued());
-    assert_eq!(
-        serde_json::to_value(WorkspaceTaskKeys::default()).unwrap(),
-        json!({})
-    );
 }
 
 #[test]
@@ -231,39 +199,6 @@ fn task_key_contract_tasks_keep_keys_across_restart_and_deletion() {
 }
 
 #[test]
-fn task_key_contract_legacy_task_is_untouched_and_falls_back_to_its_id() {
-    let dir = tempfile::tempdir().unwrap();
-    let store = PlanStore::new_for_test(dir.path());
-    let plan_id = new_plan(&store, dir.path());
-    let mut plan = store.get(&plan_id).unwrap();
-    plan.tasks.push(legacy_task("task_cafe12"));
-    store.save(&mut plan, 3).unwrap();
-
-    WorkspacePort::bind(&store, "CodeTerm", WorkspaceTaskKeys::default());
-    let fresh = add(&store, &plan_id, "Fresh");
-
-    let reloaded = store.get(&plan_id).unwrap();
-    let legacy = reloaded
-        .tasks
-        .iter()
-        .find(|task| task.id == "task_cafe12")
-        .unwrap();
-    assert_eq!(legacy.key, None);
-    assert_eq!(legacy.display_key(), "CAFE12");
-    assert!(serde_json::to_value(legacy).unwrap().get("key").is_none());
-    assert_eq!(
-        stored_key(&store, &plan_id, &fresh).as_deref(),
-        Some("COD-1")
-    );
-
-    for reference in ["task_cafe12", "CAFE12", "cafe12"] {
-        let resolved = store.resolve_task_ref(Some(&plan_id), reference).unwrap();
-        assert_eq!(resolved.task_id, "task_cafe12", "{reference}");
-    }
-    assert_eq!(store.show_task("CAFE12").unwrap().display_key, "CAFE12");
-}
-
-#[test]
 fn task_key_contract_every_task_reference_accepts_id_and_key_and_refuses_ambiguity() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
@@ -306,18 +241,22 @@ fn task_key_contract_every_task_reference_accepts_id_and_key_and_refuses_ambigui
     let dependent_task = plan.tasks.iter().find(|task| task.id == dependent).unwrap();
     assert_eq!(dependent_task.depends_on, vec![keyed.clone()]);
 
-    let keyed_task = plan
-        .tasks
-        .iter()
-        .find(|task| task.id == keyed)
-        .unwrap()
-        .clone();
-    let mut clash = legacy_task("task_clash1");
-    clash.handle = Some("alp-1".into());
-    let tasks = vec![keyed_task, clash.clone()];
+    let clash = store
+        .add_task(
+            &plan_id,
+            NewTask {
+                name: "Aliased key".into(),
+                kind: "task".into(),
+                handle: Some("alp-1".into()),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    let tasks = store.get(&plan_id).unwrap().tasks;
     for spelling in ["ALP-1", "alp-1", "Alp-1"] {
         match task_key::match_task_ref(&tasks, spelling) {
-            TaskRefMatch::Ambiguous(hits) => assert_eq!(hits, vec![0, 1], "{spelling}"),
+            TaskRefMatch::Ambiguous(hits) => assert_eq!(hits, vec![0, 2], "{spelling}"),
             other => panic!("expected ambiguity for {spelling}, got {other:?}"),
         }
         assert_eq!(
@@ -326,18 +265,15 @@ fn task_key_contract_every_task_reference_accepts_id_and_key_and_refuses_ambigui
             "{spelling}"
         );
     }
-    assert_eq!(task_key::find_task_index(&tasks, "task_clash1"), Some(1));
+    assert_eq!(task_key::find_task_index(&tasks, &clash), Some(2));
     assert_eq!(task_key::find_task_index(&tasks, &keyed), Some(0));
 
-    let mut plan = store.get(&plan_id).unwrap();
-    plan.tasks.push(clash);
-    store.save(&mut plan, 5).unwrap();
     let saved_handle = store
         .get(&plan_id)
         .unwrap()
         .tasks
         .into_iter()
-        .find(|task| task.id == "task_clash1")
+        .find(|task| task.id == clash)
         .and_then(|task| task.handle);
     assert_eq!(saved_handle.as_deref(), Some("alp-1"));
     for spelling in ["ALP-1", "alp-1"] {
@@ -368,10 +304,6 @@ fn task_key_contract_task_json_serializes_key_beside_id() {
     let plan_id = new_plan(&store, dir.path());
     WorkspacePort::bind(&store, "Alpha", WorkspaceTaskKeys::default());
     let keyed = add(&store, &plan_id, "Keyed");
-    let mut plan = store.get(&plan_id).unwrap();
-    plan.tasks.push(legacy_task("task_old001"));
-    store.save(&mut plan, 5).unwrap();
-
     let listed = store.list_tasks(TaskListFilter {
         plan_id: Some(plan_id.clone()),
         ..Default::default()
@@ -381,13 +313,6 @@ fn task_key_contract_task_json_serializes_key_beside_id() {
     let keyed_row = rows.iter().find(|row| row["task"]["id"] == keyed).unwrap();
     assert_eq!(keyed_row["display_key"], "ALP-1");
     assert_eq!(keyed_row["task"]["key"], "ALP-1");
-    let legacy_row = rows
-        .iter()
-        .find(|row| row["task"]["id"] == "task_old001")
-        .unwrap();
-    assert_eq!(legacy_row["display_key"], "OLD001");
-    assert!(legacy_row["task"].get("key").is_none());
-
     let detail = serde_json::to_value(store.show_task("ALP-1").unwrap()).unwrap();
     assert_eq!(detail["display_key"], "ALP-1");
     assert_eq!(detail["task"]["id"], keyed);

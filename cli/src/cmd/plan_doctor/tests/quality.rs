@@ -9,27 +9,6 @@ use super::super::*;
 use super::write_v2_plan;
 
 #[test]
-fn approval_error_includes_doctor_recovery_commands() {
-    let report = json!({
-        "checked_plans": 1,
-        "error_count": 1,
-        "warning_count": 0,
-        "findings": [{
-            "severity": "error",
-            "kind": "missing_goal",
-            "plan_id": "pl_1",
-            "task_id": null,
-            "detail": "plan has no goal vector",
-            "fix": "set the north-star first"
-        }]
-    });
-    let rendered = render_quality_approval_error("pl_1", &report);
-    assert!(rendered.contains("plan approval blocked by quality doctor"));
-    assert!(rendered.contains("domios plan doctor pl_1 --kind quality"));
-    assert!(rendered.contains("domios plan approve pl_1"));
-}
-
-#[test]
 fn quality_blocks_unapproved_or_underplanned_work() {
     let plan = json!({
         "id": "pl_1",

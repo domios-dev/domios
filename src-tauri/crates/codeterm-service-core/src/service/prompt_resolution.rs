@@ -192,7 +192,7 @@ pub mod tests {
         )));
     }
 
-    pub fn assert_resolved_and_new_prompt_notifies(
+    pub fn assert_previous_prompt_resolved_and_cleared(
         fixture: &crate::service::test_fixture::ServiceFixture,
         tab_id: &str,
         previous_id: &str,
@@ -211,18 +211,6 @@ pub mod tests {
             assert!(tab.pending_prompt.is_none());
             assert!(tab.pending_prompt_kind.is_none());
         }
-
-        let current = prompt("current", "2");
-        {
-            let mut mux = fixture.service.mux.write();
-            let tab = mux.get_tab_mut(tab_id).expect("fixture tab");
-            tab.agent_type.get_or_insert_with(|| "provider".into());
-            tab.pending_prompt = Some(current.clone());
-            tab.pending_prompt_kind = Some(PromptKind::Provider);
-        }
-        let current_id = add_prompt_notification(fixture, tab_id, &current);
-        assert_ne!(current_id, previous_id);
-        assert_open_prompt_notification(fixture, &current_id, &identity(&current));
     }
 
     #[test]
@@ -254,7 +242,7 @@ pub mod tests {
 
         fixture.service.mark_agent_interrupted(&pty_id);
 
-        assert_resolved_and_new_prompt_notifies(&fixture, &tab_id, &previous_id);
+        assert_previous_prompt_resolved_and_cleared(&fixture, &tab_id, &previous_id);
     }
 
     #[test]
@@ -265,7 +253,7 @@ pub mod tests {
             .service
             .clear_tab_agent_identity_explicitly(&tab_id, "test lifecycle exit",));
 
-        assert_resolved_and_new_prompt_notifies(&fixture, &tab_id, &previous_id);
+        assert_previous_prompt_resolved_and_cleared(&fixture, &tab_id, &previous_id);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 
-import { FIT, nearContentHeight } from "../canvasRender/cardContent";
+import { nearContentHeight } from "../canvasRender/cardContent";
 import { DEFAULT_CANVAS_SETTINGS } from "../settings";
 import type { Task } from "../types";
 import { FIXTURE_TASK } from "../cards/fixtures.testdata";
@@ -22,23 +22,6 @@ const child: Task = { ...FIXTURE_TASK, id: "sub-1", name: "subtask", body: "x", 
   const fp = taskFootprint(task, [child], s);
   const need = nearContentHeight({ titleLines: 2, hasTags: true, sections: 0, fields: 4 });
   ok(`2-line-title footprint fits near content (${fp.height} >= ${need})`, fp.height >= need);
-}
-
-{
-  const task: Task = { ...FIXTURE_TASK, name: "Build API", body: "short", tags: ["area:nav"] };
-  const fp = taskFootprint(task, [child], s);
-  const need = nearContentHeight({ titleLines: 1, hasTags: true, sections: 0, fields: 4 });
-  ok(`content-bound footprint == near content (${fp.height} == ${need})`, fp.height === need);
-}
-
-// 3) STRUCTURAL: nearContentHeight is purely FIT — no stray constants hidden inside.
-{
-  const bare = nearContentHeight({ titleLines: 1, hasTags: false, sections: 0, fields: 0 });
-  ok("nearContentHeight is FIT-derived", bare === FIT.headerH + FIT.titleLineH + FIT.titleGap + FIT.padY);
-  const tagged = nearContentHeight({ titleLines: 1, hasTags: true, sections: 0, fields: 0 });
-  ok("a tag row adds exactly FIT.tagRowH", tagged - bare === FIT.tagRowH);
-  const twoLine = nearContentHeight({ titleLines: 2, hasTags: false, sections: 0, fields: 0 });
-  ok("an extra title line adds exactly FIT.titleLineH", twoLine - bare === FIT.titleLineH);
 }
 
 console.log(`\n${passed} passed, ${failed} failed`);

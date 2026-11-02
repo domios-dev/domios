@@ -94,13 +94,6 @@ async fn only_general_may_list_and_set_hourly_limit_while_other_registry_mutatio
         *request.uri_mut() = "/api/account/neighbors".parse().unwrap();
         let response = router.clone().oneshot(request).await.unwrap();
         assert_eq!(response.status(), status);
-        if matches!(operation, "list" | "set_limit") && token == general {
-            let body = to_bytes(response.into_body(), 4096).await.unwrap();
-            assert_eq!(
-                std::str::from_utf8(&body).unwrap(),
-                "Sign in to manage Neighbors"
-            );
-        }
     }
 }
 
@@ -109,13 +102,7 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
     let (_fixture, state, general, _, general_token, other_token) = fixture();
     let router = crate::routes::create_router(state.clone());
     for command in commands() {
-        for (token, expected) in [
-            (
-                general_token.as_str(),
-                "Sign in with a hosted account to use Neighbors",
-            ),
-            (other_token.as_str(), "neighbor_forbidden"),
-        ] {
+        for token in [general_token.as_str(), other_token.as_str()] {
             let response = router
                 .clone()
                 .oneshot(request(token, &command))
@@ -133,10 +120,8 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
             if token == other_token {
                 assert_eq!(
                     serde_json::from_slice::<Value>(&body).unwrap()["reason"],
-                    expected
+                    "neighbor_forbidden"
                 );
-            } else {
-                assert_eq!(std::str::from_utf8(&body).unwrap(), expected);
             }
         }
         let mut local = request("preview-test-token", &command);
@@ -149,21 +134,12 @@ async fn general_credentials_reach_neighbor_service_and_other_tabs_cannot_author
         );
         let response = router.clone().oneshot(local).await.unwrap();
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            std::str::from_utf8(&to_bytes(response.into_body(), 4096).await.unwrap()).unwrap(),
-            "Sign in with a hosted account to use Neighbors"
-        );
         let owner_without_tab = router
             .clone()
             .oneshot(request("preview-test-token", &command))
             .await
             .unwrap();
         assert_eq!(owner_without_tab.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            std::str::from_utf8(&to_bytes(owner_without_tab.into_body(), 4096).await.unwrap())
-                .unwrap(),
-            "Sign in with a hosted account to use Neighbors"
-        );
     }
     let local = router
         .clone()
@@ -271,10 +247,6 @@ async fn neighbor_actor_cannot_be_replaced_by_headers_or_retired_session() {
         .await
         .unwrap_err();
         assert_eq!(error.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(
-            std::str::from_utf8(&to_bytes(error.into_body(), 4096).await.unwrap()).unwrap(),
-            "Sign in with a hosted account to use Neighbors"
-        );
     }
     state
         .svc

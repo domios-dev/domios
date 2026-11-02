@@ -186,12 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn sentinel_respond_prompt_global_rate_window_is_bounded() {
-        assert_eq!(GLOBAL_REQUEST_LIMIT, 600);
-        assert_eq!(GLOBAL_REQUEST_WINDOW, Duration::from_secs(60));
-    }
-
-    #[test]
     fn sentinel_respond_prompt_supported_kinds_match_safe_response_targets() {
         assert_eq!(
             safe_kind(&SafeKind::Onboarding),

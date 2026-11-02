@@ -246,13 +246,4 @@ mod tests {
             );
         }
     }
-
-    #[test]
-    fn test_floor_char_boundary() {
-        let s = "Привет";
-        assert_eq!(floor_char_boundary(s, 3), 2);
-        assert_eq!(floor_char_boundary(s, 4), 4);
-        assert_eq!(floor_char_boundary(s, 0), 0);
-        assert_eq!(floor_char_boundary(s, 100), 12);
-    }
 }

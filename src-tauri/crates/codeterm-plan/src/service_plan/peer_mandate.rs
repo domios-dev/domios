@@ -127,7 +127,6 @@ mod tests {
         assert!(hint.contains("--parent-tab orch-1"));
         assert!(hint.contains("--plan pl_123"));
         assert!(hint.contains("--role Planner"));
-        assert!(hint.contains("Choose an available provider and model"));
         assert!(hint.contains("agent spawn <provider> [--model <model>]"));
         assert!(!hint.contains("agent spawn claude"));
         assert!(!hint.contains("fable"));
@@ -145,8 +144,6 @@ mod tests {
         let line = planner_peer_intro_line("pl_123", Some("orch-1"));
         assert!(line.contains("pl_123"));
         assert!(line.contains("orch-1"));
-        assert!(line.contains(prompts_plan::PEER_PLANNER_CHARTER_LINE));
-        assert!(line.contains("Orchestrator owner"));
     }
 
     #[test]

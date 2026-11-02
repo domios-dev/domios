@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useUpdateAvailability } from "./useUpdateAvailability";
-import { targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
+import { appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { useUpdate } from "./useUpdate";
@@ -166,15 +166,19 @@ function useUpdatePanelController() {
 
   const retry = async () => {
     if (checking || ((starting || intent || app.installing) && !error && !app.error && !restoredFailure)) return;
+    const retirementBoundary = app.captureFailureBoundary();
     setChecking(true);
     setCheckResult(null);
     const previousFailure = error ?? (app.error ? classifyUpdateFailure("update", app.error) : null) ?? restoredFailure;
-    if (previousFailure) setHistory(previous => [...previous, previousFailure].slice(-10));
+    if (previousFailure) setHistory(previous => appendUpdateFailure(previous, previousFailure));
     save(null);
     setError(null);
     try {
       const fresh = await refresh(true);
       const available = panelItems(updateableItems(fresh.items, classifyUpdateStatus(fresh).errors));
+      if (app.error) await app.refresh(true, { retirementBoundary });
+      setRunItems([]);
+      setOutcomes({});
       const failures = Object.keys(fresh.errors).length;
       setCheckResult(failures
         ? `Check finished with ${failures} unavailable update source(s).`

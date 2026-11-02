@@ -2951,10 +2951,10 @@ function capAgentPayload(input, cap) {
   const bounded2 = { ...input };
   const fields = ["agent_result", "agent_description"].filter((key) => typeof input[key] === "string" && input[key].length > 0).sort((a, b) => input[b].length - input[a].length);
   for (const key of fields) {
-    if (utf8Bytes3(JSON.stringify(bounded2)) <= cap) break;
+    if (utf8Bytes2(JSON.stringify(bounded2)) <= cap) break;
     const text7 = bounded2[key];
     const body = text7.startsWith(TRUNCATED) ? text7.slice(TRUNCATED.length) : text7;
-    const room = cap - utf8Bytes3(JSON.stringify({ ...bounded2, [key]: "" })) - utf8Bytes3(JSON.stringify(TRUNCATED));
+    const room = cap - utf8Bytes2(JSON.stringify({ ...bounded2, [key]: "" })) - utf8Bytes2(JSON.stringify(TRUNCATED));
     const keep = Math.max(0, Math.floor(room / 6));
     let start = Math.max(0, body.length - keep);
     const unit = body.charCodeAt(start), previous = body.charCodeAt(start - 1);
@@ -2974,7 +2974,7 @@ function capRow(row3, cap) {
   if (row3.toolInput !== void 0) {
     const serialized = JSON.stringify(row3.toolInput);
     const agentInput = row3.toolKind === "agent" && row3.toolName === "agent_activity" && row3.toolInput !== null && typeof row3.toolInput === "object" && !Array.isArray(row3.toolInput);
-    if ((agentInput ? utf8Bytes3(serialized) : serialized.length) > cap) {
+    if ((agentInput ? utf8Bytes2(serialized) : serialized.length) > cap) {
       capped ?? (capped = { ...row3 });
       if (agentInput) capped.toolInput = capAgentPayload(row3.toolInput, cap);
       else delete capped.toolInput;
@@ -3036,30 +3036,17 @@ function compactState(state) {
   state.childCompleted = tail(state.childCompleted);
   fitTotal(state);
 }
-function utf8Bytes3(value) {
-  let bytes2 = 0;
-  for (let index = 0; index < value.length; index++) {
-    const unit = value.charCodeAt(index);
-    if (unit < 128) bytes2 += 1;
-    else if (unit < 2048) bytes2 += 2;
-    else if (unit >= 55296 && unit < 56320) {
-      bytes2 += 4;
-      index++;
-    } else bytes2 += 3;
-  }
-  return bytes2;
-}
 var MIN_RUNNING_CAP = 1024;
 function fitTotal(state) {
-  if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+  if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
   const retiredOrder = () => (state.retired ?? []).filter((id) => state.items[id]);
-  while (retiredOrder().length > 0 && utf8Bytes3(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
+  while (retiredOrder().length > 0 && utf8Bytes2(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
     const drop = retiredOrder().slice(0, Math.max(1, Math.ceil(retiredOrder().length / 4)));
     for (const id of drop) delete state.items[id];
     state.retired = retiredOrder();
   }
   for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
-    if (utf8Bytes3(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
+    if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
     for (const [id, row3] of Object.entries(state.items)) state.items[id] = capRow(row3, cap);
     for (const parts of Object.values(state.reasoning ?? {})) {
       parts.summary = parts.summary.map((part) => capText(part, cap));
@@ -3074,15 +3061,6 @@ var TRUNCATED2 = "[earlier output truncated]\n";
 var CONTINUATION = "[full output available in session history]\n";
 var TEXT_FIELDS = ["content", "toolResult", "toolDetail", "toolSummary", "toolArgs", "toolTitle", "toolName", "toolDescription"];
 var DATA_FIELDS = ["toolInput", "toolRichResult", "fileDiffs", "toolEdits"];
-function serializedBytes2(value) {
-  const serialized = JSON.stringify(value);
-  let size = 0;
-  for (const character of serialized) {
-    const point = character.codePointAt(0);
-    size += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
-  }
-  return size;
-}
 function coalesce(events) {
   const last = /* @__PURE__ */ new Map();
   events.forEach((event, index) => {
@@ -3102,7 +3080,7 @@ function shrinkRow(row3, cap) {
   }
   let omitted = false;
   for (const field of DATA_FIELDS) {
-    if (result[field] !== void 0 && serializedBytes2(result[field]) > cap) {
+    if (result[field] !== void 0 && serializedBytes(result[field]) > cap) {
       delete result[field];
       omitted = true;
     }
@@ -3113,13 +3091,16 @@ function shrinkRow(row3, cap) {
 }
 function budgetReduction(state, updates) {
   let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
-  let bytes2 = serializedBytes2({ state, events });
+  let serialized = JSON.stringify({ state, events });
+  let bytes2 = utf8Bytes2(serialized);
   for (let cap = EVENT_TEXT_CAP / 2; bytes2 > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
     events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
-    bytes2 = serializedBytes2({ state, events });
+    serialized = JSON.stringify({ state, events });
+    bytes2 = utf8Bytes2(serialized);
   }
   if (bytes2 > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
-  return { state, events };
+  const normalized = JSON.parse(serialized);
+  return { state: normalized.state, events };
 }
 
 // plugins/provider-codex/src/runtimeReduce.ts
@@ -3482,7 +3463,7 @@ function runtimeReduce(ctx, raw, frames) {
     }
   }
   compactState(state);
-  return budgetReduction(json(state), events);
+  return budgetReduction(state, events);
 }
 function pendingStatus(state, threadId) {
   const statusLine = runningCallStatus(state);

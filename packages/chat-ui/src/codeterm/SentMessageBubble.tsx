@@ -17,31 +17,53 @@ interface Props {
   resolvePlanRef?: (planId: string, focusId?: string, focusKind?: "plan" | "task" | "section") => ResolvedChatPlanRef | null;
   fontScale?: number;
   technicalCommand?: string;
-  activityStatus?: "pending" | "success" | "error" | "unresolved" | "interrupted" | "running";
+  activityStatus?: "pending" | "success" | "error" | "unresolved" | "interrupted" | "running" | "submit_unconfirmed";
+}
+
+function resultError(result?: string): string | undefined {
+  const lines = result?.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) ?? [];
+  return (lines.find((line) => /^(?:error|failed?|exit code:\s*[1-9]\d*)\b/i.test(line)) ?? lines[0])?.slice(0, 500);
+}
+
+function activityStatusValue(status: Props["activityStatus"], result?: string): CardStatus | undefined {
+  if (status === "pending" || status === "running") return { ok: false, label: "pending", pending: true };
+  if (status === "submit_unconfirmed") return { ok: false, label: "submit_unconfirmed", pending: true };
+  if (status === "error") return { ok: false, label: "failed", detail: resultError(result) };
+  if (status === "unresolved") return { ok: false, label: "unresolved" };
+  if (status === "interrupted") return { ok: false, label: "interrupted" };
+  return undefined;
 }
 
 export function SentMessageBubble({ inv, result, resolveTabName, resolvePeerName, onOpenPlan, resolvePlanRef, fontScale, technicalCommand, activityStatus, onFocusTab, eventId }: Props) {
   const parsed = parseSend(inv, result, resolveTabName, resolvePeerName);
-  const activity: CardStatus | undefined = activityStatus === "pending" || activityStatus === "running"
-    ? { ok: false, label: "pending", pending: true }
-    : activityStatus === "success" ? { ok: true, label: "sent" }
-      : activityStatus === "error" ? { ok: false, label: "failed" }
-        : activityStatus === "unresolved" || activityStatus === "interrupted" ? { ok: false, label: "unconfirmed", pending: true }
-          : undefined;
-  const msg = { ...parsed, status: parsed.status ?? activity };
+  const activity = activityStatusValue(activityStatus, result);
+  const deliveryStatus = parsed.status?.label === "failed"
+    ? { ...parsed.status, detail: parsed.status.detail ?? (activity?.label === "failed" ? activity.detail : undefined) }
+    : activity?.label === "failed"
+      ? { ...activity, detail: parsed.status?.detail ?? activity.detail }
+      : activity ?? parsed.status;
+  const msg = { ...parsed, status: deliveryStatus };
   const generatedId = useId();
   const [expanded, setExpanded] = useState(true);
-  const status = msg.status?.pending ? "pending" : msg.status?.ok ? "success"
-    : msg.status ? "error" : (activityStatus === "running" ? "pending" : activityStatus ?? "unresolved");
+  const cardStatus = msg.status?.pending ? "pending"
+    : msg.status?.ok ? "success"
+      : msg.status?.label === "interrupted" ? "interrupted"
+        : msg.status?.label === "unresolved" ? "unresolved"
+          : msg.status ? "error"
+            : activityStatus === "error" ? "error"
+              : activityStatus === "pending" || activityStatus === "running" ? "pending"
+                : activityStatus === "interrupted" ? "interrupted"
+                  : "unresolved";
   return <InboundActivityCard
     testId="chat-sent-to-card"
     headerTestId="chat-sent-header"
     statusTestId="chat-sent-status"
-    statusLabel={msg.status?.label}
+    statusLabel={msg.status?.label ?? (cardStatus === "unresolved" ? "unresolved" : undefined)}
     message={{ id: eventId ?? generatedId, type: "user", content: msg.body }}
     title={`Sent to ${msg.recipient}${msg.mesh ? ` @ ${msg.mesh}` : ""}`}
+    subtitle={msg.recipientTitleResolved && msg.recipientId ? `Tab ID ${msg.recipientId}` : undefined}
     summary=""
-    status={status}
+    status={cardStatus}
     visual={{ glyph: msg.mesh ? RadioTower : Send, color: "var(--ct-accent)", label: "sent" }}
     expanded={expanded}
     onToggle={() => setExpanded(value => !value)}

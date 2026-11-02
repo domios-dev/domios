@@ -61,11 +61,12 @@ const STREAM_CORPUS = [
   "    code\n\n2. b\n2\n\n1.\n\n     deep\n  -\n\n- a\n\n      code\n\n- b\n  - nested\n\n    lazy\n3) c\n\n10. x\n11. *y*\n",
   "Line one\r\nline two\r\n\r\n- crlf item\r\n\r\n```\r\ncode\r\n```\r\n\r\nhttps://example.com and www.example.org\n\nEnd *open emphasis\n\n```\nunclosed fence\n\nstill inside",
 ];
+const REFERENCE_DEFINITION_SOURCE = "See [guide][g] and note[^n].\n\nMore text.\n\n[g]: https://example.com\n\n[^n]: Footnote.";
 
 test("streamed revisions parse only the open tail and stay identical to a full parse", () => {
   const full = unified().use(remarkParse).use(remarkGfm);
   const joined = STREAM_CORPUS.join("\n");
-  for (const document of [...STREAM_CORPUS, joined]) {
+  for (const document of [...STREAM_CORPUS, REFERENCE_DEFINITION_SOURCE, joined]) {
     const parse = createIncrementalMarkdownParser((source) => full.parse(source));
     // Each corpus entry covers every boundary; the joined document re-checks their seams at a prime stride.
     const stride = document === joined ? 7 : 1;
@@ -94,13 +95,6 @@ test("random stream chunks keep full-parse semantics and reuse finished blocks",
     }
     assert.ok(parsed.at(-1)! < document.length / 4, `last delta parsed ${parsed.at(-1)} of ${document.length} chars`);
   }
-});
-
-test("reference definitions anywhere force a full parse so earlier references resolve", () => {
-  const full = unified().use(remarkParse).use(remarkGfm);
-  const parse = createIncrementalMarkdownParser((source) => full.parse(source));
-  const document = "See [guide][g] and note[^n].\n\nMore text.\n\n[g]: https://example.com\n\n[^n]: Footnote.";
-  for (let end = 0; end <= document.length; end++) assert.deepEqual(parse(document.slice(0, end)), full.parse(document.slice(0, end)));
 });
 
 test("an unchanged source returns the same tree and separate streams stay independent", () => {

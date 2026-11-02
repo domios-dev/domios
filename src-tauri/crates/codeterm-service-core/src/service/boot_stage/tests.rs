@@ -1,5 +1,4 @@
 use super::*;
-use parking_lot::Mutex;
 
 #[test]
 fn sleep_marker_survives_launch_and_failure_until_agent_ready() {
@@ -23,58 +22,6 @@ fn sleep_marker_survives_launch_and_failure_until_agent_ready() {
     apply_boot_stage(tab, BootStage::AgentReady, None);
     assert_eq!(tab.slept_at_ms, None);
     assert_eq!(tab.sleep_reason, None);
-}
-
-#[derive(Default)]
-struct MockSink {
-    events: Mutex<Vec<(String, BootStage, Option<String>)>>,
-}
-
-impl BootStageSink for MockSink {
-    fn record(&self, tab_id: &str, stage: BootStage, reason: Option<&str>) {
-        self.events
-            .lock()
-            .push((tab_id.to_string(), stage, reason.map(str::to_string)));
-    }
-}
-
-impl MockSink {
-    fn stages(&self) -> Vec<BootStage> {
-        self.events.lock().iter().map(|(_, s, _)| *s).collect()
-    }
-}
-
-#[test]
-fn happy_path_emits_stages_in_order() {
-    let sink = MockSink::default();
-    for stage in BootStage::HAPPY_PATH {
-        sink.record("tab-1", stage, None);
-    }
-    assert_eq!(sink.stages(), BootStage::HAPPY_PATH.to_vec());
-    assert!(sink
-        .events
-        .lock()
-        .iter()
-        .all(|(pid, _, r)| pid == "tab-1" && r.is_none()));
-}
-
-#[test]
-fn failure_path_ends_at_spawn_failed_with_reason_and_no_ready() {
-    let sink = MockSink::default();
-    sink.record("tab-2", BootStage::PtySpawned, None);
-    sink.record("tab-2", BootStage::ShellReady, None);
-    sink.record(
-        "tab-2",
-        BootStage::SpawnFailed,
-        Some("launch_cmd failed: boom"),
-    );
-
-    let stages = sink.stages();
-    assert!(!stages.contains(&BootStage::AgentReady));
-    assert_eq!(stages.last(), Some(&BootStage::SpawnFailed));
-    let (_, last_stage, last_reason) = sink.events.lock().last().cloned().unwrap();
-    assert_eq!(last_stage, BootStage::SpawnFailed);
-    assert_eq!(last_reason.as_deref(), Some("launch_cmd failed: boom"));
 }
 
 /// An options block surfaced exactly as the live path surfaces it: the

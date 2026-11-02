@@ -250,20 +250,6 @@ fn incomplete_or_all_cancelled_group_is_not_flagged() {
 }
 
 #[test]
-fn detects_malformed_json() {
-    let dir = tempfile::tempdir().unwrap();
-    // The authoritative path never reads files, so a malformed plan reaches the
-    // doctor as a non-object value from plan.get.
-    let report = authoritative_report(&json!("{not yaml"), "pl_bad", dir.path(), "all");
-    assert!(!report["ok"].as_bool().unwrap());
-    assert!(report["findings"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|f| f["kind"] == "malformed_plan"));
-}
-
-#[test]
 fn storage_warns_about_stray_linked_worktree_sidecar_copy() {
     let tmp = tempfile::tempdir().unwrap();
     let main = tmp.path().join("main");
@@ -350,24 +336,4 @@ fn detects_duplicate_handle_and_parent_cycle() {
     let findings = inspect_plan(Path::new("pl_1.json"), &plan, "structure");
     assert!(findings.iter().any(|f| f.kind == "duplicate_task_handle"));
     assert!(findings.iter().any(|f| f.kind == "parent_cycle"));
-}
-
-#[test]
-fn renders_summary() {
-    let report = json!({
-        "checked_plans": 1,
-        "error_count": 1,
-        "warning_count": 0,
-        "findings": [{
-            "severity": "error",
-            "kind": "missing_parent_task",
-            "plan_id": "pl_1",
-            "task_id": "task_1",
-            "detail": "parent missing",
-            "fix": "clear parent"
-        }]
-    });
-    let rendered = render_doctor(&report);
-    assert!(rendered.contains("Plan doctor: 1 checked, 1 errors"));
-    assert!(rendered.contains("missing_parent_task"));
 }

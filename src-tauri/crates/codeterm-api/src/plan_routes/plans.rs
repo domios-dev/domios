@@ -663,7 +663,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_marks_archived_unowned_and_stale_targets() {
+    fn archived_plan_reference_resolves_without_missing_state() {
         let mut archived = mk_plan("pl_archived");
         archived.status = PlanStatus::Archived;
         let archived_entry = mk_index_entry(
@@ -679,11 +679,6 @@ mod tests {
         );
         assert_eq!(archived_state, None);
         assert_eq!(archived_plan.expect("plan").status, PlanStatus::Archived);
-
-        let mut unowned = mk_plan("pl_unowned");
-        unowned.owner = OrchestratorRef::default();
-        let task_state = resolve_task_state(&unowned, Some("task_missing".into()));
-        assert_eq!(task_state, "stale");
     }
 
     #[test]
@@ -694,27 +689,12 @@ mod tests {
         let missing = transfer_caller(&HeaderMap::new()).unwrap_err();
         assert_eq!(missing.0, StatusCode::FORBIDDEN);
         assert_eq!(
-            missing.1 .0["error"],
-            "X-CodeTerm-Tab-Id is required for plan transfer"
-        );
-        assert_eq!(
             team_plan_err(TeamPlanError::Team(
                 "Caller tab worker is not authorized to manage Team team_source".into(),
             ))
             .0,
             StatusCode::FORBIDDEN
         );
-    }
-
-    fn resolve_task_state(plan: &Plan, target_id: Option<String>) -> &'static str {
-        let task = target_id.as_deref().and_then(|task_id| {
-            codeterm_service_core::plan::task_key::find_task(&plan.tasks, task_id)
-        });
-        if task.is_some() {
-            "resolved"
-        } else {
-            "stale"
-        }
     }
 }
 

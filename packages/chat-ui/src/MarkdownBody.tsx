@@ -781,6 +781,9 @@ export function PluginConfigCard({ c, renderText }: { c: ParsedPluginConfig; ren
 }
 
 export function renderUserContent(rawContent: string, parseTransport = true, renderText?: (text: string) => React.ReactNode): React.ReactNode {
+  // A voice marker's escaped <transcript> element is not a protocol excerpt; parse it before DS scanning.
+  const voice = parseTransport ? parseVoiceMessage(decodeCliMessageText(rawContent)) : null;
+  if (voice) return <VoiceCard v={voice} renderText={renderText} />;
   return <DsText text={rawContent} renderText={(source) => renderPlainUserContent(source, parseTransport, renderText)} />;
 }
 

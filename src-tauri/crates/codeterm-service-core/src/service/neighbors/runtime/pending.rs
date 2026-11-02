@@ -140,32 +140,6 @@ pub(super) async fn run(session: &listener::Session) {
     let _ = codeterm_neighbors::supervisor::supervise_documents(&watch).await;
 }
 
-#[derive(Default)]
-struct Recount {
-    in_flight: bool,
-    dirty: bool,
-}
-
-impl Recount {
-    fn changed(&mut self) -> bool {
-        if self.in_flight {
-            self.dirty = true;
-            false
-        } else {
-            self.in_flight = true;
-            true
-        }
-    }
-    fn completed(&mut self) -> bool {
-        self.in_flight = std::mem::take(&mut self.dirty);
-        self.in_flight
-    }
-}
-
-type CountFuture<'a> = std::pin::Pin<
-    Box<dyn std::future::Future<Output = codeterm_neighbors::Result<u64>> + Send + 'a>,
->;
-
 async fn observe(
     session: &listener::Session,
     events: &dyn ReceptionEvents,
@@ -187,38 +161,29 @@ async fn observe_count(
         _ = session.stopped() => return Err(Error::Revoked),
         result = session.transport.listen_pending(&session.friendship) => result?,
     };
-    let mut recount = Recount::default();
-    let mut count: Option<CountFuture<'_>> = None;
     loop {
-        tokio::select! {
+        let event = tokio::select! {
             biased;
             _ = stopped.changed() => return Err(Error::Revoked),
-            result = async {
-                match count.as_mut() { Some(future) => future.await, None => std::future::pending().await }
-            } => {
-                session.current()?;
-                count = None;
+            result = inbox.next() => result?,
+        };
+        session.current()?;
+        match event {
+            Some(InboxEvent::Ready) => {
+                let count = inbox.pending_count()?;
                 session
                     .service
                     .neighbor_cell()
                     .pending_counts
                     .lock()
-                    .insert(session.friendship.clone(), result?.min(codeterm_neighbors::adapter::PENDING_COUNT_LIMIT));
+                    .insert(session.friendship.clone(), count);
                 publish(session).await?;
                 events.state(ListenerState::Receiving);
-                if recount.completed() { count = Some(Box::pin(session.transport.pending_count(&session.friendship))); }
             }
-            result = inbox.next() => {
-                session.current()?;
-                match result? {
-                    Some(InboxEvent::Ready) => if recount.changed() { count = Some(Box::pin(session.transport.pending_count(&session.friendship))); },
-                    Some(InboxEvent::Messages(_) | InboxEvent::Snapshot(_)) => return Err(Error::Gateway),
-                    None => return Err(Error::Transport),
-                }
-            }
+            Some(InboxEvent::Messages(_) | InboxEvent::Snapshot(_)) => return Err(Error::Gateway),
+            None => return Err(Error::Transport),
         }
     }
 }
-
 #[cfg(test)]
 mod tests;

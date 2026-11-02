@@ -62,12 +62,6 @@ mod tests {
     }
 
     #[test]
-    fn drain_empty_returns_empty_vec() {
-        let p = unique_tab("empty");
-        assert!(drain(&p).is_empty());
-    }
-
-    #[test]
     fn clear_removes_all() {
         let p = unique_tab("clear");
         push(&p, "x".into());

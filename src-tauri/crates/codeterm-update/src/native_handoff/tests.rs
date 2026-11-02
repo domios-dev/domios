@@ -109,7 +109,7 @@ fn handoff() -> NativeUpdateHandoff {
         server_epoch: "epoch-old".into(),
         generation: 7,
     };
-    NativeUpdateHandoff::new(
+    let mut handoff = NativeUpdateHandoff::new(
         request,
         NativeUpdateApplyOptions {
             channel: Channel::Stable,
@@ -117,7 +117,9 @@ fn handoff() -> NativeUpdateHandoff {
             initiating_tab_id: Some("caller-tab".into()),
         },
         connection,
-    )
+    );
+    handoff.started_version = Some("1.15.1".into());
+    handoff
 }
 
 fn replacement(record: &NativeUpdateHandoff) -> (NativeHostConnection, ServerReady) {
@@ -319,4 +321,149 @@ fn recovery_quarantines_corrupt_records_without_replaying_them() {
     assert!(!path(root.path()).exists());
     assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 1);
     assert!(read_for_recovery(root.path()).is_none());
+}
+
+#[test]
+fn recovery_keeps_terminal_failures_stable_and_records_interruption_phase() {
+    for phase in [
+        NativeUpdateApplyPhase::Admitted,
+        NativeUpdateApplyPhase::Downloading,
+        NativeUpdateApplyPhase::Applying,
+    ] {
+        let mut record = handoff();
+        record.advance(phase.clone()).unwrap();
+        let ready = ready_for(&record.request);
+        let connection = record.result.connection.clone();
+        assert!(record.recover("1.15.1", &ready.build, &connection, &ready));
+        let cause = record.terminal_cause.as_deref().unwrap();
+        assert!(cause.contains(phase_name(&phase)));
+        assert!(cause.contains("server unchanged"));
+        assert!(cause.contains("execution was not replayed"));
+        let failed = record.clone();
+        assert!(!record.recover("1.15.1", &ready.build, &connection, &ready));
+        assert_eq!(record, failed);
+        assert!(record.updated_at_ms >= record.started_at_ms);
+    }
+}
+
+#[test]
+fn later_installed_version_supersedes_failures_without_claiming_verified_handoff() {
+    for phase in [
+        NativeUpdateApplyPhase::Downloading,
+        NativeUpdateApplyPhase::Failed {
+            message: "prior failure".into(),
+        },
+    ] {
+        for target in [None, Some("1.15.2".into())] {
+            let mut record = handoff();
+            record.target_version = target;
+            record.advance(phase.clone()).unwrap();
+            let (connection, ready) = replacement(&record);
+            assert!(record.recover("1.15.3", &ready.build, &connection, &ready));
+            assert_eq!(record.result.phase, NativeUpdateApplyPhase::NoUpdate);
+        }
+    }
+}
+
+#[test]
+fn unchanged_version_foreign_identity_or_mismatched_build_cannot_supersede_failure() {
+    for case in 0..3 {
+        let mut record = handoff();
+        record.target_version = Some("1.15.2".into());
+        record
+            .advance(NativeUpdateApplyPhase::Failed {
+                message: "current failure".into(),
+            })
+            .unwrap();
+        let (connection, mut ready) = replacement(&record);
+        let version = if case == 0 { "1.15.1" } else { "1.15.2" };
+        if case == 1 {
+            ready.identity.data.push("foreign");
+        }
+        let build = if case == 2 {
+            "foreign-build"
+        } else {
+            &ready.build
+        };
+        assert!(!record.recover(version, build, &connection, &ready));
+        assert!(matches!(
+            record.result.phase,
+            NativeUpdateApplyPhase::Failed { .. }
+        ));
+    }
+}
+
+#[test]
+fn admission_stays_closed_through_installer_handoff_until_a_terminal_outcome() {
+    let mut record = handoff();
+    for phase in [
+        NativeUpdateApplyPhase::Admitted,
+        NativeUpdateApplyPhase::Downloading,
+        NativeUpdateApplyPhase::Applying,
+        NativeUpdateApplyPhase::Relaunching,
+    ] {
+        record.advance(phase).unwrap();
+        assert!(record.blocks_new_attempt());
+    }
+    for phase in [
+        NativeUpdateApplyPhase::NoUpdate,
+        NativeUpdateApplyPhase::Failed {
+            message: "explicit failure".into(),
+        },
+    ] {
+        record.advance(phase).unwrap();
+        assert!(!record.blocks_new_attempt());
+    }
+}
+
+#[test]
+fn relaunch_recovery_verifies_exact_target_supersedes_newer_pair_and_rejects_mismatch() {
+    for (version, build_matches, expected) in [
+        ("1.18.2", true, "verified"),
+        ("1.18.3", true, "no_update"),
+        ("1.18.3", false, "failed"),
+    ] {
+        let mut record = handoff();
+        record.target_version = Some("1.18.2".into());
+        record.advance(NativeUpdateApplyPhase::Relaunching).unwrap();
+        let (connection, ready) = replacement(&record);
+        let build = if build_matches {
+            ready.build.as_str()
+        } else {
+            "foreign-build"
+        };
+        assert!(record.recover(version, build, &connection, &ready));
+        assert_eq!(phase_name(&record.result.phase), expected);
+        let recovered = record.clone();
+        assert!(!record.recover(version, build, &connection, &ready));
+        assert_eq!(record, recovered);
+    }
+}
+
+#[test]
+fn incarnation_retirement_cannot_admit_a_known_request_bound_to_the_old_server() {
+    let mut previous = handoff();
+    previous.advance(NativeUpdateApplyPhase::NoUpdate).unwrap();
+    let old_request = previous.request.clone();
+    let (connection, ready) = replacement(&previous);
+    let mut current = handoff();
+    current.request.operation_id = NativeUpdateOperationId::new(Uuid::from_u128(100)).unwrap();
+    current.result.operation_id = current.request.operation_id;
+    current.request.expected_server.identity = ready.identity.clone();
+    current.request.expected_server.incarnation.epoch = ready.epoch.clone();
+    current.request.expected_server.incarnation.process = ready.process.clone();
+    current.request.expected_server.components.server_build = ready.build.clone();
+    current.request.staged_components.server_build = ready.build.clone();
+    current.result.connection = connection;
+    current.inherit_replay(&previous);
+    let stored = serde_json::to_value(&current).unwrap();
+    assert_eq!(stored["replay"]["used"].as_array().unwrap().len(), 1);
+    assert!(!current.replay.contains(old_request.operation_id));
+    let manifest = current.request.expected_server.components.clone();
+    assert_eq!(validate_apply(&current.request, &ready, &manifest), Ok(()));
+    let refused: Result<(), NativeUpdateRefusal> = validate_apply(&old_request, &ready, &manifest)
+        .map(|()| {
+            panic!("an old-incarnation request must not reach admission, a write, or execution")
+        });
+    assert_eq!(refused, Err(NativeUpdateRefusal::ExpectedServerMismatch));
 }

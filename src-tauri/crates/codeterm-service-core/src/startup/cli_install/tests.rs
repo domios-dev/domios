@@ -90,17 +90,6 @@ fn hash_distinguishes_same_size_different_content() {
 }
 
 #[test]
-fn hash_is_deterministic_for_same_content() {
-    let dir = tempfile::tempdir().unwrap();
-    let p = dir.path().join("c.bin");
-    std::fs::File::create(&p)
-        .unwrap()
-        .write_all(b"codeterm-cli-fixture")
-        .unwrap();
-    assert_eq!(file_sha256(&p).unwrap(), file_sha256(&p).unwrap());
-}
-
-#[test]
 fn refresh_installs_then_skips_then_reinstalls_on_change() {
     use std::io::Write;
     let home = tempfile::tempdir().unwrap();

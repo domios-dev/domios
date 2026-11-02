@@ -50,12 +50,13 @@ fn corrupt_identity_without_backup_is_never_replaced_on_disk() {
     std::fs::write(&path, &broken).unwrap();
 
     let temporary = load_or_create_identity_at(&path);
-    save_identity(&temporary);
+    write_identity(&identity_file(&path), &temporary);
 
     assert!(!path.exists());
     let copies = identity_file(&path).corrupt_copies();
     assert_eq!(copies.len(), 1);
     assert_eq!(std::fs::read(&copies[0]).unwrap(), broken);
+    codeterm_util::persisted_state::release_hold(&path);
 }
 
 #[test]

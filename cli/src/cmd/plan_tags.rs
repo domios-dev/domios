@@ -96,16 +96,4 @@ mod tests {
         assert!(rendered.contains("Duplicate warnings:"));
         assert!(rendered.contains("foo ~ Foo"));
     }
-
-    #[test]
-    fn render_tag_report_empty_plan() {
-        assert_eq!(
-            render_tag_report(&json!({
-                "facets": [],
-                "topics": [],
-                "duplicate_warnings": []
-            })),
-            "(no tags)\n"
-        );
-    }
 }

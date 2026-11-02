@@ -25,12 +25,6 @@ fn plaintext_storage_cannot_receive_account_credentials() {
 }
 
 #[tokio::test]
-async fn id_is_local() {
-    let s = store();
-    assert_eq!(s.id(), "local");
-}
-
-#[tokio::test]
 async fn round_trip_save_get() {
     let s = store();
     let r = s.save(req("openai-prod", "sk-abc")).await.unwrap();

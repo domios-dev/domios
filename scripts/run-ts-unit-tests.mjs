@@ -11,6 +11,7 @@ import {
 import { tmpdir } from "node:os";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
+import { prepareHappyDomBundle } from "./ts-test-dependency-cache.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const testWorkerBootstrap = `
@@ -219,6 +220,7 @@ function startWorker({
   platform,
   spawnProcess,
   trace,
+  happyDomBundle,
 }) {
   const logFile = path.join(logDirectory, `${index}.log`);
   const logFd = openSync(logFile, "w");
@@ -235,7 +237,7 @@ function startWorker({
         // A bare Windows path is rejected by the ESM loader ("protocol 'd:'"),
         // so the hook is passed as a file:// URL on every platform.
         "--import",
-        pathToFileURL(path.join(root, "scripts", "ts-test-asset-hook.mjs")).href,
+        `${pathToFileURL(path.join(root, "scripts", "ts-test-asset-hook.mjs")).href}?happy-dom=${encodeURIComponent(happyDomBundle)}`,
         "--input-type=module",
         "--eval",
         testWorkerBootstrap,
@@ -453,6 +455,11 @@ export async function runTsUnitTests({
     return 0;
   }
 
+  const suiteStarted = process.hrtime.bigint();
+  const deadlineSignal = suiteTimeoutSeconds === undefined
+    ? undefined
+    : AbortSignal.timeout(suiteTimeoutSeconds * 1_000);
+  const happyDomBundle = await prepareHappyDomBundle(root, deadlineSignal);
   const logDirectory = mkdtempSync(path.join(tmpdir(), "codeterm-ts-unit-"));
   const states = tests.map((testFile, index) => ({
     index,
@@ -464,7 +471,6 @@ export async function runTsUnitTests({
   const events = createEventQueue();
   const running = new Map();
   const results = [];
-  const suiteStarted = process.hrtime.bigint();
   let nextIndex = 0;
   let cancelled = false;
   const trace = (message) => {
@@ -477,12 +483,10 @@ export async function runTsUnitTests({
   };
   const forwardTerm = () => queueCancellation("received TERM");
   const forwardInterrupt = () => queueCancellation("received INT");
-  const deadlineSignal = suiteTimeoutSeconds === undefined
-    ? undefined
-    : AbortSignal.timeout(suiteTimeoutSeconds * 1_000);
   const onDeadline = () =>
     queueCancellation(`global deadline reached after ${suiteTimeoutSeconds}s`);
   deadlineSignal?.addEventListener("abort", onDeadline, { once: true });
+  if (deadlineSignal?.aborted) onDeadline();
   signalSource.once("SIGTERM", forwardTerm);
   signalSource.once("SIGINT", forwardInterrupt);
 
@@ -498,6 +502,7 @@ export async function runTsUnitTests({
       platform,
       spawnProcess,
       trace,
+      happyDomBundle,
     });
     running.set(index, worker);
     trace(`launched index=${index} active=${running.size} file=${state.testFile}`);

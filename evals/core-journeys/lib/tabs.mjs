@@ -1,4 +1,4 @@
-import { retainedSendReceipt } from "../../restart-endurance/send-receipt.mjs";
+import { randomUUID } from "node:crypto";
 import { Events, dc, dcJson } from "./env.mjs";
 import { chatMessages, readiness, replyVerdict, stopVerdict } from "./oracle.mjs";
 import { JourneyFailure, observe, touchesTab } from "./wait.mjs";
@@ -32,9 +32,13 @@ export function waitReady(ctx, id, { requireSession = false, allowFirstTurn = fa
 }
 
 export async function sendText(ctx, id, text) {
-  const result = await ctx.policy.send(id, () => (ctx.sendCommand ?? dc)(["send", "--tab", id, "--require-agent", "--stdin", "--json"], { stdin: text }));
-  if (result.code === 0 || retainedSendReceipt(result.code, result.stdout)) return result.stdout;
-  throw new JourneyFailure(`send refused (exit ${result.code}): ${(result.stdout || result.stderr).slice(0, 600)}`);
+  const result = await ctx.policy.send(id, () => ctx.api(`/api/tabs/${id}/chat-send`, {
+    method: "POST", body: { text, client_token: randomUUID() },
+  }));
+  if (!result?.send_id || result.state === "failed") {
+    throw new JourneyFailure(`chat send refused or missing receipt: ${JSON.stringify(result).slice(0, 600)}`);
+  }
+  return result;
 }
 
 async function chat(ctx, id, signal) {
@@ -49,7 +53,7 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
       read: () => readTab(ctx.api, id, signal), judge: (record) => readiness(record, { allowFirstTurn: true }),
     });
     const baselineIds = new Set((await chat(ctx, id, signal)).map((message) => message.id));
-    await sendText(ctx, id, prompt ?? `Reply with exactly ${marker} and nothing else. Do not run tools.`);
+    const receipt = await sendText(ctx, id, prompt ?? `Reply with exactly ${marker} and nothing else. Do not run tools.`);
     let boundSession = ready.agent_session_id ?? null;
     const outcome = await observe({
       events, filter: touchesTab(id), label: `tab ${id} reply ${marker}`,
@@ -60,7 +64,7 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
       },
     });
     await ctx.policy.identity(id);
-    return { ...outcome, session_before: ready.agent_session_id ?? null };
+    return { ...outcome, send_id: receipt.send_id, session_before: ready.agent_session_id ?? null };
   });
 }
 

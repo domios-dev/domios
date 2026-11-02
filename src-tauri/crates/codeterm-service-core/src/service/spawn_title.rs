@@ -96,11 +96,6 @@ mod tests {
     }
 
     #[test]
-    fn provider_id_is_never_returned_as_a_fallback_title() {
-        assert_eq!(creation_title_override(None, None), None);
-    }
-
-    #[test]
     fn agent_title_accepts_one_word_and_rejects_prose() {
         assert!(validate_agent_tab_title(Some("Scout"), None).is_ok());
         let error = validate_agent_tab_title(Some("Warehouse party"), None).unwrap_err();

@@ -3,6 +3,177 @@ use crate::plan::{OrchestratorRef, PlannerRef};
 use crate::service_plan::ports::PlanIndexQuery;
 use crate::service_plan::{NewTask, PlanStore};
 
+fn fixture_plan(id: &str) -> Plan {
+    let project = super::super::test_support::test_data_dir().join(id);
+    let mut plan = Plan::new(
+        "Fixture plan".into(),
+        project.to_string_lossy().into_owned(),
+        OrchestratorRef::from_tab("fixture-owner"),
+    );
+    plan.id = id.into();
+    plan.created_at = 11;
+    plan.updated_at = 19;
+    plan
+}
+
+#[test]
+fn fixture_batch_reserves_create_only_plans_and_reopens_exact_documents() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let path = store.database.path();
+    let mut existing = fixture_plan("existing");
+    store.save(&mut existing, 5).unwrap();
+    let plans = vec![
+        fixture_plan("fixture-first"),
+        fixture_plan("fixture-second"),
+    ];
+    let count = store
+        .import_fixture_plans(
+            &plans,
+            || {
+                assert!(plans.iter().all(|plan| store.get(&plan.id).is_none()));
+                Ok(plans.len())
+            },
+            Ok,
+        )
+        .unwrap();
+    assert_eq!(count, 2);
+    for plan in &plans {
+        assert_eq!(store.get(&plan.id).as_ref(), Some(plan));
+    }
+    drop(store);
+    let reopened = PlanStore::open(path).unwrap();
+    assert_eq!(reopened.get("existing"), Some(existing));
+    for plan in plans {
+        assert_eq!(reopened.get(&plan.id), Some(plan.clone()));
+    }
+}
+
+#[test]
+fn fixture_batch_collision_and_malformed_tail_never_call_desk_commit() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let mut existing = fixture_plan("existing");
+    existing.team_id = Some("existing-team".into());
+    store.save(&mut existing, 5).unwrap();
+    let mut team_collision = fixture_plan("other-plan");
+    team_collision.team_id = existing.team_id.clone();
+    let mut malformed = fixture_plan("malformed");
+    malformed.title = "x".repeat(257);
+    let mut overflow = fixture_plan("overflow");
+    overflow.updated_at = u64::MAX;
+    for tail in [
+        existing.clone(),
+        team_collision,
+        malformed,
+        overflow,
+        fixture_plan("fresh"),
+    ] {
+        let first = fixture_plan("fresh");
+        let error = store
+            .import_fixture_plans(
+                &[first, tail],
+                || -> Result<(), String> {
+                    panic!("all plan validation must precede the Desk commit")
+                },
+                Ok,
+            )
+            .unwrap_err();
+        assert!(!error.is_empty());
+        assert!(store.get("fresh").is_none());
+        assert_eq!(store.get("existing"), Some(existing.clone()));
+    }
+}
+
+#[test]
+fn fixture_batch_failed_desk_stage_creates_no_plans() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let error = store
+        .import_fixture_plans(
+            &[fixture_plan("new")],
+            || -> Result<(), String> { Err("competing desk revision".into()) },
+            Ok,
+        )
+        .unwrap_err();
+    assert_eq!(error, "competing desk revision");
+    assert!(store.get("new").is_none());
+}
+
+#[test]
+fn fixture_batch_reservation_orders_a_competing_import_before_any_overwrite() {
+    use std::sync::{mpsc, Arc};
+    use std::time::Duration;
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(PlanStore::new_for_test(dir.path()));
+    let (admitted_tx, admitted_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel();
+    let first_store = store.clone();
+    let first = std::thread::spawn(move || {
+        first_store.import_fixture_plans(
+            &[fixture_plan("reserved")],
+            || Ok(()),
+            |()| {
+                admitted_tx.send(()).unwrap();
+                release_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+                Ok(())
+            },
+        )
+    });
+    admitted_rx.recv_timeout(Duration::from_secs(5)).unwrap();
+    let second_store = store.clone();
+    let second = std::thread::spawn(move || {
+        second_store.import_fixture_plans(
+            &[fixture_plan("reserved")],
+            || -> Result<(), String> {
+                panic!("a competing reserved identity must refuse before Desk commit")
+            },
+            Ok,
+        )
+    });
+    {
+        let mut state = store.mutation_writer.state.lock();
+        while state.next_ticket < 2 {
+            assert!(!store
+                .mutation_writer
+                .ready
+                .wait_for(&mut state, Duration::from_secs(5))
+                .timed_out());
+        }
+    }
+    assert_eq!(store.get("reserved"), Some(fixture_plan("reserved")));
+    release_tx.send(()).unwrap();
+    first.join().unwrap().unwrap();
+    assert!(second
+        .join()
+        .unwrap()
+        .unwrap_err()
+        .contains("identity collision"));
+    assert_eq!(store.get("reserved"), Some(fixture_plan("reserved")));
+}
+
+#[test]
+fn fixture_batch_plan_io_failure_retains_committed_desk_stage_without_replay() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(dir.path());
+    let calls = std::cell::Cell::new(0);
+    let error = store
+        .import_fixture_plans(
+            &[fixture_plan("new")],
+            || {
+                calls.set(calls.get() + 1);
+                *store.database.connection.lock() = Connection::open_in_memory().unwrap();
+                Ok(())
+            },
+            Ok,
+        )
+        .unwrap_err();
+    assert_eq!(calls.get(), 1);
+    assert!(error.contains("stage=plans desk=committed plans=uncertain"));
+    assert!(error.contains("do not replay"));
+    assert!(!store.index.read().contains_key("new"));
+}
+
 #[test]
 fn searchable_plan_body_includes_external_refs() {
     let directory = tempfile::tempdir().unwrap();
@@ -43,10 +214,413 @@ fn searchable_plan_body_includes_external_refs() {
 }
 
 #[test]
+fn task_board_pages_keep_counts_cursor_order_and_compact_history_free_rows() {
+    use crate::plan::TaskStatus;
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Paged board".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let paused_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "paused".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let first_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "first".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let second_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "second".into(),
+                ..Default::default()
+            },
+            4,
+        )
+        .unwrap();
+    let done_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "done".into(),
+                ..Default::default()
+            },
+            5,
+        )
+        .unwrap();
+    let cancelled_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "cancelled".into(),
+                ..Default::default()
+            },
+            6,
+        )
+        .unwrap();
+
+    let mut plan_data = store.get(&plan.id).unwrap();
+    for task in &mut plan_data.tasks {
+        task.created_at = match task.id.as_str() {
+            id if id == paused_id => 9,
+            _ => 10,
+        };
+        if task.id == paused_id {
+            task.status = TaskStatus::Paused;
+        } else if task.id == done_id {
+            task.status = TaskStatus::Done;
+            task.body = "large detail body".repeat(400);
+        } else if task.id == cancelled_id {
+            task.status = TaskStatus::Cancelled;
+        }
+    }
+    store.save(&mut plan_data, 7).unwrap();
+
+    let first_page = store.task_board_page(&plan.id, None, 1, None).unwrap();
+    assert_eq!(first_page["counts"]["pending"], 3);
+    assert_eq!(first_page["counts"]["done"], 1);
+    assert_eq!(first_page["counts"]["cancelled"], 1);
+    assert_eq!(
+        first_page["columns"]["pending"]["items"]
+            .as_array()
+            .unwrap()
+            .len(),
+        1
+    );
+    assert_eq!(
+        first_page["columns"]["pending"]["items"][0]["id"],
+        paused_id
+    );
+
+    let first_cursor = &first_page["columns"]["pending"]["next_cursor"];
+    let first_created = first_cursor["created_at"].as_u64().unwrap();
+    let first_position = first_cursor["position"].as_i64().unwrap();
+    let first_task_id = first_cursor["task_id"].as_str().unwrap();
+    let second_page = store
+        .task_board_page(
+            &plan.id,
+            Some("pending"),
+            1,
+            Some((first_created, first_position, first_task_id)),
+        )
+        .unwrap();
+    assert_eq!(second_page["column"]["items"][0]["id"], first_id);
+
+    let third_cursor = &second_page["column"]["next_cursor"];
+    let third_page = store
+        .task_board_page(
+            &plan.id,
+            Some("pending"),
+            1,
+            Some((
+                third_cursor["created_at"].as_u64().unwrap(),
+                third_cursor["position"].as_i64().unwrap(),
+                third_cursor["task_id"].as_str().unwrap(),
+            )),
+        )
+        .unwrap();
+    assert_eq!(third_page["column"]["items"][0]["id"], second_id);
+    assert!(third_page["column"]["next_cursor"].is_null());
+
+    let compact_done = &first_page["columns"]["done"]["items"][0];
+    assert!(compact_done.get("body").is_none());
+    assert!(compact_done.get("milestones").is_none());
+    assert!(compact_done.get("execution_attempts").is_none());
+}
+
+#[test]
+fn task_board_cursor_pages_use_the_ordered_plan_status_index_without_temp_sort() {
+    use rusqlite::Connection;
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Indexed task board".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    for index in 0..3 {
+        store
+            .add_task(
+                &plan.id,
+                NewTask {
+                    name: format!("indexed-{index}"),
+                    ..Default::default()
+                },
+                index + 2,
+            )
+            .unwrap();
+    }
+
+    let database_path = store.database_path_for_test();
+    drop(store);
+    let old_database = Connection::open(&database_path).unwrap();
+    old_database
+        .execute_batch("DROP INDEX plan_tasks_board_cursor")
+        .unwrap();
+    drop(old_database);
+    let database = PlanDatabase::open(database_path).unwrap();
+    let connection = database.connection.lock();
+    let index_exists: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'plan_tasks_board_cursor')",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(
+        index_exists,
+        "opening an existing database restores the schema-owned cursor index"
+    );
+    let preserved_task_count: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM plan_tasks WHERE plan_id = ?1",
+            [&plan.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        preserved_task_count, 3,
+        "reopening preserves existing task rows"
+    );
+    let explain = |sql: &str, parameters: &[&dyn rusqlite::ToSql]| -> Vec<String> {
+        let mut statement = connection.prepare(sql).unwrap();
+        statement
+            .query_map(parameters, |row| row.get(3))
+            .unwrap()
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    let first_page_plan = explain(
+        "EXPLAIN QUERY PLAN SELECT task_id FROM plan_tasks
+         WHERE plan_id = ?1
+           AND CASE WHEN status IN ('pending', 'paused') THEN 'pending' ELSE status END = 'pending'
+         ORDER BY coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0), position, task_id
+         LIMIT ?2",
+        &[&plan.id, &2_i64],
+    );
+    let later_page_plan = explain(
+        "EXPLAIN QUERY PLAN SELECT task_id FROM plan_tasks
+         WHERE plan_id = ?1
+           AND CASE WHEN status IN ('pending', 'paused') THEN 'pending' ELSE status END = 'pending'
+           AND (coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0), position, task_id) > (?2, ?3, ?4)
+         ORDER BY coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0), position, task_id
+         LIMIT ?5",
+        &[&plan.id, &1_i64, &1_i64, &"cursor", &2_i64],
+    );
+    for query_plan in [first_page_plan, later_page_plan] {
+        let detail = query_plan.join("\n");
+        assert!(detail.contains("plan_tasks_board_cursor"), "{detail}");
+        assert!(!detail.contains("TEMP B-TREE FOR ORDER BY"), "{detail}");
+    }
+}
+
+#[test]
+fn task_board_cursor_breaks_created_and_position_ties_by_unique_task_id() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Task cursor ties".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let first_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "First".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let second_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Second".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    store
+        .database
+        .connection
+        .lock()
+        .execute(
+            "UPDATE plan_tasks
+             SET position = 7, row_json = json_set(row_json, '$.created_at', 9)
+             WHERE plan_id = ?1 AND task_id IN (?2, ?3)",
+            rusqlite::params![plan.id, first_id, second_id],
+        )
+        .unwrap();
+
+    let mut expected = [first_id, second_id];
+    expected.sort();
+    let first_page = store
+        .task_board_page(&plan.id, Some("pending"), 1, None)
+        .unwrap();
+    let first = &first_page["column"]["items"][0];
+    assert_eq!(first["id"], expected[0]);
+    let cursor = &first_page["column"]["next_cursor"];
+    let second_page = store
+        .task_board_page(
+            &plan.id,
+            Some("pending"),
+            1,
+            Some((
+                cursor["created_at"].as_u64().unwrap(),
+                cursor["position"].as_i64().unwrap(),
+                cursor["task_id"].as_str().unwrap(),
+            )),
+        )
+        .unwrap();
+    assert_eq!(second_page["column"]["items"][0]["id"], expected[1]);
+    assert!(second_page["column"]["next_cursor"].is_null());
+}
+
+#[test]
+fn task_detail_reads_one_exact_task_with_its_history_and_small_context() {
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let plan = store
+        .create_plan(
+            "Scoped task detail".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            1,
+        )
+        .unwrap();
+    let selected_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Selected detail".into(),
+                body: "Selected task description".into(),
+                acceptance_criteria: vec!["Selected criterion".into()],
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    let other_id = store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Unselected task".into(),
+                body: "Must stay outside the response".into(),
+                ..Default::default()
+            },
+            3,
+        )
+        .unwrap();
+    let connection = store.database.connection.lock();
+    connection
+        .execute(
+            "INSERT INTO plan_task_milestones(plan_id, task_id, seq, row_json) VALUES (?1, ?2, 0, ?3)",
+            rusqlite::params![
+                plan.id,
+                selected_id,
+                serde_json::json!({ "id": "milestone-1", "kind": "decision", "text": "Selected task diagnostic history", "ts": 4, "links": [], "loop_id": null, "iteration": null, "canvas": { "x": null, "y": null, "collapsed": false } }).to_string(),
+            ],
+        )
+        .unwrap();
+    connection
+        .execute(
+            "INSERT INTO plan_task_attempts(plan_id, task_id, attempt_id, position, content_hash, row_json) VALUES (?1, ?2, 'attempt-1', 1, 0, ?3)",
+            rusqlite::params![
+                plan.id,
+                selected_id,
+                serde_json::json!({ "id": "attempt-1", "tab_id": "worker-1", "role": "worker", "report_status": "in_review", "outcome": "review requested" }).to_string(),
+            ],
+        )
+        .unwrap();
+    drop(connection);
+
+    let detail = store.task_detail_for_plan(&plan.id, &selected_id).unwrap();
+    assert_eq!(detail["plan_id"], plan.id);
+    assert_eq!(detail["task_id"], selected_id);
+    assert_eq!(detail["task"]["id"], selected_id);
+    assert_eq!(detail["task"]["body"], "Selected task description");
+    assert_eq!(
+        detail["task"]["acceptance_criteria"][0],
+        "Selected criterion"
+    );
+    assert_eq!(
+        detail["task"]["milestones"][0]["text"],
+        "Selected task diagnostic history"
+    );
+    assert_eq!(detail["task"]["execution_attempts"][0]["id"], "attempt-1");
+    assert_eq!(detail["context"]["plan_id"], plan.id);
+    assert!(detail.get("tasks").is_none());
+    assert!(detail
+        .to_string()
+        .find("Must stay outside the response")
+        .is_none());
+
+    let other_plan = store
+        .create_plan(
+            "Different plan".into(),
+            directory.path().display().to_string(),
+            OrchestratorRef::from_tab("orch"),
+            vec![],
+            5,
+        )
+        .unwrap();
+    assert!(store
+        .task_detail_for_plan(&other_plan.id, &selected_id)
+        .is_err());
+    assert!(store.task_detail_for_plan(&plan.id, &other_id).is_ok());
+}
+
+#[test]
 fn plan_round_trips_from_one_wal_database() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("plans.db");
     let database = PlanDatabase::open(path.clone()).unwrap();
+    assert!(path.is_file());
+    let published = Connection::open(&path).unwrap();
+    let version: i64 = published
+        .query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(version, SCHEMA_VERSION);
+    assert_eq!(
+        published
+            .query_row("SELECT COUNT(*) FROM plans", [], |row| row.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+    drop(published);
     let mut plan = Plan::new(
         "Global plan".into(),
         "D:/project".into(),

@@ -59,13 +59,17 @@ fn make_relation(conn: &Connection, from: &str, rel: &str, to: &str) {
 
 fn seed_basic_graph(conn: &Connection) {
     // Hub with 3 neighbors plus existing topic anchor.
-    make_entity(conn, "hub_andrey", "person");
-    for n in ["thing_a", "thing_b", "thing_c"] {
+    make_entity(conn, "opaque_anchor_person_61f0", "person");
+    for n in [
+        "opaque_source_1d8e",
+        "opaque_source_2f9a",
+        "opaque_source_3a07",
+    ] {
         make_entity(conn, n, "thing");
-        make_relation(conn, "hub_andrey", "mentions", n);
+        make_relation(conn, "opaque_anchor_person_61f0", "mentions", n);
     }
-    make_entity(conn, "topic_codeterm_mesh_topology", "Topic");
-    make_entity(conn, "role_release_host_windows", "Role");
+    make_entity(conn, "topic_opaque_anchor_52c9", "Topic");
+    make_entity(conn, "role_opaque_anchor_84d1", "Role");
 }
 
 #[tokio::test]
@@ -85,14 +89,17 @@ async fn recluster_prompt_includes_existing_anchors() {
         .unwrap();
     let prompt = cap.captured.lock().unwrap().clone();
     assert!(
-        prompt.contains("topic_codeterm_mesh_topology"),
+        prompt.contains("topic_opaque_anchor_52c9"),
         "anchor missing from prompt"
     );
     assert!(
-        prompt.contains("role_release_host_windows"),
+        prompt.contains("role_opaque_anchor_84d1"),
         "role anchor missing"
     );
-    assert!(prompt.contains("hub_andrey"), "hub missing from prompt");
+    assert!(
+        prompt.contains("opaque_anchor_person_61f0"),
+        "hub missing from prompt"
+    );
 }
 
 #[tokio::test]
@@ -108,7 +115,7 @@ async fn recluster_validates_anchor_exists() {
             "topic_id": "topic_invented",
             "entity_type": "Topic",
             "anchor": "ghost_does_not_exist",
-            "sources": ["thing_a"],
+            "sources": ["opaque_source_1d8e"],
             "rationale": "test"
         }]
     })
@@ -137,8 +144,8 @@ async fn recluster_validates_source_exists() {
         "clusters": [{
             "topic_id": "topic_realtopic",
             "entity_type": "Topic",
-            "anchor": "hub_andrey",
-            "sources": ["thing_a", "totally_missing_id"],
+            "anchor": "opaque_anchor_person_61f0",
+            "sources": ["opaque_source_1d8e", "totally_missing_id"],
             "rationale": "test"
         }]
     })
@@ -167,8 +174,8 @@ async fn recluster_validates_topic_id_slug() {
         "clusters": [{
             "topic_id": "Topic_Bad-Slug",
             "entity_type": "Topic",
-            "anchor": "hub_andrey",
-            "sources": ["thing_a"],
+            "anchor": "opaque_anchor_person_61f0",
+            "sources": ["opaque_source_1d8e"],
             "rationale": "test"
         }]
     })
@@ -194,8 +201,8 @@ async fn recluster_skips_self_referential_sources() {
         "clusters": [{
             "topic_id": "topic_realtopic",
             "entity_type": "Topic",
-            "anchor": "hub_andrey",
-            "sources": ["hub_andrey", "thing_a"],
+            "anchor": "opaque_anchor_person_61f0",
+            "sources": ["opaque_anchor_person_61f0", "opaque_source_1d8e"],
             "rationale": "test"
         }]
     })
@@ -223,7 +230,7 @@ async fn recluster_writes_plan_file_to_disk() {
         .save(NewMemItem {
             kind: MemKind::Fact,
             scope: MemScope::Global,
-            title: "fact about thing_a".into(),
+            title: "fact about opaque_source_1d8e".into(),
             summary: None,
             area: None,
             tags: vec![],
@@ -240,8 +247,8 @@ async fn recluster_writes_plan_file_to_disk() {
         "clusters": [{
             "topic_id": "topic_grouped_things",
             "entity_type": "Topic",
-            "anchor": "hub_andrey",
-            "sources": ["thing_a", "thing_b", &id],
+            "anchor": "opaque_anchor_person_61f0",
+            "sources": ["opaque_source_1d8e", "opaque_source_2f9a", &id],
             "rationale": "all three describe the same hub aspect"
         }]
     })

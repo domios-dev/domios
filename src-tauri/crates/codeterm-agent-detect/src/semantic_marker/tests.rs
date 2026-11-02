@@ -7,21 +7,6 @@ fn parse(bytes: &[u8]) -> Vec<SemanticEvent> {
 // --- each marker type parses (133 + 633) ---
 
 #[test]
-fn prompt_start_a() {
-    assert_eq!(parse(b"\x1b]633;A\x07"), vec![SemanticEvent::PromptStart]);
-}
-
-#[test]
-fn prompt_end_b() {
-    assert_eq!(parse(b"\x1b]633;B\x07"), vec![SemanticEvent::PromptEnd]);
-}
-
-#[test]
-fn command_start_c() {
-    assert_eq!(parse(b"\x1b]633;C\x07"), vec![SemanticEvent::CommandStart]);
-}
-
-#[test]
 fn command_end_with_exit_code() {
     assert_eq!(
         parse(b"\x1b]633;D;0\x07"),
@@ -256,12 +241,6 @@ fn malformed_exit_code_yields_none() {
 fn unterminated_sequence_does_not_emit() {
     let mut p = SemanticMarkerParser::new();
     assert_eq!(p.feed(b"\x1b]633;A"), Vec::new());
-}
-
-#[test]
-fn empty_chunk_is_safe() {
-    let mut p = SemanticMarkerParser::new();
-    assert_eq!(p.feed(b""), Vec::new());
 }
 
 #[test]

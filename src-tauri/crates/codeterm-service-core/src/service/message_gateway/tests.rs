@@ -105,54 +105,6 @@ fn delivery_receipt_keeps_enveloped_pad_file_path() {
     assert_eq!(receipt.pad_file, Some(path));
 }
 
-fn msg_with_class(target: &str, class: DeliveryClass) -> OutboundMessage {
-    OutboundMessage {
-        target: target.to_string(),
-        body: MessageBody::Text {
-            body: "body".to_string(),
-        },
-        envelope: None,
-        class,
-        origin: MessageOrigin::System,
-        idempotency_key: None,
-    }
-}
-
-#[test]
-fn every_delivery_class_dispatches_optimistically() {
-    let gateway = MessageGateway::new();
-    for class in [
-        DeliveryClass::AgentTraffic,
-        DeliveryClass::SystemNotice,
-        DeliveryClass::UserTurn,
-        DeliveryClass::RawKeys,
-    ] {
-        let fake = FakeSeam::default();
-        gateway.submit(&fake, msg_with_class("p1", class)).unwrap();
-        assert_eq!(fake.texts.borrow().len(), 1, "{class:?} must not wait");
-    }
-}
-
-#[test]
-fn worker_report_requirement_is_consumed_exactly_once() {
-    let gateway = MessageGateway::new();
-
-    gateway.require_worker_report("worker-tab");
-
-    assert!(gateway.take_worker_report_requirement("worker-tab"));
-    assert!(!gateway.take_worker_report_requirement("worker-tab"));
-}
-
-#[test]
-fn explicit_worker_report_clears_the_requirement() {
-    let gateway = MessageGateway::new();
-    gateway.require_worker_report("worker-tab");
-
-    gateway.clear_worker_report_requirement("worker-tab");
-
-    assert!(!gateway.take_worker_report_requirement("worker-tab"));
-}
-
 fn text_msg(target: &str, body: &str, key: Option<&str>) -> OutboundMessage {
     OutboundMessage {
         target: target.to_string(),
@@ -315,9 +267,11 @@ fn duplicate_key_returns_cached_receipt_without_second_delivery() {
 }
 
 #[test]
-fn distinct_origin_or_key_is_not_deduped() {
+fn idempotency_scope_includes_origin_target_and_key() {
     let gateway = MessageGateway::new();
     let fake = FakeSeam::default();
+    let mut different_origin = text_msg("p1", "hi", Some("k1"));
+    different_origin.origin = MessageOrigin::Ui;
 
     gateway
         .submit(&fake, text_msg("p1", "hi", Some("k1")))
@@ -325,8 +279,16 @@ fn distinct_origin_or_key_is_not_deduped() {
     gateway
         .submit(&fake, text_msg("p1", "hi", Some("k2")))
         .unwrap();
+    gateway
+        .submit(&fake, text_msg("p2", "hi", Some("k1")))
+        .unwrap();
+    gateway.submit(&fake, different_origin).unwrap();
 
-    assert_eq!(fake.texts.borrow().len(), 2, "different keys both deliver");
+    assert_eq!(
+        fake.texts.borrow().len(),
+        4,
+        "distinct key, target, and origin scopes each deliver"
+    );
 }
 
 #[test]

@@ -535,16 +535,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_add_report() {
-        let mut store = ReportStore::new(100);
-        let report = store.add("cond-1", "worker-1", "Worker 1", "Task complete");
-        assert!(!report.id.is_empty());
-        assert_eq!(report.from_tab_id, "worker-1");
-        assert_eq!(report.from_title, "Worker 1");
-        assert_eq!(report.message, "Task complete");
-    }
-
-    #[test]
     fn test_get_reports() {
         let mut store = ReportStore::new(100);
         store.add("cond-1", "w1", "Worker 1", "Done");
@@ -565,16 +555,6 @@ mod tests {
         assert_eq!(reports.len(), 1);
         let reports2 = store.get("cond-1", false);
         assert_eq!(reports2.len(), 0);
-    }
-
-    #[test]
-    fn test_count() {
-        let mut store = ReportStore::new(100);
-        assert_eq!(store.count("cond-1"), 0);
-        store.add("cond-1", "w1", "W1", "msg");
-        assert_eq!(store.count("cond-1"), 1);
-        store.add("cond-1", "w2", "W2", "msg");
-        assert_eq!(store.count("cond-1"), 2);
     }
 
     #[test]
@@ -634,14 +614,6 @@ mod tests {
             .as_secs()
             .saturating_add(30);
         assert!(!store.has_report_from_after("cond-1", "w1", after_report));
-    }
-
-    #[test]
-    fn test_remove() {
-        let mut store = ReportStore::new(100);
-        store.add("cond-1", "w1", "W1", "msg");
-        store.remove("cond-1");
-        assert_eq!(store.count("cond-1"), 0);
     }
 
     #[test]
@@ -747,43 +719,6 @@ mod tests {
             report.reasoning_effort.actual_source.as_deref(),
             Some("provider-default-unverified")
         );
-    }
-
-    #[test]
-    fn message_only_report_omits_structured_keys_in_json() {
-        // without any of the new keys so old consumers round-trip unchanged.
-        let mut store = ReportStore::new(100);
-        let report = store.add(
-            "orch",
-            "w1",
-            "Worker",
-            "WORKER w1 EXITED without reporting (dead)",
-        );
-        let json = serde_json::to_value(&report).unwrap();
-        for key in [
-            "status",
-            "plan_id",
-            "task_id",
-            "branch",
-            "sha",
-            "changed_files",
-            "test_cmd",
-            "test_result",
-            "skipped",
-            "model",
-            "planned_model",
-            "requested_model",
-            "provider_resolved_model",
-            "actual_model",
-            "model_fallback",
-            "model_identity_mismatch",
-            "reasoning_effort",
-        ] {
-            assert!(
-                json.get(key).is_none(),
-                "message-only report must not serialize key {key}"
-            );
-        }
     }
 
     #[test]

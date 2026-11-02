@@ -45,9 +45,6 @@ impl FirebaseTransport {
         firestore::listen_pending(self, friendship).await
     }
 
-    pub async fn pending_count(&self, friendship: &str) -> Result<u64> {
-        firestore::pending_count(self, friendship).await
-    }
     pub async fn listen_state(&self) -> Result<Box<dyn crate::state::StateListener>> {
         firestore::state::listen(self).await
     }

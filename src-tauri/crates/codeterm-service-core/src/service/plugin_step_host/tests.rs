@@ -15,14 +15,9 @@ fn step_run_cwd_must_match_host_stamped_authored_params() {
 }
 
 #[test]
-fn step_run_start_rejects_keep_option() {
-    let options = serde_json::json!({"prompt":"opaque","cwd":"/work","timeoutMs":1000,"keep":true});
-    assert!(serde_json::from_value::<StartOptions>(options).is_err());
-}
-
-#[test]
-fn step_run_plugin_cannot_override_host_access_policy() {
+fn step_run_rejects_host_owned_and_unknown_options() {
     for field in [
+        "keep",
         "skipPermissions",
         "skip_permissions",
         "fullAccess",

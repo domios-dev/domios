@@ -425,9 +425,11 @@ impl ServiceFixture {
             )
             .unwrap(),
         );
-        let services_store = Arc::new(
-            crate::service::store::ServicesStore::open(&data_dir.join("services.db")).unwrap(),
-        );
+        let services_store = Arc::new(if persistent {
+            crate::service::store::ServicesStore::open(&data_dir.join("services.db")).unwrap()
+        } else {
+            crate::service::store::ServicesStore::open_in_memory().unwrap()
+        });
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
         let mux = Arc::new(TimedRwLock::new("mux", mux));
         let agent_tracker = Arc::new(TimedMutex::new(
@@ -771,78 +773,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fixture_configuration_and_weak_owner_are_initialized() {
-        let fixture = ServiceFixture::new(MultiplexerState::new().0);
-        fixture.set_agent_full_access(true);
-        assert_eq!(
-            fixture.service.configuration().agent.full_access,
-            Some(true)
-        );
-        let owner = fixture
-            .service
-            .ext::<std::sync::Weak<ServiceContext>>()
-            .upgrade()
-            .unwrap();
-        assert!(Arc::ptr_eq(&owner, &fixture._owner));
-    }
-
-    #[test]
-    fn fixture_mesh_identity_is_isolated_and_never_persists() {
-        let first = ServiceFixture::new(MultiplexerState::new().0);
-        let second = ServiceFixture::new(MultiplexerState::new().0);
-        let first_mesh = first.service.ext::<crate::MeshStateHandle>();
-        let second_mesh = second.service.ext::<crate::MeshStateHandle>();
-        assert!(!Arc::ptr_eq(first_mesh, second_mesh));
-        let first_mesh = first_mesh.lock();
-        let second_mesh = second_mesh.lock();
-        assert!(!first_mesh.disk_persist);
-        assert!(!second_mesh.disk_persist);
-        assert!(first_mesh.paired_peers.is_empty());
-        assert!(second_mesh.paired_peers.is_empty());
-        assert_ne!(
-            first_mesh.ident.identity.instance_id,
-            second_mesh.ident.identity.instance_id
-        );
-    }
-
-    #[test]
-    fn recorded_ui_preserves_event_payloads_in_order() {
-        use crate::ports::host::UiEvents;
-        let ui = RecordedUiEvents::default();
-        let payload = serde_json::json!({ "probe": [1, 2] });
-        ui.emit("broadcast", payload.clone());
-        ui.emit_to("main", "targeted", serde_json::Value::Null);
-        assert_eq!(
-            *ui.0.lock(),
-            vec![
-                ("broadcast".to_owned(), payload),
-                ("targeted".to_owned(), serde_json::Value::Null)
-            ]
-        );
-    }
-
-    #[test]
-    fn recorded_ui_broadcasts_only_global_events() {
-        use crate::ports::host::UiEvents;
-        let events = Arc::new(codeterm_events::EventBroadcaster::new());
-        let mut receiver = events.subscribe();
-        let ui = RecordedUiEvents::with_broadcaster(events);
-        let payload = serde_json::json!({"probe": [1, 2]});
-        ui.emit("broadcast", payload.clone());
-        match receiver.try_recv().unwrap().event {
-            codeterm_events::SystemEvent::Generic { event_type, data } => {
-                assert_eq!(event_type, "broadcast");
-                assert_eq!(data, payload);
-            }
-            event => panic!("unexpected event: {event:?}"),
-        }
-        ui.emit_native("native", serde_json::Value::Null);
-        ui.emit_to("main", "targeted", serde_json::Value::Null);
-        assert!(receiver.try_recv().is_err());
-        assert_eq!(ui.0.lock().len(), 3);
-    }
-
-    #[test]
     fn service_runtime_uses_the_host_pool_from_blocking_workers() {
         let fixture = ServiceFixture::new(MultiplexerState::new().0);
         let expected = fixture.service.rt.id();
@@ -858,29 +788,6 @@ mod tests {
             });
             assert_eq!(blocking.await.unwrap(), expected);
         });
-    }
-
-    #[test]
-    fn fixture_constructs_emits_and_drops_on_an_owned_thread_without_windows() {
-        std::thread::spawn(|| {
-            let (mux, _) = MultiplexerState::new();
-            let fixture = ServiceFixture::new(mux);
-            use crate::ports::host::UiEvents;
-            fixture.set_agent_full_access(true);
-            assert_eq!(
-                fixture.service.configuration().agent.full_access,
-                Some(true)
-            );
-            let (tx, rx) = std::sync::mpsc::channel();
-            let listener = fixture.ui.listen("fixture-event", move |value| {
-                tx.send(value.clone()).unwrap();
-            });
-            fixture.ui.emit("fixture-event", serde_json::json!(42));
-            assert_eq!(rx.try_recv().unwrap(), serde_json::json!(42));
-            fixture.ui.unlisten(listener);
-        })
-        .join()
-        .unwrap();
     }
 
     #[test]

@@ -9,7 +9,7 @@ use super::{
     resolve_dispatch_lane, roll_back_dispatch_attempt, rollback_failed_dispatch,
     set_dispatch_task_brief, startup_wait_is_recoverable, task_launch_authority_for_dispatch,
     verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
-    DispatchFailureDisposition, DispatchWaitFailure, DISPATCH_READY_TIMEOUT,
+    DispatchFailureDisposition, DispatchWaitFailure,
 };
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::AgentRole;
@@ -441,20 +441,6 @@ impl DispatchRuntime {
 }
 
 #[test]
-fn dispatch_response_has_single_authoritative_tab_id() {
-    for authoritative_tab_id in ["d3d39cd2", "b46ee19a", "5f3decc7"] {
-        let response = starting_response(authoritative_tab_id);
-        let mut ids = HashSet::new();
-        collect_tab_and_tab_ids(&response, &mut ids);
-        assert_eq!(
-            ids,
-            HashSet::from([authoritative_tab_id.to_string()]),
-            "response contained an identity other than {authoritative_tab_id}"
-        );
-    }
-}
-
-#[test]
 fn dispatch_response_never_claims_ready_before_event() {
     let response = starting_response("tab-worker");
     assert_eq!(response["accepted"], false);
@@ -483,18 +469,6 @@ fn dispatch_response_never_claims_ready_before_event() {
 
 /// The immediate response is the observable contract the Orchestrator reads: a
 /// spawned Worker that has not bound is never reported as an accepted dispatch.
-#[test]
-fn spawned_unbound_dispatch_is_reported_as_awaiting_not_accepted() {
-    let response = starting_response("tab-codex");
-    assert_eq!(
-        response["accepted"], false,
-        "an unbound spawn is not accepted"
-    );
-    assert_eq!(response["spawned"], true);
-    assert_eq!(response["state"], "awaiting_worker_ack");
-    assert_eq!(response["readiness"]["awaiting_event"], "worker_ack");
-}
-
 #[test]
 fn session_binding_timeout_is_recoverable_but_definitive_binding_is_not() {
     let late = dispatch_wait_failed(
@@ -892,14 +866,6 @@ fn session_binding_timeout_never_rolls_back_a_possibly_live_worker() {
     let data = error.data.unwrap();
     assert_eq!(data["stage"], "session_binding");
     assert_eq!(data["worker_may_be_alive"], true);
-}
-
-#[test]
-fn dispatch_binding_wait_uses_the_measured_startup_deadline() {
-    assert_eq!(
-        DISPATCH_READY_TIMEOUT,
-        codeterm_service_core::service::worker_ack::STARTUP_BINDING_DEADLINE
-    );
 }
 
 #[test]

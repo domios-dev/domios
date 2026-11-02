@@ -47,25 +47,22 @@ fn now_ms() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::thread;
-    use std::time::Duration;
 
     #[test]
     fn coalesces_writes_within_one_second() {
         let a = UserLastActivity::new();
-        let t0 = a.read_ms();
+        let t0 = now_ms();
+        a.last_ms.store(t0, Ordering::Relaxed);
         a.mark();
         let t1 = a.read_ms();
-        assert!(t1 >= t0);
-        thread::sleep(Duration::from_millis(50));
+        assert_eq!(t1, t0, "mark inside coalesce window must not advance");
+
+        let expired = now_ms().saturating_sub(COALESCE_MS + 1);
+        a.last_ms.store(expired, Ordering::Relaxed);
         a.mark();
-        assert_eq!(
-            a.read_ms(),
-            t1,
-            "second mark inside coalesce window must not advance"
+        assert!(
+            a.read_ms() > expired,
+            "mark after coalesce window must advance"
         );
-        thread::sleep(Duration::from_millis(1100));
-        a.mark();
-        assert!(a.read_ms() > t1, "mark after coalesce window must advance");
     }
 }

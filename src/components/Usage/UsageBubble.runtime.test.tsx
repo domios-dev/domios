@@ -13,7 +13,9 @@ const resetRequests:Record<string,unknown>[]=[];
 let failResetRead = false;
 let groupUsage: unknown[] = [];
 let pendingReads: ((snapshot:UsageSnapshot)=>void)[] | null = null;
+let latestReads = 0;
 bridge.__setInvokeForTest(async <T,>(command:string,args?:Record<string,unknown>):Promise<T> => {
+ if(command === "usage_latest") latestReads++;
  if(command === "agent_runtime_reset_credits") {
   const request = args?.request as Record<string,unknown>;
   resetRequests.push(request);
@@ -31,7 +33,7 @@ bridge.__setListenForTest(async <T,>(event:string, handler:(event:{payload:T})=>
  handlers.add(listener);
  return () => { handlers.delete(listener); };
 });
-const emit = (provider="fixture") => { for (const listener of listeners.get("usage-snapshot-updated") ?? []) listener({payload:{provider,account_id:null}}); };
+const emit = (provider="fixture") => { const payload = {provider,account_id:null}; for (const listener of listeners.get("usage-snapshot-updated") ?? []) listener({payload}); };
 const {UsageBubble}=await import("./UsageBubble");
 const container=document.createElement("div");document.body.append(container);const root=createRoot(container);
 const reading:RuntimeUsageProjection={tab_id:"own",thread_id:"thread",billing_mode:"subscription",token_usage:null,rate_limits:{captured_at:Date.now(),value:[{window:"primary",usedPercent:2},{window:"secondary",usedPercent:0}]}};
@@ -176,6 +178,15 @@ assert.ok(container.querySelector('[aria-label="Unused credits expire within 3 d
 await act(async()=>container.querySelector("button")!.click());
 assert.ok(document.querySelector('[role="dialog"]')?.textContent?.includes("expires in 1 hour"));
 Date.now = now;
+await act(async()=>root.render(<>
+  <UsageBubble provider="fixture" trackingEnabled />
+  <UsageBubble provider="fixture" trackingEnabled />
+</>));
+snapshot = {...snapshot,captured_at:Date.now(),parsed_ok:true,session_pct:19,weekly_pct:23,runtime_usage:undefined};
+const beforeBroadcast = latestReads;
+await act(async()=>emit());
+assert.equal(latestReads - beforeBroadcast, 1);
+assert.equal(container.querySelectorAll('button[aria-label="usage session 19% weekly 23%"]').length, 2);
 await act(async()=>root.unmount());bridge.__setInvokeForTest(null);bridge.__setListenForTest(null);dom.happyDOM.abort();
 console.log("PASS usage chip wiring: subscription metrics and API session breakdown");
 

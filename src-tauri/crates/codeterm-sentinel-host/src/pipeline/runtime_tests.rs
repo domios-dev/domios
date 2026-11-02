@@ -255,9 +255,15 @@ fn blueprint_v2_runtime_shared_context_binding_depth_and_step_budget() {
         Err(JournalReason::ContractViolation)
     );
     let filter: Step = serde_json::from_value(json!({"name":"bounded","input":"text","kind":{"kind":"filter","pattern":".*","bucket":null}})).unwrap();
-    for _ in 0..64 {
-        execute_step(&mut ctx, &filter, ExecutionEnvelope::from_text("opaque")).unwrap();
+    for index in 0..64 {
+        ctx.call_state.simulate = index > 0;
+        let result =
+            execute_step(&mut ctx, &filter, ExecutionEnvelope::from_text("opaque")).unwrap();
+        assert_eq!(result.state, JournalState::Done);
+        assert_eq!(result.output, ExecutionEnvelope::from_text("opaque"));
     }
+    ctx.call_state.simulate = false;
+    assert_eq!(ctx.next_marker, 64);
     assert_eq!(
         execute_step(
             &mut ctx,

@@ -100,7 +100,7 @@ fn mem_subcommand() -> clap::Command {
 }
 
 #[test]
-fn mem_recall_is_a_hidden_exact_alias_for_search() {
+fn mem_recall_is_an_exact_alias_for_search() {
     fn parsed_search(
         argv: &[&str],
     ) -> (
@@ -154,11 +154,6 @@ fn mem_recall_is_a_hidden_exact_alias_for_search() {
         .collect::<Vec<_>>();
 
     assert_eq!(parsed_search(&canonical), parsed_search(&alias));
-    let help = mem_subcommand().render_long_help().to_string();
-    assert!(
-        !help.contains("recall"),
-        "hidden alias leaked into help: {help}"
-    );
 }
 
 #[test]

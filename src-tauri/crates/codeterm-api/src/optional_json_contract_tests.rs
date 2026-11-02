@@ -108,10 +108,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(no_body.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(no_body.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert!(std::str::from_utf8(&body).unwrap().contains("name"));
 
         let valid_body = Router::new()
             .route("/", post(required_workspace_body))

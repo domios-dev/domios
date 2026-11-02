@@ -314,6 +314,59 @@ impl PlanStore {
         self.save_in_writer(&writer_turn, plan, now_ms)
     }
 
+    pub fn import_fixture_plans<T, R>(
+        &self,
+        plans: &[Plan],
+        commit_desk: impl FnOnce() -> Result<T, String>,
+        publish: impl FnOnce(T) -> Result<R, String>,
+    ) -> Result<R, String> {
+        let turn = self.mutation_writer.enter();
+        let mut ids = std::collections::HashSet::new();
+        let mut teams = std::collections::HashSet::new();
+        {
+            let index = self.index.read();
+            for plan in plans {
+                if plan.id.is_empty() || !ids.insert(&plan.id) || index.contains_key(&plan.id) {
+                    return Err(format!("Fixture plan identity collision: {}", plan.id));
+                }
+                if plan.status == PlanStatus::Active {
+                    if let Some(team) = &plan.team_id {
+                        if !teams.insert(team)
+                            || index.values().any(|row| {
+                                row.status == PlanStatus::Active
+                                    && row.team_id.as_ref() == Some(team)
+                            })
+                        {
+                            return Err(format!("Fixture active plan Team collision: {team}"));
+                        }
+                    }
+                }
+                super::text_bounds::validate_plan(plan).map_err(|error| error.to_string())?;
+            }
+        }
+        let rows = store_db::PlanDatabase::prepare_fixture_plans(plans)
+            .map_err(|error| error.to_string())?;
+        let committed = commit_desk()?;
+        self.database
+            .persist_fixture_plans(plans, &rows)
+            .map_err(|error| {
+                format!(
+                    "Fixture stage=plans desk=committed plans=uncertain; do not replay: {error}"
+                )
+            })?;
+        for plan in plans {
+            self.plan_cache
+                .commit(&plan.id, &Arc::new(Mutex::new(plan.clone())));
+            self.note_index(plan);
+            super::search_index::enqueue_plan_index(
+                &turn,
+                plan.clone(),
+                super::search_index::PlanIndexScope::Full,
+            );
+        }
+        publish(committed)
+    }
+
     pub(super) fn save_in_writer(
         &self,
         turn: &MutationWriterTurn<'_>,

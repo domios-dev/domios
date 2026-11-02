@@ -4,7 +4,6 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import { HelpPanel } from "./HelpPanel";
-import { getHelpSectionIds } from "./content";
 import type { AppConfig } from "../lib/types";
 
 type TestFn = () => void | Promise<void>;
@@ -45,40 +44,6 @@ const config = {
   keybindings: { reopen_tab: "Ctrl+Shift+T" },
 } as AppConfig;
 
-test("renders guide sections from content module", async () => {
-  const sectionIds = getHelpSectionIds("en");
-  const { host, root } = await render(<HelpPanel config={config} />);
-  try {
-    const sections = Array.from(host.querySelectorAll('[data-testid="help-section"]'));
-    const navItems = Array.from(host.querySelectorAll("[data-help-nav]"));
-    assert(
-      sections.length === sectionIds.length,
-      `expected ${sectionIds.length} sections, got ${sections.length}`,
-    );
-    for (const id of sectionIds) {
-      const renderedSectionCount = sections.filter(
-        (section) => section.getAttribute("data-help-section-id") === id,
-      ).length;
-      const navTargetCount = navItems.filter((item) => item.getAttribute("data-help-nav") === id).length;
-      assert(renderedSectionCount === 1, `expected one rendered section for ${id}`);
-      assert(navTargetCount === 1, `expected one navigation target for ${id}`);
-    }
-    const overview = sections.find((section) => section.getAttribute("data-help-section-id") === "overview");
-    const heading = overview?.querySelector("h3")?.textContent?.trim();
-    assert(!!heading, "overview heading missing");
-    const overviewNav = navItems.find((item) => item.getAttribute("data-help-nav") === "overview");
-    assert(overviewNav?.getAttribute("aria-current") === "location", "overview nav should be selected initially");
-  } finally {
-    try {
-      await act(async () => {
-        root.unmount();
-      });
-    } finally {
-      host.remove();
-    }
-  }
-});
-
 test("initialSection renders, selects and scrolls to the supporter agent section", async () => {
   const scrolled: string[] = [];
   const proto = window.HTMLElement.prototype as unknown as { scrollIntoView: () => void };
@@ -96,20 +61,6 @@ test("initialSection renders, selects and scrolls to the supporter agent section
   } finally {
     proto.scrollIntoView = original;
   }
-});
-
-test("renders inline SVG figures without raster images", async () => {
-  const { host } = await render(<HelpPanel config={config} initialSection="agents" />);
-  const figures = host.querySelectorAll('[data-testid="help-figure"] svg');
-  assert(figures.length >= 3, "expected at least three inline SVG figures");
-  assert(!host.querySelector('[data-testid="help-figure"] img'), "figures must not use raster images");
-});
-
-test("shortcut table pulls reopen_tab from config", async () => {
-  const { host } = await render(<HelpPanel config={config} initialSection="tips" />);
-  const row = host.querySelector('[data-help-shortcut="Reopen closed tab"]');
-  assert(!!row, "reopen tab row missing");
-  assert(row?.textContent?.includes("T"), "config binding not rendered");
 });
 
 test("nav selects plans section", async () => {

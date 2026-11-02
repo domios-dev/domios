@@ -33,22 +33,6 @@ fn spawn_routing_rejection_never_advertises_the_provider_it_refuses() {
     }
 }
 
-/// Same invariant, asserted directly on the worker-identity rejection so both
-/// constructors are covered rather than only the classifier.
-#[test]
-fn spawn_routing_worker_identity_rejection_never_advertises_the_provider_it_refuses() {
-    let rejection = SpawnRejection::CapabilityUnavailable {
-        requested: "gamma-shell".into(),
-        missing: MissingSpawnCapability::WorkerIdentityHandoff,
-    };
-    assert!(!rejection.advertises_requested_as_available());
-    assert_eq!(rejection.requested(), "gamma-shell");
-    assert_eq!(
-        rejection.missing_capability(),
-        Some(MissingSpawnCapability::WorkerIdentityHandoff)
-    );
-}
-
 /// A genuinely unregistered id still gets the availability list — that pairing
 /// is evidence, not contradiction — and its rendering is unchanged.
 #[test]
@@ -76,6 +60,10 @@ fn spawn_routing_capability_ids_are_stable_discriminants() {
     assert_eq!(
         MissingSpawnCapability::WorkerIdentityHandoff.id(),
         "worker_identity_handoff"
+    );
+    assert_eq!(
+        MissingSpawnCapability::RuntimeLaunchArguments.id(),
+        "runtime_launch_arguments"
     );
 }
 
@@ -115,22 +103,19 @@ fn spawn_routing_agent_launch_slot_exists_only_on_the_pty_command() {
         rejection.missing_capability(),
         Some(MissingSpawnCapability::WorkerIdentityHandoff)
     );
+    assert!(!rejection.advertises_requested_as_available());
 }
 
 #[test]
 fn runtime_launch_arguments_require_explicit_settings_instead_of_silent_drop() {
     assert!(validate_runtime_launch_arguments("runtime-fixture", &[]).is_ok());
-    for args in [
-        vec!["opaque-arg".into()],
-        vec!["--model".into(), "opaque-model".into()],
-    ] {
-        let refusal = validate_runtime_launch_arguments("runtime-fixture", &args).unwrap_err();
-        assert_eq!(
-            refusal.missing_capability(),
-            Some(MissingSpawnCapability::RuntimeLaunchArguments)
-        );
-        assert_eq!(refusal.requested(), "runtime-fixture");
-        assert!(!refusal.advertises_requested_as_available());
-        assert!(!refusal.to_string().contains("opaque-arg"));
-    }
+    let refusal =
+        validate_runtime_launch_arguments("runtime-fixture", &["opaque-arg".into()]).unwrap_err();
+    assert_eq!(
+        refusal.missing_capability(),
+        Some(MissingSpawnCapability::RuntimeLaunchArguments)
+    );
+    assert_eq!(refusal.requested(), "runtime-fixture");
+    assert!(!refusal.advertises_requested_as_available());
+    assert!(!refusal.to_string().contains("opaque-arg"));
 }

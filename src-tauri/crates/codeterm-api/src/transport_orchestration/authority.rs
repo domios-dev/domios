@@ -74,7 +74,11 @@ pub fn validate_claim(
             "Conflicting caller identity claims".into(),
         ));
     }
-    let derived = crate::auth::caller_claim(state, headers, claim.caller_tab_id.as_deref())?;
+    let derived = crate::auth::caller_claim(
+        state,
+        headers,
+        claim.caller_tab_id.as_deref().or(header_tab),
+    )?;
     let claimed = derived.as_deref();
     let supplied = claim.session_binding_nonce.as_deref().or(header_nonce);
     let mux = state.svc.mux.read();

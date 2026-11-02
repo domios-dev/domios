@@ -1,12 +1,14 @@
 import type { ApiConfig, Notification, Tab, Team, Workspace } from "../../lib/types";
 import type { CanvasWorkspaceTarget } from "./canvasFocusStore";
 import type { PlanTarget } from "./teamViewNavigation";
+import type { PlanIndexEntry } from "./plansApi";
 import type { Plan } from "./types";
 
 /** Shared read-only context for Spec | Plan | Board and parked plan surfaces. */
 export interface PlanViewSurfaceProps {
   mode: "workspace" | "focus";
   plans: Plan[];
+  planIndex?: PlanIndexEntry[];
   loading?: boolean;
   reconnecting?: boolean;
   error?: string | null;

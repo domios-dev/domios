@@ -208,8 +208,15 @@ test("a failed background refresh keeps a loaded Blueprint without an error noti
 
 let finished = false;
 async function main() {
+  console.log(`Timing: main entry=${performance.now().toFixed(3)}ms since process time origin`);
+  const bodyStarted = performance.now();
   try {
-    for (const [name, run] of tests) { await run(); console.log(`✓ ${name}`); }
+    for (const [name, run] of tests) {
+      const started = performance.now();
+      await run();
+      console.log(`✓ ${name} body=${(performance.now() - started).toFixed(3)}ms`);
+    }
+    console.log(`Timing: all bodies=${(performance.now() - bodyStarted).toFixed(3)}ms`);
     console.log(`${tests.length} AutomationGraphView cases passed`);
   } finally {
     finished = true;

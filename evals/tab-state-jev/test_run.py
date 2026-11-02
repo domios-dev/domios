@@ -25,9 +25,6 @@ from run import (
 
 
 class CaptureScreenImportTests(unittest.TestCase):
-    def test_capture_helper_imports(self):
-        self.assertTrue(callable(capture_screen.parse_args))
-
     def test_provider_override_only_fills_missing_tab_identity(self):
         self.assertEqual(capture_screen.provider_id_for_tab({"agent_type": None}, "claude"), "claude")
         self.assertEqual(capture_screen.provider_id_for_tab({"agent_type": "codex"}, "claude"), "codex")

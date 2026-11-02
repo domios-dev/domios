@@ -76,7 +76,7 @@ impl ApplicationHost for NativeApplicationHost {
             loop {
                 let result = match completion {
                     NativeHostCompletion::Completed(NativeHostResult::NativeUpdateApply(result)) => result,
-                    NativeHostCompletion::Rejected(reason) => { withdraw = sequence == 0; return Err(format!("native update refused: {reason:?}")); },
+                    NativeHostCompletion::Rejected(reason) => { withdraw = sequence == 0; return Err(admission_error(reason)); },
                     NativeHostCompletion::Uncertain(reason) => return Err(format!("native update outcome uncertain; execution will not be replayed: {reason:?}")),
                     _ => return Err("invalid native updater reply".into()),
                 };
@@ -114,6 +114,15 @@ impl ApplicationHost for NativeApplicationHost {
             .map_err(|e| e.to_string())??;
         }
         outcome
+    }
+}
+
+fn admission_error(reason: codeterm_types::native_host::NativeHostRejection) -> String {
+    match reason {
+        codeterm_types::native_host::NativeHostRejection::UpdateAdmission { reason } => {
+            reason.error()
+        }
+        other => format!("native update refused: {other:?}"),
     }
 }
 

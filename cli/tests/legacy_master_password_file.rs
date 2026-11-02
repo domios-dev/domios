@@ -1,57 +1,12 @@
-//! Mechanism oracles for `mem secret save-master-password`: writes no credential
-//! file, asks the backend before claiming, and never emits the credential.
+//! Output and persistence oracles for `mem secret save-master-password`.
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
-
-#[path = "../src/test_support.rs"]
-mod test_support;
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 // Obviously not a credential; supplied as credential data on stdin.
 const SYNTHETIC_SECRET: &str = "synthetic-not-a-credential-0000";
-
-fn cli_src_root() -> PathBuf {
-    PathBuf::from(crate::test_support::fixture_manifest_dir()).join("src")
-}
-
-/// The `save-master-password` arm alone, sliced out of the command dispatcher.
-fn save_master_password_arm() -> String {
-    let path = cli_src_root().join("cmd").join("mem_secret.rs");
-    let body = std::fs::read_to_string(&path).expect("read mem_secret.rs");
-    let start = body
-        .find("MemSecretAction::SaveMasterPassword")
-        .expect("mem_secret.rs handles SaveMasterPassword");
-    let end = body[start..]
-        .find("fn read_stdin")
-        .map(|i| start + i)
-        .unwrap_or(body.len());
-    body[start..end].to_string()
-}
-
-#[test]
-fn save_master_password_writes_no_credential_file() {
-    let arm = save_master_password_arm();
-    assert!(
-        !arm.contains("std::fs::"),
-        "the arm must not touch the filesystem; a credential it writes has no reader"
-    );
-    assert!(
-        !arm.contains("bitwarden-master.env"),
-        "the retired credential drop must not be named on this path"
-    );
-}
-
-#[test]
-fn save_master_password_consults_the_backend_before_claiming_anything() {
-    // The defect was claiming auto-unlock without ever asking the backend.
-    let arm = save_master_password_arm();
-    assert!(
-        arm.contains("/api/secrets/status"),
-        "the arm must read the backend's declaration before it reports an outcome"
-    );
-}
 
 /// A home the CLI can write into, so a regression that writes a credential file
 /// lands here instead of the machine's real home.

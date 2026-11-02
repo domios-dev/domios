@@ -75,7 +75,12 @@ async fn advisory_policy_matrix_reaches_fresh_resume_and_cold_restore_launch_spe
                 friendship_id: "a".repeat(64),
                 root_tab_id: None,
             });
-            let fixture = ServiceFixture::new_at(mux, data.path());
+            let disk_restart = access == MachineAccess::Folder && resumed;
+            let fixture = if disk_restart {
+                ServiceFixture::new_at(mux, data.path())
+            } else {
+                ServiceFixture::new(mux)
+            };
             register(&fixture.service);
             fixture
                 .service
@@ -140,29 +145,39 @@ async fn advisory_policy_matrix_reaches_fresh_resume_and_cold_restore_launch_spe
                 tab.restorable_launch.captured = true;
                 tab.restorable_launch.permission_bypass_requested = access == MachineAccess::Full;
             }
-            fixture
-                .save_neighbor_restore_settings(
-                    "owner",
-                    &"a".repeat(64),
-                    &tab_id,
-                    Permission {
-                        machine_access: access,
-                        folder: (access == MachineAccess::Folder).then_some(folder.clone()),
-                        ..Default::default()
-                    },
-                )
-                .await;
             let snapshot = serde_json::to_vec(&svc.mux.read().to_session_snapshot()).unwrap();
-            drop(fixture);
-            let fixture = ServiceFixture::new_at(
-                MultiplexerState::from_session_snapshot(
-                    &serde_json::from_slice(&snapshot).unwrap(),
-                ),
-                data.path(),
+            let restored_mux = MultiplexerState::from_session_snapshot(
+                &serde_json::from_slice(&snapshot).unwrap(),
             );
-            register(&fixture.service);
-            fixture.install_seeded_storage_desk();
-            fixture.load_neighbor_restore_settings("owner").await;
+            let fixture = if disk_restart {
+                fixture
+                    .save_neighbor_restore_settings(
+                        "owner",
+                        &"a".repeat(64),
+                        &tab_id,
+                        Permission {
+                            machine_access: access,
+                            folder: Some(folder.clone()),
+                            ..Default::default()
+                        },
+                    )
+                    .await;
+                drop(fixture);
+                let fixture = ServiceFixture::new_at(restored_mux, data.path());
+                register(&fixture.service);
+                fixture.install_seeded_storage_desk();
+                fixture.load_neighbor_restore_settings("owner").await;
+                fixture
+            } else {
+                *fixture.service.mux.write() = restored_mux;
+                fixture.service.clear_neighbor_restore_grants("owner");
+                assert!(fixture.service.neighbor_restore_access(&tab_id).is_err());
+                fixture
+                    .service
+                    .prepare_neighbor_restore_grant(&tab_id, "scoped-pty", &params)
+                    .unwrap();
+                fixture
+            };
             let svc = &fixture.service;
             let launch = svc
                 .mux

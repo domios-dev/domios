@@ -1,6 +1,18 @@
 use crate::Cli;
 use clap::CommandFactory;
 
+fn depends_on_help(subcommand: &str) -> String {
+    Cli::command()
+        .find_subcommand_mut("plan")
+        .unwrap()
+        .find_subcommand_mut("task")
+        .unwrap()
+        .find_subcommand_mut(subcommand)
+        .unwrap()
+        .render_long_help()
+        .to_string()
+}
+
 #[test]
 fn shared_worker_placement_and_extensions_have_explicit_cli_contracts() {
     use clap::Parser;
@@ -56,18 +68,6 @@ fn shared_worker_placement_and_extensions_have_explicit_cli_contracts() {
     ])
     .is_ok());
     assert!(Cli::try_parse_from(["domios", "plan", "task", "extend-files"]).is_err());
-}
-
-fn depends_on_help(subcommand: &str) -> String {
-    Cli::command()
-        .find_subcommand_mut("plan")
-        .unwrap()
-        .find_subcommand_mut("task")
-        .unwrap()
-        .find_subcommand_mut(subcommand)
-        .unwrap()
-        .render_long_help()
-        .to_string()
 }
 
 fn dispatch_canonical_writer(extra: &[&str]) -> bool {

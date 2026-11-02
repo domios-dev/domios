@@ -161,25 +161,6 @@ fn structured_fields_round_trip_through_sql() {
 }
 
 #[test]
-fn reopening_existing_db_is_idempotent() {
-    let db = temp_db();
-    let l1 = OrchestrationLedger::open_at(&db).unwrap();
-    l1.upsert(&row("orch", "w1", ReportStatus::Done, 1))
-        .unwrap();
-    drop(l1);
-    // Second open must not error or wipe existing rows.
-    let l2 = OrchestrationLedger::open_at(&db).unwrap();
-    assert_eq!(l2.list_for_orchestrator("orch").unwrap().len(), 1);
-    let conn = l2.conn.lock();
-    assert_eq!(
-        OrchestrationLedger::user_version(&conn).unwrap(),
-        CURRENT_LEDGER_SCHEMA_VERSION
-    );
-    drop(conn);
-    std::fs::remove_dir_all(db.parent().unwrap()).ok();
-}
-
-#[test]
 fn fresh_db_creates_current_schema_version() {
     let db = temp_db();
     let ledger = OrchestrationLedger::open_at(&db).unwrap();

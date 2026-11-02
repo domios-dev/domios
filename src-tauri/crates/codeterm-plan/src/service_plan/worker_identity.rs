@@ -104,55 +104,53 @@ pub fn split_worker_identity(prompt: &str) -> (Option<&str>, &str) {
 mod tests {
     use super::{
         attach_worker_identity, compose_worker_identity, compose_worker_identity_contract,
-        split_worker_identity, WORKER_ACK_INSTRUCTION,
+        split_worker_identity, WORKER_IDENTITY_END,
     };
 
     #[test]
     fn keeps_matching_persona_guidance_once() {
-        assert_eq!(
-            compose_worker_identity(
-                Some("Hopper"),
-                Some("You are Hopper. Stay focused."),
-                Some("Task"),
-            )
-            .as_deref(),
-            Some("You are Hopper. Stay focused.")
-        );
+        let persona = "opaque-persona-81";
+        let guidance = format!("You are {persona} opaque-guidance-81");
+        let composed = compose_worker_identity(Some(persona), Some(&guidance), None).unwrap();
+        assert_eq!(composed, guidance);
+        assert_eq!(composed.matches(persona).count(), 1);
     }
 
     #[test]
     fn composes_persona_with_nonmatching_guidance() {
-        assert_eq!(
-            compose_worker_identity(
-                Some("Shannon"),
-                Some("You are a React engineer."),
-                Some("Task"),
-            )
-            .as_deref(),
-            Some("You are Shannon. You are a React engineer.")
-        );
+        let composed = compose_worker_identity(
+            Some("opaque-persona-82"),
+            Some("opaque-guidance-82"),
+            Some("opaque-task-82"),
+        )
+        .unwrap();
+        assert!(composed.contains("opaque-persona-82"));
+        assert!(composed.contains("opaque-guidance-82"));
+        assert!(composed.find("opaque-persona-82") < composed.find("opaque-guidance-82"));
     }
 
     #[test]
     fn falls_back_to_executor_line_for_personality_only() {
-        assert_eq!(
-            compose_worker_identity(Some("Hopper"), None, Some("Wire dispatch RPC")).as_deref(),
-            Some("You are Hopper — executor for: Wire dispatch RPC")
-        );
+        let composed =
+            compose_worker_identity(Some("opaque-persona-83"), None, Some("opaque-task-83"))
+                .unwrap();
+        assert!(composed.contains("opaque-persona-83"));
+        assert!(composed.contains("opaque-task-83"));
     }
 
     #[test]
     fn preserves_guidance_without_personality_and_omits_absent_legacy_identity() {
         assert_eq!(
-            compose_worker_identity(None, Some("Review only."), Some("Task")).as_deref(),
-            Some("Review only.")
+            compose_worker_identity(None, Some("opaque-guidance-84"), Some("opaque-task-84"))
+                .as_deref(),
+            Some("opaque-guidance-84")
         );
         assert_eq!(
-            compose_worker_identity(None, None, Some("Legacy task")),
+            compose_worker_identity(None, None, Some("opaque-task-84")),
             None
         );
         assert_eq!(
-            compose_worker_identity(Some("  "), Some("  "), Some("Legacy task")),
+            compose_worker_identity(Some("  "), Some("  "), Some("opaque-task-84")),
             None
         );
     }
@@ -160,28 +158,24 @@ mod tests {
     #[test]
     fn task_identity_leads_with_persona_role_and_purpose() {
         let identity = compose_worker_identity_contract(
-            Some("Hopper"),
-            Some("Audit the evidence boundary."),
-            Some("rust-backend-dev"),
-            "Repair delivery",
+            Some("opaque-persona-85"),
+            Some("opaque-guidance-85"),
+            Some("opaque-role-85"),
+            "opaque-task-85",
         );
-
-        assert_eq!(
-            identity,
-            "You are Hopper. Audit the evidence boundary.\n\
-             Executor role: rust-backend-dev.\n\
-             Your assigned task is: Repair delivery"
-        );
+        assert!(identity.contains("opaque-persona-85"));
+        assert!(identity.contains("opaque-guidance-85"));
+        assert!(identity.contains("opaque-role-85"));
+        assert!(identity.contains("opaque-task-85"));
     }
 
     #[test]
     fn identity_transport_marker_is_removed_by_split() {
-        let prompt = attach_worker_identity("You are Hopper.", "# Repair delivery");
+        let prompt = attach_worker_identity("opaque-identity-86", "opaque-assignment-86");
         let (identity, assignment) = split_worker_identity(&prompt);
 
-        assert_eq!(identity, Some("You are Hopper."));
-        assert_eq!(assignment.matches(WORKER_ACK_INSTRUCTION).count(), 1);
-        assert!(assignment.starts_with(WORKER_ACK_INSTRUCTION));
-        assert!(assignment.find(WORKER_ACK_INSTRUCTION).unwrap() < assignment.find('#').unwrap());
+        assert_eq!(identity, Some("opaque-identity-86"));
+        assert!(assignment.contains("opaque-assignment-86"));
+        assert!(!assignment.contains(WORKER_IDENTITY_END));
     }
 }

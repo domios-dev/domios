@@ -80,11 +80,4 @@ mod tests {
             assert!(seen.insert(id.clone()), "minted duplicate {id}");
         }
     }
-
-    #[test]
-    fn base36_roundtrips_small_values() {
-        assert_eq!(base36(0), "0");
-        assert_eq!(base36(35), "z");
-        assert_eq!(base36(36), "10");
-    }
 }

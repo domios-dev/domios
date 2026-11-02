@@ -44,7 +44,9 @@ export function runtimeFailure(record) {
 export function readiness(record, { requireSession = false, allowFirstTurn = false } = {}) {
   if (!record) return { fail: "tab absent from the tab projection" };
   const launch = record.provisional_launch;
-  const firstTurn = allowFirstTurn && !requireSession && record.boot_stage === "launch_binding_unconfirmed"
+  // Providers may report provider_ready while the binding is pending; the launch's structural permit decides.
+  const firstTurn = allowFirstTurn && !requireSession
+    && (record.boot_stage === "launch_binding_unconfirmed" || record.boot_stage === "provider_ready")
     && record.agent_type && record.session_binding_nonce && launch?.binding_nonce === record.session_binding_nonce
     && record.pty_id && launch.pty_id === record.pty_id
     && launch.first_turn_input_ready === true && launch.first_turn_payload_written === false;

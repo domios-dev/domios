@@ -32,8 +32,6 @@ mod skill_block_tests {
         let block = cron_skill_block_at("scratch-drill-skill", tmp.path());
         assert!(block.contains("scratch-drill-skill"));
         assert!(block.contains("SKILL.md"));
-        assert!(block.to_lowercase().contains("do not use the skill tool"));
-        assert!(!block.to_lowercase().contains("find "));
     }
 
     #[test]
@@ -41,8 +39,12 @@ mod skill_block_tests {
         let tmp = tempfile::tempdir().unwrap();
         let block = cron_skill_block_at("nonexistent-slug", tmp.path());
         assert!(block.contains("nonexistent-slug"));
-        assert!(block.to_lowercase().contains("cron complete"));
-        assert!(block.to_lowercase().contains("find"));
-        assert!(block.to_lowercase().contains("never"));
+        assert!(block.contains(
+            &tmp.path()
+                .join("nonexistent-slug")
+                .join("SKILL.md")
+                .display()
+                .to_string()
+        ));
     }
 }

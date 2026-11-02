@@ -22,18 +22,8 @@ fn debug_pin_wins_over_absent_or_stale_local_cli() {
 }
 
 #[test]
-fn release_pin_wins_over_absent_or_stale_local_cli() {
-    assert_pin_wins(".domios");
-}
-
-#[test]
 fn debug_without_pin_preserves_local_fallback() {
     assert_unpinned_fallback(".domios-dev");
-}
-
-#[test]
-fn release_without_pin_preserves_local_fallback() {
-    assert_unpinned_fallback(".domios");
 }
 
 #[test]

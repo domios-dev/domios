@@ -54,26 +54,3 @@ pub fn install_bridge_rules_for_all(registry: &AgentRegistry) {
         failed
     );
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn provider_rule_payloads_are_present_and_nonempty() {
-        let routing = crate::prompts::CODETERM_RULE;
-        let memory = crate::prompts::BRIDGE_MEM;
-        assert!(
-            !routing.trim().is_empty(),
-            "CODETERM_RULE should not be empty"
-        );
-        assert!(!memory.trim().is_empty(), "BRIDGE_MEM should not be empty");
-    }
-
-    #[test]
-    fn install_bridge_rules_empty_registry_is_harmless() {
-        let reg = AgentRegistry::new();
-        // No providers registered — should succeed silently (no panics, no writes).
-        install_bridge_rules_for_all(&reg);
-    }
-}

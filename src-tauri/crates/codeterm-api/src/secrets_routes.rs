@@ -685,12 +685,6 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_echoed_keeps_normal_text() {
-        let s = "normal message — with unicode 🔐";
-        assert_eq!(sanitize_echoed(s), s);
-    }
-
-    #[test]
     fn sanitize_echoed_drops_del_byte() {
         assert_eq!(sanitize_echoed("a\x7fb"), "ab");
     }

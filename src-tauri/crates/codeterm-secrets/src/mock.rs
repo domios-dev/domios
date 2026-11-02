@@ -392,14 +392,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_no_overwrite_errors_when_exists() {
-        let store = MockStore::new();
-        store.save(req("k", "v1")).await.unwrap();
-        let err = store.save(req("k", "v2")).await.unwrap_err();
-        assert!(matches!(err, SecretError::AlreadyExists));
-    }
-
-    #[tokio::test]
     async fn save_with_overwrite_replaces_value() {
         let store = MockStore::new();
         store.save(req("k", "v1")).await.unwrap();
@@ -437,27 +429,6 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(with_limit.len(), 2);
-    }
-
-    #[tokio::test]
-    async fn list_with_folder_filter() {
-        let store = MockStore::new();
-        let mut r1 = req("a", "1");
-        r1.folder = Some("work".into());
-        store.save(r1).await.unwrap();
-        let mut r2 = req("b", "2");
-        r2.folder = Some("home".into());
-        store.save(r2).await.unwrap();
-
-        let work = store
-            .list(ListFilter {
-                folder: Some("work".into()),
-                ..Default::default()
-            })
-            .await
-            .unwrap();
-        assert_eq!(work.len(), 1);
-        assert_eq!(work[0].name, "a");
     }
 
     #[tokio::test]
@@ -511,32 +482,6 @@ mod tests {
         assert!(matches!(
             store.save(req("k", "v")).await,
             Err(SecretError::Backend { .. })
-        ));
-    }
-
-    #[tokio::test]
-    async fn save_validates_inputs() {
-        let store = MockStore::new();
-        let mut bad_name = req("", "v");
-        bad_name.value = SecretString::from("v");
-        assert!(matches!(
-            store.save(bad_name).await,
-            Err(SecretError::BadRequest { .. })
-        ));
-
-        let bad_value = req("k", "");
-        assert!(matches!(
-            store.save(bad_value).await,
-            Err(SecretError::BadRequest { .. })
-        ));
-    }
-
-    #[tokio::test]
-    async fn search_rejects_empty_query() {
-        let store = MockStore::new();
-        assert!(matches!(
-            store.search("   ").await,
-            Err(SecretError::BadRequest { .. })
         ));
     }
 

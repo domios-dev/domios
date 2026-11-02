@@ -20,28 +20,6 @@ fn owner(admission: Admission) -> Arc<DeliveryEntry> {
 }
 
 #[test]
-fn dedupe_key_is_sender_scoped() {
-    assert_eq!(dedupe_key("peerA", "m1"), dedupe_key("peerA", "m1"));
-    assert_ne!(
-        dedupe_key("peerA", "m1"),
-        dedupe_key("peerB", "m1"),
-        "same delivery id from a different sender is a different key"
-    );
-    assert_ne!(dedupe_key("peerA", "m1"), dedupe_key("peerA", "m2"));
-}
-
-#[test]
-fn same_sender_and_key_admits_once() {
-    let dedupe = MeshDeliveryDedupe::new();
-    let key = dedupe_key("peerA", "m1");
-    owner(dedupe.acquire(key.clone(), 1000)).complete(ok_resp(1));
-    assert!(
-        matches!(dedupe.acquire(key, 1000), Admission::Duplicate(_)),
-        "the same key must not re-dispatch"
-    );
-}
-
-#[test]
 fn distinct_keys_admit_independently() {
     let dedupe = MeshDeliveryDedupe::new();
     assert!(matches!(

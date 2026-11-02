@@ -218,6 +218,34 @@ test("dsBlocks retires executable HTML fences and gates Mermaid on the complete 
   } finally { await view.close(); configureHtmlFileLoader(null); }
 });
 
+test("dsBlocks tool and paste excerpts never create frames or agent subscriptions and release outside blocks", async () => {
+  for (const wrapper of ["tool_result", "tool_output", "transcript", "pasted_content"]) {
+    const view = await mount();
+    const agents = binding({ kind: "loading" } as const);
+    const value: ChatBlockHost = { agents: { binding: agents.source, open() {}, stop: async () => {} } };
+    const excerpt = `<${wrapper}>\n${html}\n<ds-agent tab="deadbeef" />\n</${wrapper}>`;
+    const render = (content: string, streaming = true) => view.render(<ChatBlockHostProvider value={value}><MessageBubble message={{ id: wrapper, type: "assistant", content }} streaming={streaming} /></ChatBlockHostProvider>);
+    try {
+      const boundaries = [1, wrapper.length + 2, excerpt.indexOf('</ds-html>') + '</ds-html>'.length, excerpt.indexOf('<ds-agent') + '<ds-agent tab="deadbeef" />'.length, excerpt.length - 1, excerpt.length];
+      for (const end of boundaries) {
+        await render(excerpt.slice(0, end));
+        assert.equal(view.host.querySelectorAll("iframe").length, 0, `${wrapper} prefix ${end}: frames`);
+        assert.deepEqual(agents.counts, { starts: 0, live: 0, refresh: 0 }, `${wrapper} prefix ${end}: agent effects`);
+      }
+      const source = `${excerpt}\n${html}\n<ds-agent tab="outside" />`;
+      await render(source);
+      const frame = view.host.querySelector("iframe");
+      assert.ok(frame);
+      assert.equal(view.host.querySelectorAll("iframe").length, 1);
+      assert.deepEqual(agents.counts, { starts: 1, live: 1, refresh: 1 });
+      await render(source, false);
+      assert.equal(view.host.querySelector("iframe"), frame);
+      assert.deepEqual(agents.counts, { starts: 1, live: 1, refresh: 1 });
+    } finally { await view.close(); }
+    assert.equal(agents.counts.live, 0);
+  }
+});
+
 test("dsBlocks all nine live-card kinds have no subscription before their own terminator", async () => {
   const view = await mount();
   const events: string[] = [];
@@ -239,16 +267,32 @@ test("dsBlocks all nine live-card kinds have no subscription before their own te
   const tags = ['<ds-guide section="phone" />', '<ds-plugin id="git" />', '<ds-connect bridge="telegram" />', '<ds-setting key="plugins.git.enabled" />', '<ds-agent tab="e3ec9ee9" />', '<ds-job ref="nightly" />', '<ds-checklist id="getting-started" />', '<ds-choice options=\'["Yes","No"]\' />', '<ds-tasks plan="pl_alpha" />'];
   const render = (text: string, id: string) => view.render(<ChatBlockHostProvider value={value}><MessageBubble message={{ id, type: "assistant", content: text }} streaming /></ChatBlockHostProvider>);
   const starts = () => loading.counts.starts + checklist.counts.starts + choice.counts.starts;
+  const live = () => loading.counts.live + checklist.counts.live + choice.counts.live;
+  const refreshes = () => loading.counts.refresh + checklist.counts.refresh + choice.counts.refresh;
   try {
     for (const [index, tag] of tags.entries()) {
       const initial = starts();
-      for (let at = 1; at < tag.length; at++) { stage = `kind ${index} ${tag} prefix ${at}`; await render(tag.slice(0, at), `kind-${index}`); assert.equal(starts(), initial, `${stage}: ${events.join(" | ")}`); }
+      for (const at of [1, 4, tag.length - 2, tag.length - 1]) {
+        stage = `kind ${index} ${tag} prefix ${at}`; await render(tag.slice(0, at), `kind-${index}`);
+        assert.equal(starts(), initial, `${stage}: ${events.join(" | ")}`);
+        assert.equal(live(), 0); assert.equal(refreshes(), initial);
+        assert.equal(view.host.querySelectorAll('[data-chat-block]').length, 0);
+      }
       stage = `kind ${index} ${tag} complete`;
       await render(tag, `kind-${index}`);
-      assert.equal(starts(), initial + (index === 0 ? 0 : 1), `${stage}: ${events.join(" | ")}`);
-      for (let after = 0; after < 20; after++) { stage = `kind ${index} ${tag} append ${after}`; await render(tag + '\n\n' + 'more '.repeat(after + 1), `kind-${index}`); assert.equal(starts(), initial + (index === 0 ? 0 : 1), `${stage}: ${events.join(" | ")}`); }
+      const active = index === 0 ? 0 : 1;
+      const card = view.host.querySelector(`[data-chat-block="${tag.slice(4, tag.indexOf(' '))}"]`); assert.ok(card);
+      assert.equal(starts(), initial + active, `${stage}: ${events.join(" | ")}`);
+      assert.equal(live(), active); assert.equal(refreshes(), initial + active);
+      for (let after = 0; after < 2; after++) {
+        stage = `kind ${index} ${tag} append ${after}`; await render(tag + '\n\n' + 'more '.repeat(after + 1), `kind-${index}`);
+        assert.equal(starts(), initial + active, `${stage}: ${events.join(" | ")}`);
+        assert.equal(live(), active); assert.equal(refreshes(), initial + active);
+        assert.equal(view.host.querySelector('[data-chat-block]'), card);
+      }
     }
   } finally { await view.close(); }
+  assert.equal(live(), 0);
 });
 
 test("dsBlocks MessageBubble never rebinds preceding deferred content to a new message or replacement prefix", async () => {
@@ -577,7 +621,7 @@ test("dsBlocks same-line capsules keep complete and streamed tags inert through 
       for (const trusted of [true, false]) {
         for (const tag of ['<ds-page src="/inline.html" />', '<ds-plugin id="git" />']) {
           for (const placement of ['before', 'after'] as const) {
-            for (let at = 1; at <= tag.length; at++) {
+            for (const at of [1, 4, tag.length - 2, tag.length - 1, tag.length]) {
               const text = placement === 'before' ? " " + tag.slice(0, at) : tag.slice(0, at) + " ";
               const attachment = { type: "attachment", ...file, body: null, status: null } as const;
               const textSegment = { type: "text", text } as const;

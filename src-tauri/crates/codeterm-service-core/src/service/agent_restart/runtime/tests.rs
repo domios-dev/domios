@@ -54,7 +54,7 @@ struct RuntimeFixture {
     request_events: tokio::sync::watch::Receiver<usize>,
     exits: Arc<parking_lot::Mutex<Vec<tokio::sync::oneshot::Sender<()>>>>,
     _process_ports: agent_runtime::process::test_ports::Registration,
-    _storage: crate::storage::Storage,
+    _storage: Option<crate::storage::Storage>,
 }
 impl std::ops::Deref for RuntimeFixture {
     type Target = ServiceFixture;
@@ -73,6 +73,17 @@ impl RuntimeFixture {
         Self::with_source(SOURCE)
     }
     fn with_source(source: &str) -> Self {
+        let fixture = Self::prepared(source, true);
+        agent_runtime::transport::launch(
+            &fixture.service,
+            PROVIDER,
+            &fixture.tab,
+            json!({"systemPrompt":PROMPT,"model":"supplied-model"}),
+        )
+        .unwrap();
+        fixture
+    }
+    fn prepared(source: &str, storage: bool) -> Self {
         let (mut mux, tab) = MultiplexerState::new();
         let target = mux.get_tab_mut(&tab).unwrap();
         target.agent_type = Some(PROVIDER.into());
@@ -93,7 +104,7 @@ impl RuntimeFixture {
         target.role = Some(crate::multiplexer::types::AgentRole::Worker);
         let fixture = ServiceFixture::new(mux);
         fixture.set_agent_full_access(false);
-        let storage = fixture.install_seeded_storage_desk();
+        let storage = storage.then(|| fixture.install_seeded_storage_desk());
         let requests = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let captured = requests.clone();
         let (request_changed, request_events) = tokio::sync::watch::channel(0);
@@ -159,13 +170,6 @@ impl RuntimeFixture {
                 manifest,
                 Arc::new(PluginVm::from_source(PROVIDER, source.into()).unwrap()),
             )));
-        agent_runtime::transport::launch(
-            &fixture.service,
-            PROVIDER,
-            &tab,
-            json!({"systemPrompt":PROMPT,"model":"supplied-model"}),
-        )
-        .unwrap();
         Self {
             fixture,
             tab,

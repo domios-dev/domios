@@ -34,12 +34,12 @@ eq(preprocessText("hello", { enabled: true, activePreset: "missing" }), null, "m
 
 console.log("\n--- template presets ---\n");
 eq(
-  preprocessText("hello", {
+  preprocessText("opaque-preprocessor-input-45fb", {
     enabled: true,
     activePreset: "wrap",
-    presets: [{ id: "wrap", kind: "template", template: "prefix {{text}} suffix" }],
+    presets: [{ id: "wrap", kind: "template", template: "opaque-prefix<<{{text}}>>opaque-suffix" }],
   }),
-  "prefix hello suffix",
+  "opaque-prefix<<opaque-preprocessor-input-45fb>>opaque-suffix",
   "template preset renders text token",
 );
 

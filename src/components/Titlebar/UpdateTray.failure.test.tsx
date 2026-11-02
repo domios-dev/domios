@@ -8,11 +8,14 @@ import { NotificationToastContainer } from "../Notifications/NotificationToast";
 const state = vi.hoisted(() => ({
   error: "opaque failure" as string | null,
   busy: false,
+  checking: false,
   items: [] as unknown[],
   rows: [] as unknown[],
+  diagnostics: [] as { channel: string }[],
   retry: vi.fn(),
 }));
 vi.mock("../../hooks/useUpdatePanel", () => ({ useUpdatePanel: () => state }));
+vi.mock("../../hooks/useUpdate", () => ({ useUpdate: () => ({ phase: "idle", installing: false, downloadedBytes: 0, downloadTotalBytes: null }) }));
 vi.mock("../UpdatePanel", () => ({ UpdatePanel: () => <div>fixture details</div> }));
 import { UpdateTray } from "./UpdateTray";
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -41,6 +44,7 @@ it("reports update failures in a retryable toast without titlebar error text", a
     await render();
     expect(trigger().textContent).toBe("");
     expect(trigger().getAttribute("aria-label")).toBe("Update");
+    expect(trigger().getAttribute("aria-description")).toBe("Update failed. Open updates for details.");
     expect(trigger().title).not.toContain("failed");
     expect(trigger().querySelector('[role="status"]')).toBeNull();
     expect(host.querySelector('[data-testid="notification-toast"]')?.getAttribute("role")).toBe("status");

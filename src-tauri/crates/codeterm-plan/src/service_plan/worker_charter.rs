@@ -230,8 +230,8 @@ mod tests {
                 NewTask {
                     name: "Do the thing".into(),
                     kind: "task".into(),
-                    acceptance_criteria: vec!["it works".into()],
-                    test_plan: Some("run focused test".into()),
+                    acceptance_criteria: vec!["opaque-acceptance-61".into()],
+                    test_plan: Some("opaque-test-plan-62".into()),
                     assigned_tab_id: Some("worker-tab".into()),
                     competition: None,
                     ..Default::default()
@@ -261,8 +261,8 @@ mod tests {
 
         let out = store.prepend_worker_charter_for_tab("worker-tab", "continue");
 
-        assert!(out.contains(super::super::skill_registry::PLAN_SKILL_REGISTRY_POINTER));
-        assert!(!out.contains(prompts_plan::PLAN_SKILLS_WORKER_LINE));
+        assert!(out.contains("<codeterm-worker-charter"));
+        assert!(out.trim_end().ends_with("continue"));
     }
 
     #[test]
@@ -276,7 +276,11 @@ mod tests {
         )
         .join("skills/seed-fixtures");
         std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(skill_dir.join("SKILL.md"), "# Seed fixtures").unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\ntitle: Seed fixtures\n---\n\nopaque-skill-body-63\n",
+        )
+        .unwrap();
         std::fs::write(
             skill_dir.parent().unwrap().join("ledger.jsonl"),
             r#"{"seq":1,"slug":"seed-fixtures","verdict":"keep","rationale":"fixture"}
@@ -288,6 +292,7 @@ mod tests {
 
         assert!(out.contains(prompts_plan::PLAN_SKILLS_WORKER_LINE));
         assert!(!out.contains(super::super::skill_registry::PLAN_SKILL_REGISTRY_POINTER));
+        assert!(!out.contains("opaque-skill-body-63"));
     }
 
     #[test]
@@ -323,11 +328,9 @@ mod tests {
             deviation: None,
             last_iteration_at: None,
         };
-        assert!(out.contains(prompts_plan::WORKER_LOOP_CONTEXT_TITLE));
         assert!(out.contains(&loop_id_line(&loop_spec)));
         assert!(out.contains(&loop_iteration_line(&loop_spec)));
         assert!(out.contains(&loop_stop_when_line(&loop_spec)));
-        assert!(out.contains(prompts_plan::WORKER_LOOP_EVIDENCE_RULE));
     }
 
     #[test]
@@ -336,7 +339,7 @@ mod tests {
 
         let out = store.prepend_worker_charter_for_tab("worker-tab", "continue");
 
-        assert!(!out.contains("Recent task strides"));
+        assert!(!out.contains("use approach A"));
     }
 
     #[test]
@@ -353,7 +356,7 @@ mod tests {
                     id: "ms_dec".into(),
                     from: crate::plan::AgentRef::from_tab("orchestrator"),
                     kind: "decision".into(),
-                    text: "use approach A".into(),
+                    text: "opaque-decision-64".into(),
                     ts: 10,
                     links: vec![],
                     loop_id: None,
@@ -367,8 +370,7 @@ mod tests {
 
         let out = store.prepend_worker_charter_for_tab("worker-tab", "continue");
 
-        assert!(out.contains("Recent task strides"));
-        assert!(out.contains("[decision] use approach A"));
+        assert_eq!(out.matches("opaque-decision-64").count(), 1);
     }
 
     #[test]
@@ -406,11 +408,6 @@ mod tests {
 
         let out = store.prepend_worker_charter_for_tab("worker-tab", "continue");
 
-        assert!(out.contains(prompts_plan::WORKER_COMPETITIVE_CONTEXT_TITLE));
-        assert!(out.contains(&competitive_attempt_count_line(2)));
-        for rule in prompts_plan::WORKER_COMPETITIVE_ISOLATION_RULES {
-            assert!(out.contains(rule));
-        }
         assert!(!out.contains("worker-tab-2"));
     }
 

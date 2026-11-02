@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn owner_reminder_lists_later_group_work_as_one_count() {
+    fn owner_reminder_does_not_leak_later_group_task_ids() {
         let mut plan = Plan::new(
             "P".into(),
             "/repo".into(),
@@ -359,8 +359,6 @@ mod tests {
         ];
 
         let text = orchestrator_nudge_text(&plan);
-        let summary = "1 tasks parked for later groups.";
-        assert_eq!(text.matches(summary).count(), 1);
         assert!(!text.contains("after-release-task"));
     }
 

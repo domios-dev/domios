@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { AnalyticsGroup } from "@codeterm/plugin-sdk";
 import { allowanceAccounts, filtersBeyondProvider, silentProviders } from "./allowance";
 import { breakdown } from "./breakdown";
 import { bucketReading, chartData } from "./chart";
@@ -12,10 +11,6 @@ import { rangeFor } from "./range";
 import { dashboardView } from "./view";
 
 const NOW_MS = (START + 2 * DAY + 3_600) * 1000;
-
-function named(id: string): AnalyticsGroup {
-  return { key: { dimension: "workspace", id }, label: id.toUpperCase(), totals: totals(1) };
-}
 
 describe("range and query", () => {
   it("uses day buckets up to 31 days and weeks beyond", () => {
@@ -49,12 +44,6 @@ describe("keys and tones", () => {
     expect(keyLabel({ dimension: "workspace", id: "ws-a" }, "Workspace A")).toBe("Workspace A");
   });
 
-  it("gives the first four named keys a tone, folds the rest into Other and hatches null keys", () => {
-    const unnamed: AnalyticsGroup = { key: { dimension: "workspace", id: null, reason: "workspace_not_recorded" }, label: null, totals: totals(1) };
-    const groups = [named("a"), unnamed, named("b"), named("c"), named("d"), named("e")];
-    const tones = toneMap(groups);
-    expect(groups.map((group) => tones.get(keyId(group.key)))).toEqual([0, "unnamed", 1, 2, 3, "other"]);
-  });
 });
 
 describe("chart", () => {
@@ -66,13 +55,12 @@ describe("chart", () => {
     expect(data.days.map((day) => day.coverage)).toEqual(["not_recorded", "partial", "recorded"]);
     expect(data.days[0]).toMatchObject({ total: 0, segments: [], note: "not recorded" });
     expect(data.days[1]!.note).toBe(`from ${formatClock(RECORDING_BEGAN * 1000)}`);
-    expect(data.days[1]!.segments.map((segment) => [segment.label, segment.tone, segment.value])).toEqual([
-      ["Alpha", 0, 200],
-      ["Beta", 1, 100],
+    expect(data.days[1]!.segments.map((segment) => [segment.label, segment.value])).toEqual([
+      ["Alpha", 200],
+      ["Beta", 100],
     ]);
     expect(data.days[2]).toMatchObject({ total: 0, today: true });
     expect(data.days[2].note).toBeUndefined();
-    expect(data.legend.map((series) => series.tone)).toEqual([0, 1, "not_recorded"]);
   });
 
   it("keeps a key's tone when a filter removes the heavier key", () => {
@@ -93,9 +81,9 @@ describe("breakdown", () => {
   it("shares new input across rows and counts turns whose model was not reported", () => {
     const snapshot = snapshotFor("provider_model");
     const result = breakdown(snapshot, toneMap(snapshot.tokens.groups));
-    expect(result.rows.map((row) => [row.label, Math.round(row.sharePct), row.tone])).toEqual([
-      ["Alpha", 67, 0],
-      ["Beta", 33, 1],
+    expect(result.rows.map((row) => [row.label, Math.round(row.sharePct)])).toEqual([
+      ["Alpha", 67],
+      ["Beta", 33],
     ]);
     expect(result.rows[1]!.children.map((child) => [child.label, child.unnamed])).toEqual([["Model not reported", true]]);
     expect(result).toMatchObject({ totalTurns: 3, unnamedTurns: 1 });

@@ -72,10 +72,10 @@ fn planned_task_without_qa_plan_is_still_refused() {
         )
         .unwrap_err();
 
-    assert_eq!(
-        error.to_string(),
-        crate::service_plan::PlanError::ReviewEvidenceRequired.to_string()
-    );
+    assert!(matches!(
+        error,
+        crate::service_plan::PlanError::ReviewEvidenceRequired
+    ));
     assert_eq!(
         store.get(&plan_id).unwrap().tasks[0].status,
         TaskStatus::Pending

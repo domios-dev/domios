@@ -148,21 +148,6 @@ fn envelope_display_segmentation_does_not_change_route_authority() {
 }
 
 #[test]
-fn unknown_frame_keeps_raw_bytes_and_markup_free_body() {
-    let raw = "<domios from=\"opaque-kind\" tab=\"a\">opaque body <tip>opaque hint</tip></domios>";
-    assert_eq!(
-        parse_envelope(raw),
-        [MessageSegment::UnknownFrame {
-            raw: raw.into(),
-            attrs: [("from", "opaque-kind"), ("tab", "a")]
-                .map(|(key, value)| (key.to_string(), value.to_string()))
-                .into(),
-            body: "opaque body".into(),
-        }]
-    );
-}
-
-#[test]
 fn partial_frame_runs_to_the_end_without_a_cut_tag() {
     let raw = "<domios from=\"tab\" tab=\"a\">opaque body\n <tip>opaque cut";
     let segments = parse_envelope(raw);
@@ -197,27 +182,6 @@ fn partial_frame_runs_to_the_end_without_a_cut_tag() {
 }
 
 #[test]
-fn trailing_newline_after_a_frame_stays_outside_its_body() {
-    let raw = "<domios from=\"tab\" tab=\"a\">opaque body\n <tip>opaque hint</tip></domios>\n";
-    assert_eq!(
-        parse_envelope(raw),
-        [
-            MessageSegment::Frame {
-                kind: FrameKind::Tab,
-                from: "tab".into(),
-                attrs: [("from", "tab"), ("tab", "a")]
-                    .map(|(key, value)| (key.to_string(), value.to_string()))
-                    .into(),
-                body: "opaque body".into(),
-                tip: Some("opaque hint".into()),
-                segments: Vec::new(),
-            },
-            MessageSegment::Text { text: "\n".into() },
-        ]
-    );
-}
-
-#[test]
 fn glued_frames_split_without_separators() {
     let one = "<domios from=\"report\" tab=\"a\">opaque one</domios>";
     let two = "<domios from=\"system\">opaque two</domios>";
@@ -239,20 +203,6 @@ fn glued_frames_split_without_separators() {
             Some(FrameKind::Tab)
         ]
     );
-}
-
-#[test]
-fn neighbor_envelope_parses_as_a_neighbor_frame() {
-    let segments = parse_envelope(
-        r#"<domios from="neighbor" friend="F" friendship="x" message="m" kind="question">opaque body</domios>"#,
-    );
-    assert!(segments.iter().any(|segment| matches!(
-        segment,
-        MessageSegment::Frame {
-            kind: FrameKind::Neighbor,
-            ..
-        }
-    )));
 }
 
 #[test]

@@ -53,17 +53,6 @@ fn spinal_cord_alias_uses_supporter_command_tree() {
 }
 
 #[test]
-fn supporter_help_names_spinal_cord() {
-    for name in ["supporter", "spinal-cord"] {
-        let help = Cli::try_parse_from(["codeterm", name, "--help"])
-            .err()
-            .unwrap();
-        assert_eq!(help.kind(), clap::error::ErrorKind::DisplayHelp);
-        assert!(help.to_string().contains("Spinal Cord (Supporter Agent)"));
-    }
-}
-
-#[test]
 fn supporter_enable_disable_features_rejected() {
     for removed in ["enable", "disable", "features"] {
         assert!(parse(&["supporter", removed]).is_err());

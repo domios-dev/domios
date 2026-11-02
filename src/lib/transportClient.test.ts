@@ -17,18 +17,22 @@ function clientWith(response: Response) {
 }
 
 describe("transportClient", () => {
-  it("uses one page client identity for JSON, local JSON, uploads and streams", async () => {
+  it("uses one page client identity across transport clients and request types", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({}));
     const client = createTransportClient({ origin, token: "fixture-token", fetch });
     await client.json("GET", "/api/tabs");
     await client.localJson("GET", "/api/config");
     await client.upload("/api/attachments/upload", new FormData());
-    await new Promise<void>((resolve) => {
-      client.subscribe("/api/events/stream", () => {}, { onEnd: () => resolve() });
-    });
+
+    const otherClient = createTransportClient({ origin, token: "fixture-token", fetch });
+    await Promise.all([
+      new Promise<void>((resolve) => client.subscribe("/api/events/stream", () => {}, { onEnd: () => resolve() })),
+      new Promise<void>((resolve) => otherClient.subscribe("/api/output/stream", () => {}, { onEnd: () => resolve() })),
+    ]);
+
     const identities = fetch.mock.calls.map(([, init]) => new Headers(init?.headers).get("X-CodeTerm-Client-Id"));
-    expect(identities).toHaveLength(4);
-    expect(identities[0]).toBeTruthy();
+    expect(identities).toHaveLength(5);
+    expect(identities[0]).toMatch(/^[a-f0-9-]{36}$/);
     expect(new Set(identities).size).toBe(1);
   });
   it("requires an explicit HTTP origin and confines credentials to it", async () => {
@@ -221,23 +225,6 @@ describe("transportClient", () => {
       expect(retainedBytes).toBe(0);
       expect(terminalBytes).toBe(0);
     } finally { stop(); }
-  });
-  it("identifies all streams from a page with the same client header", async () => {
-    const requests: string[] = [];
-    let resolve!: () => void;
-    const accepted = new Promise<void>((done) => { resolve = done; });
-    const fetch = vi.fn<typeof globalThis.fetch>(async (_url, init) => {
-      requests.push(new Headers(init?.headers).get("X-CodeTerm-Client-Id")!);
-      if (requests.length === 2) resolve();
-      return new Response(new ReadableStream());
-    });
-    const first = createTransportClient({ origin, token: "token", fetch });
-    const second = createTransportClient({ origin, token: "token", fetch });
-    const stops = [first.subscribe("/api/events/stream", () => {}), second.subscribe("/api/output/stream", () => {})];
-    await accepted;
-    expect(requests[0]).toMatch(/^[a-f0-9-]{36}$/);
-    expect(requests[1]).toBe(requests[0]);
-    stops.forEach((stop) => stop());
   });
   it("parses named multiline events and ignores comments", () => {
     expect(parseSseFrame(":keepalive")).toBeNull();

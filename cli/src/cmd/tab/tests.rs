@@ -68,15 +68,6 @@ fn tab_status_renders_provider_prompt_options_as_numbered_choices() {
 }
 
 #[test]
-fn tab_list_request_uses_only_explicit_scope() {
-    let workspace = tab_list_params(Some("workspace".into()), false);
-    let all = tab_list_params(None, false);
-
-    assert_eq!(workspace["focused_workspace"], false);
-    assert_eq!(all["focused_workspace"], false);
-}
-
-#[test]
 fn explicit_address_scope_tab_search_sees_foreign_workspace_titles_and_ids() {
     let foreign = json!({
         "id": "deadbeef1234",
@@ -153,13 +144,6 @@ fn rank_ids(needle: &str, tabs: &[serde_json::Value]) -> Vec<String> {
         .collect()
 }
 
-fn string_field<'a>(value: &'a serde_json::Value, key: &str) -> &'a str {
-    value
-        .get(key)
-        .and_then(|field| field.as_str())
-        .unwrap_or("")
-}
-
 #[test]
 fn render_tree_groups_by_workspace_and_nests_children() {
     let tabs = vec![
@@ -214,42 +198,6 @@ fn render_tree_keeps_remote_workspace_identity_separate_from_local() {
 
     assert!(output.contains("CodeTerm  994f16ae\n"));
     assert!(output.contains("CodeTerm  994f16ae @Peer A\n"));
-}
-
-#[test]
-fn tab_list_uses_ordinary_remote_projection_without_remote_worker_ghosts() {
-    let tabs = vec![
-        json!({
-            "id":"shared-tab", "title":"Local", "workspace_name":"CodeTerm", "workspace_id":"ws"
-        }),
-        json!({
-            "id":"orch", "title":"Dumas", "role":"Orchestrator", "workspace_name":"CodeTerm", "workspace_id":"ws"
-        }),
-        json!({
-            "id":"mesh:peer-a/shared-tab", "remote_tab_id":"shared-tab", "title":"A", "role":"Manager", "role_profile":"planner", "remote_peer_name":"A"
-        }),
-        json!({
-            "id":"mesh:peer-b/shared-tab", "remote_tab_id":"shared-tab", "title":"B", "role":"Orchestrator", "remote_peer_name":"B"
-        }),
-    ];
-
-    let ids: Vec<_> = tabs.iter().map(|tab| string_field(tab, "id")).collect();
-    assert_eq!(
-        ids,
-        [
-            "shared-tab",
-            "orch",
-            "mesh:peer-a/shared-tab",
-            "mesh:peer-b/shared-tab"
-        ]
-    );
-    assert_eq!(string_field(&tabs[2], "remote_tab_id"), "shared-tab");
-    assert_eq!(string_field(&tabs[2], "role_profile"), "planner");
-    assert_eq!(string_field(&tabs[2], "remote_peer_name"), "A");
-    assert_eq!(
-        ordinary_tab_list_path(&tab_list_params(None, false)),
-        "/api/tabs"
-    );
 }
 
 #[test]
@@ -416,21 +364,6 @@ fn tie_break_is_stable_by_id() {
 }
 
 #[test]
-fn tab_title_matches_friendly_name() {
-    // Regression: use workspace-tree tab title in matching so labels like "dalton" still find the expected tab.
-    let tabs = vec![
-        json!({"id": "11111111", "title": "Dalton"}),
-        json!({"id": "22222222", "title": "Thomson"}),
-    ];
-    let ranked = rank_ids("dalton", &tabs);
-    assert_eq!(
-        ranked.first().map(String::as_str),
-        Some("11111111"),
-        "the current title must be searched"
-    );
-}
-
-#[test]
 fn title_only_tab_name_is_rendered_and_searchable() {
     let tab = json!({"id":"abcd1234", "title":"Dalton"});
     let ranked = rank_ids("dalton", std::slice::from_ref(&tab));
@@ -508,18 +441,6 @@ fn latin_needle_matches_cyrillic_tab_title() {
         Some("33333333"),
         "latin 'andrei' must match the transliterated form of 'Андрей'"
     );
-}
-
-#[test]
-fn human_row_renders_one_current_title() {
-    let p = json!({
-        "id": "abcd1234",
-        "title": "Main",
-        "agent_type": "claude",
-    });
-    let row = format_tab_row(&p);
-    // No "(Main)" duplicate — single label only.
-    assert!(!row.contains("(Main)"), "duplicate label in row: {}", row);
 }
 
 #[test]

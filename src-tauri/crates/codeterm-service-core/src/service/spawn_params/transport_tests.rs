@@ -61,14 +61,6 @@ fn mismatched_cases() -> Vec<(&'static str, SpawnAgentParams)> {
 }
 
 #[test]
-fn chat_backend_only_fields_names_exactly_the_set_flags() {
-    assert!(chat_backend_only_fields(&pty_params()).is_empty());
-    for (flag, params) in mismatched_cases() {
-        assert_eq!(chat_backend_only_fields(&params), vec![flag]);
-    }
-}
-
-#[test]
 fn spawn_rejects_transport_mismatched_flags() {
     let (mux, _) = MultiplexerState::new();
     let fixture = ServiceFixture::new(mux);
@@ -78,12 +70,14 @@ fn spawn_rejects_transport_mismatched_flags() {
     ));
 
     for (flag, params) in mismatched_cases() {
+        assert_eq!(chat_backend_only_fields(&params), vec![flag]);
         let error = fixture
             .service
             .classify_spawn_target_for_params(PROVIDER, &params)
             .expect_err(flag);
         assert!(error.contains(flag), "{flag}: {error}");
     }
+    assert!(chat_backend_only_fields(&pty_params()).is_empty());
     assert_eq!(
         fixture
             .service

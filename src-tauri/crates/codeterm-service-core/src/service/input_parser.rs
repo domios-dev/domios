@@ -480,12 +480,6 @@ mod tests {
     }
 
     #[test]
-    fn empty_tab_id_no_op() {
-        let p = InputParser::new(registry());
-        assert!(p.process("", b"codex\r").is_none());
-    }
-
-    #[test]
     fn clear_drops_buffer() {
         let p = InputParser::new(registry());
         assert!(p.process("tab1", b"cod").is_none());

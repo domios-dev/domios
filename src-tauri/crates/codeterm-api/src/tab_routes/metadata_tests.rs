@@ -66,10 +66,6 @@ async fn locked_metadata_routes_preserve_typed_forbidden() {
             .unwrap();
         let body: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(body["error"]["code"], "plan_limit_locked");
-        assert!(body["error"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("locked"));
     }
 }
 

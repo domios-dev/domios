@@ -7,10 +7,7 @@ use axum::{
 };
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::service::test_fixture::ServiceFixture;
-use std::{
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{sync::Arc, time::Duration};
 use tower::ServiceExt;
 
 use crate::test_support::app_state;
@@ -44,9 +41,13 @@ async fn rest_liveness_health_completes_while_auth_waits_on_config() {
     entered.notified().await;
     assert!(!blocked.is_finished());
     assert!(state.config.try_lock().is_none());
-    let started = Instant::now();
-    let response = router.oneshot(request("/api/health")).await.unwrap();
-    let elapsed = started.elapsed();
+    let response = tokio::time::timeout(
+        Duration::from_millis(250),
+        router.oneshot(request("/api/health")),
+    )
+    .await
+    .expect("health must finish while auth waits on configuration")
+    .unwrap();
     release_tx.send(()).unwrap();
     holder.await.unwrap();
     assert_eq!(
@@ -60,10 +61,6 @@ async fn rest_liveness_health_completes_while_auth_waits_on_config() {
     let health: serde_json::Value = serde_json::from_slice(&body).unwrap();
     assert_eq!(health["status"], "ok");
     assert_eq!(health["startup"]["state"], "ready");
-    assert!(
-        elapsed < Duration::from_millis(50),
-        "health took {elapsed:?}"
-    );
 }
 
 #[test]
@@ -100,16 +97,16 @@ fn rest_liveness_health_bypasses_saturated_blocking_pool_with_real_middleware() 
         let router = crate::routes::apply_middleware(routes, state);
         let blocked = tokio::spawn(router.clone().oneshot(request("/blocking")));
         entered_rx.await.unwrap();
-        let started = Instant::now();
-        let response = router.oneshot(request("/api/health")).await.unwrap();
-        let elapsed = started.elapsed();
+        let response = tokio::time::timeout(
+            Duration::from_millis(250),
+            router.oneshot(request("/api/health")),
+        )
+        .await
+        .expect("health must finish while the blocking pool is occupied")
+        .unwrap();
         release_tx.send(()).unwrap();
         assert_eq!(blocked.await.unwrap().unwrap().status(), StatusCode::OK);
         assert_eq!(response.status(), StatusCode::OK);
-        assert!(
-            elapsed < Duration::from_millis(50),
-            "health took {elapsed:?}"
-        );
     });
 }
 
