@@ -4,7 +4,7 @@ import {resolve} from 'node:path';
 import {measurements} from './model.mjs';
 import {leafSessionIdKey} from './snapshot-contract.mjs';
 
-export function worstCases(root, cwd) {
+export function worstCases(root, cwd, now = Date.now()) {
   const manualFiles = ['prod-docs/ORCHESTRATION.md', 'prod-docs/ROUTING.md',
     'prod-docs/TAB-LIFECYCLE.md', 'src-tauri/prompts/codeterm_cli.md',
     'src-tauri/prompts/manager_bootstrap.md', 'src-tauri/prompts/general_agent.md'];
@@ -48,7 +48,7 @@ export function worstCases(root, cwd) {
     live_tab_metadata: [{tab_id: 'fixture-imported-worker', hidden: false, show_in_tabbar: true}],
     plans: [{id: 'plan_fixture', title: 'Fixture', status: 'active', mode: 'execution',
       owner: {tab_id: 'fixture-orchestrator', session_id: 'thread-fixture-orchestrator', title: 'Fixture'},
-      team_id: 'team_fixture', project_path: cwd, canonical_project_path: cwd, created_at: 1, updated_at: 1,
+      team_id: 'team_fixture', project_path: cwd, canonical_project_path: cwd, created_at: now, updated_at: now,
       tasks: ['fixture-legacy-worker', 'fixture-imported-worker'].map(id => ({
         id: `task_${id}`, name: 'Fixture', type: 'implementation', status: 'in_progress',
         assigned_tab_id: id, execution_intent: 'non_repository',

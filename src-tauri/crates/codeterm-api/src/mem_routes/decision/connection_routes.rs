@@ -30,6 +30,7 @@ impl FromRef<AppState> for ConnectionState {
             codeterm_service_core::config::bounds::validate_app_config(&next)
                 .map_err(|_| ConnectionError::unavailable())?;
             codeterm_service_core::config::save_config_and_apply(&config_state, next)
+                .map(|_| ())
                 .map_err(|_| ConnectionError::unavailable())
         });
         Self {

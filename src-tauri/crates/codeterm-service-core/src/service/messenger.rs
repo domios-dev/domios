@@ -667,9 +667,11 @@ impl Messenger {
                 .map(|(session, nonce, _)| (session, nonce))
                 .unwrap_or_default();
             return Err(format!(
-                "delivery_uncertain: planner provider binding rotated after send started; expected_session={expected_session_id} expected_nonce={expected_binding_nonce} observed_session={} observed_nonce={}",
+                "delivery_uncertain: planner provider binding rotated after send started; expected_session={expected_session_id} expected_nonce_present={} observed_session={} observed_nonce_present={} binding_matches={}",
+                !expected_binding_nonce.is_empty(),
                 observed_session.as_deref().unwrap_or("missing"),
-                observed_nonce.as_deref().unwrap_or("missing")
+                observed_nonce.is_some(),
+                observed_nonce.as_deref() == Some(expected_binding_nonce)
             ));
         }
         Ok(delivery)

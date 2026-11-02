@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_commands::commands::{
     read_workspace_essence_maps_core, read_workspace_essence_source_core, WorkspaceEssenceMapFile,
 };
@@ -23,11 +23,10 @@ pub(crate) struct EssenceSourceQuery {
 }
 
 pub(crate) async fn list_essence_maps(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    AxumState(_state): AxumState<AppState>,
+    _headers: HeaderMap,
     Json(request): Json<EssenceMapRequest>,
 ) -> Result<Json<Vec<WorkspaceEssenceMapFile>>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let result =
         tokio::task::spawn_blocking(move || read_workspace_essence_maps_core(&request.path))
             .await
@@ -47,11 +46,10 @@ pub(crate) async fn list_essence_maps(
 }
 
 pub(crate) async fn read_essence_source(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    AxumState(_state): AxumState<AppState>,
+    _headers: HeaderMap,
     Query(query): Query<EssenceSourceQuery>,
 ) -> Result<Json<String>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     tokio::task::spawn_blocking(move || {
         read_workspace_essence_source_core(&query.project, &query.path)
     })

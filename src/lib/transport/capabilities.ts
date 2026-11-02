@@ -103,7 +103,7 @@ export function createCapabilitiesTransport(client: CapabilitiesClient) {
     keepawake_status: () => webJson("GET", "/api/keepawake"),
     keepawake_stop: () => webJson("POST", "/api/keepawake/stop"),
 
-    list_agent_providers: () => webJson("GET", "/api/agents/providers"),
+    list_agent_providers: (a) => webJson("GET", a.metadataOnly ? "/api/agents/providers?metadata_only=true" : "/api/agents/providers"),
     list_notifications: () => webJson("GET", "/api/notifications"),
     list_themes: async () => {
       const resp = await webJson<{ themes?: string[] }>("GET", "/api/themes");

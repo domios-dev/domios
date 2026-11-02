@@ -439,12 +439,16 @@ impl ServiceContext {
         }
         let mut cfg = self.configuration();
         authority::apply(proof, &mut cfg.notifications, &offer.target, level);
-        if let Err(reason) = crate::config::save_config_pub(&cfg) {
-            log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
-            return;
-        }
-
-        *self.ext::<crate::config::ConfigState>().lock() = cfg.clone();
+        let cfg = match crate::config::save_config_and_apply(
+            self.ext::<crate::config::ConfigState>(),
+            cfg,
+        ) {
+            Ok(applied) => applied,
+            Err(reason) => {
+                log::error!("[notify-offer] accepted offer on {id} could not be saved: {reason}");
+                return;
+            }
+        };
         self.ui.emit(
             "config-changed",
             serde_json::to_value(serde_json::to_value(&cfg).unwrap_or_default())

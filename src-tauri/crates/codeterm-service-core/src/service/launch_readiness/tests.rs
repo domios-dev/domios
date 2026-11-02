@@ -283,7 +283,8 @@ fn launch_readiness_local_exit_emits_bounded_failure() {
     assert_eq!(exit_code, Some(3));
     assert!(reason.contains(&attempt.tab_id));
     assert!(reason.contains(&format!("attempt={}", attempt.pty_id)));
-    assert!(reason.contains(&format!("launch_nonce={}", attempt.binding_nonce)));
+    assert!(reason.contains("launch_nonce_present=true"));
+    assert!(!reason.contains(&attempt.binding_nonce));
     assert!(reason.contains("exit_code=3"));
 }
 
@@ -876,7 +877,8 @@ fn launch_readiness_shell_exit_marker_emits_the_bounded_failure() {
     assert!(reason.starts_with(EXITED_BEFORE_READINESS));
     assert!(reason.contains(&tab_id));
     assert!(reason.contains("attempt=pty-launch-readiness"));
-    assert!(reason.contains("launch_nonce=nonce-live"));
+    assert!(reason.contains("launch_nonce_present=true"));
+    assert!(!reason.contains("nonce-live"));
 }
 
 #[test]

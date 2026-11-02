@@ -39,6 +39,7 @@ export function FirstRunGeneralPicker({ providers, providersLoading = false, pro
         progress={login ? "Sign in to continue" : progress}
         navigation={navigation}
         home={home}
+        signingInProviderId={login?.state.auth === "signedOut" ? login.providerId : undefined}
         belowConfirm={analyticsOn && <p className="inline-flex items-center gap-1.5 text-[11px] text-[color-mix(in_srgb,var(--ct-muted-fg)_70%,transparent)]"><ChartColumn size={12} aria-hidden="true" />Product analytics is on. Turn off in <a className="underline" href="#settings/general" onClick={event => {
           event.preventDefault();
           window.dispatchEvent(new CustomEvent("codeterm:open-panel", { detail: { panel: "settings:general" } }));

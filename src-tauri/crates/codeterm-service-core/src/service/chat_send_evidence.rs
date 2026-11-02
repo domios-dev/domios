@@ -364,8 +364,8 @@ impl ServiceContext {
             _ => None,
         };
         log::debug!(
-            "[session-turn-evidence] binding-capture tab={} provider={:?} session={:?} launch={:?} deferred_first_turn={}",
-            tab_id, provider_id, session_id, binding_nonce, deferred_first_turn.is_some(),
+            "[session-turn-evidence] binding-capture tab={} provider={:?} session={:?} launch_nonce_present={} deferred_first_turn={}",
+            tab_id, provider_id, session_id, binding_nonce.is_some(), deferred_first_turn.is_some(),
         );
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {

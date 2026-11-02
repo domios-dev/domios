@@ -11,7 +11,7 @@ fn attributed_body<T: DeserializeOwned>(
     state: &AppState,
     mut headers: HeaderMap,
     mut body: Value,
-) -> Result<(HeaderMap, T), RouteError> {
+) -> Result<(crate::auth::ActorHeaders, T), RouteError> {
     let claim: authority::CallerClaim = serde_json::from_value(body.clone())
         .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
     let caller = authority::validate_claim(state, &headers, &claim)?;
@@ -32,14 +32,17 @@ fn attributed_body<T: DeserializeOwned>(
     }
     let body = serde_json::from_value(body)
         .map_err(|e| (axum::http::StatusCode::BAD_REQUEST, e.to_string()))?;
-    Ok((headers, body))
+    Ok((
+        crate::auth::ActorHeaders::authenticate(state, headers)?,
+        body,
+    ))
 }
 
 async fn attributed_body_async<T: DeserializeOwned + Send + 'static>(
     state: &AppState,
     headers: HeaderMap,
     body: Value,
-) -> Result<(HeaderMap, T), RouteError> {
+) -> Result<(crate::auth::ActorHeaders, T), RouteError> {
     let state = state.clone();
     tokio::task::spawn_blocking(move || attributed_body(&state, headers, body))
         .await
@@ -108,7 +111,7 @@ pub(super) async fn make_orchestrator(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, RouteError> {
     let (headers, _body): (_, Value) = attributed_body_async(&state, headers, body).await?;
-    super::super::agent_routes::make_orchestrator(State(state), headers, Path(id)).await
+    super::super::agent_routes::make_orchestrator(State(state), (*headers).clone(), Path(id)).await
 }
 
 pub(super) async fn make_planner(
@@ -118,5 +121,6 @@ pub(super) async fn make_planner(
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, RouteError> {
     let (headers, body) = attributed_body_async(&state, headers, body).await?;
-    super::super::agent_routes::make_planner(State(state), headers, Path(id), Json(body)).await
+    super::super::agent_routes::make_planner(State(state), (*headers).clone(), Path(id), Json(body))
+        .await
 }

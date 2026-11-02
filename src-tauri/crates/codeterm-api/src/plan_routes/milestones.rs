@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::plan::OrchestratorRef;
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
@@ -27,7 +27,6 @@ pub async fn milestone_add(
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<MilestoneAddBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let from = crate::auth::actor_ref(&state, &headers, body.from)
         .map_err(|(status, message)| text_err(status, message))?;
     let mid = state
@@ -57,11 +56,10 @@ pub struct MilestoneUpdateBody {
 
 pub async fn milestone_update(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((id, tid, ms_id)): Path<(String, String, String)>,
     Json(body): Json<MilestoneUpdateBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -80,10 +78,9 @@ pub async fn milestone_update(
 
 pub async fn milestone_rm(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((id, tid, ms_id)): Path<(String, String, String)>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store

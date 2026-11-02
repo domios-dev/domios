@@ -5,11 +5,10 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 use super::{
-    authorize_draft_structure_mutation_http, emit_plan_changed, epoch_ms, plan_err, text_err,
-    PlanRouteResult,
+    authorize_draft_structure_mutation_http, emit_plan_changed, epoch_ms, plan_err, PlanRouteResult,
 };
 
 #[derive(Deserialize)]
@@ -30,11 +29,10 @@ pub struct SectionAddBody {
 
 pub async fn section_add(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<SectionAddBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_draft_structure_mutation_http(
         &state.svc,
         &id,
@@ -66,11 +64,10 @@ pub struct IngestBody {
 
 pub async fn ingest(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<IngestBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let result = state
         .svc
         .plan_store
@@ -99,11 +96,10 @@ pub struct SectionUpdateBody {
 
 pub async fn section_update(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, sid)): Path<(String, String)>,
     Json(body): Json<SectionUpdateBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_draft_structure_mutation_http(
         &state.svc,
         &id,
@@ -130,10 +126,9 @@ pub async fn section_update(
 
 pub async fn section_rm(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, sid)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_draft_structure_mutation_http(
         &state.svc,
         &id,

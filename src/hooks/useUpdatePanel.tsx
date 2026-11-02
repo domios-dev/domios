@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useUpdateAvailability } from "./useUpdateAvailability";
-import { appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
+import { appIntentSatisfied, appendUpdateFailure, targetInstalled, restoredAppIntentInterrupted, updateRunRows, availabilityIntent, hasUpdateBadge, nextUpdateStep, panelItems, readUpdateIntent, updateableItems, type UpdateIntent, type UpdateItem, UPDATE_INTENT_KEY } from "../lib/updatePanelModel";
 import { acceptFrontendUpdate, setFrontendUpdateHeld, frontendUpdateOffer, subscribeFrontendUpdateOffer } from "../lib/frontendUpdate/browser";
 import { runPluginSnapshotAction } from "../lib/pluginSnapshotStore";
 import { appliedFrontendRelease, subscribeAppliedFrontendRelease } from "../lib/frontendUpdate/releaseNotes";
@@ -70,6 +70,7 @@ function useUpdatePanelController() {
   useEffect(() => {
     const currentIntent = readUpdateIntent(intentKey);
     if (!currentIntent || !stepKind || stepKind === "waitForApp" || running.current) return;
+    if (stepKind === "complete" && currentIntent.stage === "app") { save(null); return; }
     running.current = true;
     const activeRow = availableRows.current.find(item => item.id === pluginId);
     setRunItems(previous => previous.length ? previous : availableRows.current);
@@ -190,7 +191,7 @@ function useUpdatePanelController() {
   };
 
   const activeId = stepKind === "plugin" ? pluginId : stepKind === "interface" ? "frontend"
-    : intent?.stage === "app" && !restoredFailure && !app.error && hostVersion !== intent.appTarget ? "app" : null;
+    : intent?.stage === "app" && !restoredFailure && !app.error && !appIntentSatisfied(intent, hostVersion) ? "app" : null;
   const rows = updateRunRows(runItems, items, snapshot.items, intent, activeId, restoredFailure || (restoredIntent.current && app.error) ? { ...outcomes, app: "failed" } : outcomes);
   const failure = error?.message ?? (app.error ? classifyUpdateFailure("update", app.error)?.message : null) ?? restoredFailure?.message;
   return { snapshot, items, rows, activeId, awaitingRetry: Boolean(intent && failure), appProgress: app.status === "downloading" && app.downloadTotalBytes && app.downloadTotalBytes > 0

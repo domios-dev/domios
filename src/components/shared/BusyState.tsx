@@ -3,6 +3,7 @@ import type { TabActivity } from "../../lib/tabActivity";
 
 import React from "react";
 import { ActivityDots, type ActivityDotsSize } from "./ActivityDots";
+import { BrandMark } from "../brand/BrandMark";
 import { type BusyLabelKey, busyLabel } from "./busyStateLabels";
 
 type BusyPhase = "work" | "thinking" | "streaming";
@@ -13,6 +14,7 @@ export interface BusyStateProps {
   label?: string;
   phase?: BusyPhase;
   inline?: boolean;
+  indicator?: "dots" | "brand";
   dotSize?: ActivityDotsSize;
   hideLabel?: boolean;
   className?: string;
@@ -27,6 +29,7 @@ export function BusyState({
   label,
   phase = "thinking",
   inline = false,
+  indicator = "dots",
   dotSize = inline ? "small" : "medium",
   hideLabel = false,
   className,
@@ -36,7 +39,7 @@ export function BusyState({
 }: BusyStateProps) {
   const text = activity?.label ?? label ?? busyLabel(labelKey, locale);
   if (activity?.kind === "starting") return <TabLoadingIndicator label={text} />;
-  const base = inline ? "inline-flex items-baseline gap-2" : "ct-agent-row";
+  const base = inline ? `inline-flex ${indicator === "brand" ? "items-center" : "items-baseline"} gap-2` : "ct-agent-row";
   return (
     <span
       className={`${base} ${className ?? ""}`.trim()}
@@ -48,12 +51,14 @@ export function BusyState({
       aria-label={text}
       style={style}
     >
-      <ActivityDots
+      {indicator === "brand" ? <span className="ct-busy-brand" aria-hidden="true" data-active={activity?.active ?? true}>
+        <BrandMark size={16} />
+      </span> : <ActivityDots
         size={dotSize}
         tone={phase === "thinking" ? "thinking" : "accent"}
         rhythm={phase}
         active={activity?.active ?? true}
-      />
+      />}
       {!hideLabel && text ? <span className="ct-agent-msg">{text}</span> : null}
     </span>
   );

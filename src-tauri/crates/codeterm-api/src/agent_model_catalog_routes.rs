@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct RefreshProviderModelsBody {
@@ -15,10 +15,9 @@ pub struct RefreshProviderModelsBody {
 /// Refresh a provider's catalogue before an explicit model listing.
 pub async fn refresh_agent_provider_models(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<RefreshProviderModelsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let (discovery_required, refreshed, reason) = if let Some(provider) =
         state.svc.agent_registry.provider_arc(&body.provider_id)
     {

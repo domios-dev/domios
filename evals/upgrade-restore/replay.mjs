@@ -2,8 +2,10 @@ import {readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash} from 'node:crypto';
-import {requireBackings, verdict, failureReason, requireRestart} from './model.mjs';
+import {requireBackings, verdict, failureReason, requireRestart, historyMatches} from './model.mjs';
 import {cliResult} from './cli-result.mjs';
+import {Events} from '../core-journeys/lib/env.mjs';
+import {observe, touchesTab} from '../core-journeys/lib/wait.mjs';
 
 import {run as exec} from './process.mjs';
 const [file, expectedBuild, root, deadlineRaw = '90', mode = 'verify'] = process.argv.slice(2);
@@ -40,6 +42,7 @@ if (provider?.agent_runtime?.command?.binary !== 'codex' || !resolvedBinary
   throw new Error('Fake app-server backing is not the DEV daemon’s resolved runtime binary');
 }
 if (mode === 'stage') {
+  await dc('config', 'set', 'general_agent.enabled', 'false', '--json');
   const imported = await dc('sessions', 'backups', 'import', '--file', file, '--json');
   if (imported.imported_tabs !== expected.length || imported.restart_required !== true) {
     throw new Error('Import lost tabs or omitted the required restart acknowledgement');
@@ -53,15 +56,37 @@ if (mode === 'stage') {
 if (mode !== 'verify') throw new Error('Unknown replay mode');
 requireRestart(JSON.parse(readFileSync(join(root, 'stage-result.json'), 'utf8')),
   currentHealth.boot_id, fixtureDigest);
+const connection = await exec('bash', ['-c',
+  'source "$1"; dev_run node -e \'console.log(JSON.stringify({url:process.env.CODETERM_API_URL,token:process.env.CODETERM_API_TOKEN}))\'',
+  'upgrade-restore', benchLib],
+{timeout: Math.max(1, Math.ceil(deadline - performance.now())), maxBuffer: 1024 * 1024});
+const dev = JSON.parse(connection.stdout);
 const results = await Promise.all(expected.map(async tab => {
+  const events = new Events(dev, AbortSignal.timeout(Math.max(1, Math.ceil(deadline - performance.now()))));
   try {
+    await events.open();
+    await dc('tab', 'focus', '--tab', tab.tab_id, '--json');
+    await observe({events, filter: touchesTab(tab.tab_id), label: `tab=${tab.tab_id}: restored runtime readiness`,
+      read: async () => {
+        const actual = await dc('tab', 'inspect', '--tab', tab.tab_id, '--json');
+        return Array.isArray(actual) ? actual[0] : actual;
+      },
+      judge: actual => {
+        const result = verdict(tab, actual);
+        if (result.ready) return {done: actual};
+        if (actual?.agent_runtime_state?.state === 'degraded' || actual?.boot_stage === 'spawn_failed') {
+          return {fail: result.reason};
+        }
+        return {pending: `tab=${tab.tab_id}: ${result.reason}`};
+      },
+    });
     if (tab.agent_type) {
       const chat = await dc('tab', 'chat', '--tab', tab.tab_id, '--json');
       const messages = chat.messages ?? [];
       const history = document.histories.find(history => history.tab_id === tab.tab_id);
       for (const row of history.messages) {
         const observed = messages.find(message => message.id === row.id);
-        if (!observed || observed.type !== row.type || Buffer.byteLength(observed.content ?? '') !== Buffer.byteLength(row.content ?? '')) {
+        if (!historyMatches(row, observed)) {
           return {tab_id: tab.tab_id, ready: false, reason: `restored history missing or truncated at item ${row.id}`};
         }
       }
@@ -76,6 +101,8 @@ const results = await Promise.all(expected.map(async tab => {
     return result;
   } catch (error) {
     return {tab_id: tab.tab_id, ready: false, reason: failureReason(error)};
+  } finally {
+    events.close();
   }
 }));
 const trace = readFileSync(join(root, 'provider-trace.jsonl'), 'utf8').trim().split('\n').filter(Boolean).map(JSON.parse);

@@ -1,4 +1,3 @@
-use super::*;
 use codeterm_service_core::multiplexer::types::AgentRole;
 
 #[cfg(test)]
@@ -6,7 +5,7 @@ mod tests;
 
 pub(super) fn try_task_bound_worker_transfer(
     service: &codeterm_service_core::service::ServiceContext,
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     worker_tab_id: &str,
     role: AgentRole,
     explicit_role_profile: Option<&str>,

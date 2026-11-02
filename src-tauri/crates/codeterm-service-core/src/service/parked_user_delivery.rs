@@ -577,13 +577,14 @@ impl super::ServiceContext {
         &self,
         authority: &UserSendAuthority,
     ) -> Result<UserReadiness, &'static str> {
-        let (same_launch, binding_authenticated) = {
+        let (same_launch, binding_authenticated, awaiting_agent_ready) = {
             let mux = self.mux.read();
             mux.get_tab(&authority.tab_id)
-                .map_or((false, false), |tab| {
+                .map_or((false, false, false), |tab| {
                     (
                         self.user_authority_matches_launch(tab, authority),
                         tab.launch_session_authenticated(),
+                        tab.boot_stage != Some(codeterm_types::pty::BootStage::AgentReady),
                     )
                 })
         };
@@ -613,7 +614,13 @@ impl super::ServiceContext {
         }
         let first = self
             .observe_user_delivery_readiness(&authority.tab_id, None)
-            .map_err(|error| supporter_pending_reason(&error))?;
+            .map_err(|error| {
+                if awaiting_agent_ready && error == "supporter_adapter_unavailable" {
+                    "awaiting_agent_ready"
+                } else {
+                    supporter_pending_reason(&error)
+                }
+            })?;
         if let Some(reason) = first.pending_reason() {
             return Err(reason);
         }

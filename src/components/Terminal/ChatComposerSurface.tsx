@@ -5,9 +5,18 @@ import { composerVisible, type ChatBodyView } from "./chatBodyVisibility";
 import { ProviderUpdateBubble } from "./ProviderUpdateBubble";
 import { LockedComposer } from "../billing/LockedComposer";
 import { lockedView, type LockedView } from "../billing/freeLimitModel";
+import { ComposerDock } from "./ComposerDock";
 
 export function ChatComposerSurface({ view, children, providerId, tabId, tab, lock = lockedView("agent.tabs", tab) }: { view: ChatBodyView; children: ReactNode; providerId?: string; tabId?: string; tab?: Pick<Tab, "role_profile" | "locked"> | null; lock?: LockedView }) {
-  if (isReadOnlyTab(tab)) return <div role="status" className="ct-chat-bottom-bar">Curator round, read-only</div>;
+  if (isReadOnlyTab(tab)) return <div className="ct-chat-bottom-bar shrink-0">
+    <ComposerDock mode="floating">
+      <div role="status" className="ct-composer-card">
+        <div className="ct-composer-row flex items-center justify-center px-3.5 text-center font-[family-name:var(--ct-font-ui)] text-[length:var(--ct-capsule-font-size)] leading-[var(--ct-capsule-line-height)] text-[var(--ct-muted-fg)]">
+          Curator round, read-only
+        </div>
+      </div>
+    </ComposerDock>
+  </div>;
   if (lock.locked) return <LockedComposer view={lock} />;
   return composerVisible(view) ? <div data-composer-height-surface className="shrink-0">
     {providerId && <div className="ct-provider-update-slot"><ProviderUpdateBubble providerId={providerId} callerTabId={tabId} /></div>}

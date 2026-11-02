@@ -7,6 +7,7 @@ const TURN_START_DEADLINE: Duration = Duration::from_secs(60);
 pub(crate) struct BoundSession {
     pub(super) tab_id: String,
     pub(super) provider: Arc<dyn ChatBackendProvider>,
+    pub(super) binding_nonce: String,
     state: Mutex<Health>,
 }
 
@@ -18,10 +19,15 @@ struct Health {
 }
 
 impl BoundSession {
-    pub(super) fn new(tab_id: String, provider: Arc<dyn ChatBackendProvider>) -> Self {
+    pub(super) fn new(
+        tab_id: String,
+        provider: Arc<dyn ChatBackendProvider>,
+        binding_nonce: String,
+    ) -> Self {
         Self {
             tab_id,
             provider,
+            binding_nonce,
             state: Mutex::new(Health::default()),
         }
     }

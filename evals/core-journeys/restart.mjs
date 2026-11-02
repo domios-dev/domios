@@ -6,6 +6,8 @@ import { client, root, target } from "./lib/env.mjs";
 import { listenerIdentity } from "./lib/listener.mjs";
 import { readBuildIdentity } from "./lib/build-identity.mjs";
 
+const buildRoot = resolve(process.env.CORE_JOURNEY_BUILD_CHECKOUT || root);
+
 export function parseRestartArgs(argv) {
   const options = { out: null };
   for (let index = 0; index < argv.length; index += 2) {
@@ -50,9 +52,9 @@ export function restartEnvironment(identity, dev, launch, inherited = process.en
 
 function build(args, env) {
   return new Promise((accept, reject) => {
-    const child = spawn("bash", [join(root, "build.sh"), ...args], { cwd: root, env, stdio: "inherit", signal: AbortSignal.timeout(1_800_000) });
+    const child = spawn("bash", [join(buildRoot, "build.sh"), ...args], { cwd: buildRoot, env, stdio: "inherit", signal: AbortSignal.timeout(1_800_000) });
     child.on("error", reject);
-    child.on("close", (code) => (code === 0 ? accept() : reject(new Error(`build.sh ${args.join(" ")} in ${root} exit ${code}`))));
+    child.on("close", (code) => (code === 0 ? accept() : reject(new Error(`build.sh ${args.join(" ")} in ${buildRoot} exit ${code}`))));
   });
 }
 
@@ -60,7 +62,7 @@ async function main() {
   const options = parseRestartArgs(process.argv.slice(2));
   const dev = target();
   const health = await client(dev).api("/api/health");
-  const env = restartEnvironment(readBuildIdentity(root), dev, health.instance);
+  const env = restartEnvironment(readBuildIdentity(buildRoot), dev, health.instance);
   const path = join(options.out, "restart.json");
   const record = (evidence) => {
     writeFileSync(`${path}.tmp`, `${JSON.stringify({ instance: dev.instance, port: dev.port, ...options, ...evidence }, null, 2)}\n`);

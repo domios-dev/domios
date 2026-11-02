@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 use std::io::Read;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::notification::vet::{
     created_result, parse_push_intent, vet_actions, vet_offer, vet_target_tab, vet_title,
     CreateNotifBody,
@@ -24,10 +24,9 @@ pub struct ListNotifQuery {
 
 pub async fn list_notifications(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(query): Query<ListNotifQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let store = state.svc.notif.lock();
     let notifs = store.list(query.unread.unwrap_or(false));
     Ok(Json(serde_json::to_value(notifs).unwrap()))
@@ -35,11 +34,10 @@ pub async fn list_notifications(
 
 pub async fn create_notification(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Json(body): Json<CreateNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
         let title = vet_title(&body.title).map_err(|message| (StatusCode::BAD_REQUEST, message))?;
         // A relayed peer's jump target names a tab on its own machine and is dropped, so it is not vetted here.
         if body.source_peer.is_none() {
@@ -115,9 +113,8 @@ pub fn render_channel_standings(
 
 pub async fn push_channel_roster(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     Ok(Json(serde_json::json!({
         "channels": render_channel_standings(&state.svc),
     })))
@@ -125,9 +122,8 @@ pub async fn push_channel_roster(
 
 pub async fn clear_notifications(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     tokio::task::spawn_blocking(move || state.svc.clear_notifications(None))
         .await
         .map_err(|_| {
@@ -141,10 +137,9 @@ pub async fn clear_notifications(
 
 pub async fn mark_notification_read(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     if !state.svc.notif.lock().mark_read(&id) {
         return Err((StatusCode::NOT_FOUND, "Notification not found"));
     }
@@ -153,10 +148,9 @@ pub async fn mark_notification_read(
 
 pub async fn delete_notification(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     tokio::task::spawn_blocking(move || state.svc.clear_notifications(Some(&id)))
         .await
         .map_err(|_| {
@@ -178,7 +172,6 @@ pub async fn resolve_notification(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let caller = crate::auth::caller_claim(&state, &headers, None)?;
     tokio::task::spawn_blocking(move || {
         state
@@ -196,11 +189,10 @@ pub async fn resolve_notification(
 pub async fn answer_notification(
     AxumState(state): AxumState<AppState>,
     caller: Option<Extension<crate::auth::CallerIdentity>>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<AnswerNotifBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(code, message)| (code, message.to_string()))?;
     let owner = matches!(
         caller.as_ref().map(|caller| &caller.0),
         Some(crate::auth::CallerIdentity::Local)
@@ -259,12 +251,10 @@ pub struct ServeFileQuery {
 }
 
 pub async fn serve_file(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    AxumState(_state): AxumState<AppState>,
+    _headers: HeaderMap,
     Query(query): Query<ServeFileQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
-
     // path, so comparing against the plain data_dir() always failed the prefix check (every request 403'd).
     let requested = std::path::Path::new(&query.path)
         .canonicalize()

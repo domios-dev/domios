@@ -53,7 +53,7 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
       read: () => readTab(ctx.api, id, signal), judge: (record) => readiness(record, { allowFirstTurn: true }),
     });
     const baselineIds = new Set((await chat(ctx, id, signal)).map((message) => message.id));
-    const receipt = await sendText(ctx, id, prompt ?? `Reply with exactly ${marker} and nothing else. Do not run tools.`);
+    const receipt = await sendText(ctx, id, prompt ?? `Reply with exactly ${marker} as one contiguous string with no spaces between its characters, and nothing else. Do not run tools.`);
     let boundSession = ready.agent_session_id ?? null;
     const outcome = await observe({
       events, filter: touchesTab(id), label: `tab ${id} reply ${marker}`,
@@ -70,12 +70,12 @@ export function probeReply(ctx, id, marker, prompt, { deadlineMs = ctx.deadlines
 
 export function stopLongTurn(ctx, id, { deadlineMs = ctx.deadlines.reply } = {}) {
   return withEvents(ctx, deadlineMs, async (events, signal) => {
-    await sendText(ctx, id, "Count from 1 to 400, one number per line, with no other text. Do not run tools.");
+    await sendText(ctx, id, "Count from 1 to 4000, one number per line, with no other text. Do not run tools.");
     await observe({
       events, filter: touchesTab(id), label: `tab ${id} working`,
       read: () => readTab(ctx.api, id, signal),
       judge: (record) => {
-        if (record?.status === "working") return { done: record };
+        if ((record?.agent_state?.state ?? record?.status) === "working") return { done: record };
         const verdict = readiness(record);
         return verdict.fail ? verdict : { pending: `working (status=${record?.status})` };
       },

@@ -4,17 +4,11 @@ Every verb is `domios plugin browser <verb> [args]`. This guide is what `domios 
 
 ## When to use it
 
-- Verify a web UI you changed in the real running app, instead of claiming it works.
-- Reproduce a bug a user reported on a web page, and collect evidence.
-- Do a web task the user asked for, such as reading a page or filling a form, while the user can watch.
-
-This is the browser for any web page task in Domios. Use it instead of Chrome extensions, global browser skills or other browser tools.
-
-Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` or the API for that.
+Use this browser for web tasks, UI verification and bug reproduction while the user watches. Use it instead of Chrome extensions, global browser skills or other browser tools. Fetch plain data through HTTP or its API.
 
 ## Your browser
 
-- **Ownership.** `open` gives you your own browser. It is named `<YourName>'s Browser`, the user sees it live as a tab nested under yours, and other agents in your workspace may use it too. It closes when you close it with `close`, when your Tab closes, or when your Team closes.
+- **Ownership.** `open` creates `<YourName>'s Browser`, visible beneath your tab and available to workspace agents. `close`, closing your tab or closing your Team ends it.
 - **Profiles.**
   - Default: a **temporary session**. Opening an agent browser does not create a named persistent profile.
   - An explicit `open --profile clean` uses a throwaway profile.
@@ -26,7 +20,7 @@ Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` 
 
 ## The loop: snapshot, act, re-snapshot
 
-The user can press **Take control** to drag-select page text, interact with forms and scroll. Ctrl/Cmd+C copies the remote selection and Ctrl/Cmd+V inserts local clipboard text. The toolbar also has Copy selected text and Paste text actions. User input invalidates agent refs, so take a fresh snapshot before continuing after the user interacts.
+With **Take control**, the user can select text, interact and scroll. Ctrl/Cmd+C and Ctrl/Cmd+V copy the remote selection and paste local text; the toolbar offers both actions. User input invalidates refs: take a fresh snapshot afterward.
 
 1. `snapshot`: read the page as an accessibility tree with roles, names, control states and element refs. Copy the exact ref shown, including its capture prefix; never construct one from an element's position. **This is the default way to understand a page.**
 2. Act on what the snapshot shows, by ref or by role and name:
@@ -64,7 +58,7 @@ Say exactly what is blocking. The user can solve it with *Take control*; then re
 
 ## The user can point at things
 
-The user can pick an element in the live view and send a question, change request or bug about it. It arrives in your chat as a Domios notice. If you missed it, `inbox` lists the ones not delivered or read yet (`inbox all` lists every kept one). Each annotation gives you:
+User annotations arrive as Domios notices. `inbox` lists unread/undelivered annotations; `inbox all` lists every retained one. Each contains:
 - the page;
 - the element's role and name, its selector, and its React component (and source file on dev builds);
 - its text, attributes, computed styles and box;
@@ -81,7 +75,6 @@ Treat it as a precise pointer: find the code behind the element, answer or chang
 3. Walk the user journey you changed, snapshotting after each step.
 4. Prove the end state, not just the click. For example, the item appears in the list after reload.
 5. Save screenshots for the visual parts and cite them in your report.
-6. For each check that passed by hand, propose an automated test (file, framework, assertion).
 
 ## Other verbs
 
@@ -115,7 +108,19 @@ Scopes select one subtree: `dialog`, `sidebar` (complementary landmark), `compos
 
 At the end of a QA run, close ephemeral sessions. For a persistent per-instance session, run `open --profile clean`, then `profile remove dev-qa`, then `close`. Remove each per-instance profile used by the run.
 
-Native file picker driving returns `unsupported` on all platforms, including Windows: the current host has no lifecycle-owned native dialog handle or file chooser interception. Use Take control to choose files in a dialog the page opened.
+`upload <ref|"button text"> <path>...` selects files on Windows without opening an OS dialog. Use an exact file-input ref or the upload button's text from the latest snapshot. Relative paths resolve inside the calling agent's pad, including with `--of`; absolute paths must stay inside that pad or an upload folder the owner granted to the active named profile. The upload activity names the granting folder. The owner manages grants in Settings > General > Browser upload folders or with an owner-authenticated config CLI/API call. Agent credentials cannot add or remove grants. Symlinks, reparse points, device names, parent traversal, directories and alternate data streams refuse. Other platforms report `unsupported` until secure file admission is available.
+
+From an owner-authenticated shell, set the complete per-profile folder map (an empty map removes all grants):
+
+```bash
+domios config set browser_upload_folders '{"work":["C:/Developer/domios-promo"]}'
+```
+
+The equivalent owner-authenticated request is `PATCH /api/config` with `{"key":"browser_upload_folders","value":{"work":["C:/Developer/domios-promo"]}}`. Changes apply to subsequent uploads without restarting the browser.
+
+The live view shows filenames, byte sizes and the input's target origin. Successful selection reads back the input's file list; it does not establish server upload completion. Re-snapshot and verify the page's result. `upload_unconfirmed` means selection or upload may have happened: inspect the page before another attempt. Up to 64 files may be selected per browser lifetime. Files stay read-locked until that browser closes; close it to release them.
+
+Native `file-picker` driving remains unsupported. Use `upload` before opening a chooser; an already open native dialog requires Take control.
 
 ## Accessible state waits
 
@@ -150,4 +155,4 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 On every outcome other than `read`, `text` holds the reason.
 
-<!-- revision: 10 -->
+<!-- revision: 13 -->

@@ -5,6 +5,7 @@ import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { withFailureDeadline } from "../test/withFailureDeadline";
 import type { AppConfig } from "../lib/types";
+import { RELAY_PROTOCOL_VERSION } from "../lib/types";
 
 register(`data:text/javascript,${encodeURIComponent(`
 const leaves = {
@@ -50,8 +51,12 @@ type Request = {
 };
 type Stream = { destination: string; controller: ReadableStreamDefaultController<Uint8Array> };
 
+const fixtureWindow = new Window({ url: "http://gateway:7685" });
+
 async function fixture(local = false) {
-  const win = new Window({ url: "http://gateway:7685" });
+  const win = fixtureWindow;
+  win.localStorage.clear();
+  win.sessionStorage.clear();
   const originalFetch = globalThis.fetch;
   const descriptors = new Map<string, PropertyDescriptor | undefined>();
   for (const key of ["window", "document", "navigator", "localStorage", "sessionStorage", "HTMLElement", "HTMLInputElement", "HTMLButtonElement", "HTMLSelectElement", "Element", "Node", "Event", "CustomEvent"]) {
@@ -140,7 +145,7 @@ async function fixture(local = false) {
     if (path === "/api/mesh/peers") {
       return Response.json({ local_instance_name: local ? "eight" : "gateway", paired: (local ? [B] : [A, B]).map((id) => ({
         instance_id: id, instance_name: stores.get(id)!.mesh.instance_name, addresses: [], api_port: 7685,
-        online: true, relay_protocol_version: 2,
+        online: true, relay_protocol_version: RELAY_PROTOCOL_VERSION,
       })) });
     }
     if (path === "/api/config") {
@@ -203,7 +208,7 @@ async function fixture(local = false) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
     }
     if (actDescriptor) Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", actDescriptor); else Reflect.deleteProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT");
-    await win.happyDOM.close();
+    await win.happyDOM.abort();
   }
   try { await act(async () => root.render(<App />)); } catch (error) { await done(); throw error; }
   function button(selector: string) {
@@ -219,6 +224,7 @@ async function fixture(local = false) {
       const rows = [...document.querySelectorAll<HTMLButtonElement>('[data-testid="peer-picker-item"]')];
       const row = rows.find((entry) => entry.dataset.peerName === (id === A ? "eight" : "rollacodebot"));
       assert(row);
+      assert.equal(row.disabled, false, "peer switch requires an available compatible peer");
       await act(async () => row.click());
     }
   }
@@ -382,6 +388,7 @@ async function main() {
     assert.deepEqual(f.stores.get(A), { ...f.initialA, mesh: { ...f.initialA.mesh, enabled: false } });
   }, true);
   assert(selectedCases > 0, "CONFIG_PEER_CASE must select a real test");
+  await fixtureWindow.happyDOM.close();
   console.log(`PASS config peer persistence: ${selectedCases} cases`);
 }
 

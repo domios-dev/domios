@@ -14,9 +14,23 @@ test("iPad taps and touch/momentum callback replay preserve sidebar rows under s
   await page.addInitScript(() => {
     const probe = { events: [] as Array<{ edge: string; scrollTop: number }>, injected: 0 };
     Object.assign(window, { sidebarTouchProbe: probe });
-    document.addEventListener("sidebar-scroll-debug", event => {
-      probe.events.push((event as CustomEvent).detail);
+    const scrollTop = Object.getOwnPropertyDescriptor(Element.prototype, "scrollTop")!;
+    Object.defineProperty(Element.prototype, "scrollTop", {
+      ...scrollTop,
+      set(value: number) {
+        if (this.matches(".ct-sidebar-content")) probe.events.push({ edge: "write", scrollTop: value });
+        scrollTop.set!.call(this, value);
+      },
     });
+    new MutationObserver(records => {
+      for (const record of records) {
+        for (const node of record.removedNodes) {
+          if (node instanceof Element && (node.matches(".sidebar-tab") || node.querySelector(".sidebar-tab"))) {
+            probe.events.push({ edge: "row-removed", scrollTop: document.querySelector(".ct-sidebar-content")?.scrollTop ?? 0 });
+          }
+        }
+      }
+    }).observe(document, { childList: true, subtree: true });
     const originalFetch = window.fetch.bind(window);
     window.fetch = async (...args) => {
       const response = await originalFetch(...args);

@@ -6,19 +6,17 @@ use axum::{
     Json,
 };
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 /// Re-detect this instance's local addresses (Tailscale + LAN), then push
 /// the new address list to all paired peers via /api/mesh/announce.
 ///
-/// Local origin: standard auth.
-/// Remote origin (relayed via /api/mesh/relay): gated to access_level=Full
-/// inside `mesh_relay`.
+/// Requires owner-trusted origin, including on Full-peer relays.
 pub async fn mesh_refresh(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    super::require_administrator(&state, &headers)?;
 
     codeterm_service_core::mesh::refresh_local_addresses(&state.mesh).await;
     let report = codeterm_service_core::mesh::broadcast_announce(&state.mesh, None).await;
@@ -50,7 +48,7 @@ pub async fn mesh_announce_all(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<AnnounceQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    super::require_administrator(&state, &headers)?;
     let report =
         codeterm_service_core::mesh::broadcast_announce(&state.mesh, q.to.as_deref()).await;
     Ok(Json(serde_json::json!({ "ok": true, "report": report })))
@@ -187,7 +185,7 @@ pub async fn mesh_set_peer_addr(
     Path(peer_id): Path<String>,
     Json(body): Json<SetAddrBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    super::require_administrator(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if body.ip.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "ip is required".to_string()));
     }

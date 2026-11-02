@@ -676,6 +676,52 @@ fn pty_env_prefers_the_configured_codeterm_cli() {
     );
 }
 
+#[cfg(windows)]
+#[test]
+fn pty_env_normalizes_verbatim_cli_paths_and_preserves_path_case_overrides() {
+    for key in ["PATH", "Path", "path"] {
+        let assigned = HashMap::from([
+            (
+                "CODETERM_CLI_PATH".into(),
+                r"\\?\C:\dev\own bin\codeterm.exe".into(),
+            ),
+            (
+                key.into(),
+                r"C:\Windows\System32;C:\Windows\System32\WindowsPowerShell\v1.0;C:\tools\node;C:\tools\git".into(),
+            ),
+        ]);
+        let mut cmd = CommandBuilder::new("bash.exe");
+        cmd.env_clear();
+        cmd.env("pAtH", r"C:\inherited");
+
+        apply_pty_env(&mut cmd, &assigned);
+
+        assert_eq!(
+            cmd.get_env("CODETERM_CLI_PATH").unwrap(),
+            "C:/dev/own bin/codeterm.exe"
+        );
+        let paths: Vec<_> = std::env::split_paths(cmd.get_env("PATH").unwrap()).collect();
+        assert_eq!(
+            paths,
+            [
+                "C:/dev/own bin",
+                r"C:\Windows\System32",
+                r"C:\Windows\System32\WindowsPowerShell\v1.0",
+                r"C:\tools\node",
+                r"C:\tools\git",
+            ]
+            .map(std::path::PathBuf::from),
+            "{key}"
+        );
+        let keys: Vec<_> = cmd
+            .iter_full_env_as_str()
+            .filter(|(key, _)| key.eq_ignore_ascii_case("path"))
+            .map(|(key, _)| key)
+            .collect();
+        assert_eq!(keys, ["PATH"]);
+    }
+}
+
 /// `launch_agent_in_background` relies on `write` returning `Err("PTY not
 /// found: <id>")` so the success log is gated and the misleading "agent
 /// launched" line never fires when the PTY lookup races and misses.

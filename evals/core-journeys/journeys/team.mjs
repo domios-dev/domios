@@ -1,5 +1,4 @@
-import { dc } from "../lib/env.mjs";
-import { closePickerScript, connectPage, focusedPaneScript, openPickerScript, startTeamScript } from "../lib/cdp.mjs";
+import { closePickerScript, connectPage, focusedPaneScript, openPickerScript, selectTabInPage, startTeamScript } from "../lib/cdp.mjs";
 import { pairTabs } from "../lib/oracle.mjs";
 import { readTab, readTabs, waitReady, withEvents } from "../lib/tabs.mjs";
 import { JourneyFailure, observe } from "../lib/wait.mjs";
@@ -51,12 +50,11 @@ export function uiContext(ctx, { leg, contextTab, provider }) {
     const context = await readTab(ctx.api, contextTab);
     if (!context) throw new JourneyFailure(`context tab ${contextTab} is absent`);
     const knownTeams = new Set((await readTabs(ctx.api)).map((tab) => tab.team_id).filter(Boolean));
-    const focus = await dc(["tab", "focus", "--tab", contextTab]);
-    if (focus.code !== 0) throw new JourneyFailure(`tab focus exit ${focus.code}: ${focus.stdout || focus.stderr}`);
     const page = await connectPage(ctx.dev);
     let previous = null;
     let outcome;
     try {
+      await selectTabInPage(page, ctx.state.workspace.id, contextTab, ctx.deadlines.ui);
       await page.evaluate(focusedPaneScript(contextTab, ctx.deadlines.ui), ctx.deadlines.ui);
       const choice = await uiPairChoice(ctx.policy, provider);
       ({ previous } = await page.evaluate(openPickerScript({

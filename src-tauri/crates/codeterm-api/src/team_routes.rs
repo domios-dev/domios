@@ -1,12 +1,12 @@
 use axum::{
     extract::{Path, State as AxumState},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
 use codeterm_orchestration::TeamExt;
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct RenameTeamBody {
@@ -87,7 +87,9 @@ fn map_close_team_error(error: String) -> (StatusCode, String) {
     (status, error)
 }
 
-fn require_caller_tab_id(headers: &HeaderMap) -> Result<String, (StatusCode, String)> {
+fn require_caller_tab_id(
+    headers: &crate::auth::ActorHeaders,
+) -> Result<String, (StatusCode, String)> {
     crate::tab_routes::caller_tab_header(headers).ok_or_else(|| {
         (
             StatusCode::BAD_REQUEST,
@@ -97,7 +99,7 @@ fn require_caller_tab_id(headers: &HeaderMap) -> Result<String, (StatusCode, Str
 }
 
 fn rename_team_adapter(
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     team_id: String,
     body: RenameTeamBody,
     rename: impl FnOnce(String, String, String) -> Result<codeterm_types::team::Team, String>,
@@ -109,11 +111,10 @@ fn rename_team_adapter(
 
 pub async fn rename_team(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(team_id): Path<String>,
     Json(body): Json<RenameTeamBody>,
 ) -> Result<Json<codeterm_types::team::Team>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let team = rename_team_adapter(&headers, team_id, body, |team_id, caller_tab_id, name| {
         codeterm_commands::commands::mux_commands::mux_rename_team_service_core(
             &state.svc,
@@ -126,7 +127,7 @@ pub async fn rename_team(
 }
 
 async fn close_team_adapter<T>(
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     team_id: String,
     body: CloseTeamBody,
     close: impl AsyncFnOnce(
@@ -139,7 +140,7 @@ async fn close_team_adapter<T>(
 }
 
 fn close_team_caller(
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     team_id: &str,
     body: &CloseTeamBody,
 ) -> codeterm_service_core::service::TeamMutationCaller {
@@ -157,13 +158,12 @@ fn close_team_caller(
 
 pub async fn close_team(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(team_id): Path<String>,
     codeterm_service_core::api_support::OptionalJson(body): codeterm_service_core::api_support::OptionalJson<
         CloseTeamBody,
     >,
 ) -> Result<Json<codeterm_orchestration::TeamCloseResult>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let service = state.svc.clone();
     let body = body.unwrap_or_default();
     let force_busy = body.force_busy;
@@ -183,7 +183,7 @@ pub async fn close_team(
 /// The caller tab is optional here alone: a Team whose Orchestrator is gone has
 /// no membership left to spend, and staffing authorizes the caller-less add.
 async fn add_team_member_adapter<T>(
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     team_id: String,
     body: AddTeamMemberBody,
     add_member: impl AsyncFnOnce(String, Option<String>, AddTeamMemberBody) -> Result<T, String>,
@@ -197,11 +197,10 @@ async fn add_team_member_adapter<T>(
 
 pub async fn add_team_member(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(team_id): Path<String>,
     Json(body): Json<AddTeamMemberBody>,
 ) -> Result<Json<codeterm_orchestration::AddTeamMemberResult>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let result = add_team_member_adapter(
         &headers,
         team_id,

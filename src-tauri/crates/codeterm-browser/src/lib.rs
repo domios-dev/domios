@@ -282,6 +282,22 @@ impl BrowserHost {
         self.current().map(|runtime| runtime.page.clone())
     }
 
+    pub fn named_profile_for_page(&self, page: &PageChannel) -> Option<String> {
+        let runtime = self.current()?;
+        if !runtime.client.same_connection(page.client())
+            || runtime.page.session_id() != page.session_id()
+            || runtime.page.target_id() != page.target_id()
+        {
+            return None;
+        }
+        match &runtime.mode {
+            BrowserMode::Launched {
+                profile: ProfileKind::Named { name },
+            } => Some(name.clone()),
+            _ => None,
+        }
+    }
+
     pub fn endpoint(&self) -> Option<String> {
         self.current().map(|runtime| runtime.endpoint.clone())
     }

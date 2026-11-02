@@ -1,4 +1,4 @@
-use super::routes::{check_auth, AppState};
+use super::routes::AppState;
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -22,13 +22,10 @@ pub(crate) struct HistoryQuery {
 
 pub(crate) async fn provider_history(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab): Path<String>,
     Query(query): Query<HistoryQuery>,
 ) -> Response {
-    if let Err((status, message)) = check_auth(&state, &headers) {
-        return (status, message).into_response();
-    }
     match tokio::task::spawn_blocking(move || state.svc.provider_switch_history(&tab, &query.file))
         .await
     {
@@ -48,13 +45,10 @@ pub(crate) async fn provider_history(
 
 pub(crate) async fn switch_provider(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(tab): Path<String>,
     Json(body): Json<SwitchProviderBody>,
 ) -> Response {
-    if let Err((status, message)) = check_auth(&state, &headers) {
-        return (status, message).into_response();
-    }
     let tab = match crate::routes::resolve_tab_async(&state, &tab).await {
         Ok(tab) => tab,
         Err((status, message)) => return (status, message).into_response(),
@@ -116,13 +110,10 @@ pub(crate) struct StatusQuery {
 
 pub(crate) async fn switch_status(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((tab, operation)): Path<(String, String)>,
     Query(query): Query<StatusQuery>,
 ) -> Response {
-    if let Err((status, message)) = check_auth(&state, &headers) {
-        return (status, message).into_response();
-    }
     match tokio::task::spawn_blocking(move || {
         state
             .svc

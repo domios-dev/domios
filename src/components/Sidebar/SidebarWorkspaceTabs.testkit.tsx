@@ -10,6 +10,7 @@ import { SidebarDnd } from "./sortable";
 import { SidebarWorkspaceTabs } from "./SidebarWorkspaceTabs";
 import type { TeamMemberRole } from "../../lib/teamActions";
 import { __setListenForTest } from "../../lib/bridge";
+import { __setPluginTabMenuForTest } from "../../lib/pluginTabMenu";
 import { TEAM } from "./SidebarWorkspaceTabs.fixtures.testdata";
 
 export let act: typeof import("react").act;
@@ -28,6 +29,12 @@ export function createSuite(label: string) {
   };
   const run = async () => {
     __setListenForTest(async () => () => {});
+    __setPluginTabMenuForTest({ items: [], receiverTargets: {} }, {
+      available: () => true,
+      load: async () => ({ items: [], receiverTargets: {} }),
+      run: async () => { throw new Error("Unexpected plugin menu action"); },
+      watch: async () => () => {},
+    });
     ({ act, useState } = await import("react"));
     ({ createRoot } = await import("react-dom/client"));
 

@@ -24,7 +24,7 @@ pub fn bind_reported_session(
         session_id,
         report_nonce.is_some()
     );
-    bind_session(
+    let result = bind_session(
         mux,
         registry,
         tab_id,
@@ -33,7 +33,16 @@ pub fn bind_reported_session(
         report_nonce,
         SessionBindingSource::Hook,
         None,
-    )
+    );
+    if let Err((status, reason, _)) = &result {
+        log::warn!(
+            "[hook-refusal] tab={} event=session_claim status={} reason={}",
+            super::escaped_hook_log_field(tab_id),
+            status.as_u16(),
+            super::escaped_hook_log_field(reason)
+        );
+    }
+    result
 }
 
 /// A session read from this launch's own provider record. It carries the tab's
@@ -138,7 +147,7 @@ fn bind_session(
     // Provider stores may do IO, so probe without the mux lock and commit only
     // while the tab still matches the probed identity.
     const MAX_ATTEMPTS: usize = 4;
-    for _ in 0..MAX_ATTEMPTS {
+    for attempt in 1..=MAX_ATTEMPTS {
         let (cwd, previous_session_id) = {
             let mux = mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
@@ -186,7 +195,10 @@ fn bind_session(
             expected_evidence,
         )? {
             Some(claim) => return Ok(claim),
-            None => continue,
+            None => {
+                log::info!("[hook-deferred] tab={} event=session_claim reason=concurrent_mutation_retry attempt={} limit={}",
+                    super::escaped_hook_log_field(tab_id), attempt, MAX_ATTEMPTS);
+            }
         }
     }
 
