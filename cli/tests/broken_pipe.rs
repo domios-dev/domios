@@ -1,11 +1,11 @@
 #[path = "support/codeterm_bin.rs"]
 mod codeterm_bin;
 
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 #[test]
 fn exits_successfully_when_an_early_stdout_consumer_closes() {
-    let mut child = Command::new(codeterm_bin::codeterm_bin())
+    let mut child = codeterm_bin::command()
         .args(["docs", "API"])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

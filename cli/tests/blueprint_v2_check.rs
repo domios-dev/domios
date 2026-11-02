@@ -5,7 +5,7 @@ mod json_output;
 use serde_json::Value;
 
 fn cli(path: &std::path::Path, options: &[&str]) -> std::process::Output {
-    let output = std::process::Command::new(codeterm_bin::codeterm_bin())
+    let output = codeterm_bin::command()
         .args(["blueprint", "check", path.to_str().unwrap()])
         .args(options)
         .env(

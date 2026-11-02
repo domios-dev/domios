@@ -24,6 +24,16 @@ function Assert-Proof($Condition, [string]$Message) {
     if (!$Condition) { throw $Message }
 }
 function Hash([string]$Path) { (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant() }
+# DEV provenance records hash a file artifact as "." NUL bytes NUL (scripts/dev-prep.mjs hashPath).
+function Provenance-Hash([string]$Path) {
+    $digest = [Security.Cryptography.IncrementalHash]::CreateHash([Security.Cryptography.HashAlgorithmName]::SHA256)
+    try {
+        $digest.AppendData([byte[]](0x2E, 0x00))
+        $digest.AppendData([IO.File]::ReadAllBytes($Path))
+        $digest.AppendData([byte[]](0x00))
+        return ([BitConverter]::ToString($digest.GetHashAndReset()) -replace '-', '').ToLowerInvariant()
+    } finally { $digest.Dispose() }
+}
 function Normal-Path([string]$Path) {
     if ($Path.StartsWith('\\?\')) { $Path = $Path.Substring(4) }
     return [IO.Path]::GetFullPath($Path).TrimEnd('\')
@@ -136,9 +146,9 @@ $cli = Join-Path $Resources 'cli/codeterm.exe'
 $provenanceRecord = Get-Content -LiteralPath $Provenance -Raw | ConvertFrom-Json
 Assert-Proof ($provenanceRecord.schema -eq 3 -and $provenanceRecord.buildSha -eq $Build) 'Require the actual schema3 DEV candidate record'
 Assert-Proof ((Split-Path -Leaf $Client) -eq 'domios-dev-app.exe' -and $provenanceRecord.instance.identifier.StartsWith('com.domios.dev.')) 'Refuse an artifact without named DEV provenance'
-Assert-Proof ((Same-Path $provenanceRecord.artifacts.app.path $Client) -and (Hash $Client) -eq $provenanceRecord.artifacts.app.sha256) 'DEV client provenance differs'
-Assert-Proof ((Same-Path $provenanceRecord.artifacts.server.path $server) -and (Hash $server) -eq $provenanceRecord.artifacts.server.sha256) 'DEV server provenance differs'
-Assert-Proof ((Hash $cli) -eq $provenanceRecord.artifacts.cli.sha256) 'DEV bundled CLI provenance differs'
+Assert-Proof ((Same-Path $provenanceRecord.artifacts.app.path $Client) -and (Provenance-Hash $Client) -eq $provenanceRecord.artifacts.app.sha256) 'DEV client provenance differs'
+Assert-Proof ((Same-Path $provenanceRecord.artifacts.server.path $server) -and (Provenance-Hash $server) -eq $provenanceRecord.artifacts.server.sha256) 'DEV server provenance differs'
+Assert-Proof ((Provenance-Hash $cli) -eq $provenanceRecord.artifacts.cli.sha256) 'DEV bundled CLI provenance differs'
 Assert-Proof ($manifest.schema -eq 2 -and $manifest.server_build -eq $Build) 'Candidate manifest schema/build mismatch'
 Assert-Proof ($manifest.client_identity.kind -eq 'sha256') 'Require a paired Windows DEV resource inventory'
 Assert-Proof ((Hash $Client) -eq $manifest.client_identity.sha256) 'Exact candidate client bytes differ'
@@ -212,12 +222,22 @@ try {
                 $health = Invoke-RestMethod -Uri "http://127.0.0.1:$port/api/health" -TimeoutSec 5
                 Assert-Proof ($health.status -eq 'ok' -and $health.startup.state -eq 'ready') 'Post-launcher health is not ready'
                 Assert-Proof ($health.build_sha -eq $Build -and $health.instance.name -eq $instance) 'Post-launcher health SHA/instance mismatch'
-                $cliTree = Start-Owned $cli @('identify', '--json') $environment -1
+                # identify --json is multi-line; read stdout to EOF and the real exit instead of one framed line.
+                $probe = New-Object Diagnostics.ProcessStartInfo $cli
+                $probe.Arguments = 'identify --json'
+                $probe.UseShellExecute = $false
+                $probe.RedirectStandardOutput = $true
+                $probe.RedirectStandardError = $true
+                foreach ($name in $environment.Keys) { $probe.EnvironmentVariables[$name] = [string]$environment[$name] }
+                $cliProcess = [Diagnostics.Process]::Start($probe)
                 try {
-                    $identified = $cliTree.Line(10000) | ConvertFrom-Json
-                    Assert-Proof ($cliTree.Exit($cliTree.Pid, 5000) -eq 0 -and $identified.ok) 'Candidate CLI could not identify the isolated server'
+                    $stdoutTask = $cliProcess.StandardOutput.ReadToEndAsync()
+                    $stderrTask = $cliProcess.StandardError.ReadToEndAsync()
+                    Assert-Proof ($cliProcess.WaitForExit(15000)) 'Candidate CLI identify exit deadline'
+                    $identified = $stdoutTask.GetAwaiter().GetResult() | ConvertFrom-Json
+                    Assert-Proof ($cliProcess.ExitCode -eq 0 -and (-not $identified.PSObject.Properties['ok'] -or $identified.ok -ne $false) -and $null -ne $identified.PSObject.Properties['result']) ('Candidate CLI could not identify the isolated server: ' + $stderrTask.GetAwaiter().GetResult())
                     Assert-Proof ($identified.result.cli.build_sha -eq $Build -and $identified.result.connection.instance -eq $instance) 'CLI SHA/instance mismatch'
-                } finally { Stop-Owned $cliTree }
+                } finally { if (!$cliProcess.HasExited) { $cliProcess.Kill() }; $cliProcess.Dispose() }
                 $rows.Add(@{ case = $case.name; flags = $tree.JobFlags; launcher_exit = 0;
                     server = $tree.Identity($ready.process.pid); server_in_job = $tree.InJob($ready.process.pid);
                     build = $health.build_sha; epoch = $ready.epoch; cli_exit = 0;
