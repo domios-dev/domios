@@ -45,14 +45,13 @@ export function BoundedMessageContent({ collapsedHeight, as: Tag = "div", unboun
       {children}
     </Tag>
   );
-  if (!ownsBounds) return <MessageBoundsContext.Provider value={parentOwnsBounds}>{content()}</MessageBoundsContext.Provider>;
   return (
-    <MessageBoundsContext.Provider value={true}>
-    <div className="min-w-0 max-w-full" hidden={hidden}>
-      <ExpandableReader label="Message content" enabled={!hidden && (clipped || expanded)}>
+    <MessageBoundsContext.Provider value={ownsBounds || parentOwnsBounds}>
+    <div className="min-w-0 max-w-full" hidden={hidden} style={ownsBounds ? undefined : { display: "contents" }}>
+      <ExpandableReader label="Message content" enabled={ownsBounds && !hidden && (clipped || expanded)}>
         {(full) => content(full)}
       </ExpandableReader>
-      {!fullscreen && (clipped || expanded) && (
+      {ownsBounds && !fullscreen && (clipped || expanded) && (
         <button type="button" aria-expanded={expanded} aria-controls={contentId}
           className="ct-message-expand px-2 py-1 text-xs text-[var(--ct-accent)]" onClick={() => {
             if (expanded && contentRef.current) contentRef.current.scrollTop = 0;

@@ -1,6 +1,6 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `domios plugin browser <verb> [args]`. This guide is what `domios docs BROWSER` and `domios plugin browser help` print.
+Every verb is `domios plugin browser <verb> [args]`. Read this guide with `domios docs BROWSER` or `domios plugin browser help`.
 
 ## When to use it
 
@@ -10,9 +10,8 @@ Use this browser for web tasks, UI verification and bug reproduction while the u
 
 - **Ownership.** `open` creates `<YourName>'s Browser`, visible beneath your tab and available to workspace agents. `close`, closing your tab or closing your Team ends it.
 - **Profiles.**
-  - Default: a **temporary session**. Opening an agent browser does not create a named persistent profile.
-  - An explicit `open --profile clean` uses a throwaway profile.
-  - A **named profile** keeps logins and cookies across restarts. The user creates general profiles through the Browser profile menu. Agents may select existing profiles with `open --profile NAME`; an unknown name fails. For DEV QA, agents create origin-bound profiles with the named session commands below, list them with `profile list` and remove inactive profiles with `profile remove NAME`. Never publish, buy, delete or send messages without the user's explicit instruction.
+  - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
+  - A **named profile** retains logins and cookies. Users create general profiles in the Browser profile menu. Agents select existing profiles with `open --profile NAME`; unknown names fail. For DEV QA, use the origin-bound session commands below, `profile list` and `profile remove NAME` for inactive profiles. Publishing, buying, deleting and sending messages require explicit user instruction.
 - **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
 - **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click button "Continue" --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
 - **Pointing an owner at something.** `annotate <ref> "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
@@ -47,34 +46,15 @@ Rules:
 
 ## When the page needs the user
 
-`status` shows `needs human` other than `none`, and you should stop and tell the user, when:
-- the page shows a bot check or captcha;
-- a login is required that you were not given;
-- a cookie or consent dialog you may not decide on;
-- a native file picker or permission prompt;
-- a JavaScript dialog.
-
-Say exactly what is blocking. The user can solve it with *Take control*; then re-snapshot and continue.
+Stop when `status` reports `needs human` other than `none`: captcha, missing login, consent you cannot decide, native file picker, permission prompt or JavaScript dialog. Name the blocker; the user can use *Take control*. Re-snapshot before continuing.
 
 ## The user can point at things
 
-User annotations arrive as Domios notices. `inbox` lists unread/undelivered annotations; `inbox all` lists every retained one. Each contains:
-- the page;
-- the element's role and name, its selector, and its React component (and source file on dev builds);
-- its text, attributes, computed styles and box;
-- nearby text;
-- a cropped screenshot;
-- the user's words and intent.
-
-Treat it as a precise pointer: find the code behind the element, answer or change it, then verify in the browser.
+User annotations arrive as Domios notices. `inbox` lists unread/undelivered annotations; `inbox all` lists all retained ones. Each includes the page, element role/name/selector, React component (and dev source file), text, attributes, styles, box, nearby text, cropped screenshot and user intent. Find the corresponding code, answer or change it, then verify in the browser.
 
 ## Testing your own web app
 
-1. Start the app's dev server in a `--purpose dev` utility shell, or reuse a running one.
-2. `goto http://localhost:<port>`.
-3. Walk the user journey you changed, snapshotting after each step.
-4. Prove the end state, not just the click. For example, the item appears in the list after reload.
-5. Save screenshots for the visual parts and cite them in your report.
+Reuse the app's dev server or start one in a `--purpose dev` utility shell. `goto http://localhost:<port>` and walk the changed journey, snapshotting each step. Prove the end state (for example, the item persists after reload). Save and cite screenshots for visual claims.
 
 ## Other verbs
 
@@ -146,7 +126,7 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 ## Blueprint node
 
-`uses: browser.read_page` reads one page inside a Blueprint run. The run owner (the Tab that created the Blueprint) gets its own browser for the run, so the user can watch it live. The node closes that browser before it finishes, on success and on failure. Every call uses the exact surface identity granted by the host to this step. Existing owner browsers are left untouched; this step always gets a separate surface.
+`uses: browser.read_page` reads one page in a Blueprint run, using a separate browser visible under the owning Tab. The node closes it on success or failure. Calls use the exact host-granted surface identity; existing owner browsers stay untouched.
 
 - `with:` takes `url` (http or https, at most 2048 characters), an optional `wait_text`, and `limit`, the number of text lines to keep (default 200, at most 2000). A bound `url` input from an earlier node wins over `with.url`.
 - Outputs: `text` (the page text, with credentials redacted) and `final_url`. Bind them downstream as `read.out.text` and `read.out.final_url`.
@@ -159,4 +139,4 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 On every outcome other than `read`, `text` holds the reason.
 
-<!-- revision: 13 -->
+<!-- revision: 14 -->

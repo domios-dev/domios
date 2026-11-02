@@ -1,6 +1,6 @@
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode, type RefObject } from "react";
+import { createContext, useContext, useEffect, useRef, type ReactNode, type RefObject } from "react";
 
 let fullscreenDepth = 0;
 let previousBodyOverflow = "";
@@ -70,7 +70,7 @@ export function FullscreenOverlay({ panelRef, label, onClose, children, returnFo
   header?: ReactNode;
 }) {
   const viewer = useFullscreenViewer();
-  const [portalHost] = useState(() => viewer?.current ?? document.body);
+  const portalHost = useRef<HTMLElement | null>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const expanded = open ?? true;
   useFullscreenKeyboard(expanded, panelRef, onClose, returnFocusRef, open === undefined ? undefined : dialogRef);
@@ -87,6 +87,10 @@ export function FullscreenOverlay({ panelRef, label, onClose, children, returnFo
     </div>
     </FullscreenViewerContext.Provider>
   );
-  if (open === undefined) return createPortal(content, portalHost);
+  if (open === undefined) {
+    if (typeof document === "undefined") return null;
+    portalHost.current ??= viewer?.current ?? document.body;
+    return createPortal(content, portalHost.current);
+  }
   return <dialog ref={dialogRef} role="generic" style={{ display: expanded ? "block" : "contents", position: "fixed", inset: 0, width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", overflow: "visible", padding: 0, border: 0, margin: 0, color: "inherit", background: "transparent" }} onCancel={(event) => { event.preventDefault(); onClose(); }}>{content}</dialog>;
 }
