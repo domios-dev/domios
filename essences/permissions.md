@@ -54,6 +54,10 @@ before admission and handoff. Unsupported capture surfaces refuse the operation.
 
 Plugin setup guidance is data. A helper asks the owner what to change and uses the existing permission-gated configuration path only after confirmation. Global provider integrations may be inspected without mutation; installing or repairing them requires explicit user consent. Domios changes only entries it owns and provides a reversible restore path. Only the machine-owner instance reclaims unused launch profiles, preserving provider trust first. Live profiles and unknown foreign instances are kept; a registered foreign instance is reclaimable only while its exclusive lifetime lock is held. One-time legacy cleanup matches only generated filenames, keeps live tabs and reports counts to the owner.
 
+## Browser upload folders
+
+Only the owner can add or remove persisted upload folders for a named Browser profile, through Settings or the owner-authenticated configuration CLI/API. Agent credentials cannot widen or revoke this authority. Relative upload paths resolve inside the calling agent's pad; absolute paths may also select files beneath a folder granted to the active profile. Nested files retain the same path, link and file-pinning protections and file-count bound. The upload activity names the granting folder. Platforms without secure admission refuse uploads.
+
 ## Supporter classification
 
 The [Supporter Agent](supporter-agent.md) names a state or ranks a candidate. Its output cannot grant execution access, folder trust, plugin permissions, operator authority or session ownership. Deterministic evidence and the applicable permission policy authorize the resulting operation. Connecting an adapter does not broaden any grant.

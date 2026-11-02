@@ -338,6 +338,9 @@ impl CdpConnection for SocketConnection {
 pub struct CdpClient(Arc<dyn CdpConnection>);
 
 impl CdpClient {
+    pub(crate) fn same_connection(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub async fn connect(endpoint: &str) -> Result<Self, String> {
         Ok(Self::from_connection(Arc::new(
             SocketConnection::connect(endpoint).await?,

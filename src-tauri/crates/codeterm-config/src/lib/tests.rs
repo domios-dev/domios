@@ -526,3 +526,25 @@ fn runtime_credential_cannot_enter_serialized_config_or_change_on_settings_write
     assert_eq!(state.lock().api.token.as_deref(), Some("runtime-authority"));
     assert_eq!(state.lock().font.size, 18);
 }
+
+#[test]
+fn browser_upload_folders_persist_per_profile_and_remove_on_save() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("config.toml");
+    let mut config = AppConfig::default();
+    let media = root.path().join("media").to_string_lossy().into_owned();
+    config
+        .browser_upload_folders
+        .insert("work".into(), vec![media.clone()]);
+    save_config_at(&path, &config).unwrap();
+    let loaded: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        loaded.browser_upload_folders.get("work"),
+        Some(&vec![media])
+    );
+    assert!(!loaded.browser_upload_folders.contains_key("other"));
+    config.browser_upload_folders.clear();
+    save_config_at(&path, &config).unwrap();
+    let loaded: AppConfig = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert!(loaded.browser_upload_folders.is_empty());
+}

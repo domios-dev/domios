@@ -15,6 +15,7 @@ pub(super) struct AdmittedFile {
     path: PathBuf,
     name: String,
     size: u64,
+    grant: Option<PathBuf>,
     _pins: Vec<File>,
 }
 
@@ -72,6 +73,49 @@ fn relative_path<'a>(pad: &Path, name: &'a str) -> Result<&'a Path, String> {
     Ok(relative)
 }
 
+#[cfg(any(windows, test))]
+fn admission_path(
+    pad: &Path,
+    grants: &[PathBuf],
+    name: &str,
+) -> Result<(PathBuf, Option<PathBuf>), String> {
+    let requested = Path::new(name);
+    if name
+        .split(['/', '\\'])
+        .any(|part| matches!(part, "." | ".."))
+    {
+        return Err("invalid_upload_path".into());
+    }
+    if !requested.is_absolute() || requested.starts_with(pad) {
+        return relative_path(pad, name).map(|relative| (pad.join(relative), None));
+    }
+    let root = grants
+        .iter()
+        .filter(|root| root.is_absolute() && requested.starts_with(root))
+        .max_by_key(|root| root.components().count())
+        .ok_or("upload_outside_caller_pad_or_granted_folder")?;
+    for part in root.components() {
+        match part {
+            Component::Normal(value) => {
+                relative_path(Path::new(""), value.to_str().ok_or("invalid_upload_path")?)?;
+            }
+            Component::RootDir => {}
+            #[cfg(windows)]
+            Component::Prefix(prefix) if matches!(prefix.kind(), std::path::Prefix::Disk(_)) => {}
+            _ => return Err("invalid_upload_path".into()),
+        }
+    }
+    if root
+        .to_string_lossy()
+        .split(['/', '\\'])
+        .any(|part| matches!(part, "." | ".."))
+    {
+        return Err("invalid_upload_path".into());
+    }
+    let relative = relative_path(root, name)?;
+    Ok((root.join(relative), Some(root.clone())))
+}
+
 #[cfg(windows)]
 fn pin(path: &Path, directory: bool) -> Result<File, String> {
     use std::os::windows::fs::OpenOptionsExt;
@@ -100,7 +144,11 @@ fn pin(path: &Path, directory: bool) -> Result<File, String> {
 }
 
 #[cfg(windows)]
-fn admit(ctx: &SurfaceCallCtx, names: &[String]) -> Result<Vec<AdmittedFile>, String> {
+fn admit(
+    ctx: &SurfaceCallCtx,
+    names: &[String],
+    grants: &[PathBuf],
+) -> Result<Vec<AdmittedFile>, String> {
     let caller = ctx
         .caller_tab_id
         .as_deref()
@@ -122,8 +170,7 @@ fn admit(ctx: &SurfaceCallCtx, names: &[String]) -> Result<Vec<AdmittedFile>, St
     names
         .iter()
         .map(|name| {
-            let relative = relative_path(&pad, name)?;
-            let path = pad.join(relative);
+            let (path, grant) = admission_path(&pad, grants, name)?;
             let mut pins = Vec::new();
             let mut current = PathBuf::new();
             for component in path.components() {
@@ -140,13 +187,14 @@ fn admit(ctx: &SurfaceCallCtx, names: &[String]) -> Result<Vec<AdmittedFile>, St
                 .map_err(|e| e.to_string())?
                 .len();
             Ok(AdmittedFile {
-                name: relative
+                name: path
                     .file_name()
                     .ok_or("invalid_upload_path")?
                     .to_string_lossy()
                     .into_owned(),
                 path,
                 size,
+                grant,
                 _pins: pins,
             })
         })
@@ -154,7 +202,7 @@ fn admit(ctx: &SurfaceCallCtx, names: &[String]) -> Result<Vec<AdmittedFile>, St
 }
 
 #[cfg(not(windows))]
-fn admit(_: &SurfaceCallCtx, _: &[String]) -> Result<Vec<AdmittedFile>, String> {
+fn admit(_: &SurfaceCallCtx, _: &[String], _: &[PathBuf]) -> Result<Vec<AdmittedFile>, String> {
     Err(format!(
         "unsupported: secure browser upload admission is unavailable on {}",
         std::env::consts::OS
@@ -170,7 +218,7 @@ impl BrowserRuntime {
     ) -> Result<String, String> {
         if args.len() < 2 || args.len() > MAX_FILES + 1 {
             return Err(
-                "usage: upload <ref|button text> <pad-relative path>... (maximum 64 files)".into(),
+                "usage: upload <ref|button text> <pad-relative or granted absolute path>... (maximum 64 files)".into(),
             );
         }
         let _gate = self.upload_gate.try_lock().map_err(|_| "upload_busy")?;
@@ -179,7 +227,12 @@ impl BrowserRuntime {
         }
         let ctx_copy = ctx.clone();
         let names = args[1..].to_vec();
-        let files = tokio::task::spawn_blocking(move || admit(&ctx_copy, &names))
+        let grants = self
+            .host
+            .named_profile_for_page(page)
+            .map(|profile| ctx.host.browser_upload_folders(&profile))
+            .unwrap_or_default();
+        let files = tokio::task::spawn_blocking(move || admit(&ctx_copy, &names, &grants))
             .await
             .map_err(|_| "upload_admission_failed")??;
         let locator = if args[0].starts_with('@') {
@@ -194,7 +247,15 @@ impl BrowserRuntime {
             .collect();
         let summary = files
             .iter()
-            .map(|f| format!("{} ({} bytes)", f.name, f.size))
+            .map(|f| match &f.grant {
+                Some(folder) => format!(
+                    "{} ({} bytes, granted folder {})",
+                    f.name,
+                    f.size,
+                    folder.display()
+                ),
+                None => format!("{} ({} bytes)", f.name, f.size),
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let expected: Vec<Value> = files

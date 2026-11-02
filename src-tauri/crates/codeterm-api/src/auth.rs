@@ -327,6 +327,14 @@ pub(crate) fn is_local_caller(state: &AppState, headers: &axum::http::HeaderMap)
     identify_caller(state, auth).is_ok_and(ownership_release_is_local)
 }
 
+pub(crate) fn is_owner_caller(state: &AppState, headers: &axum::http::HeaderMap) -> bool {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or("");
+    matches!(identify_caller(state, auth), Ok(CallerIdentity::Local))
+}
+
 fn ownership_release_is_local(caller: CallerIdentity) -> bool {
     matches!(caller, CallerIdentity::Local | CallerIdentity::Tab(_))
 }
