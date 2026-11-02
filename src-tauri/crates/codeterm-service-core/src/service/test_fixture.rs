@@ -425,9 +425,11 @@ impl ServiceFixture {
             )
             .unwrap(),
         );
-        let services_store = Arc::new(
-            crate::service::store::ServicesStore::open(&data_dir.join("services.db")).unwrap(),
-        );
+        let services_store = Arc::new(if persistent {
+            crate::service::store::ServicesStore::open(&data_dir.join("services.db")).unwrap()
+        } else {
+            crate::service::store::ServicesStore::open_in_memory().unwrap()
+        });
         let usage_store = crate::usage::UsageStore::open(&data_dir).unwrap();
         let mux = Arc::new(TimedRwLock::new("mux", mux));
         let agent_tracker = Arc::new(TimedMutex::new(

@@ -13,7 +13,8 @@ pub(super) const COMPACT_SERVICE_HEALTH_SQL: &str = r#"
 "#;
 
 pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
-    conn.execute_batch(
+    let transaction = conn.unchecked_transaction()?;
+    transaction.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS services (
             id                      TEXT PRIMARY KEY,
@@ -75,11 +76,11 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     "#,
     )?;
 
-    conn.execute(
+    transaction.execute(
         "INSERT OR IGNORE INTO schema_version (id, version) VALUES (1, ?1)",
         [SCHEMA_VERSION],
     )?;
-    Ok(())
+    transaction.commit()
 }
 
 /// Idempotent migrations — safe to re-run on every open.
