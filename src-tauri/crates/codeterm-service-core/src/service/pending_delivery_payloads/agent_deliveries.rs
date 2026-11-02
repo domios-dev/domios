@@ -188,8 +188,14 @@ impl AgentDeliveryStore {
         next.records.sort_by_key(|record| record.sequence);
         self.validate(&next)?;
         write_new(&payload_path(&tab, &id)?, payload.as_bytes())?;
+        if let Err(error) = self.write_locator(tab_id, &id) {
+            let _ = fs::remove_file(payload_path(&tab, &id)?);
+            self.remove_locator(&id);
+            return Err(error);
+        }
         if let Err(error) = self.persist(&tab, &next) {
             let _ = fs::remove_file(payload_path(&tab, &id)?);
+            self.remove_locator(&id);
             return Err(error);
         }
         *index = next;
@@ -508,7 +514,7 @@ impl AgentDeliveryStore {
         }
         let mut next = index.clone();
         if let Some(record) = index.records.iter().find(|record| record.id == record_id) {
-            self.retain_inspection(&tab, record, require_claimed)?;
+            self.retain_inspection(&tab, record, require_claimed);
         }
         next.records.retain(|record| record.id != record_id);
         if let Err(error) = self.persist(&tab, &next) {
