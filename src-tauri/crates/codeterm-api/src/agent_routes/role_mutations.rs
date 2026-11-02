@@ -16,11 +16,12 @@ pub struct SetRoleBody {
 
 pub async fn set_tab_role(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<SetRoleBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
         mutation_authority::authorize(&state, &headers, &id, Default::default())?;
         let mut role_probe = codeterm_service_core::service::SpawnAgentParams {
             role: Some(body.role),
@@ -164,6 +165,7 @@ pub async fn clear_tab_role(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
         mutation_authority::authorize(&state, &headers, &id, Default::default())?;
         state
             .svc
@@ -186,6 +188,7 @@ pub async fn make_orchestrator(
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
         let caller = mutation_authority::authorize_with_caller(
             &state,
             &headers,
@@ -227,6 +230,7 @@ pub async fn make_planner(
     Json(body): Json<MakePlannerBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
         mutation_authority::authorize(
             &state,
             &headers,
@@ -270,6 +274,7 @@ pub async fn set_can_spawn(
     Json(body): Json<CanSpawnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
         mutation_authority::authorize(&state, &headers, &id, Default::default())?;
         state
             .svc

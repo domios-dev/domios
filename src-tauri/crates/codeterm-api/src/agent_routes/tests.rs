@@ -1,6 +1,5 @@
 use super::pair_headers::pair_params_from_headers;
 use super::*;
-use axum::http::HeaderMap;
 
 #[test]
 fn neighbor_spawn_refusals_keep_their_typed_403_instead_of_spawn_failed() {
@@ -27,10 +26,7 @@ fn orchestration_pair_rest_uses_tab_header_for_hierarchy_context() {
         ..Default::default()
     };
 
-    let params = pair_params_from_headers(
-        &crate::auth::ActorHeaders::for_owner_test(headers.clone()),
-        params,
-    );
+    let params = pair_params_from_headers(&headers, params);
 
     assert_eq!(params.spawned_by_tab_id.as_deref(), Some("worker-tab"));
 }
@@ -43,10 +39,7 @@ fn orchestration_pair_rest_discards_body_only_hierarchy_context() {
         ..Default::default()
     };
 
-    let params = pair_params_from_headers(
-        &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
-        params,
-    );
+    let params = pair_params_from_headers(&HeaderMap::new(), params);
 
     assert!(params.spawned_by_tab_id.is_none());
 }

@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 
 #[derive(Deserialize)]
 pub struct SaveClipboardImageBody {
@@ -14,10 +14,11 @@ pub struct SaveClipboardImageBody {
 }
 
 pub async fn save_clipboard_image(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(body): Json<SaveClipboardImageBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let path = codeterm_commands::commands::save_clipboard_image_core(body.bytes, body.ext)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "path": path })))
@@ -30,10 +31,11 @@ pub struct SaveClipboardFileBody {
 }
 
 pub async fn save_clipboard_file(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(body): Json<SaveClipboardFileBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let path = codeterm_commands::commands::save_clipboard_file_core(body.bytes, body.filename)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     Ok(Json(serde_json::json!({ "path": path })))

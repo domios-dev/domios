@@ -4,7 +4,7 @@ use axum::{
 };
 use codeterm_service_core::service::tab_credentials::TabCaller;
 
-use super::{authenticate_caller, CallerIdentity};
+use super::{identify_caller, CallerIdentity};
 use crate::routes::AppState;
 
 pub(crate) fn tab_caller(
@@ -15,13 +15,14 @@ pub(crate) fn tab_caller(
         .get("authorization")
         .and_then(|value| value.to_str().ok())
         .unwrap_or_default();
-    let (identity, origin) = authenticate_caller(state, auth).map_err(|()| {
-        (
+    match identify_caller(state, auth) {
+        Ok(CallerIdentity::Tab(caller)) => Ok(Some(caller)),
+        Ok(CallerIdentity::Local) => Ok(None),
+        _ => Err((
             StatusCode::FORBIDDEN,
-            "Authenticated actor credential required".into(),
-        )
-    })?;
-    super::actor::resolve(&identity, origin)
+            "Local caller credential required".into(),
+        )),
+    }
 }
 
 pub(crate) fn caller_claim(

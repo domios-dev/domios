@@ -45,7 +45,7 @@ impl ServiceContext {
         crate::async_runtime::spawn(async move {
             if let Err(error) = crate::service::mesh_artifacts::transfer(
                 &svc,
-                Ok(Some(from_tab.clone())),
+                Some(&from_tab),
                 &client,
                 &cmd.method,
                 &cmd.path,

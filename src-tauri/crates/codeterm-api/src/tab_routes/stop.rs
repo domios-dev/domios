@@ -1,4 +1,4 @@
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use axum::{
     extract::{Path, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -7,9 +7,10 @@ use axum::{
 
 pub async fn stop_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(status, message)| (status, message.to_string()))?;

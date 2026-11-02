@@ -117,52 +117,13 @@ pub async fn mesh_rpc(
     headers: HeaderMap,
     Json(request): Json<MeshRpcRequest>,
 ) -> Json<MeshRpcResponse> {
-    let authenticated: Result<_, (axum::http::StatusCode, String)> = (|| {
-        let peer = super::relay::check_mesh_signature(&state, &headers)?;
-        let origin = crate::auth::authenticated_origin(&state, &headers)?;
-        let agent = crate::auth::authenticated_agent(&state, &headers)?;
-        Ok((peer, origin, agent))
-    })();
-    let (peer, origin, agent) = match authenticated {
-        Ok(authenticated) => authenticated,
-        Err((_, message)) => return Json(authority_refusal(message)),
-    };
-    Json(handle_mesh_rpc(&state, request, origin, agent.as_ref(), move || Ok(peer)).await)
-}
-
-fn authority_refusal(message: String) -> MeshRpcResponse {
-    MeshRpcResponse {
-        result: None,
-        error: Some(RpcError {
-            code: -32003,
-            message,
-            data: None,
-        }),
-    }
-}
-
-fn origin_admitted(origin: crate::auth::AuthenticatedOrigin, method: &str) -> bool {
-    origin.owner_trusted()
-        || (origin == crate::auth::AuthenticatedOrigin::Agent
-            && matches!(method, "plan.task.remote_ack" | "plan.task.remote_report"))
-}
-
-fn agent_lifecycle_matches(
-    agent: &codeterm_service_core::mesh::crown::AuthenticatedAgent,
-    request: &MeshRpcRequest,
-) -> bool {
-    let claim = match request.method.as_str() {
-        "plan.task.remote_ack" => request
-            .params
-            .as_ref()
-            .and_then(|params| params.get("worker_tab_id")),
-        "plan.task.remote_report" => request
-            .params
-            .as_ref()
-            .and_then(|params| params.pointer("/report/reporter_tab_id")),
-        _ => None,
-    };
-    claim.and_then(serde_json::Value::as_str) == Some(agent.tab_id.as_str())
+    let auth_state = state.clone();
+    Json(
+        handle_mesh_rpc(&state, request, move || {
+            super::relay::check_mesh_relay_auth(&auth_state, &headers)
+        })
+        .await,
+    )
 }
 
 /// `authenticate` names the signed sender; a relay passes the sender it already verified,
@@ -170,22 +131,8 @@ fn agent_lifecycle_matches(
 pub(super) async fn handle_mesh_rpc(
     state: &AppState,
     request: MeshRpcRequest,
-    origin: crate::auth::AuthenticatedOrigin,
-    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
     authenticate: impl FnOnce() -> Result<String, (axum::http::StatusCode, String)>,
 ) -> MeshRpcResponse {
-    if !origin_admitted(origin, &request.method) {
-        return authority_refusal(
-            "Mesh RPC requires an owner credential or an explicit peer lifecycle capability".into(),
-        );
-    }
-    if origin == crate::auth::AuthenticatedOrigin::Agent
-        && !agent.is_some_and(|agent| agent_lifecycle_matches(agent, &request))
-    {
-        return authority_refusal(
-            "Remote lifecycle request must match the signed originating agent".into(),
-        );
-    }
     if request.request_id.is_empty() || request.request_id.len() > 128 {
         return MeshRpcResponse {
             result: None,
@@ -202,51 +149,55 @@ pub(super) async fn handle_mesh_rpc(
             error: Some(error),
         };
     }
+    let (entry, owns_dispatch) = response_cache()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .acquire(request.request_id);
+    if !owns_dispatch {
+        return entry.wait().await;
+    }
+
     let authenticated_peer = if matches!(
         request.method.as_str(),
         "plan.task.remote_ack" | "plan.task.remote_report"
     ) {
-        let peer = match authenticate() {
-            Ok(peer) => peer,
-            Err((_, message)) => return authority_refusal(message),
-        };
-        let peer = if origin == crate::auth::AuthenticatedOrigin::Agent {
-            agent.map(|agent| agent.instance_id.clone()).unwrap_or(peer)
-        } else {
-            peer
-        };
-        let full = {
-            let mesh = state.mesh.lock();
-            mesh.traffic_open(&peer)
-                && mesh
+        match authenticate() {
+            Ok(peer_id)
+                if state
+                    .mesh
+                    .lock()
                     .paired_peers
-                    .get(&peer)
-                    .is_some_and(|peer| super::peer_has_full_access(Some(&peer.access_level)))
-        };
-        if !full {
-            return authority_refusal(
-                "remote task lifecycle mutation requires Full mesh access".into(),
-            );
+                    .get(&peer_id)
+                    .is_some_and(|peer| super::peer_has_full_access(Some(&peer.access_level))) =>
+            {
+                Some(peer_id)
+            }
+            Ok(_) => {
+                entry.complete(MeshRpcResponse {
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32003,
+                        message: "remote task lifecycle mutation requires Full mesh access".into(),
+                        data: None,
+                    }),
+                });
+                return entry.wait().await;
+            }
+            Err((_, message)) => {
+                entry.complete(MeshRpcResponse {
+                    result: None,
+                    error: Some(RpcError {
+                        code: -32003,
+                        message,
+                        data: None,
+                    }),
+                });
+                return entry.wait().await;
+            }
         }
-        Some(peer)
     } else {
         None
     };
-    let actor = agent
-        .map(|agent| format!("{}:{}", agent.instance_id, agent.tab_id))
-        .unwrap_or_default();
-    let (entry, owns_dispatch) = response_cache()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .acquire(format!(
-            "{origin:?}:{actor}:{}:{}:{}",
-            authenticated_peer.as_deref().unwrap_or_default(),
-            request.method,
-            request.request_id
-        ));
-    if !owns_dispatch {
-        return entry.wait().await;
-    }
     let response = if method_allowed(&request.method) {
         let method = request.method.clone();
         let mut params = request.params;

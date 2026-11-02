@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::ServiceContext;
 use codeterm_service_core::{CronState, CronWake};
 
@@ -35,9 +35,10 @@ fn worker_failed_text(error: tokio::task::JoinError) -> (StatusCode, String) {
 
 pub async fn cron_list(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(query): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let ws_id = query.get("workspace_id").map(|s| s.as_str());
     let jobs = state
         .svc
@@ -48,9 +49,10 @@ pub async fn cron_list(
 
 pub async fn cron_get(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let job = state
         .svc
         .cron_get(&state.cron, &id)
@@ -63,6 +65,7 @@ pub async fn cron_create(
     headers: HeaderMap,
     Json(mut body): Json<codeterm_service_core::cron::store::CronCreateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     body.creator_tab_id =
         crate::auth::caller_claim(&state, &headers, body.creator_tab_id.as_deref())?;
     let job = off_runtime(&state, move |svc, cron, wake| {
@@ -76,10 +79,11 @@ pub async fn cron_create(
 
 pub async fn cron_update(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<codeterm_service_core::cron::store::CronUpdateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let job = off_runtime(&state, move |svc, cron, wake| {
         svc.cron_update(cron, wake, &id, body)
     })
@@ -98,9 +102,10 @@ pub async fn cron_update(
 
 pub async fn cron_delete(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     off_runtime(&state, move |svc, cron, wake| {
         svc.cron_delete(cron, wake, &id)
     })
@@ -112,10 +117,11 @@ pub async fn cron_delete(
 
 async fn set_enabled(
     state: AppState,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     id: String,
     enabled: bool,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let job = off_runtime(&state, move |svc, cron, wake| {
         svc.cron_enable(cron, wake, &id, enabled)
     })
@@ -143,9 +149,10 @@ pub async fn cron_disable(
 
 pub async fn cron_trigger(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let run = off_runtime(&state, move |svc, cron, _| svc.cron_trigger(cron, &id))
         .await
         .map_err(worker_failed_text)?
@@ -167,9 +174,10 @@ pub async fn cron_trigger(
 /// Returns `{cancelled: N}` where N is the number of runs stopped.
 pub async fn cron_cancel(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let cancelled = off_runtime(&state, move |svc, cron, _| {
         svc.cron_cancel_running(
             cron,
@@ -185,9 +193,10 @@ pub async fn cron_cancel(
 
 pub async fn cron_history(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let history = state
         .svc
         .cron_history(&state.cron, &id)

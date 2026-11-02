@@ -249,11 +249,6 @@ pub(super) fn shared_http_client() -> reqwest::Client {
 }
 
 impl PeerClient {
-    pub fn with_signed_token(mut self, signed_token: String) -> Self {
-        self.signed_token = Some(signed_token);
-        self
-    }
-
     pub fn new_signed_url(base_url: String, signed_token: &str) -> Self {
         Self {
             client: shared_http_client(),
@@ -406,12 +401,9 @@ impl PeerClient {
         &self,
         cmd: &super::types::RelayCommand,
     ) -> Result<super::types::RelayResponse, TransportError> {
-        let request = self.relay_request(cmd).map_err(|error| {
-            TransportError::new(TransportErrorKind::NothingSent, error.to_string())
-        })?;
         let resp = self
-            .client
-            .execute(request)
+            .build_post("/api/mesh/relay", cmd, Some(RELAY_TIMEOUT))
+            .send()
             .await
             .map_err(|e| TransportError::from_send_error(&e))?;
         if resp.status().is_success() {
@@ -428,14 +420,6 @@ impl PeerClient {
                 format!("Relay failed: {}", body),
             ))
         }
-    }
-
-    pub fn relay_request(
-        &self,
-        cmd: &super::types::RelayCommand,
-    ) -> Result<reqwest::Request, reqwest::Error> {
-        self.build_post("/api/mesh/relay", cmd, Some(RELAY_TIMEOUT))
-            .build()
     }
 
     /// Open a signed GET against the peer's real endpoint for byte-pipe relaying

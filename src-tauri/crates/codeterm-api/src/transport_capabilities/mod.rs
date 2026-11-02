@@ -22,8 +22,7 @@ pub fn router() -> Router<AppState> {
 }
 
 fn require_owner(state: &AppState, headers: &HeaderMap) -> Result<(), ApiError> {
-    if crate::auth::authenticated_origin(state, headers).is_ok_and(|origin| origin.owner_trusted())
-    {
+    if crate::auth::is_local_caller(state, headers) {
         Ok(())
     } else {
         Err((StatusCode::FORBIDDEN, "Owner authorization required".into()))

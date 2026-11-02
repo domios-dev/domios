@@ -1,13 +1,12 @@
 use super::*;
 
 #[test]
-fn relay_protocol_requires_authenticated_origin_support() {
-    assert_eq!(RELAY_PROTOCOL_VERSION, 3);
+fn relay_protocol_refuses_v1_and_accepts_v2_records() {
+    assert_eq!(RELAY_PROTOCOL_VERSION, 2);
     assert!(!is_supported_relay_protocol(1));
-    assert!(!is_supported_relay_protocol(2));
+    assert!(is_supported_relay_protocol(2));
     assert!(!is_supported_relay_protocol(0));
-    assert!(is_supported_relay_protocol(3));
-    assert!(!is_supported_relay_protocol(4));
+    assert!(!is_supported_relay_protocol(3));
 }
 
 #[test]

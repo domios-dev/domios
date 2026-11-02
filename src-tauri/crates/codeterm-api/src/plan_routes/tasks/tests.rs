@@ -1,5 +1,4 @@
 use super::*;
-use axum::http::HeaderMap;
 use codeterm_service_core::lock_hold::TimedRwLock;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::plan::task_update_fields::{
@@ -164,13 +163,7 @@ fn rest_update_rejects_unknown_keys_without_mutating_the_task() {
         let mut body = json!({});
         body[key] = json!("ignored");
 
-        let result = task_update_core(
-            &service,
-            &crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner)),
-            &plan_id,
-            &task_id,
-            body,
-        );
+        let result = task_update_core(&service, &owner_headers(&owner), &plan_id, &task_id, body);
         let after = full_task_record(&fixture, &plan_id, &task_id);
         assert!(
             result.is_err(),
@@ -201,13 +194,7 @@ fn rest_every_supported_update_key_reaches_the_real_handler() {
     );
 
     for (key, body) in payloads {
-        let result = task_update_core(
-            &service,
-            &crate::auth::ActorHeaders::for_owner_test(headers.clone()),
-            &plan_id,
-            &task_id,
-            body,
-        );
+        let result = task_update_core(&service, &headers, &plan_id, &task_id, body);
         let failure = result
             .as_ref()
             .err()
@@ -231,7 +218,7 @@ fn rest_update_external_refs_round_trips_non_null() {
 
     let Json(response) = task_update_core(
         &service,
-        &crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner)),
+        &owner_headers(&owner),
         &plan_id,
         &task_id,
         json!({ "external_refs": ["rollacode/codeterm-releases#17"] }),
@@ -271,7 +258,7 @@ fn rest_cleanup_done_refusal_returns_conflict_for_unmerged_lane_branch() {
 
     let result = task_update_core_with_lane_cleanup_check(
         &Arc::new(fixture.service.clone()),
-        &crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner)),
+        &owner_headers(&owner),
         &plan_id,
         &task_id,
         json!({"lane": {"cleanup_status": "done"}}),

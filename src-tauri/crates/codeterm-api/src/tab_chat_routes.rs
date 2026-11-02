@@ -12,7 +12,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::routes::{resolve_tab, AppState};
+use crate::routes::{check_auth, resolve_tab, AppState};
 use codeterm_service_core::multiplexer::commands::MuxState;
 use codeterm_service_core::multiplexer::types::TabBacking;
 use codeterm_service_core::service::tab_chat::snapshot_source::{self, SnapshotSource};
@@ -116,8 +116,9 @@ pub async fn snapshot(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<ChatQuery>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, SnapshotError> {
+    check_auth(&state, &headers)?;
     tokio::task::spawn_blocking(move || snapshot_blocking(state, raw_tab_id, query))
         .await
         .map_err(|error| snapshot_failure("snapshot-worker", error.to_string()))?

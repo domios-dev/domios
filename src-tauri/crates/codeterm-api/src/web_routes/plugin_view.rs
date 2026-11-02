@@ -1,4 +1,4 @@
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
@@ -19,9 +19,10 @@ pub struct ViewCallReq {
 /// Web-mirror twin of the `plugin_view_call` Tauri command (the iframe bridge).
 pub async fn plugin_view_call(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<ViewCallReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     commands::plugins::view_call(
         &state.svc,
         &req.plugin_id,
@@ -54,9 +55,10 @@ pub struct RemoteTaskReq {
 
 pub async fn remote_task_call(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<RemoteTaskReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     commands::plugins::plugin_remote_task_call(
         &state.svc,
         &req.tab_id,
@@ -79,9 +81,10 @@ pub struct RecordingReq {
 
 pub async fn recording_suggestion(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<RecordingReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     commands::plugins::plugin_recording_suggestion(&state.svc, &req.plugin_id, req.args)
         .await
         .map(Json)

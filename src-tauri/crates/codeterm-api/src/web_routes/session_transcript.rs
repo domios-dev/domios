@@ -1,4 +1,4 @@
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use axum::{
     extract::{Query, State as AxumState},
     http::{HeaderMap, StatusCode},
@@ -18,9 +18,10 @@ pub struct SessionTranscriptQuery {
 /// session jsonl — no tab, no tailer, no composer.
 pub async fn session_transcript(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<SessionTranscriptQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let (messages, total) = tokio::task::spawn_blocking(move || {
         let (provider, cwd) = if q.provider.is_empty() {

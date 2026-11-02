@@ -5,12 +5,13 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 
 pub async fn list_themes_api(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let ids = codeterm_service_core::config::schema::list_all_theme_ids();
     Ok(Json(serde_json::json!({ "themes": ids })))
 }
@@ -30,10 +31,11 @@ pub struct SaveThemeBody {
 }
 
 pub async fn save_theme_api(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(body): Json<SaveThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     if !valid_theme_id(&body.id) {
         return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
     }
@@ -62,10 +64,11 @@ pub async fn save_theme_api(
 }
 
 pub async fn delete_theme_api(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     if !valid_theme_id(&id) {
         return Err((StatusCode::BAD_REQUEST, "Invalid theme identity"));
     }
@@ -85,9 +88,11 @@ pub struct ApplyThemeBody {
 
 pub async fn apply_theme_api(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<ApplyThemeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
+
     let config_state = state.config.clone();
     let mut config = config_state.lock().clone();
     config.theme.name = body.name.clone();
@@ -190,10 +195,11 @@ pub async fn restore_hooks_api(
 
 pub async fn check_hooks_api(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<ProviderQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
+    check_auth(&state, &headers)?;
     let (status, has_hooks) = state
         .svc
         .agent_registry
@@ -233,12 +239,13 @@ pub struct SweepProfilesQuery {
 
 pub async fn sweep_profiles_api(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     axum::extract::Query(query): axum::extract::Query<SweepProfilesQuery>,
 ) -> Result<
     Json<codeterm_service_core::agent::provider::LaunchArtifactSweepReport>,
     (StatusCode, String),
 > {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let service = state.svc.clone();
     let report = tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::launch_artifacts::sweep_for_owner(

@@ -5,13 +5,14 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::api_support::OptionalJson;
 
 pub async fn list_workspaces(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::WorkspaceList,
         state.svc.clone(),
@@ -48,9 +49,10 @@ pub(crate) type CreateTabBody = crate::tab_routes::CreateShellTabBody;
 
 pub async fn create_workspace(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     OptionalJson(body): OptionalJson<CreateWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let body = body.ok_or((StatusCode::BAD_REQUEST, "name is required".to_string()))?;
     let cmd = codeterm_service_core::dispatch::Command::WorkspaceCreate {
         name: body.name,
@@ -82,9 +84,10 @@ pub async fn create_workspace(
 
 pub async fn focus_workspace(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || svc.focus_workspace(&id))
         .await
@@ -100,10 +103,11 @@ pub struct SetWorkspaceCwdBody {
 
 pub async fn set_workspace_cwd(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<SetWorkspaceCwdBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let svc = state.svc.clone();
     let cmd = codeterm_service_core::dispatch::Command::WorkspaceSetCwd {
         workspace_id: id,
@@ -153,7 +157,7 @@ enum WorkspaceCloseCaller {
 }
 
 fn workspace_close_caller(
-    headers: &crate::auth::ActorHeaders,
+    headers: &HeaderMap,
     body: &CloseWorkspaceBody,
     workspace_id: &str,
 ) -> WorkspaceCloseCaller {
@@ -170,10 +174,11 @@ fn workspace_close_caller(
 
 pub async fn rename_workspace(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<RenameWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let cmd = codeterm_service_core::dispatch::Command::WorkspaceRename {
         workspace_id: id,
         name: body.name,
@@ -186,10 +191,11 @@ pub async fn rename_workspace(
 
 pub async fn close_workspace(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(id): Path<String>,
     OptionalJson(body): OptionalJson<CloseWorkspaceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.unwrap_or_default();
     let result = match workspace_close_caller(&headers, &body, &id) {
         WorkspaceCloseCaller::AgentTab(caller_tab_id) => {
@@ -217,9 +223,10 @@ pub async fn close_workspace(
 
 pub async fn list_recently_closed(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let cmd =
         codeterm_service_core::dispatch::Command::WorkspaceRecentlyClosed { workspace_id: id };
     let result = codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone())
@@ -241,10 +248,12 @@ pub struct ReopenClosedBody {
 
 pub async fn reopen_closed_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     OptionalJson(body): OptionalJson<ReopenClosedBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?;
     let index = body.and_then(|b| b.index);
     let cmd = codeterm_service_core::dispatch::Command::WorkspaceReopenClosedTab {
         workspace_id: id,
@@ -258,9 +267,11 @@ pub async fn reopen_closed_tab(
 
 pub async fn reopen_closed_group(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(group_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?;
     let cmd = codeterm_service_core::dispatch::Command::WorkspaceReopenClosedGroup { group_id };
     let service = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
@@ -281,11 +292,12 @@ pub struct MoveTabBody {
 
 pub async fn move_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((workspace_id, tab_id)): Path<(String, String)>,
     Json(body): Json<MoveTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
         state
             .svc
             .move_tab(&tab_id, &workspace_id, &body.to_workspace_id)
@@ -326,11 +338,13 @@ fn reorder_error(
 
 pub async fn reorder_tabs(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(workspace_id): Path<String>,
     Json(body): Json<ReorderTabsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)
+            .map_err(|(status, message)| reorder_error(status, "unauthorized", message.into()))?;
         state
             .svc
             .reorder_tab(&workspace_id, &body.ordered_tab_ids)
@@ -349,11 +363,13 @@ pub async fn reorder_tabs(
 
 pub async fn reorder_children(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(parent_tab_id): Path<String>,
     Json(body): Json<ReorderTabsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)
+            .map_err(|(status, message)| reorder_error(status, "unauthorized", message.into()))?;
         state
             .svc
             .reorder_child(&parent_tab_id, &body.ordered_tab_ids)
@@ -372,11 +388,13 @@ pub async fn reorder_children(
 
 pub async fn reorder_display(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(workspace_id): Path<String>,
     Json(body): Json<ReorderTabsBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)
+            .map_err(|(status, message)| reorder_error(status, "unauthorized", message.into()))?;
         state
             .svc
             .reorder_display(&workspace_id, &body.ordered_tab_ids)
@@ -400,10 +418,11 @@ pub struct ReorderWorkspacesBody {
 
 pub async fn reorder_workspaces(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<ReorderWorkspacesBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
         state
             .svc
             .reorder_workspace(&body.ordered_workspace_ids)
@@ -421,10 +440,11 @@ pub struct RenameTabBody {
 
 pub async fn rename_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((_workspace_id, tab_id)): Path<(String, String)>,
     Json(body): Json<RenameTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::tab::validate_tab_title(&body.title)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?;

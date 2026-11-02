@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::multiplexer::commands::MuxState;
 use codeterm_service_core::plan::{
     IdentityProvenance, OrchestratorRef, TaskCompetitionMetadata, TaskLaneMetadata,
@@ -96,7 +96,7 @@ fn task_board_team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
 
 pub async fn task_board_page(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Query(query): Query<TaskBoardPageQuery>,
 ) -> PlanRouteResult {
@@ -106,6 +106,7 @@ pub async fn task_board_page(
     let cursor = task_board_cursor(&query)?;
     let page_size = query.page_size.unwrap_or(25).clamp(1, 50);
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(status, message)| text_err(status, message))?;
         codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
             .map_err(task_board_team_plan_err)?;
         let after = cursor
@@ -124,10 +125,11 @@ pub async fn task_board_page(
 
 pub async fn task_detail(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(status, message)| text_err(status, message))?;
         codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
             .map_err(task_board_team_plan_err)?;
         let detail = state
@@ -357,10 +359,11 @@ pub struct TaskAddBody {
 
 pub async fn task_add(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<TaskAddBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let author = authorize_draft_structure_mutation_http(
         &state.svc,
         &id,
@@ -487,10 +490,11 @@ pub async fn task_add(
 
 pub async fn task_update(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let mutation = if body.get("status").and_then(Value::as_str) == Some("blocked") {
         let has_reason = body
             .get("status_label")
@@ -521,7 +525,7 @@ pub async fn task_update(
 
 fn task_update_core(
     service: &codeterm_service_core::service::ServiceState,
-    headers: &crate::auth::ActorHeaders,
+    headers: &HeaderMap,
     id: &str,
     tid: &str,
     body: Value,
@@ -538,7 +542,7 @@ fn task_update_core(
 
 fn task_update_core_with_lane_cleanup_check(
     service: &codeterm_service_core::service::ServiceState,
-    headers: &crate::auth::ActorHeaders,
+    headers: &HeaderMap,
     id: &str,
     tid: &str,
     body: Value,
@@ -798,10 +802,11 @@ pub struct TaskCloseBody {
 
 pub async fn task_close(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskCloseBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     verify_task_mutation_owner(
         &state.svc,
         &headers,
@@ -891,10 +896,11 @@ pub struct TaskAssignBody {
 
 pub async fn task_assign(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskAssignBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_execution_action_http(
         &state.svc,
         &id,
@@ -968,9 +974,10 @@ pub async fn task_assign(
 
 pub async fn task_attempts(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let attempts = state
         .svc
         .plan_store
@@ -985,9 +992,10 @@ pub async fn task_attempts(
 
 pub async fn task_attempt_show(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, tid, attempt_id)): Path<(String, String, String)>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let attempt = state
         .svc
         .plan_store
@@ -1040,6 +1048,7 @@ pub async fn task_adopt_checkpoint(
     headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let tab_id = headers
         .get("X-CodeTerm-Tab-Id")
         .and_then(|value| value.to_str().ok())
@@ -1098,9 +1107,10 @@ use respawn::{respawn_spawn_command, RESPAWN_ATTEMPT_FLAG};
 
 pub async fn task_rm(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     verify_task_mutation_owner(
         &state.svc,
         &headers,

@@ -14,7 +14,7 @@ use futures_core::Stream;
 use serde::Deserialize;
 use std::time::{Duration, SystemTime};
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 
 pub use crate::web_plugin_routes::plugin_ui;
 mod plugin_view;
@@ -28,6 +28,7 @@ pub async fn mux_state(
     headers: HeaderMap,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
     use axum::response::IntoResponse;
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .ensure_storage_available()
@@ -98,6 +99,7 @@ pub async fn tabs(
     headers: HeaderMap,
     query: Query<crate::tab_routes::TabListQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let body = crate::tab_routes::list_tabs(AxumState(state), headers.clone(), query).await?;
     let json = serde_json::to_vec(&body.0).map_err(|_| {
         (
@@ -125,10 +127,11 @@ fn tabs_response(headers: &HeaderMap, json: Vec<u8>) -> axum::response::Response
 
 pub async fn tab_focus(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
         let exists = state
             .svc
             .mux
@@ -162,9 +165,10 @@ pub async fn tab_focus(
 
 pub async fn tab_close(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((_workspace_id, tab_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .close_tab_async(&tab_id)
@@ -180,11 +184,12 @@ pub struct ChatViewBody {
 
 pub async fn tab_chat_view(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatViewBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
         state.svc.set_chat_view(&tab_id, body.enabled);
         // Explicit API request = remote-control command (bridge / agents / tests):
         state.svc.ui.emit(
@@ -206,9 +211,10 @@ pub async fn tab_chat_view(
 /// Tauri command (`commands_mesh::fetch_peer_services_view`).
 pub async fn peer_services(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(instance_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let view = commands_mesh::fetch_peer_services_view(&state.mesh, &instance_id)
         .await
         .map_err(|e| (StatusCode::NOT_FOUND, e))?;
@@ -217,9 +223,10 @@ pub async fn peer_services(
 
 pub async fn peer_service_delete(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let value = commands_mesh::peer_service_delete_request(&state.mesh, &instance_id, &id)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
@@ -228,9 +235,10 @@ pub async fn peer_service_delete(
 
 pub async fn peer_cron_action(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((instance_id, id, action)): Path<(String, String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let value = commands_mesh::peer_cron_action_request(&state.mesh, &instance_id, &id, &action)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
@@ -239,10 +247,11 @@ pub async fn peer_cron_action(
 
 pub async fn peer_cron_update(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((instance_id, id)): Path<(String, String)>,
     Json(patch): Json<codeterm_service_core::cron::store::CronUpdateParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let patch = serde_json::to_value(patch)
         .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
     let value = commands_mesh::peer_cron_update_request(&state.mesh, &instance_id, &id, patch)
@@ -253,9 +262,10 @@ pub async fn peer_cron_update(
 
 pub async fn peer_cron_delete(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let value = commands_mesh::peer_cron_delete_request(&state.mesh, &instance_id, &id)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
@@ -264,9 +274,10 @@ pub async fn peer_cron_delete(
 
 pub async fn peer_cron_history(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let value = commands_mesh::peer_cron_history_request(&state.mesh, &instance_id, &id)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
@@ -275,9 +286,10 @@ pub async fn peer_cron_history(
 
 pub async fn peer_cron_get(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((instance_id, id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let value = commands_mesh::peer_cron_get_request(&state.mesh, &instance_id, &id)
         .await
         .map_err(|e| (StatusCode::BAD_GATEWAY, e))?;
@@ -371,10 +383,12 @@ fn overflow_payload(
 /// Absent `?since` ⇒ start live from now (old-client behavior).
 pub async fn events_stream(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<EventsStreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, (StatusCode, String)>
 {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+
     Ok(events_sse(state.events, q, &STREAMS))
 }
 
@@ -677,9 +691,10 @@ pub struct CopyImageToClipboardBody {
 /// PTY paste keystroke that follows reads from the same host clipboard.
 pub async fn copy_image_to_clipboard(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<CopyImageToClipboardBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let host = codeterm_commands::application_host::require(&state.svc)
         .map_err(|error| (StatusCode::SERVICE_UNAVAILABLE, error.to_string()))?;
     host.copy_image_to_clipboard(body.path)
@@ -705,10 +720,11 @@ pub struct ChatSubscriptionBody {
 
 pub async fn chat_raw_start(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let slot =
         crate::request_bound::RequestSlot::acquire_when_available(format!("chat-start:{tab_id}"))
             .await
@@ -744,9 +760,10 @@ pub struct TranscribeVoiceBody {
 /// transcribing when a daemon is configured.
 pub async fn transcribe_voice(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<TranscribeVoiceBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let active = state
         .svc
         .configuration()
@@ -769,9 +786,11 @@ pub async fn transcribe_voice(
 /// Web-mirror twin of the `plugin_manager_snapshot` Tauri command.
 pub async fn plugin_snapshot(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
     use crate::request_bound::{blocking, unavailable};
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| (status, unavailable("unauthorized", error).1))?;
     let runtime = tokio::runtime::Handle::current();
     blocking("plugin-snapshot".into(), move |slot| {
         runtime.block_on(commands::plugins::plugin_manager_snapshot_for_service(
@@ -785,9 +804,10 @@ pub async fn plugin_snapshot(
 /// Web-mirror twin of the `plugin_manager_action` Tauri command.
 pub async fn plugin_action(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(action): Json<commands::plugins::PluginManagerAction>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     // keep it off the async runtime (mirrors the Tauri command's spawn_blocking wrap).
     let svc = state.svc.clone();
     let result =
@@ -812,9 +832,10 @@ pub struct GlanceReq {
 /// Web-mirror twin of the `plugin_glance` Tauri command.
 pub async fn plugin_glance(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<GlanceReq>,
 ) -> Result<Json<Option<codeterm_plugin::view::GlanceView>>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     commands::plugins::glance_render(
         state
             .svc
@@ -839,10 +860,12 @@ pub struct BubbleReq {
 /// Web-mirror twin of the `plugin_bubble` Tauri command.
 pub async fn plugin_bubble(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<BubbleReq>,
 ) -> Result<Json<serde_json::Value>, crate::request_bound::RequestError> {
     use crate::request_bound::{bounded, unavailable, RequestSlot, PLUGIN_DEADLINE};
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| (status, unavailable("unauthorized", error).1))?;
     let slot = RequestSlot::acquire(format!("bubble:{}", req.plugin_id))?;
     let registry = state
         .svc
@@ -873,9 +896,10 @@ pub struct RepoWatchSubscribeReq {
 /// Web-mirror twin of the `repo_watch_subscribe` Tauri command.
 pub async fn repo_watch_subscribe(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<RepoWatchSubscribeReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let registry = state
         .svc
         .ext::<codeterm_service_core::repowatch::RepoWatchRegistryHandle>()
@@ -897,9 +921,10 @@ pub struct RepoWatchUnsubscribeReq {
 /// Web-mirror twin of the `repo_watch_unsubscribe` Tauri command.
 pub async fn repo_watch_unsubscribe(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<RepoWatchUnsubscribeReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let registry = state
         .svc
         .ext::<codeterm_service_core::repowatch::RepoWatchRegistryHandle>()
@@ -922,9 +947,10 @@ pub struct ChatBackendSessionReq {
 /// Web-mirror twin of the `chatbackend_session_info` Tauri command.
 pub async fn chatbackend_session_info(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<ChatBackendSessionReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let info = tokio::task::spawn_blocking(move || {
         svc.chatbackend_session_info(&req.plugin_id, &req.session_id)
@@ -946,9 +972,10 @@ pub struct ChatBackendSwitchModelReq {
 /// Web-mirror twin of the `chatbackend_switch_model` Tauri command.
 pub async fn chatbackend_switch_model(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<ChatBackendSwitchModelReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let info = tokio::task::spawn_blocking(move || {
         svc.chatbackend_set_model(&req.plugin_id, &req.session_id, &req.model)
@@ -974,9 +1001,10 @@ pub struct OpenChatBackendTabReq {
 /// non-PTY chatBackend tab (e.g. an LM Studio plugin) from the Extensions panel.
 pub async fn open_chat_backend_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(req): Json<OpenChatBackendTabReq>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     use codeterm_service_core::service::spawn::{SpawnTabSpec, TabCommand, TabVisibility};
     let mut config = req.config.unwrap_or(serde_json::Value::Null);
     let overrides = codeterm_service_core::service::spawn::chatbackend_spawn_config(
@@ -1020,10 +1048,11 @@ pub async fn open_chat_backend_tab(
 
 pub async fn chat_raw_stop(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatSubscriptionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state.svc.chat_registry.stop(&tab_id, &body.subscription_id);
     Ok(Json(serde_json::json!({"ok": true})))
 }
@@ -1041,13 +1070,14 @@ pub struct ChatResumeBody {
 
 pub async fn chat_raw_resume(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatResumeBody>,
 ) -> Result<
     Json<codeterm_service_core::service::tab_chat::resume::ChatResumeResult>,
     (StatusCode, String),
 > {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::tab_chat::resume::resume(&svc, &tab_id, &body.cursor)
@@ -1060,10 +1090,11 @@ pub async fn chat_raw_resume(
 
 pub async fn chat_raw_backfill(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatBackfillBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.offset_kind)
@@ -1076,12 +1107,13 @@ pub async fn chat_raw_backfill(
 
 pub async fn agent_runtime_retry(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
 ) -> Result<
     Json<codeterm_service_core::service::agent_runtime::model::RuntimeSnapshot>,
     (StatusCode, String),
 > {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::retry(&state.svc, &tab_id)
         .await
         .map(Json)
@@ -1095,13 +1127,14 @@ pub struct RuntimeQuestionAnswerBody {
 
 pub async fn agent_runtime_answer_question(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((tab_id, item_id)): Path<(String, String)>,
     Json(body): Json<RuntimeQuestionAnswerBody>,
 ) -> Result<
     Json<codeterm_service_core::service::chat_send_transaction::ChatSendStatus>,
     (StatusCode, String),
 > {
+    check_auth(&state, &headers).map_err(|(status, reason)| (status, reason.to_string()))?;
     codeterm_service_core::service::agent_runtime::answer_question(
         &state.svc,
         &tab_id,

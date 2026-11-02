@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path as FsPath, PathBuf};
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::plan::{
     OrchestratorRef, PlanMode, PlanStatus, PlannerRef, PlanningAuthor, PlanningState,
 };
@@ -73,9 +73,10 @@ pub struct ListPlansQuery {
 
 pub async fn create(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Json(body): Json<CreatePlanBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let project = body.project_path.unwrap_or_else(|| {
         std::env::current_dir()
             .map(|p| p.display().to_string())
@@ -148,10 +149,11 @@ pub async fn create(
 
 pub async fn list(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<ListPlansQuery>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         if q.chat == Some(true) {
             if q.query.is_some()
                 && q.project
@@ -304,9 +306,10 @@ struct ResolvedRef {
 
 pub async fn resolve_refs(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<ResolveRefsBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let index = state.svc.plan_store.list_index();
     let refs = body
         .refs
@@ -553,14 +556,155 @@ fn find_section<'a>(
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+    use codeterm_service_core::plan::{OrchestratorRef, Plan, PlanStatus};
+
+    fn mk_index_entry(plan_id: &str, file_path: PathBuf, status: PlanStatus) -> IndexEntry {
+        IndexEntry {
+            plan_id: plan_id.to_string(),
+            file_path,
+            canonical_project_path: "/repo".into(),
+            owner: OrchestratorRef::default(),
+            team_id: None,
+            title: "Indexed plan".into(),
+            status,
+            updated_at: 1,
+            assigned_tab_ids: vec![],
+            task_count: 0,
+            open_task_count: 0,
+            section_count: 0,
+            element_count: 0,
+            loop_count: 0,
+            has_goal: false,
+            orphaned: None,
+        }
+    }
+
+    fn mk_plan(plan_id: &str) -> Plan {
+        let mut plan = Plan::new(
+            "Resolved plan".into(),
+            "/repo".into(),
+            OrchestratorRef::default(),
+        );
+        plan.id = plan_id.into();
+        plan
+    }
+
+    #[test]
+    fn derive_project_root_accepts_canonical_sidecar_path() {
+        let root = derive_project_root_from_index_path(
+            FsPath::new("/repo/.domios/plans/active/pl_test/plan.yaml"),
+            "pl_test",
+        );
+        assert_eq!(root, Some(PathBuf::from("/repo")));
+    }
+
+    #[test]
+    fn derive_project_root_rejects_non_sidecar_path() {
+        let root = derive_project_root_from_index_path(
+            FsPath::new("/repo/.domios/plans/active/pl_other/plan.yaml"),
+            "pl_test",
+        );
+        assert!(root.is_none());
+    }
+
+    #[test]
+    fn load_plan_for_ref_hydrates_cross_project_index_hit() {
+        let entry = mk_index_entry(
+            "pl_test",
+            PathBuf::from("/project-b/.domios/plans/active/pl_test/plan.yaml"),
+            PlanStatus::Active,
+        );
+        let loaded = std::cell::RefCell::new(None::<Plan>);
+        let (plan, state) = load_plan_for_ref(
+            "pl_test",
+            Some(&entry),
+            || loaded.borrow().clone(),
+            |_| {
+                *loaded.borrow_mut() = Some(mk_plan("pl_test"));
+                Ok(())
+            },
+        );
+        assert!(state.is_none());
+        assert_eq!(plan.as_ref().map(|p| p.id.as_str()), Some("pl_test"));
+    }
+
+    #[test]
+    fn load_plan_for_ref_reports_permission_for_confined_bad_path() {
+        let entry = mk_index_entry(
+            "pl_test",
+            PathBuf::from("/project-b/outside/pl_test.txt"),
+            PlanStatus::Active,
+        );
+        let (plan, state) = load_plan_for_ref("pl_test", Some(&entry), || None, |_| Ok(()));
+        assert!(plan.is_none());
+        assert_eq!(state, Some("permission"));
+    }
+
+    #[test]
+    fn load_plan_for_ref_reports_unreachable_from_loader() {
+        let entry = mk_index_entry(
+            "pl_test",
+            PathBuf::from("/project-b/.domios/plans/active/pl_test/plan.yaml"),
+            PlanStatus::Active,
+        );
+        let (plan, state) =
+            load_plan_for_ref("pl_test", Some(&entry), || None, |_| Err("unreachable"));
+        assert!(plan.is_none());
+        assert_eq!(state, Some("unreachable"));
+    }
+
+    #[test]
+    fn load_plan_for_ref_reports_missing_without_index() {
+        let (plan, state) = load_plan_for_ref("pl_test", None, || None, |_| Ok(()));
+        assert!(plan.is_none());
+        assert_eq!(state, Some("missing"));
+    }
+
+    #[test]
+    fn archived_plan_reference_resolves_without_missing_state() {
+        let mut archived = mk_plan("pl_archived");
+        archived.status = PlanStatus::Archived;
+        let archived_entry = mk_index_entry(
+            "pl_archived",
+            PathBuf::from("/repo/.domios/plans/archive/pl_archived/plan.yaml"),
+            PlanStatus::Archived,
+        );
+        let (archived_plan, archived_state) = load_plan_for_ref(
+            "pl_archived",
+            Some(&archived_entry),
+            || Some(archived.clone()),
+            |_| Ok(()),
+        );
+        assert_eq!(archived_state, None);
+        assert_eq!(archived_plan.expect("plan").status, PlanStatus::Archived);
+    }
+
+    #[test]
+    fn transfer_caller_requires_agent_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-CodeTerm-Tab-Id", "source-manager".parse().unwrap());
+        assert_eq!(transfer_caller(&headers).unwrap(), "source-manager");
+        let missing = transfer_caller(&HeaderMap::new()).unwrap_err();
+        assert_eq!(missing.0, StatusCode::FORBIDDEN);
+        assert_eq!(
+            team_plan_err(TeamPlanError::Team(
+                "Caller tab worker is not authorized to manage Team team_source".into(),
+            ))
+            .0,
+            StatusCode::FORBIDDEN
+        );
+    }
+}
 
 pub async fn get(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
             .map_err(team_plan_err)?;
         let plan = state
@@ -581,9 +725,10 @@ pub async fn get(
 
 pub async fn state(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let snapshot = state
         .svc
         .build_plan_state(&id, epoch_ms())
@@ -593,9 +738,10 @@ pub async fn state(
 
 pub async fn next(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let snapshot = state
         .svc
         .build_plan_state(&id, epoch_ms())
@@ -620,6 +766,7 @@ pub async fn reconcile(
     Path(id): Path<String>,
     Query(q): Query<ReconcileQuery>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let caller = crate::auth::caller_claim(&state, &headers, q.caller_tab_id.as_deref())
         .map_err(|(status, message)| text_err(status, message))?;
     let report = state
@@ -643,11 +790,12 @@ pub struct UpdatePlanBody {
 
 pub async fn update(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UpdatePlanBody>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         let status = body
             .status
             .as_deref()
@@ -693,10 +841,11 @@ pub struct ModeBody {
 
 pub async fn mode_set(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ModeBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
         .map_err(|_| plan_err(PlanError::BadMode))?;
@@ -766,9 +915,10 @@ pub async fn mode_set(
 
 pub async fn delete_plan(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     state
         .svc
@@ -787,9 +937,10 @@ use lifecycle::{authorize_plan_mutation_http, team_plan_err};
 
 pub async fn disown(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -806,10 +957,11 @@ pub struct ClaimBody {
 
 pub async fn claim(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ClaimBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -826,10 +978,11 @@ pub struct KindsSetBody {
 
 pub async fn kinds_set(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<KindsSetBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -846,10 +999,11 @@ pub struct TagFacetsSetBody {
 
 pub async fn tag_facets_set(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<TagFacetsSetBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let facets = tag_facets_from_body(&body.facets)
         .map_err(|message| text_err(StatusCode::BAD_REQUEST, message))?;
     state

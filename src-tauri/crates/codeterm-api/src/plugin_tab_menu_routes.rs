@@ -8,7 +8,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::ReceiverTargetError;
 use codeterm_service_core::service::{ServiceContext, ServiceState};
 
@@ -22,7 +22,17 @@ fn refusal(status: StatusCode, code: &str, message: &str) -> Refusal {
     )
 }
 
-fn authorize(_state: &AppState, _headers: &HeaderMap) -> Result<(), Refusal> {
+fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Refusal> {
+    check_auth(state, headers).map_err(|(status, message)| refusal(status, "unauthorized", message))
+}
+
+fn target_refusal(error: ReceiverTargetError) -> Refusal {
+    let status = match error {
+        ReceiverTargetError::PersistFailed => StatusCode::INTERNAL_SERVER_ERROR,
+        ReceiverTargetError::ReceiverNotFound
+        | ReceiverTargetError::TabNotFound
+        | ReceiverTargetError::MenuItemNotFound => StatusCode::NOT_FOUND,
+    };
     refusal(status, error.code(), error.message())
 }
 

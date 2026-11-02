@@ -133,9 +133,12 @@ pub(super) fn resolve_relay_peer(
     })?;
     if !codeterm_service_core::mesh::types::is_supported_relay_protocol(peer.relay_protocol_version)
     {
-        return Err(super::origin::protocol_refusal(
-            &peer.instance_name,
-            peer.relay_protocol_version,
+        return Err((
+            StatusCode::UPGRADE_REQUIRED,
+            format!(
+                "Peer {} uses incompatible Mesh relay protocol {}",
+                peer.instance_name, peer.relay_protocol_version
+            ),
         ));
     }
     let name = peer.instance_name.clone();

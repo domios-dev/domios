@@ -3,9 +3,10 @@ use codeterm_service_core::service::pending_delivery_payloads::user_sends::UserS
 
 pub async fn chat_send_dismissals(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Vec<UserSendDismissal>>, SendRejection> {
+    check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;
@@ -26,10 +27,11 @@ pub async fn chat_send_dismissals(
 
 pub async fn chat_send_delete(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UserSendDismissal>,
 ) -> Result<Json<UserSendDismissal>, SendRejection> {
+    check_auth(&state, &headers).map_err(SendRejection::from)?;
     let tab = crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(SendRejection::from)?;

@@ -5,7 +5,7 @@ use axum::{
 };
 use serde_json::Value;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::mem_ops::embedder::{self, Refusal, UseParams};
 
 type Reply = Result<Json<Value>, (StatusCode, Json<Value>)>;
@@ -23,11 +23,13 @@ fn refused(refusal: Refusal) -> (StatusCode, Json<Value>) {
 
 async fn blocking(
     state: AppState,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     work: impl FnOnce(codeterm_service_core::service::ServiceState) -> Result<Value, Refusal>
         + Send
         + 'static,
 ) -> Reply {
+    check_auth(&state, &headers)
+        .map_err(|(status, error)| failure(status, error.to_string(), Vec::new()))?;
     let svc = state.svc.clone();
     tokio::task::spawn_blocking(move || work(svc))
         .await

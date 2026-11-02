@@ -1,5 +1,5 @@
 use super::{text_err, PlanRouteResult};
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -14,10 +14,11 @@ pub struct SetProjectBody {
 
 pub async fn set_project(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<SetProjectBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(status, message)| text_err(status, message))?;
     let svc = state.svc.clone();
     let update = tokio::task::spawn_blocking(move || svc.set_plan_project(&id, &body.project_path))
         .await

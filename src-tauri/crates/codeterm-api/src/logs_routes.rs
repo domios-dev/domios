@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct LogsQuery {
@@ -29,10 +29,11 @@ pub struct LogsDelete {
 }
 
 pub async fn list_logs(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Query(q): Query<LogsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let store = match codeterm_service_core::logs::store::global() {
         Some(s) => s,
         None => return Ok(Json(serde_json::json!([]))),
@@ -47,10 +48,11 @@ pub async fn list_logs(
 }
 
 pub async fn delete_logs(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Query(q): Query<LogsDelete>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let store = match codeterm_service_core::logs::store::global() {
         Some(s) => s,
         None => return Ok(Json(serde_json::json!({"deleted": 0}))),

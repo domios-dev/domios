@@ -6,7 +6,7 @@ use axum::{
 use codeterm_service_core::service::web_access::local_ip_address;
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::api_support::OptionalJson;
 
 pub async fn web_link_token(
@@ -85,8 +85,9 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
 /// Read-only Tailscale Serve status for the web mirror's Web Access panel.
 pub async fn serve_status_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let build = state.mesh.lock().build_hash.clone();
     let mut status = codeterm_service_core::mesh::probe_serve_status(state.api_port);
     status.snapshot =
@@ -105,9 +106,10 @@ pub struct ServeEnableBody {
 /// Web Access UI) is responsible for confirming with the user first.
 pub async fn serve_enable_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     OptionalJson(body): OptionalJson<ServeEnableBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let body = body.unwrap_or_default();
     let result = codeterm_service_core::service::web_access::enable(
         state.svc.ui.clone(),
@@ -130,8 +132,9 @@ pub async fn serve_enable_handler(
 /// Tear down the Serve HTTPS listener proxying to this daemon.
 pub async fn serve_disable_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let result = codeterm_service_core::service::web_access::disable(
         state.svc.ui.clone(),
         state.mesh.clone(),
@@ -159,8 +162,9 @@ pub struct KeepAwakeStartBody {
 
 pub async fn keepawake_status_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let st = codeterm_service_core::keepawake::status(&state.keepawake);
     Ok(Json(
         serde_json::to_value(st).unwrap_or(serde_json::Value::Null),
@@ -169,9 +173,10 @@ pub async fn keepawake_status_handler(
 
 pub async fn keepawake_start_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     OptionalJson(body): OptionalJson<KeepAwakeStartBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.unwrap_or_default();
     let st = codeterm_service_core::keepawake::start(
         &state.keepawake,
@@ -189,8 +194,9 @@ pub async fn keepawake_start_handler(
 
 pub async fn keepawake_stop_handler(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     codeterm_service_core::keepawake::stop(&state.keepawake, &state.svc.ui)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "ok": true })))
@@ -199,10 +205,13 @@ pub async fn keepawake_stop_handler(
 /// Web-mirror twin of `restart_app` — restarts the daemon/desktop process.
 pub async fn restart_app(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
 
+    if let Err(error) = check_auth(&state, &headers) {
+        return error.into_response();
+    }
     let app = match codeterm_commands::application_host::require(&state.svc) {
         Ok(app) if app.admit_restart().is_ok() => app,
         _ => {

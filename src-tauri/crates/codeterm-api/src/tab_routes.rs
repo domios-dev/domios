@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{resolve_tab, AppState};
+use crate::routes::{check_auth, resolve_tab, AppState};
 use send::wait_for_pty_link as await_pty_link;
 
 mod exec;
@@ -43,6 +43,7 @@ pub async fn list_tabs(
     headers: HeaderMap,
     Query(query): Query<TabListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let focused_workspace = !query.all_workspaces && query.focused_workspace;
     let requested_workspace = query
         .workspace_id
@@ -60,9 +61,7 @@ pub async fn list_tabs(
             }
         })?;
     let caller_tab_id = if focused_workspace {
-        let actor = crate::auth::ActorHeaders::authenticate(&state, headers.clone())
-            .map_err(|(status, _)| (status, "Authenticated local actor or owner required"))?;
-        caller_tab_header(&actor)
+        caller_tab_header(&headers)
     } else {
         None
     };
@@ -92,16 +91,18 @@ pub async fn list_tabs(
             }
         })?;
     let mut local = result.into_json();
-    if let crate::auth::CallerIdentity::Tab(caller) = crate::auth::caller_identity(&state, &headers)
-        .map_err(|_| (StatusCode::FORBIDDEN, "Invalid caller credential"))?
-    {
-        if state
-            .svc
-            .filter_neighbor_tab_listing(&caller, &mut local)
-            .await
-            .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_capability_denied"))?
+    if crate::auth::caller_peer_id(&state, &headers).is_none() {
+        if let Some(caller) = crate::auth::tab_caller(&state, &headers)
+            .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_forbidden"))?
         {
-            return Ok(Json(local));
+            if state
+                .svc
+                .filter_neighbor_tab_listing(&caller, &mut local)
+                .await
+                .map_err(|_| (StatusCode::FORBIDDEN, "neighbor_capability_denied"))?
+            {
+                return Ok(Json(local));
+            }
         }
     }
     let isolated_peer = crate::auth::isolated_caller_peer_id(&state, &headers);
@@ -259,9 +260,10 @@ pub struct TabInspectQuery {
 
 pub async fn inspect_tabs(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(query): Query<TabInspectQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let tab_ids = query
         .tab_ids
         .split(',')
@@ -329,6 +331,7 @@ pub async fn create_shell_tab(
     headers: HeaderMap,
     Json(mut body): Json<CreateShellTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     if let Some(title) = body.title.as_deref() {
         codeterm_service_core::service::tab::validate_tab_title(title)
             .map_err(|error| (StatusCode::BAD_REQUEST, error))?;
@@ -470,9 +473,10 @@ fn validate_chat_backend_spawn(
 
 pub async fn focus_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::TabFocus { tab_id },
@@ -494,10 +498,11 @@ pub struct OutputQuery {
 
 pub async fn get_tab_output(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<OutputQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
     let cmd = codeterm_service_core::dispatch::Command::GetOutput {
         tab_id,
@@ -520,10 +525,11 @@ pub struct CloseTabQuery {
 
 pub async fn close_tab(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<CloseTabQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
@@ -555,7 +561,7 @@ pub async fn close_tab(
 
 pub async fn release_remote_ownership(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     if !crate::auth::is_local_caller(&state, &headers) {
@@ -627,9 +633,10 @@ pub struct RestartShellTabBody {
 
 pub async fn rerun_restored_shell(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let service = state.svc.clone();
     tokio::task::spawn_blocking(move || service.rerun_restored_shell(&tab_id))
         .await
@@ -640,10 +647,11 @@ pub async fn rerun_restored_shell(
 
 pub async fn restart_shell_tab(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<RestartShellTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(status, message)| (status, message.to_string()))?;
@@ -692,12 +700,16 @@ fn restart_shell_request<T: serde::Serialize>(
         .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
-pub(crate) fn caller_tab_header(headers: &crate::auth::ActorHeaders) -> Option<String> {
-    headers.local_tab_id()
+pub(crate) fn caller_tab_header(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("X-CodeTerm-Tab-Id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
 }
 
 pub(crate) fn authenticated_plan_caller(
-    headers: &crate::auth::ActorHeaders,
+    headers: &HeaderMap,
 ) -> codeterm_service_core::service::AuthenticatedPlanCaller {
     let header = |name| {
         headers
@@ -747,10 +759,11 @@ pub struct RenameTabBody {
 
 pub async fn rename_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<RenameTabBody>,
 ) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    check_auth(&state, &headers).map_err(axum::response::IntoResponse::into_response)?;
     codeterm_service_core::service::tab::validate_tab_title(&body.title).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
@@ -780,10 +793,11 @@ pub struct DescribeTabBody {
 
 pub async fn describe_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<DescribeTabBody>,
 ) -> Result<Json<serde_json::Value>, axum::response::Response> {
+    check_auth(&state, &headers).map_err(axum::response::IntoResponse::into_response)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(axum::response::IntoResponse::into_response)?;
@@ -807,10 +821,11 @@ pub struct ResizeTabBody {
 
 pub async fn resize_tab(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<ResizeTabBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::PtyResize {
@@ -837,6 +852,8 @@ pub async fn agent_run_log(
     ),
     (StatusCode, &'static str),
 > {
+    check_auth(&state, &headers)?;
+
     if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_tab_id) {
         let text = state
             .svc
@@ -923,10 +940,11 @@ pub struct GetTextQuery {
 
 pub async fn get_tab_usage(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
         let tab_id = resolve_tab(&state, &raw_tab_id)?;
 
         let (agent_type, session_id, cwd) = {
@@ -962,10 +980,11 @@ pub async fn get_tab_usage(
 /// Returns the current visible screen; history remains in the tab's scrollback buffer.
 pub async fn get_tab_text(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Query(query): Query<GetTextQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id).await?;
     let cmd = codeterm_service_core::dispatch::Command::GetText {
         tab_id: tab_id.clone(),
@@ -988,9 +1007,10 @@ pub async fn get_tab_text(
 /// has no PTY or no shell-integration markers yet, so chat mount never errors.
 pub async fn shell_command_snapshot(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     tokio::task::spawn_blocking(move || {
         let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id).ok();
         let snap = pty_id.and_then(|pty_id| {
@@ -1018,11 +1038,12 @@ pub struct CaptureStartBody {
 /// POST /api/tabs/{id}/capture/start — dev-only PTY capture tap → asciicast v2.
 pub async fn start_capture(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<CaptureStartBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
+        check_auth(&state, &headers)?;
         let pty_id = resolve_pty_id_with_fallback(&state, &raw_tab_id)?;
         let (cols, rows) = {
             let mgr = state.svc.pty.lock();
@@ -1064,9 +1085,10 @@ pub async fn start_capture(
 /// POST /api/tabs/{id}/capture/stop — flush+close `.cast`, write sidecar screen.txt.
 pub async fn stop_capture(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let owner = state.clone();
     let (pty_id, screen) = tokio::task::spawn_blocking(move || {
         let pty_id = resolve_pty_id_with_fallback(&owner, &raw_tab_id)?;
@@ -1106,10 +1128,11 @@ pub struct LinkPtyBody {
 /// Web-mirror twin of `mux_link_pty` — bind a spawned PTY to its tab record.
 pub async fn link_pty(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<LinkPtyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     tokio::task::spawn_blocking(move || {
         let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id);
         Ok(Json(
@@ -1137,9 +1160,10 @@ pub struct ShellProfilesQuery {
 
 pub async fn list_shell_profiles(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(query): Query<ShellProfilesQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_owned()))?;
     let result = codeterm_service_core::dispatch::dispatch_blocking(
         codeterm_service_core::dispatch::Command::ShellProfiles {
             refresh: query.refresh,

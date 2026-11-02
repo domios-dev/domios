@@ -17,7 +17,7 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::secrets::{
     ListFilter, SaveRequest, SecretError, SecretRef, SecretString, UnlockCredentials,
 };
@@ -73,8 +73,9 @@ fn map_error(e: SecretError) -> (StatusCode, Json<serde_json::Value>) {
 
 pub async fn status(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let store = state.svc.secrets.read().await;
     let st = store.status().await;
     let auto_unlock_capable = store.capabilities().auto_unlock;
@@ -119,9 +120,12 @@ impl UnlockBody {
 
 pub async fn unlock(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<UnlockBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let creds = body.into_credentials();
     let store = state.svc.secrets.read().await;
     codeterm_service_core::secrets::check_persist_consent(&**store, creds.persist_for_auto_unlock)
@@ -133,8 +137,11 @@ pub async fn unlock(
 
 pub async fn lock(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     store.lock().await.map_err(map_error)?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -142,8 +149,11 @@ pub async fn lock(
 
 pub async fn logout(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     store.logout().await.map_err(map_error)?;
     Ok(Json(serde_json::json!({"ok": true})))
@@ -156,8 +166,11 @@ pub async fn logout(
 /// and by the UI when it wants to re-sync session state without prompting.
 pub async fn auto_unlock(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     if let Err(e) = store.init().await {
         return Err(map_error(e));
@@ -178,8 +191,11 @@ pub async fn auto_unlock(
 /// (Local file store, Mock). Bitwarden runs `bw sync`.
 pub async fn sync(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     store.sync().await.map_err(map_error)?;
     Ok(Json(serde_json::json!({"ok": true, "backend": store.id()})))
@@ -208,9 +224,12 @@ pub struct ItemsResponse {
 
 pub async fn list_items(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<ItemsResponse>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     let items = if let Some(query) = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         store.search(query).await.map_err(map_error)?
@@ -230,9 +249,12 @@ pub async fn list_items(
 
 pub async fn get_item_metadata(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<SecretRef>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     let v = store.get(&name).await.map_err(map_error)?;
     Ok(Json(SecretRef {
@@ -258,9 +280,12 @@ pub struct ValueResponse {
 /// clients.
 pub async fn reveal_value(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<ValueResponse>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     let v = store.get(&name).await.map_err(map_error)?;
     Ok(Json(ValueResponse {
@@ -289,9 +314,12 @@ pub struct SaveBody {
 
 pub async fn save_item(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<SaveBody>,
 ) -> Result<Json<SecretRef>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
 
     // "personal vault" — leave it as None so the backend doesn't try to attach to a non-existent org.
@@ -324,9 +352,12 @@ fn some_if_nonempty(s: &str) -> Option<String> {
 
 pub async fn delete_item(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     store.delete(&name).await.map_err(map_error)?;
     Ok(Json(serde_json::json!({"ok": true, "name": name})))
@@ -334,8 +365,11 @@ pub async fn delete_item(
 
 pub async fn organizations(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     let orgs = store.organizations().await.map_err(map_error)?;
     Ok(Json(serde_json::json!({"organizations": orgs})))
@@ -349,9 +383,12 @@ pub struct CollectionsQuery {
 
 pub async fn collections(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<CollectionsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
     let store = state.svc.secrets.read().await;
     let colls = store
         .collections(q.organization.as_deref())
@@ -375,9 +412,13 @@ pub struct SwitchBackendBody {
 /// in `.secrets`) are kept so switching back is seamless.
 pub async fn switch_backend(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<SwitchBackendBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    if let Err((s, m)) = check_auth(&state, &headers) {
+        return Err((s, Json(serde_json::json!({"error": m}))));
+    }
+
     // registered into the secret registry (e.g. the Bitwarden plugin).
     if codeterm_service_core::secrets::get_factory(&body.backend).is_none()
         && !state

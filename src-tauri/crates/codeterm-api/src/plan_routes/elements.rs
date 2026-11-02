@@ -6,7 +6,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::plan::PlanError;
 
 use super::{emit_plan_changed, epoch_ms, groups_from_csv, plan_err, text_err, PlanRouteResult};
@@ -22,10 +22,11 @@ pub struct LayoutSetBody {
 
 pub async fn layout_set(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<LayoutSetBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -49,10 +50,11 @@ pub struct NoteAddBody {
 
 pub async fn note_add(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<NoteAddBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let eid = state
         .svc
         .plan_store
@@ -70,10 +72,11 @@ pub struct NoteUpdateBody {
 
 pub async fn note_update(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, element_id)): Path<(String, String)>,
     Json(body): Json<NoteUpdateBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -105,10 +108,11 @@ pub struct ElementAddBody {
 
 pub async fn element_add(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ElementAddBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let eid = state
         .svc
         .plan_store
@@ -138,10 +142,11 @@ pub struct ElementUpdateBody {
 
 pub async fn element_update(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, element_id)): Path<(String, String)>,
     Json(body): Json<ElementUpdateBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -160,9 +165,10 @@ pub async fn element_update(
 
 pub async fn element_rm(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, element_id)): Path<(String, String)>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -174,9 +180,10 @@ pub async fn element_rm(
 
 pub async fn coverage(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let report = state
         .svc
         .plan_store
@@ -192,10 +199,11 @@ pub struct GroupsSetBody {
 
 pub async fn groups_set(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<GroupsSetBody>,
 ) -> PlanRouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store

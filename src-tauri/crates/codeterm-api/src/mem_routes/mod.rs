@@ -117,21 +117,17 @@ pub(super) async fn memory_author(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<codeterm_service_core::mem::store::MemAuthor, (axum::http::StatusCode, String)> {
-    let actor = crate::auth::RequestActor::authenticate(state, headers)?;
-    let label = match &actor {
-        crate::auth::RequestActor::RemoteAgent(agent) => {
-            Some(format!("agent:{}:{}", agent.instance_id, agent.tab_id))
-        }
-        crate::auth::RequestActor::Peer => Some("paired-peer".into()),
-        crate::auth::RequestActor::Service => Some("service".into()),
-        _ => None,
+    let caller = if crate::auth::caller_peer_id(state, headers).is_some() {
+        None
+    } else {
+        crate::auth::tab_caller(state, headers)?
     };
-    if let Some(label) = label {
-        return Ok(codeterm_service_core::mem::store::MemAuthor::system(label));
-    }
-    codeterm_service_core::mem_ops::author::mem_author_for_caller(&state.svc, actor.local_tab())
-        .await
-        .map_err(|message| (axum::http::StatusCode::FORBIDDEN, message))
+    codeterm_service_core::mem_ops::author::mem_author_for_caller(
+        &state.svc,
+        caller.as_ref().map(|c| c.tab_id.as_str()),
+    )
+    .await
+    .map_err(|message| (axum::http::StatusCode::FORBIDDEN, message))
 }
 
 #[cfg(test)]

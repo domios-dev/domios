@@ -161,8 +161,6 @@ async fn relayed_remote_lifecycle_uses_the_verified_sender_access() {
                     (codeterm_service_core::ports::socket::bridge().protocol_version)()
                 )),
             },
-            crate::auth::AuthenticatedOrigin::Mesh,
-            None,
             move || Ok(peer_id),
         )
         .await;
@@ -172,69 +170,6 @@ async fn relayed_remote_lifecycle_uses_the_verified_sender_access() {
             !full,
             "{message}"
         );
-    }
-}
-
-#[test]
-fn mesh_rpc_never_erases_an_agent_actor_into_owner_authority() {
-    use crate::auth::AuthenticatedOrigin;
-    for origin in [
-        AuthenticatedOrigin::Owner,
-        AuthenticatedOrigin::Agent,
-        AuthenticatedOrigin::Mesh,
-        AuthenticatedOrigin::Service,
-    ] {
-        for method in [
-            "plan.list",
-            "plan.task.close",
-            "plan.task.remote_ack",
-            "plan.task.remote_report",
-        ] {
-            let expected = origin.owner_trusted()
-                || (origin == AuthenticatedOrigin::Agent
-                    && method.starts_with("plan.task.remote_"));
-            assert_eq!(
-                super::origin_admitted(origin, method),
-                expected,
-                "{origin:?} {method}"
-            );
-        }
-    }
-}
-
-#[test]
-fn agent_remote_ack_and_report_match_the_signed_worker() {
-    let agent = codeterm_service_core::mesh::crown::AuthenticatedAgent {
-        instance_id: "worker-machine".into(),
-        tab_id: "worker-tab".into(),
-        can_spawn: false,
-    };
-    for (method, params) in [
-        (
-            "plan.task.remote_ack",
-            serde_json::json!({"worker_tab_id":"worker-tab"}),
-        ),
-        (
-            "plan.task.remote_report",
-            serde_json::json!({"report":{"reporter_tab_id":"worker-tab"}}),
-        ),
-    ] {
-        let request = super::MeshRpcRequest {
-            method: method.into(),
-            params: Some(params),
-            request_id: "request".into(),
-            protocol_version: None,
-        };
-        assert!(super::origin_admitted(
-            crate::auth::AuthenticatedOrigin::Agent,
-            method
-        ));
-        assert!(super::agent_lifecycle_matches(&agent, &request));
-        let other = codeterm_service_core::mesh::crown::AuthenticatedAgent {
-            tab_id: "another-worker".into(),
-            ..agent.clone()
-        };
-        assert!(!super::agent_lifecycle_matches(&other, &request));
     }
 }
 

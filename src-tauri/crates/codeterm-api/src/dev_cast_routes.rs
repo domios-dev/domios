@@ -12,7 +12,7 @@ use axum::{
 use base64::Engine;
 use serde::Deserialize;
 
-use crate::routes::{resolve_tab, AppState};
+use crate::routes::{check_auth, resolve_tab, AppState};
 use codeterm_service_core::pty::cast::{self, CastEvent, ParsedCast};
 
 #[derive(Deserialize)]
@@ -147,9 +147,10 @@ async fn inject_paced(
 /// POST /api/dev/inject-cast — replay cast output into a tab's OutputBuffer.
 pub async fn inject_cast(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<InjectCastBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if body.instant && body.classify {
         return Err((
             StatusCode::BAD_REQUEST,

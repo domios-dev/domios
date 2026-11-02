@@ -63,7 +63,7 @@ async fn require_plan_role_for_unowned_task(
 
 pub(super) async fn verify_task_mutation_owner(
     svc: &ServiceState,
-    headers: &crate::auth::ActorHeaders,
+    headers: &HeaderMap,
     plan_id: &str,
     task_id: &str,
     recovery: TaskMutationKind,

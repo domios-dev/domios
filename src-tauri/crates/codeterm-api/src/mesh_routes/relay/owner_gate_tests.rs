@@ -158,15 +158,9 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
                     &Method::POST,
                     &path,
                 ));
-                let response = perform_relay(
-                    &state,
-                    ISOLATED_PEER,
-                    &relay_command("POST", path),
-                    crate::auth::AuthenticatedOrigin::Mesh,
-                    None,
-                )
-                .await
-                .expect("refusal is a relay response");
+                let response = perform_relay(&state, ISOLATED_PEER, &relay_command("POST", path))
+                    .await
+                    .expect("refusal is a relay response");
                 assert!(!response.ok, "{foreign} {suffix}{query}");
                 assert_eq!(response.status, StatusCode::FORBIDDEN.as_u16());
                 assert_eq!(
@@ -176,15 +170,9 @@ async fn relayed_writes_into_a_foreign_tab_are_refused_for_agent_isolated() {
             }
         }
         let text = format!("/api/tabs/{foreign}/text?formatted=false");
-        let response = perform_relay(
-            &state,
-            ISOLATED_PEER,
-            &relay_command("GET", text),
-            crate::auth::AuthenticatedOrigin::Mesh,
-            None,
-        )
-        .await
-        .expect("refusal is a relay response");
+        let response = perform_relay(&state, ISOLATED_PEER, &relay_command("GET", text))
+            .await
+            .expect("refusal is a relay response");
         assert_eq!(response.status, StatusCode::FORBIDDEN.as_u16());
     }
 }
@@ -246,14 +234,7 @@ async fn dot_segments_cannot_retarget_an_authorized_relay() {
         format!("/api/tabs/{owned}/%2e%2E/{foreign}/send"),
         format!("/api/tabs/{owned}\\..\\{foreign}/send"),
     ] {
-        let refused = perform_relay(
-            &state,
-            ISOLATED_PEER,
-            &relay_command("POST", path),
-            crate::auth::AuthenticatedOrigin::Mesh,
-            None,
-        )
-        .await;
+        let refused = perform_relay(&state, ISOLATED_PEER, &relay_command("POST", path)).await;
         let (status, _) = refused.expect_err("dot segments are refused before dispatch");
         assert_eq!(status, StatusCode::BAD_REQUEST);
     }

@@ -1,14 +1,17 @@
-use axum::{extract::State as AxumState, Json};
+use axum::{extract::State as AxumState, http::HeaderMap, Json};
 use codeterm_orchestration::OrchestrationPairExt;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 
 /// Paired creation (task_7e5f9354): REST identity comes from authenticated caller context.
 pub(crate) async fn create_orchestration_pair(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Json(body): Json<codeterm_orchestration::OrchestrationPairParams>,
 ) -> Result<Json<serde_json::Value>, super::SpawnRejection> {
+    check_auth(&state, &headers).map_err(|(status, message)| {
+        super::SpawnRejection::new(status, "unauthorized", message.to_string())
+    })?;
     let params = pair_params_from_headers(&headers, body);
     let probe = params.clone();
     super::spawn_rejection::validate_spawn_cwd(
@@ -37,7 +40,7 @@ pub(crate) async fn create_orchestration_pair(
 }
 
 pub(super) fn pair_params_from_headers(
-    headers: &crate::auth::ActorHeaders,
+    headers: &HeaderMap,
     mut params: codeterm_orchestration::OrchestrationPairParams,
 ) -> codeterm_orchestration::OrchestrationPairParams {
     params.spawned_by_tab_id = crate::tab_routes::caller_tab_header(headers);

@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 
 #[derive(Debug, Deserialize)]
 pub struct UsageQuery {
@@ -46,9 +46,10 @@ pub struct UsageRefreshBody {
 
 pub async fn usage_latest(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<UsageQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let result = tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::agent_runtime::projections_latest(
             &state.svc,
@@ -64,9 +65,10 @@ pub async fn usage_latest(
 
 pub async fn usage_history(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<UsageHistoryQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let limit = q.limit.clamp(1, 5000);
     let rows = state
         .svc
@@ -80,9 +82,10 @@ pub async fn usage_history(
 
 pub async fn usage_daily_rollup(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<UsageRollupQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let rows = state
         .svc
         .usage_store
@@ -95,9 +98,10 @@ pub async fn usage_daily_rollup(
 
 pub async fn usage_projection(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<UsageQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let now_ms = chrono::Utc::now().timestamp_millis();
     let proj = codeterm_service_core::usage::projection::compute(
         &state.svc.usage_store,
@@ -113,8 +117,9 @@ pub async fn usage_projection(
 
 pub async fn usage_ledger_rebuild(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let kpi = state.svc.kpi.clone();
     if !kpi.is_enabled() {
         return Err((StatusCode::SERVICE_UNAVAILABLE, "kpi ledger not recording"));
@@ -141,9 +146,10 @@ pub async fn usage_ledger_rebuild(
 
 pub async fn usage_refresh(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<UsageRefreshBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let poller_opt = state
         .svc
         .ext::<codeterm_service_core::usage::poller::UsagePollerSlot>()

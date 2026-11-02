@@ -11,7 +11,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::pasteboard::PutParams;
 
 #[derive(Deserialize)]
@@ -27,9 +27,10 @@ pub struct PasteCreateBody {
 
 pub async fn paste_create(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<PasteCreateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let entry = state
         .svc
         .ext::<codeterm_service_core::pasteboard::PasteboardState>()
@@ -57,10 +58,11 @@ pub struct PasteGetQuery {
 
 pub async fn paste_get(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     axum::extract::Query(query): axum::extract::Query<PasteGetQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let entry = state
         .svc
         .ext::<codeterm_service_core::pasteboard::PasteboardState>()
@@ -79,9 +81,10 @@ pub async fn paste_get(
 
 pub async fn paste_delete(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     state
         .svc
         .ext::<codeterm_service_core::pasteboard::PasteboardState>()
@@ -92,8 +95,9 @@ pub async fn paste_delete(
 
 pub async fn paste_list(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let entries = state
         .svc
         .ext::<codeterm_service_core::pasteboard::PasteboardState>()

@@ -5,14 +5,15 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 
 use super::emit_activity;
 
 pub async fn mem_pinned_positions_list(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let positions = state
         .svc
         .mem
@@ -33,6 +34,7 @@ pub async fn mem_pinned_positions_set(
     axum::extract::Path(mem_id): axum::extract::Path<String>,
     Json(b): Json<PinnedPositionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let existed = state
         .svc
         .mem
@@ -53,6 +55,7 @@ pub async fn mem_pinned_positions_delete(
     headers: HeaderMap,
     axum::extract::Path(mem_id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let removed = state
         .svc
         .mem

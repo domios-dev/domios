@@ -181,7 +181,7 @@ pub async fn show(State(state): State<AppState>, Path(id): Path<String>) -> Task
 
 pub async fn take(
     State(state): State<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> TaskRouteResult {
     let tab_id = header_tab(&headers).ok_or_else(|| {
@@ -227,7 +227,7 @@ pub async fn take(
 
 pub async fn drop_task(
     State(state): State<AppState>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> TaskRouteResult {
     let (plan_id, task_id) = crate::plan_routes::authorize_task_execution_action_http(

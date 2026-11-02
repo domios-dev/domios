@@ -4,15 +4,16 @@ use axum::{
     Json,
 };
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::mem::dreaming;
 use codeterm_service_core::mem_ops::dream::*;
 
 pub async fn mem_extract_pending(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<ExtractPendingParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let limit = p.limit.unwrap_or(200).clamp(1, 1000);
     let count =
         codeterm_service_core::mem::auto_extract::run_extract_pending(state.svc.clone(), limit);
@@ -21,9 +22,10 @@ pub async fn mem_extract_pending(
 
 pub async fn mem_dream(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<DreamParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     use codeterm_service_core::mem::supervisor::WorkerKind;
 
     let phase = p.phase.as_deref().unwrap_or("all").to_lowercase();
@@ -113,8 +115,9 @@ pub async fn mem_dream(
 
 pub async fn mem_dream_report(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let report = dreaming::prepare_rem_data(&state.svc.mem)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
     Ok(Json(serde_json::json!({ "report": report })))
@@ -158,9 +161,10 @@ async fn run_recluster_inline(
 
 pub async fn mem_dream_diary(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<DreamDiaryParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let offset = p.offset.unwrap_or(0);
     let limit = p.limit.unwrap_or(30).clamp(1, 100);
     let svc = state.svc.clone();

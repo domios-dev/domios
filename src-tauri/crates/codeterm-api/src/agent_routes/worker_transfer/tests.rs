@@ -1,5 +1,4 @@
 use super::*;
-use axum::http::HeaderMap;
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::TaskBinding;
 use codeterm_service_core::plan::{OrchestratorRef, Plan, PlanMode, TaskLaneMetadata};
@@ -146,7 +145,7 @@ pub fn arm(mux: &mut MultiplexerState, tab_id: &str, suffix: &str) {
     tab.reported_session_binding_nonce = Some(format!("nonce-{suffix}"));
 }
 
-fn headers(tab_id: &str, suffix: &str) -> crate::auth::ActorHeaders {
+fn headers(tab_id: &str, suffix: &str) -> HeaderMap {
     let mut headers = HeaderMap::new();
     headers.insert("X-CodeTerm-Tab-Id", tab_id.parse().unwrap());
     headers.insert(
@@ -157,7 +156,7 @@ fn headers(tab_id: &str, suffix: &str) -> crate::auth::ActorHeaders {
         "X-CodeTerm-Binding-Nonce",
         format!("nonce-{suffix}").parse().unwrap(),
     );
-    crate::auth::ActorHeaders::for_owner_test(headers)
+    headers
 }
 
 #[test]
@@ -170,7 +169,7 @@ fn worker_transfer_role_endpoint_accepts_only_source_manager_headers_and_returns
         .plan_store
         .get(&fixture.plan_id)
         .unwrap();
-    let missing = crate::auth::ActorHeaders::for_owner_test(HeaderMap::new());
+    let missing = HeaderMap::new();
     assert!(try_task_bound_worker_transfer(
         &fixture.service.service,
         &missing,

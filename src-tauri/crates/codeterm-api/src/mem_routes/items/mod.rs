@@ -4,7 +4,7 @@ use axum::{
     Json,
 };
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::mem::activity::now_ms;
 use codeterm_service_core::mem::{
     learnings::{self, LearnKind},
@@ -17,9 +17,10 @@ use codeterm_service_core::mem_ops::validate_item_fields;
 
 pub async fn mem_activity_recent(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<ActivityRecentParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let since = p
         .since_ms
         .unwrap_or_else(|| now_ms().saturating_sub(60_000));
@@ -31,6 +32,7 @@ pub async fn mem_get(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let item = state
         .svc
         .mem
@@ -52,9 +54,10 @@ pub async fn mem_get(
 
 pub async fn mem_pinned_list(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<PinnedListParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let limit = p.limit.unwrap_or(100).clamp(1, 500);
     let items = state
         .svc
@@ -71,9 +74,10 @@ pub use delete::{mem_delete, mem_forget_area};
 
 pub async fn mem_save(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::AgentHeaders,
+    headers: HeaderMap,
     Json(body): Json<SaveBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     validate_item_fields(
         &body.title,
@@ -119,7 +123,11 @@ pub async fn mem_save(
     let worker_id = super::worker_id_from_headers(&headers);
     let result = codeterm_service_core::mem::store::with_write_worker(worker_id, || {
         codeterm_service_core::mem::store::with_authored_change(author.clone(), &changed_by, || {
-            headers.save_memory(&state, item, body.replace)
+            state.svc.save_memory_for_caller(
+                &crate::tab_routes::authenticated_plan_caller(&headers),
+                item,
+                body.replace,
+            )
         })
     })
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
@@ -167,6 +175,7 @@ pub async fn mem_update(
     Path(id): Path<String>,
     Json(body): Json<UpdateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     validate_update_body(&body).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
     let patch = MemUpdate {
@@ -215,12 +224,12 @@ pub async fn mem_update(
 
 pub async fn mem_wake_up(
     AxumState(state): AxumState<AppState>,
-    headers: crate::auth::AgentHeaders,
+    headers: HeaderMap,
     Query(p): Query<WakeUpParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
-        let caller_workspace = headers
-            .local_tab_id()
+        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+        let caller_workspace = crate::tab_routes::caller_tab_header(&headers)
             .and_then(|tab_id| state.svc.mux.read().find_workspace_for_tab(&tab_id));
         let opts = wake_up_options_from_params(
             state.svc.configuration().memory.l1_budget_tokens,
@@ -245,8 +254,9 @@ pub async fn mem_wake_up(
 
 pub async fn mem_stats(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let stats = state
         .svc
         .mem
@@ -260,9 +270,10 @@ pub async fn mem_stats(
 /// the auto-embed-on-create wiring (everything created before v1.1.23).
 pub async fn mem_reembed(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<ReembedParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let scope = p.scope.as_deref().unwrap_or("all").to_lowercase();
     let do_items = matches!(scope.as_str(), "items" | "all");
     let do_entities = matches!(scope.as_str(), "entities" | "all");
@@ -292,6 +303,7 @@ pub async fn mem_learn(
     headers: HeaderMap,
     Json(b): Json<LearnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let lk = match b.kind.as_deref() {
         Some("error") => LearnKind::Error,
@@ -310,6 +322,7 @@ pub async fn mem_promote(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let changed_by = changed_by_from_headers(&headers);
     codeterm_service_core::mem::store::with_authored_change(author.clone(), &changed_by, || {
@@ -321,9 +334,10 @@ pub async fn mem_promote(
 
 pub async fn mem_check_duplicate(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(b): Json<CheckDuplicateBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if b.body.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "body required".into()));
     }
@@ -374,9 +388,10 @@ pub async fn mem_check_duplicate(
 
 pub async fn mem_history(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let history = state
         .svc
         .mem
@@ -394,6 +409,7 @@ pub async fn mem_append(
     Path(id): Path<String>,
     Json(b): Json<AppendBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     if b.text.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "text required".into()));
@@ -442,6 +458,7 @@ pub async fn mem_restore(
     Path(id): Path<String>,
     Json(b): Json<RestoreBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let svc = state.svc.clone();
     let target = id.clone();
@@ -458,9 +475,10 @@ pub async fn mem_restore(
 
 pub async fn mem_taxonomy(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<TaxonomyParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let tax = state
         .svc
         .mem
@@ -471,9 +489,10 @@ pub async fn mem_taxonomy(
 
 pub async fn mem_tail(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<TailParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let limit = p.limit.unwrap_or(20).min(500);
     let rows = state
         .svc

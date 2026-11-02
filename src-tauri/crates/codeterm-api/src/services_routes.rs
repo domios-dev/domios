@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::activity::{ActivityEvent, ActivitySource, ActivityWriter};
 use codeterm_service_core::service::store::{
     self, Service, ServiceCreate, ServiceKind, ServiceUpdate,
@@ -20,9 +20,10 @@ pub struct ActivityQuery {
 
 pub async fn list_activity(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<ActivityQuery>,
 ) -> Result<Json<Vec<ActivityEvent>>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let writer = ActivityWriter::new(state.svc.services_store.conn());
     let source = q.source.as_deref().and_then(parse_activity_source);
     writer
@@ -57,9 +58,10 @@ fn parse_kind(s: &str) -> Option<ServiceKind> {
 
 pub async fn list_services(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<Service>>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let kind = q.kind.as_deref().and_then(parse_kind);
     let merged = {
         let cron = state.cron.lock();
@@ -76,9 +78,10 @@ pub async fn list_services(
 
 pub async fn create_service(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<ServiceCreate>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if body.kind != ServiceKind::Daemon {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -112,9 +115,10 @@ pub async fn create_service(
 
 pub async fn get_service(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Service>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .services_store
@@ -126,10 +130,11 @@ pub async fn get_service(
 
 pub async fn update_service(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<ServiceUpdate>,
 ) -> Result<Json<Service>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .services_store
@@ -149,9 +154,10 @@ pub async fn update_service(
 
 pub async fn delete_service(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     state
         .svc
         .services_store
@@ -175,10 +181,11 @@ pub struct SmartAddInspectBody {
 /// Web-mirror twin of the `services_smart_add_inspect` Tauri command —
 /// probes a URL and suggests service fields for the "Add service" wizard.
 pub async fn smart_add_inspect(
-    AxumState(_state): AxumState<AppState>,
-    _headers: HeaderMap,
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
     Json(body): Json<SmartAddInspectBody>,
 ) -> Result<Json<codeterm_service_core::service::smart_add::SmartAddResult>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     codeterm_service_core::service::smart_add::inspect(&body.url)
         .await
         .map(Json)
@@ -187,9 +194,10 @@ pub async fn smart_add_inspect(
 
 pub async fn regenerate_token(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let token = state
         .svc
         .tokens

@@ -65,7 +65,7 @@ type AdoptResult = Result<Json<TabAdoptResponse>, (StatusCode, Json<serde_json::
 pub(crate) async fn adopt_agent(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Json(request): Json<TabAdoptRequest>,
 ) -> AdoptResult {
     let result = adopt_agent_inner(state, raw_tab_id, headers, request).await;
@@ -75,7 +75,7 @@ pub(crate) async fn adopt_agent(
 async fn adopt_agent_inner(
     state: AppState,
     raw_tab_id: String,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     request: TabAdoptRequest,
 ) -> Result<TabAdoptResponse, ApiAdoptError> {
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)

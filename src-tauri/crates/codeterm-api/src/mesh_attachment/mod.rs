@@ -10,7 +10,7 @@ use axum::{
 use base64::Engine as _;
 use serde::Deserialize;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::service::mesh_attachment::*;
 
 const ENCODED_MAX_BYTES: usize = (MESH_ATTACHMENT_MAX_BYTES as usize).div_ceil(3) * 4;
@@ -45,10 +45,11 @@ pub fn decode_ingest(req: &IngestRequest) -> Result<(String, Vec<u8>), IngestRef
 /// here, where the bytes live.
 pub async fn ingest(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(req): Json<IngestRequest>,
 ) -> Result<Json<IngestedAttachment>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     crate::routes::resolve_tab_async(&state, &id)
         .await
         .map_err(|(s, e)| (s, e.to_string()))?;
@@ -150,9 +151,10 @@ pub struct TransferBody {
 /// `POST /api/mesh/attachments/transfer` — web-mirror twin of `mesh_transfer_attachment`.
 pub async fn transfer(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<TransferBody>,
 ) -> Result<Json<IngestedAttachment>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     transfer_to_peer(
         &state.mesh,
         &body.ordinary_tab_id,

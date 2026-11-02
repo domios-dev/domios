@@ -1,6 +1,6 @@
 //! Mesh networking API routes — account links, relay, sync.
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use axum::{
     extract::State as AxumState,
     http::{HeaderMap, StatusCode},
@@ -51,15 +51,17 @@ pub async fn mesh_ping(
     Json(serde_json::json!({"mesh": true}))
 }
 
-pub(super) fn require_administrator(
-    state: &AppState,
-    headers: &HeaderMap,
-) -> Result<(), (StatusCode, &'static str)> {
-    if crate::auth::authenticated_origin(state, headers).is_ok_and(|origin| origin.owner_trusted())
-    {
-        Ok(())
-    } else {
-        Err((StatusCode::FORBIDDEN, "Owner authorization required"))
+pub async fn mesh_debug_sign(
+    AxumState(state): AxumState<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
+    let mesh = state.mesh.lock();
+    match mesh.sign_request() {
+        Ok(token) => Ok(Json(
+            serde_json::json!({"token": token, "instance_id": mesh.ident.identity.instance_id}),
+        )),
+        Err(e) => Ok(Json(serde_json::json!({"error": e}))),
     }
 }
 
@@ -74,7 +76,7 @@ pub async fn mesh_set_enabled(
     headers: HeaderMap,
     Json(body): Json<SetEnabledBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    require_administrator(&state, &headers)?;
+    check_auth(&state, &headers)?;
     let enabled = tokio::task::spawn_blocking(move || {
         codeterm_service_core::mesh::set_mesh_enabled(
             &state.mesh,
@@ -95,16 +97,18 @@ pub async fn mesh_set_enabled(
 
 pub async fn mesh_status(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::to_value(mesh.status()).unwrap()))
 }
 
 pub async fn mesh_peers(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    check_auth(&state, &headers)?;
     let mesh = state.mesh.lock();
     Ok(Json(serde_json::to_value(mesh.peers_response()).unwrap()))
 }
@@ -121,7 +125,7 @@ pub async fn mesh_set_access(
     axum::extract::Path(instance_id): axum::extract::Path<String>,
     Json(body): Json<SetAccessBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    require_administrator(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let level = match body.access_level.as_str() {
         "full" => codeterm_service_core::mesh::types::AccessLevel::Full,
         "read_only" => codeterm_service_core::mesh::types::AccessLevel::ReadOnly,

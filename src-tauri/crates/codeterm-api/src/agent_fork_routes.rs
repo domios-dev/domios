@@ -1,4 +1,4 @@
-use super::routes::AppState;
+use super::routes::{check_auth, AppState};
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -8,9 +8,12 @@ use axum::{
 
 pub async fn fork(
     State(state): State<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(tab): Path<String>,
 ) -> Response {
+    if let Err((status, message)) = check_auth(&state, &headers) {
+        return (status, message).into_response();
+    }
     let tab = match crate::routes::resolve_tab_async(&state, &tab).await {
         Ok(tab) => tab,
         Err((status, message)) => return (status, message).into_response(),

@@ -4,15 +4,16 @@ use axum::{
     Json,
 };
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_mem::curation::calibration::stale::StaleParams;
 use codeterm_service_core::mem_ops::calibration::*;
 
 pub async fn mem_calibration_sweep(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<SweepParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let force = p.force.unwrap_or(false);
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || svc.mem.calibration_sweep(force))
@@ -24,9 +25,10 @@ pub async fn mem_calibration_sweep(
 
 pub async fn mem_calibration_log(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<CalibLogParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let limit = p.limit.unwrap_or(50).min(500);
     let since = match p.since.as_deref() {
         Some(s) if !s.is_empty() => {
@@ -52,9 +54,10 @@ pub async fn mem_calibration_log(
 
 pub async fn mem_calibration_stale(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(p): Query<StaleParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let hygiene = svc.configuration().memory.dream_hygiene;
     tokio::task::spawn_blocking(move || svc.mem.stale(&p, &hygiene))

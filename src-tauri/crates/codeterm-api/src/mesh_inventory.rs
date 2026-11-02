@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use axum::{extract::State as AxumState, http::HeaderMap, http::StatusCode, Json};
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_mesh::contract::inventory::{
     InventoryCapability, InventoryFreshness, InventoryOperation, InventoryProvenance,
     InventoryUnavailableReason,
@@ -163,6 +163,7 @@ pub async fn inventory(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<MeshInventoryView>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let access = crate::auth::caller_access_level(&state, &headers)?;
     let (machine_id, machine_name) = {
         let mesh = state.mesh.lock();

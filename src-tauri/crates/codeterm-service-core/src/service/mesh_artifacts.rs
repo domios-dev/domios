@@ -79,17 +79,17 @@ fn rewrite(
 
 pub async fn transfer(
     svc: &super::ServiceContext,
-    source_tab: Result<Option<String>, String>,
+    source_tab: Option<&str>,
     client: &PeerClient,
     method: &str,
     path: &str,
     body: &mut serde_json::Value,
 ) -> Result<(), String> {
+    let source_tab = source_tab.map(str::to_string);
     transfer_with(method, path, body, |source, ingest_path| {
         let svc = svc.clone();
         let source_tab = source_tab.clone();
         async move {
-            let source_tab = source_tab.map_err(ArtifactError::Transfer)?;
             let source_path = source.clone();
             let request = tokio::task::spawn_blocking(move || {
                 let configured = crate::config::load_config().api.preview_secret_paths;

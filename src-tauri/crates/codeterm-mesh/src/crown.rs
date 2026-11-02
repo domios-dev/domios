@@ -11,28 +11,6 @@ use serde::{Deserialize, Serialize};
 const B64: base64::engine::general_purpose::GeneralPurpose =
     base64::engine::general_purpose::STANDARD;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum AuthenticatedOrigin {
-    Owner,
-    Agent,
-    Mesh,
-    Service,
-}
-
-impl AuthenticatedOrigin {
-    pub fn owner_trusted(self) -> bool {
-        matches!(self, Self::Owner | Self::Mesh)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AuthenticatedAgent {
-    pub instance_id: String,
-    pub tab_id: String,
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub can_spawn: bool,
-}
-
 pub fn verifying_key_from_b64(b64: &str) -> Result<VerifyingKey, String> {
     let bytes = B64.decode(b64).map_err(|e| e.to_string())?;
     if bytes.len() != 32 {
@@ -50,9 +28,6 @@ pub fn verifying_key_from_b64(b64: &str) -> Result<VerifyingKey, String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignedRequest {
     pub from_instance_id: String,
-    pub origin: AuthenticatedOrigin,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<AuthenticatedAgent>,
     pub timestamp: u64,
     /// Nonce to prevent replay (UUID).
     pub nonce: String,
@@ -87,23 +62,6 @@ pub fn public_key_from_private(private_key_b64: &str) -> Result<String, String> 
 /// Sign a mesh request with this peer's private key.
 /// Returns "Authorization: MeshJWT <signed_token>" value.
 pub fn sign_request(private_key_b64: &str, instance_id: &str) -> Result<String, String> {
-    sign_request_with_origin(private_key_b64, instance_id, AuthenticatedOrigin::Mesh)
-}
-
-pub fn sign_request_with_origin(
-    private_key_b64: &str,
-    instance_id: &str,
-    origin: AuthenticatedOrigin,
-) -> Result<String, String> {
-    sign_request_with_agent(private_key_b64, instance_id, origin, None)
-}
-
-pub fn sign_request_with_agent(
-    private_key_b64: &str,
-    instance_id: &str,
-    origin: AuthenticatedOrigin,
-    agent: Option<&AuthenticatedAgent>,
-) -> Result<String, String> {
     let key_bytes = B64.decode(private_key_b64).map_err(|e| e.to_string())?;
     if key_bytes.len() != 32 {
         return Err("Invalid private key length".to_string());
@@ -119,8 +77,6 @@ pub fn sign_request_with_agent(
 
     let req = SignedRequest {
         from_instance_id: instance_id.to_string(),
-        origin,
-        agent: agent.cloned(),
         timestamp: now,
         nonce: uuid::Uuid::new_v4().to_string(),
     };
@@ -138,13 +94,6 @@ pub fn verify_signed_request(
     token: &str,
     known_keys: &std::collections::HashMap<String, String>,
 ) -> Result<String, String> {
-    verify_request_claims(token, known_keys).map(|claims| claims.from_instance_id)
-}
-
-pub fn verify_request_claims(
-    token: &str,
-    known_keys: &std::collections::HashMap<String, String>,
-) -> Result<SignedRequest, String> {
     let parts: Vec<&str> = token.splitn(2, '.').collect();
     if parts.len() != 2 {
         return Err("Invalid signed request format".to_string());
@@ -185,7 +134,7 @@ pub fn verify_request_claims(
     vk.verify(parts[0].as_bytes(), &signature)
         .map_err(|_| "Invalid signature".to_string())?;
 
-    Ok(req)
+    Ok(req.from_instance_id)
 }
 
 /// Extract nonce from a signed request token without verifying the signature.
@@ -203,5 +152,66 @@ pub fn nonce_from_token(token: &str) -> Result<String, String> {
     Ok(req.nonce)
 }
 
+// ── Tests ───────────────────────────────────────────────────────────
+
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_peer_sign_verify_roundtrip() {
+        let (priv_key, pub_key) = generate_peer_keypair();
+        let token = sign_request(&priv_key, "peer-abc").unwrap();
+        assert!(!token.is_empty());
+        assert!(token.contains('.'));
+
+        let mut known = std::collections::HashMap::new();
+        known.insert("peer-abc".to_string(), pub_key);
+        let sender = verify_signed_request(&token, &known).unwrap();
+        assert_eq!(sender, "peer-abc");
+    }
+
+    #[test]
+    fn test_peer_sign_wrong_key_rejected() {
+        let (priv_key_a, _pub_key_a) = generate_peer_keypair();
+        let (_priv_key_b, pub_key_b) = generate_peer_keypair();
+        let token = sign_request(&priv_key_a, "peer-a").unwrap();
+
+        let mut known = std::collections::HashMap::new();
+        known.insert("peer-a".to_string(), pub_key_b);
+        assert!(verify_signed_request(&token, &known).is_err());
+    }
+
+    #[test]
+    fn test_peer_sign_unknown_peer_rejected() {
+        let (priv_key, _pub_key) = generate_peer_keypair();
+        let token = sign_request(&priv_key, "peer-unknown").unwrap();
+
+        let known = std::collections::HashMap::new();
+        assert!(verify_signed_request(&token, &known).is_err());
+    }
+
+    #[test]
+    fn public_key_from_private_matches_keypair_pub() {
+        let (priv_key, pub_key) = generate_peer_keypair();
+        let derived = public_key_from_private(&priv_key).unwrap();
+        assert_eq!(derived, pub_key);
+    }
+
+    #[test]
+    fn public_key_from_private_rejects_garbage() {
+        assert!(public_key_from_private("not-base64!").is_err());
+        assert!(public_key_from_private(&B64.encode([0u8; 16])).is_err());
+    }
+
+    #[test]
+    fn nonce_from_token_roundtrip() {
+        let (priv_key, _) = generate_peer_keypair();
+        let token = sign_request(&priv_key, "peer-abc").unwrap();
+        let nonce = nonce_from_token(&token).unwrap();
+        assert!(!nonce.is_empty(), "nonce should be a non-empty UUID");
+        let token2 = sign_request(&priv_key, "peer-abc").unwrap();
+        let nonce2 = nonce_from_token(&token2).unwrap();
+        assert_ne!(nonce, nonce2, "each sign produces a unique nonce");
+    }
+}

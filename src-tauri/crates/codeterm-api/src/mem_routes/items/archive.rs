@@ -6,7 +6,7 @@ use axum::{
 use serde_json::Value;
 
 use crate::mem_routes::{changed_by_from_headers, emit_activity, sanitize_actor};
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::mem_ops::items::archive::{
     archive_mem_item, validate_archive_reason, ArchiveBody,
 };
@@ -17,6 +17,7 @@ pub async fn mem_archive(
     Path(id): Path<String>,
     Json(body): Json<ArchiveBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let reason = validate_archive_reason(&body.reason)?;
     let actor = body
         .changed_by

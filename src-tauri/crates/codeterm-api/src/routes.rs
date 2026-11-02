@@ -611,6 +611,7 @@ pub(super) fn create_router_with_preview_admission(
         .route("/api/bridge/stop", post(bridge_routes::bridge_stop))
         .route("/api/bridge/announce", post(bridge_routes::bridge_announce))
         .route("/api/mesh/ping", get(mesh_routes::mesh_ping))
+        .route("/api/mesh/debug/sign", get(mesh_routes::mesh_debug_sign))
         .route("/api/mesh/status", get(mesh_routes::mesh_status))
         .route("/api/mesh/peers", get(mesh_routes::mesh_peers))
         .route("/api/mesh/relay-to", post(mesh_routes::mesh_relay_to_peer))
@@ -1091,4 +1092,13 @@ pub(crate) fn resolve_tab(
     let mux = state.svc.mux.read();
     mux.resolve_tab_id(raw_id)
         .ok_or((StatusCode::NOT_FOUND, "Tab not found"))
+}
+
+/// Auth + access check handled by auth_middleware layer.
+/// Kept as no-op for backwards compatibility with existing handlers.
+pub(crate) fn check_auth(
+    _state: &AppState,
+    _headers: &HeaderMap,
+) -> Result<(), (StatusCode, &'static str)> {
+    Ok(())
 }

@@ -29,7 +29,7 @@ pub async fn clear_prompt(
 pub async fn set_agent_type(
     AxumState(state): AxumState<AppState>,
     Path(tab_id): Path<String>,
-    headers: crate::auth::ActorHeaders,
+    headers: HeaderMap,
     Json(body): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {

@@ -15,7 +15,7 @@ use futures_util::StreamExt;
 use serde::Deserialize;
 
 use crate::auth::CallerIdentity;
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_commands::commands::plugins::{
     view_host_action, view_host_download, view_host_input, DocumentStamp, HostActionRequest,
     PickedSource,
@@ -97,6 +97,7 @@ pub async fn host_action(
     headers: HeaderMap,
     Json(request): Json<HostActionRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let stamp = Stamp::of(&headers);
     tokio::task::spawn_blocking(move || view_host_action(&svc, request, stamp.borrow()))
@@ -174,6 +175,7 @@ pub async fn host_input(
     headers: HeaderMap,
     body: axum::body::Body,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let stamp = Stamp::of(&headers);
     let content_type = headers
@@ -375,6 +377,7 @@ pub async fn host_action_download(
     headers: HeaderMap,
     Json(request): Json<DownloadRequest>,
 ) -> Result<Response, (StatusCode, String)> {
+    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let stamp = Stamp::of(&headers);
     let opened = tokio::task::spawn_blocking(move || {

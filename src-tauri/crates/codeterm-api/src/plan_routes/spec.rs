@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::routes::AppState;
+use crate::routes::{check_auth, AppState};
 use codeterm_service_core::plan::{EffortLinkRel, PlanStatus};
 use codeterm_service_core::service::plan::PlanError;
 
@@ -136,9 +136,10 @@ pub struct EffortLinkBody {
 
 pub async fn create(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Json(body): Json<CreateSpecBody>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let project = body.project_path.unwrap_or_else(|| {
         std::env::current_dir()
             .map(|p| p.display().to_string())
@@ -157,9 +158,10 @@ pub async fn create(
 
 pub async fn list(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Query(q): Query<ListSpecsQuery>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let want = if let Some(project) = &q.project {
         Some(
             state
@@ -195,10 +197,11 @@ pub async fn list(
 
 pub async fn get(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Query(q): Query<ShowSpecQuery>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     if q.full == Some(true) {
         return state
             .svc
@@ -217,10 +220,11 @@ pub async fn get(
 
 pub async fn section_add(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<SectionAddBody>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let sid = state
         .svc
         .plan_store
@@ -241,10 +245,11 @@ pub async fn section_add(
 
 pub async fn section_update(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, sid)): Path<(String, String)>,
     Json(body): Json<SectionUpdateBody>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -265,9 +270,10 @@ pub async fn section_update(
 
 pub async fn section_rm(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, sid)): Path<(String, String)>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -279,10 +285,11 @@ pub async fn section_rm(
 
 pub async fn link_add(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<SpecLinkBody>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -300,10 +307,11 @@ pub async fn link_add(
 
 pub async fn link_rm(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path((id, spec_id)): Path<(String, String)>,
     Query(q): Query<SpecLinkDeleteQuery>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -321,9 +329,10 @@ pub async fn link_rm(
 
 pub async fn link_list(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     Ok(Json(serde_json::json!({
         "links": state.svc.plan_store.list_spec_links(&id)
     })))
@@ -331,9 +340,10 @@ pub async fn link_list(
 
 pub async fn effort_show(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -344,10 +354,11 @@ pub async fn effort_show(
 
 pub async fn effort_link(
     AxumState(state): AxumState<AppState>,
-    _headers: HeaderMap,
+    headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<EffortLinkBody>,
 ) -> RouteResult {
+    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let rel = match body.rel.as_str() {
         "follows" => EffortLinkRel::Follows,
         "supersedes" => EffortLinkRel::Supersedes,
