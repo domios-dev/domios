@@ -78,6 +78,7 @@ fn output_records_the_work_mark_when_the_classifier_previous_is_stale() {
 
     let (state_changed, mark_changed) = super::store_agent_state_and_record_turn_resume_edge(
         tab,
+        &crate::agent::registry::AgentRegistry::new(),
         new_state.clone(),
         Some("start-a"),
         false,
@@ -94,6 +95,7 @@ fn output_records_the_work_mark_when_the_classifier_previous_is_stale() {
     assert_eq!(
         super::store_agent_state_and_record_turn_resume_edge(
             tab,
+            &crate::agent::registry::AgentRegistry::new(),
             new_state,
             Some("start-a"),
             false,
@@ -481,8 +483,86 @@ fn pty_classifier_cannot_overwrite_structured_turn_state() {
         crate::agent::provider::ProviderStateVerdict::Idle,
     );
     assert_eq!(
-        super::store_agent_state_and_record_turn_resume_edge(tab, idle, None, false,),
+        super::store_agent_state_and_record_turn_resume_edge(
+            tab,
+            &crate::agent::registry::AgentRegistry::new(),
+            idle,
+            None,
+            false,
+        ),
         (false, false)
     );
     assert_eq!(tab.agent_state, Some(working));
+}
+
+#[test]
+fn declared_pty_turn_rejects_stale_classifier_idle_and_keeps_stop_available() {
+    use crate::agent::provider::ProviderStateVerdict;
+    use crate::agent::state_verdict::{apply, live_state_for};
+    use crate::plugin::js_runtime::{JsProvider, PluginManifest, PluginVm};
+    use crate::service::tab_stop::StopDecision;
+
+    let manifest_json = r#"{"id":"opaque-state-provider","version":"0.1.0","displayName":"Fixture",
+        "spawn":{"structuredPromptServer":true,"agentStateStatusReconciliation":true}}"#;
+    let manifest: PluginManifest = serde_json::from_str(manifest_json).unwrap();
+    let vm = PluginVm::from_source_with(
+        &manifest.id,
+        "module.exports.default = {};".into(),
+        Some(manifest_json.into()),
+    )
+    .unwrap();
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.pty_id = Some("own-pty".into());
+    tab.agent_type = Some(manifest.id.clone());
+    tab.agent_session_id = Some("own-session".into());
+    tab.boot_stage = Some(BootStage::AgentReady);
+    tab.agent_state = Some(live_state_for(ProviderStateVerdict::Idle));
+    let fixture = ServiceFixture::new(mux);
+    let svc = &fixture.service;
+    svc.agent_registry
+        .register_provider(Box::new(JsProvider::new(manifest, std::sync::Arc::new(vm))));
+    svc.agent_tracker.lock().set_idle("own-pty");
+    let stale_idle = live_state_for(ProviderStateVerdict::Idle);
+
+    assert!(apply(
+        &svc.mux,
+        &tab_id,
+        "own-session",
+        ProviderStateVerdict::Working
+    ));
+    {
+        let mut mux = svc.mux.write();
+        assert_eq!(
+            super::store_agent_state_and_record_turn_resume_edge(
+                mux.get_tab_mut(&tab_id).unwrap(),
+                &svc.agent_registry,
+                stale_idle,
+                None,
+                false,
+            ),
+            (false, false)
+        );
+    }
+    assert!(
+        matches!(svc.stop_decision(&tab_id), StopDecision::Interrupt { session_id: Some(session), .. } if session == "own-session")
+    );
+    assert_eq!(svc.get_tab_status(&tab_id).unwrap().status, "working");
+    assert!(!apply(
+        &svc.mux,
+        &tab_id,
+        "foreign-session",
+        ProviderStateVerdict::Idle
+    ));
+    assert!(apply(
+        &svc.mux,
+        &tab_id,
+        "own-session",
+        ProviderStateVerdict::Idle
+    ));
+    assert_eq!(
+        svc.stop_decision(&tab_id),
+        StopDecision::NotWorking(crate::agent::status::TabStatus::Idle)
+    );
+    assert_eq!(svc.get_tab_status(&tab_id).unwrap().status, "idle");
 }
