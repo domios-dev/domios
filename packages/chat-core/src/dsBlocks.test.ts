@@ -78,6 +78,21 @@ test("dsBlocks committed object identity survives twenty chunks and reset invali
   assert.notEqual(scanner.segments[0].id, block.id);
 });
 
+test("dsBlocks tool and paste wrappers suppress every prefix of nested HTML and agent effects", () => {
+  for (const wrapper of ["tool_result", "tool_output", "transcript", "pasted_content"]) {
+    const html = '<ds-html><input/><svg><path/></svg><script>const outer="</ds-html>";</script><button>Local action</button></ds-html>';
+    const excerpt = `<${wrapper}>\n${html}\n<ds-agent tab="deadbeef" />\n</${wrapper}>`;
+    const scanner = new DsBlockScanner({ id: wrapper, trusted: true });
+    for (const [index, unit] of [...excerpt].entries()) {
+      scanner.append(unit);
+      assert.equal(committed(scanner.segments).length, 0, `${wrapper} prefix ${index + 1}: nested effects`);
+    }
+    scanner.append(`\n${html}\n<ds-agent tab="outside" />`);
+    assert.deepEqual(blocks(scanner.segments).map(({ block }) => block.kind), ["html", "agent"]);
+    assert.deepEqual(blocks(scanner.segments).at(-1)?.block, { kind: "agent", tab: "outside" });
+  }
+});
+
 test("dsBlocks end and cancellation never repair a missing terminator", () => {
   for (const lifecycle of ["ended", "cancelled"] as const) {
     const scanner = new DsBlockScanner({ id: "message", trusted: true });
