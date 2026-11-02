@@ -65,19 +65,6 @@ fallback_cache() {
   printf '%s\n' "$cache"
 }
 
-# Prints "<artifact-name>\t<path>" for the spooled copy of $1 (a key or a prefix ending in /).
-fallback_locate() {
-  local cache="$1" wanted="$2" candidate
-  if [ -e "$cache/$wanted" ]; then
-    printf 'run-artifact\t%s\n' "$cache/$wanted"
-  fi
-  for candidate in "$cache"/*/"$wanted" "$RUNNER_TEMP/ci-artifact-spool/$wanted"; do
-    [ -e "$candidate" ] || continue
-    printf '%s\t%s\n' "$(basename "${candidate%/"$wanted"}")" "$candidate"
-  done
-  return 0
-}
-
 s3() {
   : "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is not set}"
   : "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is not set}"
@@ -163,44 +150,10 @@ esac
 if store_down; then
   case "$verb" in
     put) spool_put "${3:?missing file}" ;;
-    get)
-      file=${3:?missing file}
+    get|get-prefix)
+      destination=${3:?missing destination}
       cache=$(fallback_cache)
-      found_any=0
-      while IFS=$'\t' read -r artifact object; do
-        [ -n "$object" ] || continue
-        if [ "$found_any" = 1 ]; then
-          cmp -s "$object" "$file" || { echo "ci-artifact: conflicting copies of $key" >&2; exit 1; }
-        else
-          cp "$object" "$file"
-          found_any=1
-        fi
-        record "$key" "run-artifact:$artifact/$key"
-      done < <(fallback_locate "$cache" "$key")
-      [ "$found_any" = 1 ] || { echo "ci-artifact: $key is in no run artifact of run ${key%%/*}" >&2; exit 1; }
-      echo "ci-artifact: got $key from run artifacts"
-      ;;
-    get-prefix)
-      dir=${3:?missing directory}
-      mkdir -p "$dir"
-      cache=$(fallback_cache)
-      count=0
-      while IFS=$'\t' read -r artifact directory; do
-        [ -n "$directory" ] || continue
-        for object in "$directory"/*; do
-          [ -f "$object" ] || continue
-          target="$dir/${object##*/}"
-          if [ -f "$target" ]; then
-            cmp -s "$object" "$target" || { echo "ci-artifact: conflicting copies of $key${object##*/}" >&2; exit 1; }
-          else
-            cp "$object" "$target"
-          fi
-          count=$((count + 1))
-          record "$key${object##*/}" "run-artifact:$artifact/$key${object##*/}"
-        done
-      done < <(fallback_locate "$cache" "$key")
-      [ "$count" -gt 0 ] || { echo "ci-artifact: $key is in no run artifact" >&2; exit 1; }
-      echo "ci-artifact: got $count object(s) under $key from the run artifacts into $dir"
+      node "$(dirname "${BASH_SOURCE[0]}")/ci-artifact-fallback.mjs" "$cache" "$key" "$destination" "$verb"
       ;;
     rm) echo "::warning::private store $endpoint is unreachable; $key was not removed" ;;
   esac
