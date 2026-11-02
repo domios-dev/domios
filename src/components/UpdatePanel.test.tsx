@@ -154,3 +154,75 @@ it("reconciles only a restored app intent after native idle is observed without 
     expect(fake.app.applyUpdate).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+it.each([
+  ["check", "all"], ["check", "item"], ["apply", "all"], ["apply", "item"],
+])("retires a previous failure on %s before a new %s update applies and succeeds", async (retirement, action) => {
+  localStorage.setItem("codeterm.update-all.intent", JSON.stringify({ stage: "app", appTarget: "2.0.0", pluginIds: [], interfaceRequested: false }));
+  Object.assign(fake.app, { nativeStatusObserved: true });
+  const offer: UpdateAvailabilitySnapshot = { errors: {}, items: [{ id: "app", kind: "app", installed: "1.0.0", latest: "2.0.0", compatible: true, state: "update_available", reason: "newer", channel: null }] };
+  fake.check.mockResolvedValue(offer);
+  fake.app.applyUpdate.mockImplementation(async () => {
+    Object.assign(fake.app, { installing: true, phase: "applying" });
+    return { status: "updating" };
+  });
+  let panel!: ReturnType<typeof useUpdatePanel>;
+  function Probe() { panel = useUpdatePanel(); return null; }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<UpdatePanelProvider><Probe /></UpdatePanelProvider>));
+    expect(panel.error).toContain("previous app update is no longer active");
+    expect(panel.awaitingRetry).toBe(true);
+    fake.check.mockResolvedValue({ items: [], errors: {} });
+    await act(async () => panel.retry());
+    expect(panel.history).toHaveLength(1);
+    expect(panel.error).toBeFalsy();
+    fake.check.mockResolvedValue(offer);
+    if (retirement === "check") {
+      await act(async () => panel.retry());
+      expect(panel.history).toEqual([]);
+    } else {
+      await act(async () => fake.changed!({ payload: offer }));
+      expect(panel.history).toHaveLength(1);
+    }
+    await act(async () => action === "all" ? panel.updateAll() : panel.applyItem("app"));
+    expect(fake.app.applyUpdate).toHaveBeenCalledExactlyOnceWith({ failureSurface: "inline" });
+    expect(panel.busy).toBe(true);
+    expect(panel.activeId).toBe("app");
+    expect(panel.history).toEqual([]);
+    expect(panel.error).toBeFalsy();
+    Object.assign(fake.app, { installing: false, phase: "success", currentVersion: "2.0.0" });
+    const installed: UpdateAvailabilitySnapshot = { errors: {}, items: offer.items.map(item => ({ ...item, installed: "2.0.0", state: "up_to_date" })) };
+    fake.check.mockResolvedValue(installed);
+    await act(async () => fake.changed!({ payload: installed }));
+    expect(panel.busy).toBe(false);
+    expect(panel.history).toEqual([]);
+    expect(panel.error).toBeFalsy();
+    expect(panel.awaitingRetry).toBe(false);
+    expect(panel.rows.find(row => row.id === "app")?.state).toBe("completed");
+  } finally { await act(async () => root.unmount()); }
+});
+
+it.each(["applying", "success"])("retires archived failures when the native updater reports %s", async phase => {
+  localStorage.setItem("codeterm.update-all.intent", JSON.stringify({ stage: "app", appTarget: "2.0.0", pluginIds: [], interfaceRequested: false }));
+  Object.assign(fake.app, { nativeStatusObserved: true });
+  fake.check.mockResolvedValue({ items: [], errors: {} });
+  let panel!: ReturnType<typeof useUpdatePanel>;
+  function Probe() { panel = useUpdatePanel(); return null; }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const render = () => root.render(<UpdatePanelProvider><Probe /></UpdatePanelProvider>);
+  try {
+    await act(async () => render());
+    expect(panel.error).toBeTruthy();
+    await act(async () => panel.retry());
+    expect(panel.history).toHaveLength(1);
+    Object.assign(fake.app, { phase, installing: phase === "applying" });
+    await act(async () => render());
+    expect(panel.history).toEqual([]);
+    Object.assign(fake.app, { phase: "idle", installing: false });
+    await act(async () => render());
+    expect(panel.history).toEqual([]);
+  } finally { await act(async () => root.unmount()); }
+});
