@@ -951,10 +951,8 @@ fn respawn_prompt_starts_with_canonical_identity_once() {
         .unwrap();
 
     let task = store.show_task(&task_id).unwrap().task;
-    let expected = crate::service_plan::worker_identity::compose_task_worker_identity(
-        &task,
-        Some("Hopper"),
-    );
+    let expected =
+        crate::service_plan::worker_identity::compose_task_worker_identity(&task, Some("Hopper"));
     let (identity, _) =
         crate::service_plan::worker_identity::split_worker_identity(&draft.task_prompt);
     assert_eq!(identity, Some(expected.as_str()));
@@ -1004,10 +1002,8 @@ fn competition_prompt_starts_with_same_canonical_identity() {
     let prompt = &drafts[0].task_prompt;
 
     let task = store.show_task(&task_id).unwrap().task;
-    let expected = crate::service_plan::worker_identity::compose_task_worker_identity(
-        &task,
-        Some("Hopper"),
-    );
+    let expected =
+        crate::service_plan::worker_identity::compose_task_worker_identity(&task, Some("Hopper"));
     let (identity, _) = crate::service_plan::worker_identity::split_worker_identity(prompt);
     assert_eq!(identity, Some(expected.as_str()));
     assert!(prompt.starts_with(&expected));

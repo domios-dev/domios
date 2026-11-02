@@ -8,10 +8,10 @@ use crate::multiplexer::commands::MuxState;
 use crate::session::store::{SaveIntent, SaveOutcome};
 
 mod fixture_import;
-pub use fixture_import::{import_fixture, validate_fixture_snapshot};
 use fixture_import::FixtureOperation;
 #[cfg(test)]
 use fixture_import::{commit_fixture, fixture_mux_value};
+pub use fixture_import::{import_fixture, validate_fixture_snapshot};
 
 pub const PERSISTENCE_DEADLINE: Duration = Duration::from_secs(30);
 
@@ -93,9 +93,13 @@ impl PersistenceMailbox {
         if state.stopping {
             return Err("desk persistence worker is stopping".to_string());
         }
-        if matches!(&message, WorkerMessage::Persist(_) | WorkerMessage::Fixture { .. }
-            | WorkerMessage::InstallStorage(_) | WorkerMessage::Unavailable(_))
-        {
+        if matches!(
+            &message,
+            WorkerMessage::Persist(_)
+                | WorkerMessage::Fixture { .. }
+                | WorkerMessage::InstallStorage(_)
+                | WorkerMessage::Unavailable(_)
+        ) {
             if let Some(reason) = &state.fixture_state {
                 return Err(reason.clone());
             }
@@ -380,7 +384,10 @@ fn run_worker(
     loop {
         let message = mailbox.pop();
         match message {
-            WorkerMessage::Fixture { operation, response } => {
+            WorkerMessage::Fixture {
+                operation,
+                response,
+            } => {
                 let result = operation(&mut backend);
                 let retained = match &result {
                     Ok(_) => Some("Fixture import committed and published; restart required; persistence suspended".to_string()),
@@ -389,7 +396,10 @@ fn run_worker(
                 };
                 {
                     let mut state = mailbox.state.lock();
-                    state.fixture_published = result.as_ref().ok().map(|committed| Arc::new(committed.mux.clone()));
+                    state.fixture_published = result
+                        .as_ref()
+                        .ok()
+                        .map(|committed| Arc::new(committed.mux.clone()));
                     state.fixture_state = retained.clone();
                 }
                 if let Some(reason) = retained {
@@ -397,11 +407,20 @@ fn run_worker(
                 }
                 committed_desk = None;
                 if result.is_ok() {
-                    if let (Some(context), PersistenceBackend::Storage { revision, .. }) = (context.as_ref(), &backend) {
-                        context.ui.emit_native("desk-revision-committed", serde_json::json!(revision.to_string()));
+                    if let (Some(context), PersistenceBackend::Storage { revision, .. }) =
+                        (context.as_ref(), &backend)
+                    {
+                        context.ui.emit_native(
+                            "desk-revision-committed",
+                            serde_json::json!(revision.to_string()),
+                        );
                     }
                 }
-                let _ = response.send(result.map(|committed| committed.tabs).map_err(|error| error.reason));
+                let _ = response.send(
+                    result
+                        .map(|committed| committed.tabs)
+                        .map_err(|error| error.reason),
+                );
             }
             WorkerMessage::Persist(request) => {
                 if matches!(&backend, PersistenceBackend::Pending) {
