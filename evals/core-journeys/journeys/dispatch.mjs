@@ -37,6 +37,7 @@ async function orchestratorFixture(ctx) {
     "--execution-intent", "non_repository", "--body-file", body]);
   ctx.state.j3.task = findTask(task)?.id ?? task?.task?.id ?? task?.id;
   ctx.save();
+  await ctx.fixtureCommand(["plan", "approve", ctx.state.j3.plan]);
   return ctx.state.j3;
 }
 

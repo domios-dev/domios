@@ -28,6 +28,7 @@ process.env.CODETERM_API_PORT = options.port;
 process.env.CORE_JOURNEY_BUILD_CHECKOUT = options.checkout;
 
 const prefixes = [["agent", "set-orchestrator"], ["plan", "create"], ["plan", "task", "add"],
+  ["plan", "approve"],
   ["plan", "task", "dispatch"], ["plan", "review", "bounce"], ["plan", "review", "accept"],
   ["plan", "rebind"], ["plan", "delete"]];
 function allowed(args) {
