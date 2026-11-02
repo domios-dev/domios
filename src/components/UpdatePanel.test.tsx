@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import type { UpdateAvailabilitySnapshot } from "../lib/updateAvailability";
 
-const fake = vi.hoisted(() => ({ check: vi.fn(), plugin: vi.fn(), app: { installing: false, error: null as string | null, currentVersion: "1.0.0", phase: "idle", nativeStatusObserved: false, applyUpdate: vi.fn() }, changed: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null }));
+const fake = vi.hoisted(() => ({ check: vi.fn(), plugin: vi.fn(), app: { installing: false, error: null as string | null, currentVersion: "1.0.0", phase: "idle", nativeStatusObserved: false, applyUpdate: vi.fn(), captureFailureBoundary: () => ({ frontendRevision: 0, nativeRevision: null }) }, changed: null as ((event: { payload: UpdateAvailabilitySnapshot }) => void) | null }));
 vi.mock("../lib/updateAvailability", () => ({ checkUpdateAvailability: fake.check }));
 vi.mock("../hooks/useUpdate", () => ({ useUpdate: () => fake.app }));
 vi.mock("../lib/pluginSnapshotStore", () => ({ runPluginSnapshotAction: fake.plugin, ensurePluginSnapshot: async () => ({}), usePluginSnapshotStore: () => ({ snapshot: { plugins: [], marketplace: [] } }) }));
@@ -73,7 +73,7 @@ it("retains failed diagnostics after checking and never offers an update for the
     expect(host.querySelector("details")?.open).toBe(false);
     fake.check.mockResolvedValue({ items: [], errors: {} });
     await act(async () => [...host.querySelectorAll("button")].find(button => button.textContent === "Check again")!.click());
-    expect(host.querySelector('[aria-label="git update failed"]')).not.toBeNull();
+    expect(host.querySelector('[aria-label="git update failed"]')).toBeNull();
     expect(host.querySelector('button[aria-label^="Update "]:not([aria-label="Update all"])')).toBeNull();
     expect(host.querySelector<HTMLButtonElement>('[aria-label="Update all"]')?.disabled).toBe(true);
     expect(host.querySelector("pre")?.textContent).toContain("opaque final rename refusal");
