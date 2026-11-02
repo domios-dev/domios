@@ -23,7 +23,7 @@ use crate::agent::chat_types::RichMessage;
 use crate::agent::registry::AgentRegistry;
 use crate::service::tab_chat::store_watch::{spawn_store_watch_with_test_hook, StoreWatchTestHook};
 use crate::service::tab_chat::{
-    spawn_store_watch, spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
+    spawn_tailer, ChatRegistry, DeltaSink, StoreWatchConfig, TailConfig,
 };
 
 mod host_wake;

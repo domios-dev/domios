@@ -8,7 +8,7 @@ Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", { value: true, con
 for (const key of ["window", "document", "navigator", "HTMLElement", "HTMLButtonElement", "HTMLIFrameElement", "SVGElement", "Element", "Node", "Event"] as const) {
   Object.defineProperty(globalThis, key, { value: key === "window" ? browser : browser[key], configurable: true });
 }
-browser.matchMedia = (() => ({ matches: false, media: "", onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as typeof browser.matchMedia;
+browser.matchMedia = (() => ({ matches: false, media: "", onchange: null, addEventListener() {}, removeEventListener() {}, addListener() {}, removeListener() {}, dispatchEvent: () => false })) as unknown as typeof browser.matchMedia;
 export const mermaidCalls: string[] = [];
 Object.assign(browser, { mermaid: { initialize() {}, async render(_id: string, source: string) { mermaidCalls.push(source); return { svg: '<svg xmlns="http://www.w3.org/2000/svg"><text>Diagram</text></svg>' }; } } });
 export const { MessageBubble } = await import("./MessageBubble");
