@@ -6,6 +6,7 @@ import { __setInvokeForTest } from "../../lib/bridge";
 import { useTerminalInput } from "./useTerminalInput";
 import { useXterm } from "./useXterm";
 import { setXtermFrameScheduler } from "./xtermInitScheduler";
+import statusQueries from "../../../tests/fixtures/terminal-status.json";
 
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class { activate() {} dispose() {} fit() {} },
@@ -82,6 +83,55 @@ function enter(textarea: HTMLTextAreaElement, keyCode = 13, isComposing = false)
 }
 
 describe("xterm composition delivery", () => {
+  it("assigns DSR status to the backend with two real renderers and preserves CPR and DA", async () => {
+    const control = new Terminal({ allowProposedApi: true });
+    const controlReplies: string[] = [];
+    control.onData(data => controlReplies.push(data));
+    const first = await fixture();
+    const second = await fixture();
+    const firstReplies: string[] = [];
+    const secondReplies: string[] = [];
+    first.term.onData(data => firstReplies.push(data));
+    second.term.onData(data => secondReplies.push(data));
+    async function output(term: Terminal, chunks: Uint8Array[]) {
+      const done = chunks.map(chunk => new Promise<void>(resolve => term.write(chunk, resolve)));
+      await vi.runOnlyPendingTimersAsync();
+      await Promise.all(done);
+    }
+    try {
+      for (const query of statusQueries) {
+        const bytes = Uint8Array.from(query.bytes);
+        const splits = Array.from({ length: bytes.length + 1 }, (_, index) => [bytes.slice(0, index), bytes.slice(index)]);
+        splits.push(Array.from(bytes, byte => Uint8Array.of(byte)));
+        for (const chunks of splits) {
+          control.reset(); first.term.reset(); second.term.reset();
+          controlReplies.length = 0; firstReplies.length = 0; secondReplies.length = 0;
+          await act(async () => {
+            await output(control, chunks);
+            await output(first.term, chunks);
+            await output(second.term, chunks);
+          });
+          expect(controlReplies.filter(reply => reply === "\x1b[0n"), query.name)
+            .toEqual(Array(query.statusReplies).fill("\x1b[0n"));
+          expect(firstReplies, query.name).toEqual([]);
+          expect(secondReplies, query.name).toEqual([]);
+        }
+      }
+      await act(async () => {
+        for (const term of [control, first.term, second.term]) {
+          term.reset();
+          await output(term, [new TextEncoder().encode("\x1b[6n\x1b[c")]);
+        }
+      });
+      expect(firstReplies).toEqual(["\x1b[1;1R", "\x1b[?1;2c"]);
+      expect(secondReplies).toEqual(["\x1b[1;1R", "\x1b[?1;2c"]);
+    } finally {
+      control.dispose();
+      await first.dispose();
+      await second.dispose();
+    }
+  });
+
   it("consumes renderer status queries without producing PTY input or changing user text", async () => {
     async function output(term: Terminal, ...chunks: string[]) {
       const parsed = chunks.map(chunk => new Promise<void>(resolve => term.write(chunk, resolve)));
