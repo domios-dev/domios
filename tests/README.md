@@ -9,6 +9,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
+| `windows-installer-preflight` | integration | mixed | manual | no | no | 90 | glob `tests/windows/*.Tests.ps1` | `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows/installer-preflight.Tests.ps1` | `.agents/skills/testing/SKILL.md` |
 | `qualification-receipt` | guard | js | release | no | no | 300 | single | `node scripts/ci-qualification.mjs record "$SOURCE_SHA" qualification-rust` | `.agents/skills/github-release/SKILL.md` |
 | `eval-bubble-geometry` | eval | mixed | manual | yes | no | 60 | single | `bash evals/bubble-geometry/run.sh` | `evals/bubble-geometry/README.md` |
 | `ts-unit` | unit | ts | pr | no | no | 300 | glob `src/**/*.test.ts` `src/**/*.test.tsx` `packages/**/*.test.ts` `packages/**/*.test.tsx` minus `**/node_modules/**` `**/dist/**` minus `scripts/vitest-owned-tests.json` | `pnpm test:unit` | `.agents/skills/testing/SKILL.md` |

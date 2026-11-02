@@ -6,9 +6,33 @@ using System.Text;
 public sealed class DomiosInstallHolder {
     public uint Pid;
     public ulong Created;
+    public string Name;
 }
 
 public static class DomiosInstallerProcess {
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern IntPtr OpenProcess(uint access, bool inherit, uint pid);
+    [DllImport("kernel32.dll")]
+    static extern bool CloseHandle(IntPtr handle);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+    [DllImport("kernel32.dll", SetLastError = true)]
+    static extern bool GetProcessTimes(IntPtr handle, out FILETIME created, out FILETIME exited, out FILETIME kernel, out FILETIME user);
+
+    public static string State(uint pid, long expectedCreated) {
+        var handle = OpenProcess(0x1000 | 0x100000, false, pid);
+        if (handle == IntPtr.Zero)
+            return Marshal.GetLastWin32Error() == 87 ? "Exited" : "Unknown";
+        try {
+            if (WaitForSingleObject(handle, 0) == 0) return "Exited";
+            FILETIME created, exited, kernel, user;
+            if (!GetProcessTimes(handle, out created, out exited, out kernel, out user)) return "Unknown";
+            long identity = ((long)(uint)created.dwHighDateTime << 32) | (uint)created.dwLowDateTime;
+            if (expectedCreated != 0 && identity != expectedCreated) return "Replaced";
+            uint state = WaitForSingleObject(handle, 0);
+            return state == 258 ? "Live" : state == 0 ? "Exited" : "Unknown";
+        } finally { CloseHandle(handle); }
+    }
     [DllImport("kernel32.dll", SetLastError = true)]
     public static extern bool TerminateProcess(IntPtr process, uint code);
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
@@ -59,6 +83,7 @@ public static class DomiosInstallerProcess {
             for (uint index = 0; index < count; index++) {
                 holders[index] = new DomiosInstallHolder {
                     Pid = processes[index].Process.Pid,
+                    Name = processes[index].Name,
                     Created = ((ulong)(uint)processes[index].Process.Created.dwHighDateTime << 32) |
                         (uint)processes[index].Process.Created.dwLowDateTime
                 };
