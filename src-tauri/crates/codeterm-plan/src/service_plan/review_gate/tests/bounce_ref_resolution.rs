@@ -1,8 +1,13 @@
 use super::*;
 
-fn persisted_task_milestones(plan: &Plan, task_id: &str) -> Vec<crate::plan::Milestone> {
-    let plan_dir = crate::service_plan::store_v2::plan_state_dir(plan).unwrap();
-    crate::service_plan::store_v2::load_plan(&plan_dir)
+fn persisted_task_milestones(
+    store: &PlanStore,
+    plan: &Plan,
+    task_id: &str,
+) -> Vec<crate::plan::Milestone> {
+    PlanStore::open(store.database_path_for_test())
+        .unwrap()
+        .get(&plan.id)
         .unwrap()
         .tasks
         .into_iter()
@@ -84,7 +89,7 @@ fn bounce_review_names_the_exact_attempt_gap_not_a_missing_task() {
             .unwrap()
             .text
             .contains("attempted bounce"));
-        let persisted_milestones = persisted_task_milestones(&plan, &task.id);
+        let persisted_milestones = persisted_task_milestones(&store, &plan, &task.id);
         assert!(persisted_milestones
             .iter()
             .any(|entry| entry.text.contains("attempted bounce")));
@@ -246,7 +251,7 @@ fn bounce_reopens_in_review_task_whose_executor_is_gone() {
     let milestone = task.milestones.last().unwrap();
     assert_eq!(milestone.kind, REVIEW_MILESTONE_KIND);
     assert!(milestone.text.contains("retry after the Worker exited"));
-    let persisted_milestones = persisted_task_milestones(&plan, &task.id);
+    let persisted_milestones = persisted_task_milestones(&store, &plan, &task.id);
     assert!(persisted_milestones.iter().any(|stride| {
         stride.id == milestone.id && stride.text.contains("retry after the Worker exited")
     }));

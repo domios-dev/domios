@@ -310,7 +310,20 @@ pub(super) fn chain_hash(previous: i64, document: &str) -> i64 {
 }
 
 fn to_json(value: &Value) -> Result<String, String> {
-    serde_json::to_string(value).map_err(|error| error.to_string())
+    let document = serde_json::to_string(value).map_err(|error| error.to_string())?;
+    #[cfg(test)]
+    SERIALIZED_ROW_BYTES.with(|bytes| bytes.set(bytes.get() + document.len()));
+    Ok(document)
+}
+
+#[cfg(test)]
+thread_local! {
+    static SERIALIZED_ROW_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn take_serialized_row_bytes() -> usize {
+    SERIALIZED_ROW_BYTES.with(|bytes| bytes.replace(0))
 }
 
 #[cfg(test)]

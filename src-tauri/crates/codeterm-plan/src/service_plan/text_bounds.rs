@@ -65,6 +65,10 @@ pub(super) fn validate_plan_text(field: &str, value: &str) -> Result<(), PlanErr
     budget.add(field, value)
 }
 
+pub(super) fn validate_stored_entity(value: &Value) -> Result<(), PlanError> {
+    validate_stored_plan_value(value, &mut StoredPlanTextBudget::unbounded())
+}
+
 pub(super) fn validate_plan(plan: &crate::plan::Plan) -> Result<(), PlanError> {
     add_label(&mut TextBudget::stored(), "plan title", &plan.title)?;
     for section in &plan.sections {
