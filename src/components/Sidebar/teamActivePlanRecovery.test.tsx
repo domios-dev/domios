@@ -8,6 +8,7 @@ import { __setListenForTest } from "../../lib/bridge";
 import { fireResync } from "../../lib/resync";
 import { PlansProvider, usePlanIndex, useSidebarPlansOptional } from "../Canvas/PlansProvider";
 import type { PlanIndexEntry } from "../Canvas/plansApi";
+import type { PlanProjection } from "../Canvas/planProjection";
 import { FIXTURE_PLAN, FIXTURE_TASK } from "../Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../Canvas/types";
 import { SidebarDnd } from "./sortable";
@@ -103,6 +104,15 @@ function indexEntry(value: Plan): PlanIndexEntry {
   };
 }
 
+function summary(value: Plan): PlanProjection {
+  return {
+    ...value,
+    revision: String(value.updated_at),
+    tasks: [],
+    task_counts: { total: value.tasks.length, pending: value.tasks.length, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
+  };
+}
+
 function snapshot(teamName: string): MultiplexerState {
   const tab = {
     id: TAB_ID,
@@ -167,14 +177,14 @@ function installFetch() {
     value: (input: RequestInfo | URL) => tracked((async () => {
       if (!restAvailable) throw new TypeError("REST unavailable");
       const url = String(input);
-      if (url.includes("/api/plans?full=1") || url.includes("/api/plans?chat=1")) return response({ plans: backendPlans });
+      if (url.endsWith("/api/plans?view=summary")) return response({ plans: backendPlans.map(summary) });
       if (url.endsWith("/api/plans")) {
         return response({ plans: backendPlans.map(indexEntry) });
       }
       if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
-      const planId = url.match(/\/api\/plans\/([^/?]+)$/)?.[1];
+      const planId = url.match(/\/api\/plans\/([^/?]+)\/projection\?view=summary$/)?.[1];
       const found = backendPlans.find((value) => value.id === planId);
-      return found ? response(found) : new Response("not found", { status: 404 });
+      return found ? response(summary(found)) : new Response("not found", { status: 404 });
     })()),
   });
 }
@@ -190,7 +200,7 @@ async function installListen() {
 
 function emitPlanChanged(planId: string | null) {
   for (const handler of listenHandlers.get("plan-changed") ?? []) {
-    handler({ payload: planId ? { plan_id: planId } : null });
+    handler({ payload: planId ? { plan_id: planId, revision: "2", previous_revision: "1", task_ids: [], reset: false, deleted: false } : null });
   }
 }
 

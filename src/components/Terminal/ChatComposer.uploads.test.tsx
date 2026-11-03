@@ -71,7 +71,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
   __setListenForTest(async () => () => {});
   configureLocalPreviews();
   const state: ExtendedState = {
-    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    workspaces: [], tabs: { picker: { id: "picker", pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } }, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
   };
   const store = createMuxStateStore(() => state);
@@ -146,8 +146,11 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
       return;
     }
     const row = host.querySelector('[data-testid="user-bubble-row"]')!;
-    expect(row.querySelector('[aria-label="User message"]')?.parentElement).toBe(row);
-    expect(row.querySelector('[role="status"]')?.parentElement).toBe(row);
+    const message = row.querySelector('[aria-label="User message"]');
+    const delivery = row.querySelector('[role="status"]');
+    expect(message).not.toBeNull();
+    expect(delivery).not.toBeNull();
+    expect(message!.contains(delivery)).toBe(false);
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     if (failure !== "success" && failure !== "HEIC" && failure !== "pending") {
       expect(parseAttachmentMarkers(sent[0]).attachments).toEqual([]);

@@ -261,6 +261,7 @@ function TabSessionChatBody({
   const promptAnswers = descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
   const isActive = isVisible;
+  const transcriptMounted = sessionActive ?? isActive;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
   const resolvePluginName = usePluginDisplayNameResolver();
 
@@ -399,7 +400,7 @@ function TabSessionChatBody({
   const liveOperation = renderedEnrichedMessages.find(({ msg }) => msg.id === chatTranscriptActivity.liveToolId)?.msg ?? null;
   const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
-    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
+    active: transcriptMounted, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
   const mountedContentVersion = useMemo(() => ({ enrichedMessages, start: mountedWindow.range.start,
     end: mountedWindow.range.end, revision: mountedWindow.revision }),
     [enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
@@ -974,7 +975,7 @@ function TabSessionChatBody({
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         <div ref={mountedWindow.rowsRef}>
-        <HoldWhileHidden visible={isActive}>
+        <HoldWhileHidden visible={transcriptMounted}>
         {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map((entry, mountedIndex) => {
           const { msg } = entry;
           const messageIndex = mountedWindow.range.start + mountedIndex;

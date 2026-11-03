@@ -84,7 +84,7 @@ function Row({ value }: { value: number }) {
   return <output aria-label="Row">{value}</output>;
 }
 
-test("hidden rows keep their last render until the chat is visible again", async () => {
+test("hidden rows release their content and render the current value when visible again", async () => {
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
@@ -93,7 +93,7 @@ test("hidden rows keep their last render until the chat is visible again", async
   await act(async () => root.render(<HoldWhileHidden visible={false}><Row value={2} /></HoldWhileHidden>));
   await act(async () => root.render(<HoldWhileHidden visible={false}><Row value={3} /></HoldWhileHidden>));
   assert.equal(rowRenders, 1);
-  assert.equal(shown(), "1");
+  assert.equal(shown(), undefined);
   await act(async () => root.render(<HoldWhileHidden visible><Row value={4} /></HoldWhileHidden>));
   assert.equal(rowRenders, 2);
   assert.equal(shown(), "4");

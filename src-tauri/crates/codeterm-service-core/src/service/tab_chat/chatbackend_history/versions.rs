@@ -70,8 +70,12 @@ pub(super) fn message_id(line: &str) -> io::Result<String> {
 }
 
 pub(super) fn base(line: &str) -> io::Result<Option<u64>> {
-    if !line.starts_with(VERSION_PREFIX) { return Ok(None); }
-    serde_json::from_str::<Envelope>(line).map(|record| Some(record._version.base)).map_err(io::Error::other)
+    if !line.starts_with(VERSION_PREFIX) {
+        return Ok(None);
+    }
+    serde_json::from_str::<Envelope>(line)
+        .map(|record| Some(record._version.base))
+        .map_err(io::Error::other)
 }
 
 pub(super) fn delta(id: &str, base: u64, before: &str, after: &str) -> io::Result<String> {
@@ -264,7 +268,9 @@ pub(super) fn resolve(file: &mut std::fs::File, mut at: u64, id: &str) -> io::Re
     let full = loop {
         let line = record(file, at)?;
         scanned += line.len() as u64;
-        if scanned > 2 * MAX_RECORD_BYTES { return Err(io::Error::other("history version chain exceeds byte limit")); }
+        if scanned > 2 * MAX_RECORD_BYTES {
+            return Err(io::Error::other("history version chain exceeds byte limit"));
+        }
         if message_id(&line)? != id {
             return Err(io::Error::other("history version identity mismatch"));
         }
