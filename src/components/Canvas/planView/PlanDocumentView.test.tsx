@@ -3,6 +3,9 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import { MuxStateStoreContext } from "../../../store/multiplexer/context";
+import { createMuxStateStore } from "../../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../../store/multiplexer/tree";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import { PERF_SPEC_ID } from "../perfFixtureSections";
 import type { Plan } from "../types";
@@ -32,7 +35,12 @@ async function render(ui: ReactElement): Promise<{ host: HTMLDivElement; root: R
   const host = document.createElement("div");
   document.body.appendChild(host);
   const root = createRoot(host);
-  await act(async () => root.render(ui));
+  const state: ExtendedState = {
+    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
+  };
+  const store = createMuxStateStore(() => state);
+  await act(async () => root.render(<MuxStateStoreContext.Provider value={store}>{ui}</MuxStateStoreContext.Provider>));
   await act(async () => await Promise.resolve());
   return { host, root };
 }

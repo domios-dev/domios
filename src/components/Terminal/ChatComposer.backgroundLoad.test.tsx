@@ -9,6 +9,7 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import type { Tab } from "../../lib/types";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import type { InitializeCapabilities } from "../../lib/providerCapabilities";
 
 test("unchanged background snapshots do not render the composer and local edits survive changed commands", async () => {
@@ -41,12 +42,12 @@ test("unchanged background snapshots do not render the composer and local edits 
   const root = createRoot(host);
   const reject = () => { throw new Error("Background updates must not send or mutate"); };
   try {
-    await act(async () => root.render(<MuxStateStoreContext.Provider value={store}>
+    await act(async () => root.render(<DraftStorageFixture><MuxStateStoreContext.Provider value={store}>
       <ChatComposer tabId={tabId} tabProvider={null} currentPtyId={null} pendingPrompt={null}
         attachments={[]} addAttachments={reject} removeAttachment={reject} clearAttachments={reject}
         handlePasteEvent={reject} onWillSendMessage={reject} addOptimistic={reject}
         updateOptimistic={reject} observeChatSendStatus={reject} showComposerError={reject} />
-    </MuxStateStoreContext.Provider>));
+    </MuxStateStoreContext.Provider></DraftStorageFixture>));
     const editor = host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message composer"]');
     assert(editor);
     const initialRenders = window.__composerPerf.renderCounts[tabId];

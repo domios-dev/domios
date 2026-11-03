@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { editFrontendDraft, frontendSignals } from "./frontendUpdate/appState";
 import { hasComposerDraft, readComposerDraft } from "./frontendUpdate/drafts";
 import { composerDraftPersistence, type DraftPersistence } from "./frontendUpdate/draftPersistence";
@@ -8,8 +8,12 @@ function readDraft(scope: string, persistence: DraftPersistence): string {
   return hasComposerDraft(drafts, scope) ? readComposerDraft(drafts, scope) : persistence.records.get(scope) ?? "";
 }
 
+export const DraftPersistenceContext = createContext(composerDraftPersistence);
+
 export function usePersistentDraft(scope: string, onError?: (message: string) => void,
-  persistence: DraftPersistence = composerDraftPersistence): [string, (value: string) => void] {
+  override?: DraftPersistence): [string, (value: string) => void] {
+  const inherited = useContext(DraftPersistenceContext);
+  const persistence = override ?? inherited;
   const [draft, setDraft] = useState(() => ({ scope, value: readDraft(scope, persistence) }));
   const errorCallback = useRef(onError);
   errorCallback.current = onError;
@@ -21,8 +25,9 @@ export function usePersistentDraft(scope: string, onError?: (message: string) =>
     const sync = () => {
       if (!active) return;
       const error = persistence.error(scope);
-      if (error && error !== reported) errorCallback.current?.(`Draft could not be saved: ${error.message}`);
+      const changedError = error && error !== reported;
       reported = error;
+      if (changedError) errorCallback.current?.(`Draft could not be saved: ${error.message}`);
       const value = readDraft(scope, persistence);
       setDraft(previous => previous.scope === scope && previous.value === value ? previous : { scope, value });
     };

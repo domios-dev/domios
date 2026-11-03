@@ -15,6 +15,25 @@ function memoryStorage() {
 }
 
 describe("asynchronous composer drafts", () => {
+  it("does not restart a failed write when its error subscriber throws", async () => {
+    let attempts = 0;
+    const drafts = new DraftPersistence({ read: async () => new Map(), write: async () => {
+      attempts += 1;
+      throw new Error("unavailable");
+    } });
+    await drafts.initialize();
+    const stop = drafts.subscribe(() => {
+      if (drafts.error("t")) throw new Error("error observer failed");
+    });
+    drafts.edit("t", "preserved");
+    await expect(drafts.flush()).rejects.toThrow("error observer failed");
+    stop();
+    expect(attempts).toBe(1);
+    expect(drafts.records.get("t")).toBe("preserved");
+    await expect(drafts.flush()).rejects.toThrow("unavailable");
+    expect(attempts).toBe(2);
+  });
+
   it("restores text, capsules and reply identity in a fresh page and keeps sent text cleared", async () => {
     const storage = memoryStorage();
     const first = new DraftPersistence(storage);
