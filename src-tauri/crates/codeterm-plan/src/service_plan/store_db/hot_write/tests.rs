@@ -507,7 +507,7 @@ fn task_metadata_and_searchable_text_update_only_the_required_fts_record() {
             vec![HotChange::Fields {
                 selector: "task_0000".into(),
                 fields: TaskFields {
-                    priority: Some("high".into()),
+                    priority: Some("p1".into()),
                     ..Default::default()
                 },
             }],
