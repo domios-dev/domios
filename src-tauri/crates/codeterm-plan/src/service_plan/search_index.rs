@@ -19,11 +19,13 @@ mod embedding;
 mod incremental;
 mod narrow;
 mod recovery;
+mod snapshot;
 pub(super) use incremental::PlanIndexScope;
 pub(super) use narrow::{
     enqueue_milestone_index, enqueue_plan_time, enqueue_task_index, MilestoneIndexDelta,
     TaskIndexDelta,
 };
+pub(in crate::service_plan) use snapshot::PlanSearchSnapshot;
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
 
@@ -80,7 +82,7 @@ pub struct PlanReindexResult {
     pub units: usize,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 struct Unit {
     id: String,
     kind: &'static str,
@@ -102,6 +104,7 @@ enum IndexJob {
     Status(PathBuf, narrow::StatusDelta),
     Unit(PathBuf, Unit),
     Plan(Plan, PlanIndexScope),
+    PlanSnapshot(PlanSearchSnapshot),
     Prune(PathBuf, HashSet<String>),
     Embed(PathBuf, Unit),
     DeletePlan(Plan),
@@ -122,6 +125,7 @@ impl IndexJob {
             Self::Plan(plan, _) | Self::DeletePlan(plan) => {
                 format!("{}:plan:{}", self.project_key(), plan.id)
             }
+            Self::PlanSnapshot(snapshot) => format!("{}:plan:{}", self.project_key(), snapshot.id),
             Self::Spec(spec) | Self::DeleteSpec(spec) => {
                 format!("{}:spec:{}", self.project_key(), spec.id)
             }
@@ -140,6 +144,7 @@ impl IndexJob {
                 project_scope(plan_project_root(plan))
             }
             Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
+            Self::PlanSnapshot(snapshot) => project_scope(&snapshot.root),
         }
     }
 
@@ -149,6 +154,7 @@ impl IndexJob {
             (Self::Plan(plan, scope), Self::Plan(_, queued_scope)) => {
                 Self::Plan(plan, scope.union(queued_scope))
             }
+            (Self::Plan(plan, _), Self::PlanSnapshot(_)) => Self::Plan(plan, PlanIndexScope::Full),
             (job, _) => job,
         }
     }
@@ -300,6 +306,15 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
             plan_project_root(plan),
             incremental::mirror_plan_scope(plan, scope, false),
         ),
+        IndexJob::PlanSnapshot(snapshot) => embedding::queue_changed(
+            &snapshot.root,
+            replace_units_once(
+                &snapshot.root,
+                &format!("planunit_{}_%", snapshot.id),
+                &snapshot.units,
+                false,
+            ),
+        ),
         IndexJob::DeletePlan(plan) => delete_plan_units(plan),
         IndexJob::PurgePlan(plan, specs) => recovery::purge_plan_indexes(plan, specs),
         IndexJob::Spec(spec) => {
@@ -354,13 +369,13 @@ pub(crate) fn flush_index_queue_for_test(_project_root: &Path) {
 impl super::PlanStore {
     pub fn mirror_plan_index(&self, plan: &Plan) -> Result<(), String> {
         let writer_turn = self.mutation_writer.enter();
-        let mut plans = self.project_plans(plan_project_root(plan));
+        let mut plans = self.project_search_snapshots(plan_project_root(plan))?;
         plans.retain(|stored| stored.id != plan.id);
-        plans.push(plan.clone());
+        plans.push(PlanSearchSnapshot::from_plan(plan));
         self.enqueue_project_index(
             &writer_turn,
             plan_project_root(plan),
-            &plans,
+            plans,
             &self.list_specs_full(),
         );
         Ok(())
