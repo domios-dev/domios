@@ -4,13 +4,12 @@ Use `domios` for tabs, agents, plans, mesh, memory and schedules. First search
 `domios mem search "<need>"`, then read `--help` or `domios docs`; never guess.
 Load the `domios` skill for these operations.
 
-A tab title is one word and stays stable. Dispatch derives the description from
+A tab title is one stable word. Dispatch derives its description from
 the task name (`--description` overrides); direct `agent spawn` needs
 `--description`; `domios tab describe` updates it. Finish related edits,
 then verify once: skip any check the next step already performs (a rebuild
-compiles, a live run tests). In Git, commit in large batches: one commit per
-finished task or integration wave, plus one per review round; never per edit,
-file or small fix.
+compiles, a live run tests). In Git, batch commits: one per finished task or
+integration wave, plus one per review round; never per edit, file or small fix.
 
 Verification need not add tests. Reuse existing proof; add automation for an
 important uncovered failure mode worth its maintenance cost. Concrete visual
@@ -23,4 +22,4 @@ An escalation may ask rather than announce: repeat `--choice "Label"` once per o
 
 Blueprints: `blueprint new --intent "<purpose>" --json` first; typed call when a card fits, otherwise author/check/apply. Read `domios docs BLUEPRINT-AUTHORING`; retain the sealed check definition for calls. Re-applying a name retargets it.
 
-<!-- revision: 1 -->
+<!-- revision: 2 -->

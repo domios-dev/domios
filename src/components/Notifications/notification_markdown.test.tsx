@@ -53,17 +53,14 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLDivElement; r
   return { host, root };
 }
 
-function assertFormatted(body: Element, surface: string) {
-  assert(body.querySelector("strong")?.textContent === "bold", `${surface} must render bold`);
-  assert(body.querySelector("code")?.textContent === "inline", `${surface} must render code`);
-  assert(body.querySelectorAll("li").length === 2, `${surface} must render the list`);
-  assert(!body.textContent?.includes("**"), `${surface} must not show emphasis markers`);
-  assert(!body.textContent?.includes("`inline`"), `${surface} must not show code markers`);
+function assertLiteral(body: Element, surface: string) {
+  assert(body.textContent?.includes(MARKDOWN), `${surface} must preserve the complete literal body`);
+  assert(!body.querySelector("strong, code, li"), `${surface} must not interpret prose as Markdown`);
 }
 
 const MARKDOWN = "**bold** with `inline` code\n\n- first\n- second";
 
-test("notification_markdown bell panel renders the shared markdown result", async () => {
+test("notification_markdown bell panel preserves literal prose", async () => {
   setupDom();
   const item = notification(MARKDOWN);
   const { host, root } = await render(
@@ -86,7 +83,7 @@ test("notification_markdown bell panel renders the shared markdown result", asyn
   }
   const body = host.querySelector('[data-testid="notification-expanded-body"]');
   assert(body, "the expanded bell body must exist");
-  assertFormatted(body, "bell panel");
+  assertLiteral(body, "bell panel");
 
   await act(async () => root.render(
     <NotificationPanel
@@ -103,7 +100,7 @@ test("notification_markdown bell panel renders the shared markdown result", asyn
   await act(async () => root.unmount());
 });
 
-test("notification_markdown toast renders the shared markdown result", async () => {
+test("notification_markdown toast preserves literal prose", async () => {
   setupDom();
   const item = notification(MARKDOWN);
   const { host, root } = await render(
@@ -114,7 +111,7 @@ test("notification_markdown toast renders the shared markdown result", async () 
   await act(async () => toast.click());
   const expanded = document.querySelector('[data-testid="notification-toast-expanded"]');
   assert(expanded, "the expanded toast body must exist");
-  assertFormatted(expanded, "toast");
+  assertLiteral(expanded, "toast");
 
   const plain = notification("plain body unchanged");
   await act(async () => root.render(

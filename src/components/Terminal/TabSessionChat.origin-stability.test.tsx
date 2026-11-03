@@ -176,7 +176,7 @@ async function main() {
     const command = "domios plugin browser goto http://127.0.0.1:14997/;\ndomios plugin browser screenshot evidence/chat-running-dark.png";
     const operation = { id: "live-tool", type: "tool_call", content: "", toolId: "live-tool", toolKind: "command", toolInput: { cmd: command }, toolSummary: "browser fixture", toolResult: "opaque-live-output", toolStatus: "running", toolStartedAtMs: Date.now() - 3000, seq: 1 };
     initial.splice(0, initial.length, operation as never, assistant("after-tool", "Inspecting the page", 2));
-    let state = muxStateFor({ [liveTabId]: { ...tabBase(liveTabId), agent_state: { state: "working" } } as Tab });
+    let state: ExtendedState = { ...muxStateFor({ [liveTabId]: { ...tabBase(liveTabId), agent_state: { state: "working" } } as Tab }), tabStatuses: { [liveTabId]: "Working" } };
     const store = createMuxStateStore(() => state);
     const host = document.body.appendChild(document.createElement("div"));
     const root = createRoot(host);
@@ -205,12 +205,12 @@ async function main() {
     await act(async () => details.click());
     assert(live?.textContent?.includes("opaque-live-output"), "expanded operation reveals its current output");
     await act(async () => {
-      state = { ...state, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "idle" } } as Tab } };
+      state = { ...state, tabStatuses: { [liveTabId]: "Idle" }, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
       store.notify();
     });
     assert(!log?.querySelector('[data-testid="chat-live-operation"]'), "idle hides stale running activity");
     await act(async () => {
-      state = { ...state, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
+      state = { ...state, tabStatuses: { [liveTabId]: "Working" }, tabs: { [liveTabId]: { ...state.tabs[liveTabId], agent_state: { state: "working" } } as Tab } };
       store.notify();
       emit(`tab-chat-msg-${liveTabId}`, { tab_id: liveTabId, source_session_id: null, session_binding_nonce: null, messages: [{ ...operation, toolStatus: "completed", toolCompletedAtMs: Date.now() }] });
     });
