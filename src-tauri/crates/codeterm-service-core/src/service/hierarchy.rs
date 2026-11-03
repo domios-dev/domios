@@ -100,7 +100,14 @@ impl ServiceContext {
 
     pub fn replay_planner_requests_if_routable(&self, tab_id: &str) {
         let now_ms = epoch_ms();
-        for plan in self.plan_store.planner_replay_candidates(tab_id) {
+        let candidates = match self.plan_store.planner_replay_candidates(tab_id) {
+            Ok(candidates) => candidates,
+            Err(error) => {
+                log::warn!("[hierarchy] planner replay lookup failed for {tab_id}: {error}");
+                return;
+            }
+        };
+        for plan in candidates {
             let session_id = &plan.session_id;
             let resolution =
                 crate::plan::peer::resolve_planner_ref(&plan.planner, &plan.owner, |id| {

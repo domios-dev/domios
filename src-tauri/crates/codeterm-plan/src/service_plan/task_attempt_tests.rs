@@ -775,11 +775,15 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
         .unwrap();
 
     assert_eq!(
-        store.recent_worker_attempt_titles("ws_target", Some("sess-1"), 10),
+        store
+            .recent_worker_attempt_titles("ws_target", Some("sess-1"), 10)
+            .unwrap(),
         vec!["Ada".to_string()]
     );
     assert_eq!(
-        store.recent_worker_attempt_titles("ws_target", None, 1),
+        store
+            .recent_worker_attempt_titles("ws_target", None, 1)
+            .unwrap(),
         vec!["Bea".to_string()]
     );
 }

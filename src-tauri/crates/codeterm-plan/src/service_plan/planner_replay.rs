@@ -1,9 +1,9 @@
 use crate::plan::{OrchestratorRef, Plan, PlannerRef, PlannerRequestState};
 
-use super::PlanStore;
+use super::{PlanError, PlanStore};
 
 /// The fields planner replay reads from a plan bound to one planner tab.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct PlannerReplayCandidate {
     pub plan_id: String,
     pub session_id: String,
@@ -37,12 +37,11 @@ pub fn planner_replay_candidate(plan: &Plan, tab_id: &str) -> Option<PlannerRepl
 }
 
 impl PlanStore {
-    /// Borrows each plan under the store read lock; only matching plans contribute small projections.
-    pub fn planner_replay_candidates(&self, tab_id: &str) -> Vec<PlannerReplayCandidate> {
-        self.plans_matching(&super::PlanMatch::Planner(tab_id.to_string()))
-            .iter()
-            .filter_map(|plan| planner_replay_candidate(plan, tab_id))
-            .collect()
+    pub fn planner_replay_candidates(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<PlannerReplayCandidate>, PlanError> {
+        self.database.planner_replay_rows(tab_id)
     }
 }
 

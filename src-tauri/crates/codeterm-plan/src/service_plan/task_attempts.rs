@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::plan::{Task, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus};
 use codeterm_types::agent::ReportStatus;
 
-use super::{PlanError, PlanMatch, PlanStore, TaskMatch};
+use super::{PlanError, PlanStore};
 
 mod executor_termination;
 mod launch_binding;
@@ -236,7 +236,7 @@ fn lane_lines(lane: &TaskLaneMetadata) -> Vec<String> {
     .collect()
 }
 
-fn build_prompt(
+pub(super) fn build_prompt(
     plan_id: &str,
     task: &Task,
     source: &TaskExecutionAttempt,
@@ -562,7 +562,7 @@ fn find_attempt<'a>(task: &'a Task, attempt_id: &str) -> Option<&'a TaskExecutio
         .find(|attempt| attempt.id == attempt_id)
 }
 
-fn attempt_view(
+pub(super) fn attempt_view(
     plan_id: &str,
     task: &Task,
     attempt: TaskExecutionAttempt,
@@ -587,43 +587,9 @@ impl PlanStore {
         workspace_id: &str,
         session_id: Option<&str>,
         limit: usize,
-    ) -> Vec<String> {
-        let workspace_id = workspace_id.trim();
-        if workspace_id.is_empty() || limit == 0 {
-            return Vec::new();
-        }
-        let target_session = session_id.map(str::trim).filter(|value| !value.is_empty());
-        let candidates = PlanMatch::active().and(PlanMatch::Task(TaskMatch {
-            fields: vec![("$.lane.workspace_id", workspace_id.to_string())],
-            ..Default::default()
-        }));
-        let mut entries: Vec<(u64, String)> = self
-            .plans_matching(&candidates)
-            .into_iter()
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-            .flat_map(|plan| plan.tasks.into_iter())
-            .filter(|task| task.lane.workspace_id.as_deref() == Some(workspace_id))
-            .flat_map(|task| task.execution_attempts.into_iter())
-            .filter(|attempt| attempt.role.as_deref() == Some("worker"))
-            .filter_map(|attempt| {
-                let title = attempt.executor_title?.trim().to_string();
-                if title.is_empty() {
-                    return None;
-                }
-                if let Some(target_session) = target_session {
-                    if attempt.session_id.as_deref() != Some(target_session) {
-                        return None;
-                    }
-                }
-                Some((
-                    attempt.assigned_at.or(attempt.reported_at).unwrap_or(0),
-                    title,
-                ))
-            })
-            .collect();
-        entries.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        entries.truncate(limit);
-        entries.into_iter().map(|(_, title)| title).collect()
+    ) -> Result<Vec<String>, PlanError> {
+        self.database
+            .recent_worker_titles(workspace_id, session_id, limit)
     }
 
     pub fn update_attempt_executor_identity(
@@ -928,14 +894,14 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
     ) -> Result<Vec<TaskAttemptView>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
+        let task = self
+            .database
+            .task_attempt_projection(plan_id, task_id, None)?;
         Ok(task
             .execution_attempts
             .iter()
             .cloned()
-            .map(|attempt| attempt_view(&plan.id, task, attempt, None))
+            .map(|attempt| attempt_view(plan_id, &task, attempt, None))
             .collect())
     }
 
@@ -945,12 +911,10 @@ impl PlanStore {
         task_id: &str,
         attempt_id: &str,
     ) -> Result<TaskAttemptView, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        let source = find_attempt(task, attempt_id)
-            .cloned()
-            .ok_or(PlanError::TaskNotFound)?;
+        let task = self
+            .database
+            .task_attempt_projection(plan_id, task_id, Some(attempt_id))?;
+        let source = task.execution_attempts[0].clone();
         let (task_provider, task_model) = split_provider_model(task.model.as_deref());
         let provider = source
             .provider
@@ -958,10 +922,10 @@ impl PlanStore {
             .or(task_provider)
             .unwrap_or_else(|| "claude".into());
         let model = source.model.clone().or(task_model);
-        let report_command = task_report_command(&plan.id, &task.id);
+        let report_command = task_report_command(plan_id, &task.id);
         let prompt = build_prompt(
-            &plan.id,
-            task,
+            plan_id,
+            &task,
             &source,
             &provider,
             model.as_deref(),
@@ -969,7 +933,7 @@ impl PlanStore {
             &source.plan_skill_manifest,
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
-        Ok(attempt_view(&plan.id, task, source, Some(prompt)))
+        Ok(attempt_view(plan_id, &task, source, Some(prompt)))
     }
 
     pub fn build_task_respawn_draft(
