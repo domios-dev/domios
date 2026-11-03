@@ -15,8 +15,27 @@ pub struct ProjectionQuery {
     #[serde(default)]
     view: PlanViewProjection,
     project: Option<String>,
-    #[serde(flatten)]
-    window: codeterm_service_core::service::plan::ui_projections::ListWindowQuery,
+    task_ref: Option<String>,
+    task_ids: Option<String>,
+    after_position: Option<i64>,
+    after_task_id: Option<String>,
+    page_size: Option<usize>,
+    search: Option<String>,
+    status: Option<String>,
+}
+
+impl ProjectionQuery {
+    fn window(&self) -> codeterm_service_core::service::plan::ui_projections::ListWindowQuery {
+        codeterm_service_core::service::plan::ui_projections::ListWindowQuery {
+            task_ref: self.task_ref.clone(),
+            task_ids: self.task_ids.clone(),
+            after_position: self.after_position,
+            after_task_id: self.after_task_id.clone(),
+            page_size: self.page_size,
+            search: self.search.clone(),
+            status: self.status.clone(),
+        }
+    }
 }
 
 pub async fn get(
@@ -28,13 +47,11 @@ pub async fn get(
     super::run_blocking(move || {
         codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
             .map_err(super::plans::team_plan_err)?;
+        let window = query.window();
         let projection = if query.view == PlanViewProjection::TaskMetadata {
-            state
-                .svc
-                .plan_store
-                .ui_plan_metadata_window(&id, &query.window)
+            state.svc.plan_store.ui_plan_metadata_window(&id, &window)
         } else if query.view == PlanViewProjection::List {
-            state.svc.plan_store.ui_plan_list_window(&id, &query.window)
+            state.svc.plan_store.ui_plan_list_window(&id, &window)
         } else {
             state.svc.plan_store.ui_plan_projection(&id, query.view)
         }
@@ -118,3 +135,6 @@ pub(super) fn board_state_core(
         .map(Json)
         .map_err(plan_err)
 }
+
+#[cfg(test)]
+mod tests;

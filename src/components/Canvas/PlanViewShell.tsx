@@ -253,7 +253,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           hidden={selected !== "list"}
           aria-hidden={selected !== "list"}
         >
-          <ListSurface {...listProps} onClose={undefined} />
+          <ListSurface {...listProps} isActive={selected === "list"} onClose={undefined} />
         </div>
         <div
           className="absolute inset-0"

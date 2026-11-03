@@ -74,6 +74,7 @@ function entryToDetail(
 }
 
 export function PlanListView({
+  isActive = true,
   mode,
   plans,
   loading = false,
@@ -91,7 +92,7 @@ export function PlanListView({
   api,
   onClose,
   onOpenPlanTarget,
-}: PlanViewSurfaceProps) {
+}: PlanViewSurfaceProps & { isActive?: boolean }) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
@@ -128,7 +129,7 @@ export function PlanListView({
 
   const [statusFilter, setStatusFilter] = useState<PlanListStatusFilter>("all");
   const [textQuery, setTextQuery] = useState("");
-  const projection = usePlanListWindow(api, listedPlan?.id ?? null, statusFilter, textQuery);
+  const projection = usePlanListWindow(isActive ? api : undefined, listedPlan?.id ?? null, statusFilter, textQuery);
   const selectedPlan = api ? projection.plan ?? listedPlan : listedPlan;
   const visiblePlans = useMemo(() => selectedPlan ? effectivePlans.map((plan) => plan.id === selectedPlan.id ? selectedPlan : plan) : effectivePlans, [effectivePlans, selectedPlan]);
   const activeWork = useMemo(
@@ -177,7 +178,7 @@ export function PlanListView({
   const specSourceId = selectedPlan?.primary_spec_id ?? "";
   const specIsFixture = specPlanId ? fixtureSpecSections.has(specPlanId) : false;
   useEffect(() => {
-    if (!api || !specSourceId || specIsFixture) return;
+    if (!isActive || !api || !specSourceId || specIsFixture) return;
     let active = true;
     void fetchSpecSections(api, specSourceId)
       .then((sections) => (active ? ([specPlanId, sections] as const) : null))
@@ -189,7 +190,7 @@ export function PlanListView({
     return () => {
       active = false;
     };
-  }, [api?.host, api?.port, api?.token, specPlanId, specSourceId, specIsFixture]);
+  }, [isActive, api?.host, api?.port, api?.token, specPlanId, specSourceId, specIsFixture]);
 
   const selectedSpecSections = useMemo(() => {
     if (!selectedPlan) return [] as Section[];
