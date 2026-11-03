@@ -105,3 +105,9 @@ assert.deepEqual(refused.notice, refusedNotice("not a stream surface"));
 assert.equal(reconnectOnSignal(refused.state).retry, false, "a refused stream never retries");
 
 console.log("✓ surfaceHttpProtocol tests green");
+
+const ownedState = surfaceStreamEvent({ event: "state", data: JSON.stringify({ owner: "agent", viewportOwner: "viewer-1" }) });
+assert.deepEqual(ownedState, { type: "state", state: { owner: "agent", viewportOwner: "viewer-1" } });
+const viewerUrl = surfaceStreamUrl("http://localhost:7797", "surface", { w: 640, h: 480, dpr: 1 }, "peer", "viewer-1", "page-1");
+assert.ok(new URL(viewerUrl).searchParams.get("path")?.includes("viewer=viewer-1"), "relayed streams retain the viewer identity");
+assert.ok(new URL(viewerUrl).searchParams.get("path")?.includes("viewer_target=page-1"), "the page context reaches the host through the relay");

@@ -35,13 +35,15 @@ impl BrowserRuntime {
         if installed.as_deref() == Some(page.session_id()) {
             return Ok(());
         }
+        let target = serde_json::to_string(page.target_id()).map_err(|error| error.to_string())?;
+        let script = format!("Object.defineProperty(globalThis, Symbol.for('domios.browser.target'), {{value:{target}, configurable:true}});{SCRIPT}");
         self.send(
             page,
             "Page.addScriptToEvaluateOnNewDocument",
-            json!({"source":SCRIPT}),
+            json!({"source":script}),
         )
         .await?;
-        self.evaluate(page, SCRIPT, false).await?;
+        self.evaluate(page, &script, false).await?;
         *installed = Some(page.session_id().to_string());
         Ok(())
     }

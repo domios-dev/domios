@@ -36,8 +36,10 @@ function surfacePath(base: string, tabId: string, leaf: string): string {
   return `${base.replace(/\/+$/, "")}/api/surfaces/${encodeURIComponent(tabId)}/${leaf}`;
 }
 
-export function surfaceStreamUrl(base: string, tabId: string, viewport: StreamViewport, peerId?: string): string {
+export function surfaceStreamUrl(base: string, tabId: string, viewport: StreamViewport, peerId?: string, viewer?: string, viewerTarget?: string): string {
   const query = new URLSearchParams({ w: String(viewport.w), h: String(viewport.h), dpr: String(viewport.dpr) });
+  if (viewer) query.set("viewer", viewer);
+  if (viewerTarget) query.set("viewer_target", viewerTarget);
   const path = `/api/surfaces/${encodeURIComponent(tabId)}/stream?${query.toString()}`;
   if (peerId) {
     const relay = new URLSearchParams({ peer: peerId, path });
@@ -68,6 +70,7 @@ function optionalString(value: unknown): string | undefined {
 
 function toState(value: Record<string, unknown>): SurfaceState {
   const state: SurfaceState = { owner: optionalString(value.owner) ?? "" };
+  if (typeof value.viewportOwner === "string") state.viewportOwner = value.viewportOwner;
   if (typeof value.targetId === "string") state.targetId = value.targetId;
   if (typeof value.title === "string") state.title = value.title;
   if (typeof value.url === "string") state.url = value.url;

@@ -213,6 +213,23 @@ async fn browser_overlay_injection_is_per_session_and_evidence_capture_hides_it(
             .count(),
         1
     );
+    let context_script = &calls
+        .iter()
+        .find(|(method, _)| method == "Page.addScriptToEvaluateOnNewDocument")
+        .unwrap()
+        .1["source"];
+    assert!(context_script
+        .as_str()
+        .unwrap()
+        .contains("Symbol.for('domios.browser.target')"));
+    assert!(context_script
+        .as_str()
+        .unwrap()
+        .contains(&serde_json::to_string(page.target_id()).unwrap()));
+    assert!(calls
+        .iter()
+        .any(|(method, params)| method == "Runtime.evaluate"
+            && params["expression"] == *context_script));
     let capture: Vec<_> = calls
         .iter()
         .filter(|(method, params)| {

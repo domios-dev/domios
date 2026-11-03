@@ -11,6 +11,7 @@ use codeterm_browser::PageChannel;
 
 #[derive(Deserialize)]
 struct ResizeArgs {
+    viewer: String,
     width: f64,
     height: f64,
     #[serde(default = "unit_dpr")]
@@ -78,16 +79,24 @@ impl BrowserRuntime {
         args: Value,
     ) -> Result<SurfaceCallOutcome, String> {
         let value = match method {
-            "resize" => {
+            "resize" | "viewport.claim" => {
                 let size: ResizeArgs = parse(method, args)?;
-                self.host
-                    .set_viewport(ViewportRequest {
-                        width: size.width,
-                        height: size.height,
-                        dpr: size.dpr,
-                    })
-                    .await?;
-                Value::Null
+                let mut model = self.viewport.lock().await;
+                let accepted = model
+                    .request(
+                        &size.viewer,
+                        ViewportRequest {
+                            width: size.width,
+                            height: size.height,
+                            dpr: size.dpr,
+                        },
+                        method == "viewport.claim",
+                    )
+                    .is_some();
+                if accepted {
+                    self.apply_viewer_viewport(&mut model).await?;
+                }
+                json!({ "owner": model.owner() })
             }
             "input" => {
                 let input: InputArgs = parse(method, args)?;

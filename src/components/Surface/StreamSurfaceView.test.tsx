@@ -79,14 +79,15 @@ function watchControl(fake: FakeStreamTransport) {
   };
 }
 
-suite.test("connects with the first measured viewport, then resizes and re-sends on open", async () => {
+suite.test("connects with the first measured viewport and only its owner resizes", async () => {
   const { fake, unmount } = await mount();
   assert.equal(fake.connections.length, 0, "no stream before the stage has a size");
   await resizeStages(640, 480);
   assert.deepEqual(fake.connections, [{ w: 640, h: 480, dpr: window.devicePixelRatio }]);
+  await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
   await act(async () => fake.emitOpen());
   await resizeStages(800, 600);
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map(({ args: { viewer, ...args } }) => { assert.equal(viewer, fake.viewer()); return args; }), [
     resizeArgs({ w: 640, h: 480, dpr: window.devicePixelRatio }),
     resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio }),
   ]);
@@ -434,12 +435,11 @@ suite.test("needs-human transitions publish once and do not create a surface ove
 
 suite.test("hiding and re-showing the stage reconnects at the same size", async () => {
   const { fake, unmount } = await mount();
-  const viewport = { w: 640, h: 480, dpr: window.devicePixelRatio };
   await resizeStages(640, 480);
   await act(async () => fake.emitOpen());
   await resizeStages(0, 0);
   await resizeStages(640, 480);
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [resizeArgs(viewport)]);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map(({ args: { viewer, ...args } }) => { assert.equal(viewer, fake.viewer()); return args; }), []);
   assert.equal(fake.connections.length, 2, "show explicitly reconnects the stream");
   assert.equal(fake.disconnects(), 1);
   await unmount();
@@ -464,20 +464,27 @@ suite.test("explicit tab show resumes once and keeps the current canvas without 
 
 const frameAt = (deviceWidth: number, deviceHeight: number): StreamFrame => ({ data: "", metadata: { deviceWidth, deviceHeight } });
 
-suite.test("a viewport mismatch heals once until a matching frame arrives", async () => {
+suite.test("frames of alternating sizes never resize the shared page", async () => {
   const { fake, unmount } = await mount();
-  const resizes = () => fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args);
   await resizeStages(640, 480);
-  await act(async () => fake.emitFrame(frameAt(640, 480)));
-  assert.deepEqual(resizes(), [], "a matching frame heals nothing");
-  await act(async () => fake.emitFrame(frameAt(1280, 960)));
-  assert.deepEqual(resizes(), [resizeArgs({ w: 640, h: 480, dpr: window.devicePixelRatio })]);
-  await act(async () => fake.emitFrame(frameAt(1280, 960)));
-  assert.equal(resizes().length, 1, "duplicate mismatch cannot loop");
-  await act(async () => fake.emitFrame(frameAt(640, 480)));
-  await act(async () => fake.emitFrame(frameAt(1280, 960)));
-  assert.equal(resizes().length, 2, "a new mismatch after recovery heals again");
-  await flushAsync();
+  await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
+  for (let i = 0; i < 20; i += 1) {
+    await act(async () => fake.emitFrame(frameAt(i % 2 ? 474 : 1034, i % 2 ? 240 : 1150)));
+  }
+  assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0);
+  await unmount();
+});
+
+suite.test("a secondary viewer letterboxes frames and never sends resize requests", async () => {
+  const { fake, host, unmount } = await mount();
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState({ ...state, viewportOwner: "another-viewer" }));
+  await resizeStages(474, 240);
+  await act(async () => fake.emitFrame(frameAt(1034, 1150)));
+  assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0);
+  assert.ok(queryByRole(host, "img"));
+  await act(async () => getByRole(host, "button", "Take control").click());
+  assert.equal(fake.callsTo("viewport.claim").at(-1)?.args.viewer, fake.viewer());
   await unmount();
 });
 
@@ -486,13 +493,14 @@ suite.test("resize acknowledgements drain only the latest measured viewport", as
   const acknowledgements: Array<() => void> = [];
   fake.respond(SURFACE_METHOD.resize, () => new Promise<void>((resolve) => acknowledgements.push(resolve)));
   await resizeStages(640, 480);
+  await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
   await resizeStages(800, 600);
   await resizeStages(900, 650);
   await resizeStages(1000, 700);
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio })]);
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map(({ args: { viewer, ...args } }) => { assert.equal(viewer, fake.viewer()); return args; }), [resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio })]);
   acknowledgements.shift()!();
   await flushAsync();
-  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map((call) => call.args), [
+  assert.deepEqual(fake.callsTo(SURFACE_METHOD.resize).map(({ args: { viewer, ...args } }) => { assert.equal(viewer, fake.viewer()); return args; }), [
     resizeArgs({ w: 800, h: 600, dpr: window.devicePixelRatio }),
     resizeArgs({ w: 1000, h: 700, dpr: window.devicePixelRatio }),
   ]);
@@ -506,7 +514,8 @@ suite.test("a failed automatic viewport resize stays quiet", async () => {
   await resizeStages(640, 480);
   await act(async () => fake.emitFrame(frameAt(640, 480)));
   fake.respond(SURFACE_METHOD.resize, () => Promise.reject(new Error("resize temporarily unavailable")));
-  await act(async () => fake.emitFrame(frameAt(1280, 960)));
+  await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
+  await resizeStages(800, 600);
   await flushAsync();
   assert.equal(queryByRole(host, "alert"), null, "automatic resize failure does not render an alert");
   assert.ok(queryByRole(host, "img"), "the last rendered surface remains available");
@@ -529,13 +538,20 @@ for (const [name, overrides] of [
   ["a hidden document", { visibilityState: "hidden" }],
   ["an unfocused window", { focused: false }],
 ] as const) {
-  suite.test(`${name} never heals a mismatched frame`, async () => {
+  suite.test(`${name} keeps viewport ownership without frame-driven resizing`, async () => {
     const { fake, unmount } = await mount();
     await resizeStages(640, 480);
+    await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
     await withDocument(overrides, async () => {
+      window.dispatchEvent(new Event("blur"));
+      document.dispatchEvent(new Event("visibilitychange"));
       await act(async () => fake.emitFrame(frameAt(1280, 960)));
+      assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0);
+      await resizeStages(800, 600);
     });
-    assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0);
+    assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 1, "ownership survives document focus and visibility changes");
+    assert.equal(fake.callsTo("viewport.claim").length, 0);
+    assert.equal(fake.connections.length, 1);
     await flushAsync();
     await unmount();
   });

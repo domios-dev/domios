@@ -25,6 +25,7 @@ mod text;
 mod typing;
 mod upload;
 mod verbs;
+mod viewport;
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -95,6 +96,7 @@ struct GrabStore {
 /// The browser surface runtime: one `BrowserHost`, its page listener, grabs and annotation inbox.
 pub struct BrowserRuntime {
     host: BrowserHost,
+    viewport: tokio::sync::Mutex<viewport::ViewportOwner>,
     layout: ProfileLayout,
     swept: Arc<tokio::sync::OnceCell<()>>,
     shared: Arc<PageShared>,
@@ -136,6 +138,7 @@ impl BrowserRuntime {
         Self {
             layout: config.layout.clone(),
             host: BrowserHost::new(config),
+            viewport: tokio::sync::Mutex::new(viewport::ViewportOwner::default()),
             swept,
             shared,
             profile_request: Mutex::new(String::new()),
@@ -401,7 +404,7 @@ impl BrowserRuntime {
 #[async_trait::async_trait]
 impl SurfaceRuntime for BrowserRuntime {
     fn view_only_methods(&self) -> &[&str] {
-        &["profiles.create", "profiles.delete"]
+        &["profiles.create", "profiles.delete", "viewport.claim"]
     }
 
     fn set_owner_name(&self, name: &str) {
@@ -413,8 +416,13 @@ impl SurfaceRuntime for BrowserRuntime {
         self.shared.state()
     }
 
-    async fn connect(self: Arc<Self>, viewport: Option<ViewportRequest>) -> SurfaceEvents {
-        stream::connect(self, viewport).await
+    async fn connect(
+        self: Arc<Self>,
+        viewport: Option<ViewportRequest>,
+        viewer: Option<String>,
+        viewer_target: Option<String>,
+    ) -> SurfaceEvents {
+        stream::connect(self, viewport, viewer, viewer_target).await
     }
 
     async fn call(

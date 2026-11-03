@@ -18,20 +18,37 @@ fn host_notice(notice: HubNotice) -> SurfaceNotice {
 pub async fn connect(
     runtime: Arc<BrowserRuntime>,
     viewport: Option<ViewportRequest>,
+    viewer: Option<String>,
+    viewer_target: Option<String>,
 ) -> SurfaceEvents {
-    if let Some(viewport) = viewport {
-        if let Err(error) = runtime.host.set_viewport(viewport).await {
+    let lease = if let (Some(viewer), Some(viewport)) = (viewer, viewport) {
+        let mut model = runtime.viewport.lock().await;
+        let page = runtime.host.page();
+        let recursive = super::viewport::recursive_viewer(
+            viewer_target.as_deref(),
+            page.as_ref().map(|page| page.target_id()),
+        );
+        let generation = model.join(viewer.clone(), viewport, recursive);
+        if let Err(error) = runtime.apply_viewer_viewport(&mut model).await {
             runtime
                 .shared
                 .notice(SurfaceNotice::error(format!("resize failed: {error}")));
         }
-    }
+        generation.map(|generation| ViewerLease {
+            runtime: runtime.clone(),
+            viewer,
+            generation,
+        })
+    } else {
+        None
+    };
     let mut state = runtime.shared.subscribe_state();
     let mut notices = runtime.shared.subscribe_notices();
     let mut host_notices = runtime.host.notices();
     let mut frames = runtime.host.subscribe_screencast();
     let latest = runtime.host.latest_frame();
     Box::pin(async_stream::stream! {
+        let _lease = lease;
         let current = state.borrow_and_update().clone();
         yield runtime.redact_event(SurfaceEvent::State(current));
         if let Some(frame) = latest {
@@ -69,27 +86,29 @@ pub async fn connect(
     })
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::surface::runtime::NoticeKind;
+struct ViewerLease {
+    runtime: Arc<BrowserRuntime>,
+    viewer: String,
+    generation: u64,
+}
 
-    #[test]
-    fn browser_stream_maps_still_failures_to_preview_paused_and_keeps_other_host_notices() {
-        let paused = host_notice(HubNotice {
-            kind: HubNoticeKind::PreviewPaused,
-            text: "no frame: the still capture returned no image".into(),
+impl Drop for ViewerLease {
+    fn drop(&mut self) {
+        let runtime = self.runtime.clone();
+        let viewer = self.viewer.clone();
+        let generation = self.generation;
+        tokio::spawn(async move {
+            let mut model = runtime.viewport.lock().await;
+            if model.leave(&viewer, generation) {
+                if let Err(error) = runtime.apply_viewer_viewport(&mut model).await {
+                    runtime
+                        .shared
+                        .notice(SurfaceNotice::error(format!("resize failed: {error}")));
+                }
+            }
         });
-        assert_eq!(paused.kind, Some(NoticeKind::PreviewPaused));
-        assert_eq!(
-            paused.detail.as_deref(),
-            Some("no frame: the still capture returned no image")
-        );
-        assert_eq!(paused.tone, None);
-        let plain = host_notice(HubNotice {
-            kind: HubNoticeKind::Plain,
-            text: "screencast could not start: x".into(),
-        });
-        assert_eq!(plain, SurfaceNotice::plain("screencast could not start: x"));
     }
 }
+
+#[cfg(test)]
+mod tests;

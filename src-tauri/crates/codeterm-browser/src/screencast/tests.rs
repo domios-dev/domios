@@ -211,3 +211,22 @@ fn browser_screencast_returning_viewer_restarts_and_keeps_latest_frame() {
     assert_eq!(returning.latest().unwrap().jpeg, vec![9]);
     assert_eq!(commands.try_recv(), Ok(DriverCommand::Start(params(1280))));
 }
+
+#[test]
+fn identical_viewport_requests_never_restart_a_live_screencast() {
+    let initial = params(1034);
+    let hub = FrameHub::new(initial);
+    let (driver, mut commands) = mpsc::unbounded_channel();
+    hub.bind(driver);
+    let _viewer = hub.subscribe();
+    assert_eq!(commands.try_recv(), Ok(DriverCommand::Start(initial)));
+    for _ in 0..32 {
+        hub.set_params(initial);
+        assert!(commands.try_recv().is_err());
+    }
+    let next = params(474);
+    hub.set_params(next);
+    assert_eq!(commands.try_recv(), Ok(DriverCommand::Restart(next)));
+    hub.set_params(next);
+    assert!(commands.try_recv().is_err());
+}
