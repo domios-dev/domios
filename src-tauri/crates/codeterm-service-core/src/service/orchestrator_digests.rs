@@ -67,7 +67,15 @@ fn deliver_notice_with_learning_selection(
     selection: HeartbeatSelection<'_>,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
-    let plan = svc.plan_store.get(plan_id).ok_or("plan not found")?;
+    let read = svc
+        .plan_store
+        .notice_projection(
+            plan_id,
+            now_epoch_ms(),
+            selection.learning_ids.unwrap_or_default(),
+        )
+        .map_err(|error| error.to_string())?;
+    let plan = read.plan();
     if crate::service::plan::pause_operation::plan_notices_suppressed(&plan)
         && !selection.mode_transition
     {
@@ -83,7 +91,10 @@ fn deliver_notice_with_learning_selection(
             if selection.plain || crate::service::plan::heartbeat::is_plan_complete(&plan) {
                 text.to_string()
             } else {
-                let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
+                let now_ms = now_epoch_ms();
+                let counters = read.digest_counters(now_ms, count_stalled_lanes(plan, now_ms));
+                let digest_lines =
+                    collect_digest_lines_with_counters(svc, plan, Some(owner), Some(counters));
                 crate::service::plan::heartbeat::prepend_plan_heartbeat_with_selection(
                     &plan,
                     text,
@@ -123,22 +134,36 @@ pub(crate) fn collect_digest_lines(
     plan: &Plan,
     tab_id: Option<&str>,
 ) -> Vec<String> {
+    collect_digest_lines_with_counters(svc, plan, tab_id, None)
+}
+
+fn collect_digest_lines_with_counters(
+    svc: &ServiceContext,
+    plan: &Plan,
+    tab_id: Option<&str>,
+    counters: Option<crate::service::plan::digest_rules::PlanDigestCounters>,
+) -> Vec<String> {
     let mut out = Vec::new();
     out.extend(crate::service::cartographer::digest_lines(
         plan,
         svc.configuration().orchestration.map.enabled,
     ));
-    out.extend(queue_pressure_lines(svc, plan, tab_id));
+    out.extend(queue_pressure_lines(svc, plan, tab_id, counters));
     out.extend(usage_lines(svc));
     out.truncate(8);
     out
 }
 
-fn queue_pressure_lines(svc: &ServiceContext, plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
+fn queue_pressure_lines(
+    svc: &ServiceContext,
+    plan: &Plan,
+    tab_id: Option<&str>,
+    counters: Option<crate::service::plan::digest_rules::PlanDigestCounters>,
+) -> Vec<String> {
     let cfg = svc.configuration().orchestration.digests;
     let now_ms = now_epoch_ms();
     let stalled = count_stalled_lanes(plan, now_ms);
-    let mut counters = plan_digest_counters(plan, now_ms, stalled);
+    let mut counters = counters.unwrap_or_else(|| plan_digest_counters(plan, now_ms, stalled));
     inventory::populate(svc, plan, &mut counters);
     let fired = evaluate_digest_rules(&cfg, &counters);
     let Some(tab_id) = tab_id.filter(|id| !id.trim().is_empty()) else {

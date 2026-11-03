@@ -570,6 +570,7 @@ mod change_feed;
 mod chat_read_queries;
 mod curator_queries;
 mod index_queries;
+mod notice_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
 mod list_window_queries;
