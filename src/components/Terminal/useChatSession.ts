@@ -19,6 +19,7 @@ import type {
 } from "@codeterm/chat-core";
 import { onResync } from "../../lib/resync";
 import { frontendBootDiagnostic } from "../../lib/frontendBootDiagnostic";
+import { recordClientHealth } from "../../lib/clientJournal";
 import { resyncRequiresTranscriptRecovery } from "../../lib/resyncModel";
 import { runtimeHistorySettled, type RuntimeHistoryState } from "../../lib/agentRuntimeState";
 import { CHAT_REATTACHED_EVENT } from "./chatReattach";
@@ -134,7 +135,7 @@ export function useChatSession({
   if (active) activatedRef.current = true;
   const attachmentActive = active || (retainAttachment && activatedRef.current);
   const windowKey = transcriptWindowKey(tabId, agentSessionId);
-  const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey, live);
+  const { transcript, anchorKey, snapshotBinding } = useTranscriptWindow(windowKey, live, attachmentActive);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [listenerReady, setListenerReady] = useState(false);
@@ -484,6 +485,7 @@ export function useChatSession({
     let cancelled = false;
     let unlisten: UnlistenFn | null = null;
     let unlistenTest: (() => void) | null = null;
+    const listenerStartedAt = performance.now();
     setLoading(true);
     (async () => {
       try {
@@ -548,6 +550,8 @@ export function useChatSession({
           unlisten();
           return;
         }
+        const elapsedMs = Math.round(performance.now() - listenerStartedAt);
+        if (elapsedMs >= 2_000) recordClientHealth({ event: "chat-connect-slow", tabId, elapsedMs, listenerMs: elapsedMs });
         emitDiagnostic({ edge: "listener_owned", tabId });
         unlistenTest = listenForTestChatReplies(tabId, commitLiveEvent);
         requestAttach("listener_owned");

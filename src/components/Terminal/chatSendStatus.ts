@@ -85,6 +85,9 @@ export async function sendTrackedChatMessage(
   message: string,
   startupOverrideNonce?: string | null,
 ): Promise<ChatSendStatus> {
+  if (typeof tabId !== "string" || !tabId.trim() || tabId === "null" || tabId === "undefined") {
+    throw new Error("Chat tab is not bound");
+  }
   const key = admissionKey(tabId, messageId);
   activeAdmissions.add(key);
   try {

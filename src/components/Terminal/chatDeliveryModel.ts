@@ -5,7 +5,7 @@ import type { TabActivity } from "../../lib/tabActivity";
 import type { CapsuleRegistry } from "./composerCapsules";
 import type { ComposerReply } from "./composerReply";
 
-export type DeliveryState = "sending" | "queued" | "uncertain" | "delivered" | "failed";
+export type DeliveryState = "sending" | "written" | "queued" | "uncertain" | "delivered" | "failed";
 export interface DeliveryDraft {
   text: string;
   attachments: string[];
@@ -43,12 +43,8 @@ export function awaitsTranscriptEcho(sends: readonly DeliverySend[]): boolean {
   });
 }
 
-export function deliveryPresentation(send: DeliverySend, activity: TabActivity["kind"]): DeliveryState {
-  const state = deliveryState(send);
-  if (send.status?.state !== "written" && send.status?.state !== "submit_unconfirmed") return state;
-  if (state === "delivered") return state;
-  if (activity === "working") return "queued";
-  return activity === "idle" ? "uncertain" : "sending";
+export function deliveryPresentation(send: DeliverySend, _activity: TabActivity["kind"]): DeliveryState {
+  return deliveryState(send) === "sending" && send.status?.state === "written" ? "written" : deliveryState(send);
 }
 
 export function applyDeliveryStatus(send: DeliverySend, status: ChatSendStatus): DeliverySend {

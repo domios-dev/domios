@@ -190,16 +190,13 @@ impl UsagePoller {
             provider: provider.to_string(),
             account_id,
         };
-        // Skip spawn if a probe is already running. run_probe_for is the definitive guard, but checking here avoids spawning a task that would immediately return.
-        if self
-            .inner
-            .accounts
-            .lock()
-            .get(&key)
-            .map(|s| s.in_flight)
-            .unwrap_or(false)
         {
-            return;
+            let mut accounts = self.inner.accounts.lock();
+            let state = accounts.entry(key.clone()).or_default();
+            if state.in_flight {
+                return;
+            }
+            state.consecutive_failures = 0;
         }
         let inner = self.inner.clone();
         crate::async_runtime::spawn(async move {
@@ -522,7 +519,6 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
     let mut accounts = inner.accounts.lock();
     let state = accounts.entry(key.clone()).or_default();
     state.consecutive_failures = state.consecutive_failures.saturating_add(1);
-    // Climb one backoff step on every failure; stays at max (50 min) indefinitely. No hard pause — the max-step interval is the rate limit.
     if state.backoff_idx + 1 < BACKOFF_STEPS_S.len() {
         state.backoff_idx += 1;
     }
@@ -533,7 +529,16 @@ fn on_failure(inner: &Arc<UsagePollerInner>, key: &AccountKey, reason: &str) {
     crate::logs::record(
         crate::logs::LogLevel::Warn,
         &format!("usage.parser.{}", key.provider),
-        format!("probe failed (#{}) · {}", failures, reason),
+        format!(
+            "probe failed (#{}) · {}{}",
+            failures,
+            reason,
+            if failures >= super::freshness::MAX_AUTOMATIC_FAILURES {
+                " · automatic probes parked until explicit refresh"
+            } else {
+                ""
+            }
+        ),
         Some(serde_json::json!({
             "provider": key.provider,
             "account_id": key.account_id,

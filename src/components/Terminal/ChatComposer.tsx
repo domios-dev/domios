@@ -576,6 +576,7 @@ function ChatComposerImpl({
       <ComposerMentions ref={mentionPicker} tabId={tabId} input={input} setInput={setInput}
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
+      {!startupSend.bound && <span role="status">Connecting to chat — sending is unavailable</span>}
       <ComposerCapsuleField
         tabId={tabId}
         value={input}
