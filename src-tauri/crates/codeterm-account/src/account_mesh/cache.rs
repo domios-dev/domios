@@ -110,8 +110,7 @@ impl AccountMesh {
         ) else {
             return Ok(false);
         };
-        let long_lease = verified.is_current(self.now())
-            && verified.expires_at.saturating_sub(verified.issued_at) > 3600;
+        let current = verified.is_current(self.now());
         let restored = self.with(|inner| {
             if !inner.is_current(signed.epoch)
                 || inner
@@ -155,7 +154,7 @@ impl AccountMesh {
             });
             true
         });
-        if restored && long_lease {
+        if restored && current {
             self.list_fresh().await?;
             return Ok(true);
         }

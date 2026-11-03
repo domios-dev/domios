@@ -214,7 +214,6 @@ pub(super) async fn run(
     let mut network = service.events.subscribe();
     let mut publication = Publication::default();
     let mut reconciliation = Reconciliation::default();
-    let mut membership = None;
     let mut refresh = false;
     loop {
         connections.borrow_and_update();
@@ -223,12 +222,10 @@ pub(super) async fn run(
         mesh.lock().expire_pending_connections();
         let now = mesh.lock().now();
         reconciliation.enter_epoch(state.account_epoch);
-        let current = state
-            .current_membership(now)
-            .filter(|_| enabled)
-            .map(|membership| membership.token.clone());
-        if current.is_some() && (refresh || current != membership) {
-            membership = current;
+        if enabled
+            && (refresh || reconciliation.registry_retry.is_none())
+            && registry_read_needed(&state, now, refresh)
+        {
             refresh = false;
             match account.mesh.list_fresh().await {
                 Ok(_) => {
@@ -243,8 +240,6 @@ pub(super) async fn run(
                     log::debug!("[mesh/account] Registry reconciliation deferred: {refusal:?}");
                 }
             }
-        } else {
-            membership = current;
         }
         let state = account.mesh.state();
         if state.registry_failure.is_none() {
@@ -380,6 +375,25 @@ pub(super) async fn run(
             } => { refresh = reconciliation.registry_refresh_due(mesh.lock().now()); }
         }
     }
+}
+
+fn registry_read_needed(
+    state: &codeterm_account::account_mesh::LifecycleState,
+    now: u64,
+    retry_due: bool,
+) -> bool {
+    let Some(membership) = state.current_membership(now) else {
+        return false;
+    };
+    retry_due
+        || (state.enrollment != codeterm_account::account_mesh::Enrollment::Enrolling
+            && state.registry.as_ref().is_none_or(|registry| {
+                registry.cursor.is_some()
+                    || !registry
+                        .rows
+                        .iter()
+                        .any(|row| row.installation_id == membership.verified.installation_id)
+            }))
 }
 
 async fn connectivity_changed(
