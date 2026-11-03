@@ -181,7 +181,7 @@ impl PlanStore {
         tab_id: &str,
         session_id: &str,
         session_binding_nonce: &str,
-    ) -> Option<(String, String, String)> {
+    ) -> Result<Option<(String, String, String)>, PlanError> {
         self.find_open_attempt_task_for_tab(tab_id, session_id, session_binding_nonce, true)
     }
 
@@ -190,7 +190,7 @@ impl PlanStore {
         tab_id: &str,
         session_id: &str,
         session_binding_nonce: &str,
-    ) -> Option<(String, String, String)> {
+    ) -> Result<Option<(String, String, String)>, PlanError> {
         self.find_open_attempt_task_for_tab(tab_id, session_id, session_binding_nonce, false)
     }
 
@@ -200,48 +200,13 @@ impl PlanStore {
         session_id: &str,
         session_binding_nonce: &str,
         require_unknown_model: bool,
-    ) -> Option<(String, String, String)> {
-        if tab_id.trim().is_empty()
-            || session_id.trim().is_empty()
-            || session_binding_nonce.trim().is_empty()
-        {
-            return None;
-        }
-        let mut matched = None;
-        let candidates = PlanMatch::active().and(
-            AttemptMatch {
-                session_id: Some(session_id.to_string()),
-                binding_nonce: Some(session_binding_nonce.to_string()),
-                task_statuses: Some(plan_match::NON_TERMINAL_TASK_STATUSES.to_vec()),
-                ..AttemptMatch::executor(tab_id, AttemptState::Open)
-            }
-            .into_match(),
-        );
-        for plan in self.plans_matching(&candidates) {
-            if plan.status != PlanStatus::Active {
-                continue;
-            }
-            for task in plan
-                .tasks
-                .iter()
-                .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-            {
-                for attempt in task.execution_attempts.iter().filter(|attempt| {
-                    attempt.executor_tab_id == tab_id
-                        && attempt.closed_at.is_none()
-                        && attempt.retired_at.is_none()
-                        && (!require_unknown_model || attempt.session_model.is_none())
-                        && attempt.session_id.as_deref() == Some(session_id)
-                        && attempt.session_binding_nonce.as_deref() == Some(session_binding_nonce)
-                }) {
-                    if matched.is_some() {
-                        return None;
-                    }
-                    matched = Some((plan.id.clone(), task.id.clone(), attempt.id.clone()));
-                }
-            }
-        }
-        matched
+    ) -> Result<Option<(String, String, String)>, PlanError> {
+        self.database.open_attempt_binding(
+            tab_id,
+            session_id,
+            session_binding_nonce,
+            require_unknown_model,
+        )
     }
 
     pub fn report_pending_task_binding_for_tab(&self, tab_id: &str) -> Option<(String, String)> {

@@ -91,7 +91,8 @@ pub async fn hook_stop(
         &tab_id,
         codeterm_service_core::service::WorkerTurnSignal::ProviderStop,
     );
-    state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+    state.svc.schedule_session_model_refresh_after_stop(&tab_id)
+        .map_err(|error|(StatusCode::INTERNAL_SERVER_ERROR,error.to_string()))?;
     if verdict == StopReportVerdict::Verified {
         state.svc.mark_agent_turn_complete(&tab_id);
         if let (Some(session_id), Some(nonce)) =

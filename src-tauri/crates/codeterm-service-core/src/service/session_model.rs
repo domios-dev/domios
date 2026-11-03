@@ -103,17 +103,20 @@ impl ServiceContext {
         }
     }
 
-    pub fn schedule_session_model_refresh_after_stop(&self, tab_id: &str) -> bool {
+    pub fn schedule_session_model_refresh_after_stop(
+        &self,
+        tab_id: &str,
+    ) -> Result<bool, crate::service::plan::PlanError> {
         if self.observe_post_launch_turn_after_stop(tab_id) {
-            return true;
+            return Ok(true);
         }
         let (model_known, binding) = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
-                return false;
+                return Ok(false);
             };
             if tab.agent_type.is_none() || tab.cwd.is_none() || tab.agent_session_id.is_none() {
-                return false;
+                return Ok(false);
             }
             let binding = super::task_assignment::authenticated_tab_binding(tab);
             let model_known = tab.agent_session_model.is_some()
@@ -129,22 +132,24 @@ impl ServiceContext {
         };
         if !model_known {
             self.schedule_session_model_refresh_for_current_tab(tab_id);
-            return true;
+            return Ok(true);
         }
-        let attempt_model_unknown = binding.is_some_and(|binding| {
+        let attempt_model_unknown = if let Some(binding) = binding {
             self.plan_store
                 .open_attempt_task_for_tab(
                     tab_id,
                     &binding.session_id,
                     &binding.session_binding_nonce,
-                )
+                )?
                 .is_some()
-        });
+        } else {
+            false
+        };
         if attempt_model_unknown {
             self.persist_current_attempt_session_model(tab_id);
         }
         self.schedule_session_model_refresh_for_current_tab(tab_id);
-        true
+        Ok(true)
     }
 
     /// The model this tab's own claimed session is running. Runtime evidence first,
@@ -600,11 +605,15 @@ impl ServiceContext {
         session_id: &str,
         model: &str,
     ) {
-        if let Some(plan_id) =
-            self.write_attempt_model_identity(tab_id, agent_id, session_id, Some(model.to_string()))
-        {
-            self.emit_committed_plan_changed(&plan_id);
-        }
+        self.emit_attempt_model_write(
+            tab_id,
+            self.write_attempt_model_identity(
+                tab_id,
+                agent_id,
+                session_id,
+                Some(model.to_string()),
+            ),
+        );
     }
 
     fn write_attempt_model_identity(
@@ -613,17 +622,17 @@ impl ServiceContext {
         agent_id: &str,
         session_id: &str,
         detected_model: Option<String>,
-    ) -> Option<String> {
+    ) -> Result<Option<String>, crate::service::plan::PlanError> {
         let identity = {
             let mux = self.mux.read();
             let Some(tab) = mux.get_tab(tab_id) else {
-                return None;
+                return Ok(None);
             };
             if !runtime_model_update_matches_session(tab, agent_id, session_id) {
-                return None;
+                return Ok(None);
             }
             let Some(binding) = super::task_assignment::authenticated_tab_binding(tab) else {
-                return None;
+                return Ok(None);
             };
             let actual_model = binding.session_model.clone().filter(|model| {
                 detected_model
@@ -651,16 +660,16 @@ impl ServiceContext {
             || binding.session_id != session_id
             || binding.session_binding_nonce.trim().is_empty()
         {
-            return None;
+            return Ok(None);
         }
         let Some((plan_id, task_id, attempt_id)) =
             self.plan_store.open_attempt_task_for_effort_for_tab(
                 tab_id,
                 &binding.session_id,
                 &binding.session_binding_nonce,
-            )
+            )?
         else {
-            return None;
+            return Ok(None);
         };
         match self.plan_store.update_attempt_model_identity(
             &plan_id,
@@ -675,14 +684,9 @@ impl ServiceContext {
             mismatch,
             session_model_epoch_ms(),
         ) {
-            Ok(true) => Some(plan_id),
-            Ok(false) => None,
-            Err(error) => {
-                log::warn!(
-                    "[session-model] failed to persist task attempt model tab={tab_id}: {error}"
-                );
-                None
-            }
+            Ok(true) => Ok(Some(plan_id)),
+            Ok(false) => Ok(None),
+            Err(error) => Err(error),
         }
     }
 
@@ -693,11 +697,24 @@ impl ServiceContext {
                 .and_then(|tab| Some((tab.agent_type.clone()?, tab.agent_session_id.clone()?)))
         };
         if let Some((agent_id, session_id)) = identity {
-            if let Some(plan_id) =
-                self.write_attempt_model_identity(tab_id, &agent_id, &session_id, None)
-            {
-                self.emit_committed_plan_changed(&plan_id);
-            }
+            self.emit_attempt_model_write(
+                tab_id,
+                self.write_attempt_model_identity(tab_id, &agent_id, &session_id, None),
+            );
+        }
+    }
+
+    fn emit_attempt_model_write(
+        &self,
+        tab_id: &str,
+        result: Result<Option<String>, crate::service::plan::PlanError>,
+    ) {
+        match result {
+            Ok(Some(plan_id)) => self.emit_committed_plan_changed(&plan_id),
+            Ok(None) => {}
+            Err(error) => log::error!(
+                "[session-model] failed to persist task attempt model tab={tab_id}: {error}"
+            ),
         }
     }
 }
