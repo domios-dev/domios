@@ -131,11 +131,22 @@ pub(super) struct Inner {
     awaiting_logout: bool,
     notice_epoch: Option<u64>,
     pub(super) lease: u64,
+    pub(super) launch_renewal_pending: bool,
     pub(super) retry: super::retry::Retry,
     store_unreadable: bool,
 }
 
 impl Inner {
+    pub(super) fn membership_renewal_at(&self) -> Option<u64> {
+        self.state.membership.as_ref().map(|membership| {
+            if self.launch_renewal_pending {
+                0
+            } else {
+                membership.verified.refresh_after()
+            }
+        })
+    }
+
     pub(super) fn update(
         &mut self,
         watch: &watch::Sender<Arc<LifecycleState>>,
@@ -261,6 +272,7 @@ impl AccountMesh {
                 awaiting_logout: false,
                 notice_epoch: None,
                 lease: 0,
+                launch_renewal_pending: true,
                 retry: Default::default(),
                 store_unreadable: false,
             }),

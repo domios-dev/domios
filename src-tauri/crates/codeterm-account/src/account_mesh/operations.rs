@@ -345,7 +345,7 @@ impl AccountMesh {
             }
         });
         let observation = match self.restore_admission(&signed).await {
-            Ok(false)
+            Ok(_)
                 if self
                     .with(|inner| inner.record.peer_presence_refresh && !inner.rejoin_required) =>
             {
@@ -371,10 +371,8 @@ impl AccountMesh {
         }
         let now = self.now();
         let current = self.with(|inner| {
-            inner
-                .state
-                .current_membership(now)
-                .is_some_and(|membership| now < membership.verified.refresh_after())
+            inner.state.current_membership(now).is_some()
+                && inner.membership_renewal_at().is_some_and(|due| now < due)
         });
         if current && !self.own_removed() && !self.with(|inner| inner.rejoin_required) {
             if self.with(|inner| inner.sync_pending) {
@@ -463,6 +461,13 @@ impl AccountMesh {
         )
         .map_err(|_| AccountMeshRefusal::Invalid)?;
         let reuse_registry = result.operation == MembershipOperation::Renew
+            && self.state().registry.as_ref().is_some_and(|registry| {
+                registry.cursor.is_none()
+                    && registry
+                        .rows
+                        .iter()
+                        .any(|row| row.installation_id == installation && row.active)
+            })
             && previous_revision.is_some_and(|revision| {
                 result.registry_revision == revision
                     || revision.checked_add(1) == Some(result.registry_revision)
@@ -475,6 +480,7 @@ impl AccountMesh {
                 return false;
             }
             inner.rejoin_required = false;
+            inner.launch_renewal_pending = false;
             inner.rejoin_authorized = false;
             inner
                 .record

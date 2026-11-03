@@ -14,11 +14,7 @@ impl AccountMesh {
             if matches!(result, Err(AccountMeshRefusal::EnrollmentBudget { .. })) {
                 return inner.retry.deadline;
             }
-            let membership_due = inner
-                .state
-                .membership
-                .as_ref()
-                .map(|m| m.verified.refresh_after());
+            let membership_due = inner.membership_renewal_at();
             let publication_due = inner
                 .published_endpoint
                 .as_ref()
