@@ -4,6 +4,8 @@ use crate::service_plan::store_db::hot_write::tests::fixtures;
 use crate::service_plan::PlanStore;
 use std::sync::{Arc, Barrier};
 
+mod status_tests;
+
 fn sections() -> Vec<Section> {
     serde_json::from_value(json!([
         {"id":"sec_a","title":"Root","body":"root prose","subsections":[

@@ -136,7 +136,9 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_string();
-            let seed = store.prepend_heartbeat_for_plan(&id, &seed);
+            let seed = store
+                .prepend_heartbeat_for_plan(&id, &seed)
+                .map_err(plan_rpc_err)?;
             let result = store
                 .prepare_handoff_reseed(&id, &request, &command, &seed, now)
                 .map_err(plan_rpc_err)?;

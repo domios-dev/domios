@@ -104,8 +104,9 @@ fn owner_rules_survive_empty_and_non_owner_supporter_selection() {
         );
     }
     for selection in [Some(&ids[..]), Some(&[][..]), None] {
-        let rendered =
-            store.prepend_heartbeat_with_selected_learnings(&plan_id, "", &[], selection);
+        let rendered = store
+            .prepend_heartbeat_with_selected_learnings(&plan_id, "", &[], selection)
+            .unwrap();
         for fragment in &owner_fragments {
             assert_eq!(rendered.matches(fragment.as_str()).count(), 1);
         }
