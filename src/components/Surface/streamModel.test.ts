@@ -95,6 +95,11 @@ for (const dpr of [1.25, 1.5]) {
   assert.deepEqual(requestedFrameSize(first!), { width: Math.round(640 * dpr), height: Math.round(481 * dpr) });
   assert.equal(viewportAction(false, null, first), "connect");
   assert.equal(viewportAction(true, first, viewportRequest({ width: 640.4, height: 480.6 }, dpr)), "none");
+  const css = { width: 1320, height: 996 };
+  const layout = layoutStream({ width: 1320 * dpr, height: 996 * dpr }, css, dpr);
+  const normalized = { deviceWidth: 1320, deviceHeight: 996, pageScaleFactor: 1, scrollOffsetY: 222 };
+  assert.deepEqual(canvasToPage(660, 498, { left: 0, top: 0, ...css }, layout.drawCss, normalized), { x: 660, y: 498 }, "device-pixel live frames map clicks to CSS coordinates");
+  assert.deepEqual(stageRectToPage({ x: 330, y: 249 }, { x: 660, y: 498 }, layout.drawCss, normalized), { x: 330, y: 471, width: 330, height: 249 }, "snips retain CSS scroll offsets with a scaled compositor");
 }
 for (const size of [{ width: NaN, height: 480 }, { width: 640, height: Infinity }]) {
   assert.equal(viewportRequest(size, 1.5), null, "invalid geometry cannot start a stream");

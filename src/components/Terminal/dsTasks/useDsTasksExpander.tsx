@@ -38,7 +38,7 @@ export function useDsTasksExpander(tabId: string) {
         plans.set(plan.id,plan);
       }
       if (!plan) return expandDsTasksMention(text, [...plans.values()], scope);
-      const reads = [
+      const reads: Array<{ status: string; reference: string | undefined }> = [
         ...input.args.taskRefs.map((reference) => ({ status: "all", reference })),
         ...input.args.groups.map((status) => ({ status, reference: undefined })),
       ];

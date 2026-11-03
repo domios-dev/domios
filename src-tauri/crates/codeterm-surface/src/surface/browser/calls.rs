@@ -93,6 +93,10 @@ impl BrowserRuntime {
                         method == "viewport.claim",
                     )
                     .is_some();
+                log::debug!(
+                    "[browser-viewport] {method} viewer={} css={}x{} dpr={} accepted={accepted} owner={:?}",
+                    size.viewer, size.width, size.height, size.dpr, model.owner()
+                );
                 if accepted {
                     self.apply_viewer_viewport(&mut model).await?;
                 }

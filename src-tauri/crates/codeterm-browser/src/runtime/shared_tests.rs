@@ -139,6 +139,9 @@ impl CdpConnection for FakeConnection {
             "Page.getLayoutMetrics" => {
                 Ok(json!({"cssLayoutViewport":{"clientWidth":390},"cssContentSize":{"width":400}}))
             }
+            "Runtime.evaluate" if params["expression"] == "window.devicePixelRatio" => {
+                Ok(json!({"result":{"type":"number","value":1.0}}))
+            }
             "Page.captureScreenshot" => {
                 Ok(json!({ "data": if session == Some("ST1") { "QQ==" } else { "Qg==" } }))
             }
@@ -393,9 +396,106 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
         assert_eq!(metrics[metrics.len() - 2]["mobile"], true);
         assert_eq!(
             metrics.last().unwrap(),
-            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false})
+            &json!({"width":1600,"height":900,"deviceScaleFactor":1.0,"mobile":false,
+                "viewport":{"x":0,"y":0,"width":1600,"height":900,"scale":1}})
         );
         assert_eq!(host.viewport(), Viewport::default());
         host.close().await;
     }
+}
+
+#[tokio::test]
+async fn owned_scaled_compositor_keeps_still_and_live_frames_in_css_coordinates() {
+    let root = tempfile::tempdir().unwrap();
+    let connection = FakeConnection::new();
+    let lease = acquire(
+        root.path().join("profile"),
+        connection.clone(),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let host = crate::BrowserHost::new(crate::BrowserHostConfig::under_data_dir(root.path()));
+    let mut viewport = Viewport {
+        width: 1320,
+        height: 996,
+        dpr: 1.25,
+        mobile: false,
+    };
+    host.set_viewport(crate::ViewportRequest {
+        width: 1320.0,
+        height: 996.0,
+        dpr: viewport.dpr,
+    })
+    .await
+    .unwrap();
+    let mut viewer = host.subscribe_screencast();
+    let runtime = from_lease(lease, viewport, host.frames.clone())
+        .await
+        .unwrap();
+    let page = runtime.page.clone();
+    host.install(runtime);
+    for dpr in [1.25, 1.5] {
+        if viewport.dpr != dpr {
+            viewport.dpr = dpr;
+            host.set_viewport(crate::ViewportRequest {
+                width: 1320.0,
+                height: 996.0,
+                dpr,
+            })
+            .await
+            .unwrap();
+        }
+        let still = tokio::time::timeout(Duration::from_secs(1), viewer.next())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(still.frame.still);
+        assert_eq!(
+            (
+                still.frame.metadata.device_width,
+                still.frame.metadata.device_height
+            ),
+            (1320.0, 996.0)
+        );
+        for ack in 1..=3 {
+            connection.emit("Page.screencastFrame", Some(page.session_id()), json!({
+                "sessionId": ack, "data": "TA==",
+                "metadata": { "deviceWidth": 1320.0 * dpr, "deviceHeight": 996.0 * dpr, "scrollOffsetY": 222.0 }
+            }));
+            let live = tokio::time::timeout(Duration::from_secs(1), viewer.next())
+                .await
+                .unwrap()
+                .unwrap();
+            assert!(!live.frame.still);
+            assert_eq!(live.frame.jpeg, vec![b'L']);
+            assert_eq!(
+                (
+                    live.frame.metadata.device_width,
+                    live.frame.metadata.device_height
+                ),
+                (1320.0, 996.0)
+            );
+            assert_eq!(live.frame.metadata.scroll_offset_y, 222.0);
+        }
+        let requests = connection.state.lock().requests.clone();
+        let metrics = requests
+            .iter()
+            .rev()
+            .find(|(_, method, _)| method == "Emulation.setDeviceMetricsOverride")
+            .unwrap();
+        assert_eq!(metrics.2["deviceScaleFactor"], dpr);
+        assert_eq!(
+            metrics.2["viewport"],
+            json!({"x":0,"y":0,"width":1320,"height":996,"scale":1})
+        );
+        let start = requests
+            .iter()
+            .rev()
+            .find(|(_, method, _)| method == "Page.startScreencast")
+            .unwrap();
+        let (width, height) = viewport.device_size();
+        assert_eq!(start.2["maxWidth"], width);
+        assert_eq!(start.2["maxHeight"], height);
+    }
+    host.close().await;
 }

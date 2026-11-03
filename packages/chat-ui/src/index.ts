@@ -54,7 +54,7 @@ export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";
 export { ChatBlockHostProvider, useChatBlockHost } from "./blocks/ChatBlockHost";
 export type { ChatCardMenuItem, ChatCardMenuSpec } from "./blocks/ChatBlockHost";
-export type { AgentBlockHost, ChatBlockHost, ChecklistBlockHost, ChoiceBlockHost, ConnectBlockHost, JobBlockHost, PluginBlockHost, SettingBlockHost, TasksBlockHost } from "./blocks/ChatBlockHost";
+export type { AgentBlockHost, ChatBlockHost, ChatMentionValue, ChecklistBlockHost, ChoiceBlockHost, ConnectBlockHost, JobBlockHost, PluginBlockHost, SettingBlockHost, TasksBlockHost } from "./blocks/ChatBlockHost";
 export { ChatBlockMessageProvider, useChatBlockMessageId } from "./blocks/ChatBlockHost";
 export { useLiveBinding } from "./blocks/liveBinding";
 export type { LiveBindingSource } from "./blocks/liveBinding";
