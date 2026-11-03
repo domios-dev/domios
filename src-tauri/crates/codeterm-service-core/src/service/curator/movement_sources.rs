@@ -38,7 +38,7 @@ pub(super) fn append(
     now: u64,
     rows: &mut BTreeMap<String, Vec<digest::Row>>,
 ) -> Result<(), String> {
-    rows.extend(curator::movement::rows(plan, since, now));
+    rows.extend(curator::movement::current_rows(plan, since, now));
     for (id, state) in &plan.control_loop.agent_states {
         rows.entry("agent capacity".into())
             .or_default()

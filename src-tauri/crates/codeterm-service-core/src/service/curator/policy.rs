@@ -72,6 +72,9 @@ impl RolePolicy for CuratorPolicy {
             })),
             result => {
                 if let Err(error) = result {
+                    if error.read_failure {
+                        return Err(error.to_string());
+                    }
                     log::debug!("[curator] prepare {}: {error}", job.task);
                     service.curator_fire_failed(&job.task, error.reason, now)?;
                 }

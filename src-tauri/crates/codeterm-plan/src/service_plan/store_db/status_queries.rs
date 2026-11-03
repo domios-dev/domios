@@ -145,7 +145,7 @@ pub(super) fn load_status_projection(
     })
 }
 
-fn load_tasks(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
+pub(super) fn load_tasks(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
     let slugs: Vec<_> = crate::service_plan::skill_registry::list_plan_skill_summaries(plan)
         .into_iter()
         .map(|skill| skill.slug)
@@ -243,7 +243,7 @@ fn lowercase_contains(source: &str, needle: &str) -> bool {
     false
 }
 
-fn load_sections(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
+pub(super) fn load_sections(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
     record_query();
     let mut statement = connection.prepare_cached(
         "SELECT json_object('id',json_extract(j.value,'$.id'),'title',json_extract(j.value,'$.title'),
@@ -263,7 +263,7 @@ fn load_sections(connection: &Connection, plan: &mut Plan) -> Result<(), PlanErr
     Ok(())
 }
 
-fn load_attempts(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
+pub(super) fn load_attempts(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
     let indexes: HashMap<_, _> = plan
         .tasks
         .iter()
@@ -286,7 +286,7 @@ fn load_attempts(connection: &Connection, plan: &mut Plan) -> Result<(), PlanErr
     Ok(())
 }
 
-fn load_history(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
+pub(super) fn load_history(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
     record_query();
     let mut statement = connection.prepare_cached(RECENT).map_err(db_error)?;
     for row in statement
@@ -326,7 +326,7 @@ fn load_history(connection: &Connection, plan: &mut Plan) -> Result<(), PlanErro
     Ok(())
 }
 
-fn load_heartbeat(
+pub(super) fn load_heartbeat(
     connection: &Connection,
     plan: &mut Plan,
     selected_learnings: &[String],
