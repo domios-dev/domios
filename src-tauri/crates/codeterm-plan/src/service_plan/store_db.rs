@@ -568,7 +568,9 @@ fn json_error(error: serde_json::Error) -> PlanError {
 pub(super) mod admission;
 mod change_feed;
 mod chat_read_queries;
+mod curator_digest_queries;
 mod curator_queries;
+mod curator_snapshot;
 mod index_queries;
 mod notice_queries;
 pub(super) use index_queries::PlanIndexRow;

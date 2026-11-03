@@ -6,8 +6,7 @@ use crate::plan::{
 use codeterm_plan::service_plan::curator::{self, digest, note, ControlLoopUpdate, DueAction};
 use codeterm_types::plan::control_loop::{
     CuratorFailure, CuratorSuspension, CURATOR_ELEVATED_LANES, CURATOR_HIGH_LANES,
-    CURATOR_INITIAL_WINDOW_MS, CURATOR_MAX_OUTPUT_TOKENS, CURATOR_MAX_TURNS, CURATOR_TIMEOUT_MS,
-    CURATOR_TIMEOUT_SECS,
+    CURATOR_MAX_OUTPUT_TOKENS, CURATOR_MAX_TURNS, CURATOR_TIMEOUT_MS, CURATOR_TIMEOUT_SECS,
 };
 use serde_json::json;
 
