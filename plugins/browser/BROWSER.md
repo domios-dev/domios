@@ -136,7 +136,7 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 
 - `hover @ref` or `hover button Name`.
 - `double-click`, `triple-click`, `right-click`: same target forms.
-- `drag @from @to` or `drag x1 y1 x2 y2`: viewport CSS pixels; ref targets must be visible.
+- `drag @from @to` or `drag x1 y1 x2 y2`: viewport CSS pixels; ref targets must be visible. Native drops require an observed drop; pointer drags require a release.
 - `scroll-to @ref`: bring an element into view.
 - `key Enter --repeat 3 [shift|ctrl|alt|meta]`: 1–100 repetitions.
 - `form-value @ref true|false`: set a checkbox. For a select, pass option value or exact visible text; ambiguous options refuse. Re-snapshot to prove the value.
@@ -145,4 +145,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

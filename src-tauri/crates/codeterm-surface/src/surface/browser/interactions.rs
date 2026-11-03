@@ -161,14 +161,7 @@ impl BrowserRuntime {
                     Interaction::DragPoints([x, y, end_x, end_y]) => (*x, *y, *end_x, *end_y),
                     _ => unreachable!(),
                 };
-                for (kind, x, y, buttons) in [
-                    ("mouseMoved", x, y, 0),
-                    ("mousePressed", x, y, 1),
-                    ("mouseMoved", end_x, end_y, 1),
-                    ("mouseReleased", end_x, end_y, 0),
-                ] {
-                    commands.push(("Input.dispatchMouseEvent", json!({"type":kind,"x":x,"y":y,"button":"left","buttons":buttons,"clickCount":1})));
-                }
+                return self.drag_action(page, [x, y, end_x, end_y], epoch).await;
             }
             _ => return Err("unsupported interaction".into()),
         }
