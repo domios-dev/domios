@@ -1,6 +1,6 @@
-use super::read_projections::{column, decode, record_query, SECTION_ROWS};
+use super::read_projections::{append_section, column, decode, record_query, SECTION_ROWS};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Milestone, Plan, Section, Task};
+use crate::plan::{Milestone, Plan, Task};
 use crate::service_plan::search_index::PlanSearchSnapshot;
 use crate::service_plan::PlanError;
 use rusqlite::OptionalExtension;
@@ -88,13 +88,5 @@ impl PlanDatabase {
         tx.commit().map_err(db_error)?;
         drop(connection);
         Ok(PlanSearchSnapshot::from_plan(&plan))
-    }
-}
-
-fn append_section(roots: &mut Vec<Section>, depth: usize, node: Section) {
-    if depth == 0 {
-        roots.push(node)
-    } else if let Some(parent) = roots.last_mut() {
-        append_section(&mut parent.subsections, depth - 1, node)
     }
 }
