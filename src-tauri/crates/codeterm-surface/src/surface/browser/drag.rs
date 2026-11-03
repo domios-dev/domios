@@ -14,7 +14,8 @@ fn drag_data(data: &Value) -> Result<Value, String> {
     {
         return Err("unsupported intercepted drag payload".into());
     }
-    if data["dragOperationsMask"].as_u64().is_none() {
+    // Chromium reports "every operation" (an uninitialized effectAllowed) as -1.
+    if data["dragOperationsMask"].as_i64().is_none() {
         return Err("missing drag operations mask".into());
     }
     Ok(data.clone())

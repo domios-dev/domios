@@ -210,6 +210,8 @@ async fn browser_uncertain_drag_is_not_replayed_and_disables_interception() {
 #[test]
 fn browser_drag_rejects_file_and_unbounded_intercepted_data() {
     assert!(drag_data(&payload()).is_ok());
+    assert!(drag_data(&json!({"items":[],"dragOperationsMask":-1})).is_ok());
+    assert!(drag_data(&json!({"items":[]})).is_err());
     assert!(
         drag_data(&json!({"items":[],"files":["C:/private/file"],"dragOperationsMask":1})).is_err()
     );
