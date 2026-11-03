@@ -131,7 +131,7 @@ fn task_label(task: &Task) -> TaskLabel {
     }
 }
 
-fn plan_in_scope(filter: &TaskListFilter, plan: &Plan) -> bool {
+pub(super) fn plan_in_scope(filter: &TaskListFilter, plan: &Plan) -> bool {
     if plan.status == PlanStatus::Archived {
         return false;
     }
@@ -202,7 +202,7 @@ fn empty_reason(filter: &TaskListFilter, plans: &[Plan]) -> TaskListEmptyReason 
     TaskListEmptyReason::NoMatchForFilters
 }
 
-fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
+pub(super) fn include_task(filter: &TaskListFilter, task: &Task) -> bool {
     if filter.active_only && !is_active_task(&task.status) {
         return false;
     }
@@ -242,13 +242,16 @@ impl PlanStore {
         if let Some(plan_id) = filter.plan_id.as_deref() {
             scope.push(PlanMatch::Ids(vec![plan_id.to_string()]));
         }
-        let mut plans = self.plans_matching(&PlanMatch::All(scope));
+        let mut predicate = PlanMatch::All(scope);
         if let Some(plan_id) = filter.plan_id.as_deref() {
-            if !plans.iter().any(|plan| plan.id == plan_id) {
-                plans.extend(self.get(plan_id));
-            }
+            predicate = PlanMatch::Any(vec![predicate, PlanMatch::Ids(vec![plan_id.into()])]);
         }
-        plans
+        self.database
+            .task_list_snapshot(&predicate, filter)
+            .unwrap_or_else(|error| {
+                log::warn!("[plan.store] task list projection failed: {error}");
+                Vec::new()
+            })
     }
 
     pub fn list_tasks(&self, filter: TaskListFilter) -> Vec<TaskSummary> {
@@ -288,47 +291,52 @@ impl PlanStore {
     }
 
     pub fn show_task(&self, task_id: &str) -> Option<TaskDetail> {
-        for plan in self.plans_matching(&task_ref_candidates(task_id)) {
-            if plan.status == PlanStatus::Archived {
-                continue;
-            }
-            let Some(task) = crate::plan::task_key::find_task(&plan.tasks, task_id) else {
-                continue;
-            };
-            let parent = task.parent_task_id.as_ref().and_then(|parent_id| {
-                plan.tasks
-                    .iter()
-                    .find(|candidate| candidate.id == *parent_id)
-                    .map(task_label)
-            });
-            let dependency_waits = dependency_waits(&plan, task);
-            return Some(TaskDetail {
-                plan_id: plan.id.clone(),
-                plan_title: plan.title.clone(),
-                plan_owner: plan.owner.clone(),
-                display_key: task.display_key(),
-                sections: task_sections(&plan, task),
-                parent,
-                siblings: plan
-                    .tasks
-                    .iter()
-                    .filter(|candidate| {
-                        candidate.id != task.id && candidate.parent_task_id == task.parent_task_id
-                    })
-                    .map(task_label)
-                    .collect(),
-                subtasks: plan
-                    .tasks
-                    .iter()
-                    .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
-                    .map(task_label)
-                    .collect(),
-                presentation: super::state::task_projection(&plan, task).presentation,
-                dependency_waits,
-                task: task.clone(),
-            });
-        }
-        None
+        self.task_details(task_id, false)
+    }
+
+    pub fn show_task_window(&self, task_id: &str) -> Option<TaskDetail> {
+        self.task_details(task_id, true)
+    }
+
+    fn task_details(&self, task_id: &str, bounded: bool) -> Option<TaskDetail> {
+        let plan = self
+            .database
+            .task_detail_snapshot(&task_ref_candidates(task_id), task_id, bounded)
+            .ok()
+            .flatten()?;
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)?;
+        let parent = task.parent_task_id.as_ref().and_then(|parent_id| {
+            plan.tasks
+                .iter()
+                .find(|candidate| candidate.id == *parent_id)
+                .map(task_label)
+        });
+        let dependency_waits = dependency_waits(&plan, task);
+        Some(TaskDetail {
+            plan_id: plan.id.clone(),
+            plan_title: plan.title.clone(),
+            plan_owner: plan.owner.clone(),
+            display_key: task.display_key(),
+            sections: task_sections(&plan, task),
+            parent,
+            siblings: plan
+                .tasks
+                .iter()
+                .filter(|candidate| {
+                    candidate.id != task.id && candidate.parent_task_id == task.parent_task_id
+                })
+                .map(task_label)
+                .collect(),
+            subtasks: plan
+                .tasks
+                .iter()
+                .filter(|candidate| candidate.parent_task_id.as_deref() == Some(&task.id))
+                .map(task_label)
+                .collect(),
+            presentation: super::state::task_projection(&plan, task).presentation,
+            dependency_waits,
+            task: task.clone(),
+        })
     }
 
     pub fn set_task_assignment(
