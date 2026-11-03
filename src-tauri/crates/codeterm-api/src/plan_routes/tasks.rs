@@ -790,9 +790,7 @@ fn task_update_core_with_lane_cleanup_check(
             .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
         service.notify_owner_task_in_review(id, tid, by_tab, intent);
     }
-    service
-        .ui
-        .emit("plan-changed", serde_json::json!({ "plan_id": id }));
+    service.emit_committed_plan_changed(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

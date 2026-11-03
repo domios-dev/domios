@@ -15,6 +15,7 @@ impl CuratorScheduleRead {
 }
 
 pub struct PlanStatusRead {
+    pub(super) revision: String,
     pub(super) plan: Plan,
     pub(super) event_log: EventLog,
     pub(super) bounces: BounceSummary,
@@ -30,6 +31,7 @@ impl PlanStatusRead {
     }
 
     pub fn apply_history_facts(&self, snapshot: &mut PlanStateSnapshot, now_ms: u64) {
+        snapshot.revision = self.revision.clone();
         snapshot.lane_history_count = self.lane_history_count;
         snapshot.undelivered_request_count = self.undelivered_requests;
         if self.delivery_uncertain {

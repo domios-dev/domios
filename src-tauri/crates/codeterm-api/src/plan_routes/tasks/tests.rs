@@ -65,6 +65,60 @@ fn task_board_page_preserves_team_binding_authorization_errors() {
 }
 
 #[test]
+fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_read() {
+    let (fixture, plan_id, task_id, parent_id, _, owner) = update_fixture();
+    let svc = &fixture.service;
+    svc.plan_store
+        .with_plan(&plan_id, 5, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == parent_id)
+                .unwrap()
+                .body = "unrelated body sentinel".into();
+            Ok(())
+        })
+        .unwrap();
+    svc.emit_committed_plan_changed(&plan_id);
+    fixture.ui.0.lock().clear();
+    let Json(updated) = task_update_core(
+        &Arc::new(svc.clone()),
+        &crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner)),
+        &plan_id,
+        &task_id,
+        json!({"body":"selected body"}),
+    )
+    .unwrap();
+    assert_eq!(updated["ok"], true);
+    let event = fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .find(|(event, _)| event == "plan-changed")
+        .map(|(_, payload)| payload.clone())
+        .expect("committed event");
+    let Json(detail) = task_detail_core(svc, &plan_id, &task_id).unwrap();
+    assert_eq!(event["plan_id"], plan_id);
+    assert_eq!(event["task_ids"], json!([task_id]));
+    assert_eq!(event["reset"], false);
+    assert_eq!(event["revision"], detail["revision"]);
+    assert_eq!(detail["task"]["body"], "selected body");
+    assert!(!serde_json::to_string(&event).unwrap().contains("body"));
+    assert!(!serde_json::to_string(&detail)
+        .unwrap()
+        .contains("unrelated body sentinel"));
+    svc.plan_store
+        .with_plan(&plan_id, 6, |plan| {
+            plan.team_id = Some("missing-team".into());
+            Ok(())
+        })
+        .unwrap();
+    let (status, Json(error)) = task_detail_core(svc, &plan_id, &task_id).unwrap_err();
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(error.get("task").is_none());
+}
+
+#[test]
 fn task_detail_resolves_scoped_id_handle_and_key_with_exact_id_precedence() {
     let (fixture, plan_id, task_id, parent_id, dependency_id, _) = update_fixture();
     let svc = &fixture.service;

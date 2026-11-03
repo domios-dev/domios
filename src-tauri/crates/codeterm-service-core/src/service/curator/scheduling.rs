@@ -371,7 +371,7 @@ impl ServiceContext {
             if let Some(round) = fallback {
                 self.journal_curator(&plan.id, &round);
             }
-            self.ui.emit("plan-changed", json!({"plan_id":plan.id}));
+            self.emit_committed_plan_changed(&plan.id);
         }
         Ok(())
     }

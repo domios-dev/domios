@@ -318,16 +318,21 @@ impl PlanDatabase {
         limit: usize,
         after: Option<(u64, i64, &str)>,
     ) -> Result<Value, PlanError> {
-        let connection = self.connection.lock();
+        let mut guard = self.connection.lock();
+        let connection = guard.transaction().map_err(db_error)?;
         let page_size = limit.clamp(1, PAGE_SIZE_LIMIT);
         let header = load_header(&connection, plan_id)?;
+        let revision = super::change_feed::revision(&connection, plan_id)?.to_string();
         let loops = header.get("loops");
         if let Some(status) = status {
             let rows = load_column(&connection, plan_id, status, page_size, after, loops)?;
-            return Ok(json!({
+            let page = json!({
                 "plan_id": plan_id,
+                "revision": revision,
                 "column": page_value(status, rows, page_size),
-            }));
+            });
+            connection.commit().map_err(db_error)?;
+            return Ok(page);
         }
 
         let counts = load_counts(&connection, plan_id)?;
@@ -336,11 +341,14 @@ impl PlanDatabase {
             let rows = load_column(&connection, plan_id, column, page_size, None, loops)?;
             columns.insert(column.to_string(), page_value(column, rows, page_size));
         }
-        Ok(json!({
+        let page = json!({
             "plan_id": plan_id,
+            "revision": revision,
             "counts": counts.as_json(),
             "columns": columns,
-        }))
+        });
+        connection.commit().map_err(db_error)?;
+        Ok(page)
     }
 
     pub(in crate::service_plan) fn task_detail(
@@ -405,6 +413,7 @@ impl PlanDatabase {
         });
         let detail = json!({
             "plan_id": plan_id,
+            "revision": super::change_feed::revision(&connection, plan_id)?.to_string(),
             "task_id": task_id,
             "task": task,
             "context": context,

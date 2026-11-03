@@ -43,10 +43,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
 }
 
 fn emit_plan_changed(state: &AppState, plan_id: &str) {
-    state
-        .svc
-        .ui
-        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
 }
 
 fn emit_spec_changed(state: &AppState, spec_id: &str) {

@@ -220,10 +220,7 @@ pub async fn take(
         .svc
         .assign_task_tab_description(&tab_id, &description)
         .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
-    state
-        .svc
-        .ui
-        .emit("plan-changed", json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
     Ok(Json(
         json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
@@ -245,10 +242,7 @@ pub async fn drop_task(
         .plan_store
         .set_task_assignment(&task_id, None, None, epoch_ms())
         .map_err(plan_err)?;
-    state
-        .svc
-        .ui
-        .emit("plan-changed", json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
     Ok(Json(
         json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))

@@ -66,6 +66,20 @@ impl ServiceContext {
                 }
                 match receiver.recv().await {
                     Ok(event) => match event.event {
+                        SystemEvent::Generic { event_type, .. } if event_type == "plans-loaded" => {
+                            let bootstrap = service.clone();
+                            match tokio::task::spawn_blocking(move || {
+                                curator_bootstrap_ids(&bootstrap.plan_store)
+                            })
+                            .await
+                            {
+                                Ok(current) => {
+                                    plans.extend(current);
+                                    pending.extend(plans.iter().cloned());
+                                }
+                                Err(error) => log::debug!("[curator] plan resync: {error}"),
+                            }
+                        }
                         SystemEvent::Generic { event_type, data }
                             if event_type == "plan-changed"
                                 || event_type == "curator-reconcile" =>

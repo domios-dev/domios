@@ -176,7 +176,7 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         if recorded {
             self.journal_curator(plan_id, &round);
-            self.ui.emit("plan-changed", json!({"plan_id":plan_id}));
+            self.emit_committed_plan_changed(&plan_id);
         }
         Ok(round)
     }

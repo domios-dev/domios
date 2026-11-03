@@ -603,10 +603,7 @@ impl ServiceContext {
         if let Some(plan_id) =
             self.write_attempt_model_identity(tab_id, agent_id, session_id, Some(model.to_string()))
         {
-            self.ui.emit(
-                "plan-changed",
-                serde_json::to_value(serde_json::json!({ "plan_id": plan_id })).unwrap_or_default(),
-            );
+            self.emit_committed_plan_changed(&plan_id);
         }
     }
 
@@ -699,11 +696,7 @@ impl ServiceContext {
             if let Some(plan_id) =
                 self.write_attempt_model_identity(tab_id, &agent_id, &session_id, None)
             {
-                self.ui.emit(
-                    "plan-changed",
-                    serde_json::to_value(serde_json::json!({ "plan_id": plan_id }))
-                        .unwrap_or_default(),
-                );
+                self.emit_committed_plan_changed(&plan_id);
             }
         }
     }

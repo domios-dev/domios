@@ -287,6 +287,7 @@ pub struct StrideSnapshot {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PlanStateSnapshot {
+    pub revision: String,
     pub control_loop: crate::plan::ControlLoop,
     pub plan_id: String,
     pub title: String,
@@ -695,6 +696,7 @@ pub fn build_plan_state_snapshot(
         .collect();
 
     let mut snapshot = PlanStateSnapshot {
+        revision: "0".into(),
         control_loop: plan.control_loop.clone(),
         plan_id: plan.id.clone(),
         title: plan.title.clone(),

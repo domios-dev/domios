@@ -42,8 +42,7 @@ impl ServiceContext {
             .and_then(|plan| plan.control_loop.running);
         self.authenticate_curator(&caller)?;
         if before.is_some_and(|run| run.session_id.is_none() || run.binding_nonce.is_none()) {
-            self.ui
-                .emit("plan-changed", serde_json::json!({"plan_id":plan_id}));
+            self.emit_committed_plan_changed(&plan_id);
         }
         Ok(())
     }

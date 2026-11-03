@@ -186,7 +186,7 @@ impl ServiceContext {
             .map_err(|e| e.to_string())?;
         self.reconcile_curator_id(plan_id, now)
             .map_err(|error| error.to_string())?;
-        self.ui.emit("plan-changed", json!({"plan_id":plan_id}));
+        self.emit_committed_plan_changed(&plan_id);
         self.control_loop_show(plan_id)
     }
 
@@ -275,8 +275,7 @@ impl ServiceContext {
                 )?;
             }
         }
-        self.ui
-            .emit("plan-changed", json!({"plan_id":identity.plan_id}));
+        self.emit_committed_plan_changed(&identity.plan_id);
         if let Some(error) = result_delivery_error {
             return Err(format!(
                 "round finalized; Orchestrator result delivery failed: {error}"
