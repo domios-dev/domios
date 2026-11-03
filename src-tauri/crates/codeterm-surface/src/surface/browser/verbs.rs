@@ -226,22 +226,11 @@ impl BrowserRuntime {
     }
 
     pub(super) async fn goto(&self, page: &PageChannel, url: &str) -> Result<String, String> {
-        let mut loaded = page.subscribe_session(&["Page.loadEventFired"]);
-        self.navigate(page, NavAction::Goto, Some(url)).await?;
-        let _ = tokio::time::timeout(WAIT_DEADLINE, loaded.recv()).await;
-        let state = self.shared.state();
-        Ok(format!("{} — {}", state.url, state.title))
+        self.navigate(page, NavAction::Goto, Some(url)).await
     }
 
     async fn history_step(&self, page: &PageChannel, action: NavAction) -> Result<String, String> {
-        let events = match action {
-            NavAction::Reload => vec!["Page.loadEventFired"],
-            _ => vec!["Page.frameNavigated", "Page.navigatedWithinDocument"],
-        };
-        let mut moved = page.subscribe_session(&events);
-        self.navigate(page, action, None).await?;
-        let _ = tokio::time::timeout(WAIT_DEADLINE, moved.recv()).await;
-        Ok(self.shared.state().url)
+        self.navigate(page, action, None).await
     }
 
     async fn page_verb(
@@ -271,11 +260,10 @@ impl BrowserRuntime {
             }
             "click" => {
                 let target = self.resolve(args)?;
-                self.click_node(page, target.backend_node_id).await?;
+                let completion = self.click_node(page, target.backend_node_id).await?;
                 Ok(format!(
-                    "clicked {} → {} (re-snapshot before the next action)",
-                    target.label,
-                    self.shared.state().url
+                    "clicked {}: {} (re-snapshot before the next action)",
+                    target.label, completion
                 ))
             }
             "type" | "type-secret" => {
@@ -341,7 +329,8 @@ impl BrowserRuntime {
         &self,
         page: &PageChannel,
         backend_node_id: i64,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
+        let _guard = self.action_gate.lock().await;
         let node = json!({ "backendNodeId": backend_node_id });
         let _ = self
             .send(page, "DOM.scrollIntoViewIfNeeded", node.clone())
@@ -349,7 +338,12 @@ impl BrowserRuntime {
         let quads = self.send(page, "DOM.getContentQuads", node).await?;
         let (x, y) =
             input::quad_center(&quads).ok_or("element has no visible box (hidden or zero-size)")?;
-        self.dispatch_input(page, &InputArgs::click(x, y)).await
+        self.complete_action(page, false, async {
+            self.dispatch_input(page, &InputArgs::click(x, y)).await?;
+            Ok(Value::Null)
+        })
+        .await
+        .map(|(_, completion)| completion)
     }
 
     async fn type_into(

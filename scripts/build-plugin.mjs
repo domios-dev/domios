@@ -18,6 +18,7 @@ import { build } from "esbuild";
 import { createHash } from "node:crypto";
 import {
   writeFileSync,
+  readFileSync,
   mkdirSync,
   existsSync,
   readdirSync,
@@ -31,6 +32,11 @@ const id = process.argv[2];
 if (!id) {
   console.error("usage: node scripts/build-plugin.mjs <id>");
   process.exit(1);
+}
+
+function writeGenerated(file, text) {
+  if (existsSync(file) && readFileSync(file, "utf8").replaceAll("\r\n", "\n") === text.replaceAll("\r\n", "\n")) return;
+  writeFileSync(file, text);
 }
 
 const shortHash = (s) => createHash("sha256").update(s).digest("hex").slice(0, 12);
@@ -57,7 +63,7 @@ async function buildLogic() {
     logLevel: "warning",
   });
   const js = result.outputFiles.map((f) => f.text).join("");
-  writeFileSync(out, js);
+  writeGenerated(out, js);
   console.log(`built ${id} logic → ${pluginPath}/plugin.js (${(js.length / 1024).toFixed(1)} KB)`);
 }
 
@@ -110,8 +116,8 @@ async function buildUi() {
 </html>`;
 
   mkdirSync(uiDir, { recursive: true });
-  writeFileSync(resolve(uiDir, jsName), js);
-  writeFileSync(resolve(uiDir, "index.html"), html);
+  writeGenerated(resolve(uiDir, jsName), js);
+  writeGenerated(resolve(uiDir, "index.html"), html);
   console.log(
     `built ${id} ui → ${pluginPath}/ui/{${jsName} (${(js.length / 1024).toFixed(1)} KB), index.html (${(html.length / 1024).toFixed(1)} KB)}`,
   );

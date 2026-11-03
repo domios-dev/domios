@@ -281,8 +281,10 @@ pub(crate) fn exited_before_readiness_reason(
         None => "unknown".to_string(),
     };
     format!(
-        "{EXITED_BEFORE_READINESS}: tab={} attempt={} launch_nonce={} exit_code={code}",
-        attempt.tab_id, attempt.pty_id, attempt.binding_nonce
+        "{EXITED_BEFORE_READINESS}: tab={} attempt={} launch_nonce_present={} exit_code={code}",
+        attempt.tab_id,
+        attempt.pty_id,
+        !attempt.binding_nonce.is_empty()
     )
 }
 

@@ -52,7 +52,6 @@
   "src/components/Sidebar/sortable.editing.test.tsx",
   "src/components/Sidebar/sortable.clickDrift.test.tsx",
   "src/components/Sidebar/sortable.pressFocus.test.tsx",
-  "src/components/Sidebar/sidebarScrollTouch.test.ts",
   "src/components/Sidebar/GeneralInventory.test.tsx",
   "src/components/Sidebar/SidebarGeneralSection.test.tsx",
   "src/components/Sidebar/WorkspaceItem.reveal.test.tsx",
@@ -320,7 +319,6 @@
   "src/store/multiplexer/structuralShare.test.ts",
   "src/components/Terminal/ChatTranscriptRow.renderCount.test.tsx",
   "src/components/Terminal/useChatMessageSelection.stability.test.tsx",
-  "src/components/MeshPanel/MeshPanel.renderCount.test.tsx",
   "src/components/Jobs/useCronJobs.identity.test.tsx",
   "src/components/Sidebar/sortable.contextStability.test.tsx",
   "src/components/Terminal/useComposerBackgroundWork.identity.test.tsx",
@@ -375,5 +373,6 @@
   "src/components/Neighbors/NeighborConversationView.test.tsx",
   "src/components/Neighbors/SidebarNeighborsSection.test.tsx",
   "src/hooks/terminal/useXterm.composition.test.tsx",
-  "plugins/provider-shared/tests/runPromptStep.test.ts"
+  "plugins/provider-shared/tests/runPromptStep.test.ts",
+  "packages/chat-ui/src/ExpandableReader.test.tsx"
 ]

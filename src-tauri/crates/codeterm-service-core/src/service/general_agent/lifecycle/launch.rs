@@ -98,7 +98,8 @@ pub(super) fn start(
     };
     let nonce = svc.rotate_session_binding_nonce(&tab_id);
     let credential = svc.mint_tab_credential(&tab_id, &nonce);
-    let mut env_vars = general_agent_env_vars(&tab_id, pad.env_value(), nonce, config, credential);
+    let mut env_vars =
+        general_agent_env_vars(&tab_id, pad.env_value(), nonce.clone(), config, credential);
     match svc.model_provider_launch_env(provider_name) {
         Ok(keys) => env_vars.extend(keys),
         Err(error) => {
@@ -366,11 +367,17 @@ pub(super) fn start(
         // No bracket-paste: zsh ZLE binds the handler only after the first interactive cycle, so the markers leak as literal text on launch.
         format!("{}\r", cmd).into_bytes()
     };
+    let launch_authority = svc.user_send_authority(&tab_id).ok().filter(|authority| {
+        authority.pty_id.as_deref() == Some(pty_id.as_str()) && authority.binding_nonce == nonce
+    });
     let launch_write = pty.lock().write(&pty_id, &payload);
     if let Err(e) = launch_write {
         log::error!("[general-agent] Failed to write launch command: {}", e);
         fail_general_agent_start(svc, mux, &tab_id, &e.to_string());
         return;
+    }
+    if let Some(authority) = launch_authority {
+        svc.note_user_launch_dispatched(&authority);
     }
 
     let Some(readiness_attempt) =
@@ -459,13 +466,20 @@ pub(super) fn start(
         "general_agent_launch_ready",
     );
     let settled_tab = { mux.read().get_tab(&tab_id).cloned() };
-    if let Some(tab) = settled_tab {
-        svc.general_agent_watchdog_event(&tab, super::super::WatchdogEvent::LaunchSettlement);
+    if let Some(tab) = settled_tab.as_ref() {
+        svc.general_agent_watchdog_event(tab, super::super::WatchdogEvent::LaunchSettlement);
     }
     svc.emit_state_changed(MuxEmitCause::GeneralAgent);
-    log::info!(
-        "[general-agent] Started successfully (tab={}, pty={})",
-        tab_id,
-        pty_id
-    );
+    if settled_tab.as_ref().is_some_and(|tab| {
+        tab.boot_stage == Some(BootStage::AgentReady)
+            && tab.launch_session_authenticated()
+            && tab.pty_id.as_deref() == Some(pty_id.as_str())
+            && tab.session_binding_nonce.as_deref() == Some(nonce.as_str())
+    }) {
+        log::info!(
+            "[general-agent] Started successfully (tab={}, pty={})",
+            tab_id,
+            pty_id
+        );
+    }
 }

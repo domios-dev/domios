@@ -7,11 +7,10 @@ pub struct TimeoutBody {
 
 pub async fn set_timeout(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<TimeoutBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, error)| (status, error.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(status, error)| (status, error.to_string()))?;

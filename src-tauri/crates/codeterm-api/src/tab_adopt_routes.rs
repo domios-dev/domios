@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State as AxumState},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
 use serde::Deserialize;
@@ -65,7 +65,7 @@ type AdoptResult = Result<Json<TabAdoptResponse>, (StatusCode, Json<serde_json::
 pub(crate) async fn adopt_agent(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Json(request): Json<TabAdoptRequest>,
 ) -> AdoptResult {
     let result = adopt_agent_inner(state, raw_tab_id, headers, request).await;
@@ -75,7 +75,7 @@ pub(crate) async fn adopt_agent(
 async fn adopt_agent_inner(
     state: AppState,
     raw_tab_id: String,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     request: TabAdoptRequest,
 ) -> Result<TabAdoptResponse, ApiAdoptError> {
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
@@ -125,7 +125,7 @@ mod tests {
         let response = adopt_agent(
             AxumState(crate::transport_tabs::fixture::app_state(&fixture)),
             Path(tab_id),
-            HeaderMap::new(),
+            crate::auth::ActorHeaders::for_owner_test(axum::http::HeaderMap::new()),
             Json(TabAdoptRequest {
                 provider: Some("  ".into()),
                 force: false,

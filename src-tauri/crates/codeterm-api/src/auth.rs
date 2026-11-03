@@ -6,7 +6,12 @@ use axum::{
 };
 use std::net::SocketAddr;
 
+mod actor;
+mod relay_agent;
+pub(crate) use relay_agent::{authenticated_agent, remote_agent};
+mod credential_kind;
 pub(crate) mod remote;
+pub use actor::{ActorHeaders, AgentHeaders, RequestActor};
 mod tab;
 pub(crate) use tab::{actor_ref, caller_claim, tab_caller};
 #[cfg(test)]
@@ -19,9 +24,12 @@ use codeterm_service_core::api_support::access_policy::peer_access_allowed;
 use codeterm_service_core::mesh::types::AccessLevel;
 use codeterm_service_core::service::tokens::token_fp;
 
+pub use codeterm_service_core::mesh::crown::AuthenticatedOrigin;
+
 #[derive(Clone, Debug)]
 pub enum CallerIdentity {
     Local,
+    Relayed,
     Tab(codeterm_service_core::service::tab_credentials::TabCaller),
     ServicePush {
         service_id: String,
@@ -227,13 +235,20 @@ pub(crate) fn is_inbound_webhook_path(method: &Method, path: &str) -> bool {
 }
 
 fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity, ()> {
+    authenticate_caller(state, auth_header).map(|(identity, _)| identity)
+}
+
+fn authenticate_caller(
+    state: &AppState,
+    auth_header: &str,
+) -> Result<(CallerIdentity, AuthenticatedOrigin), ()> {
     let token = auth_header.strip_prefix("Bearer ").unwrap_or("");
     if token.is_empty() {
         return Err(());
     }
 
     if let Some(caller) = state.svc.identify_tab_credential(token) {
-        return Ok(CallerIdentity::Tab(caller));
+        return Ok((CallerIdentity::Tab(caller), AuthenticatedOrigin::Agent));
     }
 
     if let Some(ref api_token) = state.config.lock().api.token {
@@ -244,7 +259,7 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
                 api_token.as_bytes(),
             )
         {
-            return Ok(CallerIdentity::Local);
+            return Ok((CallerIdentity::Local, AuthenticatedOrigin::Owner));
         }
     }
 
@@ -253,9 +268,46 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         &state.svc.tokens,
         &state.svc.services_store,
     ) {
-        return Ok(CallerIdentity::ServicePush { service_id: svc_id });
+        return Ok((
+            CallerIdentity::ServicePush { service_id: svc_id },
+            AuthenticatedOrigin::Service,
+        ));
     }
 
+    let (known_keys, own_id) = mesh_keys(state);
+
+    match codeterm_service_core::mesh::crown::verify_request_claims(token, &known_keys) {
+        Ok(claims) if claims.from_instance_id == own_id => {
+            let identity = if claims.origin.owner_trusted() {
+                CallerIdentity::Local
+            } else {
+                CallerIdentity::Relayed
+            };
+            Ok((identity, claims.origin))
+        }
+        Ok(claims) => {
+            let sender_id = claims.from_instance_id;
+            let (access_level, relay_protocol_version) = state
+                .mesh
+                .lock()
+                .paired_peers
+                .get(&sender_id)
+                .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
+                .unwrap_or((AccessLevel::ReadOnly, 0));
+            Ok((
+                CallerIdentity::Peer {
+                    instance_id: sender_id,
+                    access_level,
+                    relay_protocol_version,
+                },
+                claims.origin,
+            ))
+        }
+        Err(_) => Err(()),
+    }
+}
+
+fn mesh_keys(state: &AppState) -> (std::collections::HashMap<String, String>, String) {
     let mesh = state.mesh.lock();
     let mut known_keys = mesh.known_public_keys();
     let own_id = mesh.ident.identity.instance_id.clone();
@@ -271,25 +323,33 @@ fn identify_caller(state: &AppState, auth_header: &str) -> Result<CallerIdentity
         known_keys.insert(own_id.clone(), pk);
     }
     drop(mesh);
+    (known_keys, own_id)
+}
 
-    match codeterm_service_core::mesh::crown::verify_signed_request(token, &known_keys) {
-        Ok(sender_id) if sender_id == own_id => Ok(CallerIdentity::Local),
-        Ok(sender_id) => {
-            let (access_level, relay_protocol_version) = state
-                .mesh
-                .lock()
-                .paired_peers
-                .get(&sender_id)
-                .map(|peer| (peer.access_level.clone(), peer.relay_protocol_version))
-                .unwrap_or((AccessLevel::ReadOnly, 0));
-            Ok(CallerIdentity::Peer {
-                instance_id: sender_id,
-                access_level,
-                relay_protocol_version,
-            })
-        }
-        Err(_) => Err(()),
-    }
+pub(crate) fn authenticated_origin(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<AuthenticatedOrigin, (StatusCode, String)> {
+    authenticated_request(state, headers).map(|(_, origin)| origin)
+}
+
+pub(crate) fn caller_identity(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<CallerIdentity, (StatusCode, String)> {
+    authenticated_request(state, headers).map(|(identity, _)| identity)
+}
+
+pub(crate) fn authenticated_request(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+) -> Result<(CallerIdentity, AuthenticatedOrigin), (StatusCode, String)> {
+    let auth = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default();
+    authenticate_caller(state, auth)
+        .map_err(|()| (StatusCode::UNAUTHORIZED, "Invalid or missing token".into()))
 }
 
 /// A paired peer whose signature is valid but whose traffic the account gate closed for the plan limit.
@@ -390,7 +450,9 @@ pub(crate) fn caller_access_level(
         .and_then(|value| value.to_str().ok())
         .unwrap_or("");
     match identify_caller(state, auth) {
-        Ok(CallerIdentity::Local | CallerIdentity::Tab(_)) => Ok(AccessLevel::Full),
+        Ok(CallerIdentity::Local | CallerIdentity::Tab(_) | CallerIdentity::Relayed) => {
+            Ok(AccessLevel::Full)
+        }
         Ok(CallerIdentity::Peer { access_level, .. }) => Ok(access_level),
         Ok(CallerIdentity::ServicePush { .. }) => Err((
             StatusCode::FORBIDDEN,
@@ -568,7 +630,11 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         .unwrap_or("")
         .to_string();
 
-    let caller = identify_caller(&state, &auth);
+    let authenticated = authenticate_caller(&state, &auth);
+    if let Ok((_, origin)) = &authenticated {
+        req.extensions_mut().insert(*origin);
+    }
+    let caller = authenticated.map(|(identity, _)| identity);
     if tailnet_listener
         && state
             .mesh
@@ -588,7 +654,9 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
         req.extensions_mut().insert(identity.clone());
     }
     match caller {
-        Ok(CallerIdentity::Local | CallerIdentity::Tab(_)) => AuthOutcome::Allowed(req, false),
+        Ok(CallerIdentity::Local | CallerIdentity::Tab(_) | CallerIdentity::Relayed) => {
+            AuthOutcome::Allowed(req, false)
+        }
         Ok(CallerIdentity::ServicePush { ref service_id }) => {
             if is_service_push_allowed(method.as_str(), &path) {
                 AuthOutcome::Allowed(req, false)
@@ -689,9 +757,12 @@ fn authorize_request(state: AppState, mut req: Request) -> AuthOutcome {
                 );
             }
             log::warn!(
-                "[auth-401] {} {} presented[{}] expected[{}]",
+                "[auth-401] {} {} remote={} credential_kind={} reason={} presented[{}] expected[{}]",
                 method,
                 path,
+                remote_address.map(|address| address.to_string()).unwrap_or_else(|| "unknown".into()),
+                credential_kind::presented_kind(presented),
+                credential_kind::refusal_reason(&state, presented),
                 if presented.is_empty() {
                     "MISSING".to_string()
                 } else {

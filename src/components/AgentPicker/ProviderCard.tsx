@@ -3,7 +3,7 @@ import type { ProviderDescriptor } from "../../lib/types";
 import { providerAvailability } from "../../lib/providerAvailability";
 import { providerCardState } from "../../lib/providerCardState";
 
-export const PROVIDER_CARD_LAYOUT = "flex min-h-[8.5rem] w-[18rem] flex-col items-center justify-center gap-2.5 px-4 py-4";
+export const PROVIDER_CARD_LAYOUT = "flex size-[9.5rem] flex-none flex-col items-center justify-center gap-2 px-3 py-4";
 
 interface ProviderCardProps {
   provider: ProviderDescriptor;
@@ -32,8 +32,9 @@ export function ProviderCard({ provider, selected, onSelect, signInNeeded }: Pro
         ✓
       </span>
       <AgentIcon providerId={provider.id} className="text-[2rem]" />
-      <span className={`w-full truncate text-[13px] text-[var(--ct-fg)] ${status.state === "loading" ? "motion-safe:animate-pulse" : ""}`} title={`${provider.display_name}: ${status.label}`}>
-        <span className="font-semibold">{provider.display_name}</span> · {status.label}
+      <span className="flex w-full flex-col items-center leading-tight" title={`${provider.display_name}: ${status.label}`}>
+        <span className="w-full truncate text-[13px] font-semibold text-[var(--ct-fg)]">{provider.display_name}</span>
+        <span className={`w-full truncate text-[11px] text-[var(--ct-muted-fg)] ${status.state === "loading" ? "motion-safe:animate-pulse" : ""}`}>{status.label}</span>
       </span>
     </button>
   );

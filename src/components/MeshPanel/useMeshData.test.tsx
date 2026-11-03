@@ -174,3 +174,54 @@ it("surfaces a timed-out peer load as an error and releases the refresh for the 
     __setListenForTest(null);
   }
 });
+
+it("keeps peer inventory failures local and refreshes again only on an external event", async () => {
+  installDom();
+  configureDaemonTransport({ origin: "http://localhost", token: "mesh-peer-failure-fixture" });
+  setFrontendCacheStorageForTests(new FakeStorage());
+  localStorage.clear();
+  const listeners = new Map<string, () => void>();
+  __setListenForTest(async (event, handler) => {
+    listeners.set(event, () => handler({ payload: undefined as never }));
+    return () => { listeners.delete(event); };
+  });
+  let attempts = 0;
+  let failure = "HTTP 403";
+  __setInvokeForTest(async <T,>(command: string): Promise<T> => {
+    if (command === "mesh_inventory_list") return { resources: [] } as T;
+    if (command === "mesh_get_status") return { instance_name: "Local" } as T;
+    if (command === "mesh_list_peers") return { paired: [{
+      instance_id: "peer-1", instance_name: "Peer", addresses: [], api_port: 7685,
+      online: true, access_level: "full", last_seen: null, relay_protocol_version: 3,
+    }] } as T;
+    if (command === "mesh_peer_services_list") {
+      attempts++;
+      return { services: [], stale: true, fetched_at: null, peer_online: true,
+        error: failure, partial_error: failure, freshness: "stale" } as T;
+    }
+    throw new Error(command);
+  });
+  let state: MeshDataResult | undefined;
+  function Probe() { state = useMeshData(0); return null; }
+  const view = await mount(<Probe />);
+  try {
+    await settle(() => state?.loading === false && state.peers.length === 1);
+    for (const error of ["HTTP 403", "HTTP 500", "parse: invalid JSON"]) {
+      const previousAttempts = attempts;
+      failure = error;
+      await act(async () => { listeners.get("mesh-state-changed")?.(); });
+      assert.equal(attempts, previousAttempts + 1);
+      assert.equal(state?.peers[0].services_error, error);
+      assert.equal(state?.peers[0].online, true);
+      assert.equal(state?.loading, false);
+      assert.equal(state?.error, null);
+      await act(async () => {});
+      assert.equal(attempts, previousAttempts + 1, "failure and render cannot schedule another inventory attempt");
+    }
+  } finally {
+    await view.close();
+    assert.equal(listeners.size, 0);
+    __setInvokeForTest(null);
+    __setListenForTest(null);
+  }
+});

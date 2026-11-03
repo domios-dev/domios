@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { attachmentPathName as fileName } from "@codeterm/chat-core";
 import { localThumbnailSource, type ThumbnailSource, type ToolEvent, type ToolRichResult } from "@codeterm/chat-core";
 import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
@@ -50,6 +51,7 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
   const statusName = event.status === "unresolved" ? "no result" : event.status;
 
   return (
+    <ExpandableReader label={summary}>{(fullscreen) => (
     <section
       data-testid="chat-rich-result"
       data-rich-kind={event.kind}
@@ -92,12 +94,12 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
           <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
         </button>
       </div>
-      <div id={regionId} role="region" aria-label={`${visual.label} result details`} hidden={!expanded} className="pb-2 pl-8 pr-3">
-        {expanded && event.result && <ToolOutputContent text={event.result} />}
-        {expanded && thumbnail.src && rich?.path && source.kind === "local" && (
+      <div id={regionId} role="region" aria-label={`${visual.label} result details`} hidden={!expanded && !fullscreen} className="pb-2 pl-8 pr-3">
+        {(expanded || fullscreen) && event.result && <ToolOutputContent text={event.result} />}
+        {(expanded || fullscreen) && thumbnail.src && rich?.path && source.kind === "local" && (
           <ImageResultBody src={thumbnail.src} path={rich.path} localPath={source.path} name={fileName(source.path)} alt={alt} />
         )}
-        {expanded && (rich ? (
+        {(expanded || fullscreen) && (rich ? (
           <dl data-testid="chat-rich-result-detail" className="m-0 grid grid-cols-[max-content_minmax(0,1fr)] gap-x-3 gap-y-0.5 font-mono text-[11.5px]">
             {rich.origin && !imageShown && <Field name="source">{rich.origin === "viewed" ? "image view" : "image generation"}</Field>}
             {rich.query !== undefined && <Field name="query">{rich.query}</Field>}
@@ -117,5 +119,6 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
         ))}
       </div>
     </section>
+    )}</ExpandableReader>
   );
 }

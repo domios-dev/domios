@@ -20,6 +20,8 @@ pub use super::tab_sleep::TabSleepConfig;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AppConfig {
+    #[serde(default)]
+    pub browser_upload_folders: BTreeMap<String, Vec<String>>,
     pub restore: RestoreConfig,
     pub tab_sleep: TabSleepConfig,
     pub account: serde_json::Value,
@@ -77,6 +79,7 @@ pub struct AppConfig {
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
+            browser_upload_folders: BTreeMap::new(),
             restore: RestoreConfig::default(),
             tab_sleep: TabSleepConfig::default(),
             account: serde_json::json!({}),

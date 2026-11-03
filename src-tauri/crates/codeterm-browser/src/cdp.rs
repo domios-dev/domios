@@ -57,7 +57,7 @@ struct Subscriber {
     id: u64,
     filter: EventFilter,
     sender: mpsc::Sender<Arc<CdpEvent>>,
-    dropped: u64,
+    dropped: Arc<AtomicU64>,
 }
 
 #[derive(Default)]
@@ -74,6 +74,22 @@ struct Inner {
     state: Mutex<State>,
     outgoing: mpsc::Sender<Vec<Message>>,
     closed: watch::Sender<Option<String>>,
+}
+
+struct PendingRequests {
+    client: Weak<Inner>,
+    ids: Vec<u64>,
+}
+
+impl Drop for PendingRequests {
+    fn drop(&mut self) {
+        if let Some(client) = self.client.upgrade() {
+            let mut state = client.state.lock();
+            for id in &self.ids {
+                state.pending.remove(id);
+            }
+        }
+    }
 }
 
 impl Inner {
@@ -98,12 +114,12 @@ impl Inner {
             match subscriber.sender.try_send(event.clone()) {
                 Ok(()) => true,
                 Err(TrySendError::Full(_)) => {
-                    subscriber.dropped += 1;
-                    if subscriber.dropped.is_power_of_two() {
+                    let dropped = subscriber.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                    if dropped.is_power_of_two() {
                         log::warn!(
                             "[browser-cdp] subscriber {} is behind; dropped {} events (latest {})",
                             subscriber.id,
-                            subscriber.dropped,
+                            dropped,
                             event.method
                         );
                     }
@@ -218,7 +234,11 @@ impl SocketConnection {
                 )));
             }
         }
-        let result = async {
+        let _pending = PendingRequests {
+            client: Arc::downgrade(&self.0),
+            ids,
+        };
+        async {
             tokio::time::timeout_at(until, self.0.outgoing.send(messages))
                 .await
                 .map_err(|_| CdpError::Deadline("input batch queue".into()))?
@@ -243,29 +263,24 @@ impl SocketConnection {
             ))
             .await
         }
-        .await;
-        if result.is_err() {
-            let mut state = self.0.state.lock();
-            for id in ids {
-                state.pending.remove(&id);
-            }
-        }
-        result
+        .await
     }
 
     pub fn subscribe(&self, filter: EventFilter) -> EventStream {
         let id = self.0.next_subscriber.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = mpsc::channel(SUBSCRIBER_CAPACITY);
+        let dropped = Arc::new(AtomicU64::new(0));
         let mut state = self.0.state.lock();
         if state.closed.is_none() {
             state.subscribers.push(Subscriber {
                 id,
                 filter,
                 sender,
-                dropped: 0,
+                dropped: dropped.clone(),
             });
         }
         EventStream {
+            dropped,
             receiver,
             id,
             client: Arc::downgrade(&self.0),
@@ -338,6 +353,9 @@ impl CdpConnection for SocketConnection {
 pub struct CdpClient(Arc<dyn CdpConnection>);
 
 impl CdpClient {
+    pub(crate) fn same_connection(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub async fn connect(endpoint: &str) -> Result<Self, String> {
         Ok(Self::from_connection(Arc::new(
             SocketConnection::connect(endpoint).await?,
@@ -472,14 +490,26 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
 
 /// Dropping the stream unsubscribes it.
 pub struct EventStream {
+    dropped: Arc<AtomicU64>,
     receiver: mpsc::Receiver<Arc<CdpEvent>>,
     id: u64,
     client: Weak<Inner>,
 }
 
 impl EventStream {
+    pub fn has_lost_events(&self) -> bool {
+        self.dropped.load(Ordering::Relaxed) != 0
+    }
+    pub fn try_recv(&mut self) -> Result<Arc<CdpEvent>, mpsc::error::TryRecvError> {
+        self.receiver.try_recv()
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.receiver.is_closed()
+    }
     pub fn from_receiver(receiver: mpsc::Receiver<Arc<CdpEvent>>) -> Self {
         Self {
+            dropped: Arc::new(AtomicU64::new(0)),
             receiver,
             id: 0,
             client: Weak::new(),
@@ -513,6 +543,12 @@ pub struct PageChannel {
 }
 
 impl PageChannel {
+    pub fn same_page(&self, other: &Self) -> bool {
+        self.client.same_connection(&other.client)
+            && self.session_id == other.session_id
+            && self.target_id == other.target_id
+    }
+
     pub fn session_id(&self) -> &str {
         &self.session_id
     }

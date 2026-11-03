@@ -78,12 +78,7 @@ fn kill_process(pid: u32) {
 /// Runs the CLI against a scratch data dir and a deterministic, never-live socket
 /// name, so no command can reach a real daemon or a real user directory.
 fn run_cli(env: &CliEnv, args: &[String]) -> Output {
-    let mut command = Command::new(codeterm_bin::codeterm_bin());
-    for (key, _) in std::env::vars() {
-        if key.starts_with("CODETERM_") {
-            command.env_remove(key);
-        }
-    }
+    let mut command = codeterm_bin::command();
     command
         .env("CODETERM_INSTANCE", &env.instance)
         .env("GIT_TERMINAL_PROMPT", "0")

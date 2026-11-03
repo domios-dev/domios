@@ -1,4 +1,5 @@
 use super::*;
+use axum::http::HeaderMap;
 
 use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::AgentRole;
@@ -71,7 +72,8 @@ fn team_close_errors_keep_authorization_and_cleanup_statuses() {
 
 #[test]
 fn team_rename_requires_caller_tab_header() {
-    let error = require_caller_tab_id(&HeaderMap::new()).unwrap_err();
+    let error = require_caller_tab_id(&crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()))
+        .unwrap_err();
     assert_eq!(error.0, StatusCode::BAD_REQUEST);
 }
 
@@ -83,7 +85,7 @@ fn http_team_rename_returns_updated_team() {
     headers.insert("X-CodeTerm-Tab-Id", orchestrator.parse().unwrap());
 
     let team = rename_team_adapter(
-        &headers,
+        &crate::auth::ActorHeaders::for_owner_test(headers.clone()),
         team_id.clone(),
         RenameTeamBody {
             name: "Renamed".into(),
@@ -114,7 +116,7 @@ fn http_team_rename_enforces_caller_permission() {
     worker_headers.insert("X-CodeTerm-Tab-Id", worker.parse().unwrap());
     assert_eq!(
         rename_team_adapter(
-            &worker_headers,
+            &crate::auth::ActorHeaders::for_owner_test(worker_headers.clone()),
             team_id.clone(),
             RenameTeamBody {
                 name: "Denied worker".into(),
@@ -137,7 +139,7 @@ fn http_team_rename_enforces_caller_permission() {
     foreign_headers.insert("X-CodeTerm-Tab-Id", foreign.parse().unwrap());
     assert_eq!(
         rename_team_adapter(
-            &foreign_headers,
+            &crate::auth::ActorHeaders::for_owner_test(foreign_headers.clone()),
             team_id.clone(),
             RenameTeamBody {
                 name: "Denied foreign".into(),
@@ -158,7 +160,7 @@ fn http_team_rename_enforces_caller_permission() {
     );
     assert_eq!(
         rename_team_adapter(
-            &worker_headers,
+            &crate::auth::ActorHeaders::for_owner_test(worker_headers.clone()),
             team_id.clone(),
             RenameTeamBody { name: "   ".into() },
             |_, _, _| unreachable!(),
@@ -169,7 +171,7 @@ fn http_team_rename_enforces_caller_permission() {
     );
     assert_eq!(
         rename_team_adapter(
-            &HeaderMap::new(),
+            &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
             team_id.clone(),
             RenameTeamBody {
                 name: "Missing caller".into(),
@@ -182,7 +184,7 @@ fn http_team_rename_enforces_caller_permission() {
     );
     assert_eq!(
         rename_team_adapter(
-            &worker_headers,
+            &crate::auth::ActorHeaders::for_owner_test(worker_headers.clone()),
             "team_missing".into(),
             RenameTeamBody {
                 name: "Missing team".into(),
@@ -213,7 +215,7 @@ async fn http_close_team_enforces_permission() {
         codeterm_service_core::service::plan::PlanStore::new_for_test(plan_root.path());
     assert_eq!(
         close_team_adapter(
-            &HeaderMap::new(),
+            &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
             team_id.clone(),
             CloseTeamBody::default(),
             async |team_id, caller| {
@@ -237,7 +239,7 @@ async fn http_close_team_enforces_permission() {
     worker_headers.insert("X-CodeTerm-Tab-Id", worker.parse().unwrap());
     assert_eq!(
         close_team_adapter(
-            &worker_headers,
+            &crate::auth::ActorHeaders::for_owner_test(worker_headers.clone()),
             team_id.clone(),
             CloseTeamBody::default(),
             async |team_id: String, caller| {
@@ -263,7 +265,7 @@ async fn http_close_team_enforces_permission() {
     foreign_headers.insert("X-CodeTerm-Tab-Id", foreign.parse().unwrap());
     assert_eq!(
         close_team_adapter(
-            &foreign_headers,
+            &crate::auth::ActorHeaders::for_owner_test(foreign_headers.clone()),
             team_id.clone(),
             CloseTeamBody::default(),
             async |team_id: String, caller| {
@@ -287,7 +289,7 @@ async fn http_close_team_enforces_permission() {
     manager_headers.insert("X-CodeTerm-Tab-Id", orchestrator.parse().unwrap());
     assert_eq!(
         close_team_adapter(
-            &manager_headers,
+            &crate::auth::ActorHeaders::for_owner_test(manager_headers.clone()),
             team_id.clone(),
             CloseTeamBody::default(),
             async |team_id: String, caller| {
@@ -315,12 +317,16 @@ fn headerless_team_close_requires_explicit_confirmation() {
 
     let team_id = "team-1";
     assert!(matches!(
-        close_team_caller(&HeaderMap::new(), team_id, &CloseTeamBody::default()),
+        close_team_caller(
+            &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
+            team_id,
+            &CloseTeamBody::default()
+        ),
         TeamMutationCaller::Unattributed
     ));
     assert!(matches!(
         close_team_caller(
-            &HeaderMap::new(),
+            &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
             team_id,
             &CloseTeamBody {
                 force: false,
@@ -332,7 +338,7 @@ fn headerless_team_close_requires_explicit_confirmation() {
     ));
     assert!(matches!(
         close_team_caller(
-            &HeaderMap::new(),
+            &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
             team_id,
             &CloseTeamBody {
                 force: true,
@@ -343,7 +349,7 @@ fn headerless_team_close_requires_explicit_confirmation() {
         TeamMutationCaller::Unattributed
     ));
     let confirmed = close_team_caller(
-        &HeaderMap::new(),
+        &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
         team_id,
         &CloseTeamBody {
             force: true,
@@ -359,7 +365,7 @@ fn headerless_team_close_requires_explicit_confirmation() {
 #[tokio::test]
 async fn http_add_team_member_passes_an_absent_caller_tab_through() {
     let caller = add_team_member_adapter(
-        &HeaderMap::new(),
+        &crate::auth::ActorHeaders::for_owner_test(HeaderMap::new()),
         "team_x".into(),
         AddTeamMemberBody {
             provider: "provider".into(),
@@ -380,7 +386,7 @@ async fn http_add_team_member_delegates_acting_tab_and_body() {
     let mut headers = HeaderMap::new();
     headers.insert("X-CodeTerm-Tab-Id", "manager".parse().unwrap());
     let result = add_team_member_adapter(
-        &headers,
+        &crate::auth::ActorHeaders::for_owner_test(headers.clone()),
         "team_x".into(),
         AddTeamMemberBody {
             provider: "provider".into(),
@@ -414,7 +420,7 @@ async fn http_cartographer_add_keeps_the_role_kind_in_the_staffing_contract() {
     let mut headers = HeaderMap::new();
     headers.insert("X-CodeTerm-Tab-Id", "manager".parse().unwrap());
     let result = add_team_member_adapter(
-        &headers,
+        &crate::auth::ActorHeaders::for_owner_test(headers.clone()),
         "team_x".into(),
         AddTeamMemberBody {
             provider: "provider-neutral".into(),

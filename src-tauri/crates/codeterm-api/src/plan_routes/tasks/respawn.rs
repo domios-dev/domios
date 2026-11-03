@@ -16,11 +16,10 @@ pub(super) fn respawn_spawn_command(
 
 pub async fn task_respawn(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<TaskRespawnRequest>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_execution_action_http(
         &state.svc,
         &id,

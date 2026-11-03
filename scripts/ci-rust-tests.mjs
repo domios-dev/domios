@@ -230,7 +230,7 @@ export function requireTestSuccess(result, report, label, { warn = console.log, 
 }
 
 
-const tomlConfig = (filter, listener = false) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s", terminate-after = 5 }\n`;
+const tomlConfig = (filter, listener = false) => `[profile.default]\ndefault-filter = ${JSON.stringify(filter)}\nretries = 0\nfail-fast = false\n${listener ? 'test-threads = 1\n' : ''}slow-timeout = { period = "60s" }\n`;
 
 // compileOnly builds every lane's test binaries and stops, so a CI step can time compilation apart from the run.
 async function run(mode, { compileOnly = false } = {}) {

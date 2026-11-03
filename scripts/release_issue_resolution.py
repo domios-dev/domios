@@ -133,6 +133,9 @@ def included_history(version, source_sha, candidates, read_commits, request):
             start = candidate["sha"]
             break
 
+    if start is None:
+        raise ContractError("included history has no verified published release boundary")
+
     commits = read_commits(start, source_sha, MAX_COMMITS + 1)
     if len(commits) > MAX_COMMITS:
         raise ContractError("included commit range exceeds bound")
@@ -160,18 +163,35 @@ def git_output(args):
     return subprocess.check_output(["git", *args], text=True, encoding="utf-8", timeout=120)
 
 
+def fetch_release_history(source_sha):
+    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ContractError("included history requires an exact source SHA")
+    shallow = git_output(["rev-parse", "--is-shallow-repository"]).strip() == "true"
+    args = ["fetch", "--atomic", "--no-tags", *(["--unshallow"] if shallow else []),
+            "origin", source_sha, "refs/tags/v*:refs/tags/v*",
+            "refs/tags/release-*:refs/tags/release-*"]
+    try:
+        git_output(args)
+        if git_output(["rev-parse", source_sha + "^{commit}"]).strip() != source_sha:
+            raise ContractError("included history requires a commit SHA, not a tag object")
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise ContractError("required release history fetch failed; refusing local-only resolution") from error
+
+
 def reachable_candidates(source_sha):
     tags = git_output(["tag", "--merged", source_sha, "--list", "release-*", "v*"]).splitlines()
-    by_version = {}
-    for tag in sorted(tags, key=lambda tag: tag.startswith("v"), reverse=True):
-        if re.fullmatch(r"(?:release-|v)[0-9]+\.[0-9]+\.[0-9]+", tag):
-            by_version.setdefault(re.sub(r"^(?:release-|v)", "", tag), tag)
-    selected = list(by_version.values())
-    if not selected:
+    tags = [tag for tag in tags if re.fullmatch(r"(?:release-|v)[0-9]+\.[0-9]+\.[0-9]+", tag)]
+    if not tags:
         return []
-    objects = git_output(["rev-parse", *["refs/tags/" + tag + "^{commit}" for tag in selected]]).splitlines()
-    return [{"version": re.sub(r"^(?:release-|v)", "", tag), "sha": sha}
-            for tag, sha in zip(selected, objects, strict=True)]
+    refs = ["refs/tags/" + tag for tag in tags]
+    objects = git_output(["rev-parse", *[ref + "^{commit}" for ref in refs]]).splitlines()
+    by_version = {}
+    for ref, sha in zip(refs, objects, strict=True):
+        version = re.sub(r"^refs/tags/(?:release-|v)", "", ref)
+        previous = by_version.get(version)
+        if not previous or ref.startswith("refs/tags/v"):
+            by_version[version] = {"version": version, "sha": sha, "tag_ref": ref}
+    return list(by_version.values())
 
 
 def read_git_commits(start, source_sha, limit):
@@ -195,6 +215,7 @@ def github_request(route, raw=False, timeout=60):
 
 
 def resolve_included(version, source_sha, output_dir):
+    fetch_release_history(source_sha)
     deadline = time.monotonic() + 600
 
     def request(route, raw=False):

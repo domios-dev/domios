@@ -3,7 +3,7 @@
 mod codeterm_bin;
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 // Obviously not a credential; supplied as credential data on stdin.
 const SYNTHETIC_SECRET: &str = "synthetic-not-a-credential-0000";
@@ -37,7 +37,7 @@ fn contains_secret(dir: &Path) -> bool {
 }
 
 fn run_save_master_password(home: &Path, json: bool) -> (String, String) {
-    let mut cmd = Command::new(codeterm_bin::codeterm_bin());
+    let mut cmd = codeterm_bin::command();
     // Point at a port nothing serves so the command cannot reach a real vault.
     cmd.env_remove("CODETERM_API_TOKEN")
         .env_remove("CODETERM_SOCKET_PATH")

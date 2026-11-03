@@ -8,7 +8,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::plan::{handoff::HandoffCreateRequest, PlanError};
 
 type HandoffRouteResult = Result<Json<Value>, (StatusCode, Json<Value>)>;
@@ -60,7 +60,6 @@ pub async fn create(
     Path(id): Path<String>,
     Json(mut body): Json<HandoffCreateRequest>,
 ) -> HandoffRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     body.from = Some(
         crate::auth::actor_ref(&state, &headers, body.from)
             .map_err(|(status, message)| text_err(status, message))?,
@@ -76,21 +75,19 @@ pub async fn create(
 
 pub async fn list(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> HandoffRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let result = state.svc.plan_store.list_handoffs(&id).map_err(plan_err)?;
     Ok(Json(serde_json::to_value(result).unwrap_or_default()))
 }
 
 pub async fn show(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Query(query): Query<ShowQuery>,
 ) -> HandoffRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     let selector = if query.latest.unwrap_or(false) {
         None
     } else {

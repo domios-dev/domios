@@ -205,6 +205,10 @@ pub(super) async fn run(
     account: Arc<AccountMeshService>,
     mesh: crate::MeshStateHandle,
 ) {
+    let ui = service.ui.clone();
+    mesh.lock().bind_connection_phases(Arc::new(move |phase| {
+        ui.emit("mesh-state-changed", serde_json::json!(phase));
+    }));
     let mut changes = account.mesh.subscribe();
     let mut connections = mesh.lock().gate_watch();
     let mut network = service.events.subscribe();
@@ -216,6 +220,7 @@ pub(super) async fn run(
         connections.borrow_and_update();
         let enabled = service.configuration().mesh.enabled;
         let state = changes.borrow_and_update().clone();
+        mesh.lock().expire_pending_connections();
         let now = mesh.lock().now();
         reconciliation.enter_epoch(state.account_epoch);
         let current = state
@@ -264,6 +269,8 @@ pub(super) async fn run(
                     .filter(|row| row.active && row.eligibility == Eligibility::Eligible)
                     .map(|row| row.installation_id.as_str())
                     .collect();
+                mesh.lock()
+                    .retain_connection_phases(|id| active.contains(id));
                 let removed: Vec<_> = mesh
                     .lock()
                     .account_mesh_pairs()
@@ -289,16 +296,15 @@ pub(super) async fn run(
                         reconciliation.clear_peer(&row.installation_id);
                         continue;
                     };
-                    let connected = {
-                        let manager = mesh.lock();
-                        manager.account_mesh_pairs().iter().any(|peer| {
-                            peer.installation_id.as_deref() == Some(row.installation_id.as_str())
-                                && peer.online
-                                && manager.traffic_open(&peer.instance_id)
-                        })
-                    };
+                    let connected = mesh.lock().has_healthy_connection(&row.installation_id);
                     if connected {
                         reconciliation.clear_peer(&row.installation_id);
+                        continue;
+                    }
+                    if !mesh
+                        .lock()
+                        .installation_request_allowed(&row.installation_id)
+                    {
                         continue;
                     }
                     if !reconciliation.dial_due(
@@ -318,6 +324,15 @@ pub(super) async fn run(
                                 .entry(row.installation_id.clone())
                                 .or_default()
                                 .failed(now, &refusal);
+                            if reconciliation.retries[&row.installation_id]
+                                .retry_at
+                                .is_some()
+                            {
+                                mesh.lock().set_connection_phase(
+                                    &row.installation_id,
+                                    codeterm_mesh::manager::ConnectionPhase::Retrying,
+                                );
+                            }
                             log::debug!(
                                 "[mesh/account] Connection to {} deferred: {}",
                                 row.installation_id,
@@ -336,6 +351,7 @@ pub(super) async fn run(
                 }
             }
         } else if !enabled || state.current_membership(now).is_none() {
+            mesh.lock().clear_connection_phases();
             reconciliation = Reconciliation::default();
         }
         let pairs = mesh.lock().account_mesh_pairs();
@@ -344,6 +360,8 @@ pub(super) async fn run(
             service.ui.emit(event, serde_json::Value::Null);
         });
         let deadline = reconciliation.deadline(mesh.lock().now(), peers_ready);
+        let lifecycle_deadline = mesh.lock().connection_deadline();
+        let deadline = deadline.into_iter().chain(lifecycle_deadline).min();
         tokio::select! {
             changed = changes.changed() => { if changed.is_err() { return; } },
             changed = connections.changed() => { if changed.is_err() { return; } },

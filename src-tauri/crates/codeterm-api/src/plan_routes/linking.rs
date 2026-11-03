@@ -5,9 +5,9 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
-use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
+use super::{emit_plan_changed, epoch_ms, plan_err, PlanRouteResult};
 
 #[derive(Deserialize)]
 pub struct LinkBody {
@@ -16,11 +16,10 @@ pub struct LinkBody {
 
 pub async fn link(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<LinkBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store
@@ -32,10 +31,9 @@ pub async fn link(
 
 pub async fn unlink(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((id, to)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     state
         .svc
         .plan_store

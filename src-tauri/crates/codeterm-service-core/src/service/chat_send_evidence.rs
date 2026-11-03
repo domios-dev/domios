@@ -364,8 +364,8 @@ impl ServiceContext {
             _ => None,
         };
         log::debug!(
-            "[session-turn-evidence] binding-capture tab={} provider={:?} session={:?} launch={:?} deferred_first_turn={}",
-            tab_id, provider_id, session_id, binding_nonce, deferred_first_turn.is_some(),
+            "[session-turn-evidence] binding-capture tab={} provider={:?} session={:?} launch_nonce_present={} deferred_first_turn={}",
+            tab_id, provider_id, session_id, binding_nonce.is_some(), deferred_first_turn.is_some(),
         );
         let (Some(provider_id), Some(session_id)) = (provider_id, session_id) else {
             return CapturedSendEvidence {
@@ -456,6 +456,8 @@ impl ServiceContext {
     /// Reconcile unconfirmed sends against their recorded session append
     /// windows, emitting a `chat-send-status` update for each confirmation.
     pub(crate) fn reconcile_chat_send_evidence(&self, tab_id: &str) {
+        self.chat_send_ledger
+            .reconcile_provisional_launch(tab_id, None);
         scan_transcript_evidence(
             &self.agent_registry,
             &self.chat_send_ledger,

@@ -1,13 +1,13 @@
 use super::*;
 
 #[test]
-fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them() {
+fn binding_deadlines_preserve_held_sends_until_ready_or_spawn_failed() {
     use crate::service::hook_session_binding::{
         acknowledge_and_reconcile_session_binding, bind_reported_session,
     };
     use codeterm_types::pty::BootStage;
 
-    for explicit_degradation in [false, true] {
+    for explicit_binding_deadline in [false, true] {
         let (fixture, tab) = queue_fixture(false, None);
         attach_fixture_pty(&fixture, &tab);
         let (writes_tx, writes_rx) = mpsc::channel();
@@ -42,7 +42,7 @@ fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them()
             )
             .unwrap();
         await_owner_idle(&fixture, &tab);
-        if explicit_degradation {
+        if explicit_binding_deadline {
             fixture.service.record_provisional_launch(
                 &crate::service::launch_readiness::LaunchAttempt {
                     tab_id: tab.clone(),
@@ -50,7 +50,7 @@ fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them()
                     binding_nonce: "opaque-current-nonce".into(),
                 },
                 BootStage::LaunchBindingUnconfirmed,
-                "opaque-degraded-launch",
+                "opaque-binding-deadline",
             );
         } else {
             fixture
@@ -68,17 +68,12 @@ fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them()
             .user_sends
             .records(&tab)
             .unwrap();
-        let expected = if explicit_degradation {
-            vec![]
-        } else {
-            vec![first.send_id.clone(), second.send_id.clone()]
-        };
         assert_eq!(
             records
                 .iter()
                 .map(|record| record.send_id.clone())
                 .collect::<Vec<_>>(),
-            expected
+            vec![first.send_id.clone(), second.send_id.clone()]
         );
         for send in [&first, &second] {
             assert_eq!(
@@ -88,17 +83,39 @@ fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them()
                     .status(&send.send_id)
                     .unwrap()
                     .state,
-                if explicit_degradation {
-                    ChatSendState::Failed
-                } else {
-                    ChatSendState::Pending
-                }
+                ChatSendState::Pending
             );
         }
         assert!(matches!(
             writes_rx.try_recv(),
             Err(mpsc::TryRecvError::Empty)
         ));
+        if explicit_binding_deadline {
+            fixture.service.emit_boot_stage(
+                &tab,
+                BootStage::SpawnFailed,
+                Some("opaque-launch-failure"),
+            );
+            await_owner_idle(&fixture, &tab);
+            assert!(fixture
+                .service
+                .pending_delivery_payloads
+                .user_sends
+                .records(&tab)
+                .unwrap()
+                .is_empty());
+            for send in [&first, &second] {
+                assert_eq!(
+                    fixture
+                        .service
+                        .chat_send_ledger
+                        .status(&send.send_id)
+                        .unwrap()
+                        .state,
+                    ChatSendState::Failed
+                );
+            }
+        }
         let claim = bind_reported_session(
             &fixture.service.mux,
             fixture.service.agent_registry.as_ref(),
@@ -116,7 +133,7 @@ fn binding_ack_wait_preserves_held_sends_but_explicit_degradation_settles_them()
         )
         .unwrap();
         await_owner_idle(&fixture, &tab);
-        if !explicit_degradation {
+        if !explicit_binding_deadline {
             assert_eq!(
                 writes_rx.recv_timeout(TEST_DEADLINE).unwrap(),
                 (first.send_id.clone(), "first".into())

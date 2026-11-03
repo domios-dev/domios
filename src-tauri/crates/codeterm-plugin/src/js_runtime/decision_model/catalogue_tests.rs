@@ -182,9 +182,6 @@ fn cached_decision_catalogue_reads_never_resolve_credentials() {
         fn api_base_url(&self) -> String {
             unreachable!()
         }
-        fn api_token(&self) -> Option<String> {
-            unreachable!()
-        }
         fn secret_get(&self, _plugin_id: &str, _name: &str) -> Option<String> {
             unreachable!()
         }

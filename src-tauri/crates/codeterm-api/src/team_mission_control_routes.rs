@@ -9,7 +9,7 @@ use base64::Engine;
 use codeterm_types::{plan::Plan, plan::PlanLifecycleEvent, plan::PlanStatus, team::Team};
 use serde::{Deserialize, Serialize};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::plan::PlanStore;
 
 const DEFAULT_LIMIT: usize = 50;
@@ -276,11 +276,10 @@ pub(crate) fn project_team_state(
 
 pub async fn state(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(team_id): Path<String>,
     Query(query): Query<TeamMissionControlQuery>,
 ) -> Result<Json<TeamMissionControlState>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(status, message)| (status, message.to_string()))?;
     let owner = state.clone();
     let target = team_id.clone();
     let team = tokio::task::spawn_blocking(move || {

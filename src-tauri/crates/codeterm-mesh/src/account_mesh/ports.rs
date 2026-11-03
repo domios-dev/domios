@@ -97,6 +97,8 @@ pub enum AdmissionRefusal {
     Revoked,
     SignedOut,
     PeerUnreachable,
+    PeerNeedsUpdate,
+    AuthRefused,
     HandshakeFailed {
         detail: String,
     },
@@ -120,6 +122,8 @@ impl AdmissionRefusal {
             Self::Revoked => "revoked",
             Self::SignedOut => "signed-out",
             Self::PeerUnreachable => "peer-unreachable",
+            Self::PeerNeedsUpdate => "peer-needs-update",
+            Self::AuthRefused => "auth-refused",
             Self::HandshakeFailed { .. } => "handshake-failed",
             Self::Cancelled => "cancelled",
         }

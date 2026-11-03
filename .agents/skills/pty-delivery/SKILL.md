@@ -103,7 +103,9 @@ Claimed or uncertain records remain held and are never replayed.
 - The serialized states are `held`, `written`, `submit_unconfirmed`, `delivered`,
   and `failed`. Transport uncertainty is `submit_unconfirmed` with no user-facing
   error. A queued, never-written user send resolves to `failed` when its launch
-  ends or reports degradation before first readiness. Persist queue removal before
+  ends or reports `SpawnFailed` before first readiness. Provisional launch deadlines
+  keep never-written sends visibly held with a pending reason and dismissal available.
+  Persist queue removal before
   publishing Retry; late readiness cannot replay that settled original.
   Programmatic sends may also fail on a proven pre-write refusal.
 - `written/submit_unconfirmed → delivered` only happens
@@ -199,4 +201,4 @@ Expected turn evidence and the Chat reader follow the same rule.
 | Closed-chat append-window evidence scan | `service/chat_send_evidence.rs` |
 | Live transcript deltas (evidence source) | `service/tab_chat/` sinks |
 
-<!-- revision: 7 -->
+<!-- revision: 8 -->

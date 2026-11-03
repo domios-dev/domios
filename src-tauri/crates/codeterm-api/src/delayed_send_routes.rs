@@ -6,7 +6,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -38,11 +38,10 @@ pub(crate) fn mutation_refusal_response(
 
 pub async fn list(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<Vec<codeterm_service_core::delayed_send::DelayedMessageView>>, (StatusCode, String)>
 {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
@@ -53,11 +52,10 @@ pub async fn list(
 
 pub async fn create(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<CreateDelayedMessageBody>,
 ) -> Result<Json<codeterm_service_core::delayed_send::DelayedMessageView>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
@@ -76,11 +74,10 @@ pub async fn create(
 
 pub async fn system_heartbeats(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Result<Json<Vec<codeterm_service_core::delayed_send::DelayedMessageView>>, (StatusCode, String)>
 {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
         .await
         .map_err(|(s, m)| (s, m.to_string()))?;
@@ -91,11 +88,10 @@ pub async fn system_heartbeats(
 
 pub async fn update(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
     Json(body): Json<UpdateDelayedMessageBody>,
 ) -> Result<Json<codeterm_service_core::delayed_send::DelayedMessageView>, Response> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()).into_response())?;
     if let Some(refusal) = mutation_refusal_response(&id) {
         return Err(refusal.into_response());
     }
@@ -113,10 +109,9 @@ pub async fn update(
 
 pub async fn delete(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<codeterm_service_core::delayed_send::DelayedMessageView>, Response> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()).into_response())?;
     if let Some(refusal) = mutation_refusal_response(&id) {
         return Err(refusal.into_response());
     }
@@ -127,10 +122,9 @@ pub async fn delete(
 
 pub async fn send_now(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, Response> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()).into_response())?;
     if let Some(refusal) = mutation_refusal_response(&id) {
         return Err(refusal.into_response());
     }

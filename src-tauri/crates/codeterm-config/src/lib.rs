@@ -16,6 +16,8 @@ use schema::{AppConfig, ThemeConfig};
 
 pub type ConfigState = Arc<Mutex<AppConfig>>;
 
+static CONFIG_WRITER: Mutex<()> = Mutex::new(());
+
 fn config_path() -> Result<PathBuf, String> {
     codeterm_paths::config_path()
 }
@@ -254,10 +256,10 @@ pub fn usage_tracking_enabled_from(cfg: &schema::AppConfig, provider_id: &str) -
     }
 }
 
-pub fn cleanup_removed_plugin_config(plugin_id: &str) -> Result<(), String> {
-    let mut config = load_config();
+pub fn cleanup_removed_plugin_config(state: &ConfigState, plugin_id: &str) -> Result<(), String> {
+    let mut config = state.lock().clone();
     cleanup_removed_plugin_config_in_memory(&mut config, plugin_id);
-    save_config(&config)
+    save_config_and_apply(state, config).map(|_| ())
 }
 
 fn cleanup_removed_plugin_config_in_memory(config: &mut AppConfig, plugin_id: &str) {
@@ -350,16 +352,6 @@ fn apply_theme_with_overrides(
     }
 }
 
-/// Save the current config to disk.
-pub fn save_config_pub(config: &AppConfig) -> Result<(), String> {
-    save_config(config)
-}
-
-fn save_config(config: &AppConfig) -> Result<(), String> {
-    let path = config_path()?;
-    save_config_at(&path, config)
-}
-
 fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)
@@ -382,25 +374,89 @@ fn save_config_at(path: &std::path::Path, config: &AppConfig) -> Result<(), Stri
     Ok(())
 }
 
+#[derive(Debug)]
+pub enum ConfigCommitError {
+    StaleUploadFolders,
+    Save(String),
+}
+
+impl std::fmt::Display for ConfigCommitError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::StaleUploadFolders => {
+                formatter.write_str("Browser upload folders changed; reload settings before saving")
+            }
+            Self::Save(message) => formatter.write_str(message),
+        }
+    }
+}
+
+pub fn save_config_and_apply_with(
+    state: &Mutex<AppConfig>,
+    config: AppConfig,
+    persist: impl FnOnce(&AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, String> {
+    commit_config(state, config, None, persist).map_err(|error| error.to_string())
+}
+
+fn commit_config(
+    state: &Mutex<AppConfig>,
+    mut config: AppConfig,
+    owner_expected_folders: Option<&std::collections::BTreeMap<String, Vec<String>>>,
+    persist: impl FnOnce(&AppConfig) -> Result<(), String>,
+) -> Result<AppConfig, ConfigCommitError> {
+    let _writer = CONFIG_WRITER.lock();
+    {
+        let current = state.lock();
+        if let Some(expected) = owner_expected_folders {
+            if &current.browser_upload_folders != expected {
+                return Err(ConfigCommitError::StaleUploadFolders);
+            }
+        } else {
+            config.browser_upload_folders = current.browser_upload_folders.clone();
+        }
+        config.api.token = current.api.token.clone();
+    }
+    persist(&config).map_err(ConfigCommitError::Save)?;
+    let applied = config.clone();
+    *state.lock() = applied;
+    Ok(config)
+}
+
 fn save_config_and_apply_at(
     path: &std::path::Path,
     state: &Mutex<AppConfig>,
-    mut config: AppConfig,
-) -> Result<(), String> {
-    config.api.token = state.lock().api.token.clone();
-    save_config_at(path, &config)?;
-    *state.lock() = config;
-    Ok(())
+    config: AppConfig,
+) -> Result<AppConfig, String> {
+    save_config_and_apply_with(state, config, |config| save_config_at(path, config))
 }
 
-pub fn save_config_and_apply(state: &ConfigState, config: AppConfig) -> Result<(), String> {
-    let path = config_path()?;
-    save_config_and_apply_at(&path, state, config)
+pub fn save_config_and_apply(
+    state: &Mutex<AppConfig>,
+    config: AppConfig,
+) -> Result<AppConfig, String> {
+    save_config_and_apply_at(&config_path()?, state, config)
 }
 
-pub fn save_hook_reconciliation_config(config: &AppConfig) -> Result<(), String> {
+pub fn save_owner_config_and_apply(
+    state: &ConfigState,
+    config: AppConfig,
+    expected_folders: &std::collections::BTreeMap<String, Vec<String>>,
+) -> Result<AppConfig, ConfigCommitError> {
+    let path = config_path().map_err(ConfigCommitError::Save)?;
+    commit_config(state, config, Some(expected_folders), |config| {
+        save_config_at(&path, config)
+    })
+}
+
+pub fn save_reconciled_config_and_apply(
+    state: &ConfigState,
+    config: AppConfig,
+) -> Result<AppConfig, String> {
     let path = config_path()?;
-    save_hook_reconciliation_config_at(&path, config)
+    save_config_and_apply_with(state, config, |config| {
+        save_hook_reconciliation_config_at(&path, config)
+    })
 }
 
 fn save_hook_reconciliation_config_at(

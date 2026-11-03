@@ -2,12 +2,6 @@
   background: var(--ct-bg);
 }
 
-@media (min-width: 641px) {
-  .ct-sidebar-content {
-    overflow-anchor: none;
-  }
-}
-
 .sidebar-neighbors-section__items {
   max-height: 165px;
 }

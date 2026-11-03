@@ -6,13 +6,12 @@ use axum::{
 use serde::Deserialize;
 
 use crate::events::WebhookRegistration;
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 pub async fn list_webhooks(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let hooks = state.svc.events.list_webhooks();
     Ok(Json(serde_json::to_value(hooks).unwrap()))
 }
@@ -32,10 +31,9 @@ pub struct RegisterWebhookBody {
 
 pub async fn register_webhook(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<RegisterWebhookBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     let id = uuid::Uuid::new_v4().to_string();
     let reg = WebhookRegistration {
         id: id.clone(),
@@ -52,10 +50,9 @@ pub async fn register_webhook(
 
 pub async fn unregister_webhook(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     state.svc.events.unregister_webhook(&id);
     Ok(Json(serde_json::json!({"ok": true})))
 }

@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State as AxumState},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
 
@@ -56,7 +56,7 @@ pub(crate) async fn binding_state(
 pub(crate) async fn rebind_session(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Json(request): Json<RebindSessionRequest>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)
@@ -209,10 +209,9 @@ pub(crate) async fn validate_and_commit_rebind(
                         tab.agent_session_id.clone(),
                         evidence,
                         (tab.agent_session_id.as_deref() == Some(session_id)
-                            && tab.session_binding_nonce.is_some()
-                            && tab.session_binding_nonce == tab.reported_session_binding_nonce)
-                            .then(|| tab.session_binding_nonce.clone())
-                            .flatten(),
+                            && tab.session_binding_nonce.is_some())
+                        .then(|| tab.session_binding_nonce.clone())
+                        .flatten(),
                         codeterm_service_core::service::tab_has_live_agent(tab),
                     )
                 })

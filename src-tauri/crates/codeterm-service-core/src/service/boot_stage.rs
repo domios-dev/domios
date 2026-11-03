@@ -179,6 +179,7 @@ pub fn binding_observes_in_tab_launch(tab: &Tab) -> bool {
 /// any other stage clears a previously latched failure and its launch identity.
 pub fn apply_boot_stage(tab: &mut Tab, stage: BootStage, reason: Option<&str>) {
     if stage == BootStage::AgentReady {
+        tab.agent_booting = false;
         tab.slept_at_ms = None;
         tab.sleep_reason = None;
     }

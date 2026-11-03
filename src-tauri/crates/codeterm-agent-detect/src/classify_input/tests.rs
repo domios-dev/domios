@@ -2,9 +2,9 @@ use std::cell::Cell;
 
 use super::*;
 use crate::offline_state_classifier::{
-    classify_state, composer_cursor_ready, StatusElapsedProgress, TabVerdict, TimelineState,
+    classify_state, StatusElapsedProgress, TabVerdict, TimelineState,
 };
-use crate::signal_extractor::{SignalExtractor, StreamSignals};
+use crate::signal_extractor::SignalExtractor;
 
 const ROWS: u16 = 10;
 const COLS: u16 = 40;
@@ -26,25 +26,6 @@ impl FixtureRows {
 
 fn registry_with(rows: u16) -> FixtureRows {
     FixtureRows(rows)
-}
-
-/// Offline replay shape: everything read off the replayed extractor.
-fn offline_parts(signals: &StreamSignals) -> ClassifyParts<'_> {
-    ClassifyParts {
-        picker_question: None,
-        screen_lines: &signals.screen.lines,
-        tail: &signals.tail,
-        byte_idle_ms: signals.quiescence.byte_idle_ms,
-        semantic_idle_ms: signals.quiescence.semantic_idle_ms,
-        motion: Motion::Still,
-        cursor_hidden: signals.input_mode.cursor_hidden,
-        composer_ready: composer_cursor_ready(
-            signals.cursor.visible,
-            signals.cursor.row,
-            signals.rows,
-        ),
-        status_elapsed: StatusElapsedProgress::NONE,
-    }
 }
 
 /// Paint one line inside the bottom band, at `row` (1-based), leaving the

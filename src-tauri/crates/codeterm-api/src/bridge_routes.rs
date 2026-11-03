@@ -9,7 +9,7 @@ use parking_lot::Mutex;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::bridge;
 use codeterm_service_core::bridge_host::AppAttachmentStorePort;
 use codeterm_service_core::config::schema::AppConfig;
@@ -33,10 +33,9 @@ fn ensure_telegram(service: &str) -> Result<(), (StatusCode, &'static str)> {
 
 pub async fn bridge_state(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(q): Query<ServiceQuery>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     ensure_telegram(&q.service)?;
 
     let snap = state
@@ -95,10 +94,9 @@ fn default_stop_timeout_ms() -> u64 {
 
 pub async fn bridge_stop(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<StopBody>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
     let _op = state
@@ -116,7 +114,7 @@ pub async fn bridge_stop(
         .ext::<std::sync::Arc<codeterm_service_core::bridge::supervisor::BridgeSupervisor>>()
         .is_active();
     if !was_active {
-        persist_telegram_enabled(&state, false);
+        persist_telegram_enabled(&state, false).await;
         return Ok(Json(json!({
             "ok": true,
             "released_in_ms": 0,
@@ -131,7 +129,7 @@ pub async fn bridge_stop(
         .await
         .map_err(|_| (StatusCode::REQUEST_TIMEOUT, "bridge stop timed out"))?;
 
-    persist_telegram_enabled(&state, false);
+    persist_telegram_enabled(&state, false).await;
 
     codeterm_service_core::startup::unmark_tab_connected_service(&state.svc, &body.service);
 
@@ -161,10 +159,9 @@ fn default_wait_for_lock_ms() -> u64 {
 
 pub async fn bridge_start(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<StartBody>,
 ) -> Result<Json<Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     ensure_telegram(&body.service).map_err(|(s, m)| (s, m.to_string()))?;
 
     let _op = state
@@ -192,7 +189,7 @@ pub async fn bridge_start(
         }
     }
 
-    persist_telegram_enabled(&state, true);
+    persist_telegram_enabled(&state, true).await;
 
     let started = Instant::now();
     if let Err(e) = codeterm_service_core::startup::start_telegram_bridge(&state.svc).await {
@@ -256,12 +253,23 @@ fn copies_vault_token(ensure_token: bool, replace_token: bool, token_file_exists
     replace_token || (ensure_token && !token_file_exists)
 }
 
-fn persist_telegram_enabled(state: &AppState, enabled: bool) {
-    let snapshot = set_telegram_enabled(
-        &state.config,
-        enabled,
-        codeterm_service_core::config::save_config_pub,
-    );
+async fn persist_telegram_enabled(state: &AppState, enabled: bool) {
+    let config = state.config.clone();
+    let snapshot = match tokio::task::spawn_blocking(move || {
+        set_telegram_enabled(
+            &config,
+            enabled,
+            codeterm_service_core::config::save_config_and_apply,
+        )
+    })
+    .await
+    {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            log::error!("[bridge] config writer task failed: {error}");
+            return;
+        }
+    };
     state.svc.ui.emit(
         "config-changed",
         serde_json::to_value(&snapshot).unwrap_or(serde_json::Value::Null),
@@ -273,18 +281,23 @@ fn persist_telegram_enabled(state: &AppState, enabled: bool) {
 fn set_telegram_enabled(
     config: &Mutex<AppConfig>,
     enabled: bool,
-    save: impl FnOnce(&AppConfig) -> Result<(), String>,
+    save: impl FnOnce(&Mutex<AppConfig>, AppConfig) -> Result<AppConfig, String>,
 ) -> AppConfig {
-    let mut cfg = config.lock();
+    let mut cfg = config.lock().clone();
     cfg.integrations.telegram_enabled = enabled;
-    if let Err(e) = save(&cfg) {
-        log::warn!(
-            "[bridge] failed to persist telegram_enabled={}: {}",
-            enabled,
-            e
-        );
+    match save(config, cfg) {
+        Ok(applied) => applied,
+        Err(e) => {
+            log::warn!(
+                "[bridge] failed to persist telegram_enabled={}: {}",
+                enabled,
+                e
+            );
+            let mut current = config.lock();
+            current.integrations.telegram_enabled = enabled;
+            current.clone()
+        }
     }
-    cfg.clone()
 }
 
 fn persist_token_file(token: &str) -> Result<(), String> {
@@ -323,10 +336,9 @@ fn first_allowed_bridge_user(svc: &codeterm_service_core::service::ServiceContex
 
 pub async fn bridge_announce(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(body): Json<AnnounceBody>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
     ensure_telegram(&body.service)?;
 
     let chat_id = body
@@ -389,9 +401,11 @@ mod tests {
         let state = config_with_allowlist();
         let mut saved = None;
 
-        let snapshot = set_telegram_enabled(&state, false, |cfg| {
-            saved = Some(serde_json::to_value(cfg).unwrap());
-            Ok(())
+        let snapshot = set_telegram_enabled(&state, false, |state, next| {
+            codeterm_service_core::config::save_config_and_apply_with(state, next, |cfg| {
+                saved = Some(serde_json::to_value(cfg).unwrap());
+                Ok(())
+            })
         });
 
         let snapshot = serde_json::to_value(&snapshot).unwrap();
@@ -408,7 +422,7 @@ mod tests {
     fn set_telegram_enabled_returns_memory_state_when_save_fails() {
         let state = config_with_allowlist();
 
-        let snapshot = set_telegram_enabled(&state, false, |_| Err("disk full".to_string()));
+        let snapshot = set_telegram_enabled(&state, false, |_, _| Err("disk full".to_string()));
 
         assert!(!snapshot.integrations.telegram_enabled);
         assert!(!state.lock().integrations.telegram_enabled);

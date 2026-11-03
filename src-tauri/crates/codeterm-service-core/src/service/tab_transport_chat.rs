@@ -106,8 +106,10 @@ fn authenticate_chatbackend_tab(
     ) {
         return Err("chatBackend provider session changed".into());
     }
+    if tab.session_binding_nonce.as_deref() != Some(nonce) {
+        return Err("chatBackend launch changed".into());
+    }
     tab.agent_session_id = Some(session_id.to_string());
-    tab.session_binding_nonce = Some(nonce.to_string());
     tab.reported_session_binding_nonce = Some(nonce.to_string());
     tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
     tab.chat_view = true;
@@ -397,7 +399,11 @@ impl ServiceContext {
         plugin_id: &str,
         session_id: &str,
     ) -> Result<String, String> {
-        let nonce = uuid::Uuid::new_v4().to_string();
+        let bound = self.chatbackend_bound_session(plugin_id, session_id)?;
+        if bound.tab_id != tab_id {
+            return Err("chatBackend session belongs to another tab".into());
+        }
+        let nonce = bound.binding_nonce.clone();
         {
             let mut mux = self.mux.write();
             let tab = mux
@@ -434,17 +440,19 @@ impl ServiceContext {
         let workspace_id = self.workspace_id_for_tab(tab_id);
         let pad = self.ensure_agent_pad(tab_id)?;
         let pad_dir = pad.env_value();
-        let ctx = build_chatbackend_open_session_ctx(
+        let provider = self.chatbackend_provider(plugin_id)?;
+        let nonce = self.rotate_session_binding_nonce(tab_id);
+        let mut ctx = build_chatbackend_open_session_ctx(
             tab_id,
             workspace_id.as_deref(),
             Some(&pad_dir),
             config,
         );
-        let provider = self.chatbackend_provider(plugin_id)?;
+        ctx["bindingNonce"] = nonce.clone().into();
         let session_id = open_chatbackend_session(provider.as_ref(), ctx)?;
         self.ext::<Arc<TabReopenGuards>>().sessions.lock().insert(
             (plugin_id.into(), session_id.clone()),
-            Arc::new(liveness::BoundSession::new(tab_id.into(), provider)),
+            Arc::new(liveness::BoundSession::new(tab_id.into(), provider, nonce)),
         );
         Ok(session_id)
     }

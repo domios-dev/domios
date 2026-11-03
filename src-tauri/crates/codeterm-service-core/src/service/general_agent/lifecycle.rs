@@ -232,6 +232,27 @@ pub fn start_general_agent(
     screen_state: &crate::ScreenStateHandle,
     config: &crate::config::ConfigState,
 ) {
+    start_general_agent_inner(svc, mux, pty, screen_state, config, false);
+}
+
+pub fn start_general_agent_prepared(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+) {
+    start_general_agent_inner(svc, mux, pty, screen_state, config, true);
+}
+
+fn start_general_agent_inner(
+    svc: &crate::ServiceState,
+    mux: &crate::MuxState,
+    pty: &crate::PtyState,
+    screen_state: &crate::ScreenStateHandle,
+    config: &crate::config::ConfigState,
+    instructions_prepared: bool,
+) {
     let Some(_launch_guard) = launch_lock::LaunchGuard::acquire() else {
         log::info!("[general-agent] Start skipped; another launch owns the agent");
         return;
@@ -255,15 +276,12 @@ pub fn start_general_agent(
     };
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
-    // Regenerate AGENT.md in a background thread.
-    // If mem.lock is busy, delay the snapshot pass rather than blocking PTY resume.
-    {
-        let mem = svc.mem.clone();
-        let provider_owned = provider_name.clone();
-        let capability_hints = general_config.capability_hints;
-        std::thread::spawn(move || {
-            instructions::generate_instructions(capability_hints, &provider_owned, Some(&mem));
-        });
+    if !instructions_prepared {
+        instructions::generate_instructions(
+            general_config.capability_hints,
+            provider_name,
+            Some(&svc.mem),
+        );
     }
 
     let general_cwd = general_dir().to_string_lossy().to_string();

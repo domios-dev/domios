@@ -156,6 +156,42 @@ fn empty_config() -> crate::config::ConfigState {
 }
 
 #[test]
+fn concurrent_startup_reconciliation_waits_for_the_existing_writer_completion() {
+    let mut env = codeterm_util::test_env::EnvGuard::lock();
+    env.set("CODETERM_MACHINE_OWNER", "true");
+    let id = "completion-owned-integration";
+    let completion = Arc::new(super::IntegrationCompletion::default());
+    super::reconciling()
+        .lock()
+        .insert(id.into(), completion.clone());
+    let guard = super::ReconciliationGuard(id.into(), completion.clone());
+    let provider = Arc::new(InstallProbeProvider::with_kind(
+        id,
+        IntegrationKind::ProviderManaged,
+        Ok(()),
+        serde_json::json!({}),
+    ));
+    let joined =
+        super::spawn_reconciliation(provider.clone(), Default::default(), None, None).unwrap();
+    assert!(Arc::ptr_eq(&completion, &joined));
+    assert!(!*joined.finished.lock());
+    assert!(!joined.wait_until(std::time::Instant::now()));
+    let (ready, received) = std::sync::mpsc::channel();
+    let waiter = std::thread::spawn(move || {
+        assert!(joined.wait_until(std::time::Instant::now() + Duration::from_secs(5)));
+        ready.send(()).unwrap();
+    });
+    assert!(received.try_recv().is_err());
+    drop(guard);
+    received.recv_timeout(Duration::from_secs(5)).unwrap();
+    waiter.join().unwrap();
+    assert!(*completion.finished.lock());
+    assert!(completion.wait_until(std::time::Instant::now()));
+    assert!(!super::reconciling().lock().contains_key(id));
+    assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
+}
+
+#[test]
 fn startup_reconciliation_machine_owner_false_never_calls_provider_or_changes_consent() {
     let mut env = codeterm_util::test_env::EnvGuard::lock();
     env.set("CODETERM_MACHINE_OWNER", "false");
@@ -175,7 +211,7 @@ fn startup_reconciliation_machine_owner_false_never_calls_provider_or_changes_co
     let before = serde_json::to_value(&*config.lock()).unwrap();
     let consented = config.lock().agents.clone();
 
-    super::spawn_reconciliation(provider.clone(), consented, Some(config.clone()), None);
+    let _ = super::spawn_reconciliation(provider.clone(), consented, Some(config.clone()), None);
 
     assert!(provider.integration_calls.lock().unwrap().is_empty());
     assert!(provider.install_thread.lock().unwrap().is_none());
@@ -189,7 +225,7 @@ fn startup_reconciliation_machine_owner_true_keeps_provider_capability_check() {
     env.set("CODETERM_MACHINE_OWNER", "true");
     let provider = Arc::new(InstallProbeProvider::new("owner-no-integration", Ok(())));
 
-    super::spawn_reconciliation(provider.clone(), Default::default(), None, None);
+    let _ = super::spawn_reconciliation(provider.clone(), Default::default(), None, None);
 
     assert_eq!(*provider.integration_calls.lock().unwrap(), vec!["kind"]);
 }

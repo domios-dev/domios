@@ -1,6 +1,7 @@
 mod accessible_wait;
 mod atomic;
 mod calls;
+mod completion;
 mod domios_instance;
 mod grab;
 mod heuristics;
@@ -99,6 +100,7 @@ pub struct BrowserRuntime {
     secrets: Mutex<Vec<String>>,
     uploads: Mutex<Vec<upload::AdmittedFile>>,
     upload_gate: tokio::sync::Mutex<()>,
+    action_gate: tokio::sync::Mutex<()>,
 }
 
 fn cdp_error(error: codeterm_browser::CdpError) -> String {
@@ -137,6 +139,7 @@ impl BrowserRuntime {
             secrets: Mutex::new(Vec::new()),
             uploads: Mutex::new(Vec::new()),
             upload_gate: tokio::sync::Mutex::new(()),
+            action_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -228,36 +231,27 @@ impl BrowserRuntime {
         page: &PageChannel,
         action: NavAction,
         target: Option<&str>,
-    ) -> Result<(), String> {
-        match action {
-            NavAction::Reload => self.send(page, "Page.reload", json!({})).await.map(|_| ()),
+    ) -> Result<String, String> {
+        let _guard = self.action_gate.lock().await;
+        let (method, params) = match action {
+            NavAction::Reload => ("Page.reload", json!({})),
             NavAction::Goto => {
                 let href = input::goto_href(target.unwrap_or(""))?;
-                let result = self
-                    .send(page, "Page.navigate", json!({ "url": href }))
-                    .await?;
-                match result.get("errorText").and_then(Value::as_str) {
-                    Some(error) if !error.is_empty() => Err(format!("navigation failed: {error}")),
-                    _ => Ok(()),
-                }
+                ("Page.navigate", json!({"url":href}))
             }
             NavAction::Back | NavAction::Forward => {
                 let history = self
                     .send(page, "Page.getNavigationHistory", json!({}))
                     .await?;
                 match input::history_entry(&history, action == NavAction::Back) {
-                    Some(entry_id) => self
-                        .send(
-                            page,
-                            "Page.navigateToHistoryEntry",
-                            json!({ "entryId": entry_id }),
-                        )
-                        .await
-                        .map(|_| ()),
-                    None => Ok(()),
+                    Some(entry_id) => ("Page.navigateToHistoryEntry", json!({"entryId":entry_id})),
+                    None => return Ok("no history entry; no navigation performed".into()),
                 }
             }
-        }
+        };
+        self.complete_action(page, true, self.send(page, method, params))
+            .await
+            .map(|(_, completion)| completion)
     }
 
     async fn screenshot_base64(&self, page: &PageChannel, full: bool) -> Result<String, String> {

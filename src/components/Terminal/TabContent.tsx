@@ -180,11 +180,6 @@ export function TabContent({
           tabMenu={headerTabMenu ?? undefined}
           isActive={isVisible}
         />
-        {!isChatBackend && tab.agent_type && !descriptor && loading && (
-          <div role="status" data-testid="provider-capability-state" className="px-2 py-1 text-xs">
-            Loading agent capabilities…
-          </div>
-        )}
         <div className="relative flex min-h-0 flex-1 flex-col" style={{ background: theme.background }}>
           <DeferredPresence present={isVisible && (sleepingTranscript || restoreInline || hasCachedTranscript) && (restoreActivityVisible(tab, wake, restore, bodyPainted) || wake.pending || (hasCachedTranscript && !bodyPainted))}
             className="pointer-events-none absolute inset-x-0 top-2 z-30 flex justify-center">

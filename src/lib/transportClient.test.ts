@@ -17,6 +17,24 @@ function clientWith(response: Response) {
 }
 
 describe("transportClient", () => {
+  it("surfaces an older mesh peer's typed upgrade refusal", async () => {
+    const message = "Peer AIR runs an older Domios; update it through the updater.";
+    const body = {
+      bytes_written: false,
+      code: "peer_relay_protocol_mismatch",
+      error: { code: "peer_relay_protocol_mismatch", message },
+      message,
+      relay_protocol_version: 2,
+      required_relay_protocol_version: 3,
+    };
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(JSON.stringify(body), { status: 426 }));
+    const client = createTransportClient({ origin: "http://127.0.0.1:1", token: "fixture", relayPeerId: "AIR", fetch });
+    const error = await client.json("GET", "/api/system/default-cwd").catch((error: unknown) => error);
+    expect(error).toBeInstanceOf(TransportError);
+    expect(error).toMatchObject({ status: 426, body: JSON.stringify(body) });
+    expect((error as TransportError).message).toContain("update it through the updater");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
   it("uses one page client identity across transport clients and request types", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockImplementation(async () => Response.json({}));
     const client = createTransportClient({ origin, token: "fixture-token", fetch });

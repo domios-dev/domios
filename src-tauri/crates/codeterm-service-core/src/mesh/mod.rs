@@ -23,9 +23,13 @@ pub fn set_mesh_enabled(
     };
     if changed {
         let snapshot = config.lock().clone();
-        if let Err(e) = crate::config::save_config_pub(&snapshot) {
-            log::error!("[mesh] failed to persist mesh.enabled: {}", e);
-        }
+        let snapshot = match crate::config::save_config_and_apply(config, snapshot) {
+            Ok(applied) => applied,
+            Err(e) => {
+                log::error!("[mesh] failed to persist mesh.enabled: {}", e);
+                config.lock().clone()
+            }
+        };
         let sink = AppMeshEventSink { ui };
         sink.emit_config_changed(serde_json::to_value(&snapshot).unwrap_or_default());
     }

@@ -62,7 +62,10 @@ pub async fn mesh_link_confirm(
         .authority
         .authorize_link(confirmation.request.clone())
         .await
-        .map_err(refused)?;
+        .map_err(|error| {
+            state.mesh.lock().fail_pending_connection(&confirm.link_id);
+            refused(error)
+        })?;
     state
         .mesh
         .lock()

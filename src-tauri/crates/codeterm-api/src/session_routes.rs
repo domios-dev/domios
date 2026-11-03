@@ -6,7 +6,7 @@ use axum::{
 use codeterm_service_core::service::MuxEmitCause;
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::api_support::OptionalJson;
 
 #[derive(Deserialize)]
@@ -23,10 +23,9 @@ pub struct SaveSessionBody {
 /// A `continue_tab` asks the next start to deliver one continue to that tab.
 pub async fn save_session_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     OptionalJson(body): OptionalJson<SaveSessionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let body = body.unwrap_or(SaveSessionBody {
         continue_tab: None,
         continue_prompt: None,
@@ -119,9 +118,8 @@ pub async fn save_session_api(
 /// Disk-bound (reads + parses every backup), so it runs on the blocking pool.
 pub async fn list_session_backups_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let backups = tokio::task::spawn_blocking(move || svc.list_session_backups())
         .await
@@ -139,10 +137,9 @@ pub async fn list_session_backups_api(
 /// from the live desk. Never replaces or closes anything that exists.
 pub async fn restore_session_backup_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let restored_name = name.clone();
     let report = tokio::task::spawn_blocking(move || svc.restore_session_backup(&name))
@@ -190,10 +187,9 @@ pub struct SearchSessionsQuery {
 /// runtime it starves every other IPC caller for the length of the corpus walk.
 pub async fn search_sessions_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<SearchSessionsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let terms: Vec<String> =
         q.q.split_whitespace()
             .map(|s| s.to_string())
@@ -233,10 +229,9 @@ async fn find_session_off_runtime(
 /// Returns `null` + 404 when nothing claims the id.
 pub async fn get_session_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(session_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     match find_session_off_runtime(&state, &session_id).await? {
         Some(meta) => Ok(Json(serde_json::to_value(meta).unwrap_or_default())),
         None => Err((
@@ -333,11 +328,10 @@ fn roleless_actions(tab_id: &str) -> serde_json::Value {
 ///   4. wait for shell prompt + send the provider's resume command
 pub async fn resume_session_api(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(session_id): Path<String>,
     OptionalJson(body): OptionalJson<ResumeSessionBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, m)| (s, m.to_string()))?;
     let body = body.unwrap_or(ResumeSessionBody {
         title: None,
         workspace_id: None,

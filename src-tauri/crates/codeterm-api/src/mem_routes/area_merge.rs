@@ -5,7 +5,7 @@ use axum::{
 };
 
 use super::{emit_activity, WORKER_ID_HEADER};
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::mem_ops::area_merge::{merge_area, AreaMergeBody};
 
 pub async fn mem_area_merge(
@@ -13,7 +13,6 @@ pub async fn mem_area_merge(
     headers: HeaderMap,
     Json(body): Json<AreaMergeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let worker = headers
         .get(WORKER_ID_HEADER)
         .and_then(|v| v.to_str().ok())
