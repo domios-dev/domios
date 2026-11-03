@@ -1,6 +1,6 @@
 import { useLayoutEffect, useEffect, useRef, type RefObject } from "react";
 import { createLatestWins } from "./latestWins";
-import { decodeJpegFrame, type DecodedFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
+import { type DecodedFrame, type FrameDecoder, type FrameFeed } from "./frameFeed";
 import {
   canvasToPage,
   letterboxRect,

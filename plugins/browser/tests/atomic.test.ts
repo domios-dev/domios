@@ -35,7 +35,7 @@ describe("Browser agent presentation", () => {
     try {
       window.eval(overlay);
       expect(window.document.querySelectorAll("domios-agent-cursor")).toHaveLength(1);
-      const host = window.document.querySelector("domios-agent-cursor")!;
+      const host = window.document.querySelector("domios-agent-cursor") as unknown as HTMLElement;
       expect(host.shadowRoot).toBeNull();
       expect(host.style.pointerEvents).toBe("none");
       expect(host.style.position).toBe("fixed");

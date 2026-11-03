@@ -97,11 +97,11 @@ suite.test("first layout, tab return and resolution changes measure the current 
     size = { width: 900.4, height: 650.6 };
     setDpr(1.5);
     await act(async () => root.render(<StreamCanvas {...props} visible />));
-    assert.deepEqual(recorded.viewports.at(-1), { w: 900, h: 651, dpr: 1.5 });
+    assert.deepEqual(recorded.viewports[recorded.viewports.length - 1], { w: 900, h: 651, dpr: 1.5 });
     setDpr(2);
-    await act(async () => queries.at(-1)!.target.dispatchEvent(new Event("change")));
-    assert.deepEqual(recorded.viewports.at(-1), { w: 900, h: 651, dpr: 2 }, "DPR alone publishes a new viewport");
-    assert.equal(queries.at(-1)!.query, "(resolution: 2dppx)", "the resolution watcher is rearmed");
+    await act(async () => queries[queries.length - 1].target.dispatchEvent(new Event("change")));
+    assert.deepEqual(recorded.viewports[recorded.viewports.length - 1], { w: 900, h: 651, dpr: 2 }, "DPR alone publishes a new viewport");
+    assert.equal(queries[queries.length - 1].query, "(resolution: 2dppx)", "the resolution watcher is rearmed");
   } finally {
     await cleanup?.();
     HTMLElement.prototype.getBoundingClientRect = originalRect;
