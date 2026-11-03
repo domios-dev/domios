@@ -164,7 +164,10 @@ pub(crate) async fn hook_provider_event(
                 .svc
                 .run_watcher
                 .observe_provider_turn_end(&state.svc, &tab_id, nonce, !has_error);
-            state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+            state
+                .svc
+                .schedule_session_model_refresh_after_stop(&tab_id)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
             state
                 .svc
                 .staged_model_turn_completed(&tab_id, &body.session_id, nonce);

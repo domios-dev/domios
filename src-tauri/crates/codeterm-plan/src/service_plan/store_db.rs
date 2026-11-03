@@ -566,6 +566,7 @@ fn json_error(error: serde_json::Error) -> PlanError {
 }
 
 pub(super) mod admission;
+mod binding_queries;
 mod change_feed;
 mod chat_read_queries;
 mod curator_digest_queries;

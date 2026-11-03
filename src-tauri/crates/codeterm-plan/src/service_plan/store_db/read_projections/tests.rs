@@ -4,6 +4,7 @@ use crate::service_plan::store_db::hot_write::tests::fixtures;
 use crate::service_plan::PlanStore;
 use std::sync::{Arc, Barrier};
 
+mod binding_tests;
 mod curator_digest_tests;
 mod curator_schedule_tests;
 mod notice_tests;
