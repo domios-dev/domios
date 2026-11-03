@@ -536,17 +536,17 @@ async function main() {
     const probe = await renderScopedProbe(() => usePlans(API), (value) => value.plans.map((plan) => plan.title).join(","));
     try {
       await act(async () => { emit("3", "2"); });
-      assert(probe.host.textContent === "Summary 1", "a pending change keeps the readable summary");
+      assert(String(probe.host.textContent) === "Summary 1", "a pending change keeps the readable summary");
       revision = "4";
       await act(async () => { emit("4", "3"); });
-      assert(probe.host.textContent === "Summary 4", "the newer committed snapshot is visible");
+      assert(String(probe.host.textContent) === "Summary 4", "the newer committed snapshot is visible");
       const count = requests.length;
       await act(async () => { emit("2", "1"); pending.resolve(Response.json({ ...summary(), title: "Obsolete", revision: "3" })); });
-      assert(requests.length === count && probe.host.textContent === "Summary 4", "older events and responses cannot overwrite a newer summary");
+      assert(requests.length === count && String(probe.host.textContent) === "Summary 4", "older events and responses cannot overwrite a newer summary");
       const { fireResync } = await import("../../lib/resync");
       revision = "6";
       await act(async () => { fireResync(); });
-      assert(probe.host.textContent === "Summary 6", "reconnect recovers a dropped change from scoped summaries");
+      assert(String(probe.host.textContent) === "Summary 6", "reconnect recovers a dropped change from scoped summaries");
       deleted = true;
       await act(async () => { emit("7", "6", true); });
       assert(probe.current().plans.length === 0, "deletion removes the plan and its authorized read returns no payload");
@@ -568,15 +568,15 @@ async function main() {
     const probe = await renderScopedProbe(() => usePlanTaskDetail(API, "scoped", "chosen"), (value) => value.detail?.task.name ?? "Loading");
     try {
       await act(async () => { emit("11", "10", ["other"]); });
-      assert(reads === 1 && probe.host.textContent === "Task 10", "an unrelated committed task does not reacquire the selected body");
+      assert(Number(reads) === 1 && String(probe.host.textContent) === "Task 10", "an unrelated committed task does not reacquire the selected body");
       revision = "12";
       await act(async () => { emit("12", "11", ["chosen"]); });
-      assert(probe.host.textContent === "Task 12", "a selected entity change refreshes its own detail");
+      assert(String(probe.host.textContent) === "Task 12", "a selected entity change refreshes its own detail");
       await act(async () => { emit("11", "10", ["chosen"]); });
-      assert(reads === 2, "an older event cannot issue a replacement read");
+      assert(Number(reads) === 2, "an older event cannot issue a replacement read");
       revision = "15";
       await act(async () => { emit("15", "14", ["other"]); });
-      assert(probe.host.textContent === "Task 15", "a missing revision forces a scoped snapshot even when the last entity differs");
+      assert(String(probe.host.textContent) === "Task 15", "a missing revision forces a scoped snapshot even when the last entity differs");
     } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
   });
 
