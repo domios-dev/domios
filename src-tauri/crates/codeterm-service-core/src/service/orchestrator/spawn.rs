@@ -110,6 +110,14 @@ impl ServiceContext {
         }
         self.move_chatbackend_task_to_system_prompt(&agent, &mut params)?;
         self.apply_model_preset(&agent, &mut params)?;
+        params.model = crate::service::spawn::resolve_agent_model_selection(
+            &self.agent_registry,
+            Some(&agent),
+            params.model.as_deref(),
+            &agent,
+        )
+        .map_err(|error| error.to_string())?
+        .model;
         crate::service::spawn_speed::validate_agent_speed(
             &self.agent_registry,
             &agent,
@@ -264,6 +272,14 @@ impl ServiceContext {
             .await
             .map_err(|_| "preset resolution worker failed")??;
         }
+        params.model = crate::service::spawn::resolve_agent_model_selection(
+            &self.agent_registry,
+            Some(&agent_cmd),
+            params.model.as_deref(),
+            &agent_cmd,
+        )
+        .map_err(|error| error.to_string())?
+        .model;
         crate::service::spawn_speed::validate_agent_speed(
             &self.agent_registry,
             &agent_cmd,
@@ -354,12 +370,6 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn] {}", warning);
         }
-        crate::service::spawn::validate_agent_model(
-            &self.agent_registry,
-            &agent_cmd,
-            params.model.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
         let mut model_resolution = crate::service::spawn::resolve_fresh_agent_model_with_notice(
             &self.configuration(),
             &self.agent_registry,
