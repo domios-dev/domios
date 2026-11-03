@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { DraftPersistence } from "./draftPersistence";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, FRONTEND_HEALTHY_EVENT } from "./runtime";
 import { createFrontendSignals } from "./signals";
 import { TransportError } from "../transportClient";
@@ -273,15 +274,15 @@ it("reports checkpoint and status failure reasons before subscribing to swaps", 
 it("registers the browser draft restorer before daemon hydration and collects local fallback scopes", async () => {
   const { initializeBrowserFrontendUpdates } = await import("./browser");
   const { frontendSignals } = await import("./appState");
-  const { COMPOSER_DRAFT_PREFIX } = await import("../composerDraftGc");
   const f = fixture({}, { ...checkpoint, scroll: {} });
   localStorage.clear();
-  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "t", "stale browser draft");
-  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat:other", "fallback draft");
-  const browser = await initializeBrowserFrontendUpdates(f.client, f.options);
+  const records = new Map([["t", "stale browser draft"], ["tab-session-chat:other", "fallback draft"]]);
+  const persistence = new DraftPersistence({ read: async () => records, write: async (scope, value) => { if (value === null) records.delete(scope); else records.set(scope, value); } });
+  const browser = await initializeBrowserFrontendUpdates(f.client, f.options, persistence);
   try {
     expect(frontendSignals.checkpoint().drafts.t).toEqual(checkpoint.drafts.t);
-    expect(localStorage.getItem(COMPOSER_DRAFT_PREFIX + "t")).toBe("last edit");
+    await persistence.flush();
+    expect(records.get("t")).toBe("last edit");
     expect(frontendSignals.checkpoint().drafts["tab-session-chat:other"].text).toBe("fallback draft");
   } finally {
     browser.dispose();
@@ -339,14 +340,13 @@ it("reopens a closed frontend from current local drafts without resurrecting an 
   vi.resetModules();
   const { initializeBrowserFrontendUpdates } = await import("./browser");
   const { frontendSignals } = await import("./appState");
-  const { COMPOSER_DRAFT_PREFIX } = await import("../composerDraftGc");
-  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat:t", "latest unsent edit");
-  localStorage.setItem(COMPOSER_DRAFT_PREFIX + "tab-session-chat-capsules:t", '[{"label":"image","kind":"image","path":"/uploads/image.png"}]');
+  const records = new Map([["tab-session-chat:t", "latest unsent edit"], ["tab-session-chat-capsules:t", '[{"label":"image","kind":"image","path":"/uploads/image.png"}]']]);
+  const persistence = new DraftPersistence({ read: async () => records, write: async (scope, value) => { if (value === null) records.delete(scope); else records.set(scope, value); } });
   const f = fixture({}, { ...checkpoint, drafts: {
     "tab-session-chat:t": { text: "old unsent edit", attachmentIds: [], replyTo: null },
     "tab-session-chat:cleared": { text: "already sent", attachmentIds: [], replyTo: null },
   } });
-  const browser = await initializeBrowserFrontendUpdates(f.client, { ...f.options, boot: null });
+  const browser = await initializeBrowserFrontendUpdates(f.client, { ...f.options, boot: null }, persistence);
   try {
     expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].text).toBe("latest unsent edit");
     expect(frontendSignals.checkpoint().drafts["tab-session-chat:t"].attachmentIds).toEqual(["image"]);
@@ -367,4 +367,68 @@ it("summarizes only the rendered frontend release notes and rejects rollback ide
   expect(frontendReleaseSummary(release, ticket, [release.releaseId])).toBeNull();
   expect(frontendReleaseSummary(undefined, ticket, [])).toBeNull();
   expect(frontendReleaseSummary({ ...release, releaseNotes: "x".repeat(4096) }, ticket, [])?.notes).toHaveLength(480);
+});
+
+it("flushes local drafts before checkpoint acknowledgement and includes a send clear made during that flush", async () => {
+  const f = fixture({ focused: true });
+  let releaseFlush!: () => void;
+  let entered!: () => void;
+  const enteredFlush = new Promise<void>(resolve => { entered = resolve; });
+  const waiting = new Promise<void>(resolve => { releaseFlush = resolve; });
+  const flush = vi.fn(async () => { entered(); await waiting; });
+  let navigated!: () => void;
+  const navigation = new Promise<void>(resolve => { navigated = resolve; });
+  const runtime = await initializeFrontendUpdateRuntime(f.client, { ...f.options, flushDrafts: flush,
+    navigate: path => { f.options.navigate(path); navigated(); } });
+  try {
+    f.receive("frontend-update-ready", release);
+    runtime.consent();
+    await enteredFlush;
+    expect(f.calls.filter(call => call.method === "PUT")).toHaveLength(0);
+    f.signals.editDraft("t", "");
+    releaseFlush();
+    await navigation;
+    const writes = f.calls.filter(call => call.method === "PUT").map(call => call.body as CheckpointWrite);
+    expect(writes).toHaveLength(2);
+    expect(writes[0].payload.drafts.t.text).toBe("last edit");
+    expect(writes[1].payload.drafts.t.text).toBe("");
+    expect(flush).toHaveBeenCalledTimes(2);
+  } finally { runtime.dispose(); }
+});
+
+it("waits for the draft queued by the checkpoint-producing input event before writing the checkpoint", async () => {
+  const f = fixture({ focused: true });
+  const order: string[] = [];
+  let releaseWrite!: () => void;
+  let enteredWrite!: () => void;
+  const waiting = new Promise<void>(resolve => { releaseWrite = resolve; });
+  const entered = new Promise<void>(resolve => { enteredWrite = resolve; });
+  const drafts = new DraftPersistence({ read: async () => new Map(), write: async () => {
+    enteredWrite();
+    await waiting;
+    order.push("draft committed");
+  } });
+  await drafts.initialize();
+  const request = f.client.localJson;
+  f.client.localJson = async (method, path, body, options) => {
+    if (method === "PUT") order.push("checkpoint written");
+    return request(method, path, body, options);
+  };
+  let navigated!: () => void;
+  const navigation = new Promise<void>(resolve => { navigated = resolve; });
+  const runtime = await initializeFrontendUpdateRuntime(f.client, { ...f.options, flushDrafts: () => drafts.flush(),
+    navigate: path => { f.options.navigate(path); navigated(); } });
+  try {
+    f.receive("frontend-update-ready", release);
+    runtime.consent();
+    f.signals.editDraft("t", "");
+    drafts.edit("t", "");
+    await entered;
+    releaseWrite();
+    await navigation;
+    expect(order[0]).toBe("draft committed");
+    expect(order.filter(event => event === "checkpoint written")).toHaveLength(2);
+    const writes = f.calls.filter(call => call.method === "PUT").map(call => call.body as CheckpointWrite);
+    expect(writes[1].payload.drafts.t.text).toBe("");
+  } finally { runtime.dispose(); }
 });

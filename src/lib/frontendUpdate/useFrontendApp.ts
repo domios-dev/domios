@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { frontendRootRendered } from "./browser";
 import { frontendSignals } from "./appState";
 import { initialPageSelection, type PageSelectionSnapshot } from "../../store/multiplexer/pageSelection";
@@ -17,13 +17,21 @@ export interface FrontendSelection {
 
 export function useFrontendApp(selection: FrontendSelection): boolean {
   const [restored, setRestored] = useState(false);
+  const latest = useRef(selection);
+  latest.current = selection;
+  const { generation, workspaceId, tabId } = selection;
+  const pageScoped = !!selection.pageSnapshot;
+  const savedSelection = useRef<{ workspaceId: string; tabId: string | null } | null>(null);
   useEffect(() => {
+    const selection = latest.current;
     if (selection.generation <= 0) return;
     if (selection.pageSnapshot && selection.generation < 1) return;
     if (!restored) {
-      const checkpoint = frontendSignals.checkpoint();
+      const checkpoint = frontendSignals.checkpointView();
       if (selection.pageSnapshot) {
-        const route = initialPageSelection(selection.pageSnapshot, loadClientPageSelection());
+        const saved = loadClientPageSelection();
+        savedSelection.current = saved;
+        const route = initialPageSelection(selection.pageSnapshot, saved);
         if (route.active_workspace_id) {
           selection.selectWorkspace(route.active_workspace_id);
           const tabId = route.activeTabIds[route.active_workspace_id];
@@ -37,16 +45,14 @@ export function useFrontendApp(selection: FrontendSelection): boolean {
       return;
     }
     if (selection.pageSnapshot && selection.workspaceId) {
-      saveClientPageSelection({ workspaceId: selection.workspaceId, tabId: selection.tabId });
+      if (savedSelection.current?.workspaceId !== selection.workspaceId || savedSelection.current?.tabId !== selection.tabId) {
+        savedSelection.current = { workspaceId: selection.workspaceId, tabId: selection.tabId };
+        saveClientPageSelection(savedSelection.current);
+      }
     }
-    const checkpoint = frontendSignals.checkpoint();
-    if (checkpoint.activeWorkspaceId !== selection.workspaceId || checkpoint.activeTabId !== selection.tabId) {
-      checkpoint.activeWorkspaceId = selection.workspaceId;
-      checkpoint.activeTabId = selection.tabId;
-      frontendSignals.edit(checkpoint);
-    }
+    frontendSignals.editSelection(selection.workspaceId, selection.tabId);
     frontendRootRendered();
     frontendSignals.signal({ idle: true });
-  }, [selection, restored]);
+  }, [generation, workspaceId, tabId, pageScoped, restored]);
   return restored && selection.generation > 0;
 }
