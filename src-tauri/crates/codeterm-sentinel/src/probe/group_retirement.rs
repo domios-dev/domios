@@ -83,10 +83,12 @@ fn apply_exit_events(members: &mut [Member], exited: &BTreeSet<(u32, u128)>) {
     }
 }
 
-fn registration_race_retired(member: &Member, snapshot: &[Member]) -> bool {
-    !snapshot
-        .iter()
-        .any(|current| current.pid == member.pid && current.born == member.born && !current.exited)
+fn exit_registration(result: io::Result<i32>) -> io::Result<Option<OwnedFd>> {
+    match result {
+        Ok(fd) => Ok(Some(unsafe { OwnedFd::from_raw_fd(fd) })),
+        Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(None),
+        Err(error) => Err(error),
+    }
 }
 
 pub fn retire(ownership: LeaderOwnership, child_id: u32, deadline: Instant) -> Result<(), String> {
@@ -107,34 +109,17 @@ pub fn retire(ownership: LeaderOwnership, child_id: u32, deadline: Instant) -> R
         }
         let mut events = Vec::new();
         for member in snapshot.iter().filter(|member| !member.exited) {
-            match super::cancellation::unix::parent_event(member.pid) {
-                Ok(fd) => events.push(((member.pid, member.born), unsafe {
-                    OwnedFd::from_raw_fd(fd)
-                })),
-                Err(error) => {
-                    if error.raw_os_error() != Some(libc::ESRCH) {
-                        return Err(format!(
-                            "probe member {} exit registration: {error}",
-                            member.pid
-                        ));
-                    }
-                    let mut observed = members(pgid)?;
-                    apply_exit_events(&mut observed, &exited);
-                    if !registration_race_retired(member, &observed) {
-                        let result = unsafe { libc::kill(member.pid as i32, 0) };
-                        if !signal_result(
-                            result,
-                            io::Error::last_os_error().raw_os_error().unwrap_or(0),
-                        )
-                        .map_err(|error| error.to_string())?
-                        {
-                            return Err(format!(
-                                "probe member {} exit registration unconfirmed: {error}",
-                                member.pid
-                            ));
-                        }
-                    }
+            match exit_registration(super::cancellation::unix::parent_event(member.pid)) {
+                Ok(Some(event)) => events.push(((member.pid, member.born), event)),
+                Ok(None) => {
+                    // ESRCH is kernel exit evidence; a BSD snapshot can still expose the dying task.
                     exited.insert((member.pid, member.born));
+                }
+                Err(error) => {
+                    return Err(format!(
+                        "probe member {} exit registration: {error}",
+                        member.pid
+                    ));
                 }
             }
         }
@@ -432,24 +417,20 @@ mod tests {
     }
 
     #[test]
-    fn missing_exit_registration_requires_independent_member_retirement_proof() {
-        let member = Member {
-            pid: 42,
-            born: 1,
-            exited: false,
-        };
-        let mut snapshot = vec![Member {
-            pid: 42,
-            born: 1,
-            exited: false,
-        }];
-        assert!(!registration_race_retired(&member, &snapshot));
-        snapshot[0].exited = true;
-        assert!(registration_race_retired(&member, &snapshot));
-        snapshot[0].exited = false;
-        snapshot[0].born = 2;
-        assert!(registration_race_retired(&member, &snapshot));
-        assert!(registration_race_retired(&member, &[]));
+    fn exit_registration_accepts_kernel_absence_and_preserves_other_errors() {
+        assert!(
+            exit_registration(Err(io::Error::from_raw_os_error(libc::ESRCH)))
+                .unwrap()
+                .is_none()
+        );
+        for errno in [libc::EPERM, libc::EINVAL, libc::EBADF] {
+            assert_eq!(
+                exit_registration(Err(io::Error::from_raw_os_error(errno)))
+                    .unwrap_err()
+                    .raw_os_error(),
+                Some(errno)
+            );
+        }
     }
 
     #[test]

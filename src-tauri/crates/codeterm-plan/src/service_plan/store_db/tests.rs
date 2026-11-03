@@ -207,23 +207,10 @@ fn searchable_plan_body_includes_external_refs() {
         .unwrap(),
     ];
 
-    store.save(&mut plan, 3).unwrap();
-    crate::service_plan::search_index::flush_index_queue_for_test(directory.path());
-    let hits = store
-        .search_plan_index(
-            directory.path(),
-            &PlanIndexQuery {
-                query: "Acceptance marker".into(),
-                kind: Some("task".into()),
-                scope: None,
-                limit: Some(10),
-            },
-        )
-        .unwrap();
-    assert!(hits.iter().any(|hit| hit.body.contains("Acceptance marker")
-        && hit
-            .body
-            .contains("https://github.com/rollacode/codeterm-releases/issues/17")));
+    let body = searchable_plan_body(&plan);
+
+    assert!(body.contains("Acceptance marker"));
+    assert!(body.contains("https://github.com/rollacode/codeterm-releases/issues/17"));
 }
 
 #[test]

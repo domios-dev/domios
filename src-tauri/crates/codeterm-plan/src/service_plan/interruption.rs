@@ -15,14 +15,6 @@ pub(crate) fn authorize_task_mutation(
     task: &crate::plan::Task,
     authority: &TaskMutationAuthority,
 ) -> Result<(), PlanError> {
-    authorize_task_mutation_for_owner(plan.owner.tab_id.as_deref(), task, authority)
-}
-
-pub(crate) fn authorize_task_mutation_for_owner(
-    owner_tab: Option<&str>,
-    task: &crate::plan::Task,
-    authority: &TaskMutationAuthority,
-) -> Result<(), PlanError> {
     // A retired owner leaves nobody to authenticate against and its superseded
     // epoch fences nothing; plan-level authority upstream already admitted this caller.
     if task.interruption.owner_tab_id.is_none() && task.interruption.owner_session_id.is_none() {
@@ -31,7 +23,7 @@ pub(crate) fn authorize_task_mutation_for_owner(
     if task.interruption.owner_epoch != authority.owner_epoch {
         return Err(PlanError::Io("stale task mutation owner epoch".into()));
     }
-    let orchestrator = owner_tab == Some(&authority.tab_id);
+    let orchestrator = plan.owner.tab_id.as_deref() == Some(&authority.tab_id);
     let worker = !task.interruption.handoff_required
         && task.interruption.owner_tab_id.as_deref() == Some(&authority.tab_id);
     if orchestrator || worker {

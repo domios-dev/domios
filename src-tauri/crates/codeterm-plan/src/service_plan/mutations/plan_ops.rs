@@ -373,7 +373,58 @@ impl PlanStore {
         from: AgentRef,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.close_task_rows(plan_id, task_id, result, from, None, now_ms)
+        if let Some(result) = result {
+            crate::service_plan::text_bounds::validate_plan_text("task result", result)?;
+        }
+        let write = self.with_plan(plan_id, now_ms, |p| {
+            let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            if p.tasks[task_index].status == TaskStatus::Pending
+                && !(from.tab_id.is_some()
+                    && from.tab_id == p.owner.tab_id
+                    && result.is_some_and(|note| !note.trim().is_empty()))
+            {
+                return Err(PlanError::TransitionDenied {
+                    from: TaskStatus::Pending,
+                    to: TaskStatus::Done,
+                });
+            }
+            let was_in_review = p.tasks[task_index].status == TaskStatus::InReview;
+            super::finalize_task_done(p, task_index, now_ms)?;
+            if was_in_review {
+                p.tasks[task_index].review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: result.unwrap_or("").into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                crate::service_plan::review_gate::earn_review_credit(&mut p.review_policy);
+            }
+            if let Some(text) = result {
+                let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+                p.tasks[task_index].milestones.push(Milestone {
+                    id: mid,
+                    from,
+                    kind: "status_update".into(),
+                    text: text.into(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
+            Ok(())
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_closed(plan_id, task_id, result),
+            Some(task_id.to_string()),
+        )
     }
 
     pub fn close_task_authorized(
@@ -385,85 +436,55 @@ impl PlanStore {
         authority: &crate::service_plan::interruption::TaskMutationAuthority,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.close_task_rows(plan_id, task_id, result, from, Some(authority), now_ms)
-    }
-
-    fn close_task_rows(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        result: Option<&str>,
-        from: AgentRef,
-        authority: Option<&crate::service_plan::interruption::TaskMutationAuthority>,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
         if let Some(result) = result {
             crate::service_plan::text_bounds::validate_plan_text("task result", result)?;
         }
-        let milestone_id = self.mint_id("ms");
-        self.with_task_rows(
-            plan_id,
-            task_id,
-            crate::service_plan::store_db::hot_write::TaskHistory::Core,
-            now_ms,
-            |edit| {
-                if let Some(authority) = authority {
-                    crate::service_plan::interruption::authorize_task_mutation_for_owner(
-                        edit.owner_tab.as_deref(),
-                        &edit.task,
-                        authority,
-                    )?;
-                }
-                if edit.task.status == TaskStatus::Pending
-                    && (authority.is_some()
-                        || !(from.tab_id.is_some()
-                            && from.tab_id == edit.owner_tab
-                            && result.is_some_and(|note| !note.trim().is_empty())))
-                {
-                    return Err(PlanError::TransitionDenied {
-                        from: TaskStatus::Pending,
-                        to: TaskStatus::Done,
-                    });
-                }
-                edit.terminal_check = true;
-                edit.close_all_live = true;
-                let task = &mut edit.task;
-                if task.status == TaskStatus::InReview {
-                    task.review_evidence.push(ReviewEvidence {
-                        id: crate::plan::ids::short_id("rev"),
-                        from: from.clone(),
-                        verdict: ReviewVerdict::Accept,
-                        note: result.unwrap_or("").into(),
-                        at: now_ms,
-                        changed_executable_surfaces: false,
-                        distinct_oracle: false,
-                    });
-                    edit.review_credit = 1;
-                }
-                if task.status != TaskStatus::Done {
-                    task.status_changed_at = now_ms;
-                }
-                task.status = TaskStatus::Done;
-                task.updated_at = now_ms;
-                super::qa::normalize_task_review_fields(task);
-                clear_task_assignment(task);
-                if let Some(text) = result {
-                    task.milestones.push(Milestone {
-                        id: milestone_id,
-                        from,
-                        kind: "status_update".into(),
-                        text: text.into(),
-                        ts: now_ms,
-                        links: vec![],
-                        loop_id: None,
-                        iteration: None,
-                        canvas: Default::default(),
-                        attachments: vec![],
-                    });
-                }
-                Ok(())
-            },
-        )
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            crate::service_plan::interruption::authorize_task_mutation(
+                plan,
+                &plan.tasks[task_index],
+                authority,
+            )?;
+            if plan.tasks[task_index].status == TaskStatus::Pending {
+                return Err(PlanError::TransitionDenied {
+                    from: TaskStatus::Pending,
+                    to: TaskStatus::Done,
+                });
+            }
+            let was_in_review = plan.tasks[task_index].status == TaskStatus::InReview;
+            super::finalize_task_done(plan, task_index, now_ms)?;
+            if was_in_review {
+                plan.tasks[task_index].review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: result.unwrap_or("").into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                crate::service_plan::review_gate::earn_review_credit(&mut plan.review_policy);
+            }
+            if let Some(text) = result {
+                let milestone_id =
+                    crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
+                plan.tasks[task_index].milestones.push(Milestone {
+                    id: milestone_id,
+                    from,
+                    kind: "status_update".into(),
+                    text: text.into(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                });
+            }
+            Ok(())
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -480,27 +501,44 @@ impl PlanStore {
         crate::service_plan::text_bounds::validate_plan_label("milestone kind", kind)?;
         crate::service_plan::text_bounds::validate_plan_text("milestone text", text)?;
         let mid = self.mint_id("ms");
-        self.commit_hot_changes(
-            plan_id,
-            vec![
-                crate::service_plan::store_db::hot_write::HotChange::Milestone {
-                    task_id: task_id.into(),
-                    add_kind,
-                    milestone: Milestone {
-                        id: mid.clone(),
-                        from,
-                        kind: kind.into(),
-                        text: text.into(),
-                        ts: now_ms,
-                        links: vec![],
-                        loop_id: None,
-                        iteration: None,
-                        canvas: Default::default(),
-                        attachments: vec![],
-                    },
-                },
-            ],
-            now_ms,
+        let write = self.with_plan(plan_id, now_ms, |p| {
+            let declared = p.milestone_kinds.iter().any(|k| k.key == kind);
+            if !declared {
+                if add_kind {
+                    p.milestone_kinds.push(MilestoneKind {
+                        key: kind.into(),
+                        label: kind.into(),
+                        color: None,
+                    });
+                } else {
+                    return Err(PlanError::UndeclaredKind {
+                        declared: p.milestone_kinds.iter().map(|k| k.key.clone()).collect(),
+                    });
+                }
+            }
+            let task = p
+                .tasks
+                .iter_mut()
+                .find(|t| t.id == task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            task.milestones.push(Milestone {
+                id: mid.clone(),
+                from,
+                kind: kind.into(),
+                text: text.into(),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        });
+        pending_after_verified(
+            write,
+            self.verify_task_milestone_added(plan_id, task_id, &mid, kind, text),
+            Some(task_id.to_string()),
         )?;
         Ok(mid)
     }
@@ -521,27 +559,33 @@ impl PlanStore {
         let milestone_id = format!("tab_todo_{todo_item_id}");
         let text = format!("Checklist item linked: {label}");
         crate::service_plan::text_bounds::validate_plan_text("todo link event", &text)?;
-        self.commit_hot_changes(
-            plan_id,
-            vec![
-                crate::service_plan::store_db::hot_write::HotChange::AuditMilestone {
-                    task_id: task_id.into(),
-                    milestone: Milestone {
-                        id: milestone_id.clone(),
-                        from: AgentRef::from_tab(from_tab_id),
-                        kind: "tab_todo_linked".into(),
-                        text,
-                        ts: now_ms,
-                        links: vec![],
-                        loop_id: None,
-                        iteration: None,
-                        canvas: Default::default(),
-                        attachments: vec![],
-                    },
-                },
-            ],
-            now_ms,
-        )?;
+        self.with_plan(plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            if task
+                .milestones
+                .iter()
+                .any(|milestone| milestone.id == milestone_id)
+            {
+                return Ok(());
+            }
+            task.milestones.push(Milestone {
+                id: milestone_id.clone(),
+                from: AgentRef::from_tab(from_tab_id),
+                kind: "tab_todo_linked".into(),
+                text,
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        })?;
         Ok(milestone_id)
     }
 
@@ -557,24 +601,21 @@ impl PlanStore {
         crate::service_plan::text_bounds::validate_plan_label("stride kind", kind)?;
         crate::service_plan::text_bounds::validate_plan_text("stride text", text)?;
         let mid = self.mint_id("ms");
-        self.commit_hot_changes(
-            plan_id,
-            vec![crate::service_plan::store_db::hot_write::HotChange::Stride(
-                Milestone {
-                    id: mid.clone(),
-                    from,
-                    kind: kind.into(),
-                    text: text.into(),
-                    ts: now_ms,
-                    links: vec![],
-                    loop_id: None,
-                    iteration: None,
-                    canvas: Default::default(),
-                    attachments: vec![],
-                },
-            )],
-            now_ms,
-        )?;
+        self.with_plan(plan_id, now_ms, |p| {
+            p.strides.push(Milestone {
+                id: mid.clone(),
+                from,
+                kind: kind.into(),
+                text: text.into(),
+                ts: now_ms,
+                links: vec![],
+                loop_id: None,
+                iteration: None,
+                canvas: Default::default(),
+                attachments: vec![],
+            });
+            Ok(())
+        })?;
         Ok(mid)
     }
 

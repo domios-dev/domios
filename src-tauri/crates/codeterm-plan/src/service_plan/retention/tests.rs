@@ -76,6 +76,7 @@ fn stored_rows(database: &std::path::Path, plan_id: &str) -> Vec<i64> {
         "SELECT COUNT(*) FROM plan_tasks WHERE plan_id = ?1",
         "SELECT COUNT(*) FROM plan_task_milestones WHERE plan_id = ?1",
         "SELECT COUNT(*) FROM plan_task_attempts WHERE plan_id = ?1",
+        "SELECT COUNT(*) FROM plan_fts WHERE plan_id = ?1",
     ]
     .iter()
     .map(|sql| {
@@ -115,7 +116,7 @@ fn a_plan_touched_after_the_candidate_scan_is_not_deleted() {
         .unwrap()
         .is_none());
     assert!(store.get(&touched).is_some());
-    assert_eq!(stored_rows(&database, &touched), [1, 1, 1, 1, 1]);
+    assert_eq!(stored_rows(&database, &touched), [1, 1, 1, 1, 1, 1]);
 }
 
 #[test]

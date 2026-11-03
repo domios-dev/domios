@@ -188,15 +188,16 @@ test("written sends flow above later rows while held and failed sends retain the
   }
 });
 
-test("written input queues while working and becomes uncertain only at idle without evidence", () => {
+test("written and unconfirmed receipts keep their meaning across agent activity", () => {
   for (const ledgerState of ["written", "submit_unconfirmed"] as const) {
     const current = applyDeliveryStatus(send(), status(ledgerState, 2));
     const before = JSON.stringify(current);
-    assert.equal(deliveryPresentation(current, "working"), "queued");
+    const expected = ledgerState === "written" ? "written" : "uncertain";
+    assert.equal(deliveryPresentation(current, "working"), expected);
     for (const activity of ["starting", "waiting-on-user", "failed"] as const) {
-      assert.equal(deliveryPresentation(current, activity), "sending");
+      assert.equal(deliveryPresentation(current, activity), expected);
     }
-    assert.equal(deliveryPresentation(current, "idle"), "uncertain");
+    assert.equal(deliveryPresentation(current, "idle"), expected);
     assert.equal(JSON.stringify(current), before);
     const delivered = applyDeliveryStatus(current, status("delivered", 3));
     assert.equal(deliveryPresentation(delivered, "working"), "delivered");

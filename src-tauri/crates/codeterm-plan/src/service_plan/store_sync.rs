@@ -39,8 +39,6 @@ pub(super) const TASK_SCHEMA: &str = r#"
         ON plan_tasks(lane_worktree_path) WHERE lane_worktree_path IS NOT NULL;
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_branch
         ON plan_tasks(lane_branch) WHERE lane_branch IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS plan_tasks_bound_tabs ON plan_tasks(plan_id, assigned_tab_id) WHERE assigned_tab_id IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS plan_tasks_handle_order ON plan_tasks(plan_id, position, json_extract(row_json, '$.handle'), task_id);
     CREATE TABLE IF NOT EXISTS plan_task_milestones (
         plan_id TEXT NOT NULL,
         task_id TEXT NOT NULL,
@@ -49,7 +47,6 @@ pub(super) const TASK_SCHEMA: &str = r#"
         PRIMARY KEY (plan_id, task_id, seq),
         FOREIGN KEY (plan_id, task_id) REFERENCES plan_tasks(plan_id, task_id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS plan_milestones_id ON plan_task_milestones(json_extract(row_json, '$.id'));
     CREATE TABLE IF NOT EXISTS plan_task_attempts (
         plan_id TEXT NOT NULL,
         task_id TEXT NOT NULL,
@@ -67,7 +64,6 @@ pub(super) const TASK_SCHEMA: &str = r#"
         PRIMARY KEY (plan_id, task_id, position),
         FOREIGN KEY (plan_id, task_id) REFERENCES plan_tasks(plan_id, task_id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS plan_attempts_id ON plan_task_attempts(plan_id, task_id, attempt_id);
     CREATE INDEX IF NOT EXISTS plan_task_attempts_executor_tab_id
         ON plan_task_attempts(executor_tab_id, open);
     CREATE INDEX IF NOT EXISTS plan_task_attempts_session_id
@@ -104,7 +100,6 @@ pub(super) const PLAN_LEVEL_SCHEMA: &str = r#"
         PRIMARY KEY (plan_id, seq),
         FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
     );
-    CREATE INDEX IF NOT EXISTS plan_strides_id ON plan_strides(json_extract(row_json, '$.id'));
     CREATE TABLE IF NOT EXISTS plan_heartbeat (
         plan_id TEXT PRIMARY KEY,
         content_hash INTEGER NOT NULL,
@@ -239,21 +234,11 @@ fn insert_milestones(
     task: &TaskRows,
     from: usize,
 ) -> rusqlite::Result<()> {
-    let next: i64 = transaction.query_row(
-        "SELECT coalesce(max(seq)+1,0) FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2",
-        params![plan_id, task.id],
-        |row| row.get(0),
-    )?;
     let mut statement = transaction.prepare_cached(
         "INSERT INTO plan_task_milestones(plan_id, task_id, seq, row_json) VALUES (?1, ?2, ?3, ?4)",
     )?;
     for (seq, milestone) in task.milestones.iter().enumerate().skip(from) {
-        statement.execute(params![
-            plan_id,
-            task.id,
-            next + (seq - from) as i64,
-            milestone
-        ])?;
+        statement.execute(params![plan_id, task.id, seq as i64, milestone])?;
     }
     Ok(())
 }

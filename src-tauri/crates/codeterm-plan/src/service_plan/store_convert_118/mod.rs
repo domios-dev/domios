@@ -64,11 +64,6 @@ fn admit(connection: &Connection) -> Result<bool, PlanError> {
     match version {
         SCHEMA_VERSION => {
             store_db::create_schema(&expected).map_err(db_error)?;
-            if has_table(connection, "plan_fts").map_err(db_error)? {
-                expected
-                    .execute_batch(schema::RETIRED_FTS_SCHEMA)
-                    .map_err(db_error)?;
-            }
             store_db::admission::validate(connection, &expected)?;
             return Ok(false);
         }
@@ -159,8 +154,7 @@ fn convert(connection: &mut Connection) -> Result<ConversionReport, PlanError> {
              DROP TABLE plan_tasks;
              DROP TABLE specs;
              DROP TABLE plans;
-             DROP TABLE IF EXISTS legacy_imports;
-             DROP TABLE plan_fts;",
+             DROP TABLE IF EXISTS legacy_imports;",
         )
         .map_err(db_error)?;
     store_db::create_schema(&transaction).map_err(db_error)?;
@@ -212,6 +206,12 @@ fn convert(connection: &mut Connection) -> Result<ConversionReport, PlanError> {
             )
             .map_err(db_error)?;
     }
+    transaction
+        .execute(
+            "DELETE FROM plan_fts WHERE plan_id NOT IN (SELECT id FROM plans)",
+            [],
+        )
+        .map_err(db_error)?;
     transaction
         .pragma_update(None, "user_version", SCHEMA_VERSION)
         .map_err(db_error)?;
