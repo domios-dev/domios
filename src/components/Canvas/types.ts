@@ -328,6 +328,7 @@ export interface PlanTaskDetailContext {
 }
 
 export interface PlanTaskDetail {
+  revision?: string;
   plan_id: string;
   task_id: string;
   task: Task;
@@ -361,6 +362,7 @@ export interface PlanTaskBoardCounts {
 }
 
 export interface PlanTaskBoardPage {
+  revision?: string;
   plan_id: string;
   counts?: PlanTaskBoardCounts;
   columns?: Partial<Record<PlanTaskBoardStatus, PlanTaskBoardColumnPage>>;

@@ -33,6 +33,7 @@ fn ui_projections_expose_only_the_requested_document_or_visible_task_metadata() 
             && task["milestones"] == json!([])
             && task["execution_attempts"] == json!([])));
         match view {
+            PlanViewProjection::Chat => panic!("chat is covered by its own projection oracle"),
             PlanViewProjection::Summary => {
                 assert!(tasks.is_empty());
                 assert!(projection["goal"].is_null());

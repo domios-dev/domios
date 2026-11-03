@@ -8,6 +8,7 @@ import { __setListenForTest } from "../../../lib/bridge";
 import type { ApiConfig } from "../../../lib/types";
 import { FIXTURE_PLAN } from "../cards/fixtures.testdata";
 import type { Plan } from "../types";
+import { BoardEventLog } from "./BoardEventLog";
 import { MissionControlBoard } from "./MissionControlBoard";
 import type {
   MissionControlState,
@@ -96,7 +97,7 @@ function boardState({ output = 100, turns = 10, bounces = 1, allowance = 20, eve
     },
   };
   return {
-    plan_id: PLAN_ID,
+    plan_id: PLAN_ID, revision: "1",
     task_counts: { pending: 0, in_progress: tasks, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: tasks },
     mission_control: mission,
   };
@@ -359,7 +360,7 @@ describe("Mission Control live refresh", () => {
       await act(async () => { window.dispatchEvent(new Event("codeterm-web-boot-changed")); await flush(); });
       expect(capture.current?.state?.task_counts.total).toBe(7);
       expect(fetchMock).toHaveBeenCalledTimes(5);
-      for (const [url] of fetchMock.mock.calls) expect(new URL(String(url)).pathname).toBe(`/api/plans/${PLAN_ID}/state`);
+      for (const [url] of fetchMock.mock.calls) expect(new URL(String(url)).pathname).toBe(`/api/plans/${PLAN_ID}/board-state`);
     } finally { await rendered.unmount(); }
   });
 
@@ -507,4 +508,21 @@ describe("Mission Control team stream", () => {
     expect(capture.current!.archivedPlans).toBe(first.archivedPlans);
     await rendered.unmount();
   });
+});
+
+it("opens an event's archived task from its scoped page without a task catalogue", async () => {
+  const event: TeamMissionControlEvent = { id: "event", plan_id: "archived", plan_title: "Earlier plan",
+    ts: NOW, last_ts: NOW, count: 1, kind: "note", author: "Worker", author_tab_id: null,
+    task_id: "historical-task", task_name: "Earlier task", text: "Stored result" };
+  const open = vi.fn();
+  const rendered = await render(<BoardEventLog log={{ recorded_events: 1, truncated: false, entries: [] }}
+    milestoneKinds={[]} refs={new Map()} planId="current" onOpenTask={open}
+    pager={{ pageCount: 1, caption: "1 event", page: () => [event] }} now={NOW} />);
+  try {
+    const task = rendered.host.querySelector<HTMLButtonElement>('[data-testid="mc-board-event-task"] button')!;
+    expect(task.textContent).toBe("Earlier task");
+    await act(async () => task.click());
+    expect(open.mock.calls).toEqual([["historical-task", "archived"]]);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  } finally { await rendered.unmount(); }
 });

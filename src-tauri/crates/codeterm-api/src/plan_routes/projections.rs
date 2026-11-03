@@ -43,3 +43,26 @@ pub async fn get(
     })
     .await
 }
+
+pub async fn board_state(
+    State(state): State<AppState>,
+    _headers: HeaderMap,
+    Path(id): Path<String>,
+) -> PlanRouteResult {
+    super::run_blocking(move || {
+        codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
+            .map_err(super::plans::team_plan_err)?;
+        let snapshot = state
+            .svc
+            .build_plan_state(&id, super::epoch_ms())
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::json!({
+            "plan_id": snapshot.plan_id,
+            "revision": snapshot.revision,
+            "task_counts": snapshot.task_counts,
+            "control_loop": snapshot.control_loop,
+            "mission_control": snapshot.mission_control,
+        })))
+    })
+    .await
+}

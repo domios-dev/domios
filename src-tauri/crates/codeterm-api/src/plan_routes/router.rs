@@ -43,6 +43,10 @@ pub fn router() -> Router<AppState> {
             "/api/plans/{id}/projection",
             get(plan_routes::projections::get),
         )
+        .route(
+            "/api/plans/{id}/board-state",
+            get(plan_routes::projections::board_state),
+        )
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
         .route("/api/plans/{id}/pause", post(plan_routes::pause))
         .route(

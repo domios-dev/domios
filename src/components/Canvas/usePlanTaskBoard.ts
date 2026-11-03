@@ -4,6 +4,7 @@ import type { ApiConfig } from "../../lib/types";
 import { fetchPlanTaskBoardPage } from "./plansApi";
 import type { PlanTaskBoardPage, PlanTaskBoardStatus } from "./types";
 import { useScopedPlanRead } from "./useScopedPlanRead";
+import { planRevision } from "./planProjection";
 
 export interface UsePlanTaskBoardResult {
   data: PlanTaskBoardPage | null;
@@ -54,13 +55,18 @@ export function usePlanTaskBoard(api: ApiConfig | undefined, planId: string | nu
     try {
       const page = await fetchPlanTaskBoardPage(api, planId, { signal: controller.signal, status, cursor: current.next_cursor });
       if (controller.signal.aborted || version.current !== requestVersion) return;
+      if (planRevision(page) !== planRevision(data)) { await query.refetch(); return; }
       if (page.plan_id !== planId || page.column?.status !== status) throw new Error("Task page response did not match the requested column.");
       const column = page.column;
       setData((previous) => {
         if (version.current !== requestVersion || !previous) return previous;
         const seen = new Set(current.items.map((item) => item.id));
         return { ...previous, columns: { ...previous.columns, [status]: {
-          ...column, items: [...current.items, ...column.items.filter((item) => !seen.has(item.id))],
+          ...column, items: [...current.items, ...column.items.filter((item) => {
+            if (seen.has(item.id)) return false;
+            seen.add(item.id);
+            return true;
+          })],
         } } };
       });
     } catch (cause) {
@@ -77,7 +83,7 @@ export function usePlanTaskBoard(api: ApiConfig | undefined, planId: string | nu
         });
       }
     }
-  }, [api, planId, data, query.loading, setData, version]);
+  }, [api, planId, data, query.loading, query.refetch, setData, version]);
 
   return { ...query, reconnecting: false, loadNextPage,
     loadingStatus: (status) => moreLoading.has(status),

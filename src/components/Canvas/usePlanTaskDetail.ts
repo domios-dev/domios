@@ -25,6 +25,6 @@ export function usePlanTaskDetail(api: ApiConfig | undefined, planId: string | n
       throw new Error("Task detail response did not match the selected task.");
     }
     return detail;
-  });
+  }, undefined, (change, snapshot) => change.reset || change.deleted || !snapshot || change.task_ids.includes(snapshot.task_id));
   return { detail: query.data, loading: query.loading, error: query.error, retry: query.refetch };
 }

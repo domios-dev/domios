@@ -10,6 +10,7 @@ pub enum PlanViewProjection {
     Board,
     Document,
     List,
+    Chat,
 }
 
 impl PlanStore {

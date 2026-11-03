@@ -26,6 +26,7 @@ const API: ApiConfig = {
 
 type ListenHandler = (ev: { payload: unknown }) => void;
 const listenHandlers = new Map<string, Set<ListenHandler>>();
+let wireRevision = 1;
 let planReadCalls = 0;
 let taskPageCalls = 0;
 let lastFullProject: string | null | undefined;
@@ -70,7 +71,7 @@ async function installBridgeMocks() {
         });
       }
       return Response.json({
-        plan_id: planId,
+        plan_id: planId, revision: String(wireRevision),
         task_id: taskId,
         task: { id: taskId, name: taskId },
         context: { plan_id: planId, title: planId, status: "active", owner: {}, sections: [] },
@@ -99,12 +100,12 @@ async function installBridgeMocks() {
       });
       if (status) {
         return Response.json({
-          plan_id: planId,
+          plan_id: planId, revision: String(wireRevision),
           column: { status, items: [item("task-2", 2)], next_cursor: null },
         });
       }
       return Response.json({
-        plan_id: planId,
+        plan_id: planId, revision: String(wireRevision),
         counts: { pending: 2, in_progress: 0, in_review: 0, blocked: 0, done: 0, cancelled: 0, total: 2 },
         columns: {
           pending: {
@@ -115,12 +116,12 @@ async function installBridgeMocks() {
         },
       });
     }
-    if (url.searchParams.get("full") === "1") {
+    if (url.searchParams.get("view") === "summary") {
       lastFullProject = url.searchParams.get("project");
-      return Response.json({ plans: [FIXTURE_PLAN] });
+      return Response.json({ plans: [{ ...FIXTURE_PLAN, tasks: [], sections: [], strides: [], revision: String(wireRevision) }] });
     }
     if (url.pathname === "/api/plans") return Response.json({ plans: [] });
-    if (url.pathname.startsWith("/api/plans/")) return Response.json(FIXTURE_PLAN);
+    if (url.pathname.startsWith("/api/plans/")) return Response.json({ ...FIXTURE_PLAN, tasks: [], sections: [], strides: [], revision: String(wireRevision) });
     throw new Error(`unexpected request: ${url}`);
   };
   __setListenForTest(async (event, handler) => {
@@ -133,8 +134,9 @@ async function installBridgeMocks() {
 }
 
 function emitPlanChanged(planId: string) {
+  const previous_revision = String(wireRevision++);
   for (const handler of listenHandlers.get("plan-changed") ?? []) {
-    handler({ payload: { plan_id: planId } });
+    handler({ payload: { plan_id: planId, revision: String(wireRevision), previous_revision, task_ids: ["canonical"], reset: false, deleted: false } });
   }
 }
 
@@ -216,7 +218,7 @@ async function main() {
     assert(!holder.current.loading, "finished loading");
     assert(holder.current.plans.length === 1, "one plan loaded");
     assert(holder.current.plans[0]?.title === "Auth rollout", "plan title");
-    assert(planReadCalls === 1, "one batched full plan read on load");
+    assert(planReadCalls === 1, "one batched summary projection read on load");
     await act(async () => root.unmount());
   });
 
@@ -240,7 +242,7 @@ async function main() {
     await act(async () => root.unmount());
   });
 
-  test("usePlans refetches full plans on plans-loaded", async () => {
+  test("usePlans refetches summary projections on plans-loaded", async () => {
     planReadCalls = 0;
     const holder: { current: UsePlansResult | null } = { current: null };
     const { root } = await renderProbe(usePlans, (state) => {
@@ -254,12 +256,12 @@ async function main() {
       emitPlansLoaded();
       await Promise.resolve();
     });
-    assert(planReadCalls > callsAfterLoad, "plans-loaded refetches full plans");
+    assert(planReadCalls > callsAfterLoad, "plans-loaded refetches summary projections");
     assert(holder.current?.plans[0]?.id === FIXTURE_PLAN.id, "plan still present");
     await act(async () => root.unmount());
   });
 
-  test("usePlans passes project filter to the full plan read", async () => {
+  test("usePlans passes project filter to the summary projection read", async () => {
     planReadCalls = 0;
     lastFullProject = "unset";
 
@@ -445,7 +447,7 @@ async function main() {
     const requests: URL[] = [];
     let deleted = false;
     const page = (name: string) => Response.json({
-      plan_id: "live-board", counts: { pending: 1 },
+      plan_id: "live-board", revision: String(wireRevision), counts: { pending: 1 },
       columns: { pending: { status: "pending", items: [{ id: name, name }], next_cursor: { created_at: 1, position: 1, task_id: name } } },
     });
     globalThis.fetch = async (input) => {
@@ -467,7 +469,7 @@ async function main() {
       const { fireResync } = await import("../../lib/resync");
       await act(async () => { fireResync(); });
       await act(async () => {
-        cursor.resolve(Response.json({ plan_id: "live-board", column: { status: "pending", items: [{ id: "obsolete", name: "obsolete" }], next_cursor: null } }));
+        cursor.resolve(Response.json({ plan_id: "live-board", revision: String(wireRevision), column: { status: "pending", items: [{ id: "obsolete", name: "obsolete" }], next_cursor: null } }));
         await pendingPage;
       });
       assert(probe.host.textContent === "current", "cursor from before recovery cannot resurrect a task");
@@ -484,7 +486,7 @@ async function main() {
     const pending = deferred<Response>();
     const requests: URL[] = [];
     let forbidden = false;
-    const detail = (name: string) => Response.json({ plan_id: "live-detail", task_id: "canonical",
+    const detail = (name: string) => Response.json({ plan_id: "live-detail", revision: String(wireRevision), task_id: "canonical",
       task: { id: "canonical", key: "COD-42", handle: "inspect", name }, context: { plan_id: "live-detail", sections: [] } });
     globalThis.fetch = async (input) => {
       requests.push(new URL(String(input)));
@@ -509,6 +511,72 @@ async function main() {
       await act(async () => { fireResync(); });
       assert(probe.host.textContent === "Current task", "recovery reloads only the selected task");
       assert(requests.every((url) => url.pathname === "/api/plans/live-detail/tasks/cod-42"), "all refreshes remain scoped to the selected task");
+    } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
+  });
+
+  test("summary changes reject out-of-order events and late reads, then reconnect and delete without full plans", async () => {
+    const previousFetch = globalThis.fetch;
+    const pending = deferred<Response>();
+    const requests: URL[] = [];
+    let revision = "1";
+    let deleted = false;
+    const summary = () => ({ ...FIXTURE_PLAN, title: `Summary ${revision}`, tasks: [], sections: [], strides: [], revision });
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      requests.push(url);
+      if (requests.length === 2) return pending.promise;
+      if (url.pathname.endsWith("/projection")) return deleted ? new Response("", { status: 404 }) : Response.json(summary());
+      return Response.json({ plans: deleted ? [] : [summary()] });
+    };
+    const emit = (value: string, previous: string, removed = false) => {
+      for (const handler of listenHandlers.get("plan-changed") ?? []) handler({ payload: {
+        plan_id: FIXTURE_PLAN.id, revision: value, previous_revision: previous, task_ids: ["changed"], reset: false, deleted: removed,
+      } });
+    };
+    const probe = await renderScopedProbe(() => usePlans(API), (value) => value.plans.map((plan) => plan.title).join(","));
+    try {
+      await act(async () => { emit("3", "2"); });
+      assert(probe.host.textContent === "Summary 1", "a pending change keeps the readable summary");
+      revision = "4";
+      await act(async () => { emit("4", "3"); });
+      assert(probe.host.textContent === "Summary 4", "the newer committed snapshot is visible");
+      const count = requests.length;
+      await act(async () => { emit("2", "1"); pending.resolve(Response.json({ ...summary(), title: "Obsolete", revision: "3" })); });
+      assert(requests.length === count && probe.host.textContent === "Summary 4", "older events and responses cannot overwrite a newer summary");
+      const { fireResync } = await import("../../lib/resync");
+      revision = "6";
+      await act(async () => { fireResync(); });
+      assert(probe.host.textContent === "Summary 6", "reconnect recovers a dropped change from scoped summaries");
+      deleted = true;
+      await act(async () => { emit("7", "6", true); });
+      assert(probe.current().plans.length === 0, "deletion removes the plan and its authorized read returns no payload");
+      assert(requests.every((url) => !url.searchParams.has("full") && (url.searchParams.get("view") === "summary")), "every initial, event and recovery request asks for summaries");
+    } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
+  });
+
+  test("selected detail skips unrelated contiguous changes, ignores old events and recovers gaps", async () => {
+    const previousFetch = globalThis.fetch;
+    let reads = 0;
+    let revision = "10";
+    globalThis.fetch = async () => { reads++; return Response.json({ plan_id: "scoped", revision, task_id: "chosen",
+      task: { id: "chosen", name: `Task ${revision}` }, context: { plan_id: "scoped", sections: [] } }); };
+    const emit = (value: string, previous: string, ids: string[]) => {
+      for (const handler of listenHandlers.get("plan-changed") ?? []) handler({ payload: {
+        plan_id: "scoped", revision: value, previous_revision: previous, task_ids: ids, reset: false, deleted: false,
+      } });
+    };
+    const probe = await renderScopedProbe(() => usePlanTaskDetail(API, "scoped", "chosen"), (value) => value.detail?.task.name ?? "Loading");
+    try {
+      await act(async () => { emit("11", "10", ["other"]); });
+      assert(reads === 1 && probe.host.textContent === "Task 10", "an unrelated committed task does not reacquire the selected body");
+      revision = "12";
+      await act(async () => { emit("12", "11", ["chosen"]); });
+      assert(probe.host.textContent === "Task 12", "a selected entity change refreshes its own detail");
+      await act(async () => { emit("11", "10", ["chosen"]); });
+      assert(reads === 2, "an older event cannot issue a replacement read");
+      revision = "15";
+      await act(async () => { emit("15", "14", ["other"]); });
+      assert(probe.host.textContent === "Task 15", "a missing revision forces a scoped snapshot even when the last entity differs");
     } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
   });
 

@@ -124,7 +124,6 @@ const RECEIVE_TIMEOUT_MS = 30_000;
 // refetches regardless); mux state uses its own seam below, rest need per-hook wiring.
 export const RESYNC_EVENTS = [
   "mesh-state-changed",
-  "plan-changed",
   "delayed-send-changed",
   "service-health-changed",
 ];

@@ -15,7 +15,7 @@ import { PlanListView } from "./planView/PlanListView";
 import { PlanPlanView, PlanSpecView } from "./planView/PlanDocumentView";
 import { TaskSegmentPanel } from "./planView/TaskSegmentPanel";
 import { findTaskByReference, taskSegmentLabel } from "./taskDisplayKey";
-import { useFullPlansOptional } from "./PlansProvider";
+import { usePlanSummariesOptional } from "./PlansProvider";
 import { usePlanTaskDetail } from "./usePlans";
 import { taskDetailMatchesReference } from "./usePlanTaskDetail";
 
@@ -98,7 +98,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const viewMode: PlanViewMode = storedMode;
   const selected = segment ? TASK_SEGMENT_VALUE : viewMode;
   const openingTask = props.workspaceTarget?.jump?.view === "task";
-  const fullQuery = useFullPlansOptional(Boolean(props.planIndex) && !openingTask && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
+  const fullQuery = usePlanSummariesOptional(Boolean(props.planIndex) && !openingTask && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
   const fullPlans = fullQuery?.plans ?? props.plans;
   const fullProps: PlanViewSurfaceProps = {
     ...props,
@@ -163,7 +163,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
 
   const temporaryTab = useMemo<TemporaryModeTab | null>(() => {
     if (!segment) return null;
-    const label = taskSegmentLabel({ id: segment.taskRef, key: detail?.task.key ?? cachedTask?.task.key });
+    const label = taskSegmentLabel(detail?.task ?? cachedTask?.task ?? { id: segment.taskRef });
     return {
       value: TASK_SEGMENT_VALUE,
       label,

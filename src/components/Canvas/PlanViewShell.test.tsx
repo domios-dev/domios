@@ -208,16 +208,17 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     requestPaths.push(`${url.pathname}${url.search}`);
-    if (url.searchParams.get("full") === "1") {
+    if (url.searchParams.get("view") === "summary") {
       fullCalls++;
-      return Response.json({ plans: [FIXTURE_PLAN] });
+      return Response.json({ plans: [{ ...FIXTURE_PLAN, revision: "1" }] });
     }
     if (url.searchParams.get("chat") === "1") return Response.json({ plans: [] });
+    if (url.pathname.endsWith("/projection")) return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     if (url.pathname === "/api/plans") return Response.json({ plans: [entry] });
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks`) {
       pageCalls++;
       return Response.json({
-        plan_id: FIXTURE_PLAN.id,
+        plan_id: FIXTURE_PLAN.id, revision: "1",
         counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, done: 0, cancelled: 0, total: 0 },
         columns: Object.fromEntries(["pending", "in_progress", "in_review", "blocked", "done"].map((status) => [status, { status, items: [], next_cursor: null }])),
       });
@@ -279,7 +280,7 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
     execution_attempts: [],
   };
   const detail = {
-    plan_id: FIXTURE_PLAN.id,
+    plan_id: FIXTURE_PLAN.id, revision: "1",
     task_id: taskId,
     task,
     context: {
@@ -300,15 +301,16 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     paths.push(url.pathname);
-    if (url.pathname === "/api/plans" && url.searchParams.get("full") === "1") fullCollectionCalls++;
+    if (url.pathname === "/api/plans" && url.searchParams.get("view") === "summary") fullCollectionCalls++;
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks/${taskId}`) {
       detailCalls++;
       return Response.json(detail);
     }
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}`) {
       fullPlanCalls++;
-      return Response.json(FIXTURE_PLAN);
+      return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     }
+    if (url.pathname.endsWith("/projection")) return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     if (url.pathname === "/api/plans") return Response.json({ plans: [] });
     return Response.json({ plans: [] });
   };
@@ -342,14 +344,14 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
   await unmount();
 });
 
-test("task side panel requests scoped detail even when a full plan is already listed", async () => {
+test("task side panel requests scoped detail even when a plan summary is already listed", async () => {
   setupDom();
   planSidePanelStore.close();
   const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
   const taskId = "task-side-panel-detail";
   const task = { ...FIXTURE_TASK, id: taskId, key: "CT-PANEL", name: "Side panel scoped detail", body: "Panel task description." };
   const detail = {
-    plan_id: FIXTURE_PLAN.id,
+    plan_id: FIXTURE_PLAN.id, revision: "1",
     task_id: taskId,
     task,
     context: {
@@ -373,7 +375,7 @@ test("task side panel requests scoped detail even when a full plan is already li
     }
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}`) {
       fullPlanCalls++;
-      return Response.json(FIXTURE_PLAN);
+      return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     }
     return Response.json({ plans: [] });
   };
