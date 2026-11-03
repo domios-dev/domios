@@ -1,6 +1,8 @@
 import {classifyAccessError, observationExtras} from "../../provider-shared/accessError";
 import type {ProviderAuthStatus, ProviderSessionObservations} from "@codeterm/plugin-sdk";
 
+import {retryError} from "./retry";
+
 export function authStatusProbe() {
   return {args:["auth", "status"], timeoutMs:15000};
 }
@@ -29,5 +31,5 @@ export function parseSessionObservations(value: unknown): ProviderSessionObserva
   const isError = record.isApiErrorMessage === true;
   const api_error = isError ? classifyAccessError(record.error, record) : null;
   const clears_api_error = record.type === "assistant" && !isError && !!object(record.message);
-  return isError || permission_mode || clears_api_error ? {api_error, permission_mode, clears_api_error, ...observationExtras(record.error, record)} : null;
+  return isError || permission_mode || clears_api_error ? {api_error, permission_mode, clears_api_error, ...observationExtras(record.error, record), ...retryError(record), ...(clears_api_error && ["end_turn", "stop_sequence"].includes(String(object(record.message)?.stop_reason)) ? {retry_succeeded:true} : {})} : null;
 }

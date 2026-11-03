@@ -516,6 +516,14 @@ impl ServiceContext {
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        if submit && matches!(text, crate::service::messenger::AgentInput::Human(_)) {
+            crate::service::agent_runtime::capacity_retry::cancel(self, tab_id).map_err(
+                |detail| DeliveryError::TabBusyRefused {
+                    tab: tab_id.into(),
+                    detail,
+                },
+            )?;
+        }
         self.tab_write_lock_delivery(tab_id)?;
         self.wake_frozen_tab(tab_id)
             .map_err(|detail| DeliveryError::PtyUnavailable {

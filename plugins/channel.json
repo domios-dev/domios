@@ -7,8 +7,8 @@
     {
       "id": "claude",
       "path": "provider-claude",
-      "version": "1.14.26",
-      "minCodeterm": "1.18.0"
+      "version": "1.14.27",
+      "minCodeterm": "1.18.5"
     },
     {
       "id": "codex",

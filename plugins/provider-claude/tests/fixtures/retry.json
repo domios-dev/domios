@@ -1,0 +1,473 @@
+[
+  {
+    "name": "network-ENOTFOUND",
+    "record": {
+      "type": "assistant",
+      "uuid": "network-ENOTFOUND",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque (ENOTFOUND)"
+          }
+        ]
+      },
+      "error": "unknown"
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "network-ECONNRESET",
+    "record": {
+      "type": "assistant",
+      "uuid": "network-ECONNRESET",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque (ECONNRESET)"
+          }
+        ]
+      },
+      "error": "unknown"
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "network-ECONNREFUSED",
+    "record": {
+      "type": "assistant",
+      "uuid": "network-ECONNREFUSED",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque (ECONNREFUSED)"
+          }
+        ]
+      },
+      "error": "unknown"
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "network-ETIMEDOUT",
+    "record": {
+      "type": "assistant",
+      "uuid": "network-ETIMEDOUT",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque (ETIMEDOUT)"
+          }
+        ]
+      },
+      "error": "unknown"
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "network-EAI_AGAIN",
+    "record": {
+      "type": "assistant",
+      "uuid": "network-EAI_AGAIN",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque (EAI_AGAIN)"
+          }
+        ]
+      },
+      "error": "unknown"
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "structured-network",
+    "record": {
+      "type": "assistant",
+      "uuid": "structured-network",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": {
+        "type": "api_connection_error"
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "http-503",
+    "record": {
+      "type": "assistant",
+      "uuid": "http-503",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "unknown",
+      "apiErrorStatus": 503
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "overloaded",
+    "record": {
+      "type": "assistant",
+      "uuid": "overloaded",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "overloaded_error"
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "rate-reset",
+    "record": {
+      "type": "assistant",
+      "uuid": "rate-reset",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "rate_limit_error",
+      "apiErrorResetAtMs": 1791627300000
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "rate_limited_until",
+      "retryAtMs": 1791627300000
+    }
+  },
+  {
+    "name": "rate-retry-after",
+    "record": {
+      "type": "assistant",
+      "uuid": "rate-retry-after",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": {
+        "type": "rate_limit_error",
+        "retryAfter": 30
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "rate_limited_until",
+      "retryAtMs": 1791627285444
+    }
+  },
+  {
+    "name": "rate-no-reset",
+    "record": {
+      "type": "assistant",
+      "uuid": "rate-no-reset",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "rate_limit_error"
+    },
+    "signal": null
+  },
+  {
+    "name": "unsafe-reset",
+    "record": {
+      "type": "assistant",
+      "uuid": "unsafe-reset",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "rate_limit_error",
+      "apiErrorResetAtMs": 9007199254740992
+    },
+    "signal": null
+  },
+  {
+    "name": "managed",
+    "record": {
+      "type": "assistant",
+      "uuid": "managed",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": {
+        "code": "ECONNRESET",
+        "willRetry": true
+      }
+    },
+    "signal": {
+      "retryable": true,
+      "retryableKind": "transient",
+      "retryAtMs": null
+    }
+  },
+  {
+    "name": "authentication",
+    "record": {
+      "type": "assistant",
+      "uuid": "authentication",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "ENOTFOUND",
+      "apiErrorStatus": 401
+    },
+    "signal": null
+  },
+  {
+    "name": "ordinary-text",
+    "record": {
+      "type": "assistant",
+      "uuid": "ordinary-text",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": false,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "ENOTFOUND"
+    },
+    "signal": null
+  },
+  {
+    "name": "foreign-role",
+    "record": {
+      "type": "user",
+      "uuid": "foreign-role",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "ECONNRESET"
+    },
+    "signal": null
+  },
+  {
+    "name": "sidechain",
+    "record": {
+      "type": "assistant",
+      "uuid": "sidechain",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "isSidechain": true,
+      "error": "ECONNRESET"
+    },
+    "signal": null
+  },
+  {
+    "name": "unknown",
+    "record": {
+      "type": "assistant",
+      "uuid": "unknown",
+      "sessionId": "own-fixture",
+      "isApiErrorMessage": true,
+      "timestamp": "2026-10-10T10:14:15.444Z",
+      "message": {
+        "role": "assistant",
+        "model": "<synthetic>",
+        "stop_reason": "stop_sequence",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      },
+      "error": "opaque-error"
+    },
+    "signal": null
+  }
+]

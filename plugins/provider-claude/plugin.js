@@ -659,6 +659,37 @@ function observationExtras(error, record3) {
   return extras;
 }
 
+// plugins/provider-claude/src/retry.ts
+var networkCodes = ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "api_connection_error", "connection_error"];
+function retryError(record3) {
+  if (record3.type !== "assistant" || record3.isApiErrorMessage !== true || record3.isSidechain === true) return {};
+  const kind = classifyAccessError(record3.error, record3);
+  const error = record3.error && typeof record3.error === "object" ? record3.error : {};
+  const message = record3.message;
+  const fields = [
+    record3.error,
+    record3.apiErrorCode,
+    error.type,
+    error.code,
+    ...Array.isArray(message?.content) ? message.content.filter((p) => p != null && p.type === "text").map((p) => p.text) : []
+  ];
+  const network = fields.some((field) => typeof field === "string" && field.length <= 16384 && field.split(/[^A-Za-z0-9_]+/).some((token) => networkCodes.includes(token)));
+  let retryableKind;
+  let retryAtMs;
+  if (kind === "rate_limit") {
+    const reset = record3.apiErrorResetAtMs ?? error.retryAtMs;
+    const seconds = retryAfterSecs(record3.error, record3);
+    const timestamp = typeof record3.timestamp === "string" ? Date.parse(record3.timestamp) : NaN;
+    const due = reset ?? (seconds != null ? timestamp + seconds * 1e3 : NaN);
+    if (typeof due !== "number" || !Number.isSafeInteger(due) || due < 0) return {};
+    retryableKind = "rate_limited_until";
+    retryAtMs = due;
+  } else if (kind === "server_overloaded" || kind === "other" && network) {
+    retryableKind = "transient";
+  } else return {};
+  return { retry_error: { retryable: observationRetrying(record3.error, record3), retryableKind, ...retryAtMs === void 0 ? {} : { retryAtMs } } };
+}
+
 // plugins/provider-claude/src/signals.ts
 function authStatusProbe() {
   return { args: ["auth", "status"], timeoutMs: 15e3 };
@@ -685,7 +716,7 @@ function parseSessionObservations(value) {
   const isError = record3.isApiErrorMessage === true;
   const api_error = isError ? classifyAccessError(record3.error, record3) : null;
   const clears_api_error = record3.type === "assistant" && !isError && !!object2(record3.message);
-  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3) } : null;
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3), ...retryError(record3), ...clears_api_error && ["end_turn", "stop_sequence"].includes(String(object2(record3.message)?.stop_reason)) ? { retry_succeeded: true } : {} } : null;
 }
 
 // plugins/provider-claude/src/backgroundWork.ts

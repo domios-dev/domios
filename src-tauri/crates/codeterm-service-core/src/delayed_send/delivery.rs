@@ -40,7 +40,11 @@ pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<
     let deliver_tab_id = tab_id.clone();
     let message_id = msg.id.clone();
     tokio::task::spawn_blocking(move || {
-        if crate::service::agent_runtime::capacity_retry::skip_retry(&deliver_tab_id, &message_id) {
+        if crate::service::agent_runtime::capacity_retry::skip_retry(
+            &svc_for_deliver,
+            &deliver_tab_id,
+            &message_id,
+        ) {
             return Ok(());
         }
         // A turn starting after this check may harmlessly receive an extra continue like user input.

@@ -5,6 +5,8 @@ use codeterm_plugin::agent_runtime::{
     RuntimeErrorSignal, RuntimeRetryableErrorKind, RuntimeTurnDetail, RuntimeTurnState,
 };
 
+pub(crate) mod transcript;
+
 const MAX_ATTEMPTS: u8 = 10;
 const DELAY_MS: u64 = 10_000;
 
@@ -63,13 +65,18 @@ impl RetryState {
 }
 
 pub(crate) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
+    transcript::cancel(svc, tab)?;
+    crate::delayed_send::emit_changed(svc, tab);
     if let Some(session) = engine::for_tab(tab) {
         reset(svc, &session)?;
     }
     Ok(())
 }
 
-pub(crate) fn skip_retry(tab: &str, message: &str) -> bool {
+pub(crate) fn skip_retry(svc: &ServiceContext, tab: &str, message: &str) -> bool {
+    if let Some(skip) = transcript::skip_retry(svc, tab, message) {
+        return skip;
+    }
     let Some(session) = engine::for_tab(tab) else {
         return false;
     };
@@ -164,26 +171,14 @@ pub(super) async fn observe(
             let tab = context.tab_id.clone();
             let line = tokio::task::spawn_blocking(move || {
                 let mut retry = owned_session.capacity_retry.lock();
-                let line = match retry.finish(&turn, detail.as_ref(), at) {
-                    Decision::Ignore => None,
-                    Decision::Reset => {
-                        remove_pending(&service, &context.tab_id, &mut retry)?;
-                        None
-                    }
-                    Decision::Stopped => {
-                        remove_pending(&service, &context.tab_id, &mut retry)?;
-                        Some("Automatic retry stopped after 10 attempts. Choose another model or send a new turn.".into())
-                    }
-                    Decision::Schedule { attempt, at: due } => {
-                        remove_pending(&service, &context.tab_id, &mut retry)?;
-                        let message = service.ext::<DelayedSendQueue>().enqueue(
-                            context.tab_id.clone(), None, context.thread_id.clone(),
-                            "continue".into(), Some(due), ReminderCreator::default(),
-                        )?;
-                        retry.pending = Some(message.id);
-                        Some(format!("Automatic retry: attempt {attempt}/{MAX_ATTEMPTS}"))
-                    }
-                };
+                let decision = retry.finish(&turn, detail.as_ref(), at);
+                let line = apply_decision(
+                    &service,
+                    &context.tab_id,
+                    context.thread_id.clone(),
+                    &mut retry,
+                    decision,
+                )?;
                 Ok::<_, String>(line)
             })
             .await
@@ -197,6 +192,41 @@ pub(super) async fn observe(
         _ => {}
     }
     Ok(())
+}
+
+fn apply_decision(
+    svc: &ServiceContext,
+    tab: &str,
+    session: Option<String>,
+    retry: &mut RetryState,
+    decision: Decision,
+) -> Result<Option<String>, String> {
+    match decision {
+        Decision::Ignore => Ok(None),
+        Decision::Reset => {
+            remove_pending(svc, tab, retry)?;
+            Ok(None)
+        }
+        Decision::Stopped => {
+            remove_pending(svc, tab, retry)?;
+            Ok(Some("Automatic retry stopped after 10 attempts. Choose another model or send a new turn.".into()))
+        }
+        Decision::Schedule { attempt, at } => {
+            remove_pending(svc, tab, retry)?;
+            let message = svc.ext::<DelayedSendQueue>().enqueue(
+                tab.into(),
+                None,
+                session,
+                "continue".into(),
+                Some(at),
+                ReminderCreator::default(),
+            )?;
+            retry.pending = Some(message.id);
+            Ok(Some(format!(
+                "Automatic retry: attempt {attempt}/{MAX_ATTEMPTS}"
+            )))
+        }
+    }
 }
 
 fn publish_line(svc: &ServiceContext, session: &engine::Session, content: String, at: u64) {

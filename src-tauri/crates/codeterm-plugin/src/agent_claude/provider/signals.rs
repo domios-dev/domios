@@ -2,6 +2,9 @@ use crate::provider::{AuthStatus, AuthStatusProbe, SessionObservations};
 use codeterm_provider_signals::{ApiErrorKind, PermissionMode};
 use serde_json::Value;
 
+#[path = "retry.rs"]
+mod retry;
+
 pub(super) fn probe() -> AuthStatusProbe {
     AuthStatusProbe {
         args: vec!["auth".into(), "status".into()],
@@ -40,6 +43,12 @@ pub(super) fn session(record: &Value) -> Option<SessionObservations> {
         && record.get("message").is_some_and(Value::is_object);
     (is_error || permission_mode.is_some() || clears_api_error).then_some(SessionObservations {
         unavailable_model: None,
+        retry_error: retry::classify(record),
+        retry_succeeded: clears_api_error
+            && matches!(
+                record["message"]["stop_reason"].as_str(),
+                Some("end_turn" | "stop_sequence")
+            ),
         api_error,
         permission_mode,
         clears_api_error,
