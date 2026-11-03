@@ -99,6 +99,141 @@ fn fixed_server_vector_verifies_exact_canonical_bytes() {
 }
 
 #[tokio::test]
+async fn rotated_cached_registry_does_not_reject_a_current_snapshot() {
+    for rotation in ["key", "epoch"] {
+        let mut harness = Harness::new().await;
+        harness.sign_in("alice").await;
+        harness
+            .mesh
+            .refresh(crate::account_mesh::EnrollTrigger::Automatic)
+            .await
+            .unwrap();
+        let issuer = Issuer::new();
+        let incoming = issuer.sign(&payload(&harness, 61, true));
+        let mut old_payload = payload(&harness, 60, false);
+        old_payload["policy_epoch"] = json!(if rotation == "epoch" {
+            "retired"
+        } else {
+            EPOCH
+        });
+        let mut cached = issuer.sign(&old_payload);
+        if rotation == "key" {
+            cached.key_id = "retired-key".into();
+        }
+        harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .signed_registries
+            .insert(account_id("alice"), cached);
+        harness.restart().await;
+        harness.sign_in("alice").await;
+        assert!(harness.state().signed_registry.is_none());
+        assert!(
+            harness
+                .mesh
+                .receive_registry_snapshot(&incoming)
+                .await
+                .unwrap(),
+            "{rotation}"
+        );
+        assert_eq!(
+            harness.state().signed_registry.as_ref().unwrap().revision,
+            61
+        );
+        assert!(harness.state().revoked_installations.contains(PEER));
+        assert_eq!(
+            harness.store.record.lock().unwrap().signed_registries[&account_id("alice")],
+            incoming
+        );
+    }
+}
+
+#[tokio::test]
+async fn launch_renewal_converges_a_day_lease_without_a_cached_snapshot() {
+    let mut harness = Harness::new().await;
+    harness.registry.script.lock().unwrap().membership_seconds = Some(86400);
+    harness.sign_in("alice").await;
+    harness
+        .mesh
+        .refresh(crate::account_mesh::EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert!(harness.state().signed_registry.is_none());
+    assert_eq!(
+        harness
+            .state()
+            .current_membership(START)
+            .unwrap()
+            .verified
+            .expires_at,
+        START + 86400
+    );
+    let mut snapshot = payload(&harness, 9, true);
+    for member in snapshot["members"].as_array_mut().unwrap() {
+        if member["installation_id"] == super::super::tests::support::INSTALLATION {
+            member["slot_revision"] = json!(2);
+        }
+    }
+    let grant = Issuer::new().sign(&snapshot);
+    {
+        let mut script = harness.registry.script.lock().unwrap();
+        script.membership_registry_revision = Some(9);
+        script.membership_signed_registry = Some(grant.clone());
+    }
+    harness.restart().await;
+    harness.sign_in("alice").await;
+    assert!(harness
+        .store
+        .record
+        .lock()
+        .unwrap()
+        .admission_cache
+        .is_some());
+    harness.log.lock().unwrap().clear();
+    for trigger in [
+        crate::account_mesh::EnrollTrigger::Automatic,
+        crate::account_mesh::EnrollTrigger::Network,
+    ] {
+        harness.mesh.refresh(trigger).await.unwrap();
+    }
+    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.calls("enroll"), 0);
+    assert_eq!(harness.calls("list"), 0);
+    assert_eq!(
+        harness
+            .state()
+            .current_membership(START)
+            .unwrap()
+            .verified
+            .slot_revision,
+        2
+    );
+    assert_eq!(
+        harness
+            .registry
+            .script
+            .lock()
+            .unwrap()
+            .renew_bodies
+            .last()
+            .unwrap()
+            .signed_registry,
+        Some(true)
+    );
+    assert_eq!(
+        harness.state().signed_registry.as_ref().unwrap().grant,
+        grant
+    );
+    assert!(harness.state().revoked_installations.contains(PEER));
+    assert_eq!(
+        harness.store.record.lock().unwrap().signed_registries[&account_id("alice")],
+        grant
+    );
+}
+
+#[tokio::test]
 async fn signed_registry_rejects_forgery_rollback_duplicates_and_wrong_scope_atomically() {
     let harness = Harness::new().await;
     harness.sign_in("alice").await;
