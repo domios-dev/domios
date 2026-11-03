@@ -26,7 +26,6 @@ export function ExpandableReader({ label, enabled = true, onOpen, openerPlacemen
     <Maximize2 size={14} aria-hidden />{openerPlacement === "inline" && <span>Full screen</span>}
   </button>;
   return <>
-    {openerPlacement === "inline" && control}
     <FullscreenOverlay panelRef={panel} returnFocusRef={opener} open={open} label={label} onClose={() => setOpen(false)}>
       <div tabIndex={open ? 0 : undefined} role={open ? "region" : undefined} aria-label={open ? "Reader content" : undefined} style={open ? { overflow: "auto", minHeight: 0, flex: 1, color: "var(--ct-fg)" } : { display: "contents" }}>
         <ReaderHostContext.Provider value={enabled || parentReader}>
@@ -34,5 +33,6 @@ export function ExpandableReader({ label, enabled = true, onOpen, openerPlacemen
         </ReaderHostContext.Provider>
       </div>
     </FullscreenOverlay>
+    {openerPlacement === "inline" && control}
   </>;
 }

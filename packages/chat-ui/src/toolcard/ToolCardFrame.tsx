@@ -105,6 +105,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
     <div
       data-testid={testId}
       data-tool-status={event.status}
+      data-tool-kind={event.kind}
       data-expanded={open}
       className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineRow ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
       style={{ minHeight, "--ct-card-tone": error || quietOperation ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
@@ -125,7 +126,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           <span className={subtitle ? "flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
             {label && <span className={inlineCommand ? "sr-only" : `max-w-[60%] shrink-0 truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
             {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal leading-[14px]" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
-            <span className={summary === "" ? "hidden" : "min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
+            <span className={summary === "" ? "hidden" : "ct-tool-subject min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
             <ToolOutcomeFacts event={event} />
             {!expanded && tail}

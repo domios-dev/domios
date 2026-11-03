@@ -5,7 +5,7 @@ import { searchModel } from "./searchModel";
 
 export function SearchCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
   const result = searchModel(event);
-  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={result.title} summary={result.subject} chips={<span data-testid="toolcard-search-counts" className="shrink-0 font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>{result.counts}</span>}>
+  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title={result.title} summary={result.subject} chips={<span data-testid="toolcard-search-counts" className="ct-search-counts shrink-0 font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>{result.counts}</span>}>
     <SearchDetail event={event} />
   </ToolCardFrame>;
 }

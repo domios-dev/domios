@@ -229,11 +229,34 @@ button.ct-card__head {
 }
 
 .ct-reader-opener--inline {
-  width: auto;
+  display: flex;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 4px;
+  margin-left: auto;
   gap: 4px;
   padding-inline: 6px;
   font-size: 11px;
   opacity: 1;
+}
+
+@media (pointer: coarse), (max-width: 479px) {
+  .ct-card__header [data-testid="toolcard-outcome-facts"] > span:has([data-testid="toolcard-duration"]) {
+    display: none;
+  }
+
+  .ct-card[data-tool-kind="search"] .ct-tool-subject:not(.hidden) {
+    min-width: 8ch;
+    flex: 1 0 8ch;
+  }
+
+  .ct-search-counts {
+    min-width: 0;
+    flex-shrink: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
 
 .ct-card:hover > .ct-card__header > .ct-reader-opener,
