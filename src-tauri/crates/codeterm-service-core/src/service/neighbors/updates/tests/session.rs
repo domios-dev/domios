@@ -1,3 +1,4 @@
+mod paid;
 mod selection;
 
 use super::super::ports::SessionPorts;
@@ -105,10 +106,11 @@ impl StateListener for Stream {
         }))
     }
 }
-struct Signals(Arc<AtomicUsize>);
+struct Signals(Arc<AtomicUsize>, Arc<tokio::sync::Notify>);
 impl Drop for Signals {
     fn drop(&mut self) {
         self.0.fetch_add(1, Ordering::SeqCst);
+        self.1.notify_one();
     }
 }
 #[async_trait::async_trait]
@@ -129,6 +131,7 @@ struct Ports {
     admissions: AtomicUsize,
     signal_admissions: AtomicUsize,
     signal_drops: Arc<AtomicUsize>,
+    signal_dropped: Arc<tokio::sync::Notify>,
     inboxes: AtomicUsize,
     starts: AtomicUsize,
     activations: AtomicUsize,
@@ -165,7 +168,10 @@ impl ports::SessionPorts for Ports {
         &self,
     ) -> Result<Box<dyn codeterm_neighbors::registry::RegistryListener>> {
         self.signal_admissions.fetch_add(1, Ordering::SeqCst);
-        Ok(Box::new(Signals(self.signal_drops.clone())))
+        Ok(Box::new(Signals(
+            self.signal_drops.clone(),
+            self.signal_dropped.clone(),
+        )))
     }
     async fn reconcile(
         &self,
@@ -223,12 +229,15 @@ async fn fixture(
         .set(account.clone())
         .is_ok());
     let expected = account.session().await.unwrap();
+    crate::service::neighbors::paid_fixture::bind(&fixture.service, &expected, fixture.temp.path())
+        .await;
     let (clock, deadlines) = Clock::new();
     let ports = Arc::new(Ports {
         mode,
         admissions: AtomicUsize::new(0),
         signal_admissions: AtomicUsize::new(0),
         signal_drops: Arc::new(AtomicUsize::new(0)),
+        signal_dropped: Arc::new(tokio::sync::Notify::new()),
         inboxes: AtomicUsize::new(0),
         starts: AtomicUsize::new(0),
         activations: AtomicUsize::new(0),
@@ -315,6 +324,7 @@ async fn missing_withdraws_live_authority_stops_inboxes_and_signals_and_uses_one
         .into(),
     );
     assert_eq!(session.listen().await, Err(Error::Transport));
+    ports.signal_dropped.notified().await;
     assert_eq!(
         (
             ports.starts.load(Ordering::SeqCst),
@@ -379,6 +389,7 @@ async fn missing_withdraws_live_authority_stops_inboxes_and_signals_and_uses_one
         .into(),
     );
     assert_eq!(session.listen().await, Err(Error::Transport));
+    ports.signal_dropped.notified().await;
     assert_eq!(
         calls.invoke("friendsList", json!({})).await.unwrap()["access"],
         "paid"

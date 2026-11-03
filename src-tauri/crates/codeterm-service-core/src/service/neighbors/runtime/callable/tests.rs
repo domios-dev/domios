@@ -330,3 +330,18 @@ fn http_status_body_matrix_keeps_permanent_failures_out_of_recovery() {
         }
     }
 }
+
+#[test]
+fn confirmed_authority_refusals_park_even_when_carried_by_401() {
+    for (reason, expected) in [
+        ("friends_locked", Error::Locked),
+        ("entitlement_locked", Error::Locked),
+        ("key_revoked", Error::Revoked),
+    ] {
+        assert_eq!(
+            callable_error(401, Some(&json!({"error":{"details":{"reason":reason}}}))),
+            expected
+        );
+        assert!(!codeterm_neighbors::supervisor::retryable(expected));
+    }
+}

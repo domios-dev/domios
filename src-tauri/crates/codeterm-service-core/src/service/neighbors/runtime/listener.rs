@@ -39,7 +39,7 @@ impl Session {
         if *self.stopped.borrow() {
             return Err(Error::Revoked);
         }
-        self.service.require_neighbors_enabled()?;
+        self.service.require_neighbor_paid(&self.transport.uid)?;
         self.service
             .require_neighbor_friend_receiver(&self.friendship, Some(self.receiver_revision))?;
         if self

@@ -155,3 +155,39 @@ async fn uncertain_key_enrollment_is_never_replayed() {
     );
     assert_eq!(calls.0.load(std::sync::atomic::Ordering::Relaxed), 1);
 }
+
+struct LockedCalls;
+#[async_trait]
+impl AuthenticatedCall for LockedCalls {
+    fn require_paid(&self) -> Result<()> {
+        Err(Error::Locked)
+    }
+    async fn id_token(&self) -> Result<Zeroizing<String>> {
+        panic!("No credentials while locked")
+    }
+    async fn invoke(&self, _: &str, _: Value) -> Result<Value> {
+        panic!("No callable while locked")
+    }
+}
+
+#[tokio::test]
+async fn locked_authority_refuses_all_paid_firestore_streams_before_credentials_or_network() {
+    let transport = FirebaseTransport {
+        calls: Arc::new(LockedCalls),
+        project: "demo-domios".into(),
+        uid: "owner".into(),
+        installation_id: "here".into(),
+    };
+    assert!(matches!(
+        transport.listen_pending(&"a".repeat(64)).await,
+        Err(Error::Locked)
+    ));
+    assert!(matches!(
+        transport.listen_from_cursor(&"a".repeat(64), None).await,
+        Err(Error::Locked)
+    ));
+    assert!(matches!(
+        transport.listen_registry().await,
+        Err(Error::Locked)
+    ));
+}
