@@ -77,7 +77,7 @@ it("reports unavailable storage through the composer error callback and keeps ed
   expect(field.onError).toHaveBeenCalledWith("Draft could not be saved: Draft storage is unavailable");
   await act(async () => { field.handle.edit("unsaved but editable"); });
   expect(field.handle.value).toBe("unsaved but editable");
-  await expect(persistence.flush()).rejects.toThrow("Draft storage is unavailable");
+  await act(async () => { await expect(persistence.flush()).rejects.toThrow("Draft storage is unavailable"); });
 });
 
 it("restores checkpoint text and capsule identity without replacing them with older disk records", async () => {
