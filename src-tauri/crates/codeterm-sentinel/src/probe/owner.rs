@@ -527,6 +527,7 @@ impl ProbeResourceOwner {
                     .unwrap_or_else(|error| error.into_inner());
                 state.slots[index].retained = Some(resources);
                 state.slots[index].in_owner = false;
+                state.slots[index].terminal_unconfirmed = false;
             }
             self.core.changed.notify_all();
         }
