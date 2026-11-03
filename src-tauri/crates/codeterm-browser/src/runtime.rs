@@ -415,6 +415,14 @@ pub(super) async fn apply_viewport(
     )
     .await
     .map_err(|error| error.to_string())?;
+    let touch = if viewport.mobile {
+        json!({"enabled":true,"maxTouchPoints":5})
+    } else {
+        json!({"enabled":false})
+    };
+    page.send("Emulation.setTouchEmulationEnabled", touch)
+        .await
+        .map_err(|error| error.to_string())?;
     page.send(
         "Emulation.setEmitTouchEventsForMouse",
         json!({"enabled":viewport.mobile,"configuration":"mobile"}),

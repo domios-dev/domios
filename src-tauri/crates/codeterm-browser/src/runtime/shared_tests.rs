@@ -51,6 +51,16 @@ impl FakeConnection {
             .filter(|(_, sent, _)| sent == method)
             .count()
     }
+
+    fn params(&self, method: &str) -> Vec<Value> {
+        self.state
+            .lock()
+            .requests
+            .iter()
+            .filter(|(_, sent, _)| sent == method)
+            .map(|(_, _, params)| params.clone())
+            .collect()
+    }
 }
 
 #[async_trait::async_trait]
@@ -410,20 +420,20 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
                 "viewport":{"x":0,"y":0,"width":1600,"height":900,"scale":1}})
         );
         assert_eq!(host.viewport(), Viewport::default());
-        let touch: Vec<_> = connection
-            .state
-            .lock()
-            .requests
-            .iter()
-            .filter(|(_, method, _)| method == "Emulation.setEmitTouchEventsForMouse")
-            .map(|(_, _, params)| params.clone())
-            .collect();
         assert_eq!(
-            touch,
+            connection.params("Emulation.setEmitTouchEventsForMouse"),
             vec![
                 json!({"enabled":false,"configuration":"mobile"}),
                 json!({"enabled":true,"configuration":"mobile"}),
                 json!({"enabled":false,"configuration":"mobile"}),
+            ]
+        );
+        assert_eq!(
+            connection.params("Emulation.setTouchEmulationEnabled"),
+            vec![
+                json!({"enabled":false}),
+                json!({"enabled":true,"maxTouchPoints":5}),
+                json!({"enabled":false}),
             ]
         );
         host.close().await;
@@ -457,15 +467,22 @@ async fn owned_viewport_touch_mode_tracks_changes_and_attached_targets_are_untou
         .await
         .unwrap();
     }
-    let touch: Vec<_> = connection
-        .state
-        .lock()
-        .requests
-        .iter()
-        .filter(|(_, method, _)| method == "Emulation.setEmitTouchEventsForMouse")
-        .map(|(_, _, params)| params["enabled"].clone())
-        .collect();
-    assert_eq!(touch, vec![json!(false), json!(true), json!(false)]);
+    assert_eq!(
+        connection.params("Emulation.setEmitTouchEventsForMouse"),
+        vec![
+            json!({"enabled":false,"configuration":"mobile"}),
+            json!({"enabled":true,"configuration":"mobile"}),
+            json!({"enabled":false,"configuration":"mobile"}),
+        ]
+    );
+    assert_eq!(
+        connection.params("Emulation.setTouchEmulationEnabled"),
+        vec![
+            json!({"enabled":false}),
+            json!({"enabled":true,"maxTouchPoints":5}),
+            json!({"enabled":false}),
+        ]
+    );
     connection.state.lock().requests.clear();
     prepare_target(&client, page.target_id(), None)
         .await
