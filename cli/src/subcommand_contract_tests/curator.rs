@@ -7,24 +7,6 @@ fn curator_commands_parse_control_loop_and_scoped_grants() {
         vec![
             "codeterm",
             "plan",
-            "control-loop",
-            "set",
-            "pl-fixture",
-            "curator",
-        ],
-        vec![
-            "codeterm",
-            "plan",
-            "control-loop",
-            "set",
-            "pl-fixture",
-            "heartbeat",
-            "--interval",
-            "30m",
-        ],
-        vec![
-            "codeterm",
-            "plan",
             "curator",
             "grant",
             "pl-fixture",
@@ -54,7 +36,7 @@ fn curator_commands_parse_control_loop_and_scoped_grants() {
         "control-loop",
         "set",
         "pl-fixture",
-        "unknown"
+        "curator"
     ])
     .is_err());
 }

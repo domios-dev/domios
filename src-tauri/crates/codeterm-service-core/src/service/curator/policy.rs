@@ -75,17 +75,7 @@ impl RolePolicy for CuratorPolicy {
                     log::debug!("[curator] prepare {}: {error}", job.task);
                     service.curator_fire_failed(&job.task, error.reason, now)?;
                 }
-                let cron = service
-                    .extensions
-                    .try_get::<crate::CronState>()
-                    .ok_or("cron unavailable")?;
-                let mut disabled = job.clone();
-                disabled.enabled = false;
-                disabled.next_run = None;
-                commit(cron, |_| {
-                    Ok(Prepared::new(CronChange::Patch(disabled.clone()), ()))
-                })
-                .map_err(|error| format!("disable Curator job {}: {error}", job.id))?;
+                service.reconcile_curator_id(&job.task, now);
                 Ok(None)
             }
         }

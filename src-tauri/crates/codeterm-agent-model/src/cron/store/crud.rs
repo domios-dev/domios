@@ -393,6 +393,9 @@ impl CronStore {
             .get(id)
             .cloned()
             .ok_or_else(|| format!("Cron job not found: {}", id))?;
+        if job.is_plan_control_loop() {
+            return Err("Manage Curator scheduling from the Team dashboard settings".into());
+        }
         if job.protected && (patch.schedule.is_some() || patch.task.is_some()) {
             return Err(format!(
                 "System cron job '{}' cannot edit schedule or task. Use enable/disable instead.",
@@ -530,6 +533,9 @@ impl CronStore {
             .get(id)
             .cloned()
             .ok_or_else(|| format!("Cron job not found: {}", id))?;
+        if job.is_plan_control_loop() {
+            return Err("Manage Curator scheduling from the Team dashboard settings".into());
+        }
         job.enabled = enabled;
         job.next_run = if !enabled {
             None
@@ -601,7 +607,9 @@ impl CronStore {
         if !matches!(run.status, CronRunStatus::Failed) {
             if job.oneshot {
                 job.next_run = None;
-                job.enabled = false;
+                if !job.is_plan_control_loop() {
+                    job.enabled = false;
+                }
             } else if job.enabled {
                 job.next_run = compute_next_run_jittered_at(
                     &job.schedule,
@@ -904,7 +912,14 @@ fn apply_failure_accounting(
     match status {
         CronRunStatus::Failed => {
             job.consecutive_failures = job.consecutive_failures.saturating_add(1);
-            if job.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+            if job.is_plan_control_loop() {
+                if job.enabled {
+                    let next =
+                        now_ms.saturating_add(codeterm_types::plan::curator_delay(None) * 1000);
+                    job.next_run = Some(next);
+                    job.schedule = next.to_string();
+                }
+            } else if job.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
                 job.enabled = false;
                 job.next_run = None;
                 log::warn!(

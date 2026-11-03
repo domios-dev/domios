@@ -918,3 +918,51 @@ fn cron_cancellation_requires_a_typed_reason_and_other_states_refuse_one() {
         "restart_reconcile"
     );
 }
+
+#[test]
+fn curator_failures_defer_with_injected_clock_and_public_toggles_are_absent() {
+    const NOW: u64 = 1_700_000_000_000;
+    let dir = tempfile::tempdir().unwrap();
+    let clock = crate::cron::clock::MockClock::starting_at(NOW);
+    let mut store = CronStore::new_with_path_and_clock(dir.path().join("crons.json"), clock);
+    let mut params = make_params("Curator retry", "workspace", &(NOW + 1000).to_string());
+    params.oneshot = Some(true);
+    params.role = Some("curator".into());
+    let job = store.create(params).unwrap();
+    store.set_protected(&job.id, true).unwrap();
+    for enabled in [false, true] {
+        assert!(store.prepare_set_enabled(&job.id, enabled).is_err());
+    }
+    let patch =
+        serde_json::from_value(serde_json::json!({"enabled":false,"role":"worker"})).unwrap();
+    assert!(store.prepare_update(&job.id, patch).is_err());
+    for number in 0..10 {
+        store
+            .record_run(
+                &job.id,
+                CronRunInfo {
+                    run_id: format!("run-{number}"),
+                    started_at: NOW,
+                    finished_at: None,
+                    status: CronRunStatus::Running,
+                    tab_id: None,
+                    session_id: None,
+                    cwd: None,
+                    summary: None,
+                    report_delivery: None,
+                    cancel_reason: None,
+                },
+            )
+            .unwrap();
+        assert!(store.get(&job.id).unwrap().enabled);
+        assert!(store
+            .update_run_status(&job.id, &format!("run-{number}"), CronRunStatus::Failed)
+            .unwrap());
+        let job = store.get(&job.id).unwrap();
+        assert!(job.enabled);
+        assert_eq!(
+            job.next_run,
+            Some(NOW + codeterm_types::plan::curator_delay(None) * 1000)
+        );
+    }
+}

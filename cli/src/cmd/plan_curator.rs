@@ -13,20 +13,6 @@ pub fn control_loop(
         PlanControlLoopAction::Show { plan_id } => {
             ("plan.control_loop.show", json!({"plan_id":plan_id}))
         }
-        PlanControlLoopAction::Set {
-            plan_id,
-            mode,
-            interval,
-        } => {
-            let seconds = interval
-                .as_deref()
-                .map(|v| super::agent::parse_duration_secs(v, "--interval"))
-                .transpose()?;
-            (
-                "plan.control_loop.set",
-                json!({"plan_id":plan_id,"mode":mode,"heartbeat_interval_secs":seconds}),
-            )
-        }
     };
     super::plan::inject_trusted_session(&mut params);
     super::plan::call_plan_rpc(client, method, params)
