@@ -69,6 +69,17 @@ it("surfaces persistence refusal to the composer while preserving its editable v
   expect(field.onError).toHaveBeenCalledWith("Draft could not be saved: quota");
 });
 
+it("reports unavailable storage through the composer error callback and keeps edits live", async () => {
+  const unavailable = async () => { throw new Error("Draft storage is unavailable"); };
+  const persistence = new DraftPersistence({ read: unavailable, write: unavailable });
+  const field = harness(persistence);
+  await field.render("unavailable");
+  expect(field.onError).toHaveBeenCalledWith("Draft could not be saved: Draft storage is unavailable");
+  await act(async () => { field.handle.edit("unsaved but editable"); });
+  expect(field.handle.value).toBe("unsaved but editable");
+  await expect(persistence.flush()).rejects.toThrow("Draft storage is unavailable");
+});
+
 it("restores checkpoint text and capsule identity without replacing them with older disk records", async () => {
   const persistence = new DraftPersistence({ read: async () => new Map([["tab-session-chat:t", "old"]]), write: async () => {} });
   const field = harness(persistence);

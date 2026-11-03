@@ -7,6 +7,7 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { test, vi } from "vitest";
 import type { Tab } from "../../lib/types";
@@ -141,9 +142,9 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
   }
   await act(async () => {
     root.render(
-      <MuxStateStoreContext.Provider value={store}>
+      <DraftStorageFixture><MuxStateStoreContext.Provider value={store}>
         <ComposerHarness />
-      </MuxStateStoreContext.Provider>,
+      </MuxStateStoreContext.Provider></DraftStorageFixture>,
     );
   });
   await flush();
