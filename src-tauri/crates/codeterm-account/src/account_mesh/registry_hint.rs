@@ -24,7 +24,6 @@ impl Drop for Flight<'_> {
 }
 
 impl AccountMesh {
-    // Remove this unsigned hint fallback after signed registry deployment is verified on PROD.
     pub async fn registry_hint(
         &self,
         sender: &str,

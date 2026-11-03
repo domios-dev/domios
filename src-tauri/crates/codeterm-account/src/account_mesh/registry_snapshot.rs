@@ -123,13 +123,15 @@ impl AccountMesh {
         let now = self.now();
         let (verified, cached) = tokio::task::spawn_blocking(move || {
             let verified = verify_registry(&received, &trust, &expected_account, now)?;
-            let cached = cached.and_then(|known| {
-                if known == received {
-                    Some(verified.clone())
-                } else {
-                    verify_registry(&known, &trust, &expected_account, now).ok()
-                }
-            });
+            let cached = cached
+                .map(|known| {
+                    if known == received {
+                        Ok(verified.clone())
+                    } else {
+                        verify_registry(&known, &trust, &expected_account, now)
+                    }
+                })
+                .transpose()?;
             Ok::<_, AccountMeshRefusal>((verified, cached))
         })
         .await

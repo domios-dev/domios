@@ -316,7 +316,6 @@ fn account_mesh_wire_matches_the_server_packet() {
         schema_version: 1,
         installation_id: "desk-7f3a".into(),
         request_id: request_id.into(),
-        signed_registry: None,
         requested_membership_seconds: None,
         operation,
     };
