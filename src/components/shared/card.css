@@ -390,6 +390,16 @@ button.ct-card__head {
   column-gap: 8px;
 }
 
+.ct-card__header:has(:focus-visible) {
+  outline: 1px solid color-mix(in srgb, var(--ct-accent) 60%, transparent);
+  outline-offset: -1px;
+  border-radius: inherit;
+}
+
+.ct-card__header button:focus-visible {
+  outline: none;
+}
+
 .ct-communication-card .ct-card__icon {
   width: 16px;
   min-width: 16px;

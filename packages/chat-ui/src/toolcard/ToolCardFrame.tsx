@@ -87,7 +87,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const quietOperation = event.kind === "read" || event.kind === "search";
   const inlineRow = inlineCommand || quietOperation;
   const iconColor = quietOperation ? "var(--ct-muted-fg)" : visual.color;
-  const statusColor = quietOperation && event.status !== "error" && event.status !== "pending" ? "var(--ct-muted-fg)" : outcome.color;
+  const statusColor = event.status === "success" ? "var(--ct-muted-fg)" : outcome.color;
   const quiet = !error && !open && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
