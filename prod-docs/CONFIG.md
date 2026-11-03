@@ -8,6 +8,8 @@ Sensitive configuration and state use private file writes: Unix files use `0600`
 
 ## Full Reference
 
+The local owner can run `domios diagnostics memory` (or add `--json`) for process RSS and approximate retained subsystem sizes. It reports cache counts, per-plan estimates, per-PTY output allocations and screen cell bounds, chat caches, history writers, embedding mappings, SQLite page cache, Blueprints and notifications. Busy locks are skipped. Estimates exclude allocator overhead and cannot sum to RSS; mapped weights and screen bounds are labeled separately. Tab credentials and mesh callers are refused. The command never loads models or plans.
+
 ```toml
 [theme]
 name = "github-dark"
@@ -235,4 +237,4 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 `memory.backend` selects `"sqlite"` (default) or `"postgres"`. For build requirements, secret-store credentials and migration before switching an existing store, see the memory help referenced above.
 
 **Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
-<!-- revision: 130 -->
+<!-- revision: 131 -->

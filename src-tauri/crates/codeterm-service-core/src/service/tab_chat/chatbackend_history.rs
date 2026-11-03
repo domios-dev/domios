@@ -10,6 +10,33 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, LazyLock, Weak};
 
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub fn memory_stats() -> serde_json::Value {
+    let Some(entries) = SHARED.try_lock() else {
+        return serde_json::json!({"busy": true});
+    };
+    let mut bytes = 0;
+    let mut live = 0;
+    let mut busy = 0;
+    let mut indexed_messages = 0;
+    for entry in entries.values() {
+        if let Some(writer) = entry.writer.upgrade() {
+            live += 1;
+            if let Some(writer) = writer.try_lock() {
+                bytes += writer.bytes.load(Ordering::Relaxed);
+                indexed_messages += writer.indexed_messages.load(Ordering::Relaxed);
+            } else {
+                busy += 1;
+            }
+        }
+    }
+    serde_json::json!({
+        "registry_entries": entries.len(), "live_writers": live,
+        "busy_writers": busy, "approx_bytes": bytes, "indexed_messages": indexed_messages,
+        "estimate": "index slots with 64 bytes per message id, plus last encoded message",
+    })
+}
 
 use crate::agent::chat_types::ChatMsg;
 
@@ -182,6 +209,8 @@ mod versions;
 pub struct ChatBackendHistory {
     path: PathBuf,
     owner: Option<std::sync::mpsc::SyncSender<Request>>,
+    bytes: Arc<AtomicUsize>,
+    indexed_messages: Arc<AtomicUsize>,
 }
 
 enum Operation {
@@ -206,7 +235,12 @@ impl ChatBackendHistory {
     }
 
     fn unindexed(path: PathBuf) -> Self {
-        Self { path, owner: None }
+        Self {
+            path,
+            owner: None,
+            bytes: Arc::new(AtomicUsize::new(0)),
+            indexed_messages: Arc::new(AtomicUsize::new(0)),
+        }
     }
 
     pub fn shared(plugin_id: &str, session_id: &str) -> SharedHistory {
@@ -225,12 +259,17 @@ impl ChatBackendHistory {
         if self.owner.is_none() {
             let (sender, receiver) = std::sync::mpsc::sync_channel::<Request>(1);
             let path = self.path.clone();
+            let bytes = self.bytes.clone();
+            let indexed_messages = self.indexed_messages.clone();
             std::thread::Builder::new()
                 .name("chat-history".into())
                 .spawn(move || {
                     let mut log = storage::HistoryLog::new(path);
                     while let Ok(request) = receiver.recv() {
                         let result = log.apply(request.operation);
+                        let (count, size) = log.memory_stats();
+                        bytes.store(size, Ordering::Relaxed);
+                        indexed_messages.store(count, Ordering::Relaxed);
                         let _ = request.reply.send(result);
                     }
                 })?;

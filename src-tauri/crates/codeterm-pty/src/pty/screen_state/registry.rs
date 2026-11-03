@@ -66,6 +66,40 @@ impl Default for ScreenState {
 }
 
 impl ScreenState {
+    pub fn memory_stats(&self) -> serde_json::Value {
+        let Some(screens) = self.screens.try_lock() else {
+            return serde_json::json!({"busy": true});
+        };
+        let sessions: Vec<_> = screens
+            .iter()
+            .map(|(id, entry)| {
+                let Some(state) = entry.state.try_lock() else {
+                    return serde_json::json!({"pty_id": id, "busy": true});
+                };
+                let geometry = state.parser.as_ref().map(|parser| parser.screen().size());
+                let upper_bound = geometry.map_or(0, |(rows, cols)| {
+                    (usize::from(rows) * 2 + 500)
+                        * usize::from(cols)
+                        * std::mem::size_of::<vt100::Cell>()
+                });
+                serde_json::json!({
+                    "pty_id": id,
+                    "rows": geometry.map(|size| size.0),
+                    "cols": geometry.map(|size| size.1),
+                    "scrollback_row_limit": 500,
+                    "cell_storage_upper_bound_bytes": upper_bound,
+                    "retired": entry.removed.load(Ordering::Relaxed),
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "count": sessions.len(),
+            "cell_storage_upper_bound_bytes": sessions.iter()
+                .filter_map(|row| row["cell_storage_upper_bound_bytes"].as_u64()).sum::<u64>(),
+            "sessions": sessions,
+        })
+    }
+
     pub fn new() -> Self {
         Self {
             screens: Arc::new(TimedMutex::new("screen_state_map", HashMap::new())),

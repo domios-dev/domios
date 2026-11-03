@@ -113,6 +113,14 @@ pub struct MemManager {
 }
 
 impl MemManager {
+    pub fn memory_diagnostics(&self) -> serde_json::Value {
+        #[cfg(feature = "embeddings")]
+        let models = embedding_model::memory_diagnostics();
+        #[cfg(not(feature = "embeddings"))]
+        let models = serde_json::json!({"count": 0, "mapped_weight_bytes": 0});
+        serde_json::json!({"models": models, "store": self.store.memory_diagnostics()})
+    }
+
     pub(crate) fn write_context() -> backend::WriteContext {
         match store::scoped_author() {
             Some(author) => backend::WriteContext::new(author, store::current_changed_by()),

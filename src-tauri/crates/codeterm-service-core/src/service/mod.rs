@@ -55,6 +55,7 @@ pub mod context_feed;
 pub mod cron;
 pub mod curator;
 pub mod delivery_error;
+pub mod diagnostics;
 pub mod general_agent;
 pub mod health;
 pub mod hierarchy;

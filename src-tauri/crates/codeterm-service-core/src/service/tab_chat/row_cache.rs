@@ -105,6 +105,18 @@ impl Default for RowCache {
 }
 
 impl RowCache {
+    pub fn memory_stats(&self) -> serde_json::Value {
+        let Some(entries) = self.entries.try_lock() else {
+            return serde_json::json!({"busy": true});
+        };
+        serde_json::json!({
+            "count": entries.len(),
+            "approx_bytes": entries.iter().map(|entry| entry.bytes).sum::<usize>(),
+            "max_entries": self.max_entries,
+            "max_bytes": self.max_bytes,
+        })
+    }
+
     pub fn attach(
         &self,
         tab_id: &str,
