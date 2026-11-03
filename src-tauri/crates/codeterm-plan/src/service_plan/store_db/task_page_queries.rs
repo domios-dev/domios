@@ -346,10 +346,13 @@ impl PlanDatabase {
     pub(in crate::service_plan) fn task_detail(
         &self,
         plan_id: &str,
-        task_id: &str,
+        task_ref: &str,
     ) -> Result<Value, PlanError> {
-        let connection = self.connection.lock();
+        let mut guard = self.connection.lock();
+        let connection = guard.transaction().map_err(db_error)?;
         let header = load_header(&connection, plan_id)?;
+        let resolved_id = resolve_detail_task(&connection, plan_id, task_ref)?;
+        let task_id = resolved_id.as_str();
         let mut task = load_task_row(&connection, plan_id, task_id)?;
         let milestones = load_json_rows(
             &connection,
@@ -400,14 +403,62 @@ impl PlanDatabase {
             "sections": sections,
             "has_open_subtasks": has_open_subtasks,
         });
-        Ok(json!({
+        let detail = json!({
             "plan_id": plan_id,
             "task_id": task_id,
             "task": task,
             "context": context,
             "loop_badge": loop_badge,
-        }))
+        });
+        connection.commit().map_err(db_error)?;
+        Ok(detail)
     }
+}
+
+fn resolve_detail_task(
+    connection: &Connection,
+    plan_id: &str,
+    reference: &str,
+) -> Result<String, PlanError> {
+    let exact: bool = connection
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND task_id=?2)",
+            params![plan_id, reference],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    if exact {
+        return Ok(reference.to_string());
+    }
+    let mut statement = connection
+        .prepare_cached(
+            "SELECT task_id,json_extract(row_json,'$.handle'),json_extract(row_json,'$.key')
+         FROM plan_tasks WHERE plan_id=?1 ORDER BY position",
+        )
+        .map_err(db_error)?;
+    let mut selected = None;
+    for row in statement
+        .query_map([plan_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(db_error)?
+    {
+        let (id, handle, key) = row.map_err(db_error)?;
+        let key = key.unwrap_or_else(|| crate::plan::task_key::fallback_key(&id));
+        if crate::plan::task_key::name_matches(handle.as_deref(), &key, reference) {
+            if selected.is_some() {
+                return Err(PlanError::Validation(format!(
+                    "task ref '{reference}' is ambiguous"
+                )));
+            }
+            selected = Some(id);
+        }
+    }
+    selected.ok_or(PlanError::TaskNotFound)
 }
 
 fn load_header(connection: &Connection, plan_id: &str) -> Result<Value, PlanError> {

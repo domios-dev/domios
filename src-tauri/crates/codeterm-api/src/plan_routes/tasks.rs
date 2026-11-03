@@ -127,18 +127,22 @@ pub async fn task_detail(
     _headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    tokio::task::spawn_blocking(move || {
-        codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
-            .map_err(task_board_team_plan_err)?;
-        let detail = state
-            .svc
-            .plan_store
-            .task_detail_for_plan(&id, &tid)
-            .map_err(plan_err)?;
-        Ok(Json(detail))
-    })
-    .await
-    .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
+    tokio::task::spawn_blocking(move || task_detail_core(&state.svc, &id, &tid))
+        .await
+        .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
+}
+
+fn task_detail_core(
+    svc: &codeterm_service_core::service::ServiceContext,
+    plan_id: &str,
+    task_ref: &str,
+) -> PlanRouteResult {
+    codeterm_orchestration::validate_plan_team_binding(svc, plan_id)
+        .map_err(task_board_team_plan_err)?;
+    svc.plan_store
+        .task_detail_for_plan(plan_id, task_ref)
+        .map(Json)
+        .map_err(plan_err)
 }
 
 fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
