@@ -1,6 +1,21 @@
 use super::*;
 use rusqlite::OptionalExtension;
 
+pub(in crate::service_plan) fn enqueue_plan_time(
+    _turn: &MutationWriterTurn<'_>,
+    root: PathBuf,
+    plan_id: String,
+    at: u64,
+) {
+    index_queue().enqueue(IndexJob::PlanTime(root, plan_id, at));
+}
+
+pub(super) fn mirror_plan_time(root: &Path, plan_id: &str, at: u64) -> Result<(), String> {
+    let connection = open_index(root)?;
+    connection.execute("UPDATE mem_items SET source=json_set(source,'$.updated_at',?2), updated_at=?3 WHERE kind IN ('plan','plan_section') AND json_extract(source,'$.plan_id')=?1 AND json_extract(source,'$.updated_at') IS NOT ?2", params![plan_id, at, timestamp_ms_to_rfc3339(at)]).map_err(|error| error.to_string())?;
+    Ok(())
+}
+
 #[derive(Debug)]
 pub(in crate::service_plan) struct TaskIndexDelta {
     pub plan_id: String,

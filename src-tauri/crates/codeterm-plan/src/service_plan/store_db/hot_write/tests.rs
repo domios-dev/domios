@@ -515,6 +515,17 @@ fn task_metadata_and_searchable_text_update_only_the_required_fts_record() {
         )
         .unwrap();
     search_index::flush_index_queue_for_test(root.path());
+    let plan_unit = format!("planunit_{}_plan_{}", plan.id, plan.id);
+    assert_eq!(
+        index
+            .query_row(
+                "SELECT json_extract(source,'$.updated_at') FROM mem_items WHERE id=?1",
+                [&plan_unit],
+                |row| row.get::<_, u64>(0)
+            )
+            .unwrap(),
+        20
+    );
     assert_eq!(
         index
             .query_row(

@@ -73,6 +73,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub serialized_bytes: usize,
     pub projected_text_bytes: usize,
     pub hashed_bytes: usize,
+    pub index_root: Option<std::path::PathBuf>,
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
     pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,
@@ -292,6 +293,9 @@ impl PlanDatabase {
             if receipt.task_rows + receipt.milestones + receipt.attempts + receipt.strides > 0 {
                 tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms]).map_err(db_error)?;
                 receipt.header_rows += 1;
+                let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
+                receipt.projected_text_bytes += root.len();
+                receipt.index_root = Some(root.into());
                 let mut statement = tx.prepare_cached("SELECT DISTINCT assigned_tab_id FROM plan_tasks INDEXED BY plan_tasks_bound_tabs WHERE plan_id=?1 AND assigned_tab_id IS NOT NULL").map_err(db_error)?;
                 receipt.reset_tabs = statement
                     .query_map([plan_id], |row| row.get(0))

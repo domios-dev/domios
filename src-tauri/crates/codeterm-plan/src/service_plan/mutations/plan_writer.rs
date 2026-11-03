@@ -74,6 +74,14 @@ impl PlanStore {
         if let Some(row) = self.index.write().get_mut(&receipt.plan_id) {
             row.updated_at = receipt.updated_at;
         }
+        if let Some(root) = receipt.index_root {
+            super::super::search_index::enqueue_plan_time(
+                turn,
+                root,
+                receipt.plan_id.clone(),
+                receipt.updated_at,
+            );
+        }
         if let Some(counter) = self.turn_counter.read().clone() {
             for tab in &receipt.reset_tabs {
                 counter.reset(tab);

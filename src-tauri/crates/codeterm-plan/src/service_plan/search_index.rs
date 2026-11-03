@@ -21,7 +21,8 @@ mod narrow;
 mod recovery;
 pub(super) use incremental::PlanIndexScope;
 pub(super) use narrow::{
-    enqueue_milestone_index, enqueue_task_index, MilestoneIndexDelta, TaskIndexDelta,
+    enqueue_milestone_index, enqueue_plan_time, enqueue_task_index, MilestoneIndexDelta,
+    TaskIndexDelta,
 };
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
@@ -96,6 +97,7 @@ struct Unit {
 }
 
 enum IndexJob {
+    PlanTime(PathBuf, String, u64),
     DeleteUnit(PathBuf, String),
     Status(PathBuf, narrow::StatusDelta),
     Unit(PathBuf, Unit),
@@ -111,6 +113,7 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
+            Self::PlanTime(_, id, _) => format!("{}:plan-time:{}", self.project_key(), id),
             Self::Status(_, delta) => format!("{}:status:{}", self.project_key(), delta.key),
             Self::DeleteUnit(_, id) => format!("{}:unit:{}", self.project_key(), id),
             Self::Unit(_, unit) => format!("{}:unit:{}", self.project_key(), unit.id),
@@ -128,6 +131,7 @@ impl IndexJob {
 
     fn project_key(&self) -> String {
         match self {
+            Self::PlanTime(root, _, _) => project_scope(root),
             Self::Status(root, _) | Self::Unit(root, _) | Self::DeleteUnit(root, _) => {
                 project_scope(root)
             }
@@ -284,6 +288,7 @@ fn index_queue() -> Arc<IndexQueue> {
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
     match job {
+        IndexJob::PlanTime(root, id, at) => narrow::mirror_plan_time(root, id, *at),
         IndexJob::DeleteUnit(root, id) => narrow::delete_unit(root, id),
         IndexJob::Status(root, delta) => narrow::mirror_status(root, delta),
         IndexJob::Unit(root, unit) => {
