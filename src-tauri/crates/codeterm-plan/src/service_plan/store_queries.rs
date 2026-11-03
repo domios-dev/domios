@@ -436,6 +436,10 @@ impl PlanStore {
         self.database.task_detail(plan_id, task_id)
     }
 
+    pub fn section_outline(&self, plan_id: &str) -> Result<Value, PlanError> {
+        self.database.section_outline(plan_id)
+    }
+
     pub fn list_spec_index(&self) -> Vec<SpecIndexEntry> {
         self.spec_index.read().values().cloned().collect()
     }

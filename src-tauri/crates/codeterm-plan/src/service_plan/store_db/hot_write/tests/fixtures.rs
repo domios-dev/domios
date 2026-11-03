@@ -1,8 +1,8 @@
 use super::*;
 
-pub(super) const SEED: &str = "sql-hot-1162-v1";
-pub(super) const TASKS: usize = 1162;
-pub(super) const CONTENT_BYTES: usize = 33_344_717;
+pub(in crate::service_plan::store_db) const SEED: &str = "sql-hot-1162-v1";
+pub(in crate::service_plan::store_db) const TASKS: usize = 1162;
+pub(in crate::service_plan::store_db) const CONTENT_BYTES: usize = 33_344_717;
 
 pub(super) fn milestone(id: &str) -> Milestone {
     Milestone {
@@ -19,7 +19,11 @@ pub(super) fn milestone(id: &str) -> Milestone {
     }
 }
 
-pub(super) fn fixture(root: &std::path::Path, strides: usize, attempts: usize) -> Plan {
+pub(in crate::service_plan::store_db) fn fixture(
+    root: &std::path::Path,
+    strides: usize,
+    attempts: usize,
+) -> Plan {
     let mut plan = Plan::new(
         SEED.into(),
         root.display().to_string(),
@@ -59,7 +63,10 @@ pub(super) fn fixture(root: &std::path::Path, strides: usize, attempts: usize) -
     plan
 }
 
-pub(super) fn database(root: &std::path::Path, plan: &Plan) -> PlanDatabase {
+pub(in crate::service_plan::store_db) fn database(
+    root: &std::path::Path,
+    plan: &Plan,
+) -> PlanDatabase {
     let database = PlanDatabase::open(root.join("plans.db")).unwrap();
     database.persist_plan_rows(plan, None).unwrap();
     let mut spec = crate::plan::Spec::new("owned spec".into(), plan.project_path.clone());
@@ -75,7 +82,7 @@ pub(super) fn role(value: &str) -> HotChange {
     }
 }
 
-pub(super) fn audit(database: &PlanDatabase) {
+pub(in crate::service_plan::store_db) fn audit(database: &PlanDatabase) {
     let connection = database.connection.lock();
     connection
         .execute_batch("CREATE TABLE write_audit(table_name TEXT);")
@@ -94,7 +101,9 @@ pub(super) fn audit(database: &PlanDatabase) {
     }
 }
 
-pub(super) fn audit_counts(database: &PlanDatabase) -> Vec<(String, usize)> {
+pub(in crate::service_plan::store_db) fn audit_counts(
+    database: &PlanDatabase,
+) -> Vec<(String, usize)> {
     let connection = database.connection.lock();
     let mut statement = connection
         .prepare(

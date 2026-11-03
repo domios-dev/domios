@@ -51,6 +51,14 @@ pub(super) fn dispatch(
             let id = super::plan_refs::resolve_plan(store, params)?;
             codeterm_orchestration::validate_plan_team_binding(svc, &id)
                 .map_err(super::team::team_plan_rpc_err)?;
+            if params
+                .as_ref()
+                .and_then(|p| p.get("sections"))
+                .and_then(Value::as_bool)
+                == Some(true)
+            {
+                return store.section_outline(&id).map_err(plan_rpc_err);
+            }
             let plan = store
                 .get(&id)
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;

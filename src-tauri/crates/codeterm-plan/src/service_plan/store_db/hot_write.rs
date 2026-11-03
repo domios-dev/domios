@@ -538,4 +538,4 @@ fn append_stride(
 }
 
 #[cfg(test)]
-mod tests;
+pub(in crate::service_plan::store_db) mod tests;
