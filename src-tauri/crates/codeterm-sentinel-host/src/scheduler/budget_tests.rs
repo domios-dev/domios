@@ -24,6 +24,11 @@ fn blueprint_probe_timeout_skips_and_next_tick_observes_again() {
     let (mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();
     let fixture = ServiceFixture::new(mux);
+    let service = fixture
+        .service
+        .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+        .upgrade()
+        .unwrap();
     let clock = MockClock::starting_at(1000);
     let mut store = Store::new(fixture.temp.path().join("timeout.json"), clock.clone());
     let owner = Owner {
@@ -42,7 +47,7 @@ fn blueprint_probe_timeout_skips_and_next_tick_observes_again() {
             failure.unconfirmed(probe::process::ResourceKind::ProcessGroup);
         }
         let reason = failure.reason();
-        tick_with_probe(&handle, &fixture.service, &leases[0], |_, _| Err(failure));
+        tick_with_probe(&handle, &service, &leases[0], |_, _| Err(failure));
         let current = handle.store.lock().get(&job.id).unwrap().clone();
         assert!(!current.machine.stopped);
         assert_eq!(current.last_reason.as_deref(), Some(reason.as_str()));
@@ -52,7 +57,7 @@ fn blueprint_probe_timeout_skips_and_next_tick_observes_again() {
     }
     let leases = storage::commit(&handle.store, Store::stage_due).unwrap();
     assert_eq!(leases.len(), 1);
-    tick_with_probe(&handle, &fixture.service, &leases[0], |_, _| {
+    tick_with_probe(&handle, &service, &leases[0], |_, _| {
         Ok(probe::fixture_output(0, b"done", b""))
     });
     let current = handle.store.lock().get(&job.id).unwrap().clone();
@@ -62,7 +67,7 @@ fn blueprint_probe_timeout_skips_and_next_tick_observes_again() {
     clock.advance_ms(10_000);
     let leases = storage::commit(&handle.store, Store::stage_due).unwrap();
     assert_eq!(leases.len(), 1);
-    tick_with_probe(&handle, &fixture.service, &leases[0], |_, _| {
+    tick_with_probe(&handle, &service, &leases[0], |_, _| {
         Err(probe::process::ProbeFailure::new("probe_owner_capacity"))
     });
     let current = handle.store.lock().get(&job.id).unwrap().clone();
