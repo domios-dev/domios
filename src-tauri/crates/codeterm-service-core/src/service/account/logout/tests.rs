@@ -31,6 +31,7 @@ impl StopPorts for MockPorts {
         }
         *self.receiver_enabled.lock() = false;
         Ok(SessionRevokedResult {
+            signed_registry: None,
             target_installation_id: "desk-7f3a".into(),
             revoked_at: 120,
         })

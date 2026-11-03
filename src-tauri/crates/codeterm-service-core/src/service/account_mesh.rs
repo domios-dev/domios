@@ -123,6 +123,16 @@ struct TransportBridge {
 }
 #[async_trait]
 impl MeshTransport for TransportBridge {
+    async fn registry_changed(&self, snapshot: &codeterm_entitlements::DetachedGrant) {
+        if let Some(service) = self.service.upgrade() {
+            if service.configuration().mesh.enabled {
+                if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
+                    codeterm_mesh::presence_notice::broadcast_registry_snapshot(&mesh, snapshot)
+                        .await;
+                }
+            }
+        }
+    }
     async fn presence_changed(&self, metadata_revision: u64) {
         presence::notify(&self.service, metadata_revision).await;
     }
@@ -132,6 +142,10 @@ impl MeshTransport for TransportBridge {
             if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
                 let mut manager = mesh.lock();
                 manager.apply_account_state(projected.clone());
+                manager.signed_registry = state
+                    .signed_registry
+                    .as_ref()
+                    .map(|snapshot| snapshot.grant.clone());
                 let own = self.installation_id.as_str();
                 manager.account_installations = state.registry.as_ref().map(|registry| registry.rows.iter()
                     .filter(|row| row.installation_id != own)
@@ -580,11 +594,13 @@ fn fallback_mesh_state(
     use codeterm_mesh::account_mesh::{AccountMeshState, AccountPresence};
     match persisted {
         Ok(record) if !record.signed_out => AccountMeshState {
+            registry_members: None,
             presence: AccountPresence::NeverSignedIn,
             revoked_installations: record.revoked_installations,
             ..AccountMeshState::default()
         },
         _ => AccountMeshState {
+            registry_members: None,
             presence: AccountPresence::SignedOut,
             ..AccountMeshState::default()
         },

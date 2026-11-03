@@ -170,19 +170,28 @@ fn signed_payload(
     grant: &DetachedGrant,
     trust: &MembershipTrust,
 ) -> Result<serde_json::Value, MembershipRefusal> {
+    signed_payload_limit(grant, trust, MAX_PAYLOAD_BYTES)
+}
+
+pub(super) fn signed_payload_limit(
+    grant: &DetachedGrant,
+    trust: &MembershipTrust,
+    max_bytes: usize,
+) -> Result<serde_json::Value, MembershipRefusal> {
     use MembershipRefusal as R;
     if grant.alg != codeterm_entitlements::verify::ED25519 {
         return Err(R::Algorithm);
     }
-    let bytes = trust
-        .authority
-        .authenticate(grant, MAX_PAYLOAD_BYTES)
-        .map_err(|refusal| match refusal {
-            Refusal::Algorithm => R::Algorithm,
-            Refusal::UnknownKey => R::UnknownKey,
-            Refusal::Signature => R::Signature,
-            _ => R::Encoding,
-        })?;
+    let bytes =
+        trust
+            .authority
+            .authenticate(grant, max_bytes)
+            .map_err(|refusal| match refusal {
+                Refusal::Algorithm => R::Algorithm,
+                Refusal::UnknownKey => R::UnknownKey,
+                Refusal::Signature => R::Signature,
+                _ => R::Encoding,
+            })?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| R::Malformed)?;
     let canonical = codeterm_entitlements::jcs::encode(&value).map_err(|_| R::NonCanonical)?;
     if canonical.as_bytes() != bytes.as_slice() {

@@ -282,6 +282,8 @@ pub struct LifecycleState {
     pub registry: Option<RegistryObservation>,
     #[serde(skip)]
     pub registry_security: Option<RegistrySecurity>,
+    #[serde(skip)]
+    pub signed_registry: Option<super::registry_snapshot::VerifiedRegistry>,
     pub registry_failure: Option<AccountMeshRefusal>,
 }
 
@@ -325,6 +327,18 @@ impl LifecycleState {
         self.membership
             .as_ref()
             .filter(|m| m.verified.account_id == account && m.verified.is_current(now))
+            .filter(|m| {
+                self.signed_registry.as_ref().is_none_or(|registry| {
+                    registry.rows.iter().any(|row| {
+                        row.installation_id == m.verified.installation_id
+                            && row.active
+                            && row.presence == super::wire::RegistryPresence::Present
+                            && row.key_id == m.verified.key_id
+                            && row.key_generation == m.verified.key_generation
+                            && row.slot_revision == m.verified.slot_revision
+                    })
+                })
+            })
     }
 
     pub fn view(&self) -> AccountMeshView {
@@ -382,10 +396,12 @@ pub struct RegistryPresenceBinding {
     pub presence: super::wire::RegistryPresence,
 }
 
-/// Durable lifecycle facts keyed by opaque account id; holds no token, uid or endpoint.
+/// Durable lifecycle facts and server-signed registry observations keyed by opaque account id.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub signed_registries: BTreeMap<String, codeterm_entitlements::DetachedGrant>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub terminal_refusals: BTreeMap<String, AccountMeshRefusal>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]

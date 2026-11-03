@@ -149,7 +149,9 @@ impl AccountMesh {
                     token: cache.token,
                     verified,
                 });
-                state.registry = cache.registry;
+                if state.signed_registry.is_none() {
+                    state.registry = cache.registry;
+                }
                 state.publication = publication;
             });
             true
