@@ -259,6 +259,12 @@ impl MeshManager {
             {
                 row.instance_id = Some(connection.instance_id);
                 row.online = connection.online && row.active && !row.signed_out;
+                if row.active && !row.signed_out {
+                    if let Some(expiry) = self.peer_membership_expiry(&row.installation_id) {
+                        row.membership_expires_at =
+                            Some(row.membership_expires_at.unwrap_or(0).max(expiry));
+                    }
+                }
             }
         }
         MeshPeersResponse {

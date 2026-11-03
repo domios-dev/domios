@@ -78,6 +78,45 @@ fn make_mesh_with_peer(peer_id: &str, addrs: Vec<&str>) -> MeshManager {
 }
 
 #[test]
+fn peer_inventory_uses_authenticated_lease_without_mutating_cached_registry() {
+    let mut manager = make_mesh_with_peer("peer-a", vec![]);
+    manager.set_clock(Arc::new(|| 100));
+    manager.account_installations[0].membership_expires_at = Some(99);
+    let expiry = manager
+        .link_record("peer-a")
+        .unwrap()
+        .remote_membership
+        .as_ref()
+        .unwrap()
+        .verified
+        .expires_at;
+    assert_eq!(
+        manager.peers_response().installations[0].membership_expires_at,
+        Some(expiry)
+    );
+    assert_eq!(
+        manager.account_installations[0].membership_expires_at,
+        Some(99)
+    );
+
+    let mut state = manager.account_state().clone();
+    state.unavailable_installations.insert("peer-a".into());
+    manager.apply_account_state(state.clone());
+    assert_eq!(
+        manager.peers_response().installations[0].membership_expires_at,
+        Some(99)
+    );
+    state.unavailable_installations.clear();
+    state.revoked_installations.insert("peer-a".into());
+    manager.apply_account_state(state.clone());
+    assert_eq!(manager.peer_membership_expiry("peer-a"), None);
+    state.revoked_installations.clear();
+    manager.apply_account_state(state);
+    manager.set_clock(Arc::new(move || expiry));
+    assert_eq!(manager.peer_membership_expiry("peer-a"), None);
+}
+
+#[test]
 fn apply_announce_replaces_address_list_wholesale() {
     let mut m = make_mesh_with_peer("peer-A", vec!["192.168.1.5", "100.64.0.5"]);
     let ann = PeerAnnounce {
