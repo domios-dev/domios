@@ -1,12 +1,12 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `domios plugin browser <verb> [args]`. `help` or `--help` works before open and lists the executing plugin version, host build and verbs. Guide: `domios docs BROWSER`.
+Commands: `domios plugin browser <verb> [args]`. `help`/`--help` works before open and lists plugin version, host build and verbs. Guide: `domios docs BROWSER`.
 
 ## When to use it
 
 Use this browser for web tasks and UI verification while the user watches. Use HTTP/APIs for plain data.
 
-Delegate multi-step flows over 10,000 output characters to a Worker for a short result/evidence/blocker report. Set command/time bounds; stop at bot/auth walls. Workers report to their parent. Bound direct checks with scopes, grep and `--out`.
+Delegate multi-step flows over 10,000 output characters to a Worker for a short result/evidence/blocker report to its parent. Set command/time bounds; stop at bot/auth walls. Scope direct checks with grep and `--out`.
 
 ## Your browser
 
@@ -19,7 +19,7 @@ Delegate multi-step flows over 10,000 output characters to a Worker for a short 
 - **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
 - **Shared view.** *Take control* lets users act alongside you without notice. Re-read the page before acting.
 
-## The loop: snapshot, act, re-snapshot
+## Snapshot, act, re-snapshot
 
 With **Take control**, users select text, interact and scroll. Ctrl/Cmd+C/V and the toolbar copy remote selection/paste local text. User input invalidates refs; re-snapshot afterward.
 
@@ -29,7 +29,7 @@ With **Take control**, users select text, interact and scroll. Ctrl/Cmd+C/V and 
    - `type textbox "Email" "me@example.com"` or `type <exact-ref-from-snapshot> "me@example.com"`
    - `press Enter`, `press a ctrl`
    - `goto <url>`, `back`, `forward`, `reload`, `scroll 800`
-3. Run `snapshot` again after every navigation or visible change. Elements you saw before may be gone or changed.
+3. Re-snapshot after navigation or visible change; prior elements may be gone or changed.
 
 Rules:
 - Start with `status`; if closed, `open` before declaring the browser unavailable.
@@ -47,7 +47,7 @@ Rules:
 
 Stop when `status` reports `needs human` other than `none`: captcha, missing login, consent you cannot decide, native file picker, permission prompt or JavaScript dialog. Name the blocker; the user can use *Take control*. Re-snapshot before continuing.
 
-## The user can point at things
+## User annotations
 
 `inbox` lists unread annotations; `inbox all` lists retained ones. Notices carry page/element/React pointers, text, attributes, styles, box, context, screenshot and intent. Find the code, act and verify.
 
@@ -65,7 +65,7 @@ Screenshot replies report CSS viewport width/height and DPR; recheck coordinates
 
 Clicks report synchronous action acknowledgement, same-document navigation or a matching main-frame loader loaded/restored. An acknowledgement includes synchronous handlers; later effects need state waits. Navigation completion never uses network silence. Goto/history require navigation evidence; absent history reports no action. `action_unconfirmed` means completion was lost or authority changed: inspect, never replay.
 
-`click --within 'dialog:Settings' --role button --name Save` and `fill --within 'form:Composer' --role textbox --name Message --text 'hello'` resolve exact role/name matches from a fresh accessibility snapshot at action time. Missing, ambiguous, stale, hidden and disabled targets refuse with a reason code. The page performs the action in one JavaScript turn only if its document and mutation/input epoch still match the capture. An `action_unconfirmed` result means the action may have happened: inspect the page, never replay it.
+`click --within 'dialog:Settings' --role button --name Save` and `fill --within 'form:Composer' --role textbox --name Message --text 'hello'` resolve exact role/name matches from a fresh accessibility snapshot at action time. Missing, ambiguous, stale, hidden and disabled targets refuse with a reason code. The page performs the action in one JavaScript turn only if its document and mutation/input epoch still match the capture.
 
 ## Bounded structured snapshots
 
@@ -73,7 +73,7 @@ Clicks report synchronous action acknowledgement, same-document navigation or a 
 
 Scopes select `dialog`, `sidebar` (complementary), `composer` (form named Composer), or exact `role:name`; use `--scope 'main:'` for an unnamed main. Ambiguity refuses. Password/token inputs and `data-sensitive` subtrees are redacted; failed redaction capture refuses.
 
-## Named DEV instance sessions and cleanup
+## Named DEV sessions and cleanup
 
 `open --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA` creates or reuses a profile bound to that exact origin, opens its root `/` UI, and refuses a different origin or an unexpected `/api/health` build SHA. `attach` takes the same options and reuses the owned named session. Origins must be bare HTTP(S) origins without credentials, paths, queries or fragments. Existing unbound user profiles cannot be adopted as per-instance profiles.
 
@@ -81,7 +81,7 @@ Scopes select `dialog`, `sidebar` (complementary), `composer` (form named Compos
 
 `--ephemeral` on open/attach/connect creates a session profile deleted when its last browser closes. An existing persistent profile cannot become ephemeral. `profile list` lists named profiles; `profile remove dev-qa` refuses while a browser still uses it.
 
-At the end of a QA run, close ephemeral sessions. For a persistent per-instance session, run `open --profile clean`, then `profile remove dev-qa`, then `close`. Remove each per-instance profile used by the run.
+After QA, close ephemeral sessions. For persistent per-instance sessions, run `open --profile clean`, then `profile remove dev-qa`, then `close`. Remove each per-instance profile used by the run.
 
 `upload <ref|"button text"> <path>...` selects files on Windows without opening an OS dialog. Use an exact file-input ref or the upload button's text from the latest snapshot. Relative paths resolve inside the calling agent's pad, including with `--of`; absolute paths must stay inside that pad or an upload folder the owner granted to the active named profile. The upload activity names the granting folder. The owner manages grants in Settings > General > Browser upload folders or with an owner-authenticated config CLI/API call. Agent credentials cannot add or remove grants. Symlinks, reparse points, device names, parent traversal, directories and alternate data streams refuse. Other platforms report `unsupported` until secure file admission is available.
 
@@ -101,7 +101,7 @@ Native `file-picker` driving remains unsupported. Use `upload` before opening a 
 
 `wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses computed AX names. States: `visible`, `hidden`, `enabled`, `expanded`. Hidden also accepts no remaining match; ambiguity refuses. Durations: `ms`/`s`/`m`, default 15s, maximum 2m. Mutation/input events wake checks; navigation returns `stale`.
 
-Wait replies identify the matching node or text excerpt and page. Check that evidence: text may match your own chat instruction.
+Wait replies identify the matching node/text excerpt and page. Check it: text may match your own chat instruction.
 
 ## Disclosure controls
 
@@ -153,4 +153,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 21 -->
+<!-- revision: 22 -->
