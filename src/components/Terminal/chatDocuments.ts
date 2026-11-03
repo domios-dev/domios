@@ -1,7 +1,7 @@
 import { attachmentPreviewKind, parseAttachmentMarkers, parseDomiosMessage, parseDsBlocks, rawEnvelopeExclusions, type LocalArtifactKind, type MessageSegment } from "@codeterm/chat-core";
 
 export interface ChatDocument { path: string; kind: LocalArtifactKind; name: string; shownAt: string | number | null; }
-interface TranscriptMessage { content: string; timestamp?: string | number | null; type?: string; inboundKind?: string; segments?: readonly MessageSegment[] | null }
+export interface TranscriptMessage { id?: string; sourceSessionId?: string; content: string; timestamp?: string | number | null; type?: string; inboundKind?: string; segments?: readonly MessageSegment[] | null }
 
 function untrustedSegments(segments: readonly MessageSegment[]): boolean {
   return segments.some((part) => part.type === "partial_frame" || part.type === "unknown_frame" || part.type === "paste"
@@ -56,4 +56,35 @@ export function documentsFromTranscript(messages: readonly TranscriptMessage[]):
     }
   }
   return [...documents.values()].reverse();
+}
+
+export function createDocumentInventory(extract = documentsFromTranscript) {
+  let cache = new Map<string | TranscriptMessage, { message: TranscriptMessage; documents: ChatDocument[] }>();
+  let previous: ChatDocument[][] = [];
+  let inventory: ChatDocument[] = [];
+  return (messages: readonly TranscriptMessage[]): ChatDocument[] => {
+    const nextCache = new Map<string | TranscriptMessage, { message: TranscriptMessage; documents: ChatDocument[] }>();
+    const rows = messages.map((message) => {
+      const key = message.id === undefined ? message : `${message.sourceSessionId ?? ""}:${message.id}`;
+      const cached = cache.get(key);
+      const prior = cached?.message;
+      const found = cached && (prior === message || (prior && prior.content === message.content && prior.timestamp === message.timestamp
+        && prior.type === message.type && prior.inboundKind === message.inboundKind && prior.segments === message.segments))
+        ? cached.documents : extract([message]).reverse();
+      nextCache.set(key, { message, documents: found });
+      return found;
+    }).filter((row) => row.length > 0);
+    cache = nextCache;
+    if (rows.length === previous.length && rows.every((row, index) => row === previous[index])) return inventory;
+    previous = rows;
+    const documents = new Map<string, ChatDocument>();
+    for (const row of rows) for (const item of row) {
+      const key = item.path.replace(/\\/g, "/");
+      documents.delete(key);
+      documents.set(key, item);
+    }
+    const next = [...documents.values()].reverse();
+    if (JSON.stringify(next) !== JSON.stringify(inventory)) inventory = next;
+    return inventory;
+  };
 }

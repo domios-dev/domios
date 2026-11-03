@@ -1,0 +1,40 @@
+import assert from "node:assert/strict";
+import { sessionChanges, type NormalizedChatMessage } from "@codeterm/chat-core";
+import { chatChangesStore } from "./chatChangesStore";
+
+const user: NormalizedChatMessage = { id: "user", type: "user", content: "change files", sourceSessionId: "one" };
+const edit: NormalizedChatMessage = { id: "edit", type: "tool_call", content: "", toolId: "call", sourceSessionId: "one",
+  toolEdits: [{ path: "/work/a.ts", old: "a", new: "b" }] };
+const complete: NormalizedChatMessage = { id: "complete", type: "tool_result", content: "done", toolId: "call", sourceSessionId: "one", toolError: false };
+chatChangesStore.clear();
+let emissions = 0;
+const unsubscribe = chatChangesStore.subscribe(() => emissions++);
+const update = (messages: NormalizedChatMessage[]) => {
+  chatChangesStore.set("tab", messages);
+  assert.deepEqual(chatChangesStore.get("tab"), sessionChanges(messages));
+};
+update([user, edit, complete]);
+const initial = chatChangesStore.get("tab");
+const before = emissions;
+update([user, edit, complete, { id: "stream", type: "assistant", content: "growing" }]);
+update([user, edit, { ...complete, content: "output grows" }, { id: "stream", type: "assistant", content: "growing more" }]);
+update([user, edit, complete, { id: "command", type: "tool_call", toolId: "unrelated", content: "running" }]);
+update([user, edit, complete].map(message => ({ ...message, content: "projected clone" })));
+assert.equal(emissions, before);
+assert.equal(chatChangesStore.get("tab"), initial);
+const rename: NormalizedChatMessage = { id: "rename", type: "tool_result", content: "", fileDiffs: [{ path: "/work/a.ts", movePath: "/work/b.ts", kind: "rename", additions: 0, deletions: 0, hunks: [] }] };
+update([user, edit, complete, rename]);
+assert.equal(chatChangesStore.get("tab").cumulative[0].movePath, "/work/b.ts");
+update([user, { ...edit, toolEdits: [{ path: "/work/a.ts", old: "a", new: "c\nd" }] }, complete, rename]);
+update([user, edit, { ...complete, toolError: true }, rename]);
+update([user, rename]);
+update([user]);
+update([]);
+chatChangesStore.bind("tab", "binding-a");
+update([user, edit, complete]);
+chatChangesStore.bind("tab", "binding-b");
+assert.deepEqual(chatChangesStore.get("tab"), sessionChanges([]));
+update([user, edit, complete]);
+unsubscribe();
+chatChangesStore.clear();
+console.log("chatChangesStore: unrelated streams stay silent; edits, completion, rename, removal and binding reset passed");

@@ -22,7 +22,9 @@ export function createChatDocumentsModel(check: (paths: string[], tabId: string)
     if (!source?.length) return Promise.resolve();
     const request = check([...new Set(source.map((document) => document.path))], tabId).then((result) => {
       if (sources.get(tabId) !== source) return;
-      snapshots.set(tabId, { documents: existingDocuments(source, result.paths), home: result.home });
+      const next = { documents: existingDocuments(source, result.paths), home: result.home };
+      if (JSON.stringify(snapshots.get(tabId) ?? empty) === JSON.stringify(next)) return;
+      snapshots.set(tabId, next);
       emit();
     }, () => {
       if (sources.get(tabId) !== source) return;
@@ -34,7 +36,7 @@ export function createChatDocumentsModel(check: (paths: string[], tabId: string)
   };
   return {
     set(tabId: string, documents: readonly ChatDocument[]) {
-      if (JSON.stringify(sources.get(tabId)) === JSON.stringify(documents)) return;
+      if (sources.get(tabId) === documents || JSON.stringify(sources.get(tabId)) === JSON.stringify(documents)) return;
       sources.set(tabId, documents);
       pending.delete(tabId);
       snapshots.set(tabId, empty);
