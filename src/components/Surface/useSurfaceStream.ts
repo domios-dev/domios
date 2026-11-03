@@ -94,6 +94,7 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       current.disconnect?.();
       current.disconnect = null;
       current.sent = null;
+      current.latest = null;
     } else if (current.latest && !current.disconnect) {
       connect(current.latest);
     }

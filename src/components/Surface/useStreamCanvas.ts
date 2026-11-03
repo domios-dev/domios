@@ -44,7 +44,6 @@ function currentDpr(): number {
 
 export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, onViewport, onHidden, onError }: UseStreamCanvasOptions): StreamCanvasHandle {
   const css = useRef<Size>({ width: 0, height: 0 });
-  const dpr = useRef(currentDpr());
   const drawCss = useRef<Rect>(EMPTY_RECT);
   const frame = useRef<DecodedFrame | null>(null);
   const meta = useRef<FrameMetadata | null>(null);
@@ -96,33 +95,17 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
   }, []);
 
   useLayoutEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      reported.current = null;
+      return;
+    }
     const stage = stageRef.current;
     if (!stage) return;
-    const box = stage.getBoundingClientRect();
-    if (box.width > 0 && box.height > 0) {
+    const measure = (box: Size = stage.getBoundingClientRect()) => {
       css.current = { width: box.width, height: box.height };
-      dpr.current = currentDpr();
-      paintRef.current();
-      const request = viewportRequest(css.current, dpr.current);
-      if (request) {
-        reported.current = request;
-        callbacks.current.onViewport(request);
-      }
-    }
-  }, [visible, stageRef]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || typeof ResizeObserver === "undefined") return;
-    let scheduled = 0;
-    const apply = () => {
-      scheduled = 0;
-      dpr.current = currentDpr();
-      const request = viewportRequest(css.current, dpr.current);
-      if (request) drawCss.current = letterboxRect(frame.current ?? { width: 0, height: 0 }, css.current);
+      const request = viewportRequest(css.current, currentDpr());
+      drawCss.current = letterboxRect(frame.current ?? { width: 0, height: 0 }, css.current);
       if (!request) {
-        // The shared server viewport may change while hidden, so the next visible size must be re-sent.
         if (reported.current) {
           reported.current = null;
           callbacks.current.onHidden?.();
@@ -132,15 +115,12 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
         callbacks.current.onViewport(request);
       }
     };
-    const schedule = () => {
-      if (!scheduled) scheduled = requestAnimationFrame(apply);
-    };
-    const observer = new ResizeObserver((entries) => {
+    measure();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver((entries) => {
       const box = entries[entries.length - 1]?.contentRect;
-      if (box) css.current = { width: box.width, height: box.height };
-      schedule();
+      if (box) measure(box);
     });
-    observer.observe(stage);
+    observer?.observe(stage);
     let media: MediaQueryList | null = null;
     // DPR changes (moving between monitors) never resize the element, so ResizeObserver stays silent.
     const watchDpr = () => {
@@ -150,15 +130,14 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     };
     const onDprChange = () => {
       watchDpr();
-      schedule();
+      measure();
     };
     watchDpr();
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       media?.removeEventListener("change", onDprChange);
-      if (scheduled) cancelAnimationFrame(scheduled);
     };
-  }, [stageRef]);
+  }, [visible, stageRef]);
 
   return {
     mapPoint(clientX, clientY) {

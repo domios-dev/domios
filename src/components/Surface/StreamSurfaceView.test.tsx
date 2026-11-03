@@ -462,6 +462,49 @@ suite.test("explicit tab show resumes once and keeps the current canvas without 
   await unmount();
 });
 
+suite.test("tab return waits for fresh visible layout instead of reconnecting at the previous size", async () => {
+  const fake = createFakeStreamTransport();
+  const props = { transport: fake.transport, chrome: BROWSER_SURFACE_CHROME, surfaceTitle: BROWSER_SURFACE_TITLE, initialState: state, decode };
+  const { host, root, unmount } = await render(<StreamSurfaceView {...props} visible />);
+  await resizeStages(640, 480);
+  await act(async () => root.render(<StreamSurfaceView {...props} visible={false} />));
+  const stage = host.querySelector("canvas")!.parentElement!;
+  stage.getBoundingClientRect = () => new DOMRect(0, 0, 0, 0);
+  await act(async () => root.render(<StreamSurfaceView {...props} visible />));
+  assert.equal(fake.connections.length, 1, "no reconnect using the hidden tab's cached geometry");
+  await resizeStages(800, 600);
+  assert.deepEqual(fake.connections[1], { w: 800, h: 600, dpr: window.devicePixelRatio });
+  assert.equal(fake.disconnects(), 1);
+  await unmount();
+});
+
+suite.test("focus and document visibility flaps preserve the connection and viewport owner", async () => {
+  const { fake, unmount } = await mount();
+  await resizeStages(640, 480);
+  await act(async () => fake.emitState({ ...state, viewportOwner: fake.viewer() }));
+  await act(async () => fake.emitOpen());
+  const resizes = fake.callsTo(SURFACE_METHOD.resize).length;
+  for (let cycle = 0; cycle < 3; cycle += 1) {
+    await withDocument({ visibilityState: "hidden", focused: false }, async () => {
+      await act(async () => {
+        window.dispatchEvent(new Event("blur"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+    });
+    await act(async () => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      window.dispatchEvent(new Event("focus"));
+    });
+  }
+  assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, resizes);
+  assert.equal(fake.callsTo("viewport.claim").length, 0);
+  assert.equal(fake.disconnects(), 0);
+  assert.equal(fake.connections.length, 1);
+  await resizeStages(800, 600);
+  assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, resizes + 1, "the same owner can still resize");
+  await unmount();
+});
+
 const frameAt = (deviceWidth: number, deviceHeight: number): StreamFrame => ({ data: "", metadata: { deviceWidth, deviceHeight } });
 
 suite.test("frames of alternating sizes never resize the shared page", async () => {
