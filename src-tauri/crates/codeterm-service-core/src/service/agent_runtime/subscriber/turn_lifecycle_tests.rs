@@ -54,6 +54,49 @@ fn assert_idle(scene: &fixtures::Scene) {
 }
 
 #[tokio::test]
+async fn runtime_turn_start_and_completion_publish_tab_status() {
+    use crate::agent::status::TabStatus;
+    use crate::multiplexer::types::TabBacking;
+
+    let scene = fixtures::scene();
+    let tab_id = scene.session.context.lock().tab_id.clone();
+    scene
+        .fixture
+        .service
+        .mux
+        .write()
+        .get_tab_mut(&tab_id)
+        .unwrap()
+        .backing = TabBacking::ChatBackend {
+        plugin_id: scene.session.provider.clone(),
+        session_id: "thread".into(),
+    };
+    for (state, expected, at) in [
+        (RuntimeTurnState::Working, TabStatus::Working, 10),
+        (RuntimeTurnState::Idle, TabStatus::Idle, 20),
+    ] {
+        publish(&scene, vec![turn(Some("first"), state)], at).await;
+        let svc = &scene.fixture.service;
+        let snapshot = svc.snapshot_with_reconciled_status();
+        assert_eq!(snapshot.tab_statuses.get(&tab_id), Some(&expected));
+        {
+            let events = scene.fixture.ui.0.lock();
+            let (_, payload) = events
+                .iter()
+                .rev()
+                .find(|(name, payload)| name == "tab-status-changed" && payload["tab_id"] == tab_id)
+                .unwrap();
+            assert_eq!(payload["status"], format!("{expected:?}"));
+        }
+        let mux = svc.mux.read();
+        assert_eq!(
+            svc.resolved_tab_status(mux.get_tab(&tab_id).unwrap()),
+            Some(expected)
+        );
+    }
+}
+
+#[tokio::test]
 async fn command_completion_after_a_new_turn_cannot_resurrect_the_previous_turn() {
     let scene = fixtures::scene();
     publish(

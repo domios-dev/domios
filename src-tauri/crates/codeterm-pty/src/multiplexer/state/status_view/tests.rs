@@ -1,6 +1,52 @@
 use super::*;
 
 #[test]
+fn chat_backend_turn_state_is_published_without_a_pty() {
+    let (mut mux, tab_id) = MultiplexerState::new();
+    let tab = mux.get_tab_mut(&tab_id).unwrap();
+    tab.backing = TabBacking::ChatBackend {
+        plugin_id: "fixture".into(),
+        session_id: "own-session".into(),
+    };
+    let tracker = TabStatusTracker::new();
+    for (state, expected) in [
+        (TimelineState::Working, TabStatus::Working),
+        (TimelineState::Question, TabStatus::Waiting),
+        (TimelineState::Idle, TabStatus::Idle),
+    ] {
+        let tab = mux.get_tab_mut(&tab_id).unwrap();
+        tab.agent_state = Some(
+            TabVerdict {
+                state,
+                subtype: None,
+            }
+            .into(),
+        );
+        assert_eq!(
+            resolved_tab_status(tab, &tracker, |_, _| panic!("PTY reconciliation")),
+            Some(expected)
+        );
+        assert_eq!(
+            mux.snapshot_with_status(&tracker).tab_statuses[&tab_id],
+            expected
+        );
+    }
+}
+
+#[test]
+fn untracked_pty_does_not_publish_a_runtime_status() {
+    let (mux, tab_id) = MultiplexerState::new();
+    assert_eq!(
+        resolved_tab_status(
+            mux.get_tab(&tab_id).unwrap(),
+            &TabStatusTracker::new(),
+            |_, raw| raw
+        ),
+        None
+    );
+}
+
+#[test]
 fn snapshot_shell_command_state_follows_authoritative_idle_status() {
     use crate::multiplexer::types::{ShellActivity, ShellCommandState};
 

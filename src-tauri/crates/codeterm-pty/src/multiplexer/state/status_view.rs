@@ -4,10 +4,10 @@ use codeterm_types::pty::{AgentLiveState, TabStatus, TabStatusTracker, TabVerdic
 use codeterm_util::lock_hold::{TimedMutex, TimedRwLock};
 
 use super::{MultiplexerSnapshot, MultiplexerState};
-use crate::multiplexer::types::Tab;
+use crate::multiplexer::types::{Tab, TabBacking};
 
-/// A tab's status from its PTY tracker. A live provider prompt outranks every
-/// tracked state except a PTY confirmed dead, which cannot be waiting.
+/// Chat transports publish their turn state; PTYs use the reconciled tracker.
+/// A live prompt outranks tracked states except a confirmed dead or failed PTY.
 pub fn resolved_tab_status(
     tab: &Tab,
     tracker: &TabStatusTracker,
@@ -16,6 +16,13 @@ pub fn resolved_tab_status(
     if tab.provider_signals.access_lost() {
         log::debug!("[provider-access] status waiting tab={}", tab.id);
         return Some(TabStatus::Waiting);
+    }
+    if matches!(tab.backing, TabBacking::ChatBackend { .. }) {
+        return Some(if tab.pending_prompt.is_some() {
+            TabStatus::Waiting
+        } else {
+            effective_tab_status(tab, None)
+        });
     }
     let tracked = tab
         .pty_id

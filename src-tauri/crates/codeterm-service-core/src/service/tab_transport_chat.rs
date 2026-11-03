@@ -12,6 +12,7 @@ use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
 use crate::chatbackend::ChatBackendProvider;
 use crate::multiplexer::commands::MuxState;
+mod activity;
 mod close;
 mod liveness;
 mod recovery;
@@ -672,6 +673,7 @@ impl ServiceContext {
         match result {
             Ok(delta) => {
                 bound.observe(&delta);
+                self.observe_chatbackend_activity(plugin_id, session_id, &bound, &delta);
                 Ok(delta)
             }
             Err(error) => {
