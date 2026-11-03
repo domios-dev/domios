@@ -169,6 +169,27 @@ async fn type_submit_requires_evidence_and_never_replays_insert_or_enter() {
             assert!(result.unwrap_err().starts_with("submit_unconfirmed:"));
         }
         let commands = connection.commands.lock();
+        let insertion = commands
+            .iter()
+            .position(|(method, _)| method == "Input.insertText")
+            .unwrap();
+        let presentation = commands
+            .iter()
+            .position(|(_, params)| params["awaitPromise"] == true)
+            .unwrap();
+        let enter = commands
+            .iter()
+            .position(|(method, params)| {
+                method == "Input.dispatchKeyEvent"
+                    && params["type"] == "keyDown"
+                    && params["key"] == "Enter"
+            })
+            .unwrap();
+        assert!(insertion < presentation && presentation < enter);
+        assert_eq!(
+            commands[presentation].1["arguments"][0]["value"],
+            json!({"kind":"typing","secret":false,"text":"one insertion"})
+        );
         assert_eq!(
             commands
                 .iter()

@@ -144,7 +144,9 @@ impl BrowserRuntime {
                 Some(reason) => return Err(format!("{reason}: typing refused before insertion")),
                 None => return Err("action_unconfirmed: field preparation failed; inspect before continuing".into()),
             }
-            self.send(page, "Input.insertText", json!({"text":text})).await.map(|_| ()).map_err(|_| "action_unconfirmed: text insertion may have occurred; inspect before continuing; never replay".into())
+            self.send(page, "Input.insertText", json!({"text":text})).await.map_err(|_| "action_unconfirmed: text insertion may have occurred; inspect before continuing; never replay".to_string())?;
+            self.present_on(page, Some(id), json!({"kind":"typing","secret":secret,"text":if secret { "" } else { text }})).await;
+            Ok(())
         }.await;
         let _ = self
             .send(page, "Runtime.releaseObject", json!({"objectId":id}))
