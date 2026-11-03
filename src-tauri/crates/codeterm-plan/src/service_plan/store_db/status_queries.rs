@@ -95,44 +95,54 @@ impl PlanDatabase {
     ) -> Result<PlanStatusRead, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
-        record_query();
-        let header: String = transaction
-            .query_row(
-                HEADER,
-                params![plan_id, now_ms.saturating_sub(7 * 24 * 60 * 60 * 1000)],
-                |row| column(row, 0),
-            )
-            .optional()
-            .map_err(db_error)?
-            .ok_or(PlanError::NotFound)?;
-        let mut plan: Plan = decode(plan_id, &header)?;
-        load_tasks(&transaction, &mut plan)?;
-        load_sections(&transaction, &mut plan)?;
-        load_attempts(&transaction, &mut plan)?;
-        load_history(&transaction, &mut plan)?;
-        load_heartbeat(&transaction, &mut plan, selected_learnings)?;
-        refresh_control_counts(&transaction, &mut plan, now_ms)?;
-        let (bounces, held_reviews, lane_history_count) = history_facts(&transaction, &plan)?;
-        let event_log = super::state_event_queries::event_log(&transaction, plan_id)?;
-        record_query();
-        let (undelivered_requests,delivery_uncertain) = transaction.query_row(
+        let read = load_status_projection(&transaction, plan_id, now_ms, selected_learnings)?;
+        transaction.commit().map_err(db_error)?;
+        Ok(read)
+    }
+}
+
+pub(super) fn load_status_projection(
+    transaction: &Connection,
+    plan_id: &str,
+    now_ms: u64,
+    selected_learnings: &[String],
+) -> Result<PlanStatusRead, PlanError> {
+    record_query();
+    let header: String = transaction
+        .query_row(
+            HEADER,
+            params![plan_id, now_ms.saturating_sub(7 * 24 * 60 * 60 * 1000)],
+            |row| column(row, 0),
+        )
+        .optional()
+        .map_err(db_error)?
+        .ok_or(PlanError::NotFound)?;
+    let mut plan: Plan = decode(plan_id, &header)?;
+    load_tasks(transaction, &mut plan)?;
+    load_sections(transaction, &mut plan)?;
+    load_attempts(transaction, &mut plan)?;
+    load_history(transaction, &mut plan)?;
+    load_heartbeat(transaction, &mut plan, selected_learnings)?;
+    refresh_control_counts(transaction, &mut plan, now_ms)?;
+    let (bounces, held_reviews, lane_history_count) = history_facts(transaction, &plan)?;
+    let event_log = super::state_event_queries::event_log(transaction, plan_id)?;
+    record_query();
+    let (undelivered_requests,delivery_uncertain) = transaction.query_row(
             "SELECT (SELECT count(*) FROM json_each(p.header_json,'$.planner_requests') WHERE json_extract(value,'$.state')<>'completed'),
                     EXISTS(SELECT 1 FROM json_each(p.header_json,'$.planner_inbox') WHERE json_extract(value,'$.phase')='delivery_uncertain')
              FROM plans p WHERE id=?1",[plan_id],|row| Ok((row.get(0)?,row.get(1)?))
         ).map_err(db_error)?;
-        let revision = super::change_feed::revision(&transaction, plan_id)?.to_string();
-        transaction.commit().map_err(db_error)?;
-        Ok(PlanStatusRead {
-            revision,
-            plan,
-            event_log,
-            bounces,
-            held_reviews,
-            lane_history_count,
-            undelivered_requests,
-            delivery_uncertain,
-        })
-    }
+    let revision = super::change_feed::revision(transaction, plan_id)?.to_string();
+    Ok(PlanStatusRead {
+        revision,
+        plan,
+        event_log,
+        bounces,
+        held_reviews,
+        lane_history_count,
+        undelivered_requests,
+        delivery_uncertain,
+    })
 }
 
 fn load_tasks(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {

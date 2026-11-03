@@ -569,6 +569,7 @@ mod change_feed;
 mod chat_read_queries;
 mod curator_queries;
 mod index_queries;
+mod notice_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod match_queries;
 mod read_projections;

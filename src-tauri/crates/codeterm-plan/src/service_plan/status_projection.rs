@@ -4,6 +4,30 @@ use super::{PlanError, PlanStore};
 use crate::plan::Plan;
 use std::collections::HashMap;
 
+pub struct PlanNoticeRead {
+    pub(super) plan: Plan,
+    pub(super) finished_lanes: usize,
+    pub(super) lane_candidates: Vec<String>,
+}
+
+impl PlanNoticeRead {
+    pub fn plan(&self) -> &Plan {
+        &self.plan
+    }
+
+    pub fn digest_counters(
+        &self,
+        now_ms: u64,
+        stalled_lanes: usize,
+    ) -> super::digest_rules::PlanDigestCounters {
+        let mut counters =
+            super::digest_rules::plan_digest_counters(&self.plan, now_ms, stalled_lanes);
+        counters.finished_lanes = self.finished_lanes;
+        counters.lane_candidates = self.lane_candidates.clone();
+        counters
+    }
+}
+
 pub struct CuratorScheduleRead {
     plan: Plan,
 }
@@ -60,6 +84,16 @@ impl PlanStatusRead {
 }
 
 impl PlanStore {
+    pub fn notice_projection(
+        &self,
+        plan_id: &str,
+        now_ms: u64,
+        selected_learnings: &[String],
+    ) -> Result<PlanNoticeRead, PlanError> {
+        self.database
+            .notice_projection(plan_id, now_ms, selected_learnings)
+    }
+
     pub fn curator_schedule_projection(
         &self,
         plan_id: &str,
