@@ -447,7 +447,13 @@ impl SurfaceRuntime for BrowserRuntime {
         self.run_verb(ctx, verb, args)
             .await
             .map(|result| self.redact_text(&result))
-            .map_err(|error| self.redact_text(&error))
+            .map_err(|error| {
+                let error = if (error.starts_with("stale:") || error.contains("re-snapshot"))
+                    && !error.contains("domios plugin browser snapshot") {
+                    format!("{error}; run `domios plugin browser snapshot` for fresh refs")
+                } else { error };
+                self.redact_text(&error)
+            })
     }
 
     async fn annotate(

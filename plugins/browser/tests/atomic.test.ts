@@ -203,12 +203,25 @@ describe("Browser filtered text", () => {
       window.document.body.innerHTML = '<aside>outside</aside><main>intro<br>Target line<br><span data-sensitive>private detail</span></main>';
       Object.defineProperty(window.document.querySelector("main"), "innerText", { value:"intro\nTarget line\nprivate detail" });
       const text = window.eval(`(${readFileSync(resolve(source, "text.js"), "utf8")})`);
-      expect(text("main", "target", 100)).toBe("Target line");
-      expect(text("main", "private", 100)).toBe("(no matching lines)");
-      expect(text("main", null, 100)).not.toContain("outside");
-      expect(text("main", null, 5)).toContain("truncated");
+      expect(text("main", "target", 100)).toEqual({text:"Target line",items:1,truncated:false});
+      expect(text("main", "private", 100)).toEqual({text:"(no matching lines)",items:0,truncated:false});
+      expect(text("main", null, 100).text).not.toContain("outside");
+      expect(text("main", null, 5)).toEqual({text:expect.stringContaining("truncated"),items:1,truncated:true});
       expect(() => text("#missing", null, 100)).toThrow("not_found");
-      expect(text("[data-sensitive]", null, 100)).toBe("REDACTED");
+      expect(text("[data-sensitive]", null, 100)).toEqual({text:"REDACTED",items:1,truncated:false});
+    } finally { window.happyDOM.abort(); }
+  });
+});
+
+describe("Browser wait evidence", () => {
+  it("identifies the chat instruction that satisfied a text wait and the matched selector", async () => {
+    const window = new Window({ url: "https://example.test/chat" });
+    try {
+      window.document.body.innerHTML = '<main><article id="instruction" aria-label="User message">Wait for Ready before proceeding</article><button>Loading</button></main>';
+      const wait = window.eval(`(${readFileSync(resolve(source, "wait.js"), "utf8")})`);
+      const evidence = await wait("text", "Ready", 1000);
+      expect(evidence).toMatchObject({url:"https://example.test/chat",tag:"article",id:"instruction",name:"User message",excerpt:"Wait for Ready before proceeding"});
+      expect(await wait("selector", "button", 1000)).toMatchObject({tag:"button",excerpt:"Loading"});
     } finally { window.happyDOM.abort(); }
   });
 });

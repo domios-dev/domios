@@ -52,7 +52,7 @@ impl BrowserRuntime {
         &self,
         page: &PageChannel,
         args: &[String],
-    ) -> Result<String, String> {
+    ) -> Result<super::output::ReadOutput, String> {
         let options = parse(args)?;
         let expression = format!(
             "({})({}, {}, {})",
@@ -62,10 +62,12 @@ impl BrowserRuntime {
             options.limit
         );
         let value = self.evaluate(page, &expression, false).await?;
-        value
-            .as_str()
-            .map(str::to_string)
-            .ok_or("text extraction returned no result".into())
+        let text = value["text"].as_str().ok_or("text extraction returned no result")?;
+        Ok(super::output::ReadOutput {
+            text: text.to_string(),
+            items: value["items"].as_u64().ok_or("text extraction returned no item count")? as usize,
+            truncated: value["truncated"].as_bool().ok_or("text extraction returned no truncation state")?,
+        })
     }
 }
 

@@ -34,6 +34,18 @@ describe("Browser stdin typing", () => {
 });
 
 describe("browser plugin onAgentCommand", () => {
+  it.each(["help", "--help", ""])("discovers %s without opening a browser", (verb) => {
+    const call = vi.fn(() => JSON.stringify({ result: "Host test build opaque\nVerbs:\nsnapshot [limit]" }));
+    expect(forward({ sessionId: "tab-1", verb, args: [] }, call)).toEqual({ result: `Browser plugin ${manifest.version}\nHost test build opaque\nVerbs:\nsnapshot [limit]` });
+    expect(call).toHaveBeenCalledExactlyOnceWith("help", "[]");
+  });
+
+  it("names the help verb for misplaced help and preserves the owner on ref recovery", () => {
+    const call = vi.fn(() => JSON.stringify({ error: "stale: run `domios plugin browser snapshot` for fresh refs" }));
+    expect(forward({ sessionId: "s", verb: "snapshot", args: ["--help"] }, call)).toEqual({ error: "Use `domios plugin browser help` for browser verbs and syntax" });
+    expect(call).not.toHaveBeenCalled();
+    expect(forward({ sessionId: "s", verb: "click", args: ["@old", "--of", "Other Agent"] }, call)).toEqual({ error: 'stale: run `domios plugin browser snapshot --of "Other Agent"` for fresh refs' });
+  });
   it("forwards the verb and its args to the caller's own surface as a JSON array", () => {
     const call = vi.fn(() => JSON.stringify({ result: "clicked @e3" }));
     expect(forward({ sessionId: "tab-1", verb: "click", args: ["@e3"] }, call)).toEqual({ result: "clicked @e3" });

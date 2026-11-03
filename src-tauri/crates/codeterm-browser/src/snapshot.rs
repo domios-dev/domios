@@ -334,9 +334,9 @@ pub enum ResolveError {
 impl std::fmt::Display for ResolveError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::NoSnapshot => write!(f, "no snapshot yet — run `snapshot` first"),
+            Self::NoSnapshot => write!(f, "no snapshot yet — run `domios plugin browser snapshot` for fresh refs"),
             Self::StaleRef(reference) => {
-                write!(f, "stale or unknown ref {reference} — run `snapshot` again")
+                write!(f, "stale or out-of-scope ref {reference} — run `domios plugin browser snapshot` for fresh refs")
             }
             Self::MissingTarget => write!(f, "expected @ref or <role> <name>"),
             Self::NotFound { role, name } => write!(

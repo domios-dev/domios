@@ -73,6 +73,7 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
 
 #[derive(Default)]
 struct PageSession {
+    cursor_visible: bool,
     diagnostics: std::collections::VecDeque<Value>,
     action: Option<String>,
     bound_page: Option<PageChannel>,
@@ -93,6 +94,19 @@ pub(super) struct PageShared {
 }
 
 impl PageShared {
+    pub(super) fn show_cursor(&self, page: &PageChannel) {
+        let mut session = self.session.lock();
+        if session.bound_page.as_ref().is_some_and(|bound| bound.same_page(page)) {
+            session.cursor_visible = true;
+        }
+    }
+
+    pub(super) fn take_cursor(&self, page: &PageChannel) -> bool {
+        let mut session = self.session.lock();
+        session.bound_page.as_ref().is_some_and(|bound| bound.same_page(page))
+            && std::mem::take(&mut session.cursor_visible)
+    }
+
     pub(super) fn diagnostics(&self, console: bool, pattern: Option<&str>, limit: usize) -> Value {
         let session = self.session.lock();
         let kind = if console { "console" } else { "network" };
@@ -317,7 +331,7 @@ impl PageShared {
     pub(super) fn begin_snapshot(&self, session_id: &str) -> Result<String, String> {
         let mut session = self.session.lock();
         if session.bound_session.as_deref() != Some(session_id) {
-            return Err("the browser session changed — take a new snapshot".into());
+            return Err("the browser session changed — run `domios plugin browser snapshot` for fresh refs".into());
         }
         use base64::Engine;
         let capture = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -330,7 +344,7 @@ impl PageShared {
     pub(super) fn finish_snapshot(&self, capture: &str, snapshot: Snapshot) -> Result<(), String> {
         let mut session = self.session.lock();
         if session.capture.as_deref() != Some(capture) {
-            return Err("the page changed during capture — take a new snapshot".into());
+            return Err("the page changed during capture — run `domios plugin browser snapshot` for fresh refs".into());
         }
         session.snapshot = Some(snapshot);
         session.capture = None;

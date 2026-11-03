@@ -12,6 +12,7 @@ struct Connection {
     animation_started: Notify,
     animation_ended: Notify,
     fail_input: bool,
+    stall_evaluation: std::sync::atomic::AtomicBool,
 }
 
 #[async_trait::async_trait]
@@ -38,6 +39,10 @@ impl CdpConnection for Connection {
         _: Duration,
     ) -> Result<Value, CdpError> {
         self.calls.lock().push((method.into(), params.clone()));
+        if method == "Runtime.evaluate" && self.stall_evaluation.load(std::sync::atomic::Ordering::SeqCst) {
+            self.animation_started.notify_one();
+            return std::future::pending().await;
+        }
         if params["awaitPromise"] == true {
             self.animation_started.notify_one();
             self.animation_ended.notified().await;
@@ -69,6 +74,7 @@ async fn fixture(
         animation_started: Notify::new(),
         animation_ended: Notify::new(),
         fail_input,
+        stall_evaluation: std::sync::atomic::AtomicBool::new(false),
     });
     let page = CdpClient::from_connection(connection.clone())
         .attach_page("target")
@@ -84,6 +90,26 @@ async fn fixture(
     );
     runtime.shared.bind(&page);
     (runtime, page, connection, dir)
+}
+
+#[tokio::test]
+async fn browser_viewer_input_dispatches_while_cursor_evaluation_never_answers() {
+    let (runtime, page, wire, _dir) = fixture(false).await;
+    wire.calls.lock().clear();
+    wire.stall_evaluation.store(true, std::sync::atomic::Ordering::SeqCst);
+    runtime.viewer_input(&page, &super::super::input::InputArgs::key("a", &[])).await.unwrap();
+    assert!(!wire.calls.lock().iter().any(|(method, _)| method == "Runtime.evaluate"));
+    runtime.shared.show_cursor(&page);
+    let wheel = super::super::input::InputArgs {kind:"wheel".into(),x:Some(20.0),y:Some(30.0),delta_y:Some(100.0),..Default::default()};
+    tokio::time::timeout(Duration::from_secs(1), async {
+        runtime.viewer_input(&page, &wheel).await.unwrap();
+        runtime.viewer_input(&page, &super::super::input::InputArgs::key("b", &[])).await.unwrap();
+    }).await.expect("viewer input must not wait for page evaluation");
+    wire.animation_started.notified().await;
+    let calls = wire.calls.lock();
+    assert_eq!(calls.iter().filter(|(method, _)| method == "Runtime.evaluate").count(), 1);
+    assert!(calls.iter().any(|(method, params)| method == "Input.dispatchMouseEvent" && params["type"] == "mouseWheel"));
+    assert_eq!(calls.iter().filter(|(method, _)| method == "Input.dispatchKeyEvent").count(), 4);
 }
 
 #[tokio::test]

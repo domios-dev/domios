@@ -159,6 +159,7 @@ impl BrowserRuntime {
     ) -> Result<String, String> {
         let options = parse(args, false)?;
         let page = self.ensure_page().await?;
+        let viewport = options.viewport.unwrap_or_else(|| self.host.viewport());
         let (base64, metrics) = if options.region.is_some() || options.scale.is_some() {
             let metrics = self.send(&page, "Page.getLayoutMetrics", json!({})).await?;
             let bounds = if options.full {
@@ -218,11 +219,7 @@ impl BrowserRuntime {
             if let Some(viewport) = options.viewport {
                 self.apply_metrics(viewport).await?;
             }
-            let metrics = if options.metrics {
-                self.send(&page, "Page.getLayoutMetrics", json!({})).await?
-            } else {
-                serde_json::Value::Null
-            };
+            let metrics = self.send(&page, "Page.getLayoutMetrics", json!({})).await?;
             (
                 self.screenshot_base64(&page, options.full, options.include_overlay)
                     .await?,
@@ -234,12 +231,14 @@ impl BrowserRuntime {
             &format!("shot-{}", super::calls::now_ms()),
         );
         let path = self.save_evidence(ctx, name, base64).await?;
+        let viewport = capture_viewport(&metrics, viewport);
         if options.metrics {
-            Ok(json!({"path":path.to_string_lossy(),"layoutWidth":metrics.pointer("/cssLayoutViewport/clientWidth"),"contentWidth":metrics.pointer("/cssContentSize/width"),"metrics":metrics,"restored":options.restore}).to_string())
+            Ok(json!({"path":path.to_string_lossy(),"viewport":viewport,"layoutWidth":metrics.pointer("/cssLayoutViewport/clientWidth"),"contentWidth":metrics.pointer("/cssContentSize/width"),"metrics":metrics,"restored":options.restore}).to_string())
         } else {
             Ok(format!(
-                "saved {} (show it with <ds-image src=\"{}\" />)",
+                "saved {} (CSS viewport {}x{}, DPR {}; show it with <ds-image src=\"{}\" />)",
                 path.display(),
+                viewport["width"], viewport["height"], viewport["dpr"],
                 path.to_string_lossy()
                     .replace('&', "&amp;")
                     .replace('"', "&quot;")
@@ -248,6 +247,14 @@ impl BrowserRuntime {
             ))
         }
     }
+}
+
+fn capture_viewport(metrics: &serde_json::Value, viewport: Viewport) -> serde_json::Value {
+    json!({
+        "width": metrics.pointer("/cssLayoutViewport/clientWidth"),
+        "height": metrics.pointer("/cssLayoutViewport/clientHeight"),
+        "dpr": viewport.dpr
+    })
 }
 
 #[cfg(test)]

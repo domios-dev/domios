@@ -3,20 +3,31 @@
     let observer;
     let timer;
     let finished = false;
-    const finish = (error) => {
+    const finish = (error, evidence) => {
       if (finished) return;
       finished = true;
       observer?.disconnect();
       if (timer !== undefined) clearTimeout(timer);
       if (error) reject(error);
-      else resolve(true);
+      else resolve(evidence);
     };
     const check = () => {
       try {
-        const found = kind === "text"
-          ? Boolean(document.body?.innerText.includes(value))
-          : Boolean(document.querySelector(value));
-        if (found) finish();
+        let node;
+        if (kind === "text") {
+          node = document.body;
+          if (!node?.innerText.includes(value)) return;
+          while (true) {
+            const child = Array.from(node.children).find(child => child.innerText?.includes(value));
+            if (!child) break;
+            node = child;
+          }
+        } else node = document.querySelector(value);
+        if (node) {
+          const text = node.innerText || node.textContent || "";
+          const at = Math.max(0, text.indexOf(value) - 80);
+          finish(null, {url:location.href, tag:node.localName, id:node.id, role:node.getAttribute("role"), name:node.getAttribute("aria-label"), excerpt:text.slice(at, at + 240)});
+        }
       } catch (error) {
         finish(error);
       }

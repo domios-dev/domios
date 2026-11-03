@@ -1,5 +1,10 @@
 use super::*;
 #[test]
+fn screenshot_metrics_report_css_size_and_capture_dpr() {
+    let metrics = json!({"cssLayoutViewport":{"clientWidth":390,"clientHeight":844}});
+    assert_eq!(capture_viewport(&metrics, Viewport {width:780,height:1688,dpr:2.0,mobile:true}), json!({"width":390,"height":844,"dpr":2.0}));
+}
+#[test]
 fn browser_overlay_capture_is_explicit() {
     assert!(!parse(&[], false).unwrap().include_overlay);
     assert!(
