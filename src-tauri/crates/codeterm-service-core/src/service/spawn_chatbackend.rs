@@ -370,8 +370,6 @@ impl ServiceContext {
 
         let launch = spec.chatbackend_launch.as_deref();
 
-        // Persisted as the JSONL `_meta` header so a restored tab can re-open from the same config.
-        let history_meta = config.clone();
         let runtime_fork = launch.and_then(|launch| launch.runtime_fork.clone());
 
         {
@@ -422,6 +420,15 @@ impl ServiceContext {
         if role.is_none() && emit_state_change && runtime_fork.is_none() {
             self.emit_state_changed(MuxEmitCause::TabLifecycle);
         }
+
+        if let Some(launch) = launch.filter(|launch| launch.params.manager_bootstrap.is_some()) {
+            let mut params = launch.params.clone();
+            params.system_prompt = config["systemPrompt"].as_str().map(str::to_owned);
+            super::orchestrator::bind_manager_launch_identity(self, &tab_id, &mut params)
+                .inspect_err(|_| self.rollback_provisional_tab(&ws_id, &tab_id))?;
+            config["systemPrompt"] = serde_json::json!(params.system_prompt);
+        }
+        let history_meta = config.clone();
 
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);

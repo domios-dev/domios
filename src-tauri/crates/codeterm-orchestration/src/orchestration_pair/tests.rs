@@ -55,6 +55,51 @@ fn pair_bootstrap_identity_uses_the_named_live_team_after_title_binding() {
 }
 
 #[test]
+fn pair_role_placement_preserves_reserved_team_and_launch_identity() {
+    let (mut mux, _, mut reserved) = reserved_pair();
+    apply_reserved_team_title(&mut mux, &mut reserved, "opaque-team-title").unwrap();
+    let bootstrap = codeterm_service_core::service::spawn_factory::forming_identity_in_team(
+        "Orchestrator",
+        "orchestrator",
+        "opaque-project".into(),
+        &reserved.team,
+    );
+    let fixture = crate::test_fixture::ServiceFixture::new(mux);
+    fixture
+        .service
+        .set_tab_role_with_profile(
+            &reserved.orchestrator_tab_id,
+            "Orchestrator",
+            None,
+            None,
+            Some(true),
+        )
+        .unwrap();
+    fixture
+        .service
+        .set_tab_role_with_profile(
+            &reserved.planner_tab_id,
+            "Manager",
+            Some("planner"),
+            Some(&reserved.orchestrator_tab_id),
+            None,
+        )
+        .unwrap();
+    let mux = fixture.service.mux.read();
+    for tab_id in [&reserved.orchestrator_tab_id, &reserved.planner_tab_id] {
+        assert_eq!(
+            mux.get_tab(tab_id).unwrap().team_id.as_deref(),
+            Some(bootstrap.team_id.as_str())
+        );
+    }
+    assert_eq!(mux.list_teams().len(), 1);
+    assert_eq!(
+        mux.get_team(&bootstrap.team_id).unwrap().name.as_deref(),
+        Some(bootstrap.team_name.as_str())
+    );
+}
+
+#[test]
 fn pair_spawn_creates_no_plan_until_first_goal() {
     let (_root, store) = store_for_test();
     assert!(

@@ -403,6 +403,77 @@ fn runtime_brief_rides_instructions_when_manifest_declares_system_prompt() {
 }
 
 #[test]
+fn manager_launch_config_uses_committed_team_after_placement() {
+    use crate::service::orchestrator::compose_runtime_system_prompt;
+    use crate::service::spawn::SpawnTabSpec;
+    use crate::service::spawn_capability::test_backend::SpawnableTestBackend;
+
+    const ASSIGNMENT: &str = "fragment-97α\n$opaque `x` {task}";
+    const OVERLAY: &str = "opaque-overlay";
+    let (mut mux, owner) = crate::multiplexer::state::MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+    mux.set_orchestrator_role(&owner).unwrap();
+    let team_id = mux.resolve_or_mint_team_for_parent(&owner).unwrap().team_id;
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    fixture.service.chatbackend_registry.register(
+        "opaque-backend",
+        std::sync::Arc::new(SpawnableTestBackend {
+            id: "opaque-backend",
+        }),
+    );
+    let mut params = crate::service::SpawnAgentParams {
+        agent: Some("opaque-backend".into()),
+        role: Some("Orchestrator".into()),
+        workspace_id: Some(workspace),
+        existing_tab_id: Some(owner.clone()),
+        task: Some(ASSIGNMENT.into()),
+        system_prompt: Some(OVERLAY.into()),
+        manager_bootstrap: Some(crate::service::role_identity::ManagerBootstrapInputs {
+            role: "Orchestrator".into(),
+            role_kind: "orchestrator".into(),
+            team_id: "opaque-stale-team".into(),
+            team_name: "opaque-stale-name".into(),
+            plan_id: "opaque-plan".into(),
+            project: "opaque-project".into(),
+            coordination: Some("opaque-counterpart".into()),
+        }),
+        ..Default::default()
+    };
+    params.system_prompt = compose_runtime_system_prompt(&mut params);
+    let spec = SpawnTabSpec::from_agent_params_with_chatbackends(
+        &fixture.service.chatbackend_registry,
+        params,
+    );
+    let (handle, launch) = fixture.service.stage_chatbackend_spawn(spec, true).unwrap();
+    assert_eq!(handle.tab_id, owner);
+    let prompt = launch.config["systemPrompt"].as_str().unwrap();
+    assert!(prompt.contains(&team_id));
+    assert!(!prompt.contains("opaque-stale-team"));
+    assert!(!prompt.contains("opaque-stale-name"));
+    for fragment in [
+        ASSIGNMENT,
+        OVERLAY,
+        "opaque-counterpart",
+        "opaque-plan",
+        "opaque-project",
+    ] {
+        assert_eq!(prompt.matches(fragment).count(), 1);
+    }
+    assert_eq!(launch.history_meta, launch.config);
+    assert_eq!(
+        fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&owner)
+            .unwrap()
+            .team_id
+            .as_deref(),
+        Some(team_id.as_str())
+    );
+}
+
+#[test]
 fn runtime_fresh_brief_survives_launch_ensure_for_every_role_and_system_channel() {
     use crate::agent::test_provider::MockProvider;
     use crate::service::orchestrator::{compose_runtime_system_prompt, ensure_tab_runtime_prompt};

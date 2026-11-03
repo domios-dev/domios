@@ -562,6 +562,7 @@ impl ServiceContext {
             }
         }
 
+        runtime_prompt::bind_manager_launch_identity(self, &tab_id, &mut params)?;
         let worker = self
             .mux
             .read()
