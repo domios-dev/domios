@@ -239,7 +239,10 @@ fn run_cycle(svc: &ServiceContext, req: &RefreshRequest, ctx: &TabCtx) {
         match advance(phase, &obs, &req.tuning) {
             Step::Hold => {}
             Step::Enter(next) => {
-                enter_phase(svc, req, ctx, next, &mut reorient_needle);
+                if let Err(error) = enter_phase(svc, req, ctx, next, &mut reorient_needle) {
+                    alert_stranded(svc, req, ctx, &error.to_string());
+                    return;
+                }
                 phase = next;
                 phase_started = Instant::now();
                 log_phase(ctx, req.trigger, phase);
@@ -317,20 +320,21 @@ fn enter_phase(
     ctx: &TabCtx,
     next: RefreshPhase,
     reorient_needle: &mut String,
-) {
+) -> Result<(), codeterm_service_core::service::plan::PlanError> {
     match next {
         RefreshPhase::Compact => send_compact(svc, req, ctx),
         RefreshPhase::Reorient => {
             let body = svc.plan_store.prepend_heartbeat_for_plan(
                 &req.plan_id,
                 &template::render(REORIENT, &req.plan_id),
-            );
+            )?;
             inject(svc, &ctx.tab_id, &body, true);
             *reorient_needle = body;
         }
         // Settle / Verify only start a timer; no entry side-effect.
         _ => {}
     }
+    Ok(())
 }
 
 /// S2 — capability-keyed compaction. Mode A: the provider's declared compact

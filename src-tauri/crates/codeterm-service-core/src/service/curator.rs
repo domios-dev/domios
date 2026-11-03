@@ -57,7 +57,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn curator_heartbeat_body(&self, plan: &Plan) -> String {
-        let heartbeat = self.plan_store.prepend_heartbeat_for_plan(&plan.id, "");
+        let heartbeat = crate::service::plan::heartbeat::prepend_plan_heartbeat(plan, "");
         let actions = crate::service::plan::reminders::composition::action_groups(plan);
         let parked = crate::service::plan::reminders::parked_later_group_summary(plan);
         crate::service::plan::reminders::composition::compose(
@@ -155,9 +155,12 @@ impl ServiceContext {
     pub fn control_loop_show(&self, plan_id: &str) -> Result<ControlLoop, String> {
         let now = self.curator_now()?;
         self.reconcile_curator_id(plan_id, now);
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let read = self
+            .plan_store
+            .status_projection(plan_id, now)
+            .map_err(|error| error.to_string())?;
+        let plan = read.plan();
         let mut state = plan.control_loop.clone();
-        state.refresh_counts(now);
         state.suspended_reason = self.curator_suspended_reason(&plan);
         if state.suspended_reason.is_some() {
             state.next_at = None;
@@ -185,7 +188,7 @@ impl ServiceContext {
         self.control_loop_show(plan_id)
     }
 
-    fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
+    pub(crate) fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
         if !self.configuration().orchestration.plan_reminders {
             Some(CuratorSuspension::RemindersDisabled)
         } else if plan.mode == PlanMode::Paused {

@@ -81,6 +81,7 @@ impl PlanDatabase {
         }
         .map_err(db_error)?;
         super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
+        status_queries::register_functions(&connection)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
@@ -534,6 +535,8 @@ mod index_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod match_queries;
 mod read_projections;
+mod state_event_queries;
+mod status_queries;
 mod task_read_queries;
 pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 #[cfg(test)]

@@ -84,8 +84,8 @@ fn deliver_notice_with_learning_selection(
                 text.to_string()
             } else {
                 let digest_lines = collect_digest_lines(svc, &plan, Some(owner));
-                svc.plan_store.prepend_heartbeat_with_selected_learnings(
-                    plan_id,
+                crate::service::plan::heartbeat::prepend_plan_heartbeat_with_selection(
+                    &plan,
                     text,
                     &digest_lines,
                     selection.learning_ids,

@@ -13,7 +13,9 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanStateSnapshot, PlanError> {
-        let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
+        self.reconcile_curator_id(plan_id, now_ms);
+        let read = self.plan_store.status_projection(plan_id, now_ms)?;
+        let plan = read.plan();
         let coverage = compute_coverage_report(&plan);
         let reconcile = self.reconcile_plan_record(&plan, false, None, now_ms)?;
         let drift = reconcile.drift;
@@ -46,9 +48,11 @@ impl ServiceContext {
             Some(planner_resolution),
             now_ms,
         );
+        read.apply_history_facts(&mut snapshot, now_ms);
         snapshot.mission_control.kpi = super::mission_control_ext::plan_kpi(self, plan_id);
-        if let Ok(control_loop) = self.control_loop_show(plan_id) {
-            snapshot.control_loop = control_loop;
+        snapshot.control_loop.suspended_reason = self.curator_suspended_reason(plan);
+        if snapshot.control_loop.suspended_reason.is_some() {
+            snapshot.control_loop.next_at = None;
         }
         snapshot.mission_control.spend = super::mission_control_ext::machine_spend(self);
         Ok(snapshot)
