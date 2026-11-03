@@ -131,11 +131,11 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             {!expanded && tail}
           </span>
         </button>
+        {opener}
         {event.status === "unresolved" && (
           <span data-testid="toolcard-no-result" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>no result</span>
         )}
         {action}
-        {opener}
         <span className="ct-tool-status-slot">
         <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
           <StatusGlyph aria-hidden="true" size={14} className={event.status === "pending" ? "motion-safe:animate-spin" : undefined} />
