@@ -64,6 +64,84 @@ fn task_board_page_preserves_team_binding_authorization_errors() {
     assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
 }
 
+#[test]
+fn task_detail_resolves_scoped_id_handle_and_key_with_exact_id_precedence() {
+    let (fixture, plan_id, task_id, parent_id, dependency_id, _) = update_fixture();
+    let svc = &fixture.service;
+    svc.plan_store
+        .with_plan(&plan_id, 5, |plan| {
+            let selected = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            selected.handle = Some("qa187-race".into());
+            selected.key = Some("QA1-1103".into());
+            let parent = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == parent_id)
+                .unwrap();
+            parent.handle = Some(task_id.clone());
+            Ok(())
+        })
+        .unwrap();
+    let mut other = Plan::new(
+        "Other scope".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let mut foreign = svc.plan_store.try_get(&plan_id).unwrap().tasks[0].clone();
+    foreign.id = "task_foreign".into();
+    foreign.handle = Some("qa187-race".into());
+    foreign.key = Some("QA1-1103".into());
+    other.tasks = vec![foreign];
+    svc.plan_store.save(&mut other, 6).unwrap();
+    svc.plan_store.reset_plan_loads_for_test();
+    let Json(expected) = task_detail_core(svc, &plan_id, &task_id).unwrap();
+    assert_eq!(expected["task_id"], task_id);
+    for reference in [&task_id, "qa187-race", "QA187-RACE", "QA1-1103", "qa1-1103"] {
+        let Json(actual) = task_detail_core(svc, &plan_id, reference).unwrap();
+        assert_eq!(actual, expected, "reference {reference}");
+        assert_eq!(
+            svc.plan_store
+                .resolve_task_ref(Some(&plan_id), reference)
+                .unwrap()
+                .task_id,
+            task_id
+        );
+    }
+    for reference in ["task_foreign", "missing", "qa187-ra"] {
+        let (status, Json(body)) = task_detail_core(svc, &plan_id, reference).unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND, "{reference}: {body}");
+        assert_eq!(body["plan_error"]["type"], "task_not_found");
+    }
+    assert!(svc.plan_store.plan_loads_for_test().is_empty());
+    svc.plan_store
+        .with_plan(&plan_id, 7, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == dependency_id)
+                .unwrap()
+                .handle = Some("qa1-1103".into());
+            Ok(())
+        })
+        .unwrap();
+    for reference in ["QA1-1103", "qa1-1103"] {
+        let (status, Json(body)) = task_detail_core(svc, &plan_id, reference).unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("ambiguous"));
+        assert!(svc
+            .plan_store
+            .resolve_task_ref(Some(&plan_id), reference)
+            .is_err());
+    }
+    assert_eq!(
+        task_detail_core(svc, &plan_id, &task_id).unwrap().0["task_id"],
+        task_id
+    );
+}
+
 /// The exact live owner identity the update seam authorizes against:
 /// tab id, bound session and the nonce the tab itself reported back.
 pub(crate) fn owner_headers(tab_id: &str) -> HeaderMap {
