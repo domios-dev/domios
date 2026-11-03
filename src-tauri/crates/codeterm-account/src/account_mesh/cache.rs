@@ -78,7 +78,8 @@ impl AccountMesh {
         signed: &Signed,
     ) -> Result<bool, super::AccountMeshRefusal> {
         let candidate = self.with(|inner| {
-            if inner.state.membership.is_some() || inner.record.signed_out {
+            if inner.state.membership.is_some() || inner.record.signed_out || inner.terminal_parked
+            {
                 return None;
             }
             Some((
