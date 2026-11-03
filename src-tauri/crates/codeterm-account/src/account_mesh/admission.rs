@@ -256,6 +256,12 @@ impl AccountMesh {
                 }
             });
         }
+        if let Ok(result) = &result {
+            if let Some(snapshot) = result.signed_registry() {
+                self.accept_server_registry(snapshot, &signed.account, signed.epoch)
+                    .await?;
+            }
+        }
         result
     }
 }

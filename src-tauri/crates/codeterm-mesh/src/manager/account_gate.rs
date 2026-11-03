@@ -42,6 +42,7 @@ impl MeshManager {
         }
         if state.signed_in_account() != self.account.signed_in_account() {
             self.registry_revision = None;
+            self.signed_registry = None;
         }
         self.account = state;
         self.account_ready = true;

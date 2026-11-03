@@ -1,0 +1,11 @@
+{
+  "seed_hex": "0707070707070707070707070707070707070707070707070707070707070707",
+  "public_key_spki_base64": "MCowBQYDK2VwAyEA6kpsY+KcUgq+9VB7Ey7F+ZVHdq6+vnuSQh7qaRRG0iw=",
+  "canonical_payload": "{\"account_id\":\"48ee1ee6f99afd347a12e1ef3a7b98817ba3d54d9d24204e548cac49fcb82e17\",\"aud\":{\"env\":\"test\",\"project\":\"demo-domios\"},\"iss\":\"domios-mesh-registry\",\"issued_at\":1800000000,\"members\":[],\"policy_epoch\":\"mesh-epoch-1\",\"revision\":42,\"revoked_installations\":[\"installation-b\"],\"schema_version\":1}",
+  "grant": {
+    "payload": "eyJhY2NvdW50X2lkIjoiNDhlZTFlZTZmOTlhZmQzNDdhMTJlMWVmM2E3Yjk4ODE3YmEzZDU0ZDlkMjQyMDRlNTQ4Y2FjNDlmY2I4MmUxNyIsImF1ZCI6eyJlbnYiOiJ0ZXN0IiwicHJvamVjdCI6ImRlbW8tZG9taW9zIn0sImlzcyI6ImRvbWlvcy1tZXNoLXJlZ2lzdHJ5IiwiaXNzdWVkX2F0IjoxODAwMDAwMDAwLCJtZW1iZXJzIjpbXSwicG9saWN5X2Vwb2NoIjoibWVzaC1lcG9jaC0xIiwicmV2aXNpb24iOjQyLCJyZXZva2VkX2luc3RhbGxhdGlvbnMiOlsiaW5zdGFsbGF0aW9uLWIiXSwic2NoZW1hX3ZlcnNpb24iOjF9",
+    "signature": "gQsIKoJeNzlv179DPUQwjas5K9g1jnOpg8VD-rIGuorriFA-UVSgyzQzyESk5zS0R7LzxTJPE_QYnd9flMqKDA",
+    "key_id": "issuer-1",
+    "alg": "Ed25519"
+  }
+}

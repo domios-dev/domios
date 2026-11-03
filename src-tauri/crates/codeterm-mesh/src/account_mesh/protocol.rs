@@ -58,12 +58,16 @@ pub struct LinkConfirmReply {
 /// The initiator verified the responder's permit and is about to record the pair.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkCommit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<codeterm_entitlements::DetachedGrant>,
     pub link_id: String,
     pub mesh_signature: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LinkCommitReply {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<codeterm_entitlements::DetachedGrant>,
     pub committed: bool,
 }
 

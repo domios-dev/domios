@@ -599,6 +599,7 @@ async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_park
         assert!(matches!(
             result,
             MeshResult::Withdrawn(WithdrawnResult {
+                signed_registry: None,
                 metadata_revision: 3,
                 ..
             })

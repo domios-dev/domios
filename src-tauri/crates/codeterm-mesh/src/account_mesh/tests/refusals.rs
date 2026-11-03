@@ -7,6 +7,7 @@ const LOCKED: TrafficDecision = TrafficDecision::Blocked(BlockReason::PlanLimitL
 
 fn signed_in(locked: bool, enrolled: bool) -> AccountMeshState {
     AccountMeshState {
+        registry_members: None,
         account_epoch: 1,
         presence: AccountPresence::SignedIn {
             account_id: ACCOUNT.into(),

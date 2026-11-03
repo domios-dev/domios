@@ -81,6 +81,7 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
         mesh.set_clock(Arc::new(|| 100));
         mesh.bind_account_authority(Arc::new(Authority));
         mesh.apply_account_state(AccountMeshState {
+            registry_members: None,
             presence: AccountPresence::SignedIn {
                 account_id: "account".into(),
             },

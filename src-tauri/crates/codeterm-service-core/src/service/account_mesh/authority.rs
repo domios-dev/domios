@@ -25,6 +25,21 @@ pub fn mesh_state(state: &account::LifecycleState) -> mesh::AccountMeshState {
             }),
         revoked_installations: state.revoked_installations.clone(),
         unavailable_installations: state.unavailable_installations.clone(),
+        registry_members: state.signed_registry.as_ref().map(|registry| {
+            registry
+                .rows
+                .iter()
+                .filter(|row| {
+                    row.active && row.presence == account::wire::RegistryPresence::Present
+                })
+                .map(|row| {
+                    (
+                        row.installation_id.clone(),
+                        (row.key_id.clone(), row.key_generation, row.slot_revision),
+                    )
+                })
+                .collect()
+        }),
         plan_limit_locked: state.plan_limit_locked(),
     }
 }
@@ -101,6 +116,21 @@ pub fn membership_refusal(refusal: MembershipRefusal) -> mesh::AdmissionRefusal 
 }
 
 impl mesh::AccountMeshAuthority for AccountAuthority {
+    fn receive_registry_snapshot<'a>(
+        &'a self,
+        snapshot: &'a codeterm_entitlements::DetachedGrant,
+    ) -> mesh::BoxFuture<'a, Result<bool, mesh::AdmissionRefusal>> {
+        Box::pin(async move {
+            match self.0.receive_registry_snapshot(snapshot).await {
+                Ok(applied) => Ok(applied),
+                Err(error) => {
+                    let _ = self.0.list_fresh().await;
+                    Err(admission_refusal(error))
+                }
+            }
+        })
+    }
+
     fn verify_membership(
         &self,
         token: &str,

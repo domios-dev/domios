@@ -294,6 +294,7 @@ async fn connect_target_inner(
     mesh.lock()
         .set_connection_phase(installation_id, ConnectionPhase::Committing);
     let commit = LinkCommit {
+        signed_registry: mesh.lock().signed_registry.clone(),
         link_id: link_id.clone(),
         mesh_signature: transcript::sign_mesh(&context.private_key, &digest, COMMIT_ROLE)
             .map_err(AdmissionRefusal::handshake)?,
@@ -312,25 +313,37 @@ async fn connect_target_inner(
         return Err(AdmissionRefusal::handshake("peer did not commit the link"));
     }
 
-    let mut manager = mesh.lock();
-    manager.fence_admission(&context)?;
-    let endpoint = [PeerAddress::from_ip(&target.ip)];
-    let descriptor = PartyDescriptor {
-        api_port: target.api_port,
-        ..reply.responder
+    let pair = {
+        let mut manager = mesh.lock();
+        manager.fence_admission(&context)?;
+        let endpoint = [PeerAddress::from_ip(&target.ip)];
+        let descriptor = PartyDescriptor {
+            api_port: target.api_port,
+            ..reply.responder
+        };
+        manager.admit_new_link(
+            &descriptor,
+            &endpoint,
+            remote,
+            &context.account_id,
+            &link_id,
+        )?;
+        manager
+            .account_mesh_pairs()
+            .into_iter()
+            .find(|pair| pair.instance_id == responder.instance_id)
+            .ok_or_else(|| AdmissionRefusal::handshake("link not recorded"))?
     };
-    manager.admit_new_link(
-        &descriptor,
-        &endpoint,
-        remote,
-        &context.account_id,
-        &link_id,
-    )?;
-    manager
-        .account_mesh_pairs()
-        .into_iter()
-        .find(|pair| pair.instance_id == responder.instance_id)
-        .ok_or_else(|| AdmissionRefusal::handshake("link not recorded"))
+    if let Some(snapshot) = committed.signed_registry.as_ref() {
+        context
+            .authority
+            .receive_registry_snapshot(snapshot)
+            .await?;
+    }
+    if !mesh.lock().traffic_open(&pair.instance_id) {
+        return Err(AdmissionRefusal::Revoked);
+    }
+    Ok(pair)
 }
 
 fn verify_membership(
