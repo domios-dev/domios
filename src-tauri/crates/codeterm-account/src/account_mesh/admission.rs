@@ -161,6 +161,7 @@ impl AccountMesh {
             schema_version: MESH_SCHEMA_VERSION,
             installation_id: self.installation(),
             request_id: request_id(),
+            signed_registry: Some(true),
             requested_membership_seconds: matches!(
                 operation,
                 MeshOperation::Enroll { .. }

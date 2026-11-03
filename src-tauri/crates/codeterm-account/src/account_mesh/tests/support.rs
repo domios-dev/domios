@@ -172,6 +172,7 @@ pub struct Script {
     pub recovery_prepared: Vec<SignedEnvelope<MeshAdmissionBody>>,
     pub endpoint_seconds: Option<u64>,
     pub membership_registry_revision: Option<u64>,
+    pub membership_signed_registry: Option<DetachedGrant>,
     pub registry_revision: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
@@ -448,6 +449,7 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::Link { .. } => "link",
         };
         self.admit(session, label);
+        assert_eq!(envelope.request.signed_registry, Some(true));
         if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
             self.script
                 .lock()
@@ -599,8 +601,14 @@ impl MeshRegistry for FakeRegistry {
                 if let Some(seconds) = self.script.lock().unwrap().membership_seconds {
                     payload["expires_at"] = json!(now + seconds);
                 }
+                let signed_registry = self
+                    .script
+                    .lock()
+                    .unwrap()
+                    .membership_signed_registry
+                    .clone();
                 let result = MeshResult::Membership(MembershipResult {
-                    signed_registry: None,
+                    signed_registry,
                     operation: match &envelope.request.operation {
                         MeshOperation::Enroll { .. } => MembershipOperation::Enroll,
                         MeshOperation::Renew { .. } => MembershipOperation::Renew,
