@@ -14,6 +14,16 @@ pub enum PlanViewProjection {
 }
 
 impl PlanStore {
+    pub fn reference_projection(
+        &self,
+        plan_id: &str,
+        task_ref: Option<&str>,
+        section_ref: Option<&str>,
+    ) -> Result<crate::plan::Plan, PlanError> {
+        self.database
+            .reference_projection(plan_id, task_ref, section_ref)
+    }
+
     pub fn ui_plan_projection(
         &self,
         plan_id: &str,

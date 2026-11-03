@@ -13,6 +13,8 @@ import type {
   PlanTaskBoardCursor,
   PlanTaskBoardPage,
   PlanTaskDetail,
+  PlanTaskHistoryPage,
+  TaskHistoryKind,
   Section,
 } from "./types";
 import type { PlanLifecycleKind, PlanLifecyclePreview } from "./planLifecycle";
@@ -114,6 +116,16 @@ export async function fetchPlanTaskDetail(
   const value = await res.json() as PlanTaskDetail;
   planRevision(value);
   return value;
+}
+
+export async function fetchPlanTaskHistory(api: ApiConfig, planId: string, taskId: string, kind: TaskHistoryKind, before: number, signal?: AbortSignal): Promise<PlanTaskHistoryPage> {
+  const params = new URLSearchParams({ kind, before: String(before), limit: "50" });
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/history?${params}`, { headers: authHeaders(api), signal });
+  if (!res.ok) throw new PlanReadError(res.status, `task history failed: ${res.status} ${await res.text()}`);
+  const page = await res.json() as PlanTaskHistoryPage;
+  planRevision(page);
+  if (page.plan_id !== planId || page.task_id !== taskId) throw new Error("Task history did not match the selected task.");
+  return page;
 }
 
 export async function fetchPlanTaskBoardPage(

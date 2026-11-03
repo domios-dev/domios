@@ -1,3 +1,4 @@
+import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
 import { SidePanelFrame } from "./SidePanelFrame";
 import { taskDetailMatchesReference } from "../usePlanTaskDetail";
 import { useEffect, useState, type RefObject } from "react";
@@ -21,6 +22,7 @@ export interface PlanSidePanelProps {
   target: PlanSidePanelTarget;
   plan: Plan | null;
   taskDetail?: PlanTaskDetail | null;
+  historyController?: TaskHistoryController;
   taskLoading?: boolean;
   taskError?: string | null;
   onRetryTask?: () => Promise<void>;
@@ -50,6 +52,7 @@ export function PlanSidePanel({
   target,
   plan,
   taskDetail = null,
+  historyController,
   taskLoading = false,
   taskError = null,
   onRetryTask,
@@ -143,6 +146,7 @@ export function PlanSidePanel({
               onOpenTask={openTask}
               onSectionClick={openFullPlan}
             />
+            {detailMatches && taskDetail && <TaskHistoryControls detail={taskDetail} controller={historyController} />}
           </SelectionAsk>
         ) : !key && plan ? (
           <SelectionAsk subject={askSubject(plan, undefined, null)} owner={askOwner(plan, tabs)} onJump={(tabId) => onOpenTab?.(tabId)}>

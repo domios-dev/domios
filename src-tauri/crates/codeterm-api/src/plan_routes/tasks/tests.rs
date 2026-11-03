@@ -102,6 +102,10 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
     assert_eq!(event["task_ids"], json!([task_id]));
     assert_eq!(event["reset"], false);
     assert_eq!(event["revision"], detail["revision"]);
+    let kind = codeterm_service_core::service::plan::task_history::TaskHistoryKind::Milestones;
+    let Json(history) = history::task_history_core(svc, &plan_id, &task_id, kind, None, 2).unwrap();
+    assert_eq!(history["revision"], event["revision"]);
+    assert!(history["items"].as_array().unwrap().len() <= 2);
     assert_eq!(detail["task"]["body"], "selected body");
     assert!(!serde_json::to_string(&event).unwrap().contains("body"));
     assert!(!serde_json::to_string(&detail)
@@ -116,6 +120,10 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
     let (status, Json(error)) = task_detail_core(svc, &plan_id, &task_id).unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(error.get("task").is_none());
+    let (status, Json(error)) =
+        history::task_history_core(svc, &plan_id, &task_id, kind, None, 2).unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(error.get("items").is_none());
 }
 
 #[test]

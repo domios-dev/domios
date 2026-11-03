@@ -273,6 +273,7 @@ export interface PlanTaskBoardSummary {
   historical_executor?: PlanTaskHistoricalExecutor | null;
   competition_badge?: PlanTaskCompetitionBadge | null;
   loop_badge?: PlanTaskLoopBadge | null;
+  history?: Record<TaskHistoryKind, number | null>;
 }
 
 export interface PlanTaskBoardLocator {
@@ -327,6 +328,13 @@ export interface PlanTaskDetailContext {
   has_open_subtasks?: boolean;
 }
 
+export type TaskHistoryKind = "milestones" | "attempts";
+export interface PlanTaskHistoryPage {
+  plan_id: string; task_id: string; revision: string;
+  items: Array<Milestone | TaskExecutionAttempt>;
+  next_cursor: number | null;
+}
+
 export interface PlanTaskDetail {
   revision?: string;
   plan_id: string;
@@ -334,6 +342,7 @@ export interface PlanTaskDetail {
   task: Task;
   context: PlanTaskDetailContext;
   loop_badge?: PlanTaskLoopBadge | null;
+  history?: Record<TaskHistoryKind, number | null>;
 }
 
 export type PlanTaskBoardColumnKey = "pending" | "in_progress" | "in_review" | "blocked" | "done";

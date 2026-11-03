@@ -110,7 +110,29 @@ fn committed_identity_and_existing_hot_write_work_are_bounded_by_changed_rows() 
         assert_eq!(rows, [("plan_tasks".into(), 1), ("plans".into(), 1)]);
         assert!(receipt.decoded_bytes < 32768 && receipt.serialized_bytes < 32768);
         assert!(event_bytes < 256);
-        println!("fixture={} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} unrelated_history_task=task_1161 page_size=25 initial_bytes={initial_bytes} initial_decoded_json_bytes={initial_decoded} initial_serialized_row_bytes={initial_serialized} materialized_projection_text_bytes={} decoded_json_bytes={} serialized_row_bytes={} event_bytes={event_bytes} changed_rows={rows:?}", fixtures::SEED, fixtures::TASKS, fixtures::CONTENT_BYTES, projection_metrics.materialized_bytes, receipt.decoded_bytes, receipt.serialized_bytes);
+        super::super::read_projections::take_metrics();
+        crate::service_plan::store_sync::take_decoded_row_bytes();
+        crate::service_plan::store_rows::take_serialized_row_bytes();
+        let updated_summary = database
+            .ui_plan_projection(
+                &plan.id,
+                crate::service_plan::ui_projections::PlanViewProjection::Summary,
+            )
+            .unwrap();
+        let updated_detail = database.task_detail(&plan.id, "task_0000").unwrap();
+        let update_payload_bytes = serde_json::to_vec(&(&change, updated_summary, updated_detail))
+            .unwrap()
+            .len();
+        let update_decoded_bytes = crate::service_plan::store_sync::take_decoded_row_bytes();
+        let update_serialized_rows = crate::service_plan::store_rows::take_serialized_row_bytes();
+        let update_materialized_bytes =
+            super::super::read_projections::take_metrics().materialized_bytes;
+        assert!(
+            update_payload_bytes < 64 * 1024
+                && update_decoded_bytes < 64 * 1024
+                && update_serialized_rows == 0
+        );
+        println!("fixture={} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} unrelated_history_task=task_1161 page_size=25 initial_bytes={initial_bytes} initial_decoded_json_bytes={initial_decoded} initial_serialized_row_bytes={initial_serialized} materialized_projection_text_bytes={} decoded_json_bytes={} serialized_row_bytes={} event_bytes={event_bytes} changed_rows={rows:?} update_payload_bytes={update_payload_bytes} update_decoded_json_bytes={update_decoded_bytes} update_serialized_row_bytes={update_serialized_rows} update_materialized_text_bytes={update_materialized_bytes}", fixtures::SEED, fixtures::TASKS, fixtures::CONTENT_BYTES, projection_metrics.materialized_bytes, receipt.decoded_bytes, receipt.serialized_bytes);
         let measured = (
             receipt.decoded_bytes,
             receipt.serialized_bytes,
@@ -120,6 +142,10 @@ fn committed_identity_and_existing_hot_write_work_are_bounded_by_changed_rows() 
             initial_decoded,
             initial_serialized,
             projection_metrics,
+            update_payload_bytes,
+            update_decoded_bytes,
+            update_serialized_rows,
+            update_materialized_bytes,
         );
         if let Some(prior) = &prior {
             assert_eq!(&measured, prior);

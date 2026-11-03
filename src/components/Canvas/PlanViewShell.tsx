@@ -276,6 +276,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
                 tabId={segmentTabId}
                 panelRef={panelRef}
                 detail={detail}
+                historyController={taskDetail}
                 fallbackPlan={cachedTask?.plan ?? null}
                 taskRef={segment.taskRef}
                 loading={taskDetail.loading}

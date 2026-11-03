@@ -356,7 +356,25 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
     let (plan, missing_state) = load_plan_for_ref(
         &item.plan_id,
         index_entry,
-        || state.svc.plan_store.get(&item.plan_id),
+        || {
+            state
+                .svc
+                .plan_store
+                .reference_projection(
+                    &item.plan_id,
+                    if matches!(item.target_kind, ResolveTargetKind::Task) {
+                        item.target_id.as_deref()
+                    } else {
+                        None
+                    },
+                    if matches!(item.target_kind, ResolveTargetKind::Section) {
+                        item.target_id.as_deref()
+                    } else {
+                        None
+                    },
+                )
+                .ok()
+        },
         |project_root| {
             state
                 .svc
