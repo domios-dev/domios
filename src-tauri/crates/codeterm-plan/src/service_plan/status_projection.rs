@@ -4,6 +4,16 @@ use super::{PlanError, PlanStore};
 use crate::plan::Plan;
 use std::collections::HashMap;
 
+pub struct CuratorScheduleRead {
+    plan: Plan,
+}
+
+impl CuratorScheduleRead {
+    pub fn plan(&self) -> &Plan {
+        &self.plan
+    }
+}
+
 pub struct PlanStatusRead {
     pub(super) plan: Plan,
     pub(super) event_log: EventLog,
@@ -48,6 +58,15 @@ impl PlanStatusRead {
 }
 
 impl PlanStore {
+    pub fn curator_schedule_projection(
+        &self,
+        plan_id: &str,
+    ) -> Result<CuratorScheduleRead, PlanError> {
+        Ok(CuratorScheduleRead {
+            plan: self.database.curator_schedule_projection(plan_id)?,
+        })
+    }
+
     pub fn status_projection(
         &self,
         plan_id: &str,

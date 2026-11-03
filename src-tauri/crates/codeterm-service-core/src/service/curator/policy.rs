@@ -75,7 +75,9 @@ impl RolePolicy for CuratorPolicy {
                     log::debug!("[curator] prepare {}: {error}", job.task);
                     service.curator_fire_failed(&job.task, error.reason, now)?;
                 }
-                service.reconcile_curator_id(&job.task, now);
+                service
+                    .reconcile_curator_id(&job.task, now)
+                    .map_err(|error| error.to_string())?;
                 Ok(None)
             }
         }
