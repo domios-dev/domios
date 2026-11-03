@@ -4,7 +4,7 @@ Every verb is `domios plugin browser <verb> [args]`. Read this guide with `domio
 
 ## When to use it
 
-Use this browser for web tasks, UI verification and bug reproduction while the user watches. Use it instead of Chrome extensions, global browser skills or other browser tools. Fetch plain data through HTTP or its API.
+Use this browser for web tasks and UI verification while the user watches. Use HTTP/APIs for plain data.
 
 ## Your browser
 
@@ -13,8 +13,8 @@ Use this browser for web tasks, UI verification and bug reproduction while the u
   - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
   - A **named profile** retains logins and cookies. Users create general profiles in the Browser profile menu. Agents select existing profiles with `open --profile NAME`; unknown names fail. For DEV QA, use the origin-bound session commands below, `profile list` and `profile remove NAME` for inactive profiles. Publishing, buying, deleting and sending messages require explicit user instruction.
 - **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
-- **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click button "Continue" --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
-- **Pointing an owner at something.** `annotate <ref> "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
+- **Another agent's browser.** Add `--of <title|tab-id>` to act there. Its owner sees your activity. It must already be open; you cannot close it. Use refs from its latest snapshot.
+- **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
 - **Shared view.** The user may press *Take control* and click or type alongside you. You are not blocked and not told. Always re-read the page before acting.
 
 ## The loop: snapshot, act, re-snapshot
@@ -30,19 +30,16 @@ With **Take control**, the user can select text, interact and scroll. Ctrl/Cmd+C
 3. Run `snapshot` again after every navigation or visible change. Elements you saw before may be gone or changed.
 
 Rules:
-- Start with `status`. If no browser is open, run `open` before concluding the browser is unavailable.
-- Re-snapshot after navigation, clicks that change the page, and any stale-reference error. Every new snapshot issues new refs; full/SPA navigation and viewer input invalidate the previous capture. Navigation, viewer input or a newer capture during a snapshot make the earlier capture fail rather than publishing its refs.
-- Role/name locators prefer an exact name, then a substring. If multiple elements match, the command refuses to choose and lists candidate refs; use the intended element's exact ref.
-- Control states include `checked`, `selected`, `expanded`, `disabled`, `required`, `readonly`, `focused` and `invalid` when the page exposes them. Use these as evidence when checking a form or toggle.
-- `snapshot [limit]` defaults to 200 lines and is capped at 2000. A truncation notice means more content remains; refs are only issued for included elements.
-- Prefer refs and role + name from the snapshot over coordinates or CSS selectors.
-- After async page changes, wait on evidence (`wait --text T`, `wait --url U`, `wait --selector S`), never on a bare timeout. A wait fails after 15 seconds.
-- For secrets, pipe the exact text to `domios plugin browser type <target> --stdin`. Browser masks the input before insertion and redacts the value from output, snapshots, events and annotations. This requires an HTML input that supports password masking. Never put secrets in arguments or print them.
-- `type` focuses the element, clears it, then inserts the text. If a custom input still ignores it, click it first and retry.
-- Use `text [limit]` to read long content; use `screenshot [file] [--full]` **only for visual claims** (layout, colour, clipping, alignment). Screenshots go to your pad; show one to the user with `<ds-image src="ABSOLUTE_PATH" />`.
-- **Never report an action as done unless the page proves it.** Re-snapshot and quote the evidence: a new heading, a success message, the changed value. If an action could have sent, submitted, bought or deleted something and you could not read back the result, say the effect is unproven.
-- If a command fails, read its error and retry with corrected arguments when the error is actionable. Don't switch to another browser tool (global browser skills, standalone Playwright, a REPL) just because the first call failed.
-- Report flaky behaviour as flaky, not as a pass.
+- Start with `status`; if closed, `open` before declaring the browser unavailable.
+- New snapshots replace all refs. Navigation, SPA navigation and viewer input invalidate them. Capture races refuse. Re-snapshot after visible changes or stale errors.
+- Role/name matches prefer exact names, then substrings. Ambiguous matches list candidate refs; choose one explicitly.
+- Snapshots show exposed checked/selected/expanded/disabled/required/readonly/focused/invalid states. The default limit is 200 lines, maximum 2000; only included elements receive refs.
+- Prefer refs or role/name over coordinates/CSS. Wait on evidence with `wait --text T`, `--url U` or `--selector S`, never elapsed time; default deadline 15s.
+- Secrets: pipe exact text to `type <target> --stdin`. It requires a maskable HTML input, masks before insertion and redacts output, snapshots, events and annotations. Never put secrets in arguments or print them.
+- `type` focuses, clears and inserts. For a custom input that ignores it, click first.
+- `text [limit]` reads long content. Use screenshots for visual claims only; they save to your pad. Show with `<ds-image src="ABSOLUTE_PATH" />`.
+- Prove actions with a fresh snapshot or state wait: changed value, new heading or success message. Unread results remain unproven, especially sends, submissions, purchases or deletions.
+- Correct actionable argument errors. Never replay uncertain actions or switch browser tools to bypass a refusal. Report flaky behavior honestly.
 
 ## When the page needs the user
 
@@ -52,16 +49,6 @@ Stop when `status` reports `needs human` other than `none`: captcha, missing log
 
 User annotations arrive as Domios notices. `inbox` lists unread/undelivered annotations; `inbox all` lists all retained ones. Each includes the page, element role/name/selector, React component (and dev source file), text, attributes, styles, box, nearby text, cropped screenshot and user intent. Find the corresponding code, answer or change it, then verify in the browser.
 
-## Testing your own web app
-
-Reuse the app's dev server or start one in a `--purpose dev` utility shell. `goto http://localhost:<port>` and walk the changed journey, snapshotting each step. Prove the end state (for example, the item persists after reload). Save and cite screenshots for visual claims.
-
-## Other verbs
-
-- `profiles`: the current profile and the named ones available.
-- `endpoint`: the browser's local CDP endpoint, for tools that need it.
-- `close`: close your browser.
-
 ## Device viewport and capture metrics
 
 `viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
@@ -70,9 +57,7 @@ Reuse the app's dev server or start one in a `--purpose dev` utility shell. `got
 
 ## Scoped atomic actions
 
-Direct and scoped clicks report either synchronous action acknowledgement, same-document navigation, or a main-frame navigation loaded (or restored from the back/forward cache). Action acknowledgement confirms the input/CDP action reply, including synchronous handlers; it does not settle later asynchronous effects. Use an explicit state wait for those effects. Once navigation is observed during the action, completion requires that main frame's matching loader, never network silence. Goto and history commands require their own navigation evidence; an absent history entry reports that no navigation was performed.
-
-`action_unconfirmed` means the action may have occurred but its completion could not be established before the deadline, page closure, observation loss, or a browser authority change. Inspect the current page before continuing and never automatically replay the action.
+Clicks report synchronous action acknowledgement, same-document navigation or a matching main-frame loader loaded/restored. An acknowledgement includes synchronous handlers; later effects need state waits. Navigation completion never uses network silence. Goto/history require navigation evidence; absent history reports no action. `action_unconfirmed` means completion was lost or authority changed: inspect, never replay.
 
 `click --within 'dialog:Settings' --role button --name Save` and `fill --within 'form:Composer' --role textbox --name Message --text 'hello'` resolve exact role/name matches from a fresh accessibility snapshot at action time. Missing, ambiguous, stale, hidden and disabled targets refuse with a reason code. The page performs the action in one JavaScript turn only if its document and mutation/input epoch still match the capture. An `action_unconfirmed` result means the action may have happened: inspect the page, never replay it.
 
@@ -139,4 +124,25 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 On every outcome other than `read`, `text` holds the reason.
 
-<!-- revision: 15 -->
+## Batch and interactions
+
+`batch --from-pad steps.json` (or piped `--stdin`) runs 1–32 steps in one command. Input (maximum 64K characters) is an array:
+
+```json
+[{"name":"snapshot","input":{"args":["--json"]}},{"name":"click","input":{"args":["button","Continue"]}},{"name":"screenshot","input":{"args":["result.png"]}}]
+```
+
+Each step uses standalone validation, authority and redaction; put `--of` in its args. Ordered JSON `results` retain saved screenshot paths. `completed: false` and zero-based `stoppedAt` identify the first error or unconfirmed action. Earlier effects remain. Never replay `action_unconfirmed`. No nesting, secret verbs or per-step bodies; use standalone stdin for secrets. Interactions invalidate refs; insert snapshots or use current role/name targets between actions.
+
+- `hover @ref` or `hover button Name`.
+- `double-click`, `triple-click`, `right-click`: same target forms.
+- `drag @from @to` or `drag x1 y1 x2 y2`: viewport CSS pixels; ref targets must be visible.
+- `scroll-to @ref`: bring an element into view.
+- `key Enter --repeat 3 [shift|ctrl|alt|meta]`: 1–100 repetitions.
+- `form-value @ref true|false`: set a checkbox. For a select, pass option value or exact visible text; ambiguous options refuse. Re-snapshot to prove the value.
+- `screenshot zoom.png --region x,y,width,height --scale 2`: page CSS coordinates, scale 0.1–4, maximum 16 megapixels. Scale also works without region. Region/full are exclusive; region/scale cannot combine with device viewport options.
+- `console [--pattern TEXT] [--limit N]`: literal substring filter, primitive values only; object previews omitted.
+- `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
+- `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
+
+<!-- revision: 16 -->

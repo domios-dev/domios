@@ -2,11 +2,13 @@ mod accessible_wait;
 mod atomic;
 mod calls;
 mod completion;
+mod diagnostics;
 mod domios_instance;
 mod grab;
 mod heuristics;
 mod inbox;
 mod input;
+mod interactions;
 mod metrics;
 mod output;
 mod page;
@@ -211,6 +213,13 @@ impl BrowserRuntime {
             self.shared.remember_profile(&opened.profile);
         }
         self.shared.bind(&page);
+        self.send(&page, "Runtime.enable", json!({})).await?;
+        self.send(
+            &page,
+            "Network.enable",
+            json!({"maxTotalBufferSize":0,"maxResourceBufferSize":0,"maxPostDataSize":0}),
+        )
+        .await?;
         self.apply_resume_url(&page).await;
         Ok(page)
     }

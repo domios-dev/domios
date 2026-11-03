@@ -14,6 +14,9 @@ use codeterm_browser::{EventStream, PageChannel};
 const ATTACHED_PROFILE: &str = "attached";
 
 pub(super) const PAGE_EVENTS: &[&str] = &[
+    "Runtime.consoleAPICalled",
+    "Network.requestWillBeSent",
+    "Network.responseReceived",
     "Page.frameNavigated",
     "Page.navigatedWithinDocument",
     "Target.targetInfoChanged",
@@ -70,6 +73,7 @@ pub(super) fn page_update(method: &str, params: &Value, target_id: &str) -> Opti
 
 #[derive(Default)]
 struct PageSession {
+    diagnostics: std::collections::VecDeque<Value>,
     action: Option<String>,
     bound_page: Option<PageChannel>,
     bound_session: Option<String>,
@@ -89,6 +93,24 @@ pub(super) struct PageShared {
 }
 
 impl PageShared {
+    pub(super) fn diagnostics(&self, console: bool, pattern: Option<&str>, limit: usize) -> Value {
+        let session = self.session.lock();
+        let kind = if console { "console" } else { "network" };
+        let mut entries: Vec<_> = session
+            .diagnostics
+            .iter()
+            .rev()
+            .filter(|entry| {
+                entry["kind"] == kind
+                    && pattern.is_none_or(|p| entry["text"].as_str().is_some_and(|s| s.contains(p)))
+            })
+            .take(limit)
+            .cloned()
+            .collect();
+        entries.reverse();
+        serde_json::json!({"entries":entries,"limit":limit,"retainedLimit":200})
+    }
+
     pub(super) fn begin_action(&self, page: &PageChannel) -> Result<String, String> {
         let mut session = self.session.lock();
         if !session
@@ -337,6 +359,17 @@ async fn listen(
 ) {
     while let Some(event) = events.recv().await {
         let event: &CdpEvent = &event;
+        if event.session_id.as_deref() == Some(session_id.as_str()) {
+            if let Some(entry) = super::diagnostics::record(&event.method, &event.params) {
+                let mut session = shared.session.lock();
+                if session.bound_session.as_deref() == Some(session_id.as_str()) {
+                    session.diagnostics.push_back(entry);
+                    while session.diagnostics.len() > 200 {
+                        session.diagnostics.pop_front();
+                    }
+                }
+            }
+        }
         if let Some(update) = page_update(&event.method, &event.params, &target_id) {
             shared.apply(&session_id, update);
         }

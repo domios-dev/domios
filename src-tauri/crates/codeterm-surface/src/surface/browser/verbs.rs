@@ -7,6 +7,16 @@ use crate::surface::runtime::SurfaceCallCtx;
 use codeterm_browser::PageChannel;
 
 pub const VERBS: &[&str] = &[
+    "console",
+    "network",
+    "hover",
+    "double-click",
+    "triple-click",
+    "right-click",
+    "drag",
+    "scroll-to",
+    "key",
+    "form-value",
     "help",
     "open",
     "status",
@@ -245,6 +255,8 @@ impl BrowserRuntime {
                 let url = usage_args(args, "goto <url>")?.join(" ");
                 self.goto(page, &url).await
             }
+            "hover" | "double-click" | "triple-click" | "right-click" | "drag" | "scroll-to"
+            | "key" | "form-value" => self.interaction_verb(page, verb, args).await,
             "back" => self.history_step(page, NavAction::Back).await,
             "forward" => self.history_step(page, NavAction::Forward).await,
             "reload" => self.history_step(page, NavAction::Reload).await,
@@ -254,6 +266,13 @@ impl BrowserRuntime {
                 self.output_verb(ctx, output, text).await
             }
             "upload" => self.upload_verb(ctx, page, args).await,
+            "console" | "network" => {
+                let (pattern, limit) = super::diagnostics::parse(args, verb == "console")?;
+                Ok(self
+                    .shared
+                    .diagnostics(verb == "console", pattern.as_deref(), limit)
+                    .to_string())
+            }
             "expand" | "collapse" => self.disclosure_verb(page, args, verb == "expand").await,
             "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
                 self.atomic_action(page, args, verb == "fill").await

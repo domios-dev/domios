@@ -10,6 +10,8 @@ pub(super) struct MetricsArgs {
     pub metrics: bool,
     pub full: bool,
     pub name: Option<String>,
+    pub region: Option<[f64; 4]>,
+    pub scale: Option<f64>,
 }
 
 pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, String> {
@@ -19,6 +21,8 @@ pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, Strin
         metrics: false,
         full: false,
         name: None,
+        region: None,
+        scale: None,
     };
     let mut size = None;
     let mut mobile = false;
@@ -33,6 +37,37 @@ pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, Strin
     }
     while i < args.len() {
         match args[i].as_str() {
+            "--scale" if !setting && out.scale.is_none() => {
+                i += 1;
+                out.scale = Some(
+                    args.get(i)
+                        .and_then(|s| s.parse::<f64>().ok())
+                        .filter(|v| v.is_finite() && (0.1..=4.0).contains(v))
+                        .ok_or("scale must be 0.1 to 4")?,
+                );
+            }
+            "--region" if !setting && out.region.is_none() => {
+                i += 1;
+                let values: Vec<_> = args
+                    .get(i)
+                    .ok_or("region requires x,y,width,height")?
+                    .split(',')
+                    .map(str::parse::<f64>)
+                    .collect::<Result<_, _>>()
+                    .map_err(|_| "invalid region")?;
+                let region: [f64; 4] = values
+                    .try_into()
+                    .map_err(|_| "region requires x,y,width,height")?;
+                if region
+                    .iter()
+                    .any(|n| !n.is_finite() || *n < 0.0 || *n > 100_000.0)
+                    || region[2] == 0.0
+                    || region[3] == 0.0
+                {
+                    return Err("invalid region".into());
+                }
+                out.region = Some(region);
+            }
             "--mobile" => mobile = true,
             "--restore" => out.restore = true,
             "--metrics-json" => out.metrics = true,
@@ -72,6 +107,17 @@ pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, Strin
     } else if mobile || dpr != 1.0 || out.restore {
         return Err("device options require --viewport".into());
     }
+    if (out.region.is_some() || out.scale.is_some()) && out.viewport.is_some() {
+        return Err("region/scale capture cannot combine with device viewport options".into());
+    }
+    if out.region.is_some() && out.full {
+        return Err("region cannot combine with full capture".into());
+    }
+    if let Some([_, _, w, h]) = out.region {
+        if w * h * out.scale.unwrap_or(1.0).powi(2) > 16_777_216.0 {
+            return Err("region exceeds capture pixel limit".into());
+        }
+    }
     Ok(out)
 }
 
@@ -110,8 +156,40 @@ impl BrowserRuntime {
     ) -> Result<String, String> {
         let options = parse(args, false)?;
         let page = self.ensure_page().await?;
-        let (base64, metrics) = if let Some(viewport) = options.viewport.filter(|_| options.restore)
-        {
+        let (base64, metrics) = if options.region.is_some() || options.scale.is_some() {
+            let metrics = self.send(&page, "Page.getLayoutMetrics", json!({})).await?;
+            let bounds = if options.full {
+                &metrics["cssContentSize"]
+            } else {
+                &metrics["cssLayoutViewport"]
+            };
+            let [x, y, width, height] = options.region.unwrap_or([
+                bounds["pageX"].as_f64().unwrap_or(0.0),
+                bounds["pageY"].as_f64().unwrap_or(0.0),
+                bounds[if options.full { "width" } else { "clientWidth" }]
+                    .as_f64()
+                    .ok_or("missing capture width")?,
+                bounds[if options.full {
+                    "height"
+                } else {
+                    "clientHeight"
+                }]
+                .as_f64()
+                .ok_or("missing capture height")?,
+            ]);
+            let scale = options.scale.unwrap_or(1.0);
+            if width * height * scale.powi(2) > 16_777_216.0 {
+                return Err("capture exceeds pixel limit".into());
+            }
+            let shot = self.send(&page,"Page.captureScreenshot",json!({"format":"png","captureBeyondViewport":true,"clip":{"x":x,"y":y,"width":width,"height":height,"scale":scale}})).await?;
+            (
+                shot["data"]
+                    .as_str()
+                    .ok_or("screenshot returned no image")?
+                    .to_string(),
+                metrics,
+            )
+        } else if let Some(viewport) = options.viewport.filter(|_| options.restore) {
             let shot = self
                 .host
                 .capture_with_viewport(viewport, options.full)

@@ -47,3 +47,52 @@ describe("Browser atomic page action", () => {
     } finally { window.happyDOM.abort(); }
   });
 });
+
+describe("Browser form control actions", () => {
+  it("sets checkboxes idempotently, selects by value or text and rejects invalid values", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.body.innerHTML = '<input type="checkbox"><select><option value="a">First</option><option value="b">Second</option><option value="c" disabled>Third</option></select>';
+      const input = window.document.querySelector("input")!;
+      const select = window.document.querySelector("select")!;
+      for (const element of [input, select]) element.getClientRects = () => [{ width: 20 }] as unknown as ReturnType<typeof element.getClientRects>;
+      const execute = window.eval(`(${readFileSync(resolve(source, "element-action.js"), "utf8")})`);
+      let clicks = 0;
+      input.addEventListener("click", () => clicks++);
+      const run = (element: unknown, value: string) => execute.call(element, window.eval(begin), "form", value);
+      expect(run(input, "true")).toBe("performed");
+      expect(input.checked).toBe(true);
+      expect(run(input, "true")).toBe("performed");
+      expect(clicks).toBe(1);
+      expect(run(input, "false")).toBe("performed");
+      expect(input.checked).toBe(false);
+      expect(run(input, "yes")).toBe("invalid_checkbox_value");
+      expect(run(select, "b")).toBe("performed");
+      expect(select.value).toBe("b");
+      expect(run(select, "First")).toBe("performed");
+      expect(select.value).toBe("a");
+      expect(run(select, "Third")).toBe("disabled");
+      expect(run(select, "missing")).toBe("not_found");
+      const epoch = window.eval(begin);
+      select.setAttribute("data-changed", "true");
+      expect(execute.call(select, epoch, "form", "b")).toBe("stale");
+      expect(select.value).toBe("a");
+    } finally { window.happyDOM.abort(); }
+  });
+
+  it("refuses a pointer prepared before mutation or user input", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      const captureSource = readFileSync(resolve(source, "pointer-begin.js"), "utf8");
+      const check = window.eval(readFileSync(resolve(source, "pointer-check.js"), "utf8"));
+      const capture = window.eval(captureSource);
+      expect(check(capture)).toBe(true);
+      window.document.body.innerHTML = "changed";
+      expect(check(capture)).toBe(false);
+      const fresh = window.eval(captureSource);
+      expect(check(fresh)).toBe(true);
+      window.document.dispatchEvent(new window.KeyboardEvent("keydown"));
+      expect(check(fresh)).toBe(false);
+    } finally { window.happyDOM.abort(); }
+  });
+});

@@ -1,7 +1,7 @@
 {
   "id": "browser",
-  "version": "1.14.1",
-  "minCodeterm": "1.18.4",
+  "version": "1.15.0",
+  "minCodeterm": "1.18.7",
   "hostApi": 2,
   "displayName": "Browser",
   "description": "An agent-owned live browser: the agent drives a real Chromium, the user watches it inside the agent's tab, joins in, and points at elements to ask the agent about them.",
@@ -117,7 +117,17 @@
     "wait --role ROLE --name NAME --state visible|hidden|enabled|expanded|checked|unchecked|pressed|unpressed|selected|unselected [--timeout DURATION]",
     "expand summary NAME",
     "collapse summary NAME",
-    "open --domios-instance NAME --api-port PORT [--ephemeral]"
+    "open --domios-instance NAME --api-port PORT [--ephemeral]",
+    "batch --from-pad FILE | --stdin ({name,input:{args}} steps; maximum 32; stops on error)",
+    "hover | double-click | triple-click | right-click @ref | <role> <name>",
+    "drag @from @to | x1 y1 x2 y2",
+    "scroll-to @ref",
+    "key <key> [shift|ctrl|alt|meta] [--repeat 1..100]",
+    "form-value @ref <true|false|option value|option text>",
+    "console [--pattern TEXT] [--limit 1..200]",
+    "network [--limit 1..200]",
+    "screenshot [file] [--region x,y,width,height] [--scale 0.1..4]",
+    "snapshot [--ref @ref] [--depth 0..64]"
   ],
   "agentKeywords": [
     "browser",
