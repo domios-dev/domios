@@ -88,6 +88,13 @@ for (const [name, start, end, drawRect, frameMeta, expected] of snipCases) {
 assert.deepEqual(clampToDraw({ x: -5, y: 400 }, { x: 50, y: 10, width: 300, height: 280 }), { x: 50, y: 290 });
 
 assert.deepEqual(viewportRequest({ width: 640.4, height: 480.6 }, 1.5), { w: 640, h: 481, dpr: 1.5 });
+for (const dpr of [1.25, 1.5]) {
+  const viewport = viewportRequest({ width: 640.4, height: 480.6 }, dpr)!;
+  assert.deepEqual(viewport, { w: 640, h: 481, dpr });
+  assert.deepEqual(requestedFrameSize(viewport), { width: Math.round(640 * dpr), height: Math.round(481 * dpr) });
+}
+assert.equal(viewportRequest({ width: Number.NaN, height: 480 }, 1.5), null);
+assert.equal(viewportRequest({ width: 640, height: Number.POSITIVE_INFINITY }, 1.25), null);
 assert.equal(viewportRequest({ width: 0, height: 480 }, 1), null, "a collapsed container requests no stream");
 assert.deepEqual(requestedFrameSize({ w: 640, h: 480, dpr: 2 }), { width: 1280, height: 960 });
 assert.ok(sameViewport({ w: 1, h: 2, dpr: 1 }, { w: 1, h: 2, dpr: 1 }));

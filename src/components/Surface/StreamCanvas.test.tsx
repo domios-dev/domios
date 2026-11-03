@@ -47,7 +47,7 @@ async function renderCanvas(overrides: Partial<StreamCanvasProps> = {}) {
   await resizeStages(400, 300);
   feed.publish({ data: "", metadata: META });
   await flushAsync();
-  return { ...view, recorded };
+  return { ...view, recorded, props };
 }
 
 const expectedPoint = (clientX: number, clientY: number) =>
@@ -71,6 +71,44 @@ suite.test("the stage size is reported once per distinct viewport", async () => 
   await resizeStages(500, 300);
   assert.equal(recorded.viewports.length, 2);
   await unmount();
+});
+
+suite.test("first layout, tab return and resolution changes measure the current stage without a resize", async () => {
+  const originalRect = HTMLElement.prototype.getBoundingClientRect;
+  const originalMatchMedia = window.matchMedia;
+  const originalDpr = Object.getOwnPropertyDescriptor(window, "devicePixelRatio");
+  let size = { width: 640.4, height: 480.6 };
+  const queries: Array<{ query: string; target: EventTarget }> = [];
+  HTMLElement.prototype.getBoundingClientRect = () => new DOMRect(0, 0, size.width, size.height);
+  window.matchMedia = ((query: string) => {
+    const target = new window.EventTarget();
+    queries.push({ query, target });
+    return target as MediaQueryList;
+  });
+  const setDpr = (value: number) => Object.defineProperty(window, "devicePixelRatio", { value, configurable: true });
+  let cleanup: (() => Promise<void>) | undefined;
+  try {
+    setDpr(1.25);
+    const { host, recorded, root, props, unmount } = await renderCanvas();
+    cleanup = unmount;
+    getByRole(host, "img").parentElement!.getBoundingClientRect = () => new DOMRect(0, 0, size.width, size.height);
+    assert.deepEqual(recorded.viewports[0], { w: 640, h: 481, dpr: 1.25 }, "initial layout connects before ResizeObserver");
+    await act(async () => root.render(<StreamCanvas {...props} visible={false} />));
+    size = { width: 900.4, height: 650.6 };
+    setDpr(1.5);
+    await act(async () => root.render(<StreamCanvas {...props} visible />));
+    assert.deepEqual(recorded.viewports.at(-1), { w: 900, h: 651, dpr: 1.5 });
+    setDpr(2);
+    await act(async () => queries.at(-1)!.target.dispatchEvent(new Event("change")));
+    assert.deepEqual(recorded.viewports.at(-1), { w: 900, h: 651, dpr: 2 }, "DPR alone publishes a new viewport");
+    assert.equal(queries.at(-1)!.query, "(resolution: 2dppx)", "the resolution watcher is rearmed");
+  } finally {
+    await cleanup?.();
+    HTMLElement.prototype.getBoundingClientRect = originalRect;
+    window.matchMedia = originalMatchMedia;
+    if (originalDpr) Object.defineProperty(window, "devicePixelRatio", originalDpr);
+    else Reflect.deleteProperty(window, "devicePixelRatio");
+  }
 });
 
 suite.test("resizing retains the native backing store and drops a decode from an obsolete viewport", async () => {
@@ -114,6 +152,35 @@ suite.test("collapsing the stage reports hidden once and the same size is report
   await resizeStages(400, 300);
   const viewport = viewportRequest({ width: 400, height: 300 }, window.devicePixelRatio);
   assert.deepEqual(recorded.viewports, [viewport, viewport]);
+  await unmount();
+});
+
+suite.test("a bitmap from the previous DPR cannot be drawn or picked after scale changes", async () => {
+  let viewport = { w: 400, h: 300, dpr: 1 };
+  let pixels = { width: 400, height: 300 };
+  let closed = 0;
+  const feed = createFrameFeed((next, decoded) => acceptViewportFrame(next.metadata, viewport, decoded));
+  const { host, recorded, unmount } = await renderCanvas({
+    picking: true,
+    frames: feed,
+    decode: async () => ({ ...pixels, image: {} as CanvasImageSource, close: () => { closed += 1; } }),
+  });
+  const frame = { data: "", metadata: { deviceWidth: 400, deviceHeight: 300 } };
+  feed.publish(frame);
+  await flushAsync();
+  const canvas = getByRole(host, "img") as HTMLCanvasElement;
+  assert.equal(canvas.width, 400);
+  viewport = { ...viewport, dpr: 2 };
+  await resizeStages(400, 300);
+  await act(async () => canvas.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: 200, clientY: 150 })));
+  assert.equal(recorded.picks.length, 0, "a cleared stale frame has no page coordinates");
+  feed.publish(frame);
+  await flushAsync();
+  assert.equal(closed, 1, "the decoded low-density frame is released");
+  pixels = { width: 800, height: 600 };
+  feed.publish(frame);
+  await flushAsync();
+  assert.equal(canvas.width, 800, "a matching device-pixel frame becomes drawable");
   await unmount();
 });
 

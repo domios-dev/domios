@@ -18,6 +18,13 @@ assert.equal(acceptViewportFrame({ deviceWidth: 640, deviceHeight: 600 }, a), fa
 assert.equal(acceptViewportFrame({ deviceWidth: 320, deviceHeight: 240 }, { w: 200, h: 100, dpr: 3 }), true, "backend minimum dimensions apply");
 assert.equal(acceptViewportFrame({ deviceWidth: 640, deviceHeight: 480 }, null), false);
 
+for (const dpr of [1, 1.25, 1.5, 2, 3]) {
+  const viewport = { w: 640, h: 480, dpr };
+  const metadata = { deviceWidth: 640, deviceHeight: 480 };
+  assert.equal(acceptViewportFrame(metadata, viewport, { width: Math.round(640 * dpr), height: Math.round(480 * dpr) }), true);
+  if (dpr > 1) assert.equal(acceptViewportFrame(metadata, viewport, { width: 640, height: 480 }), false, "CSS metadata cannot prove bitmap density");
+}
+
 async function runQueueTests() {
   const calls: typeof a[] = [];
   const acknowledgements: Array<() => void> = [];

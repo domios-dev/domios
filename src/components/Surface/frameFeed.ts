@@ -5,14 +5,14 @@ export type FrameListener = (frame: StreamFrame) => void;
 
 export interface FrameFeed {
   subscribe(listener: FrameListener): () => void;
-  accepts?(frame: StreamFrame): boolean;
+  accepts?(frame: StreamFrame, decoded?: DecodedFrame): boolean;
 }
 
 export interface FramePublisher extends FrameFeed {
   publish(frame: StreamFrame): void;
 }
 
-export function createFrameFeed(accepts: (frame: StreamFrame) => boolean = () => true): FramePublisher {
+export function createFrameFeed(accepts: (frame: StreamFrame, decoded?: DecodedFrame) => boolean = () => true): FramePublisher {
   const listeners = new Set<FrameListener>();
   let latest: StreamFrame | null = null;
   return {

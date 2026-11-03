@@ -14,6 +14,28 @@ fn metadata() -> FrameMetadata {
 }
 
 #[test]
+fn browser_screencast_scale_change_invalidates_cached_css_matching_frame() {
+    let initial = params(1280);
+    let hub = FrameHub::new(initial);
+    let (driver, _commands) = mpsc::unbounded_channel();
+    let generation = hub.bind(driver);
+    hub.publish(
+        generation,
+        vec![1],
+        FrameMetadata::still(initial.viewport, 1.0),
+        false,
+    );
+    assert!(hub.latest().is_some());
+    hub.set_params(initial);
+    assert!(hub.latest().is_some());
+    let mut scaled = initial;
+    scaled.viewport.dpr = 2.0;
+    hub.set_params(scaled);
+    assert!(hub.latest().is_none());
+    assert_eq!(scaled.start_json()["maxWidth"], 2560);
+}
+
+#[test]
 fn browser_screencast_viewer_count_starts_on_first_and_stops_on_last() {
     let mut viewers = ViewerCount::default();
     assert_eq!(viewers.join(), Some(CastTransition::Start));
