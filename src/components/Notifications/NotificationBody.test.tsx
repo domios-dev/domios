@@ -88,3 +88,21 @@ test("a rename failure preview shows its plan reason instead of repeating the he
     await act(async () => root.unmount());
   }
 });
+
+
+test("notification text preserves native paths and markup literally in previews and details", async () => {
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const text = String.raw`C:\Users\dev\.codex\hooks.json **literal** <opaque>`;
+  try {
+    for (const preview of [true, false]) {
+      for (const tabId of [null, "owner"]) {
+        await act(async () => root.render(<NotificationBody text={text} tabId={tabId} preview={preview} />));
+        expect(host.textContent).toBe(text);
+        expect(host.querySelector("strong, opaque")).toBeNull();
+      }
+    }
+  } finally {
+    await act(async () => root.unmount());
+  }
+});

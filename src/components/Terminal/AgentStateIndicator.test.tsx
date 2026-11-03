@@ -24,9 +24,9 @@ async function render(ui: React.ReactElement): Promise<{ host: HTMLElement; root
 }
 
 async function main(): Promise<void> {
-  const phaseRow = await render(<AgentStateIndicator activity={tabActivity({ agent_session_id: "session", agent_state: { state: "working", status_line: "opaque previous activity" } })} />);
+  const phaseRow = await render(<AgentStateIndicator activity={tabActivity({ agent_session_id: "session", agent_state: { state: "working", status_line: "opaque previous activity" } }, "Working")} />);
   for (const phase of ["compacting", undefined, "compacting", "streaming"] as const) {
-    const activity = tabActivity({ agent_session_id: "session", agent_state: { state: "working", phase } });
+    const activity = tabActivity({ agent_session_id: "session", agent_state: { state: "working", phase } }, "Working");
     await act(async () => phaseRow.root.render(<AgentStateIndicator activity={activity} activeTool={phase === "compacting" ? { toolKind: "command", toolDetail: "opaque previous command" } : undefined} />));
     const status = phaseRow.host.querySelector('[role="status"]');
     assert(status?.getAttribute("data-agent-phase") === activity.phase, "reported phase reaches the status view");
@@ -34,11 +34,20 @@ async function main(): Promise<void> {
   }
   await act(async () => phaseRow.root.unmount());
   phaseRow.host.remove();
+  const staleTab = { agent_session_id: "session", agent_state: { state: "working" as const, status_line: "opaque activity" } };
+  const runtime = { state: "loaded" as const, epoch: 1, active_turn_started_at_ms: 0 };
+  const transition = await render(<AgentStateIndicator activity={tabActivity(staleTab, "Working")} runtimeState={runtime} onStop={() => {}} />);
+  assert(transition.host.textContent?.includes("Elapsed"), "published working status shows active timing");
+  await act(async () => transition.root.render(<AgentStateIndicator activity={tabActivity(staleTab, "Idle")} runtimeState={runtime} onStop={() => {}} />));
+  assert(transition.host.querySelector('[role="status"]')?.getAttribute("aria-label") === "Agent idle", "published idle status clears stale working details and timing");
+  assert(!transition.host.querySelector('button[aria-label="Stop the agent"]:not([disabled])'), "idle status disables Stop");
+  await act(async () => transition.root.unmount());
+  transition.host.remove();
   const background = { auth: null, api_error: null, permission_mode: null, background: { running: { task: "shell" }, overflow: false, history_incomplete: false, history_initialized: true } };
   for (const [state, expected] of [["idle", "idle"], ["working", "working"]] as const) {
     const row = await render(
       <AgentStateIndicator
-        activity={tabActivity({ agent_session_id: "session", provider_signals: background, agent_state: { state } })}
+        activity={tabActivity({ agent_session_id: "session", provider_signals: background, agent_state: { state } }, state === "working" ? "Working" : "Idle")}
         onStop={() => {}}
       />,
     );
@@ -51,7 +60,7 @@ async function main(): Promise<void> {
   for (const renderIdentity of [undefined, (label: string) => <span>{label}</span>]) {
     const running = await render(
       <AgentStateIndicator
-        activity={tabActivity({ agent_session_id:"session", agent_state:{state:"working",status_line:"Working"} })}
+        activity={tabActivity({ agent_session_id:"session", agent_state:{state:"working",status_line:"Working"} }, "Working")}
         providerName="Provider"
         renderIdentity={renderIdentity}
         activeTool={{toolKind:"command",toolDetail:command}}
@@ -64,7 +73,7 @@ async function main(): Promise<void> {
   }
   const idle = await render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_state: { state: "idle" } })}
+      activity={tabActivity({ agent_state: { state: "idle" } }, "Idle")}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: " high ", actual_source: "session-owned" }}
@@ -77,7 +86,7 @@ async function main(): Promise<void> {
   let stopCalls = 0;
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "Editing files", phase: "thinking" } })}
+      activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "Editing files", phase: "thinking" } }, "Working")}
       providerName="Codex"
       model="gpt-5.6-sol"
       onStop={() => { stopCalls += 1; }}
@@ -93,7 +102,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_state: { state: "idle" } })}
+      activity={tabActivity({ agent_state: { state: "idle" } }, "Idle")}
       providerName="Codex"
       model="gpt-5.6-sol"
       onStop={() => { stopCalls += 1; }}
@@ -106,7 +115,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "Editing files" } })}
+      activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "Editing files" } }, "Working")}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: "high", actual_source: "provider-default-unverified" }}
@@ -116,7 +125,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_state: { state: "idle" } })}
+      activity={tabActivity({ agent_state: { state: "idle" } }, "Idle")}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: null, requested: "medium" }}
@@ -126,7 +135,7 @@ async function main(): Promise<void> {
 
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_state: { state: "idle" } })}
+      activity={tabActivity({ agent_state: { state: "idle" } }, "Idle")}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: "   ", actual_source: "session-owned" }}
@@ -138,7 +147,7 @@ async function main(): Promise<void> {
     <div style={{ width: 390 }} data-testid="phone-composer-status">
       <button type="button" aria-label="Attachment actions" />
       <AgentStateIndicator
-        activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" } })}
+        activity={tabActivity({ agent_session_id: "bound-session", agent_state: { state: "working", status_line: "A deliberately long status suffix that must remain in the compact row" } }, "Working")}
         providerName="Codex"
         model="gpt-5.6-sol"
         onStop={() => { stopCalls += 1; }}
@@ -158,7 +167,7 @@ async function main(): Promise<void> {
   let cancelCalls = 0;
   await act(async () => idle.root.render(
     <AgentStateIndicator
-      activity={tabActivity({ agent_state: { state: "question", subtype: "permission" } })}
+      activity={tabActivity({ agent_state: { state: "question", subtype: "permission" } }, "Waiting")}
       providerName="Codex"
       model="gpt-5.6-sol"
       reasoningEffort={{ actual: "low", actual_source: "provider-default-unverified" }}
@@ -174,7 +183,7 @@ async function main(): Promise<void> {
   assert(terminalCalls === 1 && cancelCalls === 1, "question actions invoke their handlers once");
 
   await act(async () => idle.root.render(
-    <AgentStateIndicator activity={tabActivity({ agent_state: { state: "quiet" } })} providerName="Codex" model="gpt-5.6-sol" />,
+    <AgentStateIndicator activity={tabActivity({ agent_state: { state: "quiet" } }, "Idle")} providerName="Codex" model="gpt-5.6-sol" />,
   ));
   const quiet = idle.host.querySelector('[data-testid="agent-state"]');
   assert(quiet?.getAttribute("data-agent-state") === "quiet", "quiet state keeps the status rail hook");

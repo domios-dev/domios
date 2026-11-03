@@ -13,14 +13,14 @@ assert.deepEqual([wokenByBackground.kind, wokenByBackground.canStop, wokenByBack
 assert.equal(tabActivity({ ...agent, provider_signals: background, agent_state: { state: "question" } }, "Waiting").status, "Waiting");
 const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivity["kind"], boolean, boolean]> = [
   ["unknown", null, null, "idle", false, false],
-  ["tracker output without classifier", agent, "Working", "idle", false, false],
-  ["tracker output with idle classifier", { ...agent, agent_state: { state: "idle" } }, "Working", "idle", false, false],
-  ["bound live work overrides stale tracker", { ...agent, agent_state: { state: "working" } }, "Idle", "working", true, true],
+  ["published work without detail", agent, "Working", "working", true, true],
+  ["published work with idle detail", { ...agent, agent_state: { state: "idle" } }, "Working", "working", true, true],
+  ["published idle retires working detail", { ...agent, agent_state: { state: "working" } }, "Idle", "idle", false, false],
   ["tracker waiting", agent, "Waiting", "waiting-on-user", false, false],
-  ["bound provider working", { ...agent, agent_state: { state: "working" } }, null, "working", true, true],
+  ["unpublished work stays idle", { ...agent, agent_state: { state: "working" } }, null, "idle", false, false],
   ["unbound provider working", { ...agent, agent_session_id: null, agent_state: { state: "working" } }, "Working", "starting", false, false],
   ["provider work during launch", { ...agent, boot_stage: "launch_written", agent_state: { state: "working" } }, "Working", "starting", false, false],
-  ["provider question", { ...agent, agent_state: { state: "question" } }, null, "waiting-on-user", false, false],
+  ["published question", { ...agent, agent_state: { state: "question" } }, "Waiting", "waiting-on-user", false, false],
   ["agent_ready beats agent_booting", { ...agent, agent_booting: true, boot_stage: "agent_ready" }, "Idle", "idle", false, false],
   ["booting", { ...agent, agent_booting: true }, "Working", "starting", false, false],
   ["launch written", { ...agent, boot_stage: "launch_written" }, null, "starting", false, false],
@@ -34,7 +34,7 @@ const cases: Array<[string, TabActivityInput | null, TabStatus | null, TabActivi
   ["shell running", { tab_type: "Terminal", shell_command_state: { activity: "running", last_exit_code: null } }, "Idle", "working", true, true],
   ["ready shell command", { tab_type: "Terminal", boot_stage: "shell_ready", shell_command_state: { activity: "running", last_exit_code: null } }, "Working", "working", true, true],
   ["shell idle ignores output churn", { tab_type: "Terminal", shell_command_state: { activity: "idle", last_exit_code: 0 } }, "Working", "idle", false, false],
-  ["bound chat backend", { backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "chat-session" }, agent_state: { state: "working" } }, null, "working", true, true],
+  ["bound chat backend", { backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "chat-session" }, agent_state: { state: "working" } }, "Working", "working", true, true],
 ];
 
 for (const [name, tab, status, kind, active, canStop] of cases) {
@@ -59,41 +59,41 @@ assert.equal(aggregateTabStatuses(startingStages, statuses, tabs), "Idle");
 assert.equal(Object.values(tabs).filter((tab) => tabActivity(tab, "Working").active).length, 0);
 assert.equal(Object.values(tabs).filter((tab) => tabActivity(tab, "Working").status === "Working").length, 0);
 
-assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "permission" } }).subtype, "permission");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "permission" } }, "Waiting").subtype, "permission");
 const pending = { question: "question-token", options: [] };
 assert.equal(tabActivity({ ...agent, pending_prompt: pending }, "Waiting").label, pending.question);
 assert.equal(tabActivity({ ...agent, agent_state: { state: "idle", phase: "thinking" } }, "Working").phase, "work");
-assert.equal(tabActivity({ ...agent, agent_state: { state: "question", phase: "thinking" } }).phase, "work");
-assert.equal(tabActivity({ ...agent, boot_stage: "agent_launching", agent_state: { state: "working", phase: "thinking" } }).phase, "work");
-assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "thinking" } }).phase, "thinking");
-assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming", status_line: " Writing " } }).label, "Writing");
-assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming" } }).phase, "streaming");
-const compacting = tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting" } });
+assert.equal(tabActivity({ ...agent, agent_state: { state: "question", phase: "thinking" } }, "Waiting").phase, "work");
+assert.equal(tabActivity({ ...agent, boot_stage: "agent_launching", agent_state: { state: "working", phase: "thinking" } }, "Working").phase, "work");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "thinking" } }, "Working").phase, "thinking");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming", status_line: " Writing " } }, "Working").label, "Writing");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "streaming" } }, "Working").phase, "streaming");
+const compacting = tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting" } }, "Working");
 assert.equal(compacting.kind, "working");
 assert.equal(compacting.phase, "compacting");
 assert.equal(compacting.genericWork, false);
-assert.notEqual(compacting.label, tabActivity({ ...agent, agent_state: { state: "working" } }).label);
-assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting", status_line: "Reading" } }).label, compacting.label);
+assert.notEqual(compacting.label, tabActivity({ ...agent, agent_state: { state: "working" } }, "Working").label);
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working", phase: "compacting", status_line: "Reading" } }, "Working").label, compacting.label);
 for (const backing of [undefined, { kind: "chat_backend", plugin_id: "another-fixture", session_id: "thread" }] as const) {
   const input = { ...agent, backing, agent_state: { state: "working", phase: "compacting" } } as const;
-  assert.equal(tabActivity(input).phase, "compacting");
-  assert.equal(tabActivity(input).canStop, true);
+  assert.equal(tabActivity(input, "Working").phase, "compacting");
+  assert.equal(tabActivity(input, "Working").canStop, true);
   for (const state of ["idle", "question"] as const) {
     assert.equal(tabActivity({ ...input, agent_state: { state, phase: "compacting" } }).phase, "work");
   }
   for (const status of ["Dead", "Error"] as const) {
     assert.equal(tabActivity(input, status).phase, "work");
   }
-  assert.equal(tabActivity({ ...input, agent_state: { state: "working" } }).phase, "work");
+  assert.equal(tabActivity({ ...input, agent_state: { state: "working" } }, "Working").phase, "work");
 }
-const interrupted = tabActivity({ ...agent, agent_state: { state: "idle", phase: "interrupted" } });
+const interrupted = tabActivity({ ...agent, agent_state: { state: "idle", phase: "interrupted" } }, "Idle");
 assert.equal(interrupted.kind, "idle");
-assert.notEqual(interrupted.label, tabActivity({ ...agent, agent_state: { state: "idle", phase: "failed" } }).label);
-assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "error" } }).kind, "waiting-on-user");
+assert.notEqual(interrupted.label, tabActivity({ ...agent, agent_state: { state: "idle", phase: "failed" } }, "Idle").label);
+assert.equal(tabActivity({ ...agent, agent_state: { state: "question", subtype: "error" } }, "Waiting").kind, "waiting-on-user");
 const providerSignals = { auth: null, api_error: "usage_limit" as const, permission_mode: null };
 assert.equal(tabActivity({ ...agent, provider_signals: providerSignals }).label, "Usage limit reached");
 assert.equal(tabActivity({ ...agent, pending_prompt: pending, provider_signals: providerSignals }, "Waiting").label, pending.question);
-assert.equal(tabActivity({ ...agent, agent_state: { state: "working" }, provider_signals: providerSignals }).label, "Working");
+assert.equal(tabActivity({ ...agent, agent_state: { state: "working" }, provider_signals: providerSignals }, "Working").label, "Working");
 console.log(`tab activity: ${cases.length} table cases, ${startingStages.length} boot stages and working-count checks passed`);
 
 assert.equal(tabActivity({ ...agent, frozen: true }, "Working").active, false);

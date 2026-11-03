@@ -97,7 +97,7 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     && (!tab.backing || tab.backing.kind === "pty");
   const readyShell = utility && shell && tab?.boot_stage === "shell_ready";
   const lazyComposerReady = lazyFirstTurnComposerIsLive(tab);
-  const curatorWorking = tab?.role_profile === "curator" && live?.state === "working"
+  const curatorWorking = tab?.role_profile === "curator" && status === "Working"
     && sessionBound && Boolean(tab.session_binding_nonce)
     && tab.reported_session_binding_nonce === tab.session_binding_nonce;
   const launching = ((tab?.boot_stage !== "agent_ready" && tab?.agent_booting === true)
@@ -105,15 +105,14 @@ export function tabActivity(tab: TabActivityInput | null | undefined, status?: T
     || tab?.boot_stage === "awaiting_owner_prompt"
     || (declaresAgent && !sessionBound && tab?.boot_stage !== "agent_ready"))
     && !lazyComposerReady && !boundSessionRetiresShellStartup(tab) && !curatorWorking;
-  const authoritativeStatus = status ?? (live?.state === "working" ? "Working"
-    : live?.state === "question" ? "Waiting" : "Idle");
+  const authoritativeStatus = status ?? "Idle";
   let kind: TabActivity["kind"];
   if (status === "Dead" || status === "Error" || tab?.boot_stage === "spawn_failed") kind = "failed";
   else if (tab?.pending_prompt || tab?.boot_stage === "awaiting_owner_prompt") kind = "waiting-on-user";
   else if (launching) kind = "starting";
   else if (authoritativeStatus === "Waiting") kind = "waiting-on-user";
   else if (utility && shell) kind = shell.activity === "running" ? "working" : "idle";
-  else if (sessionBound && live?.state === "working") kind = "working";
+  else if (sessionBound && authoritativeStatus === "Working") kind = "working";
   else kind = "idle";
   const backgroundTasks = sessionBound ? Object.keys(tab?.provider_signals?.background?.running ?? {}).length : 0;
   const quiet = kind === "idle" && live?.state === "quiet";
