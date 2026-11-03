@@ -484,7 +484,7 @@ suite.test("a secondary viewer letterboxes frames and never sends resize request
   assert.equal(fake.callsTo(SURFACE_METHOD.resize).length, 0);
   assert.ok(queryByRole(host, "img"));
   await act(async () => getByRole(host, "button", "Take control").click());
-  assert.equal(fake.callsTo("viewport.claim").at(-1)?.args.viewer, fake.viewer());
+  assert.equal(fake.callsTo("viewport.claim").slice(-1)[0]?.args.viewer, fake.viewer());
   await unmount();
 });
 
