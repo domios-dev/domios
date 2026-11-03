@@ -17,12 +17,8 @@ mod changes;
 use changes::{unit_changes, UnitChanges};
 mod embedding;
 mod incremental;
-mod narrow;
 mod recovery;
 pub(super) use incremental::PlanIndexScope;
-pub(super) use narrow::{
-    enqueue_milestone_index, enqueue_task_index, MilestoneIndexDelta, TaskIndexDelta,
-};
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
 
@@ -96,9 +92,6 @@ struct Unit {
 }
 
 enum IndexJob {
-    DeleteUnit(PathBuf, String),
-    Status(PathBuf, narrow::StatusDelta),
-    Unit(PathBuf, Unit),
     Plan(Plan, PlanIndexScope),
     Prune(PathBuf, HashSet<String>),
     Embed(PathBuf, Unit),
@@ -111,9 +104,6 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
-            Self::Status(_, delta) => format!("{}:status:{}", self.project_key(), delta.key),
-            Self::DeleteUnit(_, id) => format!("{}:unit:{}", self.project_key(), id),
-            Self::Unit(_, unit) => format!("{}:unit:{}", self.project_key(), unit.id),
             Self::Embed(_, unit) => format!("{}:embed:{}", self.project_key(), unit.id),
             Self::Prune(_, _) => format!("{}:prune", self.project_key()),
             Self::Plan(plan, _) | Self::DeletePlan(plan) => {
@@ -128,9 +118,6 @@ impl IndexJob {
 
     fn project_key(&self) -> String {
         match self {
-            Self::Status(root, _) | Self::Unit(root, _) | Self::DeleteUnit(root, _) => {
-                project_scope(root)
-            }
             Self::Prune(root, _) | Self::Embed(root, _) => project_scope(root),
             Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
                 project_scope(plan_project_root(plan))
@@ -284,11 +271,6 @@ fn index_queue() -> Arc<IndexQueue> {
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
     match job {
-        IndexJob::DeleteUnit(root, id) => narrow::delete_unit(root, id),
-        IndexJob::Status(root, delta) => narrow::mirror_status(root, delta),
-        IndexJob::Unit(root, unit) => {
-            embedding::queue_changed(root, narrow::mirror_unit(root, unit))
-        }
         IndexJob::Embed(root, unit) => embedding::embed_current(root, unit),
         IndexJob::Prune(root, ids) => recovery::prune_project(root, ids),
         IndexJob::Plan(plan, scope) => embedding::queue_changed(
@@ -917,7 +899,30 @@ fn collect_spec_sections(
 }
 
 fn task_unit(plan: &Plan, task: &Task, scope: &str, plan_status: &str) -> Unit {
-    narrow::task_unit(&plan.id, &plan.title, task, scope, plan_status)
+    let acceptance_criteria = task.acceptance_criteria.join("\n");
+    let external_refs = task
+        .external_refs
+        .iter()
+        .map(|external_ref| external_ref.canonical_url.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Unit {
+        id: stable_id(&plan.id, "task", &task.id),
+        kind: "task",
+        title: format!("{} task {}", plan.title, task.name),
+        body: format!(
+            "Plan \"{}\" · task: {}\n{}\n{}\n{}",
+            plan.title, task.name, acceptance_criteria, external_refs, task.body
+        ),
+        scope: scope.to_string(),
+        plan_id: Some(plan.id.clone()),
+        spec_id: None,
+        unit_id: task.id.clone(),
+        unit_title: task.name.clone(),
+        parent_title: plan.title.clone(),
+        status: Some(format!("{plan_status}:{}", task_status_text(task))),
+        updated_at: task.updated_at,
+    }
 }
 
 fn stride_unit(
@@ -927,15 +932,23 @@ fn stride_unit(
     scope: &str,
     plan_status: &str,
 ) -> Unit {
-    narrow::milestone_unit(
-        &plan.id,
-        &plan.title,
-        &task.name,
-        &task_status_text(task),
-        stride,
-        scope,
-        plan_status,
-    )
+    Unit {
+        id: stable_id(&plan.id, "stride", &stride.id),
+        kind: "stride",
+        title: format!("{} stride {}", task.name, stride.kind),
+        body: format!(
+            "Plan \"{}\" · task \"{}\" · stride({}): {}",
+            plan.title, task.name, stride.kind, stride.text
+        ),
+        scope: scope.to_string(),
+        plan_id: Some(plan.id.clone()),
+        spec_id: None,
+        unit_id: stride.id.clone(),
+        unit_title: stride.kind.clone(),
+        parent_title: task.name.clone(),
+        status: Some(format!("{plan_status}:{}", task_status_text(task))),
+        updated_at: stride.ts,
+    }
 }
 
 fn timestamp_ms_to_rfc3339(ms: u64) -> String {

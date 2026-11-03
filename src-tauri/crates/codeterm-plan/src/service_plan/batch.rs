@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-mod hot;
 
 use super::{NewTask, PlanError, PlanStore};
 use crate::plan::{
@@ -315,9 +314,6 @@ impl PlanStore {
         request: BatchRequest,
         now_ms: u64,
     ) -> Result<BatchResult, PlanError> {
-        if hot::supports(&request) {
-            return self.commit_hot_batch(plan_id, request, now_ms);
-        }
         let created_count = created_task_count(self.get(plan_id).as_ref(), &request);
         let mut issued_keys = self.issue_task_keys(plan_id, created_count).into_iter();
         let turn = self.mutation_writer.enter();

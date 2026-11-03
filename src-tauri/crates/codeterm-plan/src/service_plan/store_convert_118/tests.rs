@@ -333,7 +333,7 @@ fn unparseable_legacy_plan_is_quarantined_and_counted() {
     assert_eq!(
         count(
             &path,
-            "SELECT COUNT(*) FROM sqlite_schema WHERE name = 'plan_fts'"
+            "SELECT COUNT(*) FROM plan_fts WHERE plan_id = 'pl_malformed'"
         ),
         0
     );

@@ -9,7 +9,7 @@ use super::{
 use crate::plan::{
     AgentRef, Goal, Milestone, MilestoneKind, OrchestratorRef, Plan, PlanMode, PlanStatus,
     PlannerRef, PlanningAuthor, PlanningState, PlanningTransition, ReviewEvidence, ReviewVerdict,
-    Section, TagFacet, Task, TaskGroup, TaskStatus, TransferRecord,
+    Section, TagFacet, Task, TaskGroup, TaskPriority, TaskStatus, TransferRecord,
 };
 
 mod plan_writer;
@@ -161,8 +161,17 @@ pub(super) fn has_section(sections: &[Section], id: &str) -> bool {
     })
 }
 
+fn parse_task_status(raw: &str) -> Result<TaskStatus, PlanError> {
+    serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadStatus)
+}
+
 fn parse_plan_mode(raw: &str) -> Result<PlanMode, PlanError> {
     serde_json::from_value(serde_json::Value::String(raw.into())).map_err(|_| PlanError::BadMode)
+}
+
+fn parse_task_priority(raw: &str) -> Result<TaskPriority, PlanError> {
+    serde_json::from_value(serde_json::Value::String(raw.into()))
+        .map_err(|_| PlanError::BadPriority)
 }
 
 fn is_terminal_task_status(status: &TaskStatus) -> bool {
@@ -400,36 +409,69 @@ fn validate_task_status_transition_for(
     incoming_label: Option<Option<&str>>,
     executor: Option<InProgressExecutor<'_>>,
 ) -> Result<(), PlanError> {
-    let task = plan.tasks.iter().find(|task| task.id == task_id);
-    let task_level_tab = task
-        .and_then(|task| {
-            task.assigned_tab_id
-                .as_deref()
-                .or(task.lane.tab_id.as_deref())
-        })
-        .is_some_and(|tab| !tab.trim().is_empty());
-    let has_tab = match executor {
-        Some(InProgressExecutor::LaneAssignment(update)) => match update.tab_id.as_ref() {
-            Some(tab) => tab.as_deref().is_some_and(|tab| !tab.trim().is_empty()),
-            None => task_level_tab,
-        },
-        Some(InProgressExecutor::CompetitiveAttempt(attempt_id)) => {
-            task.is_some_and(|task| live_competitive_executor(task, attempt_id))
+    let status_unchanged = current == next;
+    let invariants_on = std::env::var("CODETERM_STATE_INVARIANTS").map_or(true, |v| v != "off");
+    if invariants_on {
+        let task = plan.tasks.iter().find(|t| t.id == task_id);
+        if matches!(next, TaskStatus::InProgress) {
+            let task_level_tab = task
+                .and_then(|t| t.assigned_tab_id.as_deref().or(t.lane.tab_id.as_deref()))
+                .is_some_and(|p| !p.trim().is_empty());
+            let has_tab = match executor {
+                Some(InProgressExecutor::LaneAssignment(update)) => match update.tab_id.as_ref() {
+                    Some(tab) => tab.as_deref().is_some_and(|p| !p.trim().is_empty()),
+                    None => task_level_tab,
+                },
+                Some(InProgressExecutor::CompetitiveAttempt(attempt_id)) => {
+                    task.is_some_and(|task| live_competitive_executor(task, attempt_id))
+                }
+                None => task_level_tab,
+            };
+            if !has_tab {
+                return Err(PlanError::InProgressRequiresTab);
+            }
+            // Only fresh dispatch (claiming new capacity) is throttled; a task returning to in_progress after a review bounce already holds its slot and must not get stuck re-queued behind its own review.
+            if matches!(current, TaskStatus::Pending) {
+                if let Some(task) = task {
+                    super::review_gate::validate_dispatch_review_capacity(plan, task)?;
+                }
+            }
         }
-        None => task_level_tab,
-    };
-    status_transition::validate(
-        task,
-        current,
-        next,
-        incoming_label,
-        has_tab,
-        |task| super::review_gate::validate_dispatch_review_capacity(plan, task),
-        || reject_terminal_with_open_subtasks(plan, task_id),
-    )
+        if matches!(next, TaskStatus::InReview) {
+            if let Some(task) = task {
+                super::review_gate::validate_enter_review(task)?;
+            }
+        }
+        if matches!(next, TaskStatus::Blocked) {
+            let incoming = incoming_label
+                .flatten()
+                .map(str::trim)
+                .filter(|l| !l.is_empty());
+            if incoming.is_none() {
+                return Err(PlanError::BlockedRequiresLabel);
+            }
+        }
+    }
+    if status_unchanged {
+        return Ok(());
+    }
+    if matches!(next, TaskStatus::Done | TaskStatus::Cancelled) {
+        reject_terminal_with_open_subtasks(plan, task_id)?;
+    }
+    if matches!(current, TaskStatus::InReview) && matches!(next, TaskStatus::Paused) {
+        return Err(PlanError::ReviewHoldRequired);
+    }
+    if matches!(current, TaskStatus::InReview) && !matches!(next, TaskStatus::Cancelled) {
+        return Err(PlanError::TransitionDenied {
+            from: current.clone(),
+            to: next.clone(),
+        });
+    }
+    if matches!(next, TaskStatus::Paused) {
+        return Err(PlanError::TaskPausedSystemOnly);
+    }
+    Ok(())
 }
-
-pub(in crate::service_plan) mod status_transition;
 
 pub mod agent_lifecycle;
 pub mod goal_ops;

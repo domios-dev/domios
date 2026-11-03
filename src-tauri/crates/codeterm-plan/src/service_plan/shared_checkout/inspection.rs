@@ -126,8 +126,10 @@ impl PlanStore {
         reporter: &str,
         sha: Option<&str>,
     ) -> Result<Option<SharedReportInspection>, PlanError> {
-        let task = self.database.read_task_rows(plan_id, task_id)?;
-        let Some(snapshot) = SharedReportSnapshot::capture(&task, reporter) else {
+        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
+            .ok_or(PlanError::TaskNotFound)?;
+        let Some(snapshot) = SharedReportSnapshot::capture(task, reporter) else {
             return Ok(None);
         };
         let checkout = snapshot.checkout.as_deref().ok_or_else(|| {
