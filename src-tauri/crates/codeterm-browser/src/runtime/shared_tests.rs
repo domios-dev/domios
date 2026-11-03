@@ -136,9 +136,9 @@ impl CdpConnection for FakeConnection {
             "Page.getLayoutMetrics" if self.fail_metrics.load(Ordering::SeqCst) => {
                 Err(CdpError::Malformed("injected metrics failure".into()))
             }
-            "Page.getLayoutMetrics" => {
-                Ok(json!({"cssLayoutViewport":{"clientWidth":390},"cssContentSize":{"width":400}}))
-            }
+            "Page.getLayoutMetrics" => Ok(
+                json!({"cssLayoutViewport":{"pageX":0,"pageY":0,"clientWidth":390,"clientHeight":844},"cssContentSize":{"x":0,"y":0,"width":400,"height":1000}}),
+            ),
             "Runtime.evaluate" if params["expression"] == "window.devicePixelRatio" => {
                 Ok(json!({"result":{"type":"number","value":1.0}}))
             }
@@ -384,6 +384,16 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
         if let Ok(shot) = result {
             assert_eq!(shot["metrics"]["cssContentSize"]["width"], 400);
             assert_eq!(shot["metrics"]["devicePixelRatio"], 2.0);
+            let requests = connection.state.lock().requests.clone();
+            let capture = requests
+                .iter()
+                .rev()
+                .find(|(_, method, _)| method == "Page.captureScreenshot")
+                .unwrap();
+            assert_eq!(
+                capture.2["clip"],
+                json!({"x":0.0,"y":0.0,"width":390.0,"height":844.0,"scale":1})
+            );
         }
         let metrics: Vec<_> = connection
             .state
@@ -402,6 +412,58 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
         assert_eq!(host.viewport(), Viewport::default());
         host.close().await;
     }
+}
+
+#[tokio::test]
+async fn ordinary_owned_captures_resolve_css_bounds_but_attached_captures_pass_through() {
+    let root = tempfile::tempdir().unwrap();
+    let connection = FakeConnection::new();
+    let lease = acquire(
+        root.path().join("profile"),
+        connection.clone(),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let host = crate::BrowserHost::new(crate::BrowserHostConfig::under_data_dir(root.path()));
+    let runtime = from_lease(lease, Viewport::default(), hub()).await.unwrap();
+    let page = runtime.page.clone();
+    host.install(runtime);
+    for owned in [true, false] {
+        if !owned {
+            *host.viewport.lock() = crate::viewport::ViewportModel::new(
+                crate::viewport::ViewportMode::Attached,
+                Viewport::default(),
+            );
+        }
+        let start = connection.state.lock().requests.len();
+        host.capture_screenshot(&page, json!({"format":"png","captureBeyondViewport":false}))
+            .await
+            .unwrap();
+        let requests = connection.state.lock().requests[start..].to_vec();
+        assert_eq!(
+            requests
+                .iter()
+                .any(|(_, method, _)| method == "Page.getLayoutMetrics"),
+            owned
+        );
+        let capture = requests
+            .iter()
+            .find(|(_, method, _)| method == "Page.captureScreenshot")
+            .unwrap();
+        assert_eq!(capture.2.get("clip").is_some(), owned);
+        if owned {
+            assert_eq!(
+                capture.2["clip"],
+                json!({"x":0.0,"y":0.0,"width":390.0,"height":844.0,"scale":1})
+            );
+        } else {
+            assert_eq!(
+                capture.2,
+                json!({"format":"png","captureBeyondViewport":false})
+            );
+        }
+    }
+    host.close().await;
 }
 
 #[tokio::test]

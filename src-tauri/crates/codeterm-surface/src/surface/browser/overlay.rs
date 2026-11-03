@@ -16,10 +16,7 @@ impl BrowserRuntime {
         if !include_overlay {
             self.overlay_capture(page, true).await?;
         }
-        let shot = page
-            .send("Page.captureScreenshot", params)
-            .await
-            .map_err(super::cdp_error);
+        let shot = self.host.capture_screenshot(page, params).await;
         let restored = if !include_overlay {
             self.overlay_capture(page, false).await
         } else {

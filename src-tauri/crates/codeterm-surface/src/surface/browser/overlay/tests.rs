@@ -57,6 +57,9 @@ impl CdpConnection for Connection {
         Ok(match method {
             "Target.attachToTarget" => json!({"sessionId":"session"}),
             "Page.getFrameTree" => json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}}),
+            "Page.getLayoutMetrics" => {
+                json!({"cssLayoutViewport":{"pageX":0,"pageY":222,"clientWidth":380,"clientHeight":844}})
+            }
             "DOM.getContentQuads" => json!({"quads":[[10,20,30,20,30,40,10,40]]}),
             _ => json!({"result":{"value":true}}),
         })
@@ -245,9 +248,14 @@ async fn browser_overlay_injection_is_per_session_and_evidence_capture_hides_it(
         .unwrap()
         .ends_with("capture(true)"));
     assert_eq!(capture[1].0, "Page.captureScreenshot");
+    assert_eq!(
+        capture[1].1["clip"],
+        json!({"x":0.0,"y":222.0,"width":380.0,"height":844.0,"scale":1})
+    );
     assert!(capture[2].1["expression"]
         .as_str()
         .unwrap()
         .ends_with("capture(false)"));
     assert_eq!(capture[3].0, "Page.captureScreenshot");
+    assert_eq!(capture[3].1["clip"], capture[1].1["clip"]);
 }
