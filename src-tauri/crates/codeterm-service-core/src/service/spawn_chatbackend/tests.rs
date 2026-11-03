@@ -439,6 +439,7 @@ fn manager_launch_config_uses_committed_team_after_placement() {
         }),
         ..Default::default()
     };
+    params.normalize_role_profile().unwrap();
     params.system_prompt = compose_runtime_system_prompt(&mut params);
     let spec = SpawnTabSpec::from_agent_params_with_chatbackends(
         &fixture.service.chatbackend_registry,
