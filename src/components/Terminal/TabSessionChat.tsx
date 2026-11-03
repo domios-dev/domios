@@ -25,7 +25,7 @@ import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { ChatLiveOperation } from "./ChatLiveOperation";
 import { LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
-import { documentsFromTranscript } from "./chatDocuments";
+import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -330,15 +330,16 @@ function TabSessionChatBody({
         .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
     }
   }, [tabId, expandDeliveryTasks, observeChatSendStatus]);
+  const documentInventory = useMemo(() => createDocumentInventory(), [tabId, agentSessionId, tab?.session_binding_nonce]);
   useEffect(() => {
     chatChangesStore.bind(tabId, JSON.stringify([agentSessionId, tab?.session_binding_nonce]));
   }, [tabId, agentSessionId, tab?.session_binding_nonce]);
   useEffect(() => {
     if (!isActive) return;
-    const documents = documentsFromTranscript(allMessages);
+    const documents = documentInventory(allMessages);
     chatDocumentsStore.set(tabId, documents);
     chatChangesStore.set(tabId, allMessages);
-  }, [tabId, allMessages, isActive]);
+  }, [tabId, allMessages, isActive, documentInventory]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
   const localFirstTurnSends = useMemo(() => firstTurnLocalSends(deliverySends, tab?.pty_id, tab?.session_binding_nonce),

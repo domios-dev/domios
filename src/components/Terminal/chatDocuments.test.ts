@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { documentsFromTranscript } from "./chatDocuments";
+import { createDocumentInventory, documentsFromTranscript } from "./chatDocuments";
 import { formatAttachmentMarker, serializeDsBlock, type MessageSegment } from "@codeterm/chat-core";
 
 assert.deepEqual(documentsFromTranscript([{ content: "Nothing here" }]), []);
@@ -111,3 +111,25 @@ assert.deepEqual(documentsFromTranscript([{ content: serializeDsBlock({ kind: "i
   assert.equal(attached[1].shownAt, 5);
 }
 console.log("chatDocuments: passed");
+
+{
+  let reads = 0;
+  const inventory = createDocumentInventory((messages) => { if (messages[0]?.id === "first") reads++; return documentsFromTranscript(messages); });
+  const first = { id: "first", content: "<ds-document src='/work/a.md' />", timestamp: 1 };
+  const a = inventory([first]);
+  const parsedReads = reads;
+  assert.equal(inventory([first, { content: "stream" }]), a);
+  assert.equal(inventory([first, { content: "stream grows" }]), a);
+  assert.equal(reads, parsedReads, "unchanged rows are never reparsed");
+  const clone = { ...first };
+  const afterCloneRead = reads;
+  assert.equal(inventory([clone, { content: "context projection clones rows" }]), a);
+  assert.equal(reads, afterCloneRead, "projected row clones reuse extraction by source identity");
+  const replacement = { content: "<ds-document src='/work/b.md' />", timestamp: 2 };
+  assert.deepEqual(inventory([first, replacement]), documentsFromTranscript([first, replacement]));
+  assert.deepEqual(inventory([replacement]), documentsFromTranscript([replacement]));
+  assert.deepEqual(inventory([{ ...replacement, content: "<ds-document src='/work/c.md' />" }]).map(item => item.path), ["/work/c.md"]);
+  assert.deepEqual(inventory([{ ...replacement, inboundKind: "neighbor" }]), [], "provenance changes invalidate extraction");
+  assert.deepEqual(inventory([{ ...replacement, segments: [{ type: "partial_frame", raw: replacement.content, attrs: {}, body: replacement.content }] }]), [], "segment trust changes invalidate extraction");
+  assert.deepEqual(inventory([]), []);
+}
