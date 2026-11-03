@@ -5,8 +5,13 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 
 #[test]
-fn curator_question_resolution_schedules_next_round_and_emits_ui_changes() {
-    for action in ["chat", "resolve", "clear", "tap"] {
+fn owner_chat_keeps_questions_open_until_explicit_resolution_resumes_curator() {
+    for (action, choices) in [
+        ("resolve", false),
+        ("resolve", true),
+        ("clear", true),
+        ("tap", true),
+    ] {
         let (fixture, id, _, owner) = crate::service::plan_authority::test_fixture::fixture();
         let service = &fixture.service;
         let owner = owner.tab_id.unwrap();
@@ -43,9 +48,11 @@ fn curator_question_resolution_schedules_next_round_and_emits_ui_changes() {
                 tab_id: Some(owner.clone()),
                 ..Default::default()
             },
-            Ask::offering(Some(vec![NotificationAction::Answer {
-                label: "opaque choice".into(),
-            }])),
+            Ask::offering(choices.then(|| {
+                vec![NotificationAction::Answer {
+                    label: "opaque choice".into(),
+                }]
+            })),
             None,
             Some(NotifyLevel::ActionNeeded),
         );
@@ -55,17 +62,68 @@ fn curator_question_resolution_schedules_next_round_and_emits_ui_changes() {
             Some(CuratorSuspension::WaitingOnHuman)
         );
         assert_eq!(parked.next_at, None);
+        assert!(service
+            .resolve_notification(&question, Some("other-tab"))
+            .is_err());
+        for prepared in [false, true] {
+            let input = crate::service::messenger::HumanInput::composer("unrelated owner message");
+            let status = if prepared {
+                let reservation = service.reserve_user_send(&owner, None).unwrap();
+                service
+                    .prepare_and_admit_user_send(reservation, input, false)
+                    .unwrap()
+                    .status
+            } else {
+                service
+                    .start_human_chat_send(&owner, input, None, None)
+                    .unwrap()
+            };
+            assert_eq!(
+                service
+                    .pending_delivery_payloads
+                    .user_sends
+                    .original(&owner, &status.send_id)
+                    .unwrap(),
+                "unrelated owner message"
+            );
+            let store = service.notif.lock();
+            let record = store.notification(&question).unwrap();
+            assert!(!record.resolved);
+            assert_eq!(record.actions.is_some(), choices);
+            assert_eq!(record.answer.is_some(), choices);
+            if let Some(slot) = &record.answer {
+                assert!(slot.answered.is_none());
+                assert!(slot.answered_by.is_none());
+                assert!(slot.answered_via.is_none());
+                assert!(!slot.delivered);
+            }
+            drop(store);
+            let waiting = service.control_loop_show(&id).unwrap();
+            assert_eq!(
+                waiting.suspended_reason,
+                Some(CuratorSuspension::WaitingOnHuman)
+            );
+            assert_eq!(waiting.next_at, None);
+            assert!(!fixture
+                .ui
+                .0
+                .lock()
+                .iter()
+                .any(|(name, data)| { name == "notification-resolved" && data["id"] == question }));
+        }
         match action {
-            "chat" => service.answer_notification_questions_in_chat(&owner, u64::MAX),
             "resolve" => service
                 .resolve_notification(&question, Some(&owner))
                 .unwrap(),
             "clear" => service.clear_notifications(None),
             "tap" => {
-                service
-                    .notif
-                    .lock()
-                    .record_answer(&question, "opaque choice");
+                assert!(matches!(
+                    service
+                        .notif
+                        .lock()
+                        .record_answer(&question, "opaque choice"),
+                    crate::notification::answer::AnswerAdmission::Recorded(_)
+                ));
                 service.reconcile_notification_questions();
             }
             _ => unreachable!(),
