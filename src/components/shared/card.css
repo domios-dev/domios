@@ -212,15 +212,82 @@ button.ct-card__head {
   transition: opacity var(--ct-duration-liquid-hover) var(--ct-ease-liquid-settle);
 }
 
+.ct-reader-opener {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 99px;
+  background: transparent;
+  color: var(--ct-muted-fg);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.ct-reader-opener--inline {
+  width: auto;
+  gap: 4px;
+  padding-inline: 6px;
+  font-size: 11px;
+  opacity: 1;
+}
+
+.ct-card:hover > .ct-card__header > .ct-reader-opener,
+.ct-card:focus-within > .ct-card__header > .ct-reader-opener,
+.ct-card:hover > .ct-card__head > .ct-reader-opener,
+.ct-card:focus-within > .ct-card__head > .ct-reader-opener,
+.ct-card__header:hover > .ct-reader-opener,
+.ct-card__header:focus-within > .ct-reader-opener,
+.ct-card__head:hover > .ct-reader-opener,
+.ct-card__head:focus-within > .ct-reader-opener,
+.ct-reader-row:hover > .ct-reader-opener,
+.ct-reader-row:focus-within > .ct-reader-opener {
+  opacity: 1;
+}
+
+.ct-reader-opener:hover,
+.ct-reader-opener:focus-visible {
+  color: var(--ct-fg);
+  background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
+}
+
+.ct-reader-opener:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--ct-accent) 60%, transparent);
+  outline-offset: -1px;
+}
+
+@media (pointer: coarse), (hover: none) {
+  .ct-reader-opener,
+  .ct-card__menu .ct-row-kebab {
+    min-width: 44px;
+    height: 44px;
+    opacity: 1;
+  }
+}
+
 .ct-card:hover .ct-card__menu,
-.ct-card:has(:focus-visible) .ct-card__menu,
+.ct-card:focus-within .ct-card__menu,
 .ct-card__menu.is-shown {
   opacity: 1;
 }
 
+.ct-card__menu .ct-row-kebab {
+  width: 28px;
+  height: 28px;
+}
+
+.ct-card__menu .ct-row-kebab--touch {
+  width: 44px;
+  height: 44px;
+}
+
 .ct-tool-status-slot {
   display: grid;
-  width: 24px;
+  width: 28px;
   flex: none;
   align-items: center;
   justify-items: center;
@@ -235,14 +302,20 @@ button.ct-card__head {
 }
 
 .ct-card:hover .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
-.ct-card:has(:focus-visible) .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
+.ct-card:focus-within .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
 .ct-tool-status-slot:has(.ct-card__menu.is-shown) > .ct-tool-status-icon {
   opacity: 0;
 }
 
-@media (hover: none) {
+@media (pointer: coarse), (hover: none) {
   .ct-card__menu {
     opacity: 1;
+  }
+
+  .ct-card__menu .ct-row-kebab,
+  .ct-tool-status-slot:has(.ct-card__menu) {
+    width: 44px;
+    height: 44px;
   }
 
   .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon {

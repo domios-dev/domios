@@ -1,6 +1,10 @@
 import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it } from "vitest";
+import { ChatNoticeCard } from "./ChatNoticeCard";
+import { ChatBlockFrame } from "./blocks/ChatBlockFrame";
+import { ToolCardFrame } from "./toolcard/ToolCardFrame";
+import { BoundedMessageContent } from "./BoundedMessageContent";
 import { ExpandableReader } from "./ExpandableReader";
 import { InboundReportCard } from "./codeterm/InboundReportCard";
 import { ToolActivityStream } from "./toolcard/ToolActivityStream";
@@ -31,10 +35,14 @@ it("keeps the same interactive content through open, Escape, close and focus ret
     const [count, setCount] = useState(0);
     return <button onClick={() => setCount(count + 1)}>Count {count}</button>;
   }
-  await mount(<ExpandableReader label="Opaque content">{() => <Content />}</ExpandableReader>);
+  let opens = 0;
+  await mount(<ExpandableReader label="Opaque content" openerPlacement="header" onOpen={() => { opens += 1; }}>
+    {(_, opener) => <><header>{opener}</header><Content /></>}
+  </ExpandableReader>);
   const original = button("Count 0");
   await act(async () => original.click());
   const opener = button("Open full screen: Opaque content");
+  expect(opener.title).toBe("Open full screen");
   await act(async () => opener.click());
   const dialog = document.querySelector('[role="dialog"][aria-label="Opaque content"]');
   expect(dialog?.contains(original)).toBe(true);
@@ -48,6 +56,7 @@ it("keeps the same interactive content through open, Escape, close and focus ret
   await act(async () => button("Close fullscreen viewer").click());
   expect(document.activeElement).toBe(opener);
   expect(button("Count 1")).toBe(original);
+  expect(opens).toBe(2);
 });
 
 it("reads the entire report including its final table row inline and in fullscreen", async () => {
@@ -83,3 +92,27 @@ it("opens a collapsed tool group with every member available", async () => {
   await act(async () => button("Close fullscreen viewer").click());
   expect(host.querySelector('[aria-label="Tool actions"]')?.hasAttribute("hidden")).toBe(true);
 });
+
+for (const surface of ["tool", "block", "notice"] as const) {
+  it(`opens the ${surface} reader independently and returns focus to its only opener`, async () => {
+    let toggles = 0;
+    const toggle = () => { toggles += 1; };
+    const content = <BoundedMessageContent collapsedHeight="100px"><p>Opaque detail</p></BoundedMessageContent>;
+    const event: ToolEvent = { id: "reader-row", phase: "result", status: "success", kind: "generic", summary: "Opaque summary", message: { id: "reader-row", type: "tool_call", content: "" } };
+    await mount(surface === "tool"
+      ? <ToolCardFrame event={event} title="Opaque row" expanded={false} onToggle={toggle}>{content}</ToolCardFrame>
+      : surface === "block"
+        ? <ChatBlockFrame name="opaque" source="opaque-source" title="Opaque row" icon={null} details={content} />
+        : <ChatNoticeCard testId="opaque-notice" title="Opaque row" icon={null} expanded={false} onToggle={toggle}>{content}</ChatNoticeCard>);
+    const opener = button("Open full screen: Opaque row");
+    expect(host.querySelectorAll('[aria-label^="Open full screen:"]')).toHaveLength(1);
+    expect(opener.parentElement?.closest("button")).toBeNull();
+    await act(async () => opener.click());
+    expect(toggles).toBe(0);
+    const dialog = document.querySelector('[role="dialog"][aria-label="Opaque row"]');
+    expect(dialog?.textContent).toContain("Opaque detail");
+    expect(dialog?.querySelectorAll('button:not([hidden])[aria-label^="Open full screen:"]')).toHaveLength(0);
+    await act(async () => button("Close fullscreen viewer").click());
+    expect(document.activeElement).toBe(opener);
+  });
+}

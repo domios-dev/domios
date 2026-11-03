@@ -46,7 +46,7 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
   const statusName = event.status === "unresolved" ? "no result" : event.status;
 
   return (
-    <ExpandableReader label={summary}>{(fullscreen) => (
+    <ExpandableReader label={summary} openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="chat-rich-result"
       data-rich-kind={event.kind}
@@ -57,7 +57,7 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
         background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)",
       }}
     >
-      <div className="flex min-w-0 items-center gap-2 pl-3">
+      <div className="ct-reader-row flex min-w-0 items-center gap-2 pl-3">
         {thumbnail.src && (
           <img
             data-testid="chat-rich-result-thumbnail"
@@ -86,6 +86,9 @@ export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent
             </span>
           )}
           <span data-testid="chat-rich-result-status" role="img" aria-label={statusName} className="flex shrink-0"><StatusGlyph status={event.status} /></span>
+        </button>
+        {opener}
+        <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} result`} aria-expanded={expanded} aria-controls={regionId} onClick={onToggle} className="flex shrink-0 items-center pr-3">
           <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
         </button>
       </div>
