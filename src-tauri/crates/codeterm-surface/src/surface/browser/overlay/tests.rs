@@ -1,0 +1,170 @@
+use super::*;
+use codeterm_browser::cdp::{CdpClient, CdpConnection, CdpError, EventStream};
+use codeterm_browser::cdp_wire::{CdpEvent, EventFilter};
+use parking_lot::Mutex;
+use std::sync::Arc;
+use tokio::sync::{mpsc, watch, Notify};
+
+struct Connection {
+    calls: Mutex<Vec<(String, Value)>>,
+    subscribers: Mutex<Vec<mpsc::Sender<Arc<CdpEvent>>>>,
+    closed: watch::Sender<Option<String>>,
+    animation_started: Notify,
+    animation_ended: Notify,
+    fail_input: bool,
+}
+
+#[async_trait::async_trait]
+impl CdpConnection for Connection {
+    fn endpoint(&self) -> &str {
+        "ws://127.0.0.1:1/presentation"
+    }
+    fn closed(&self) -> watch::Receiver<Option<String>> {
+        self.closed.subscribe()
+    }
+    fn close(&self, reason: &str) {
+        self.closed.send_replace(Some(reason.into()));
+    }
+    fn subscribe(&self, _: EventFilter) -> EventStream {
+        let (tx, rx) = mpsc::channel(64);
+        self.subscribers.lock().push(tx);
+        EventStream::from_receiver(rx)
+    }
+    async fn send_to(
+        &self,
+        _: Option<&str>,
+        method: &str,
+        params: Value,
+        _: Duration,
+    ) -> Result<Value, CdpError> {
+        self.calls.lock().push((method.into(), params.clone()));
+        if params["awaitPromise"] == true {
+            self.animation_started.notify_one();
+            self.animation_ended.notified().await;
+        }
+        if self.fail_input && method == "Input.dispatchMouseEvent" {
+            return Err(CdpError::Closed("uncertain input".into()));
+        }
+        Ok(match method {
+            "Target.attachToTarget" => json!({"sessionId":"session"}),
+            "Page.getFrameTree" => json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}}),
+            "DOM.getContentQuads" => json!({"quads":[[10,20,30,20,30,40,10,40]]}),
+            _ => json!({"result":{"value":true}}),
+        })
+    }
+}
+
+async fn fixture(
+    fail_input: bool,
+) -> (
+    BrowserRuntime,
+    PageChannel,
+    Arc<Connection>,
+    tempfile::TempDir,
+) {
+    let connection = Arc::new(Connection {
+        calls: Mutex::new(Vec::new()),
+        subscribers: Mutex::new(Vec::new()),
+        closed: watch::channel(None).0,
+        animation_started: Notify::new(),
+        animation_ended: Notify::new(),
+        fail_input,
+    });
+    let page = CdpClient::from_connection(connection.clone())
+        .attach_page("target")
+        .await
+        .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let runtime = BrowserRuntime::new(
+        codeterm_browser::BrowserHostConfig::under_data_dir(dir.path()),
+        "Agent",
+        "tab",
+        Arc::new(tokio::sync::OnceCell::new()),
+        Default::default(),
+    );
+    runtime.shared.bind(&page);
+    (runtime, page, connection, dir)
+}
+
+#[tokio::test]
+async fn browser_overlay_waits_for_animation_and_never_replays_uncertain_input() {
+    for fail_input in [false, true] {
+        let (runtime, page, wire, _dir) = fixture(fail_input).await;
+        let action = runtime.click_node(&page, 7);
+        tokio::pin!(action);
+        tokio::select! {
+            result = &mut action => panic!("input ran before animation completion: {result:?}"),
+            _ = wire.animation_started.notified() => {}
+        }
+        assert!(!wire
+            .calls
+            .lock()
+            .iter()
+            .any(|(method, _)| method.starts_with("Input.")));
+        wire.animation_ended.notify_one();
+        let result = action.await;
+        assert_eq!(result.is_err(), fail_input);
+        let calls = wire.calls.lock();
+        let inputs: Vec<_> = calls
+            .iter()
+            .filter(|(method, _)| method == "Input.dispatchMouseEvent")
+            .collect();
+        assert_eq!(inputs.len(), if fail_input { 1 } else { 3 });
+        for (_, params) in inputs {
+            assert_eq!(
+                (params["x"].as_f64(), params["y"].as_f64()),
+                (Some(20.0), Some(30.0))
+            );
+        }
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|(_, params)| params["awaitPromise"] == true)
+                .count(),
+            1
+        );
+    }
+}
+
+#[tokio::test]
+async fn browser_overlay_injection_is_per_session_and_evidence_capture_hides_it() {
+    let (runtime, page, wire, _dir) = fixture(false).await;
+    runtime.install_overlay(&page).await.unwrap();
+    runtime.install_overlay(&page).await.unwrap();
+    runtime
+        .capture_screenshot(&page, json!({"format":"png"}), false)
+        .await
+        .unwrap();
+    runtime
+        .capture_screenshot(&page, json!({"format":"png"}), true)
+        .await
+        .unwrap();
+    let calls = wire.calls.lock();
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(method, _)| method == "Page.addScriptToEvaluateOnNewDocument")
+            .count(),
+        1
+    );
+    let capture: Vec<_> = calls
+        .iter()
+        .filter(|(method, params)| {
+            method == "Page.captureScreenshot"
+                || params["expression"]
+                    .as_str()
+                    .is_some_and(|s| s.contains("?.capture("))
+        })
+        .collect();
+    assert_eq!(capture.len(), 4);
+    assert!(capture[0].1["expression"]
+        .as_str()
+        .unwrap()
+        .ends_with("capture(true)"));
+    assert_eq!(capture[1].0, "Page.captureScreenshot");
+    assert!(capture[2].1["expression"]
+        .as_str()
+        .unwrap()
+        .ends_with("capture(false)"));
+    assert_eq!(capture[3].0, "Page.captureScreenshot");
+}

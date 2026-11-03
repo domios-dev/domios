@@ -86,6 +86,16 @@ async fn stdin_typing_masks_before_insertion_and_refuses_unmaskable_fields() {
             .position(|(method, _)| method == "Input.insertText");
         if maskable {
             assert!(mask < insert.unwrap());
+            let presentation = commands
+                .iter()
+                .position(|(_, params)| params["awaitPromise"] == true)
+                .unwrap();
+            assert!(insert.unwrap() < presentation);
+            assert_eq!(
+                commands[presentation].1["arguments"][0]["value"],
+                json!({"kind":"typing","secret":true,"text":""})
+            );
+            assert!(!commands[presentation].1.to_string().contains(secret));
         } else {
             assert!(insert.is_none());
         }

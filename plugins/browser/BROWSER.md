@@ -47,9 +47,11 @@ Stop when `status` reports `needs human` other than `none`: captcha, missing log
 
 ## The user can point at things
 
-User annotations arrive as Domios notices. `inbox` lists unread/undelivered annotations; `inbox all` lists all retained ones. Each includes the page, element role/name/selector, React component (and dev source file), text, attributes, styles, box, nearby text, cropped screenshot and user intent. Find the corresponding code, answer or change it, then verify in the browser.
+Annotations arrive as notices. `inbox` lists unread/undelivered cards; `inbox all` lists all retained cards with element facts, React source, screenshot and user intent. Inspect the named code, answer or change it, then verify.
 
 ## Device viewport and capture metrics
+
+Agent actions show a blue cursor, ripple, drag trail and typing ring. Long inputs use a caret; secrets stay masked. Reduced motion is static; viewer input hides the layer. Evidence omits it unless `screenshot cursor.png --include-overlay` is requested.
 
 `viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
 
@@ -145,4 +147,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 17 -->
+<!-- revision: 18 -->

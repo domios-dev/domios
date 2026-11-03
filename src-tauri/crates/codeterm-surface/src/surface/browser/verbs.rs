@@ -357,6 +357,10 @@ impl BrowserRuntime {
         let quads = self.send(page, "DOM.getContentQuads", node).await?;
         let (x, y) =
             input::quad_center(&quads).ok_or("element has no visible box (hidden or zero-size)")?;
+        let authority = self.shared.begin_action(page)?;
+        self.present(page, json!({"kind":"click","x":x,"y":y}))
+            .await;
+        self.shared.check_action(&authority)?;
         self.complete_action(page, false, async {
             self.dispatch_input(page, &InputArgs::click(x, y)).await?;
             Ok(Value::Null)
@@ -372,6 +376,7 @@ impl BrowserRuntime {
         text: &str,
         secret: bool,
     ) -> Result<(), String> {
+        let _guard = self.action_gate.lock().await;
         let resolved = self
             .send(
                 page,
@@ -403,8 +408,14 @@ impl BrowserRuntime {
         )
         .await?;
         self.send(page, "Input.insertText", json!({ "text": text }))
-            .await
-            .map(|_| ())
+            .await?;
+        self.present_on(
+            page,
+            Some(object_id),
+            json!({"kind":"typing","secret":secret,"text":if secret { "" } else { text }}),
+        )
+        .await;
+        Ok(())
     }
 
     pub(super) async fn evaluate(
