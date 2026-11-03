@@ -1,6 +1,7 @@
 import type { AgentCommandCtx, PluginModule } from "@codeterm/plugin-sdk";
 import { readPage } from "./readPage";
 import { redactCredentials } from "./redaction";
+import { runBatch } from "./batch";
 
 export type AgentCommandReply = { result: string } | { error: string };
 
@@ -40,6 +41,7 @@ export function parseOf(raw: readonly unknown[]): ParsedArgs {
 // The core browser runtime does the work; the plugin forwards the agent's verb to its own surface or `--of` another's.
 export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = hostSurfaceCall()): AgentCommandReply {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
+  if (ctx.verb === "batch") return runBatch(ctx, (step) => forward(step, call));
   if (ctx.verb === "connect-secret") return { error: "connect accepts its token only through --stdin" };
   const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
   const verb = secret !== undefined && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb || "help";

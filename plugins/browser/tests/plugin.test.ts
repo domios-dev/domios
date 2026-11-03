@@ -133,3 +133,41 @@ describe("Browser named instance connection", () => {
     expect(call.mock.calls[0][0]).toBe("open");
   });
 });
+
+const step = (name: string, args: string[] = []) => ({ name, input: { args } });
+const batch = (steps: unknown, call: (verb: string, payload: string) => string) => forward({ sessionId: "batch", verb: "batch", args: [], body: JSON.stringify(steps) }, call);
+
+describe("Browser batch", () => {
+  it("executes ordered standalone calls and preserves screenshot paths and owner routing", () => {
+    const call = vi.fn((verb: string) => JSON.stringify({ result: verb === "screenshot" ? "saved /pad/shot.png" : verb }));
+    const reply = batch([step("snapshot"), step("click", ["button", "Save", "--of", "QA"]), step("screenshot")], call);
+    expect(call.mock.calls.map(([verb]) => verb)).toEqual(["snapshot", "click", "screenshot"]);
+    expect(call.mock.calls[1][1]).toBe('{"args":["button","Save"],"of":"QA"}');
+    expect("result" in reply && JSON.parse(reply.result)).toEqual({ completed: true, results: [{ name: "snapshot", result: "snapshot" }, { name: "click", result: "click" }, { name: "screenshot", result: "saved /pad/shot.png" }] });
+  });
+
+  it.each(["not_found", "action_unconfirmed: acknowledgement lost", "upload_unconfirmed: inspect"])("stops once on %s and never replays", (error) => {
+    const call = vi.fn((verb: string) => JSON.stringify(verb === "click" ? { error } : { result: "read" }));
+    const reply = batch([step("snapshot"), step("click", ["@ref"]), step("goto", ["https://example.test"])], call);
+    expect(call).toHaveBeenCalledTimes(2);
+    expect("result" in reply && JSON.parse(reply.result)).toMatchObject({ completed: false, stoppedAt: 1, results: [{ result: "read" }, { error }] });
+  });
+
+  it("stops on a lost reply without repeating the action", () => {
+    const call = vi.fn(() => { throw new Error("closed"); });
+    const reply = batch([step("click", ["@ref"]), step("snapshot")], call);
+    expect(call).toHaveBeenCalledTimes(1);
+    expect("result" in reply && JSON.parse(reply.result)).toMatchObject({ completed: false, stoppedAt: 0 });
+  });
+
+  it.each([[], Array.from({ length: 33 }, () => step("status")), [step("batch")], [step("type-secret")], [step("status"), { name: "click", input: { args: [4] } }], [{ name: "type", input: { args: ["@ref"], body: "secret" } }]])("validates the entire bounded sequence before dispatch", (steps) => {
+    const call = vi.fn(() => "{}");
+    expect(batch(steps, call)).toHaveProperty("error");
+    expect(call).not.toHaveBeenCalled();
+  });
+
+  it("redacts each step result before assembling JSON", () => {
+    const reply = batch([step("status")], () => JSON.stringify({ result: "https://example.test/?token=opaque" }));
+    expect(JSON.stringify(reply)).not.toContain("opaque");
+  });
+});
