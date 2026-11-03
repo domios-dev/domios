@@ -5,6 +5,62 @@ use std::sync::Arc;
 static L12: &LocalModel = &crate::embedder::local::MODELS[0];
 
 #[test]
+fn idle_deadline_releases_model_and_next_query_lazily_reloads_it() {
+    struct Model(mpsc::Sender<()>);
+    impl Drop for Model {
+        fn drop(&mut self) {
+            let _ = self.0.send(());
+        }
+    }
+    let (worker, receivers) = channels();
+    let (dropped, released) = mpsc::channel();
+    let loads = Arc::new(AtomicUsize::new(0));
+    let observed_loads = loads.clone();
+    let thread = std::thread::spawn(move || {
+        run_with_idle_timeout(
+            receivers,
+            cpu_pool,
+            |_| {
+                observed_loads.fetch_add(1, Ordering::SeqCst);
+                Ok(Model(dropped.clone()))
+            },
+            |_, _| Ok(vec![1.0]),
+            Duration::ZERO,
+        );
+    });
+    assert_eq!(worker.embed(L12, "first", true).unwrap(), vec![1.0]);
+    released.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(worker.embed(L12, "second", true).unwrap(), vec![1.0]);
+    released.recv_timeout(Duration::from_secs(1)).unwrap();
+    assert_eq!(loads.load(Ordering::SeqCst), 2);
+    drop(worker);
+    thread.join().unwrap();
+}
+
+#[test]
+fn queued_work_precedes_an_expired_idle_deadline() {
+    let (worker, receivers) = channels();
+    let (reply, _) = mpsc::sync_channel(1);
+    worker
+        .bulk
+        .send(Request {
+            model: L12,
+            text: "queued".into(),
+            reply,
+            caller: "fixture".into(),
+        })
+        .unwrap();
+    assert_eq!(
+        receivers
+            .next_event(Some(Duration::ZERO))
+            .unwrap()
+            .unwrap()
+            .text,
+        "queued"
+    );
+}
+
+#[test]
 fn recall_priority_queries_preempt_a_full_bulk_lane_at_the_next_boundary() {
     let (worker, receivers) = channels();
     for _ in 0..QUEUE_CAPACITY {

@@ -237,4 +237,5 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 `memory.backend` selects `"sqlite"` (default) or `"postgres"`. For build requirements, secret-store credentials and migration before switching an existing store, see the memory help referenced above.
 
 **Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
-<!-- revision: 131 -->
+Local embedding weights load on demand and are released when the worker's idle receive deadline expires; the next request loads them again. The current deadline is included in the memory breakdown.
+<!-- revision: 132 -->

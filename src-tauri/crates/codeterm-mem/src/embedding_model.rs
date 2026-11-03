@@ -13,7 +13,8 @@ pub(crate) fn memory_diagnostics() -> serde_json::Value {
     serde_json::json!({
         "count": RESIDENT_MODELS.load(Ordering::Relaxed),
         "mapped_weight_bytes": MAPPED_WEIGHT_BYTES.load(Ordering::Relaxed),
-        "residency": "lazy loaded; at most two models retained by the embedding worker",
+        "residency": "lazy loaded; at most two models; released after an idle receive deadline",
+        "idle_unload_after_ms": crate::embedding_worker::MODEL_IDLE_TIMEOUT.as_millis(),
     })
 }
 
