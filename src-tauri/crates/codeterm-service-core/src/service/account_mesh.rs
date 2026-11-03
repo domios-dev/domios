@@ -155,15 +155,6 @@ impl MeshTransport for TransportBridge {
                         membership_expires_at: row.membership_expires_at, endpoint_expires_at: row.endpoint.as_ref().map(|endpoint| endpoint.expires_at),
                         instance_id: None, online: false,
                     }).collect()).unwrap_or_default();
-                manager.registry_revision = state.signed_in_account().and_then(|account| {
-                    state.registry_security.as_ref().map(|registry| {
-                        codeterm_mesh::types::RegistryRevision {
-                            account_id: account.to_owned(),
-                            revision: registry.revision,
-                            security_digest: registry.digest.clone(),
-                        }
-                    })
-                });
             }
             service.ui.emit(
                 ACCOUNT_MESH_CHANGED,
