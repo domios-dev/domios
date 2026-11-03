@@ -95,3 +95,50 @@ fn interrupt_does_not_count_as_success_or_retry() {
     );
     assert_eq!(state.attempts, 1);
 }
+
+#[test]
+fn output_limit_continues_immediately_once_then_stops_once() {
+    let mut state = RetryState::default();
+    let signal = json!({"retryableKind":"output_limit","retryable":false});
+    assert_eq!(
+        failure(&mut state, "a", signal.clone(), 123),
+        Decision::Schedule {
+            attempt: 1,
+            at: 123
+        }
+    );
+    assert_eq!(
+        failure(&mut state, "b", signal.clone(), 124),
+        Decision::Stopped
+    );
+    assert_eq!(
+        failure(&mut state, "c", signal.clone(), 125),
+        Decision::Ignore
+    );
+    assert_eq!(state.finish("success", None, 126), Decision::Reset);
+    assert_eq!(
+        failure(&mut state, "d", signal, 127),
+        Decision::Schedule {
+            attempt: 1,
+            at: 127
+        }
+    );
+}
+
+#[test]
+fn non_retryable_failure_stops_once_with_or_without_signal() {
+    for signal in [None, Some(json!({"retryable":false}))] {
+        let mut state = RetryState::default();
+        if let Some(signal) = signal {
+            state.error = Some(("a".into(), serde_json::from_value(signal).unwrap()));
+        }
+        assert_eq!(
+            state.finish("a", Some(&RuntimeTurnDetail::Failed), 1),
+            Decision::Stopped
+        );
+        assert_eq!(
+            state.finish("a", Some(&RuntimeTurnDetail::Failed), 2),
+            Decision::Ignore
+        );
+    }
+}

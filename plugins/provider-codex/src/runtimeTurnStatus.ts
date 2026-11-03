@@ -1,5 +1,6 @@
 import type { AgentEvent, RuntimeTurnDetail } from "@codeterm/plugin-sdk";
 import { object, list } from "./runtimeProtocol";
+import {outputLimit} from "../../provider-shared/outputLimit";
 
 type TurnStateEvent = Extract<AgentEvent,{kind:"turnState"}>;
 export type TurnStatus = Pick<TurnStateEvent,"state"|"detail">;
@@ -17,6 +18,7 @@ export function threadStatus(raw: unknown): TurnStatus | undefined {
 }
 
 export function turnOutcome(turn: unknown): RuntimeTurnDetail | undefined {
+  if (outputLimit(turn)) return "failed";
   const status = object(turn).status;
   return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : undefined;
 }

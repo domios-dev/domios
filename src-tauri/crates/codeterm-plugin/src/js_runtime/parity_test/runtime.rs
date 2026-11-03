@@ -141,6 +141,7 @@ async fn capacity_retry_signal_native_quickjs_parity() {
     };
     for (kind, at) in [
         (Some("transient"), None),
+        (Some("output_limit"), None),
         (Some("rate_limited_until"), Some(100_123u64)),
         (None, None),
     ] {
@@ -170,6 +171,7 @@ async fn capacity_retry_signal_native_quickjs_parity() {
             signal.retryable_kind,
             match kind {
                 Some("transient") => Some(RuntimeRetryableErrorKind::Transient),
+                Some("output_limit") => Some(RuntimeRetryableErrorKind::OutputLimit),
                 Some("rate_limited_until") => Some(RuntimeRetryableErrorKind::RateLimitedUntil),
                 _ => None,
             }
