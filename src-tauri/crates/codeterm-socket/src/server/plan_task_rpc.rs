@@ -252,7 +252,7 @@ pub(super) fn dispatch(
         "task.show" => {
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let detail = store
-                .show_task_window(&task_id)
+                .show_task(&task_id)
                 .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
             Ok(serde_json::to_value(detail).unwrap_or_default())
         }
