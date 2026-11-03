@@ -98,3 +98,4 @@ export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from ".
 
 export { DsRenderContext, type DsRenderScope } from "./blocks/DsRenderContext";
 export { CompactToolRowsProvider } from "./useCompactToolRow";
+export { ChatBlockActivityProvider } from "./blocks/liveBinding";

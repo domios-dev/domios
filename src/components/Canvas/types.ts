@@ -202,6 +202,8 @@ export interface ExternalRef {
 }
 
 export interface Task {
+  criteria_count?: number;
+  milestone_count?: number;
   files?: { edit: string[]; read: string[] };
   id: string;
   name: string;
@@ -452,6 +454,7 @@ export interface EffortLink {
 }
 
 export interface Plan {
+  task_counts?: Partial<Record<TaskStatus, number>> & { total: number };
   control_loop?: import("./planControlLoop").PlanControlLoop;
   pause_operations?: Array<{ paused_at: number; reason: string; resume?: unknown }>;
   id: string;

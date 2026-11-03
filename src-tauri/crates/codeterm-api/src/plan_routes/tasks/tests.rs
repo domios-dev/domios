@@ -102,6 +102,10 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
     assert_eq!(event["task_ids"], json!([task_id]));
     assert_eq!(event["reset"], false);
     assert_eq!(event["revision"], detail["revision"]);
+    let Json(board) =
+        crate::plan_routes::projections::board_state_core(svc, &plan_id, 0, false).unwrap();
+    assert_eq!(board["revision"], event["revision"]);
+    assert!(board.get("recent_strides").is_none() && board.get("tasks").is_none());
     let kind = codeterm_service_core::service::plan::task_history::TaskHistoryKind::Milestones;
     let Json(history) = history::task_history_core(svc, &plan_id, &task_id, kind, None, 2).unwrap();
     assert_eq!(history["revision"], event["revision"]);
@@ -120,6 +124,10 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
     let (status, Json(error)) = task_detail_core(svc, &plan_id, &task_id).unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(error.get("task").is_none());
+    let (status, Json(board)) =
+        crate::plan_routes::projections::board_state_core(svc, &plan_id, 0, false).unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(board.get("mission_control").is_none());
     let (status, Json(error)) =
         history::task_history_core(svc, &plan_id, &task_id, kind, None, 2).unwrap_err();
     assert_eq!(status, StatusCode::BAD_REQUEST);

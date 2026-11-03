@@ -59,6 +59,7 @@ pub struct ListPlansQuery {
         Option<codeterm_service_core::service::plan::ui_projections::PlanViewProjection>,
     #[serde(default, deserialize_with = "de_truthy")]
     pub(crate) chat: Option<bool>,
+    pub(crate) tab_id: Option<String>,
     pub(crate) query: Option<String>,
     pub(crate) team: Option<String>,
     #[serde(default)]
@@ -174,7 +175,12 @@ pub async fn list(
             let plans = state
                 .svc
                 .plan_store
-                .chat_snapshot(q.project.as_deref(), q.team.as_deref(), q.query.as_deref())
+                .chat_snapshot_for_tab(
+                    q.project.as_deref(),
+                    q.team.as_deref(),
+                    q.query.as_deref(),
+                    q.tab_id.as_deref(),
+                )
                 .map_err(plan_err)?;
             return Ok(Json(serde_json::json!({ "plans": plans })));
         }

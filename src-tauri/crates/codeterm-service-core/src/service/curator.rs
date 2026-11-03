@@ -191,13 +191,22 @@ impl ServiceContext {
     }
 
     pub(crate) fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
+        self.curator_suspended_reason_for_state(
+            plan,
+            crate::service::plan::heartbeat::is_plan_complete(plan),
+        )
+    }
+
+    pub(crate) fn curator_suspended_reason_for_state(
+        &self,
+        plan: &Plan,
+        complete: bool,
+    ) -> Option<CuratorSuspension> {
         if !self.configuration().orchestration.plan_reminders {
             Some(CuratorSuspension::RemindersDisabled)
         } else if plan.mode == PlanMode::Paused {
             Some(CuratorSuspension::Paused)
-        } else if plan.mode == PlanMode::Complete
-            || plan.status == PlanStatus::Archived
-            || crate::service::plan::heartbeat::is_plan_complete(plan)
+        } else if plan.mode == PlanMode::Complete || plan.status == PlanStatus::Archived || complete
         {
             Some(CuratorSuspension::Complete)
         } else if self.curator_human_wait(plan) {

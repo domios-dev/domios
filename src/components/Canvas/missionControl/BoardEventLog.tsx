@@ -128,7 +128,7 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager, now,
     return next;
   }, [refs, entries, onOpenTask, planId]);
   useEffect(() => {
-    if (entries === null) source.load?.(index);
+    if (entries === null && !source.error) source.load?.(index);
   }, [entries, index, source]);
   const rows = entries ? eventLogRows({ ...log, entries }, milestoneKinds, index * EVENT_LOG_PAGE, now) : [];
   const logId = useId();
@@ -140,7 +140,7 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager, now,
   return (
     <BoardPanel testId="mc-board-event-log" title="What happened" meta={source.caption}>
       <BoardPanelSection>
-        {entries === null ? (
+        {entries === null && source.error ? <div role="alert">{source.error}<button type="button" onClick={() => source.load?.(index)}>Retry event page</button></div> : entries === null ? (
           <p className="mc-board-note">
             <BusyState inline labelKey="eventLogLoad" data-testid="mc-board-event-log-loading" />
           </p>

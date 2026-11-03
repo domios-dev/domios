@@ -64,7 +64,7 @@ collapsed AS (
     SELECT group_id,min(ordinal) AS first_ordinal,max(ts) AS last_ts,count(*) AS count
     FROM grouped GROUP BY group_id
 ),
-tail AS (SELECT * FROM collapsed ORDER BY first_ordinal DESC LIMIT ?3)
+tail AS (SELECT * FROM collapsed ORDER BY first_ordinal DESC LIMIT ?3 OFFSET ?4)
 SELECT (SELECT count(*) FROM sources),(SELECT count(*) FROM collapsed),g.ts,t.last_ts,t.count,
        g.kind,g.author,g.author_tab,g.task_id,g.task_name,g.line,
        CASE WHEN g.kind='tab_todo_linked' THEN (SELECT json_group_array(json_object('id',task_id,'name',task_name)) FROM (
@@ -74,6 +74,15 @@ FROM tail t JOIN grouped g ON g.ordinal=t.first_ordinal ORDER BY t.first_ordinal
 "#;
 
 pub(super) fn event_log(connection: &Connection, plan_id: &str) -> Result<EventLog, PlanError> {
+    event_window(connection, plan_id, EVENT_LOG_LIMIT, 0)
+}
+
+pub(super) fn event_window(
+    connection: &Connection,
+    plan_id: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<EventLog, PlanError> {
     let whitespace: String = [
         '\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '\u{85}', '\u{a0}', '\u{1680}', '\u{2000}',
         '\u{2001}', '\u{2002}', '\u{2003}', '\u{2004}', '\u{2005}', '\u{2006}', '\u{2007}',
@@ -85,7 +94,7 @@ pub(super) fn event_log(connection: &Connection, plan_id: &str) -> Result<EventL
     record_query();
     let mut statement = connection.prepare_cached(EVENT_SQL).map_err(db_error)?;
     let rows = statement
-        .query_map(params![plan_id, whitespace, EVENT_LOG_LIMIT], |row| {
+        .query_map(params![plan_id, whitespace, limit, offset], |row| {
             Ok((
                 row.get::<_, usize>(0)?,
                 row.get::<_, usize>(1)?,
@@ -123,7 +132,7 @@ pub(super) fn event_log(connection: &Connection, plan_id: &str) -> Result<EventL
             });
         }
         result.recorded_events = recorded;
-        result.truncated = groups > EVENT_LOG_LIMIT;
+        result.truncated = groups > limit.saturating_add(offset);
         result.entries.push(event);
     }
     Ok(result)

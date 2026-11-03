@@ -7,6 +7,10 @@ use axum::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/plans/task-reference",
+            get(plan_routes::projections::task_reference),
+        )
         .route("/api/plans", post(plan_routes::create))
         .route(
             "/api/plans/{id}/project",

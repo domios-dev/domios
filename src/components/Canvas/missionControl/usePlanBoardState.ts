@@ -1,4 +1,9 @@
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { PlanReadError } from "../plansApi";
+import { planRevision } from "../planProjection";
+import type { EventPager } from "./missionControlBoardModel";
+import type { PlanEvent } from "./missionControlState";
+import { formatPlanFetchError } from "../../../lib/fetchResilience";
 import { useScopedPlanRead } from "../useScopedPlanRead";
 import { listen } from "../../../lib/bridge";
 import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
@@ -9,6 +14,7 @@ export interface PlanBoardStateResult {
   state: PlanBoardState | null;
   loading: boolean;
   error: string | null;
+  events?: EventPager;
 }
 
 const PLAN_BOARD_EVENTS = [
@@ -54,12 +60,13 @@ export function usePlanBoardState(
   api: ApiConfig | undefined,
   planId: string | null,
   revision: number,
+  includeEvents = true,
 ): PlanBoardStateResult {
   const query = useScopedPlanRead(api, planId, "mission-control", undefined, async (signal) => {
-    const snapshot = await fetchPlanBoardState(api!, planId!, signal);
+    const snapshot = await fetchPlanBoardState(api!, planId!, signal, undefined, includeEvents);
     if (snapshot.plan_id !== planId) throw new Error("Mission Control response did not match the selected plan.");
     return snapshot;
-  }, revision);
+  }, revision * 2 + Number(includeEvents));
   const refresh = query.refetch;
 
   useEffect(() => {
@@ -92,5 +99,44 @@ export function usePlanBoardState(
     };
   }, [api?.host, api?.port, api?.token, planId, refresh]);
 
-  return { state: query.data, loading: query.loading, error: query.error };
+  const snapshot = query.data;
+  const key = JSON.stringify([api?.host, api?.port, api?.token, planId, snapshot?.revision]);
+  const selected = useRef(key); selected.current = key;
+  const pending = useRef<AbortController | null>(null);
+  const [history, setHistory] = useState<{ key: string; pages: PlanEvent[][]; cursor: number | null; error: string | null } | null>(null);
+  useEffect(() => {
+    pending.current?.abort(); pending.current = null;
+    return () => { pending.current?.abort(); pending.current = null; };
+  }, [key, query.loading]);
+  const events = useMemo<EventPager | undefined>(() => {
+    if (!snapshot) return undefined;
+    if(snapshot.event_window_loaded===false)return {pageCount:1,page:()=>null,caption:`${snapshot.mission_control.event_log.recorded_events} events`};
+    const current = history?.key === key ? history : null;
+    const pages = [snapshot.mission_control.event_log.entries.slice().reverse(), ...(current?.pages ?? [])];
+    const cursor = current ? current.cursor : snapshot.next_event_cursor ?? null;
+    return {
+      pageCount: pages.length + (cursor === null ? 0 : 1),
+      page: (index) => pages[index] ?? null,
+      caption: `${snapshot.mission_control.event_log.recorded_events} events`,
+      error: current?.error,
+      load: (index) => {
+        if (!api || !planId || cursor === null || index !== pages.length || pending.current || query.loading) return;
+        const controller = new AbortController(); pending.current = controller;
+        const generation = query.version.current;
+        setHistory({ key, pages: current?.pages ?? [], cursor, error: null });
+        void fetchPlanBoardState(api, planId, controller.signal, cursor).then(async (page) => {
+          if (controller.signal.aborted || selected.current !== key || query.version.current !== generation) return;
+          if (page.plan_id !== planId || planRevision(page) !== planRevision(snapshot)) { await refresh(); return; }
+          setHistory({ key, pages: [...(current?.pages ?? []), page.mission_control.event_log.entries.slice().reverse()], cursor: page.next_event_cursor ?? null, error: null });
+        }).catch(async (cause) => {
+          if(controller.signal.aborted || selected.current!==key || query.version.current!==generation)return;
+          if (cause instanceof PlanReadError && [400,401,403,404,410].includes(cause.status)) { await refresh(); return; }
+          if (!controller.signal.aborted && selected.current === key && query.version.current === generation)
+            setHistory({ key, pages: current?.pages ?? [], cursor, error: formatPlanFetchError(cause) });
+        }).finally(() => { if (pending.current === controller) pending.current = null; });
+      },
+    };
+  }, [api?.host, api?.port, api?.token, planId, key, snapshot, history, query.loading, query.version, refresh]);
+  return { state: snapshot, loading: query.loading, error: query.error, events };
+
 }

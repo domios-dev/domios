@@ -36,6 +36,7 @@ const API: ApiConfig = {
 
 let indexCalls = 0;
 let fullCalls = 0;
+let chatCalls = 0;
 const readIndexCalls = (): number => indexCalls;
 const readFullCalls = (): number => fullCalls;
 let fullFixturePlans = [FIXTURE_PLAN];
@@ -78,7 +79,7 @@ function setupDom() {
         lastFullProject = new URL(url).searchParams.get("project");
         return new Response(JSON.stringify({ plans: fullFixturePlans.map((plan) => ({ ...plan, revision: "1" })) }), { status: 200 });
       }
-      if (url.includes("chat=1")) return Response.json({ plans: fullFixturePlans.map((plan) => ({ ...plan, revision: "1" })) });
+      if (url.includes("chat=1")) { chatCalls++; return Response.json({ plans: fullFixturePlans.map((plan) => ({ ...plan, revision: "1" })) }); }
       if (url.endsWith("/api/plans")) {
         indexCalls++;
         const entry = {
@@ -247,10 +248,11 @@ test("sidebar reads compact plans without mounting canvas", async () => {
       <SidebarProbe />
     </PlansProvider>,
   );
-  assert(readFullCalls() === 0, "sidebar never requests full plan bodies");
+  assert(readFullCalls() === 1, "sidebar requests summary metadata");
+  assert(chatCalls === 0, "a sidebar or board opening never acquires the chat projection");
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
-    "sidebar receives the full plan body",
+    "sidebar receives plan headers",
   );
   await act(async () => root.unmount());
 });
@@ -281,7 +283,7 @@ test("desktop plan queries wait for config and bypass REST", async () => {
     await flushAsyncWork();
   });
   const callsAfterEnable: number = readFullCalls();
-  assert(callsAfterEnable === 0, "loaded config enables compact HTTP reads only");
+  assert(callsAfterEnable === 1, "loaded config enables summary HTTP reads only");
   assert(restCalls > 0, "desktop plan reads use authenticated HTTP");
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
@@ -317,12 +319,12 @@ test("canvas release cannot drop plans while sidebar remains mounted", async () 
 
   const callsAfterCanvasRelease: number = readFullCalls();
   assert(
-    callsAfterCanvasRelease === 1,
+    callsAfterCanvasRelease === 2,
     `sidebar refetches after canvas release (got ${readFullCalls()})`,
   );
   assert(
     host.querySelector('[data-testid="sidebar-plan-count"]')?.textContent === "1",
-    "sidebar retains the full plan body after canvas release",
+    "sidebar retains the summary headers after canvas release",
   );
   await act(async () => root.unmount());
 });

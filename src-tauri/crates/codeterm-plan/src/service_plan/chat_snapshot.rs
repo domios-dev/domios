@@ -6,7 +6,7 @@ pub(super) fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) 
     let tasks: Vec<_> = plan.tasks.iter().filter(|task| {
         query.is_none_or(|query| format!("{} {} {}", task.id, task.display_key(), task.name).to_lowercase().contains(query))
     }).take(*remaining).map(|task| {
-        let milestones: Vec<_> = task.milestones.iter().map(|stride| json!({
+        let milestones: Vec<_> = task.milestones.iter().rev().take(1).map(|stride| json!({
             "id": stride.id, "ts": stride.ts, "kind": stride.kind, "from": stride.from,
             "text": "", "links": [], "loop_id": stride.loop_id, "iteration": stride.iteration, "canvas": stride.canvas
         })).collect();
@@ -25,7 +25,7 @@ pub(super) fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) 
             "execution_attempts": attempts,
             "section_ids": task.section_ids, "body": "", "milestones": milestones,
             "canvas": task.canvas,
-            "acceptance_criteria": task.acceptance_criteria.iter().map(|_| "").collect::<Vec<_>>()
+            "acceptance_criteria": task.acceptance_criteria.iter().take(1).map(|_| "").collect::<Vec<_>>()
         })
     }).collect();
     *remaining = remaining.saturating_sub(tasks.len());
@@ -39,11 +39,12 @@ pub(super) fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) 
 }
 
 impl PlanStore {
-    pub fn chat_snapshot(
+    pub fn chat_snapshot_for_tab(
         &self,
         project: Option<&str>,
         team: Option<&str>,
         query: Option<&str>,
+        tab: Option<&str>,
     ) -> Result<Vec<Value>, super::PlanError> {
         let project = project.map(|path| {
             super::paths::project_root(std::path::Path::new(path))
@@ -52,7 +53,16 @@ impl PlanStore {
         });
         let query = query.map(str::to_lowercase);
         self.database
-            .chat_projection(project.as_deref(), team, query.as_deref(), None)
+            .chat_projection(project.as_deref(), team, query.as_deref(), None, tab)
+    }
+
+    pub fn chat_snapshot(
+        &self,
+        project: Option<&str>,
+        team: Option<&str>,
+        query: Option<&str>,
+    ) -> Result<Vec<Value>, super::PlanError> {
+        self.chat_snapshot_for_tab(project, team, query, None)
     }
 }
 

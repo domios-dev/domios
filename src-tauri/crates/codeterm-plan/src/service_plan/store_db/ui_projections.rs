@@ -14,7 +14,7 @@ const HEADER: &str = "json_object(
     'mode',json_extract(p.header_json,'$.mode'),'planning_state',json_extract(p.header_json,'$.planning_state'),
     'team_id',p.team_id,'canvas',json_extract(p.header_json,'$.canvas'))";
 
-const TASK_SUMMARY: &str = "json_object(
+pub(super) const TASK_SUMMARY: &str = "json_object(
     'id',t.task_id,'name',json_extract(t.row_json,'$.name'),'type',json_extract(t.row_json,'$.type'),
     'key',json_extract(t.row_json,'$.key'),'handle',json_extract(t.row_json,'$.handle'),
     'status',t.status,'status_label',json_extract(t.row_json,'$.status_label'),
@@ -29,7 +29,15 @@ const TASK_SUMMARY: &str = "json_object(
     'created_at',json_extract(t.row_json,'$.created_at'),'updated_at',t.updated_at,
     'status_changed_at',json_extract(t.row_json,'$.status_changed_at'),
     'tags',json(coalesce(json_extract(t.row_json,'$.tags'),'[]')),
-    'canvas',json_extract(t.row_json,'$.canvas'))";
+    'canvas',json_extract(t.row_json,'$.canvas'),
+    'execution_attempts',json((SELECT json_group_array(json(document)) FROM (
+        SELECT json_object('id',attempt_id,'executor_tab_id',executor_tab_id,
+            'tab_id',json_extract(row_json,'$.tab_id'),'executor_title',json_extract(row_json,'$.executor_title'),
+            'tab_title',json_extract(row_json,'$.tab_title'),'role',json_extract(row_json,'$.role'),
+            'model',json_extract(row_json,'$.model'),'assigned_at',json_extract(row_json,'$.assigned_at'),
+            'closed_at',json_extract(row_json,'$.closed_at')) AS document
+        FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id ORDER BY position DESC LIMIT 1
+    ))))";
 
 impl PlanDatabase {
     pub(in crate::service_plan) fn ui_plan_projection(
@@ -39,7 +47,7 @@ impl PlanDatabase {
     ) -> Result<Value, PlanError> {
         if view == PlanViewProjection::Chat {
             return self
-                .chat_projection(None, None, None, Some(id))?
+                .chat_projection(None, None, None, Some(id), None)?
                 .pop()
                 .ok_or(PlanError::NotFound);
         }
@@ -80,6 +88,15 @@ pub(super) fn projection(
     id: &str,
     view: PlanViewProjection,
 ) -> Result<Value, PlanError> {
+    projection_with_list(connection, id, view, None)
+}
+
+pub(super) fn projection_with_list(
+    connection: &Connection,
+    id: &str,
+    view: PlanViewProjection,
+    list: Option<&crate::service_plan::ui_projections::ListWindowQuery>,
+) -> Result<Value, PlanError> {
     record_query();
     let header: String = connection
         .query_row(
@@ -91,7 +108,10 @@ pub(super) fn projection(
         .map_err(db_error)?
         .ok_or(PlanError::NotFound)?;
     let mut document: Value = decode(id, &header)?;
-    if view != PlanViewProjection::Summary {
+    if !matches!(
+        view,
+        PlanViewProjection::Summary | PlanViewProjection::TaskMetadata
+    ) {
         record_query();
         let selected: String = connection.query_row(
             "SELECT json_object('goal',CASE WHEN ?2 THEN json_extract(header_json,'$.goal')
@@ -129,13 +149,9 @@ pub(super) fn projection(
             .map(|section| serde_json::from_value(section).map_err(super::json_error))
             .collect::<Result<_, _>>()?;
     }
-    if matches!(view, PlanViewProjection::Board | PlanViewProjection::List) {
+    if view == PlanViewProjection::Board {
         record_query();
-        let predicate = if view == PlanViewProjection::Board {
-            "AND ((t.assigned_tab_id IS NOT NULL AND t.status NOT IN ('done','cancelled')) OR t.status IN ('in_review','blocked'))"
-        } else {
-            ""
-        };
+        let predicate = "AND ((t.assigned_tab_id IS NOT NULL AND t.status NOT IN ('done','cancelled')) OR t.status IN ('in_review','blocked'))";
         let mut statement = connection.prepare_cached(&format!(
             "SELECT {TASK_SUMMARY} FROM plan_tasks t WHERE t.plan_id=?1 {predicate} ORDER BY t.position"
         )).map_err(db_error)?;
@@ -147,7 +163,25 @@ pub(super) fn projection(
                 .push(decode::<Task>(id, &row.map_err(db_error)?)?);
         }
     }
+    let task_window = if matches!(
+        view,
+        PlanViewProjection::List | PlanViewProjection::TaskMetadata
+    ) {
+        Some(super::list_window_queries::window(
+            connection,
+            id,
+            &mut plan,
+            list.unwrap_or(&Default::default()),
+        )?)
+    } else {
+        None
+    };
     let mut value = serde_json::to_value(plan).map_err(super::json_error)?;
+    super::list_window_queries::apply_task_counts(connection, id, &mut value)?;
+    if let Some(window) = task_window {
+        value["task_window"] = window;
+    }
+    value["task_counts"] = json!(super::board_state_queries::task_counts(connection, id)?);
     value["revision"] = json!(super::change_feed::revision(connection, id)?.to_string());
     Ok(value)
 }

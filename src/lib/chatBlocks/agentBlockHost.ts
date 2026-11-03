@@ -3,11 +3,13 @@ import type { Plan } from "../../components/Canvas/types";
 import { interruptAgentArgs } from "../agentInterrupt";
 import type { MultiplexerState, Tab, TabStatus } from "../types";
 import { agentBlockState, resolveTabRef } from "./agentBlockState";
+import type { ScopedPlanBlockRead } from "./scopedPlanBlockRead";
 import type { ValueFeed } from "./valueFeed";
 
 export interface AgentBlockSources {
   mux: { getState(): Pick<MultiplexerState, "tabs" | "workspaces"> & { tabStatuses?: Record<string, TabStatus> }; subscribe(listener: () => void): () => void };
   plans: ValueFeed<readonly Plan[]>;
+  scopedPlans?: ScopedPlanBlockRead<readonly Plan[]>;
   providerName(agentType: string): string | null;
   selectTab(workspaceId: string, tabId: string): Promise<void> | void;
   interrupt(args: { ptyId?: string; tabId: string }): Promise<unknown>;
@@ -31,14 +33,17 @@ export function createAgentBlockHost(sources: AgentBlockSources): AgentBlockHost
       subscribe(listener) {
         const offMux = sources.mux.subscribe(listener);
         const offPlans = sources.plans.subscribe(listener);
+        const offScoped=sources.scopedPlans?.subscribe(listener);
         return () => {
           offMux();
           offPlans();
+          offScoped?.();
         };
       },
+      retain: sources.scopedPlans?.retain,
       read(ref) {
         const { tabs, tabStatuses } = sources.mux.getState();
-        const plans = sources.plans.get();
+        const plans = sources.scopedPlans?.read(ref).data ?? sources.plans.get();
         if (tabs !== cachedTabs || plans !== cachedPlans || tabStatuses !== cachedStatuses) {
           cachedTabs = tabs;
           cachedStatuses = tabStatuses;
@@ -52,7 +57,7 @@ export function createAgentBlockHost(sources: AgentBlockSources): AgentBlockHost
         }
         return state;
       },
-      refresh: () => {},
+      refresh: (key) => sources.scopedPlans?.refresh(key),
     },
     open(ref) {
       const target = resolveTabRef(sources.mux.getState().tabs, ref);
