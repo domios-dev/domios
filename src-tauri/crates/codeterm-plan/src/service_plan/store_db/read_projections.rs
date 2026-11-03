@@ -26,31 +26,7 @@ impl PlanDatabase {
             .optional()
             .map_err(db_error)?
             .ok_or(PlanError::NotFound)?;
-        let sections = {
-            record_query();
-            let mut statement = transaction
-                .prepare_cached(&format!(
-                    "SELECT id, title, path FROM ({SECTION_ROWS}) ORDER BY position, traversal"
-                ))
-                .map_err(db_error)?;
-            let rows = statement
-                .query_map([id], |row| {
-                    Ok((
-                        column::<String>(row, 0)?,
-                        column::<String>(row, 1)?,
-                        column::<String>(row, 2)?,
-                    ))
-                })
-                .map_err(db_error)?;
-            let mut roots = Vec::<Value>::new();
-            for row in rows {
-                let (id, title, path) = row.map_err(db_error)?;
-                let node = json!({"id": id, "title": title, "subsections": []});
-                let depth = path.matches(".subsections[").count();
-                append_outline(&mut roots, depth, node);
-            }
-            roots
-        };
+        let sections = section_outline_rows(&transaction, id)?;
         transaction.commit().map_err(db_error)?;
         Ok(json!({"id": id, "title": title, "sections": sections}))
     }
@@ -163,6 +139,35 @@ pub(super) fn decode<T: serde::de::DeserializeOwned>(
     })
 }
 
+pub(super) fn section_outline_rows(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> Result<Vec<Value>, PlanError> {
+    record_query();
+    let mut statement = connection
+        .prepare_cached(&format!(
+            "SELECT id, title, path FROM ({SECTION_ROWS}) ORDER BY position, traversal"
+        ))
+        .map_err(db_error)?;
+    let rows = statement
+        .query_map([id], |row| {
+            Ok((
+                column::<String>(row, 0)?,
+                column::<String>(row, 1)?,
+                column::<String>(row, 2)?,
+            ))
+        })
+        .map_err(db_error)?;
+    let mut roots = Vec::<Value>::new();
+    for row in rows {
+        let (id, title, path) = row.map_err(db_error)?;
+        let node = json!({"id": id, "title": title, "subsections": []});
+        let depth = path.matches(".subsections[").count();
+        append_outline(&mut roots, depth, node);
+    }
+    Ok(roots)
+}
+
 fn append_outline(roots: &mut Vec<Value>, depth: usize, node: Value) {
     if depth == 0 {
         roots.push(node);
@@ -195,9 +200,9 @@ pub(super) fn column<T: rusqlite::types::FromSql>(
 
 #[cfg(test)]
 #[derive(Debug, Default, PartialEq, Eq)]
-struct ReadMetrics {
-    queries: usize,
-    materialized_bytes: usize,
+pub(in crate::service_plan::store_db) struct ReadMetrics {
+    pub(in crate::service_plan::store_db) queries: usize,
+    pub(in crate::service_plan::store_db) materialized_bytes: usize,
 }
 
 #[cfg(test)]
@@ -206,6 +211,6 @@ thread_local! {
 }
 
 #[cfg(test)]
-fn take_metrics() -> ReadMetrics {
+pub(in crate::service_plan::store_db) fn take_metrics() -> ReadMetrics {
     METRICS.with(|metrics| std::mem::take(&mut *metrics.borrow_mut()))
 }

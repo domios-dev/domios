@@ -55,6 +55,8 @@ fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::
 
 #[derive(Deserialize, Default)]
 pub struct ListPlansQuery {
+    pub(crate) view:
+        Option<codeterm_service_core::service::plan::ui_projections::PlanViewProjection>,
     #[serde(default, deserialize_with = "de_truthy")]
     pub(crate) chat: Option<bool>,
     pub(crate) query: Option<String>,
@@ -196,6 +198,34 @@ pub async fn list(
             }
             None
         };
+        if let Some(view) = q.view {
+            use codeterm_service_core::service::plan::ui_projections::PlanViewProjection;
+            if view != PlanViewProjection::Summary || q.full == Some(true) {
+                return Err(text_err(
+                    StatusCode::BAD_REQUEST,
+                    "Plan lists support only the summary projection",
+                ));
+            }
+            let mut plans = state
+                .svc
+                .plan_store
+                .ui_plan_summaries(want.as_deref())
+                .map_err(plan_err)?;
+            if let Some(status) = q.status {
+                plans.retain(|plan| plan["status"] == status);
+            }
+            if q.unowned == Some(true) {
+                plans.retain(|plan| {
+                    plan["owner"]["tab_id"].is_null() && plan["owner"]["session_id"].is_null()
+                });
+            }
+            if let Some(owner) = q.orchestrator {
+                plans.retain(|plan| {
+                    plan["owner"]["tab_id"] == owner || plan["owner"]["session_id"] == owner
+                });
+            }
+            return Ok(Json(serde_json::json!({"plans":plans})));
+        }
         let mut entries = state.svc.plan_store.list_index();
         filter_plan_project(&mut entries, want.as_deref(), |id| {
             state.svc.plan_store.get(id)
@@ -777,10 +807,11 @@ pub async fn delete_plan(
 }
 
 mod lifecycle;
+use lifecycle::authorize_plan_mutation_http;
+pub(super) use lifecycle::team_plan_err;
 #[cfg(test)]
 use lifecycle::transfer_caller;
 pub use lifecycle::{archive, pause, pause_preview, resume, resume_preview, transfer, unarchive};
-use lifecycle::{authorize_plan_mutation_http, team_plan_err};
 
 pub async fn disown(
     AxumState(state): AxumState<AppState>,

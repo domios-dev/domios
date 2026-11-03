@@ -114,7 +114,7 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
         })
         .unwrap();
     let (status, Json(error)) = task_detail_core(svc, &plan_id, &task_id).unwrap_err();
-    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(status, StatusCode::BAD_REQUEST);
     assert!(error.get("task").is_none());
 }
 

@@ -575,6 +575,7 @@ mod read_projections;
 mod state_event_queries;
 mod status_queries;
 mod task_read_queries;
+mod ui_projections;
 pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 #[cfg(test)]
 mod schema_tests;
