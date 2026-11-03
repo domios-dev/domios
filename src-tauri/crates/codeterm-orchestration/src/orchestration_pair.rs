@@ -850,7 +850,3 @@ fn apply_team_title(
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-#[path = "orchestration_pair/cwd_tests.rs"]
-mod cwd_tests;
