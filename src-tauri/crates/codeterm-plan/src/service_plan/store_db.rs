@@ -83,6 +83,7 @@ impl PlanDatabase {
         .map_err(db_error)?;
         super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
+        auxiliary_queries::register_functions(&connection)?;
         list_window_queries::register_functions(&connection)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
@@ -566,6 +567,7 @@ fn json_error(error: serde_json::Error) -> PlanError {
 }
 
 pub(super) mod admission;
+mod auxiliary_queries;
 mod binding_queries;
 mod change_feed;
 mod chat_read_queries;

@@ -164,18 +164,18 @@ pub fn plan_json_path(
 }
 
 pub fn plan_sidecar_root(plan: &crate::plan::Plan) -> &Path {
-    if plan.canonical_project_path.trim().is_empty() {
-        Path::new(&plan.project_path)
-    } else {
-        Path::new(&plan.canonical_project_path)
-    }
+    sidecar_root(&plan.project_path, &plan.canonical_project_path)
 }
 
 pub fn spec_sidecar_root(spec: &crate::plan::Spec) -> &Path {
-    if spec.canonical_project_path.trim().is_empty() {
-        Path::new(&spec.project_path)
+    sidecar_root(&spec.project_path, &spec.canonical_project_path)
+}
+
+pub(super) fn sidecar_root<'a>(project: &'a str, canonical: &'a str) -> &'a Path {
+    if canonical.trim().is_empty() {
+        Path::new(project)
     } else {
-        Path::new(&spec.canonical_project_path)
+        Path::new(canonical)
     }
 }
 
