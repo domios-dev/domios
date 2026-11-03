@@ -79,6 +79,12 @@ interface ResolveRefsResponse {
   refs: ResolvedPlanRef[];
 }
 
+export class PlanReadError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<Plan> {
   const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}`, {
     headers: authHeaders(api),
@@ -98,7 +104,7 @@ export async function fetchPlanTaskDetail(
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plan task detail failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new PlanReadError(res.status, `plan task detail failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
 
@@ -124,7 +130,7 @@ export async function fetchPlanTaskBoardPage(
     `/api/plans/${encodeURIComponent(planId)}/tasks?${params}`,
     { headers: authHeaders(api), signal: options.signal },
   );
-  if (!res.ok) throw new Error(`plan task page failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new PlanReadError(res.status, `plan task page failed: ${res.status} ${await res.text()}`);
   return res.json();
 }
 

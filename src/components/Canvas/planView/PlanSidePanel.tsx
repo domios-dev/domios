@@ -1,4 +1,5 @@
 import { SidePanelFrame } from "./SidePanelFrame";
+import { taskDetailMatchesReference } from "../usePlanTaskDetail";
 import { useEffect, useState, type RefObject } from "react";
 import { Maximize2 } from "lucide-react";
 import type { ApiConfig, Tab } from "../../../lib/types";
@@ -68,10 +69,8 @@ export function PlanSidePanel({
   const taskRef = target.taskId;
   const detailMatches = Boolean(
     taskRef
-    && taskDetail?.plan_id === target.planId
-    && taskDetail.task_id === taskRef
-    && taskDetail.context.plan_id === target.planId
-    && taskDetail.task.id === taskRef,
+    && taskDetail
+    && taskDetailMatchesReference(taskDetail, target.planId, taskRef),
   );
   const task = detailMatches
     ? taskDetail!.task

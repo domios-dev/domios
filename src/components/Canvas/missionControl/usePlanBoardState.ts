@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DEV_BUILD } from "../../../lib/devBuild";
+import { useEffect } from "react";
+import { useScopedPlanRead } from "../useScopedPlanRead";
 import { listen } from "../../../lib/bridge";
 import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
 import type { ApiConfig } from "../../../lib/types";
@@ -19,7 +19,6 @@ const PLAN_BOARD_EVENTS = [
   "graph-worker-reported",
   "cron-run-finished",
   "config-changed",
-  "plan-changed",
   KPI_RECORDED_EVENT,
 ] as const;
 
@@ -56,77 +55,12 @@ export function usePlanBoardState(
   planId: string | null,
   revision: number,
 ): PlanBoardStateResult {
-  const [state, setState] = useState<PlanBoardState | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasLoaded = useRef(false);
-
-  const activeRef = useRef(false);
-  const selectionRef = useRef<string | null>(null);
-  const queuedRefreshRef = useRef(false);
-  const readRef = useRef<AbortController | null>(null);
-
-  const refresh = useCallback(() => {
-    if (!api || !planId || !activeRef.current) return;
-    if (readRef.current) {
-      queuedRefreshRef.current = true;
-      return;
-    }
-
-    const controller = new AbortController();
-    readRef.current = controller;
-    setLoading(true);
-    fetchPlanBoardState(api, planId, controller.signal)
-      .then((next) => {
-        if (!activeRef.current || controller.signal.aborted) return;
-        setState(next);
-        hasLoaded.current = true;
-        setError(null);
-      })
-      .catch((e: unknown) => {
-        if (!activeRef.current || controller.signal.aborted) return;
-        if (DEV_BUILD) console.debug("Background Mission Control refresh failed", e);
-        if (!hasLoaded.current) setError(`Mission Control state unavailable: ${String(e)}`);
-      })
-      .finally(() => {
-        if (readRef.current !== controller) return;
-        readRef.current = null;
-        if (!activeRef.current || controller.signal.aborted) return;
-        setLoading(false);
-        if (queuedRefreshRef.current) {
-          queuedRefreshRef.current = false;
-          refresh();
-        }
-      });
-  }, [api?.host, api?.port, api?.token, planId]);
-
-  useEffect(() => {
-    activeRef.current = true;
-    return () => {
-      activeRef.current = false;
-      queuedRefreshRef.current = false;
-      readRef.current?.abort();
-      readRef.current = null;
-    };
-  }, [api?.host, api?.port, api?.token, planId]);
-
-  useEffect(() => {
-    if (!api || !planId) {
-      selectionRef.current = null;
-      hasLoaded.current = false;
-      setState(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    if (selectionRef.current !== planId) {
-      selectionRef.current = planId;
-      hasLoaded.current = false;
-      setState(null);
-      setError(null);
-    }
-    refresh();
-  }, [api?.host, api?.port, api?.token, planId, refresh, revision]);
+  const query = useScopedPlanRead(api, planId, "mission-control", undefined, async (signal) => {
+    const snapshot = await fetchPlanBoardState(api!, planId!, signal);
+    if (snapshot.plan_id !== planId) throw new Error("Mission Control response did not match the selected plan.");
+    return snapshot;
+  }, revision);
+  const refresh = query.refetch;
 
   useEffect(() => {
     if (!api || !planId) return;
@@ -137,7 +71,7 @@ export function usePlanBoardState(
       try {
         for (const event of PLAN_BOARD_EVENTS) {
           const unlisten = await listen<unknown>(event, (entry) => {
-            if (active && eventTargetsPlan(entry.payload, planId)) refresh();
+            if (active && eventTargetsPlan(entry.payload, planId)) void refresh();
           });
           if (!active) {
             unlisten();
@@ -158,5 +92,5 @@ export function usePlanBoardState(
     };
   }, [api?.host, api?.port, api?.token, planId, refresh]);
 
-  return { state, loading, error };
+  return { state: query.data, loading: query.loading, error: query.error };
 }
