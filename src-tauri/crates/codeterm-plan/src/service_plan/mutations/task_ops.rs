@@ -155,138 +155,33 @@ impl PlanStore {
         if executor_role.is_some_and(|role| role.is_none_or(|s| s.trim().is_empty())) {
             return Err(PlanError::ExecutorRoleRequired);
         }
-        let expected_sections = section_ids.clone();
-        let expected_lane = lane.clone();
-        let write = self.with_plan(plan_id, now_ms, |p| {
-            let task_index = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let task_id = p.tasks[task_index].id.clone();
-            let parsed_status = status.map(parse_task_status).transpose()?;
-            if let Some(next) = &parsed_status {
-                validate_task_status_transition_with_lane(
-                    p,
-                    &task_id,
-                    &p.tasks[task_index].status,
-                    next,
-                    status_label,
-                    lane.as_ref(),
-                )?;
-            }
-            if let Some(Some(key)) = group {
-                super::ensure_group_declared(p, Some(key));
-            }
-            let task = &mut p.tasks[task_index];
-            if let Some(lane) = lane {
-                let tab_explicit = lane.tab_id.is_some();
-                apply_lane_update(&mut task.lane, lane);
-                task.lane = normalize_lane_metadata(std::mem::take(&mut task.lane));
-                if tab_explicit {
-                    task.assigned_tab_id = task.lane.tab_id.clone();
-                }
-            }
-            if let Some(n) = name {
-                task.name = n.into();
-            }
-            if let Some(k) = kind {
-                task.kind = k.into();
-            }
-            if let Some(m) = model {
-                task.model = m.map(|s| s.into());
-            }
-            if let Some(w) = model_rationale {
-                task.model_rationale = w.map(|s| s.into());
-            }
-            if let Some(status) = parsed_status {
-                let entering_review =
-                    task.status != TaskStatus::InReview && status == TaskStatus::InReview;
-                let closing_review =
-                    task.status == TaskStatus::InReview && is_terminal_task_status(&status);
-                if task.status != status {
-                    task.status = status;
-                    task.status_changed_at = now_ms;
-                }
-                if task.status == TaskStatus::InProgress {
-                    p.mode = PlanMode::Execution;
-                }
-                super::qa::normalize_task_review_fields(task);
-                if task.status != TaskStatus::Paused {
-                    task.pause_reason = None;
-                }
-                if is_terminal_task_status(&task.status) {
-                    let assigned = task.assigned_tab_id.clone();
-                    super::task_attempts::mark_task_assignment_closed(
-                        task,
-                        assigned.as_deref(),
-                        now_ms,
-                    );
-                    clear_task_assignment(task);
-                }
-                if entering_review {
-                    crate::service_plan::review_gate::fix_oracle_and_consume_override(task, now_ms);
-                    crate::service_plan::review_gate::spend_review_credit(&mut p.review_policy);
-                } else if closing_review {
-                    crate::service_plan::review_gate::earn_review_credit(&mut p.review_policy);
-                }
-            }
-            let task = &mut p.tasks[task_index];
-            if let Some(priority) = priority {
-                task.priority = parse_task_priority(priority)?;
-            }
-            if let Some(l) = status_label {
-                task.status_label = l.map(|s| s.into());
-            }
-            if let Some(b) = body {
-                task.body = b.into();
-            }
-            if let Some(i) = intent {
-                task.intent = i.map(|s| s.into());
-            }
-            if let Some(r) = executor_role {
-                task.executor_role = r.map(|s| s.into());
-            }
-            if let Some(ids) = section_ids {
-                task.section_ids = ids;
-            }
-            if let Some(parent) = parent_task_id {
-                task.parent_task_id = parent.map(|s| s.into());
-            }
-            if let Some(g) = group {
-                task.group = g.map(|s| s.into());
-            }
-            super::tag_model::apply_tags(&mut task.tags, tags, primary);
-            if !tags.is_empty() || primary.is_some() {
-                task.handle = None;
-            }
-            if let Some(handle) = handle {
-                task.handle = Some(handle.into());
-            }
-            task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
-            Ok(())
-        });
-        let verified = self.verify_task_updated(
+        use crate::service_plan::store_db::hot_write::{HotChange, TaskFields};
+        self.commit_hot_changes(
             plan_id,
-            task_id,
-            name,
-            kind,
-            model,
-            model_rationale,
-            status,
-            status_label,
-            priority,
-            body,
-            intent,
-            executor_role,
-            expected_sections.as_deref(),
-            parent_task_id,
-            group,
-            handle,
-        );
-        let verified = match (verified, expected_lane.as_ref()) {
-            (Ok(()), Some(lane)) => self.verify_task_lane_updated(plan_id, task_id, lane),
-            (result, _) => result,
-        };
-        pending_after_verified(write, verified, Some(task_id.to_string()))
+            vec![HotChange::Fields {
+                selector: task_id.into(),
+                fields: TaskFields {
+                    name: name.map(str::to_string),
+                    kind: kind.map(str::to_string),
+                    model: model.map(|value| value.map(str::to_string)),
+                    model_rationale: model_rationale.map(|value| value.map(str::to_string)),
+                    status: status.map(str::to_string),
+                    status_label: status_label.map(|value| value.map(str::to_string)),
+                    priority: priority.map(str::to_string),
+                    body: body.map(str::to_string),
+                    intent: intent.map(|value| value.map(str::to_string)),
+                    executor_role: executor_role.map(|value| value.map(str::to_string)),
+                    section_ids,
+                    parent_task_id: parent_task_id.map(|value| value.map(str::to_string)),
+                    group: group.map(|value| value.map(str::to_string)),
+                    tags: tags.to_vec(),
+                    primary: primary.map(str::to_string),
+                    handle: handle.map(str::to_string),
+                    lane,
+                },
+            }],
+            now_ms,
+        )
     }
 
     pub fn update_task_dependencies(
@@ -329,16 +224,16 @@ impl PlanStore {
         if let Some(Some(guidance)) = role_guidance {
             crate::service_plan::text_bounds::validate_plan_text("role guidance", guidance)?;
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if let Some(guidance) = role_guidance {
-                task.role_guidance = guidance.map(str::to_string);
-            }
-            task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
-            Ok(())
-        })
+        self.commit_hot_changes(
+            plan_id,
+            vec![crate::service_plan::store_db::hot_write::HotChange::Task {
+                selector: task_id.into(),
+                change: crate::service_plan::store_db::hot_write::TaskMetadata::RoleGuidance(
+                    role_guidance.map(|value| value.map(str::to_string)),
+                ),
+            }],
+            now_ms,
+        )
     }
 
     pub fn update_task_personality(
@@ -356,22 +251,20 @@ impl PlanStore {
             })
             .transpose()
             .map_err(PlanError::InvalidExecutorName)?;
-        if let Some(Some(name)) = personality.as_ref() {
+        if let Some(Some(name)) = &personality {
             crate::service_plan::text_bounds::validate_plan_label("personality", name)?;
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if let Some(name) = personality {
-                task.personality = name;
-            }
-            if let Some(provenance) = provenance {
-                task.personality_provenance = provenance;
-            }
-            task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
-            Ok(())
-        })
+        self.commit_hot_changes(
+            plan_id,
+            vec![crate::service_plan::store_db::hot_write::HotChange::Task {
+                selector: task_id.into(),
+                change: crate::service_plan::store_db::hot_write::TaskMetadata::Personality {
+                    name: personality,
+                    provenance,
+                },
+            }],
+            now_ms,
+        )
     }
 
     /// Capture report branch and peer values into empty lane fields.
@@ -660,31 +553,25 @@ impl PlanStore {
         text: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let ms = task
-                .milestones
-                .iter_mut()
-                .find(|m| m.id == ms_id)
-                .ok_or(PlanError::NotFound)?;
-            if let Some(k) = kind {
-                let declared = p.milestone_kinds.iter().any(|mk| mk.key == k);
-                if !declared {
-                    return Err(PlanError::UndeclaredKind {
-                        declared: p.milestone_kinds.iter().map(|mk| mk.key.clone()).collect(),
-                    });
-                }
-                ms.kind = k.into();
-            }
-            if let Some(t) = text {
-                ms.text = t.into();
-            }
-            Ok(())
-        })
+        if let Some(kind) = kind {
+            crate::service_plan::text_bounds::validate_plan_label("milestone kind", kind)?;
+        }
+        if let Some(text) = text {
+            crate::service_plan::text_bounds::validate_plan_text("milestone text", text)?;
+        }
+        self.commit_hot_changes(
+            plan_id,
+            vec![
+                crate::service_plan::store_db::hot_write::HotChange::MilestoneEdit {
+                    task_id: task_id.into(),
+                    milestone_id: ms_id.into(),
+                    kind: kind.map(str::to_string),
+                    text: text.map(str::to_string),
+                    remove: false,
+                },
+            ],
+            now_ms,
+        )
     }
 
     pub fn rm_milestone(
@@ -694,20 +581,19 @@ impl PlanStore {
         ms_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let pos = task
-                .milestones
-                .iter()
-                .position(|m| m.id == ms_id)
-                .ok_or(PlanError::NotFound)?;
-            task.milestones.remove(pos);
-            Ok(())
-        })
+        self.commit_hot_changes(
+            plan_id,
+            vec![
+                crate::service_plan::store_db::hot_write::HotChange::MilestoneEdit {
+                    task_id: task_id.into(),
+                    milestone_id: ms_id.into(),
+                    kind: None,
+                    text: None,
+                    remove: true,
+                },
+            ],
+            now_ms,
+        )
     }
 }
 

@@ -2,7 +2,14 @@ use super::{db_error, PlanError};
 use rusqlite::Connection;
 
 type Schema = Vec<(String, String, String, Option<String>)>;
-const MANAGED_ADDITIVE_INDEX: &str = "plan_tasks_board_cursor";
+const MANAGED_ADDITIVE_INDEXES: &[&str] = &[
+    "plan_tasks_board_cursor",
+    "plan_tasks_bound_tabs",
+    "plan_tasks_handle_order",
+    "plan_milestones_id",
+    "plan_strides_id",
+    "plan_attempts_id",
+];
 
 pub(in crate::service_plan) fn schema(connection: &Connection) -> rusqlite::Result<Schema> {
     let mut statement = connection.prepare(
@@ -23,10 +30,8 @@ pub(in crate::service_plan) fn validate(
     let actual = schema(connection).map_err(db_error)?;
     let expected = schema(expected).map_err(db_error)?;
     let is_managed_index = |entry: &&(String, String, String, Option<String>)| {
-        entry.0 == "index" && entry.1 == MANAGED_ADDITIVE_INDEX
+        entry.0 == "index" && MANAGED_ADDITIVE_INDEXES.contains(&entry.1.as_str())
     };
-    let actual_managed = actual.iter().find(is_managed_index);
-    let expected_managed = expected.iter().find(is_managed_index);
     let actual_without_managed: Vec<_> = actual
         .iter()
         .filter(|entry| !is_managed_index(entry))
@@ -35,11 +40,20 @@ pub(in crate::service_plan) fn validate(
         .iter()
         .filter(|entry| !is_managed_index(entry))
         .collect();
-    let managed_index_matches = match (actual_managed, expected_managed) {
-        (Some(actual), Some(expected)) => actual == expected,
-        (None, Some(_)) | (None, None) => true,
-        (Some(_), None) => false,
-    };
+    let managed_index_matches = MANAGED_ADDITIVE_INDEXES.iter().all(|name| {
+        match (
+            actual
+                .iter()
+                .find(|entry| entry.0 == "index" && entry.1 == *name),
+            expected
+                .iter()
+                .find(|entry| entry.0 == "index" && entry.1 == *name),
+        ) {
+            (Some(actual), Some(expected)) => actual == expected,
+            (None, Some(_)) | (None, None) => true,
+            (Some(_), None) => false,
+        }
+    });
 
     if actual_without_managed != expected_without_managed || !managed_index_matches {
         return Err(PlanError::Io(
