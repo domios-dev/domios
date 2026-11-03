@@ -89,9 +89,11 @@ export async function publishPlatform({ tag, directory, receipt, repository, env
   const names = repository === MIRROR_REPO ? plan.mirror : plan.source;
   const rows = new Map(receipt.files.map(file => [file.name, file]));
   await run(['release', 'upload', tag, ...names.map(name => path.join(directory, name)), '--clobber', '--repo', repository], env);
-  const release = JSON.parse(await run(['api', `repos/${repository}/releases/tags/${encodeURIComponent(tag)}`], env));
+  // The releases/tags endpoint hides drafts; `gh release view` resolves the draft by tag.
+  const release = JSON.parse(await run(['release', 'view', tag, '--repo', repository, '--json', 'databaseId'], env));
+  if (!Number.isInteger(release.databaseId)) refuse(`${repository} ${tag} draft release id is missing`);
   const assets = (await run(['api', '--paginate', '--jq', '.[] | tojson',
-    `repos/${repository}/releases/${release.id}/assets?per_page=100`], env))
+    `repos/${repository}/releases/${release.databaseId}/assets?per_page=100`], env))
     .split('\n').filter(Boolean).map(line => JSON.parse(line));
   verifyAssetDigests(names.map(name => rows.get(name)), assets, repository);
   return names;
