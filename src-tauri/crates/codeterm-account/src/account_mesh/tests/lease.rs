@@ -452,3 +452,237 @@ async fn account_mesh_lease_restore_rejects_changed_authority_and_tampered_signa
         }
     }
 }
+
+#[tokio::test]
+async fn account_mesh_terminal_renewal_denials_retire_authority_and_park() {
+    for refusal in [
+        RegistryRefusal::MachineLimit {
+            limit: 2,
+            active_count: 2,
+        },
+        RegistryRefusal::Forbidden,
+        RegistryRefusal::Revoked,
+    ] {
+        let harness = leased(3600).await;
+        harness.registry.script.lock().unwrap().endpoint_seconds = Some(600);
+        *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+        harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+        assert_eq!(harness.state().publication, Publication::Published);
+        let membership = harness.state().membership.clone().unwrap();
+        let display = harness.state().self_installation.clone();
+        if refusal == RegistryRefusal::Revoked {
+            harness
+                .clock
+                .set(harness.mesh.with(|inner| inner.publication_refresh_after));
+            harness.registry.script.lock().unwrap().publication = Some(refusal);
+        } else {
+            harness.clock.set(membership.verified.refresh_after());
+            harness.registry.script.lock().unwrap().membership = Some(refusal);
+        }
+        let error = harness.mesh.refresh(EnrollTrigger::Lease).await;
+        assert!(error.is_err(), "{refusal:?}");
+        if refusal == RegistryRefusal::Revoked {
+            assert_eq!(error, Err(AccountMeshRefusal::Revoked));
+        }
+        assert!(harness.state().membership.is_none(), "{refusal:?}");
+        assert_eq!(harness.state().self_installation, display);
+        assert_eq!(harness.state().retry_at, None);
+        assert_eq!(harness.state().publication, Publication::None);
+        assert!(harness
+            .transport
+            .last
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .membership
+            .is_none());
+        assert_eq!(harness.mesh.lease_due(&error), None);
+        assert!(harness
+            .mesh
+            .with(|inner| inner.record.admission_cache.is_none()));
+        let calls = count(&harness.log, "registry:");
+        harness.clock.set(START + 86400);
+        for trigger in [
+            EnrollTrigger::Automatic,
+            EnrollTrigger::Network,
+            EnrollTrigger::Lease,
+        ] {
+            assert!(harness.mesh.refresh(trigger).await.is_err());
+        }
+        assert_eq!(count(&harness.log, "registry:"), calls);
+        harness.registry.script.lock().unwrap().membership = None;
+        harness.registry.script.lock().unwrap().publication = None;
+        if matches!(refusal, RegistryRefusal::MachineLimit { .. }) {
+            harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
+        } else {
+            harness.mesh.enrollment_signed_in();
+            harness
+                .mesh
+                .refresh(EnrollTrigger::Automatic)
+                .await
+                .unwrap();
+        }
+        assert!(harness.state().current_membership(START + 86400).is_some());
+    }
+}
+
+#[tokio::test]
+async fn account_mesh_terminal_limit_rearms_after_verified_plan_or_account_change() {
+    for account_change in [false, true] {
+        let harness = leased(3600).await;
+        let due = harness
+            .state()
+            .membership
+            .as_ref()
+            .unwrap()
+            .verified
+            .refresh_after();
+        harness.clock.set(due);
+        harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::MachineLimit {
+            limit: 2,
+            active_count: 2,
+        });
+        harness
+            .mesh
+            .refresh(EnrollTrigger::Lease)
+            .await
+            .unwrap_err();
+        assert!(harness.state().plan_limit_locked());
+        harness.registry.script.lock().unwrap().membership = None;
+        if account_change {
+            harness.sign_in("another-owner").await;
+        } else {
+            assert!(harness.mesh.machine_limit_changed());
+            assert!(harness.state().plan_limit_locked());
+        }
+        harness
+            .mesh
+            .refresh(EnrollTrigger::Automatic)
+            .await
+            .unwrap();
+        assert!(!harness.state().plan_limit_locked());
+        assert!(harness.state().current_membership(due).is_some());
+    }
+}
+
+#[tokio::test]
+async fn account_mesh_terminal_limit_rearms_only_when_registry_observes_a_freed_slot() {
+    let harness = leased(3600).await;
+    let due = harness
+        .state()
+        .membership
+        .as_ref()
+        .unwrap()
+        .verified
+        .refresh_after();
+    harness.clock.set(due);
+    let refusal = RegistryRefusal::MachineLimit {
+        limit: 2,
+        active_count: 2,
+    };
+    harness.registry.script.lock().unwrap().membership = Some(refusal);
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Lease)
+        .await
+        .unwrap_err();
+    harness.registry.script.lock().unwrap().membership = None;
+    harness.registry.script.lock().unwrap().peer_presence = RegistryPresence::SignedOut;
+    harness.mesh.list().await.unwrap();
+    let calls = harness.calls("renew");
+    assert_eq!(
+        harness.mesh.refresh(EnrollTrigger::Network).await,
+        Err(refusal.into())
+    );
+    assert_eq!(harness.calls("renew"), calls);
+    harness.registry.script.lock().unwrap().peer_active = Some(false);
+    harness.mesh.list().await.unwrap();
+    assert!(harness.state().plan_limit_locked());
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert!(!harness.state().plan_limit_locked());
+    assert!(harness.state().current_membership(due).is_some());
+}
+
+#[tokio::test]
+async fn account_mesh_terminal_launch_denial_stays_parked_across_restart_until_rearmed() {
+    for recovery in ["explicit", "plan", "signin"] {
+        let mut harness = leased(86400).await;
+        let stale_cache = harness.store.record.lock().unwrap().admission_cache.clone();
+        harness.restart().await;
+        harness.sign_in("owner").await;
+        let refusal = AccountMeshRefusal::MachineLimit {
+            limit: 2,
+            active_count: 2,
+        };
+        harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::MachineLimit {
+            limit: 2,
+            active_count: 2,
+        });
+        harness.log.lock().unwrap().clear();
+        assert_eq!(
+            harness.mesh.refresh(EnrollTrigger::Automatic).await,
+            Err(refusal)
+        );
+        assert_eq!(harness.calls("renew"), 1);
+        assert_eq!(harness.calls("list"), 0);
+        assert_eq!(harness.calls("sync"), 0);
+        assert!(harness.state().membership.is_none());
+        assert!(harness.mesh.with(|inner| !inner.launch_renewal_pending));
+        let persisted = serde_json::to_vec(&*harness.store.record.lock().unwrap()).unwrap();
+        *harness.store.record.lock().unwrap() = serde_json::from_slice(&persisted).unwrap();
+        harness.store.record.lock().unwrap().admission_cache = stale_cache;
+        harness.restart().await;
+        harness.sign_in("owner").await;
+        assert!(harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .admission_cache
+            .is_none());
+        harness.registry.script.lock().unwrap().membership = None;
+        harness.log.lock().unwrap().clear();
+        assert!(harness.mesh.with(|inner| inner.launch_renewal_pending));
+        assert_eq!(
+            harness.mesh.with(|inner| inner.membership_renewal_at()),
+            None
+        );
+        for trigger in [
+            EnrollTrigger::Automatic,
+            EnrollTrigger::Lease,
+            EnrollTrigger::Network,
+        ] {
+            assert_eq!(harness.mesh.refresh(trigger).await, Err(refusal));
+        }
+        assert_eq!(count(&harness.log, "registry:"), 0);
+        assert_eq!(harness.mesh.lease_due(&Err(refusal)), None);
+        assert!(harness.state().plan_limit_locked());
+        let trigger = match recovery {
+            "explicit" => EnrollTrigger::Explicit,
+            "plan" => {
+                assert!(harness.mesh.machine_limit_changed());
+                EnrollTrigger::Automatic
+            }
+            "signin" => {
+                harness.mesh.enrollment_signed_in();
+                EnrollTrigger::Automatic
+            }
+            _ => unreachable!(),
+        };
+        harness.mesh.refresh(trigger).await.unwrap();
+        assert_eq!(harness.calls("renew"), 1);
+        assert!(harness.state().current_membership(START).is_some());
+        assert!(harness
+            .store
+            .record
+            .lock()
+            .unwrap()
+            .terminal_refusals
+            .is_empty());
+    }
+}

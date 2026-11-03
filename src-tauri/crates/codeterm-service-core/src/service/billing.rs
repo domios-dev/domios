@@ -26,13 +26,16 @@ impl ServiceContext {
             .await
             .map_err(|_| "Sign in to manage your plan")?
             .ok_or("Sign in to manage your plan")?;
+        let machine_limit = self.limit_gate().summary().mesh_machines;
         let result = self
             .billing()
             .await?
             .plan_operation(&session, operation)
             .await;
         self.sync_limit_gate();
-        self.unlock_account_mesh_after_plan_change();
+        if self.limit_gate().summary().mesh_machines != machine_limit {
+            self.unlock_account_mesh_after_plan_change();
+        }
         if account
             .session()
             .await
@@ -217,10 +220,13 @@ impl ServiceContext {
         let event = session.as_ref().map_or(event, |session| {
             billing.browser_return_event(session, event)
         });
+        let machine_limit = billing.limit_gate().summary().mesh_machines;
         billing
             .refresh(session.as_ref(), event, Instant::now())
             .await;
-        self.unlock_account_mesh_after_plan_change();
+        if billing.limit_gate().summary().mesh_machines != machine_limit {
+            self.unlock_account_mesh_after_plan_change();
+        }
         let binding = billing.binding_generation();
         let current = account.session().await;
         snapshot_off_runtime(billing, current, Some(binding)).await
