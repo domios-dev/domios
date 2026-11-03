@@ -22,7 +22,7 @@ impl PlanDatabase {
                 Ok(id) => {
                     record_query();
                     let raw: String = transaction.query_row(
-                        "SELECT json_object('id',task_id,'name',json_extract(row_json,'$.name'),'key',json_extract(row_json,'$.key'),'handle',json_extract(row_json,'$.handle')) FROM plan_tasks WHERE plan_id=?1 AND task_id=?2",
+                        "SELECT json_object('id',task_id,'name',json_extract(row_json,'$.name'),'type',json_extract(row_json,'$.type'),'status',status,'key',json_extract(row_json,'$.key'),'handle',json_extract(row_json,'$.handle')) FROM plan_tasks WHERE plan_id=?1 AND task_id=?2",
                         params![plan_id,id], |row| column(row,0)).map_err(db_error)?;
                     plan.tasks.push(decode::<Task>(plan_id, &raw)?);
                 }
