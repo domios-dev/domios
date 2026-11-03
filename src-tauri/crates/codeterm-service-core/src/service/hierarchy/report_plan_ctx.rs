@@ -81,8 +81,10 @@ fn stale_task_hint_refusal(
     tab_id: &str,
     plan_id: &str,
     task_id: &str,
-) -> String {
-    let bindings = plan_store.task_bindings_with_name_for_tab(tab_id);
+) -> Result<String, String> {
+    let bindings = plan_store
+        .task_bindings_with_name_for_tab(tab_id)
+        .map_err(|error| error.to_string())?;
     let held = if bindings.is_empty() {
         "holds no live task binding".to_string()
     } else {
@@ -95,13 +97,13 @@ fn stale_task_hint_refusal(
                 .join(", ")
         )
     };
-    format!(
+    Ok(format!(
         "{STALE_TASK_HINT_REFUSAL}: tab '{tab_id}' reported against task '{task_id}' in plan \
          '{plan_id}', but that tab {held}. Nothing was written to '{task_id}' — no status, no \
          milestone. The reporting shell is carrying a task id the daemon has moved; report \
          without --task so the daemon resolves the live binding, or name the task this tab \
          actually holds."
-    )
+    ))
 }
 
 /// Resolve the effective (plan_id, task_id) for a report, following the priority chain:
@@ -139,12 +141,14 @@ pub fn resolve_plan_ctx(
         if !tab_holds_task(plan_store, tab_id, &plan_id, task_id) {
             return Err(stale_task_hint_refusal(
                 plan_store, tab_id, &plan_id, task_id,
-            ));
+            )?);
         }
         return Ok((Some(plan_id), Some(task_id.to_string())));
     }
 
-    let bindings = plan_store.task_bindings_with_name_for_tab(tab_id);
+    let bindings = plan_store
+        .task_bindings_with_name_for_tab(tab_id)
+        .map_err(|error| error.to_string())?;
     match bindings.len() {
         0 => Ok((None, None)),
         1 => {
@@ -265,6 +269,7 @@ pub fn classify_plan_only_report_authority(
     }
     if !plan_store
         .task_bindings_with_name_for_tab(tab_id)
+        .map_err(|error| error.to_string())?
         .is_empty()
     {
         return Err(format!(

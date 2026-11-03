@@ -182,9 +182,10 @@ fn task_bindings_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_bindings_for_tab("tab-a"),
+        store.task_bindings_for_tab("tab-a").unwrap(),
         vec![(matched, "task_m".into())]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -195,9 +196,10 @@ fn task_bindings_with_name_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_bindings_with_name_for_tab("tab-a"),
+        store.task_bindings_with_name_for_tab("tab-a").unwrap(),
         vec![(matched, "task_m".into(), "task_m".into())]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 

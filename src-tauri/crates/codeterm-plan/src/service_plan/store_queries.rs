@@ -327,56 +327,16 @@ impl PlanStore {
         candidates
     }
 
-    pub fn task_bindings_for_tab(&self, tab_id: &str) -> Vec<(String, String)> {
-        if tab_id.trim().is_empty() {
-            return Vec::new();
-        }
-        let candidates = PlanMatch::active().and(
-            AttemptMatch {
-                task_statuses: Some(plan_match::NON_TERMINAL_TASK_STATUSES.to_vec()),
-                ..AttemptMatch::executor(tab_id, AttemptState::Unclosed)
-            }
-            .into_match(),
-        );
-        self.plans_matching(&candidates)
-            .into_iter()
-            .filter(|plan| plan.status == PlanStatus::Active)
-            .flat_map(|plan| {
-                let plan_id = plan.id.clone();
-                plan.tasks
-                    .into_iter()
-                    .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-                    .filter(move |task| {
-                        task.execution_attempts.iter().any(|attempt| {
-                            attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                        })
-                    })
-                    .map(move |task| (plan_id.clone(), task.id))
-            })
-            .collect()
+    pub fn task_bindings_for_tab(&self, tab_id: &str) -> Result<Vec<(String, String)>, PlanError> {
+        self.database.unclosed_attempt_bindings(tab_id)
     }
 
-    /// Like `task_bindings_for_tab` but also returns the task name for error messages.
-    pub fn task_bindings_with_name_for_tab(&self, tab_id: &str) -> Vec<(String, String, String)> {
-        if tab_id.trim().is_empty() {
-            return Vec::new();
-        }
-        let candidates = PlanMatch::active().and(TaskMatch::assigned(
-            tab_id,
-            &plan_match::NON_TERMINAL_TASK_STATUSES,
-        ));
-        self.plans_matching(&candidates)
-            .into_iter()
-            .filter(|plan| plan.status == PlanStatus::Active)
-            .flat_map(|plan| {
-                let plan_id = plan.id.clone();
-                plan.tasks
-                    .into_iter()
-                    .filter(|task| !matches!(task.status, TaskStatus::Done | TaskStatus::Cancelled))
-                    .filter(move |task| task.assigned_tab_id.as_deref() == Some(tab_id))
-                    .map(move |task| (plan_id.clone(), task.id, task.name))
-            })
-            .collect()
+    /// Assigned nonterminal tasks, including their names for authority diagnostics.
+    pub fn task_bindings_with_name_for_tab(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<(String, String, String)>, PlanError> {
+        self.database.assigned_task_bindings(tab_id)
     }
 
     /// Built from SQL aggregates over the stored rows; no plan is loaded.
