@@ -237,20 +237,23 @@ button.ct-card__head {
 }
 
 .ct-card:hover > .ct-card__header > .ct-reader-opener,
-.ct-card:focus-within > .ct-card__header > .ct-reader-opener,
+.ct-card:has(:focus-visible) > .ct-card__header > .ct-reader-opener,
 .ct-card:hover > .ct-card__head > .ct-reader-opener,
-.ct-card:focus-within > .ct-card__head > .ct-reader-opener,
+.ct-card:has(:focus-visible) > .ct-card__head > .ct-reader-opener,
 .ct-card__header:hover > .ct-reader-opener,
-.ct-card__header:focus-within > .ct-reader-opener,
+.ct-card__header:has(:focus-visible) > .ct-reader-opener,
 .ct-card__head:hover > .ct-reader-opener,
-.ct-card__head:focus-within > .ct-reader-opener,
+.ct-card__head:has(:focus-visible) > .ct-reader-opener,
 .ct-reader-row:hover > .ct-reader-opener,
-.ct-reader-row:focus-within > .ct-reader-opener {
+.ct-reader-row:has(:focus-visible) > .ct-reader-opener,
+.ct-reader-surface:hover > .ct-reader-row > .ct-reader-opener,
+.ct-reader-surface:has(:focus-visible) > .ct-reader-row > .ct-reader-opener {
   opacity: 1;
 }
 
 .ct-reader-opener:hover,
 .ct-reader-opener:focus-visible {
+  opacity: 1;
   color: var(--ct-fg);
   background: color-mix(in srgb, var(--ct-fg) 10%, transparent);
 }
@@ -270,7 +273,7 @@ button.ct-card__head {
 }
 
 .ct-card:hover .ct-card__menu,
-.ct-card:focus-within .ct-card__menu,
+.ct-card:has(:focus-visible) .ct-card__menu,
 .ct-card__menu.is-shown {
   opacity: 1;
 }
@@ -302,7 +305,7 @@ button.ct-card__head {
 }
 
 .ct-card:hover .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
-.ct-card:focus-within .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
+.ct-card:has(:focus-visible) .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
 .ct-tool-status-slot:has(.ct-card__menu.is-shown) > .ct-tool-status-icon {
   opacity: 0;
 }
