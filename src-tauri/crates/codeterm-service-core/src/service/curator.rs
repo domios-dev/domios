@@ -154,7 +154,8 @@ impl ServiceContext {
 
     pub fn control_loop_show(&self, plan_id: &str) -> Result<ControlLoop, String> {
         let now = self.curator_now()?;
-        self.reconcile_curator_id(plan_id, now);
+        self.reconcile_curator_id(plan_id, now)
+            .map_err(|error| error.to_string())?;
         let read = self
             .plan_store
             .status_projection(plan_id, now)
@@ -183,7 +184,8 @@ impl ServiceContext {
         self.plan_store
             .set_control_loop(plan_id, update, now)
             .map_err(|e| e.to_string())?;
-        self.reconcile_curator_id(plan_id, now);
+        self.reconcile_curator_id(plan_id, now)
+            .map_err(|error| error.to_string())?;
         self.ui.emit("plan-changed", json!({"plan_id":plan_id}));
         self.control_loop_show(plan_id)
     }

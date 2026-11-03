@@ -22,7 +22,9 @@ impl ServiceContext {
     pub(in crate::service) fn reconcile_notification_questions(&self) {
         let Ok(now) = self.curator_now() else { return };
         for id in crate::service::curator::curator_bootstrap_ids(&self.plan_store) {
-            self.reconcile_curator_id(&id, now);
+            if let Err(error) = self.reconcile_curator_id(&id, now) {
+                log::error!("[curator] notification reconciliation {id}: {error}");
+            }
         }
     }
 }

@@ -13,7 +13,7 @@ impl ServiceContext {
         plan_id: &str,
         now_ms: u64,
     ) -> Result<PlanStateSnapshot, PlanError> {
-        self.reconcile_curator_id(plan_id, now_ms);
+        self.reconcile_curator_id(plan_id, now_ms)?;
         let read = self.plan_store.status_projection(plan_id, now_ms)?;
         let plan = read.plan();
         let coverage = compute_coverage_report(&plan);
