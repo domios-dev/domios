@@ -116,7 +116,7 @@ async fn stdin_typing_masks_before_insertion_and_refuses_unmaskable_fields() {
             assert!(insert.unwrap() < presentation);
             assert_eq!(
                 commands[presentation].1["arguments"][0]["value"],
-                json!({"kind":"typing","secret":true,"text":""})
+                json!({"kind":"typing","name":"Agent","secret":true,"text":""})
             );
             assert!(!commands[presentation].1.to_string().contains(secret));
         } else {
@@ -188,7 +188,7 @@ async fn type_submit_requires_evidence_and_never_replays_insert_or_enter() {
         assert!(insertion < presentation && presentation < enter);
         assert_eq!(
             commands[presentation].1["arguments"][0]["value"],
-            json!({"kind":"typing","secret":false,"text":"one insertion"})
+            json!({"kind":"typing","name":"Agent","secret":false,"text":"one insertion"})
         );
         assert_eq!(
             commands

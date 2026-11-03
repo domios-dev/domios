@@ -86,6 +86,14 @@ impl CdpConnection for DisclosureConnection {
             {
                 json!({"result":{"value":true}})
             }
+            // The agent cursor presentation is not a page action.
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("?.present(")) =>
+            {
+                json!({"result":{"value":true}})
+            }
             "Runtime.callFunctionOn" => {
                 self.actions.fetch_add(1, Ordering::SeqCst);
                 self.expanded.fetch_xor(true, Ordering::SeqCst);
