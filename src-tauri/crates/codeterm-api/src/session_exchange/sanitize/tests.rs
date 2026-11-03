@@ -200,6 +200,99 @@ fn opaque_keys_keep_inventory_and_encoded_size_without_content() {
 }
 
 #[test]
+fn opaque_keys_use_all_positions_with_mixed_widths_and_escapes() {
+    use serde::Serialize;
+
+    for keys in [
+        (0..1000)
+            .map(|index| format!("secret-{index:04}"))
+            .collect::<Vec<_>>(),
+        (0..1100)
+            .map(|index| {
+                format!(
+                    "{}é中🙂\"\\\n\u{0}",
+                    char::from_u32(0x4000 + index).unwrap()
+                )
+            })
+            .collect(),
+        (0..1100)
+            .map(|index| format!("é{}", char::from_u32(0x4000 + index).unwrap()))
+            .collect(),
+        (0..1100)
+            .map(|index| format!("🙂{}", char::from_u32(0x1f400 + index).unwrap()))
+            .collect(),
+    ] {
+        let raw: Map<String, Value> = keys
+            .iter()
+            .map(|key| (key.clone(), json!("private value")))
+            .collect();
+        let document = json!({"toolInput":raw});
+        let safe = sanitize(&document).unwrap();
+        assert_eq!(safe, sanitize(&document).unwrap());
+        for masked in [
+            safe["toolInput"].clone(),
+            raw.serialize(typed::Sanitizer::default()).unwrap(),
+        ] {
+            let object = masked.as_object().unwrap();
+            assert_eq!(object.len(), keys.len());
+            assert_eq!(
+                serde_json::to_vec(&raw).unwrap().len(),
+                serde_json::to_vec(&masked).unwrap().len()
+            );
+            assert!(!masked.to_string().contains("private"));
+            assert!(!masked.to_string().contains("secret"));
+            for key in object.keys() {
+                assert_eq!(key.len(), keys[0].len());
+                assert_eq!(key.encode_utf16().count(), keys[0].encode_utf16().count());
+                assert_eq!(
+                    key.chars().map(char::len_utf8).collect::<Vec<_>>(),
+                    keys[0].chars().map(char::len_utf8).collect::<Vec<_>>()
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn opaque_keys_do_not_collide_with_preserved_fields() {
+    let mut raw = Map::new();
+    raw.insert("id".into(), json!("bound-id"));
+    for index in 0..600 {
+        let key = format!(
+            "{}{}",
+            char::from(b'A' + (index / 26) as u8),
+            char::from(b'A' + (index % 26) as u8)
+        );
+        raw.insert(key, json!("private"));
+    }
+    let safe = sanitize(&Value::Object(raw.clone())).unwrap();
+    assert_eq!(safe["id"], "bound-id");
+    assert_eq!(safe.as_object().unwrap().len(), raw.len());
+    assert_eq!(
+        serde_json::to_vec(&raw).unwrap().len(),
+        serde_json::to_vec(&safe).unwrap().len()
+    );
+    assert!(!safe.to_string().contains("private"));
+}
+
+#[test]
+fn opaque_keys_refuse_only_after_all_filler_positions_are_exhausted() {
+    for (field, capacity) in [("!", 26), ("!!", 26 * 26), ("", 1), ("\"\n", 1)] {
+        let mut used = Map::new();
+        for _ in 0..capacity {
+            let key = private_key(field, &used).unwrap();
+            assert_eq!(key.len(), field.len());
+            assert_eq!(
+                serde_json::to_vec(&key).unwrap().len(),
+                serde_json::to_vec(field).unwrap().len()
+            );
+            assert!(used.insert(key, Value::Null).is_none());
+        }
+        assert!(private_key(field, &used).is_err());
+    }
+}
+
+#[test]
 fn sanitized_plan_keeps_durable_attempt_state_and_deserializes() {
     use codeterm_types::plan::{
         CuratorAsked, CuratorFailure, CuratorOutcome, CuratorRound, CuratorSuspension,
