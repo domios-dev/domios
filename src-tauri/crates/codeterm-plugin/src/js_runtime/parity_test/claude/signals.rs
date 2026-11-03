@@ -160,3 +160,35 @@ fn parity_claude_initialize_capability_declaration() {
     );
     assert_eq!(native.capability_probe(), js.capability_probe());
 }
+
+#[test]
+fn parity_transcript_retry_error_records() {
+    if require_plugins().is_none() {
+        return;
+    }
+    let (native, js) = pair();
+    let cases: Vec<serde_json::Value> = serde_json::from_str(
+        &std::fs::read_to_string(plugin_fixture_root().join("tests/fixtures/retry.json")).unwrap(),
+    )
+    .unwrap();
+    for case in cases {
+        let expected = serde_json::from_value::<
+            Option<codeterm_provider_signals::RuntimeErrorSignal>,
+        >(case["signal"].clone())
+        .unwrap();
+        let record = &case["record"];
+        let observation = native.parse_session_observations(record);
+        assert_eq!(
+            observation,
+            js.parse_session_observations(record),
+            "{}",
+            case["name"]
+        );
+        assert_eq!(
+            observation.and_then(|value| value.retry_error),
+            expected,
+            "{}",
+            case["name"]
+        );
+    }
+}
