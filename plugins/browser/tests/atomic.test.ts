@@ -21,7 +21,7 @@ function presentation(reduced = false) {
   window.eval(overlay);
   const root = window.eval("window.testRoot") as ShadowRoot;
   const api = window.eval("window[Symbol.for('domios.browser.presentation')]") as {
-    present(request: {kind:string; x?:number; y?:number; text?:string; secret?:boolean}, target?:unknown): Promise<void>;
+    present(request: {kind:string; x?:number; y?:number; text?:string; secret?:boolean; name?:string}, target?:unknown): Promise<void>;
     hide(): void;
     capture(hidden:boolean): void;
   };
@@ -30,6 +30,34 @@ function presentation(reduced = false) {
 }
 
 describe("Browser agent presentation", () => {
+  it("flips the name tag at viewport edges and measures only when the name changes", async () => {
+    const {window,root,api} = presentation(true);
+    try {
+      const tag = root.querySelector(".tag")!;
+      let measurements = 0;
+      Object.defineProperty(tag, "offsetWidth", { get() { measurements++; return 100; } });
+      Object.defineProperty(window, "innerWidth", { value: 380 });
+      Object.defineProperty(window, "innerHeight", { value: 600 });
+      for (const [x, y, flipX, flipY] of [
+        [268, 570, false, false],
+        [269, 570, true, false],
+        [268, 571, false, true],
+        [379, 599, true, true],
+        [24, 24, false, false],
+      ] as const) {
+        await api.present({kind:"move",name:"Opaque agent",x,y});
+        expect(tag.classList.contains("flip-x")).toBe(flipX);
+        expect(tag.classList.contains("flip-y")).toBe(flipY);
+      }
+      expect(measurements).toBe(1);
+      api.hide();
+      await api.present({kind:"move",name:"Opaque agent",x:24,y:24});
+      expect(measurements).toBe(1);
+      await api.present({kind:"move",name:"Another agent",x:24,y:24});
+      expect(measurements).toBe(2);
+    } finally { window.happyDOM.abort(); }
+  });
+
   it("injects once in a closed, non-interactive layer and survives body replacement", () => {
     const {window,root} = presentation(true);
     try {

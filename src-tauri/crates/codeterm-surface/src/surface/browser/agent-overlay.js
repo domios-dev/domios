@@ -13,6 +13,8 @@
     .cursor { position:fixed;left:0;top:0;width:0;height:0;filter:drop-shadow(0 1px 2px #0d1b3a40); }
     svg { position:absolute;left:0;top:0;width:12px;height:15px;overflow:visible; }
     .tag { position:absolute;left:9px;top:13px;display:flex;align-items:center;gap:4px;max-width:140px;height:16px;padding:0 7px 0 5px;border-radius:8px;background:var(--blue);color:var(--on-blue);box-shadow:0 0 0 1.5px var(--edge);font:600 10.5px/16px system-ui,sans-serif;white-space:nowrap;transform-origin:0 0; }
+    .tag.flip-x { left:auto;right:9px; }
+    .tag.flip-y { top:auto;bottom:9px; }
     .tag::before { content:'';flex:none;width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.85; }
     .tag span { min-width:0;overflow:hidden;text-overflow:ellipsis; }
     @keyframes tagin { from { opacity:0;transform:scale(.6); } to { opacity:1;transform:scale(1); } }
@@ -58,6 +60,7 @@
   let finish = null;
   let suppressed = 0;
   let generation = 0;
+  let tagWidth = 0;
   function mount() {
     if (!host.isConnected && document.documentElement) document.documentElement.append(host);
   }
@@ -97,13 +100,16 @@
     const y = request.y ?? (rect ? rect.y + rect.height / 2 : point.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
     const name = typeof request.name === 'string' ? request.name.trim() : '';
-    const appearing = cursor.hidden || tagName.textContent !== name;
-    tagName.textContent = name;
+    const nameChanged = tagName.textContent !== name;
+    const appearing = cursor.hidden || nameChanged;
+    if (nameChanged) tagName.textContent = name;
     tag.hidden = !name;
     cursor.hidden = false;
+    if (nameChanged) tagWidth = name ? tag.offsetWidth : 0;
+    tag.classList.toggle('flip-x', x + tagWidth + 12 > window.innerWidth);
+    tag.classList.toggle('flip-y', y + 30 > window.innerHeight);
     if (name && appearing && !reduced.matches) {
       tag.style.animation = 'none';
-      void tag.offsetWidth;
       tag.style.animation = 'tagin 160ms cubic-bezier(.2,.8,.2,1) both';
     }
     cursor.style.setProperty('--from-x', `${point.x}px`);

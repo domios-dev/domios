@@ -464,7 +464,13 @@ button.ct-card__head {
 
 .ct-card[data-compact="true"][data-tool-kind="search"] .ct-tool-subject:not(.hidden) {
   min-width: 8ch;
+  max-width: max-content;
   flex: 1 1 8ch;
+}
+
+.ct-card[data-compact="true"][data-tool-kind="search"] .ct-tool-labels::after {
+  content: "";
+  margin-left: auto;
 }
 
 .ct-search-counts {
