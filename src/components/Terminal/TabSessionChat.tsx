@@ -307,8 +307,8 @@ function TabSessionChatBody({
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
-    active: sessionActive ?? isActive,
-    retainAttachment: true,
+    active: (sessionActive ?? isActive) || awaitsTranscriptEcho(deliverySends),
+    retainAttachment: false,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
     localAttempt: lazyFirstTurnComposerIsLive(tab) && tab?.pty_id && tab.session_binding_nonce
