@@ -1,5 +1,6 @@
 use super::cdp_wire::{
-    decode_incoming, encode_request, CdpEvent, EventFilter, Incoming, ProtocolError, SessionFilter,
+    decode_incoming, encode_request, response_id, CdpEvent, EventFilter, Incoming, ProtocolError,
+    SessionFilter,
 };
 use super::launch::validate_loopback_endpoint;
 use futures_util::{SinkExt, StreamExt};
@@ -462,7 +463,19 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
             Some(Ok(Message::Text(text))) => match decode_incoming(&text) {
                 Ok(incoming) => owner.route(incoming),
                 Err(error) => {
-                    log::warn!("[browser-cdp] undecodable message (chrome -> domios): {error}")
+                    log::warn!("[browser-cdp] undecodable message (chrome -> domios): {error}");
+                    match response_id(&text) {
+                        Ok(Some(id)) => {
+                            let reply = owner.state.lock().pending.remove(&id);
+                            if let Some(reply) = reply {
+                                let _ = reply.send(Err(CdpError::Malformed(format!(
+                                    "response {id} could not be decoded: {error}"
+                                ))));
+                            }
+                        }
+                        Ok(None) => {}
+                        Err(envelope_error) => break Some(envelope_error),
+                    }
                 }
             },
             Some(Ok(Message::Ping(payload))) => {
