@@ -7,11 +7,15 @@
   const root = host.attachShadow({mode: 'closed'});
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(`
-    :host { --blue:#2679ff; --edge:#fff; color-scheme:light dark; }
+    :host { --blue:#2679ff; --edge:#fff; --on-blue:#fff; color-scheme:light dark; }
     * { box-sizing:border-box; pointer-events:none!important; }
-    @media(prefers-color-scheme:dark) { :host { --blue:#62a4ff; --edge:#102b55; } }
-    .cursor { position:fixed;left:0;top:0;width:28px;height:34px;filter:drop-shadow(0 2px 3px #12396e55) drop-shadow(0 0 8px #398bff66); }
-    svg { width:28px;height:34px;overflow:visible; }
+    @media(prefers-color-scheme:dark) { :host { --blue:#62a4ff; --edge:#0d1117; --on-blue:#0d1117; } }
+    .cursor { position:fixed;left:0;top:0;width:0;height:0;filter:drop-shadow(0 1px 2px #0d1b3a40); }
+    svg { position:absolute;left:0;top:0;width:12px;height:15px;overflow:visible; }
+    .tag { position:absolute;left:9px;top:13px;display:flex;align-items:center;gap:4px;max-width:140px;height:16px;padding:0 7px 0 5px;border-radius:8px;background:var(--blue);color:var(--on-blue);box-shadow:0 0 0 1.5px var(--edge);font:600 10.5px/16px system-ui,sans-serif;white-space:nowrap;transform-origin:0 0; }
+    .tag::before { content:'';flex:none;width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.85; }
+    .tag span { min-width:0;overflow:hidden;text-overflow:ellipsis; }
+    @keyframes tagin { from { opacity:0;transform:scale(.6); } to { opacity:1;transform:scale(1); } }
     .ripple { position:absolute;left:-13px;top:-13px;width:26px;height:26px;border:2px solid var(--blue);border-radius:50%;opacity:0; }
     .trail { position:fixed;height:3px;transform-origin:left;border-radius:9px;background:linear-gradient(90deg,transparent,var(--blue));opacity:.4; }
     .field { position:fixed;border:2px solid var(--blue);border-radius:7px;box-shadow:0 0 0 4px #388cff22; }
@@ -30,11 +34,16 @@
   }
   const cursorLayer = layer('cursor');
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', '0 0 28 34');
+  // The tip is the SVG origin, so translate(x,y) puts the hotspot exactly on the target.
+  svg.setAttribute('viewBox', '0 0 12 15');
   const arrow = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  for (const [name,value] of Object.entries({d:'M2 2 L24 19 L14 20 L10 30 L2 2Z',fill:'var(--blue)',stroke:'var(--edge)','stroke-width':'1.6','stroke-linejoin':'round'})) arrow.setAttribute(name,value);
+  for (const [name,value] of Object.entries({d:'M0 0 L11.5 8.6 L6.6 9.6 L4.1 14.3 Z',fill:'var(--blue)',stroke:'var(--edge)','stroke-width':'1.6','stroke-linejoin':'round','paint-order':'stroke'})) arrow.setAttribute(name,value);
   svg.append(arrow);
   cursorLayer.append(svg);
+  const tag = layer('tag',cursorLayer);
+  const tagName = document.createElement('span');
+  tag.append(tagName);
+  tag.hidden = true;
   layer('ripple',cursorLayer);
   layer('trail');
   layer('typing',layer('field'));
@@ -87,7 +96,16 @@
     const x = request.x ?? (rect ? rect.x + rect.width / 2 : point.x);
     const y = request.y ?? (rect ? rect.y + rect.height / 2 : point.y);
     if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const name = typeof request.name === 'string' ? request.name.trim() : '';
+    const appearing = cursor.hidden || tagName.textContent !== name;
+    tagName.textContent = name;
+    tag.hidden = !name;
     cursor.hidden = false;
+    if (name && appearing && !reduced.matches) {
+      tag.style.animation = 'none';
+      void tag.offsetWidth;
+      tag.style.animation = 'tagin 160ms cubic-bezier(.2,.8,.2,1) both';
+    }
     cursor.style.setProperty('--from-x', `${point.x}px`);
     cursor.style.setProperty('--from-y', `${point.y}px`);
     cursor.style.setProperty('--to-x', `${x}px`);

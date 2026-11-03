@@ -54,8 +54,18 @@ impl BrowserRuntime {
         &self,
         page: &PageChannel,
         object_id: Option<&str>,
-        request: Value,
+        mut request: Value,
     ) {
+        // The cursor's name tag shows the agent driving the action: the actor when another agent drives, else the owner.
+        if let Some(fields) = request.as_object_mut() {
+            let state = self.shared.state();
+            let name = if state.actor.is_empty() {
+                state.owner
+            } else {
+                state.actor
+            };
+            fields.entry("name").or_insert(Value::String(name));
+        }
         let function = format!(
             "function(request) {{ return {API}?.present(request, this instanceof Element ? this : document.activeElement); }}"
         );
