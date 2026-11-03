@@ -59,11 +59,20 @@ impl ServiceContext {
                 .and_then(|id| mux.get_tab(&id))
                 .and_then(|tab| tab.shell_profile.clone())
         };
-        let bytes = profile
+        let prepared = profile
             .as_ref()
             .map(|profile| profile.utility_command(command))
             .transpose()?
-            .flatten()
+            .flatten();
+        #[cfg(windows)]
+        let prepared = match (prepared, profile.as_ref()) {
+            (None, None) => codeterm_pty::pty::shell_profiles::powershell_utility_command(command)?,
+            (None, Some(_)) if command.contains(['\r', '\n']) => {
+                return Err("multiline utility command has no shell encapsulation".into());
+            }
+            (prepared, _) => prepared,
+        };
+        let bytes = prepared
             .map(Ok)
             .unwrap_or_else(|| build_spawn_dispatch(command).map_err(|error| error.to_string()))?;
         let (payload, expected) = super::submit_transaction::shell_dispatch(&bytes);
