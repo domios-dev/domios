@@ -62,38 +62,6 @@ pub async fn mesh_announce_inbound(
     headers: HeaderMap,
     Json(ann): Json<codeterm_service_core::mesh::types::PeerAnnounce>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let service = state.svc.clone();
-    announce_with_registry_hint(
-        state,
-        headers,
-        ann,
-        move |sender, nonce, registry| async move {
-            service
-                .account_mesh_registry_hint(
-                    &sender,
-                    &nonce,
-                    &registry.account_id,
-                    Some(registry.revision),
-                    Some(&registry.security_digest),
-                )
-                .await
-        },
-    )
-    .await
-}
-
-async fn announce_with_registry_hint<F, Fut>(
-    state: AppState,
-    headers: HeaderMap,
-    ann: codeterm_service_core::mesh::types::PeerAnnounce,
-    hint: F,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)>
-where
-    F: FnOnce(String, String, codeterm_service_core::mesh::types::RegistryRevision) -> Fut
-        + Send
-        + 'static,
-    Fut: std::future::Future<Output = Result<bool, String>> + Send + 'static,
-{
     let auth = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -120,29 +88,12 @@ where
     if sender_id != ann.instance_id {
         return Err((StatusCode::FORBIDDEN, "Announce sender mismatch".into()));
     }
-    if let Some(registry) = ann.registry.as_ref().filter(|registry| {
-        state.mesh.lock().account_state().signed_in_account() == Some(registry.account_id.as_str())
-    }) {
-        let new_hint = {
-            let mut mesh = state.mesh.lock();
-            if mesh.account_peer_revoked(&sender_id) {
-                return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
-            }
-            mesh.check_and_record_nonce(token).is_ok()
-        };
-        if new_hint {
-            let nonce = codeterm_service_core::mesh::crown::nonce_from_token(token)
-                .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
-            let sender = sender_id.clone();
-            let registry = registry.clone();
-            codeterm_service_core::async_runtime::spawn(async move {
-                if let Err(error) = hint(sender, nonce, registry).await {
-                    log::debug!("[mesh/announce] registry refresh deferred: {}", error);
-                }
-            });
-        }
-    }
     let mut mesh = state.mesh.lock();
+    if mesh.account_peer_revoked(&sender_id) {
+        return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
+    }
+    mesh.check_and_record_nonce(token)
+        .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
     let membership_changed = membership
         .as_deref()
         .is_some_and(|membership| mesh.refresh_peer_membership(&sender_id, membership));

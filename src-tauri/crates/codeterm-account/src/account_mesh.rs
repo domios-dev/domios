@@ -14,7 +14,6 @@ mod notice;
 mod operations;
 mod ports;
 mod reauthentication;
-mod registry_hint;
 mod registry_keys;
 mod registry_presence;
 mod registry_read;

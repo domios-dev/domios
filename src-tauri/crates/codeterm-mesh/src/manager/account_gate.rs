@@ -41,7 +41,6 @@ impl MeshManager {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
         }
         if state.signed_in_account() != self.account.signed_in_account() {
-            self.registry_revision = None;
             self.signed_registry = None;
         }
         self.account = state;

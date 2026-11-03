@@ -351,12 +351,6 @@ async fn three_peer_revocation_gossip_and_offline_catchup_need_no_registry_calls
         assert_eq!(count(&peer.log, "registry:"), calls[index]);
         assert!(peer.state().revoked_installations.contains(PEER));
         assert_eq!(peer.state().signed_registry.as_ref().unwrap().revision, 50);
-        assert!(!peer
-            .mesh
-            .registry_hint("sender", "nonce", &account_id("alice"), None, None)
-            .await
-            .unwrap());
-        assert_eq!(count(&peer.log, "registry:"), calls[index]);
     }
 }
 
