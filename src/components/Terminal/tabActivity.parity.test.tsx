@@ -53,6 +53,18 @@ async function main() {
       [{ ...restoredBoundAgent, id: agent.id, agent_state: { state: "idle" } }, "Idle", false, false],
       [{ ...restoredBoundAgent, id: agent.id, agent_state: { state: "question", subtype: "permission" } }, "Waiting", false, false],
     ];
+    const runtime: Tab = {
+      ...agent, pty_id: null, boot_stage: "agent_ready",
+      backing: { kind: "chat_backend", plugin_id: "runtime-fixture", session_id: "own-session" },
+      agent_state: { state: "working" },
+      agent_runtime_state: { state: "loaded", epoch: 1, active_turn_started_at_ms: Date.now() - 5_000 },
+    };
+    cases.push(
+      [runtime, "Working", true, true],
+      [{ ...runtime, agent_state: { state: "idle" }, agent_runtime_state: {
+        state: "loaded", epoch: 1, last_turn_duration_ms: 5_000,
+      } }, "Idle", false, false],
+    );
     for (const [tab, status, active, canStop] of cases) {
       state = { ...state, tabs: { grok: tab }, tabStatuses: status ? { grok: status } : {} };
       await act(async () => {
@@ -78,6 +90,11 @@ async function main() {
       }
       const stop = host.querySelector<HTMLButtonElement>('button[aria-label="Stop the agent"]');
       assert.equal(Boolean(stop && !stop.disabled), canStop, "Stop follows activity, including non-stoppable launch");
+      if (tab.backing?.kind === "chat_backend") {
+        const footer = host.querySelector('[data-testid="agent-state"]');
+        assert.match(footer?.textContent ?? "", active ? /Elapsed \d/ : /Last turn 5s/,
+          "runtime footer shows elapsed time while working and the completed duration while idle");
+      }
       if (canStop && stopped === 0) await act(async () => stop!.click());
     }
     assert.equal(stopped, 1, "Stop reaches the actual interrupt command exactly once");

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 struct FakeBackend {
     closed: AtomicBool,
     sends: AtomicUsize,
+    done: Mutex<Option<bool>>,
 }
 
 impl FakeBackend {
@@ -12,6 +13,7 @@ impl FakeBackend {
         Arc::new(Self {
             closed: AtomicBool::new(false),
             sends: AtomicUsize::new(0),
+            done: Mutex::new(None),
         })
     }
 }
@@ -34,7 +36,10 @@ impl ChatBackendProvider for FakeBackend {
         if self.closed.load(Ordering::SeqCst) {
             return Err(ChatBackendError::Call("channel closed".into()));
         }
-        Ok(StructuredChat::default())
+        Ok(StructuredChat {
+            done: *self.done.lock(),
+            ..Default::default()
+        })
     }
     fn close_session(&self, _: &str) -> Result<(), ChatBackendError> {
         Ok(())
@@ -160,6 +165,71 @@ fn service_fixture() -> (
             )),
         );
     (fixture, tab_id, backend)
+}
+
+#[test]
+fn backend_poll_publishes_working_and_idle_for_its_bound_tab() {
+    use codeterm_types::pty::TabStatus;
+
+    let (fixture, tab_id, backend) = service_fixture();
+    for (done, expected) in [
+        (Some(false), TabStatus::Working),
+        (None, TabStatus::Working),
+        (Some(true), TabStatus::Idle),
+    ] {
+        *backend.done.lock() = done;
+        fixture
+            .service
+            .chatbackend_poll("liveness-fixture", "own-session", None)
+            .unwrap();
+        assert_eq!(
+            fixture
+                .service
+                .snapshot_with_reconciled_status()
+                .tab_statuses
+                .get(&tab_id),
+            Some(&expected)
+        );
+        let events = fixture.ui.0.lock();
+        let (_, payload) = events
+            .iter()
+            .rev()
+            .find(|(name, payload)| name == "tab-status-changed" && payload["tab_id"] == tab_id)
+            .unwrap();
+        assert_eq!(payload["status"], format!("{expected:?}"));
+    }
+}
+
+#[test]
+fn backend_poll_cannot_change_a_replacement_binding() {
+    for replace_nonce in [true, false] {
+        let (fixture, tab_id, backend) = service_fixture();
+        *backend.done.lock() = Some(false);
+        {
+            let mut mux = fixture.service.mux.write();
+            let tab = mux.get_tab_mut(&tab_id).unwrap();
+            if replace_nonce {
+                tab.session_binding_nonce = Some("replacement-nonce".into());
+            } else if let crate::multiplexer::types::TabBacking::ChatBackend {
+                session_id, ..
+            } = &mut tab.backing
+            {
+                *session_id = "replacement-session".into();
+            }
+        }
+        fixture
+            .service
+            .chatbackend_poll("liveness-fixture", "own-session", None)
+            .unwrap();
+        assert!(fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab_id)
+            .unwrap()
+            .agent_state
+            .is_none());
+    }
 }
 
 #[test]
