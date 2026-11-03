@@ -50,7 +50,7 @@ fn inbound_sender_metadata_roundtrips() {
 }
 
 #[test]
-fn streaming_message_yields_one_final_line_not_n() {
+fn streaming_message_yields_one_latest_committed_message() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.jsonl");
     let mut h = ChatBackendHistory::open_at(path.clone());
@@ -59,10 +59,9 @@ fn streaming_message_yields_one_final_line_not_n() {
     h.upsert(&[msg("live", "Hello")]);
     h.upsert(&[msg("live", "Hello world")]);
 
-    // final content — not three appended snapshots.
     let raw = std::fs::read_to_string(&path).unwrap();
     let lines: Vec<&str> = raw.lines().filter(|l| !l.trim().is_empty()).collect();
-    assert_eq!(lines.len(), 1, "one line per message id, not per tick");
+    assert_eq!(lines.len(), 3, "streamed versions append committed records");
     let read = read_messages(&path);
     assert_eq!(read.len(), 1);
     assert_eq!(read[0].content, "Hello world");
@@ -293,7 +292,7 @@ fn close_before_indexing_cannot_retain_or_duplicate_the_writer() {
     let registry = Mutex::new(HistoryRegistry::new());
     let key = ("plugin".into(), "closing".into());
     let writer = shared_in(&registry, key.clone(), path.clone());
-    assert!(!writer.lock().indexed);
+    assert!(writer.lock().owner.is_none());
     release_in(&mut registry.lock(), &key);
     let late = shared_in(&registry, key.clone(), path.clone());
     assert!(Arc::ptr_eq(&writer, &late));
@@ -388,7 +387,7 @@ fn removing_an_earlier_message_appends_a_tombstone_that_survives_reopen() {
 }
 
 #[test]
-fn meta_added_after_messages_moves_to_the_first_line_and_keeps_in_place_rewrites() {
+fn meta_added_after_messages_compacts_atomically_then_appends_versions() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.jsonl");
     let mut h = ChatBackendHistory::open_at(path.clone());
@@ -397,7 +396,7 @@ fn meta_added_after_messages_moves_to_the_first_line_and_keeps_in_place_rewrites
     h.upsert(&[msg("live", "Hello")]);
     let lines = lines(&path);
     assert!(lines[0].starts_with("{\"_meta\":"));
-    assert_eq!(lines.len(), 3);
+    assert_eq!(lines.len(), 4);
     assert_eq!(read_meta(&path).unwrap()["preset"], "late");
     let read = read_messages(&path);
     assert_eq!(read.len(), 2);
