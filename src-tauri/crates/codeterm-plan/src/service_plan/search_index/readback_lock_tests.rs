@@ -55,7 +55,7 @@ fn related_traversal_is_dangling_safe() {
         )
         .unwrap();
 
-    let groups = store.related_units(&task_id);
+    let groups = store.related_units(&task_id).unwrap();
     let section_group = groups
         .iter()
         .find(|group| group.edge_type == "task_sections")

@@ -389,24 +389,8 @@ impl super::PlanStore {
         search_project(project, q, status)
     }
 
-    /// Loads the plan holding `id`, then only the plans its lineage names.
-    pub fn related_units(&self, id: &str) -> Vec<RelatedGroup> {
-        let holder = super::PlanMatch::Any(vec![
-            super::PlanMatch::Ids(vec![id.to_string()]),
-            super::PlanMatch::SectionId(id.to_string()),
-            super::PlanMatch::Task(super::TaskMatch {
-                fields: vec![("$.id", id.to_string())],
-                ..Default::default()
-            }),
-        ]);
-        let mut plans = self.plans_matching(&holder);
-        let lineage: Vec<String> = plans
-            .iter()
-            .flat_map(|plan| plan.lineage.iter().map(|link| link.to.clone()))
-            .filter(|target| plans.iter().all(|plan| plan.id != *target))
-            .collect();
-        plans.extend(self.plans_matching(&super::PlanMatch::Ids(lineage)));
-        super::search_related::related_units(&plans, &self.list_specs_full(), id)
+    pub fn related_units(&self, id: &str) -> Result<Vec<RelatedGroup>, super::PlanError> {
+        self.database.related_projection(id)
     }
 
     pub fn list_specs_full(&self) -> Vec<Spec> {

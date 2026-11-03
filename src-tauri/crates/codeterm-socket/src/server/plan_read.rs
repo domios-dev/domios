@@ -125,7 +125,7 @@ pub(super) fn dispatch(
             Ok(json!({
                 "id": id,
                 "depth": depth,
-                "groups": store.related_units(&id),
+                "groups": store.related_units(&id).map_err(plan_rpc_err)?,
             }))
         }
         "plan.search" => {
