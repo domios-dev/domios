@@ -168,10 +168,7 @@ impl ServiceContext {
                 plan.control_loop.last_real_round_at = Some(now);
                 if !closed {
                     plan.control_loop.consecutive_failures += 1;
-                    if plan.control_loop.consecutive_failures >= 2 {
-                        plan.control_loop.fallback_reason =
-                            Some(CuratorFailure::ConsecutiveFailures);
-                    }
+                    plan.control_loop.fallback_reason = Some(CuratorFailure::ConsecutiveFailures);
                 }
                 curator::append_round(plan, round.clone());
                 Ok((round, true))

@@ -26,3 +26,19 @@ fn refusal_history_keeps_the_latest_twenty() {
     assert_eq!(run.refused_actions.first().unwrap(), "5");
     assert_eq!(run.refused_actions.last().unwrap(), "24");
 }
+
+#[test]
+fn owner_off_overrides_failure_fallback_and_deferral() {
+    let mut state = ControlLoop::default();
+    state.fallback_reason = Some(CuratorFailure::ProviderUnavailable);
+    state.defer(100, Some(u64::MAX));
+    assert_eq!(state.next_at, Some(7_200_100));
+    assert!(state.owner_heartbeat());
+    state.mode = ControlLoopMode::Off;
+    state.defer(200, None);
+    assert_eq!(state.next_at, None);
+    assert!(!state.owner_heartbeat());
+    state.mode = ControlLoopMode::Curator;
+    state.defer(u64::MAX - 1, Some(u64::MAX));
+    assert_eq!(state.next_at, Some(u64::MAX));
+}

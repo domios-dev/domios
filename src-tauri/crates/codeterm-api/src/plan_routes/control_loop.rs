@@ -54,6 +54,16 @@ pub async fn set(
     Path(id): Path<String>,
     Json(body): Json<codeterm_plan::service_plan::curator::ControlLoopUpdate>,
 ) -> PlanRouteResult {
+    if headers
+        .get("X-CodeTerm-Plan-Confirmation")
+        .and_then(|value| value.to_str().ok())
+        != Some(id.as_str())
+    {
+        return Err(text_err(
+            StatusCode::FORBIDDEN,
+            "Team scheduling requires owner confirmation from the Team dashboard",
+        ));
+    }
     let caller = crate::tab_routes::authenticated_plan_caller(&headers);
     super::authorize_plan_orchestrator_http(&state.svc, &id, caller.clone()).await?;
     let result = tokio::task::spawn_blocking(move || {

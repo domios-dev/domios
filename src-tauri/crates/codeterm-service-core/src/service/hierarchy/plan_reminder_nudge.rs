@@ -880,7 +880,10 @@ pub(crate) fn current_epoch_secs() -> u64 {
 }
 
 fn active_execution(plan: &Plan) -> bool {
-    plan.status == PlanStatus::Active && plan.mode == PlanMode::Execution && !is_plan_complete(plan)
+    plan.status == PlanStatus::Active
+        && plan.mode == PlanMode::Execution
+        && plan.control_loop.mode != crate::plan::ControlLoopMode::Off
+        && !is_plan_complete(plan)
 }
 
 fn owner_reminder_eligible(plan: &Plan) -> bool {

@@ -62,7 +62,7 @@ function button(label: string, parent: ParentNode = host) {
 async function click(label: string, parent?: ParentNode) {
   await act(async () => {
     const target = button(label, parent);
-    if (label === "Heartbeat interval") target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    if (label === "Heartbeat interval" || label === "Team oversight") target.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
     else target.click();
   });
 }
@@ -98,13 +98,14 @@ it("shows an unavailable Curator refusal beside Run now", async () => {
 
 it("reads persisted Curator settings, switches mode, and persists interval presets", async () => {
   await render(panel());
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Curator");
+  expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Curator · Auto");
   expect(host.querySelector('[aria-label^="Heartbeat interval:"]')).toBeNull();
-  await click("Heartbeat");
+  await click("Team oversight");
+  await click("Heartbeat", document.body);
   const writes = () => requests.filter(({ init }) => init?.method === "POST");
   expect(JSON.parse(String(writes()[0].init?.body))).toEqual({ mode: "heartbeat" });
   expect(new Headers(writes()[0].init?.headers).get("X-CodeTerm-Plan-Confirmation")).toBe(FIXTURE_PLAN.id);
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Heartbeat");
+  expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Heartbeat");
   await click("Heartbeat interval");
   const options = document.body.querySelectorAll('[role="menuitemradio"]');
   expect(Array.from(options).map(node => node.textContent)).toEqual(["Machine default", "15m", "30m", "45m", "60m", "90m", "120m"]);
@@ -113,7 +114,8 @@ it("reads persisted Curator settings, switches mode, and persists interval prese
   await click("Heartbeat interval");
   await click("Machine default", document.body);
   expect(stored.heartbeat_interval_secs).toBeNull();
-  await click("Curator");
+  await click("Team oversight");
+  await click("Curator · Auto", document.body);
   expect(host.querySelector('[aria-label^="Heartbeat interval:"]')).toBeNull();
 });
 
@@ -121,7 +123,7 @@ it("shows suspension and fallback states without changing the chosen mode", asyn
   for (const suspended_reason of ["reminders_disabled", "waiting_on_human", "complete"]) {
     stored = { ...BASE, suspended_reason };
     await render(<ConnectedPlanSettings key={suspended_reason} plan={FIXTURE_PLAN} api={API} now={NOW} />);
-    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Curator");
+    expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Curator · Auto");
     expect(host.textContent).not.toContain("Next round in");
     expect(host.textContent).toContain(suspended_reason === "reminders_disabled" ? "Settings > Agents" : suspended_reason === "complete" ? "Plan complete" : "Waiting for your answer");
   }
@@ -155,11 +157,12 @@ it("opens the registered Curator Guide section", async () => {
 it("shows refusal without switching the displayed persisted mode", async () => {
   await render(panel());
   vi.mocked(daemonFetch).mockResolvedValueOnce(new Response("fixture refusal", { status: 403 }));
-  await click("Heartbeat");
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Curator");
+  await click("Team oversight");
+  await click("Heartbeat", document.body);
+  expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Curator · Auto");
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(publishNotice).toHaveBeenCalledWith(expect.objectContaining({ kind: "toast", severity: "Error" }));
-  expect(button("Heartbeat").disabled).toBe(false);
+  expect(button("Team oversight").disabled).toBe(false);
 });
 
 it("accepts live plan state updates and refreshes the countdown from its injected clock", async () => {
@@ -168,12 +171,12 @@ it("accepts live plan state updates and refreshes the countdown from its injecte
   await render(<ConnectedPlanSettings plan={FIXTURE_PLAN} initial={BASE} now={NOW + 30 * 60_000} />);
   expect(host.textContent).not.toBe(before);
   await render(<ConnectedPlanSettings plan={FIXTURE_PLAN} initial={{ ...BASE, mode: "heartbeat" }} now={NOW} />);
-  expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe("Heartbeat");
+  expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Heartbeat");
 });
 
 it("disables mode changes without a connection and keeps round details out of task navigation", async () => {
   await render(<ConnectedPlanSettings plan={FIXTURE_PLAN} initial={BASE} now={NOW} />);
-  expect(button("Heartbeat").disabled).toBe(true);
+  expect(button("Team oversight").disabled).toBe(true);
   const open = vi.fn();
   await render(<PlanRecentActivityRail plan={{ ...FIXTURE_PLAN, tasks: [], strides: [{ ...FIXTURE_MILESTONE, id: "round", ts: NOW, kind: "curator_round", text: "opaque round summary", from: { tab_id: null, session_id: null, title: "Curator" } }] }} onOpenTask={open} now={NOW} />);
   const row = host.querySelector('[data-testid="plan-recent-activity-item"]');
@@ -234,4 +237,27 @@ it("queues overlapping updates and uses write responses without refetching", asy
   expect(control!.value?.heartbeat_interval_secs).toBe(5400);
   expect(control!.busy).toBe(false);
   expect(requests.filter(({ init }) => init?.method !== "POST")).toHaveLength(1);
+});
+
+
+it("persists the owner's Off choice and keeps it selected across refresh", async () => {
+  await render(panel());
+  const picker = button("Team oversight");
+  expect(picker.getAttribute("aria-label")).toContain("Curator · Auto");
+  await click("Team oversight");
+  const selected = document.body.querySelector('[role="menuitemradio"][aria-checked="true"]');
+  expect(selected?.textContent).toBe("Curator · Auto");
+  await click("Off", document.body);
+  expect(stored.mode).toBe("off");
+  const write = requests.find(({ init }) => init?.method === "POST");
+  expect(JSON.parse(String(write?.init?.body))).toEqual({ mode: "off" });
+  expect(new Headers(write?.init?.headers).get("X-CodeTerm-Plan-Confirmation")).toBe(FIXTURE_PLAN.id);
+  expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Off");
+  expect(host.querySelector('[aria-label^="Heartbeat interval:"]')).toBeNull();
+  expect(Array.from(host.querySelectorAll("button")).some(node => node.textContent === "Run now")).toBe(false);
+  await render(<ConnectedPlanSettings key="refresh" plan={FIXTURE_PLAN} api={API} now={NOW} />);
+  expect(button("Team oversight").getAttribute("aria-label")).toBe("Team oversight: Off");
+  await click("Team oversight");
+  await click("Curator · Auto", document.body);
+  expect(stored.mode).toBe("curator");
 });

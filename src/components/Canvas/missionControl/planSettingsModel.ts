@@ -1,6 +1,6 @@
 import { formatAge, formatSpan, formatUntil } from "../../../lib/timeLabels";
 
-export type OversightMode = "curator" | "heartbeat";
+export type OversightMode = "curator" | "heartbeat" | "off";
 
 /** How the Orchestrator is kept on track; the daemon owns the schedule and reports it here. */
 export interface PlanOversight {
@@ -40,12 +40,13 @@ function nextIn(prefix: string, at: number | null, now: number, approximate: boo
 
 /** The live lines under the mode: what runs now and when it acts next. */
 export function oversightLines(oversight: PlanOversight, now: number): OversightLine[] {
+  if (oversight.mode === "off") return [{ tone: "muted", text: "Curator and Team reminders are off" }];
   if (oversight.paused) return [{ tone: "muted", text: "No rounds or reminders while the plan is paused" }];
   if (oversight.suspended_reason) return [{ tone: "muted", text: suspensionLabel(oversight.suspended_reason) }];
   if (oversight.mode === "curator" && oversight.fallback_reason) {
     return [
       { tone: "warning", text: `Curator unavailable, heartbeat running: ${oversight.fallback_reason}` },
-      { tone: "muted", text: nextIn("Next reminder", oversight.next_at, now, false) },
+      { tone: "muted", text: nextIn("Next Curator retry", oversight.next_at, now, false) },
     ];
   }
   if (oversight.mode === "curator") {
@@ -58,10 +59,12 @@ export function oversightLines(oversight: PlanOversight, now: number): Oversight
 
 /** One line for the folded header. */
 export function oversightSummary(oversight: PlanOversight, now: number): string {
+  if (oversight.mode === "off") return "Off";
   if (oversight.paused) return "Paused";
   if (oversight.suspended_reason) return suspensionLabel(oversight.suspended_reason);
   if (oversight.running_round != null) return `Curator, round ${oversight.running_round} running`;
   if (oversight.mode === "curator" && !oversight.fallback_reason) return `Curator, ${nextIn("next round", oversight.next_at, now, true)}`;
+  if (oversight.mode === "curator") return `Heartbeat fallback, ${nextIn("Curator retry", oversight.next_at, now, false)}`;
   return `Heartbeat every ${intervalLabel(oversight.heartbeat_interval_ms)}, ${nextIn("next", oversight.next_at, now, false)}`;
 }
 
