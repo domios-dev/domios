@@ -15,6 +15,9 @@ on:
       - src-tauri/crates/codeterm-api/src/updater_routes.rs
 permissions:
   contents: read
+concurrency:
+  group: ${{ format('docker-smoke-{0}', github.event.pull_request.number || github.ref) }}
+  cancel-in-progress: true
 jobs:
   smoke:
     strategy:
