@@ -1,5 +1,73 @@
 use super::*;
 
+#[test]
+fn explicit_qualified_model_is_stripped_and_catalogue_validated() {
+    let registry = registry_with(
+        ModelProvider::new("qualified-fixture", &["model-a"]).with_model_catalogue(
+            crate::agent::provider::ModelCatalogueCapability::authoritative(),
+        ),
+    );
+    let selected = resolve_agent_model_selection(
+        &registry,
+        Some("qualified-fixture"),
+        Some("qualified-fixture:model-a"),
+        "qualified-fixture",
+    )
+    .unwrap();
+    assert_eq!(selected.provider_id, "qualified-fixture");
+    assert_eq!(selected.model.as_deref(), Some("model-a"));
+    let error = resolve_agent_model_selection(
+        &registry,
+        Some("qualified-fixture"),
+        Some("qualified-fixture:missing"),
+        "qualified-fixture",
+    )
+    .unwrap_err();
+    assert_eq!(error.requested_model, "missing");
+    assert_eq!(error.valid_model_ids, vec!["model-a"]);
+}
+
+#[tokio::test]
+async fn qualified_provider_mismatch_refuses_all_spawn_routes_before_tab_creation() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    for provider in ["spawn-selected", "spawn-foreign"] {
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(ModelProvider::new(provider, &["model-a"])));
+    }
+    let before = fixture.service.mux.read().snapshot().tabs.len();
+    let params = SpawnAgentParams {
+        agent: Some("spawn-selected".into()),
+        model: Some("spawn-foreign:model-a".into()),
+        ..Default::default()
+    };
+    for error in [
+        fixture
+            .service
+            .spawn_agent(params.clone(), None)
+            .await
+            .unwrap_err(),
+        fixture
+            .service
+            .spawn_agent_sync(params.clone())
+            .unwrap_err(),
+        fixture
+            .service
+            .spawn_visible_agent_impl(SpawnTabSpec::from_agent_params(params.clone()), None)
+            .unwrap_err(),
+        fixture
+            .service
+            .spawn_hidden_agent_impl(SpawnTabSpec::from_agent_params(params))
+            .unwrap_err(),
+    ] {
+        assert!(error.contains("spawn-foreign"), "{error}");
+        assert!(error.contains("spawn-selected"), "{error}");
+        assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
+    }
+}
+
 fn registry_with_models(
     entries: &[(&'static str, &[&'static str])],
 ) -> crate::agent::registry::AgentRegistry {

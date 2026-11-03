@@ -545,12 +545,14 @@ impl ServiceContext {
         if declared_mode == ModelSwitchMode::Unsupported {
             return Err(ModelSwitchError::Unsupported { provider });
         }
-        crate::service::spawn::validate_agent_model(
+        let model_selection = crate::service::spawn::resolve_agent_model_selection(
             &self.agent_registry,
-            &provider,
+            Some(&provider),
             Some(requested),
+            &provider,
         )
         .map_err(ModelSwitchError::InvalidModel)?;
+        let requested = model_selection.model.as_deref().unwrap_or_default();
         let declared_mode = if declared_mode == ModelSwitchMode::LiveCommand && restart_fallback {
             ModelSwitchMode::RestartResume
         } else {
