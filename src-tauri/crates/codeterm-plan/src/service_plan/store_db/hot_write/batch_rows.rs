@@ -41,7 +41,15 @@ impl PlanDatabase {
                             review_rows::close_all_live(tx, plan_id, &task.id, now_ms, receipt)?;
                             crate::service_plan::mutations::clear_task_assignment(&mut task);
                         }
+                        let entering = current != TaskStatus::InReview && next == TaskStatus::InReview;
+                        let closing = current == TaskStatus::InReview && matches!(next, TaskStatus::Done | TaskStatus::Cancelled);
                         if current != next { task.status_changed_at = now_ms; task.status = next; }
+                        if entering {
+                            crate::service_plan::review_gate::fix_oracle_and_consume_override(&mut task, now_ms);
+                            task_fields::change_review_credit(tx, plan_id, -1, receipt)?;
+                        } else if closing {
+                            task_fields::change_review_credit(tx, plan_id, 1, receipt)?;
+                        }
                         if let Some(label) = label { task.status_label = Some(label); }
                         crate::service_plan::qa::normalize_task_review_fields(&mut task);
                         task.updated_at = now_ms;
