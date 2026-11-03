@@ -598,7 +598,8 @@ impl ServiceContext {
                         .iter()
                         .any(|attempt| attempt.id == authority.attempt_id)
                 });
-        let checkout_path = if existing_attempt {
+        let checkout_path = if existing_attempt || intent == crate::plan::ExecutionIntent::ReadOnly
+        {
             None
         } else {
             let cwd = self
