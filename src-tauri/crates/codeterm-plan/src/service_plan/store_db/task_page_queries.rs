@@ -1,3 +1,4 @@
+use super::read_projections::column;
 use super::{db_error, PlanDatabase};
 use crate::plan::{PlanOrphan, PlanStatus};
 use crate::service_plan::PlanError;
@@ -265,7 +266,14 @@ impl PlanDatabase {
                         json_extract(header_json, '$.orphaned')
                  FROM plans WHERE id = ?1",
                 [plan_id],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+                |row| {
+                    Ok((
+                        column(row, 0)?,
+                        column(row, 1)?,
+                        column(row, 2)?,
+                        column(row, 3)?,
+                    ))
+                },
             )
             .optional()
             .map_err(db_error)?;
@@ -394,7 +402,7 @@ impl PlanDatabase {
                       AND status NOT IN ('done', 'cancelled')
                 )",
                 params![plan_id, task_id],
-                |row| row.get(0),
+                |row| column(row, 0),
             )
             .map_err(db_error)?;
         let loop_badge = task_loop_badge(
@@ -433,7 +441,7 @@ fn resolve_detail_task(
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND task_id=?2)",
             params![plan_id, reference],
-            |row| row.get(0),
+            |row| column(row, 0),
         )
         .map_err(db_error)?;
     if exact {
@@ -449,9 +457,9 @@ fn resolve_detail_task(
     for row in statement
         .query_map([plan_id], |row| {
             Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, Option<String>>(1)?,
-                row.get::<_, Option<String>>(2)?,
+                column::<String>(row, 0)?,
+                column::<Option<String>>(row, 1)?,
+                column::<Option<String>>(row, 2)?,
             ))
         })
         .map_err(db_error)?
@@ -473,16 +481,24 @@ fn resolve_detail_task(
 fn load_header(connection: &Connection, plan_id: &str) -> Result<Value, PlanError> {
     let header: Option<String> = connection
         .query_row(
-            "SELECT header_json FROM plans WHERE id = ?1",
+            "SELECT json_object('title',title,'status',status,'team_id',team_id,
+                'owner',json_extract(header_json,'$.owner'),'loops',json((
+                    SELECT json_group_array(json_object(
+                        'id',json_extract(value,'$.id'),'kind',json_extract(value,'$.kind'),
+                        'target',json_extract(value,'$.target'),'status',json_extract(value,'$.status'),
+                        'count',json_extract(value,'$.count'),'budget',json_extract(value,'$.budget'),
+                        'stagnation',json_extract(value,'$.stagnation'),'stop_when',json_extract(value,'$.stop_when')))
+                    FROM json_each(header_json,'$.loops') WHERE json_extract(value,'$.status')='running')))
+             FROM plans WHERE id = ?1",
             [plan_id],
-            |row| row.get(0),
+            |row| column(row, 0),
         )
         .optional()
         .map_err(db_error)?;
     let Some(header) = header else {
         return Err(PlanError::NotFound);
     };
-    serde_json::from_str(&header).map_err(|error| PlanError::Quarantined {
+    super::super::store_sync::parse(&header).map_err(|error| PlanError::Quarantined {
         plan_id: plan_id.to_string(),
         reason: format!("plan header is invalid JSON: {error}"),
     })
@@ -497,14 +513,14 @@ fn load_task_row(
         .query_row(
             "SELECT row_json FROM plan_tasks WHERE plan_id = ?1 AND task_id = ?2",
             params![plan_id, task_id],
-            |row| row.get(0),
+            |row| column(row, 0),
         )
         .optional()
         .map_err(db_error)?;
     let Some(task) = task else {
         return Err(PlanError::TaskNotFound);
     };
-    serde_json::from_str(&task)
+    super::super::store_sync::parse(&task)
         .map_err(|error| quarantined_task(plan_id, &format!("task row is invalid JSON: {error}")))
 }
 
@@ -516,11 +532,11 @@ fn load_json_rows(
 ) -> Result<Vec<Value>, PlanError> {
     let mut statement = connection.prepare_cached(sql).map_err(db_error)?;
     let rows = statement
-        .query_map(params![plan_id, task_id], |row| row.get::<_, String>(0))
+        .query_map(params![plan_id, task_id], |row| column::<String>(row, 0))
         .map_err(db_error)?;
     rows.map(|row| {
         let document = row.map_err(db_error)?;
-        serde_json::from_str(&document).map_err(|error| {
+        super::super::store_sync::parse(&document).map_err(|error| {
             quarantined_task(
                 plan_id,
                 &format!("task history row is invalid JSON: {error}"),
@@ -548,7 +564,7 @@ fn load_task_sections(
         .map_err(db_error)?;
     let rows = statement
         .query_map(params![plan_id, section_ids], |row| {
-            Ok(json!({ "id": row.get::<_, String>(0)?, "title": row.get::<_, String>(1)? }))
+            Ok(json!({ "id": column::<String>(row, 0)?, "title": column::<String>(row, 1)? }))
         })
         .map_err(db_error)?;
     rows.collect::<Result<Vec<_>, _>>().map_err(db_error)
@@ -569,7 +585,7 @@ fn load_counts(connection: &Connection, plan_id: &str) -> Result<TaskStatusCount
         .map_err(db_error)?;
     let rows = statement
         .query_map([plan_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as u64))
+            Ok((column::<String>(row, 0)?, column::<i64>(row, 1)? as u64))
         })
         .map_err(db_error)?;
     let mut counts = TaskStatusCounts::default();
@@ -730,26 +746,23 @@ fn load_column(
     };
     let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
     let map_row = |row: &rusqlite::Row<'_>| {
-        let created_at = row.get::<_, i64>(2)?.max(0) as u64;
-        let updated_at = row.get::<_, i64>(5)?.max(0) as u64;
-        let status_changed_at = row.get::<_, i64>(6)?.max(0) as u64;
-        let historical_executor = row
-            .get::<_, Option<String>>(24)?
-            .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
-        let competition_enabled = row.get::<_, i64>(25)? != 0;
-        let competition_attempts = row.get::<_, i64>(26)?.max(2) as u64;
-        let judge_hint = row.get::<_, Option<String>>(27)?;
-        let models = row
-            .get::<_, Option<String>>(28)?
-            .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+        let created_at = column::<i64>(row, 2)?.max(0) as u64;
+        let updated_at = column::<i64>(row, 5)?.max(0) as u64;
+        let status_changed_at = column::<i64>(row, 6)?.max(0) as u64;
+        let historical_executor = column::<Option<String>>(row, 24)?
+            .and_then(|raw| super::read_projections::decode::<Value>(plan_id, &raw).ok());
+        let competition_enabled = column::<i64>(row, 25)? != 0;
+        let competition_attempts = column::<i64>(row, 26)?.max(2) as u64;
+        let judge_hint = column::<Option<String>>(row, 27)?;
+        let models = column::<Option<String>>(row, 28)?
+            .and_then(|raw| super::read_projections::decode::<Vec<String>>(plan_id, &raw).ok())
             .unwrap_or_default();
-        let live_competition_count = row.get::<_, i64>(29)?.max(0) as u64;
-        let live_competition_attempts = row
-            .get::<_, Option<String>>(30)?
-            .and_then(|raw| serde_json::from_str::<Vec<Value>>(&raw).ok())
+        let live_competition_count = column::<i64>(row, 29)?.max(0) as u64;
+        let live_competition_attempts = column::<Option<String>>(row, 30)?
+            .and_then(|raw| super::read_projections::decode::<Vec<Value>>(plan_id, &raw).ok())
             .unwrap_or_default();
-        let qa_queue_position = row.get::<_, i64>(31)?.max(0) as u64;
-        let activity_at = row.get::<_, i64>(32)?.max(0) as u64;
+        let qa_queue_position = column::<i64>(row, 31)?.max(0) as u64;
+        let activity_at = column::<i64>(row, 32)?.max(0) as u64;
         let competition_badge = competition_badge(
             competition_enabled,
             competition_attempts,
@@ -760,36 +773,36 @@ fn load_column(
         );
         let loop_badge = task_loop_badge(
             loops,
-            &row.get::<_, String>(0)?,
-            row.get::<_, Option<String>>(7)?.as_deref(),
+            &column::<String>(row, 0)?,
+            column::<Option<String>>(row, 7)?.as_deref(),
         );
         Ok(TaskBoardRow {
-            task_id: row.get(0)?,
-            position: row.get(1)?,
+            task_id: column(row, 0)?,
+            position: column(row, 1)?,
             created_at,
-            name: row.get(3)?,
-            status: row.get(4)?,
+            name: column(row, 3)?,
+            status: column(row, 4)?,
             updated_at,
             status_changed_at,
             activity_at,
-            handle: row.get(7)?,
-            key: row.get(8)?,
-            assigned_tab_id: row.get(9)?,
-            lane_tab_id: row.get(10)?,
-            lane_branch: row.get(11)?,
-            taken_by_role: row.get(12)?,
-            pause_reason: row.get(13)?,
-            model: row.get(14)?,
-            peer: row.get(15)?,
-            review_stage: row.get(16)?,
-            qa_state: row.get(17)?,
-            status_label: row.get(18)?,
+            handle: column(row, 7)?,
+            key: column(row, 8)?,
+            assigned_tab_id: column(row, 9)?,
+            lane_tab_id: column(row, 10)?,
+            lane_branch: column(row, 11)?,
+            taken_by_role: column(row, 12)?,
+            pause_reason: column(row, 13)?,
+            model: column(row, 14)?,
+            peer: column(row, 15)?,
+            review_stage: column(row, 16)?,
+            qa_state: column(row, 17)?,
+            status_label: column(row, 18)?,
             qa_queue_position,
-            group_key: row.get(19)?,
-            group_label: row.get(20)?,
-            group_color: row.get(21)?,
-            section_title: row.get(22)?,
-            latest_note: row.get(23)?,
+            group_key: column(row, 19)?,
+            group_label: column(row, 20)?,
+            group_color: column(row, 21)?,
+            section_title: column(row, 22)?,
+            latest_note: column(row, 23)?,
             historical_executor,
             competition_badge,
             loop_badge,

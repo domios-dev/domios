@@ -77,10 +77,30 @@ fn committed_identity_and_existing_hot_write_work_are_bounded_by_changed_rows() 
     let mut prior = None;
     for (strides, attempts) in [(0, 0), (2048, 0), (0, 2048)] {
         let directory = tempfile::tempdir().unwrap();
-        let plan = fixtures::fixture(directory.path(), strides, attempts);
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        let unrelated = std::mem::take(&mut plan.tasks[1].execution_attempts);
+        plan.tasks.last_mut().unwrap().execution_attempts = unrelated;
         let database = fixtures::database(directory.path(), &plan);
         take(&database, &plan.id);
         fixtures::audit(&database);
+        super::super::read_projections::take_metrics();
+        crate::service_plan::store_sync::take_decoded_row_bytes();
+        crate::service_plan::store_rows::take_serialized_row_bytes();
+        let summaries = database.ui_plan_summaries(None).unwrap();
+        let board = database
+            .ui_plan_projection(
+                &plan.id,
+                crate::service_plan::ui_projections::PlanViewProjection::Board,
+            )
+            .unwrap();
+        let page = database.task_board_page(&plan.id, None, 25, None).unwrap();
+        let initial_bytes = serde_json::to_vec(&(summaries, board, page)).unwrap().len();
+        let projection_metrics = super::super::read_projections::take_metrics();
+        let initial_decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
+        let initial_serialized = crate::service_plan::store_rows::take_serialized_row_bytes();
+        assert!(fixtures::audit_counts(&database).is_empty());
+        assert!(initial_bytes < 64 * 1024);
+        assert!(initial_decoded < 64 * 1024 && initial_serialized == 0);
         let receipt = database
             .commit_hot_changes(&plan.id, vec![role("updated")], 10)
             .unwrap();
@@ -90,12 +110,16 @@ fn committed_identity_and_existing_hot_write_work_are_bounded_by_changed_rows() 
         assert_eq!(rows, [("plan_tasks".into(), 1), ("plans".into(), 1)]);
         assert!(receipt.decoded_bytes < 32768 && receipt.serialized_bytes < 32768);
         assert!(event_bytes < 256);
-        println!("fixture={} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} decoded_json_bytes={} serialized_row_bytes={} event_bytes={event_bytes} changed_rows={rows:?}", fixtures::SEED, fixtures::TASKS, fixtures::CONTENT_BYTES, receipt.decoded_bytes, receipt.serialized_bytes);
+        println!("fixture={} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} unrelated_history_task=task_1161 page_size=25 initial_bytes={initial_bytes} initial_decoded_json_bytes={initial_decoded} initial_serialized_row_bytes={initial_serialized} materialized_projection_text_bytes={} decoded_json_bytes={} serialized_row_bytes={} event_bytes={event_bytes} changed_rows={rows:?}", fixtures::SEED, fixtures::TASKS, fixtures::CONTENT_BYTES, projection_metrics.materialized_bytes, receipt.decoded_bytes, receipt.serialized_bytes);
         let measured = (
             receipt.decoded_bytes,
             receipt.serialized_bytes,
             event_bytes,
             rows,
+            initial_bytes,
+            initial_decoded,
+            initial_serialized,
+            projection_metrics,
         );
         if let Some(prior) = &prior {
             assert_eq!(&measured, prior);

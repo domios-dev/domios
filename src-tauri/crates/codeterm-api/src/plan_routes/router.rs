@@ -39,6 +39,10 @@ pub fn router() -> Router<AppState> {
                 .delete(plan_routes::delete_plan),
         )
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
+        .route(
+            "/api/plans/{id}/projection",
+            get(plan_routes::projections::get),
+        )
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
         .route("/api/plans/{id}/pause", post(plan_routes::pause))
         .route(

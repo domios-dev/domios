@@ -230,7 +230,7 @@ pub async fn transfer(
     })?
 }
 
-pub(super) fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
+pub(in crate::plan_routes) fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
     match error {
         TeamPlanError::Plan(error) => plan_err(error),
         TeamPlanError::Team(message)

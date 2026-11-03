@@ -89,6 +89,7 @@ mod task_remove;
 mod task_speed;
 mod text_bounds;
 mod types;
+pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
