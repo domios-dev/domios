@@ -2,6 +2,7 @@ mod delivery;
 mod notifications;
 mod ports;
 mod read;
+mod signals;
 #[cfg(test)]
 mod tests;
 
@@ -20,10 +21,20 @@ use std::sync::{
 };
 use tokio::sync::watch;
 
-#[derive(Default)]
 pub(crate) struct UpdateCell {
     generation: AtomicU64,
+    paid_changes: watch::Sender<u64>,
     task: parking_lot::Mutex<Option<Handle>>,
+}
+
+impl Default for UpdateCell {
+    fn default() -> Self {
+        Self {
+            generation: AtomicU64::new(0),
+            paid_changes: watch::channel(0).0,
+            task: parking_lot::Mutex::new(None),
+        }
+    }
 }
 
 struct Handle {
@@ -92,6 +103,12 @@ impl ServiceContext {
         });
     }
 
+    pub(super) fn neighbor_paid_changed(&self) {
+        self.neighbor_updates()
+            .paid_changes
+            .send_modify(|revision| *revision = revision.wrapping_add(1));
+    }
+
     pub(crate) fn rearm_neighbor_updates(&self) {
         if let Some(handle) = self.neighbor_updates().task.lock().as_ref() {
             handle.rearm.signal();
@@ -135,6 +152,24 @@ impl Session {
             return Err(Error::Revoked);
         }
         Ok(())
+    }
+
+    async fn open_signals(
+        &self,
+        paid_changes: &watch::Receiver<u64>,
+    ) -> Result<Option<Box<dyn codeterm_neighbors::registry::RegistryListener>>> {
+        if !self.ports.paid(self) {
+            return Ok(None);
+        }
+        let mut changed = paid_changes.clone();
+        tokio::select! {
+            biased;
+            _ = changed.changed() => Ok(None),
+            listener = self.ports.listen_signals() => {
+                let listener = listener?;
+                Ok(self.ports.paid(self).then(|| signals::guard(listener, paid_changes.clone())))
+            }
+        }
     }
 
     fn state(&self, status: ListenerState) {
@@ -408,16 +443,20 @@ impl DocumentSession for Session {
                 return Err(error);
             }
         };
+        let mut paid_changes = self.service.neighbor_updates().paid_changes.subscribe();
         let mut signals: Option<Box<dyn codeterm_neighbors::registry::RegistryListener>> = None;
         let mut revisions = delivery::Revisions::default();
         let mut health = codeterm_neighbors::supervisor::StreamHealth::default();
         let mut received_snapshot = false;
         loop {
             enum Event {
+                PaidChanged,
                 State(Option<codeterm_neighbors::state::StateEvent>),
                 Signal(Option<RegistrySignal>),
             }
             let next = tokio::select! {
+                biased;
+                _ = paid_changes.changed() => Ok(Event::PaidChanged),
                 state = listener.next() => state.map(Event::State),
                 signal = async {
                     match signals.as_mut() {
@@ -430,6 +469,25 @@ impl DocumentSession for Session {
             let mut incremental = false;
             let mut observe_health = false;
             match next {
+                Ok(Event::PaidChanged) => {
+                    signals = None;
+                    revisions = delivery::Revisions::default();
+                    if self.ports.paid(self) {
+                        if let Some(list) = self.service.peek_neighbor_projection(
+                            &self.transport.uid,
+                            self.expected.login_generation,
+                            "friendsList",
+                            &self.transport.installation_id,
+                        ) {
+                            if receives_friends(&list, &self.transport.installation_id) {
+                                self.ports.activate(self, &list).await?;
+                                if self.ports.paid(self) {
+                                    signals = self.open_signals(&paid_changes).await?;
+                                }
+                            }
+                        }
+                    }
+                }
                 Ok(Event::State(Some(codeterm_neighbors::state::StateEvent::Snapshot(
                     snapshot,
                 )))) => {
@@ -453,8 +511,9 @@ impl DocumentSession for Session {
                     let receiving = list.as_ref().is_some_and(|list| {
                         receives_friends(list, &self.transport.installation_id)
                     });
+                    let receiving = receiving && self.ports.paid(self);
                     if receiving && signals.is_none() {
-                        signals = Some(self.ports.listen_signals().await?);
+                        signals = self.open_signals(&paid_changes).await?;
                     }
                     if !receiving {
                         signals = None;
@@ -470,6 +529,10 @@ impl DocumentSession for Session {
                     self.fallback().await;
                 }
                 Ok(Event::Signal(Some(signal))) => {
+                    if !self.ports.paid(self) {
+                        signals = None;
+                        continue;
+                    }
                     if let Some(catch_up) = revisions.observe(signal.revision) {
                         incremental =
                             !catch_up && (signal.delivery.is_some() || signal.read.is_some());

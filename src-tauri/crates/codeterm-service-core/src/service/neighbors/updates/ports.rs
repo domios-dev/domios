@@ -3,6 +3,12 @@ use codeterm_neighbors::state::StateListener;
 
 #[async_trait::async_trait]
 pub(super) trait SessionPorts: Send + Sync {
+    fn paid(&self, session: &Session) -> bool {
+        session
+            .service
+            .require_neighbor_paid(&session.transport.uid)
+            .is_ok()
+    }
     async fn listen_state(&self) -> Result<Box<dyn StateListener>>;
     async fn listen_signals(
         &self,

@@ -35,6 +35,7 @@ impl ActionCompletion {
             events: page.subscribe(&[
                 "Page.frameRequestedNavigation",
                 "Page.frameStartedNavigating",
+                "Page.frameStartedLoading",
                 "Page.frameNavigated",
                 "Page.navigatedWithinDocument",
                 "Page.lifecycleEvent",
@@ -70,7 +71,9 @@ impl ActionCompletion {
             return Ok(());
         }
         match event.method.as_str() {
-            "Page.frameRequestedNavigation" if p["frameId"] == self.frame => {
+            "Page.frameRequestedNavigation" | "Page.frameStartedLoading"
+                if p["frameId"] == self.frame =>
+            {
                 self.requested = true;
                 self.same_document = false;
             }

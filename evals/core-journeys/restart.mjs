@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { spawn } from "node:child_process";
 import { renameSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -52,7 +53,7 @@ export function restartEnvironment(identity, dev, launch, inherited = process.en
 
 function build(args, env) {
   return new Promise((accept, reject) => {
-    const child = spawn("bash", [join(buildRoot, "build.sh"), ...args], { cwd: buildRoot, env, stdio: "inherit", signal: AbortSignal.timeout(1_800_000) });
+    const child = spawn(bashInterpreter(process.platform, env), [join(buildRoot, "build.sh"), ...args], { cwd: buildRoot, env, stdio: "inherit", signal: AbortSignal.timeout(1_800_000) });
     child.on("error", reject);
     child.on("close", (code) => (code === 0 ? accept() : reject(new Error(`build.sh ${args.join(" ")} in ${buildRoot} exit ${code}`))));
   });

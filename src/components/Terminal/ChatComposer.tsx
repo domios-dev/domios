@@ -237,7 +237,7 @@ function ChatComposerImpl({
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
-  const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
+  const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`, showComposerError);
   const [expandedEditor, setExpandedEditor] = useState(false);
   const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));

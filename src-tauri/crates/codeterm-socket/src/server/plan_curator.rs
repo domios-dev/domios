@@ -35,13 +35,6 @@ pub(super) fn dispatch(
             .control_loop_show(&id)
             .map(|v| serde_json::json!(v))
             .map_err(error),
-        "plan.control_loop.set" => {
-            let update = serde_json::from_value(body.clone())
-                .map_err(|e| error(format!("invalid control loop: {e}")))?;
-            svc.control_loop_set(&id, &caller, update, now)
-                .map(|v| serde_json::json!(v))
-                .map_err(error)
-        }
         "plan.curator.grant" => {
             let tab = get_string_param(params, "curator_tab")?;
             let blueprints = serde_json::from_value(

@@ -103,13 +103,13 @@ Curator is the default plan control loop. It reviews a bounded system digest wit
 ```bash
 domios plan control-loop show <plan>
 domios plan control-loop run <plan>
-domios plan control-loop set <plan> curator
-domios plan control-loop set <plan> heartbeat --interval 30m
 domios plan curator grant <plan> <tab> --blueprint <id>
 domios plan curator grant <plan> <tab> --plan-skill <slug>
 domios plan curator grant <plan> <tab> --save <candidate>
 domios curator finish --next 90m --from-pad note.md
 ```
+
+Only the owner chooses Curator Auto, Heartbeat or Off from the Team dashboard settings. Off disables Curator and system reminders for the Team. Agents can only defer the next round by at most two hours; failures retain a visible heartbeat fallback and a bounded retry.
 
 Heartbeat intervals are 15, 30, 45, 60, 90 or 120 minutes. Grants expire with the round and session. Blueprint grants cover only daemon-flagged duplicate or stale items; plan skill grants cover one slug. A Curator job belongs to its Team, retains ordinary job runs, and cannot be deleted manually. Its round metadata appears in a `curator_round` stride. The control-loop view exposes suspension and fallback reasons and seven-day counts.
 
@@ -175,4 +175,4 @@ Each non-quiet Curator finish note includes `MOVE: <one highest-leverage next st
 
 Every sixth real Curator round and each newly closed group triggers synthesis. Its digest includes the goal, correctness vector, open acceptance criteria count and the newest prior MOVE, RETRO and LEARN lines, dropping oldest history within the shared 8 KiB cap. A synthesis note may include `READY: yes|no ... [ids]`. READY is advisory: it appears in the round summary and never changes plan or release state.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

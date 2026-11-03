@@ -231,3 +231,59 @@ async fn repeated_initial_document_snapshots_never_reset_the_failure_budget() {
         501
     );
 }
+
+struct Preparing {
+    stopped: tokio::sync::watch::Receiver<bool>,
+    entered: tokio::sync::mpsc::UnboundedSender<()>,
+}
+#[async_trait]
+impl InboxSession for Preparing {
+    async fn stopped(&self) {
+        let mut stopped = self.stopped.clone();
+        if !*stopped.borrow_and_update() {
+            let _ = stopped.changed().await;
+        }
+    }
+    async fn prepare(&self) -> Result<()> {
+        self.entered.send(()).unwrap();
+        std::future::pending().await
+    }
+    async fn cursor(&self) -> Result<Option<Cursor>> {
+        panic!("Preparation was retired")
+    }
+    async fn receive(&self, _: &mut [InboxMessage]) -> Result<()> {
+        panic!("No messages after retirement")
+    }
+}
+
+#[tokio::test]
+async fn inbox_retirement_cancels_preparation_without_retry_or_cloud_admission() {
+    use crate::adapter::{AuthenticatedCall, FirebaseTransport};
+    struct NoCalls;
+    #[async_trait]
+    impl AuthenticatedCall for NoCalls {
+        async fn id_token(&self) -> Result<zeroize::Zeroizing<String>> {
+            panic!("No cloud admission")
+        }
+        async fn invoke(&self, _: &str, _: serde_json::Value) -> Result<serde_json::Value> {
+            panic!("No callable")
+        }
+    }
+    let transport = FirebaseTransport {
+        calls: std::sync::Arc::new(NoCalls),
+        project: "demo-domios".into(),
+        uid: "owner".into(),
+        installation_id: "here".into(),
+    };
+    let (stop, stopped) = tokio::sync::watch::channel(false);
+    let (entered, mut seen) = tokio::sync::mpsc::unbounded_channel();
+    let session = Preparing { stopped, entered };
+    let events = Watch::new(vec![]);
+    let control = async {
+        seen.recv().await.unwrap();
+        stop.send(true).unwrap();
+    };
+    let (result, _) = tokio::join!(supervise(&transport, "friend", &session, &events), control);
+    assert_eq!(result, Err(Error::Revoked));
+    assert!(events.retries.lock().unwrap().is_empty());
+}

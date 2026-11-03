@@ -84,6 +84,8 @@ Command steps default to a 10-second runtime on every platform. Override it on t
 
 Watcher probes also default to 10 seconds on every platform. Each watcher runs concurrently, so a slow probe delays its own verdict while the scheduler and other watchers continue. Command and probe runtime budgets start when the direct child's spawn call returns, excluding its exec authorization delay. Runtime is followed by bounded cleanup of up to 500 ms (one quarter of a shorter budget): the total is runtime plus that reserve, capped by the caller's remaining run deadline. A shorter caller deadline reserves cleanup within that total and may interrupt execution earlier; expiry produces a typed `Deadline`.
 
+A watcher probe timeout or spawn failure records a skip and keeps watching. Unconfirmed timeout cleanup is retained in the graph's last reason, including the affected resources. Retirement is retried at the next probe admission. Unretired probes retain their slots in the shared eight-slot process owner; exhausted capacity ends the affected graph visibly with `probe_owner_capacity` before another process can spawn.
+
 A schedule trigger has `every: {lit: 20s}`. Input triggers have a media `kind` and a `source` literal containing `text`, an absolute `file` path or an HTTP(S) `url`; a string source denotes text.
 
 A `text` trigger delivers a **string**: `{text: "7"}` reaches the first node as the string `"7"`, never the integer 7. The text is parsed as JSON only when the first node's `in` schema rejects a string and the parsed value satisfies that schema (`in: {type: integer}` with `"7"` delivers 7; `in: {type: object, ...}` with `{"n":7}` delivers the object). With no `in` schema the node receives the string. To pass structured data, declare the object schema on the first node's `in` or parse the string in code. A mismatch stops the node with `contract_violation`; its journal summary and `show` name the expected schema and the received media and value (clipped), for example `node stopped: contract_violation: input expected {"type":"integer"} got text "seven"`. Event triggers name an installed capability kind and explicit parameters. Runtime availability is checked at apply.
@@ -231,4 +233,4 @@ R10 and environment scrubbing prevent accidents, not hostile code. R10 joins spl
 
 `blueprint list` and `blueprint show` allow an Orchestrator or the owner’s General Agent to inspect scheduled Blueprints across Teams and workspaces. `blueprint list --all` requires that authority explicitly. Other readers retain their scope. This read access grants no permission to apply, edit, input, stop or delete a foreign Blueprint.
 
-<!-- revision: 82 -->
+<!-- revision: 83 -->

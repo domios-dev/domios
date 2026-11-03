@@ -155,7 +155,10 @@ fn curator_launch_failure_clears_the_unbound_round() {
     let plan = fixture.service.plan_store.get(&id).unwrap();
     assert!(plan.control_loop.running.is_none());
     let round = plan.control_loop.last_round.unwrap();
-    assert_eq!(round.outcome, codeterm_types::plan::CuratorOutcome::Failed);
+    assert_eq!(
+        round.outcome,
+        codeterm_types::plan::CuratorOutcome::Fallback
+    );
     assert_eq!(round.reason, CuratorFailure::LaunchFailed.as_str());
 }
 

@@ -26,6 +26,60 @@ fn row(id: &str) -> MeshManagementRow {
 }
 
 #[test]
+fn renewed_membership_reuses_registry_and_only_missing_registry_or_retry_reads() {
+    use codeterm_account::account_mesh::{
+        Enrollment, LifecycleState, Presence, RegistryObservation, SignedMembership,
+        VerifiedMembership,
+    };
+    let mut state = LifecycleState {
+        presence: Presence::SignedIn {
+            account_id: "account".into(),
+        },
+        enrollment: Enrollment::Enrolled,
+        membership: Some(SignedMembership {
+            token: "first".into(),
+            verified: VerifiedMembership {
+                account_id: "account".into(),
+                installation_id: "own".into(),
+                key_id: "key".into(),
+                key_generation: 1,
+                slot_revision: 1,
+                issued_at: 0,
+                expires_at: 1000,
+            },
+        }),
+        registry: Some(RegistryObservation {
+            observed_at: 0,
+            registry_revision: 1,
+            rows: vec![row("own"), row("peer")],
+            cursor: None,
+        }),
+        ..LifecycleState::default()
+    };
+    assert!(!registry_read_needed(&state, 100, false));
+    let membership = state.membership.as_mut().unwrap();
+    membership.token = "renewed".into();
+    membership.verified.expires_at = 2000;
+    state.membership_epoch += 1;
+    assert!(!registry_read_needed(&state, 100, false));
+    assert!(registry_read_needed(&state, 100, true));
+    state
+        .registry
+        .as_mut()
+        .unwrap()
+        .rows
+        .retain(|row| row.installation_id != "own");
+    assert!(registry_read_needed(&state, 100, false));
+    state.registry = None;
+    assert!(registry_read_needed(&state, 100, false));
+    state.enrollment = Enrollment::Enrolling;
+    assert!(!registry_read_needed(&state, 100, false));
+    assert!(registry_read_needed(&state, 100, true));
+    state.enrollment = Enrollment::Enrolled;
+    assert!(!registry_read_needed(&state, 2000, true));
+}
+
+#[test]
 fn registry_targets_require_active_current_present_membership_and_endpoint() {
     let valid = row("peer");
     assert!(target(&valid, "self", 100).is_some());

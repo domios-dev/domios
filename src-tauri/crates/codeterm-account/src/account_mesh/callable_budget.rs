@@ -31,6 +31,15 @@ impl Budget {
     pub fn success(&mut self, route: &str) {
         self.failures.remove(route);
     }
+
+    pub fn unavailable(&mut self, route: &str, clock: &dyn Clock, retry_after_seconds: u64) {
+        let failures = self.failures.get(route).copied().unwrap_or_default();
+        let backoff = (60u64 << failures.min(3)).min(300);
+        let floor = backoff / 2;
+        let spread = backoff - floor;
+        let delay = floor + clock.jitter_seconds(spread).min(spread);
+        self.limited(route, clock.now(), retry_after_seconds.max(delay));
+    }
 }
 
 struct AccountBudget {
@@ -63,6 +72,9 @@ pub(super) fn account(uid: &str) -> Arc<tokio::sync::Mutex<Budget>> {
 pub trait Clock: Send + Sync {
     fn now(&self) -> Instant;
     async fn wait(&self, delay: Duration);
+    fn jitter_seconds(&self, upper_bound: u64) -> u64 {
+        rand::Rng::gen_range(&mut rand::rngs::OsRng, 0..=upper_bound)
+    }
 }
 
 pub(super) struct RuntimeClock;
@@ -125,6 +137,23 @@ pub(super) async fn run<T: super::callable::CallableTransport + ?Sized>(
             clock.now(),
             failure.retry_after_seconds().unwrap_or(0),
         );
+    }
+    if matches!(
+        route,
+        super::wire::ROUTE_ADMISSION | super::wire::ROUTE_CHALLENGE
+    ) {
+        if let Err(
+            failure @ CallableFailure::Status {
+                status: 500..=599, ..
+            },
+        ) = &response
+        {
+            budget.lock().await.unavailable(
+                route,
+                clock,
+                failure.retry_after_seconds().unwrap_or(0),
+            );
+        }
     }
     if response.is_ok() {
         budget.lock().await.success(route);

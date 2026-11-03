@@ -1014,3 +1014,17 @@ fn heartbeat_owner_interval_drives_delivery_and_delayed_projection() {
         2700
     );
 }
+
+#[test]
+fn owner_off_removes_team_owner_and_worker_system_reminders() {
+    let mut plan = plan(
+        "off-team",
+        "owner",
+        PlanMode::Execution,
+        vec![task("work", TaskStatus::InProgress, Some("worker"))],
+    );
+    assert_eq!(timed_plan_reminder_targets(&[plan.clone()]).len(), 2);
+    plan.control_loop.mode = crate::plan::ControlLoopMode::Off;
+    plan.control_loop.fallback_reason = Some(crate::plan::CuratorFailure::LaunchFailed);
+    assert!(timed_plan_reminder_targets(&[plan]).is_empty());
+}

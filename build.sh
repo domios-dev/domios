@@ -3124,7 +3124,7 @@ EOF
     preflight_step server-features node scripts/release-stage.mjs check-server-features
     preflight_step resources-frontend prepare_dev_frontend_dist "$(pwd -P)"
     preflight_step resources-bundles prepare_bundle_stubs
-    preflight_step dependencies ensure_deps
+    preflight_step dependencies preflight_real env CI=true pnpm install --frozen-lockfile
     preflight_step rustfmt bash scripts/check-rustfmt.sh
     preflight_step file-sizes bash scripts/check-file-sizes.sh --fail
     preflight_step provider-boundary node scripts/check-provider-boundary.mjs

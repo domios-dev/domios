@@ -154,7 +154,6 @@ pub(super) fn dispatch(
                 "orchestrator.refresh",
                 "plan.create",
                 "plan.control_loop.show",
-                "plan.control_loop.set",
                 "plan.control_loop.run",
                 "plan.curator.grant",
                 "plan.curator.finish",

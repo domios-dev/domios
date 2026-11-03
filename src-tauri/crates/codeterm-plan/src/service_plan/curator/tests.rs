@@ -218,3 +218,44 @@ fn curator_finished_next_checks_carry_into_the_following_digest() {
     let built = digest::build("opaque header", &rows);
     assert!(built.body.contains(&note.next_checks[0]));
 }
+
+#[test]
+fn curator_round_outcomes_only_defer_and_preserve_owner_off() {
+    use codeterm_types::plan::CuratorOutcome;
+    const NOW: u64 = 1_700_000_000_000;
+    for mode in [
+        ControlLoopMode::Curator,
+        ControlLoopMode::Heartbeat,
+        ControlLoopMode::Off,
+    ] {
+        for outcome in [
+            CuratorOutcome::Quiet,
+            CuratorOutcome::Nudged,
+            CuratorOutcome::Done,
+            CuratorOutcome::Partial,
+            CuratorOutcome::Failed,
+            CuratorOutcome::Fallback,
+            CuratorOutcome::ModeChanged,
+        ] {
+            for delay in [0, 2700, 7200, u64::MAX] {
+                let mut plan = Plan::new("fixture".into(), "/tmp".into(), Default::default());
+                plan.control_loop.mode = mode;
+                append_round(
+                    &mut plan,
+                    CuratorRound {
+                        ended_at: NOW,
+                        next_delay_secs: delay,
+                        outcome,
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(plan.control_loop.mode, mode);
+                assert_eq!(
+                    plan.control_loop.next_at,
+                    (mode == ControlLoopMode::Curator)
+                        .then_some(NOW + curator_delay(Some(delay)) * 1000)
+                );
+            }
+        }
+    }
+}

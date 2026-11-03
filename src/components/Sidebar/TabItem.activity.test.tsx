@@ -17,7 +17,7 @@ it.each(["Polish the sidebar", undefined])("temporarily shows compaction in the 
   try {
     for (const phase of ["work", "compacting", "work"] as const) {
       await act(async () => root.render(<TabItem
-        tab={{ ...tab, agent_state: { state: "working", phase } }} hasAgent
+        tab={{ ...tab, agent_state: { state: "working", phase } }} hasAgent status="Working"
         index={0} isActive={false} onClick={() => undefined} onClose={() => undefined}
         canClose workspaceId="fixture" />));
       const activation = host.querySelector<HTMLButtonElement>('button[aria-label="Open tab Swift"]');

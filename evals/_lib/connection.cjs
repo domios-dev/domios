@@ -1,10 +1,9 @@
 const { execFileSync } = require("node:child_process");
-const { existsSync } = require("node:fs");
+const { bashInterpreter } = require("../../scripts/bash-interpreter.mjs");
 const path = require("node:path");
 
 function devConnection(options = {}, run = execFileSync) {
-  const gitBash = "C:/Program Files/Git/bin/bash.exe";
-  const bash = process.platform === "win32" && existsSync(gitBash) ? gitBash : "bash";
+  const bash = bashInterpreter();
   const env = { ...process.env };
   const directory = options.dataDir && path.resolve(options.dataDir);
   let instance = options.instance;

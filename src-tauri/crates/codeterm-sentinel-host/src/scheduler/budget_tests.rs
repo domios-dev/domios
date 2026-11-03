@@ -20,6 +20,62 @@ fn watch(store: &mut Store, owner: &Owner, name: &str) -> Sentinel {
 }
 
 #[test]
+fn blueprint_probe_timeout_skips_and_next_tick_observes_again() {
+    let (mux, creator) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&creator).unwrap();
+    let fixture = ServiceFixture::new(mux);
+    let service = fixture
+        .service
+        .ext::<std::sync::Weak<codeterm_service_core::service::ServiceContext>>()
+        .upgrade()
+        .unwrap();
+    let clock = MockClock::starting_at(1000);
+    let mut store = Store::new(fixture.temp.path().join("timeout.json"), clock.clone());
+    let owner = Owner {
+        creator_tab_id: creator,
+        team_id: None,
+        workspace_id: workspace,
+        cwd: fixture.temp.path().to_string_lossy().into_owned(),
+    };
+    let job = watch(&mut store, &owner, "timeout");
+    let handle = fixture_handle_without_app(store);
+    for unconfirmed in [false, true] {
+        let leases = storage::commit(&handle.store, Store::stage_due).unwrap();
+        assert_eq!(leases.len(), 1);
+        let mut failure = probe::process::ProbeFailure::new("probe_timeout");
+        if unconfirmed {
+            failure.unconfirmed(probe::process::ResourceKind::ProcessGroup);
+        }
+        let reason = failure.reason();
+        tick_with_probe(&handle, &service, &leases[0], |_, _| Err(failure));
+        let current = handle.store.lock().get(&job.id).unwrap().clone();
+        assert!(!current.machine.stopped);
+        assert_eq!(current.last_reason.as_deref(), Some(reason.as_str()));
+        assert_eq!(current.machine.last_bucket, None);
+        handle.store.lock().release(&job.id);
+        clock.advance_ms(10_000);
+    }
+    let leases = storage::commit(&handle.store, Store::stage_due).unwrap();
+    assert_eq!(leases.len(), 1);
+    tick_with_probe(&handle, &service, &leases[0], |_, _| {
+        Ok(probe::fixture_output(0, b"done", b""))
+    });
+    let current = handle.store.lock().get(&job.id).unwrap().clone();
+    assert!(!current.machine.stopped);
+    assert_eq!(current.machine.last_bucket.as_deref(), Some("done"));
+    handle.store.lock().release(&job.id);
+    clock.advance_ms(10_000);
+    let leases = storage::commit(&handle.store, Store::stage_due).unwrap();
+    assert_eq!(leases.len(), 1);
+    tick_with_probe(&handle, &service, &leases[0], |_, _| {
+        Err(probe::process::ProbeFailure::new("probe_owner_capacity"))
+    });
+    let current = handle.store.lock().get(&job.id).unwrap().clone();
+    assert!(current.machine.stopped);
+    assert_eq!(current.last_reason.as_deref(), Some("probe_owner_capacity"));
+}
+
+#[test]
 fn blueprint_v2_budget_stalled_probe_leaves_scheduler_and_other_verdicts_running() {
     let (mux, creator) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&creator).unwrap();

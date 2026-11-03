@@ -133,7 +133,7 @@ export function PluginDetailPanel({
       {entry.loadError && !entry.loadError.keptPrevious && <div data-testid="extensions-plugin-load-error"><InlineErrorNotice error={{ code: "plugin_load_failed", raw: `${entry.loadError.message}\n${entry.loadError.path}` }} /></div>}
 
       {action.reason && action.disabled && (
-        <div data-testid="extensions-action-disabled-reason"><InlineErrorNotice error={action.reason} operation="changing this plugin" /></div>
+        <p role="note" data-testid="extensions-action-disabled-reason" style={{ fontSize: 12, color: "var(--ct-muted)", marginBottom: 14 }}>{action.reason}</p>
       )}
 
       {entry.capabilities?.chat_backend && entry.installed && !entry.pendingReload && (

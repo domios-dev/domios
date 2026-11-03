@@ -7,6 +7,7 @@ impl AccountMesh {
         let now = self.now();
         self.with(|inner| {
             if inner.auth_parked.is_some()
+                || inner.terminal_parked
                 || inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired)
             {
                 return None;
@@ -14,11 +15,7 @@ impl AccountMesh {
             if matches!(result, Err(AccountMeshRefusal::EnrollmentBudget { .. })) {
                 return inner.retry.deadline;
             }
-            let membership_due = inner
-                .state
-                .membership
-                .as_ref()
-                .map(|m| m.verified.refresh_after());
+            let membership_due = inner.membership_renewal_at();
             let publication_due = inner
                 .published_endpoint
                 .as_ref()

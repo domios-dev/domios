@@ -20,6 +20,8 @@ from subjects import launch, subject_environment, verify_help
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
+sys.path.insert(0, str(ROOT / "scripts"))
+from bash_interpreter import bash_interpreter
 INSTANCE = 'blueprint-v2-proof'
 PORT = 17693
 
@@ -74,7 +76,8 @@ class Bridge:
 
     def call(self, *argv):
         env = dict(os.environ, CODETERM_DEV_INSTANCE=INSTANCE, CODETERM_DEV_API_PORT=str(PORT))
-        result = subprocess.run(['bash', str(HERE / 'transport.sh'), '--context', str(self.context), '--', *map(str, argv)],
+        bash = bash_interpreter()
+        result = subprocess.run([bash, str(HERE / 'transport.sh'), '--context', str(self.context), '--', *map(str, argv)],
                                 env=env, text=True, capture_output=True, timeout=90)
         if result.returncode:
             raise ValueError(f'CLI refused {argv[:2]} exit={result.returncode}: {redact(result.stderr)}')

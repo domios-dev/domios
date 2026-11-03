@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Caller: package.json script
+import {bashInterpreter} from './bash-interpreter.mjs';
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -8,7 +9,7 @@ import process from "node:process";
 const root = path.resolve(import.meta.dirname, "..");
 const isWindows = process.platform === "win32";
 
-const bashPath = isWindows ? "C:\\Program Files\\Git\\bin\\bash.exe" : "bash";
+const bashPath = bashInterpreter();
 
 const commands = {
   dev: {

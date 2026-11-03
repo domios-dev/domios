@@ -11,6 +11,10 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { ChatComposer } from "./ChatComposer";
 
+vi.mock("../../lib/frontendUpdate/draftStorage", () => ({
+  createDraftStorage: () => ({ read: async () => new Map<string, string>(), write: async () => {} }),
+}));
+
 beforeEach(() => configureDaemonFixture());
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

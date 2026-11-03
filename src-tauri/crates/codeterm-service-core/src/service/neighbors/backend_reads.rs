@@ -89,15 +89,28 @@ struct Reads {
 }
 
 impl ServiceContext {
+    pub(in crate::service) fn require_neighbor_paid(&self, uid: &str) -> Result<()> {
+        self.require_neighbors_enabled()?;
+        if self
+            .ext::<crate::service::billing::BillingCell>()
+            .0
+            .get()
+            .is_none_or(|billing| billing.neighbors_locked(uid))
+        {
+            return Err(Error::Locked);
+        }
+        Ok(())
+    }
+
     pub(super) async fn neighbor_access_locked(&self) -> bool {
         let Some(billing) = self.ext::<crate::service::billing::BillingCell>().0.get() else {
-            return false;
+            return true;
         };
         let Some(account) = self.ext::<crate::service::account::AccountCell>().0.get() else {
-            return false;
+            return true;
         };
         let Some(session) = account.session().await else {
-            return false;
+            return true;
         };
         billing.neighbors_locked(&session.identity.uid)
     }
@@ -113,6 +126,8 @@ impl ServiceContext {
                 }
                 *previous = Some(locked);
             }
+            service.retire_callable_waiters();
+            service.neighbor_paid_changed();
             if locked {
                 service.pause_neighbor_reception();
                 if let Some(account) = service

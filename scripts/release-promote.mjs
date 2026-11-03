@@ -6,19 +6,17 @@ import { sourceRepository } from './source-repository.mjs';
 //   release-promote.mjs check <run-id> <source-sha> <release-branch>
 //   release-promote.mjs publish <tag> <source-sha> <run-id> <work-dir>
 import { requireQualification } from './ci-qualification.mjs';
-import { createHash } from 'node:crypto';
-import { execFileSync } from 'node:child_process';
-import { createReadStream } from 'node:fs';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import os from 'node:os';
+import { execFile, execFileSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { headlessAssetNames } from './headless-release-package.mjs';
-import { publishHeadlessAssets } from './release-headless-assets.mjs';
 import { fetchAndAggregate, PLATFORMS } from './release-dry-run-manifest.mjs';
 
 const SOURCE_REPO = sourceRepository();
 const MIRROR_REPO = 'rollacode/codeterm-releases';
+const exec = promisify(execFile);
+export const PUBLICATION_CONCURRENCY = 3;
 
 // Each name prefixes a release.yml job (reusable callers add " / <job>") that must have succeeded.
 export const REQUIRED_JOBS = [
@@ -57,41 +55,62 @@ export function checkQualifiedRun({ run, jobs, sourceSha, branch }) {
 }
 
 // Mirrors release-publish-platform.mjs: the source draft also takes the updater fragments, the public mirror does not.
-export function promotionPlan(tag, platform, receipt) {
-  const names = headlessAssetNames(tag, platform);
-  const headless = [names.archive, names.checksum, names.manifest];
-  const retained = receipt.files.map(file => file.name).filter(name => !headless.includes(name));
+export function promotionPlan(receipt) {
+  const retained = receipt.files.map(file => file.name);
   return {
     source: retained,
     mirror: retained.filter(name => !/^updater-.*\.json$/.test(name)),
   };
 }
 
-async function sha256(file) {
-  const hash = createHash('sha256');
-  for await (const chunk of createReadStream(file)) hash.update(chunk);
-  return hash.digest('hex');
+export function verifyAssetDigests(files, assets, repository) {
+  for (const file of files) {
+    const matching = assets.filter(asset => asset.name === file.name);
+    if (matching.length !== 1) refuse(`${repository} expected one uploaded asset ${file.name}`);
+    const asset = matching[0];
+    if (!/^sha256:[a-f0-9]{64}$/.test(asset.digest ?? '')) {
+      refuse(`${repository} ${file.name} has no valid sha256 API digest`);
+    }
+    if (!/^[a-f0-9]{64}$/.test(file.sha256 ?? '') || asset.digest !== `sha256:${file.sha256}` ||
+        asset.size !== file.size || asset.state !== 'uploaded') {
+      refuse(`${repository} ${file.name} differs from its retained receipt`);
+    }
+  }
 }
 
-function gh(args, env) {
-  execFileSync('gh', args, { env, stdio: 'inherit', timeout: 30 * 60_000 });
+async function gh(args, env) {
+  const { stdout, stderr } = await exec('gh', args, { env, encoding: 'utf8', timeout: 30 * 60_000, maxBuffer: 8 * 1024 * 1024 });
+  if (stderr) process.stderr.write(stderr);
+  return stdout;
 }
 
-export async function publishPlatform({ tag, sourceSha, platform, directory, receipt, repository, env, run = gh,
-  publishHeadless = publishHeadlessAssets }) {
-  const plan = promotionPlan(tag, platform, receipt);
+export async function publishPlatform({ tag, directory, receipt, repository, env, run = gh }) {
+  const plan = promotionPlan(receipt);
   const names = repository === MIRROR_REPO ? plan.mirror : plan.source;
   const rows = new Map(receipt.files.map(file => [file.name, file]));
-  run(['release', 'upload', tag, ...names.map(name => path.join(directory, name)), '--clobber', '--repo', repository], env);
-  const scratch = await mkdtemp(path.join(os.tmpdir(), 'domios-promote-readback-'));
-  try {
-    for (const name of names) {
-      run(['release', 'download', tag, '--pattern', name, '--dir', scratch, '--clobber', '--repo', repository], env);
-      if (await sha256(path.join(scratch, name)) !== rows.get(name).sha256) refuse(`${repository} ${name} differs from its ${platform} receipt`);
-    }
-  } finally { await rm(scratch, { recursive: true, force: true }); }
-  await publishHeadless({ tag, platform, directory, sourceSha, repository, env });
+  await run(['release', 'upload', tag, ...names.map(name => path.join(directory, name)), '--clobber', '--repo', repository], env);
+  // The releases/tags endpoint hides drafts; `gh release view` resolves the draft by tag.
+  const release = JSON.parse(await run(['release', 'view', tag, '--repo', repository, '--json', 'databaseId'], env));
+  if (!Number.isInteger(release.databaseId)) refuse(`${repository} ${tag} draft release id is missing`);
+  const assets = (await run(['api', '--paginate', '--jq', '.[] | tojson',
+    `repos/${repository}/releases/${release.databaseId}/assets?per_page=100`], env))
+    .split('\n').filter(Boolean).map(line => JSON.parse(line));
+  verifyAssetDigests(names.map(name => rows.get(name)), assets, repository);
   return names;
+}
+
+export async function publishConcurrently(tasks, publish, limit = PUBLICATION_CONCURRENCY) {
+  if (!Number.isInteger(limit) || limit < 1) refuse('invalid publication concurrency');
+  let next = 0;
+  let failure;
+  const workers = Array.from({ length: Math.min(limit, tasks.length) }, async () => {
+    while (!failure && next < tasks.length) {
+      const task = tasks[next++];
+      try { await publish(task); } catch (error) { failure ??= error; }
+    }
+  });
+  await Promise.all(workers);
+  if (failure) throw failure;
 }
 
 async function main([verb, ...args]) {
@@ -113,15 +132,23 @@ async function main([verb, ...args]) {
     await fetchAndAggregate({ tag, sourceSha, runId, inputDirectory: input, outputDirectory: path.join(work, 'output') });
     const repositories = [[SOURCE_REPO, process.env.GH_TOKEN],
       ...(process.env.PUBLISH_MIRROR === 'true' ? [[MIRROR_REPO, process.env.MIRROR_TOKEN]] : [])];
+    for (const [repository, token] of repositories) {
+      if (!token) refuse(`no token for ${repository}`);
+    }
+    const tasks = [];
     for (const platform of PLATFORMS) {
       const directory = path.join(input, platform);
       const receipt = JSON.parse(await readFile(path.join(directory, 'dry-run-evidence.json'), 'utf8'));
       for (const [repository, token] of repositories) {
-        if (!token) refuse(`no token for ${repository}`);
-        const names = await publishPlatform({ tag, sourceSha, platform, directory, receipt, repository, env: { ...process.env, GH_TOKEN: token } });
-        console.log(`${platform}: ${names.length} retained file(s) and the headless assets published to ${repository} draft ${tag}`);
+        tasks.push({ tag, platform, directory, receipt, repository, env: { ...process.env, GH_TOKEN: token } });
       }
     }
+    const started = performance.now();
+    await publishConcurrently(tasks, async task => {
+      const names = await publishPlatform(task);
+      console.log(`${task.platform}: ${names.length} retained file(s) digest-verified on ${task.repository} draft ${tag}`);
+    });
+    console.log(`Digest-verified publication completed in ${((performance.now() - started) / 1000).toFixed(1)}s (concurrency ${PUBLICATION_CONCURRENCY})`);
   } else refuse('unknown operation');
 }
 

@@ -106,7 +106,9 @@ pub(crate) fn enabled_team_schedules<'a>(
     team_id: &str,
 ) -> Vec<PlanPauseSchedule> {
     jobs.into_iter()
-        .filter(|job| job.enabled && job.team_id.as_deref() == Some(team_id))
+        .filter(|job| {
+            job.enabled && job.team_id.as_deref() == Some(team_id) && !job.is_plan_control_loop()
+        })
         .map(|job| PlanPauseSchedule {
             job_id: job.id.clone(),
             name: job.name.clone(),

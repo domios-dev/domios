@@ -82,6 +82,14 @@ async fn parked_gift_and_neighbor_dispatch_rechecks_the_real_account_generation(
                 .0
                 .set(account.clone())
                 .is_ok());
+            if neighbors {
+                crate::service::neighbors::paid_fixture::bind(
+                    &fixture.service,
+                    &expected,
+                    fixture.temp.path(),
+                )
+                .await;
+            }
             let guard = SessionGuard {
                 service: &fixture.service,
                 expected: &expected,

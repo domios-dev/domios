@@ -39,6 +39,10 @@ pub enum PermissionMode {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SessionObservations {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retry_error: Option<RuntimeErrorSignal>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub retry_succeeded: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unavailable_model: Option<String>,
     pub api_error: Option<ApiErrorKind>,
     pub permission_mode: Option<PermissionMode>,
@@ -50,6 +54,21 @@ pub struct SessionObservations {
     pub turn_id: Option<String>,
     #[serde(default)]
     pub retrying: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuntimeErrorSignal {
+    pub retryable: bool,
+    pub retryable_kind: Option<RuntimeRetryableErrorKind>,
+    pub retry_at_ms: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeRetryableErrorKind {
+    Transient,
+    RateLimitedUntil,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

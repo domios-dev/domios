@@ -155,7 +155,7 @@ impl Events {
 
     pub(in crate::probe) fn wait_parent(
         &self,
-        timeout: Duration,
+        timeout: Option<Duration>,
         observe_cancel: bool,
     ) -> Result<ParentEvent, String> {
         #[cfg(any(test, feature = "test-support"))]
@@ -177,13 +177,17 @@ impl Events {
                 revents: 0,
             },
         ];
-        let end = std::time::Instant::now() + timeout;
+        let end = timeout.map(|timeout| std::time::Instant::now() + timeout);
         loop {
-            let remaining = end.saturating_duration_since(std::time::Instant::now());
-            let millis = remaining
-                .as_millis()
-                .saturating_add(u128::from(remaining.subsec_nanos() % 1_000_000 != 0))
-                .min(i32::MAX as u128) as i32;
+            let millis = end
+                .map(|end| {
+                    let remaining = end.saturating_duration_since(std::time::Instant::now());
+                    remaining
+                        .as_millis()
+                        .saturating_add(u128::from(remaining.subsec_nanos() % 1_000_000 != 0))
+                        .min(i32::MAX as u128) as i32
+                })
+                .unwrap_or(-1);
             let result = unsafe { libc::poll(fds.as_mut_ptr(), 2, millis) };
             if result < 0 {
                 let error = io::Error::last_os_error();

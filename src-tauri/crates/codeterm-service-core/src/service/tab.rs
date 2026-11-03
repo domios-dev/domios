@@ -148,7 +148,7 @@ impl ServiceContext {
             .revoked
             .store(true, std::sync::atomic::Ordering::Release);
         self.invalidate_guarded_agent_input(tab_id);
-        super::background_work_watch::cancel(tab_id);
+        super::background_work_watch::cancel(self, tab_id);
         crate::flow_trace::cancel_tab(tab_id);
         self.chat_registry.shutdown_tab(tab_id);
         super::agent_runtime::engine::stop_blocking(self, tab_id)?;

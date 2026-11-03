@@ -1,4 +1,4 @@
-export type ControlLoopMode = "curator" | "heartbeat";
+export type ControlLoopMode = "curator" | "heartbeat" | "off";
 
 export interface CuratorRound {
   number: number;

@@ -340,14 +340,19 @@ async fn account_mesh_long_lease_restore_observes_revocation_and_keeps_cached_me
         {
             let mut script = harness.registry.script.lock().unwrap();
             script.peer_active = Some(false);
+            script.membership_registry_revision = Some(11);
+            script.registry_revision = Some(11);
             if offline {
-                script.list = Some(wire::RegistryRefusal::Offline);
+                script.membership = Some(wire::RegistryRefusal::Offline);
             }
         }
         let result = harness.mesh.refresh(EnrollTrigger::Automatic).await;
-        assert_eq!(harness.calls("list"), 1);
+        assert_eq!(harness.calls("list"), 0);
+        assert_eq!(harness.calls("renew"), 1);
         if offline {
-            assert_eq!(result, Ok(()));
+            assert_eq!(result, Err(AccountMeshRefusal::Offline));
+            assert_eq!(harness.calls("sync"), 0);
+            assert!(harness.state().retry_at.is_some());
             assert!(harness
                 .transport
                 .last
@@ -360,6 +365,7 @@ async fn account_mesh_long_lease_restore_observes_revocation_and_keeps_cached_me
                 .is_some_and(|membership| membership.verified.is_current(START)));
         } else {
             result.unwrap();
+            assert_eq!(harness.calls("sync"), 1);
             assert!(harness
                 .transport
                 .last
@@ -370,7 +376,6 @@ async fn account_mesh_long_lease_restore_observes_revocation_and_keeps_cached_me
                 .revoked_installations
                 .contains(PEER));
         }
-        assert_eq!(harness.calls("renew"), 0);
     }
 }
 

@@ -516,6 +516,12 @@ impl ServiceContext {
         claim: Option<super::submit_transaction::SubmitCycleClaim>,
         enqueued: Option<std::sync::Arc<dyn Fn() + Send + Sync>>,
     ) -> Result<(), DeliveryError> {
+        if submit && matches!(text, crate::service::messenger::AgentInput::Human(_)) {
+            if let Err(error) = crate::service::agent_runtime::capacity_retry::cancel(self, tab_id)
+            {
+                log::warn!("[capacity-retry] user send cleanup failed for {tab_id}: {error}");
+            }
+        }
         self.tab_write_lock_delivery(tab_id)?;
         self.wake_frozen_tab(tab_id)
             .map_err(|detail| DeliveryError::PtyUnavailable {

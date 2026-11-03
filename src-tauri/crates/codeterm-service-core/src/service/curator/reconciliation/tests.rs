@@ -1,7 +1,9 @@
 use super::*;
 use crate::cron::store::{commit, CronChange, CronRunInfo, CronRunStatus, CronStore, Prepared};
-use crate::plan::{curator_delay, PlanMode};
+use crate::plan::{curator_delay, CuratorFailure, PlanMode};
+use crate::service::curator::CuratorTabs;
 use crate::service::test_fixture::ServiceFixture;
+use crate::service::AuthenticatedPlanCaller;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Barrier};
 use std::time::Duration;
@@ -192,4 +194,93 @@ fn curator_concurrent_repairs_reuse_the_running_protected_cron() {
     for second in [Repair::Read, Repair::Event, Repair::Notification] {
         concurrent_repairs(second, true);
     }
+}
+
+#[test]
+fn curator_prepare_failure_keeps_fallback_and_rearms_protected_job() {
+    use crate::service::role_policy::RolePolicy;
+    let (fixture, id, cron) = fixture(false);
+    let service = &fixture.service;
+    service
+        .set_ext(CuratorTabs::default())
+        .unwrap_or_else(|_| panic!("runtime"));
+    let state = service.control_loop_show(&id).unwrap();
+    let job = cron.lock().get(&state.cron_id.unwrap()).unwrap().clone();
+    let owner = service.plan_store.get(&id).unwrap().owner.tab_id.unwrap();
+    service
+        .mux
+        .write()
+        .get_tab_mut(&owner)
+        .unwrap()
+        .agent_session_model = None;
+    assert!(super::super::policy::POLICY
+        .prepare_cron(service, &job, NOW)
+        .unwrap()
+        .is_none());
+    let state = service.plan_store.get(&id).unwrap().control_loop;
+    assert_eq!(
+        state.fallback_reason,
+        Some(CuratorFailure::MirrorUnavailable)
+    );
+    assert_eq!(state.next_at, Some(NOW + curator_delay(None) * 1000));
+    let persisted = cron.lock().get(&job.id).unwrap().clone();
+    assert!(persisted.enabled);
+    assert_eq!(persisted.next_run, state.next_at);
+    assert!(state.owner_heartbeat());
+}
+
+#[test]
+fn curator_owner_setting_disables_job_and_agents_cannot_change_it() {
+    use crate::plan::ControlLoopMode;
+    use codeterm_plan::service_plan::curator::ControlLoopUpdate;
+    let (fixture, id, cron) = fixture(false);
+    let service = &fixture.service;
+    let job_id = service.control_loop_show(&id).unwrap().cron_id.unwrap();
+    let owner = service.plan_store.get(&id).unwrap().owner.tab_id.unwrap();
+    let agent = AuthenticatedPlanCaller {
+        tab_id: Some(owner),
+        ..Default::default()
+    };
+    for mode in [
+        ControlLoopMode::Curator,
+        ControlLoopMode::Heartbeat,
+        ControlLoopMode::Off,
+    ] {
+        assert!(service
+            .control_loop_set(
+                &id,
+                &agent,
+                ControlLoopUpdate {
+                    mode,
+                    heartbeat_interval_secs: None
+                },
+                NOW
+            )
+            .is_err());
+    }
+    let state = service
+        .control_loop_set(
+            &id,
+            &Default::default(),
+            ControlLoopUpdate {
+                mode: ControlLoopMode::Off,
+                heartbeat_interval_secs: None,
+            },
+            NOW,
+        )
+        .unwrap();
+    assert_eq!(state.mode, ControlLoopMode::Off);
+    assert_eq!(state.next_at, None);
+    let job = cron.lock().get(&job_id).unwrap().clone();
+    assert!(!job.enabled);
+    assert_eq!(job.next_run, None);
+    service
+        .curator_fire_failed(&id, CuratorFailure::LaunchFailed, NOW + 1)
+        .unwrap();
+    service.reconcile_curator_for_test(&id, NOW + 1);
+    let state = service.plan_store.get(&id).unwrap().control_loop;
+    assert_eq!(state.mode, ControlLoopMode::Off);
+    assert!(!state.owner_heartbeat());
+    assert_eq!(state.next_at, None);
+    assert!(!cron.lock().get(&job_id).unwrap().enabled);
 }

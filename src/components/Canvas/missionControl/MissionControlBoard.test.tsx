@@ -444,7 +444,7 @@ describe("mission control board panels", () => {
     expect(toggle.textContent).toBe("Previous plans 1");
     expect(toggle.getAttribute("aria-haspopup")).toBe("menu");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[data-testid="mc-board-previous-plans-menu"]')).toBeNull();
 
     await act(async () => toggle.click());
     const menu = document.querySelector('[data-testid="mc-board-previous-plans-menu"]') as HTMLElement;
@@ -460,14 +460,14 @@ describe("mission control board panels", () => {
     await act(async () => {
       menu.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     });
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[data-testid="mc-board-previous-plans-menu"]')).toBeNull();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(document.activeElement).toBe(toggle);
 
     await act(async () => toggle.click());
-    await act(async () => (document.querySelector('[role="menuitem"]') as HTMLButtonElement).click());
+    await act(async () => (document.querySelector('[data-testid="mc-board-previous-plans-menu"] [role="menuitem"]') as HTMLButtonElement).click());
     expect(onOpenPlan).toHaveBeenCalledWith("pl_old1");
-    expect(document.querySelector('[role="menu"]')).toBeNull();
+    expect(document.querySelector('[data-testid="mc-board-previous-plans-menu"]')).toBeNull();
     await unmount();
   });
 

@@ -172,6 +172,10 @@ impl ServiceContext {
         update: ControlLoopUpdate,
         now: u64,
     ) -> Result<ControlLoop, String> {
+        if caller.tab_id.is_some() || caller.session_id.is_some() || caller.binding_nonce.is_some()
+        {
+            return Err("Only the owner can change Team scheduling from the Team dashboard".into());
+        }
         self.authorize_plan_orchestrator(plan_id, caller)?;
         self.plan_store
             .set_control_loop(plan_id, update, now)

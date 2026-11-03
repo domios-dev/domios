@@ -11,7 +11,7 @@ pub mod movement;
 pub mod note;
 pub mod synthesis;
 pub fn request_round(state: &mut ControlLoop, eligible: bool, now: u64) -> Result<(), String> {
-    if !eligible || state.owner_heartbeat() {
+    if !eligible || state.mode != ControlLoopMode::Curator || state.owner_heartbeat() {
         return Err("Curator round is suspended or Curator mode is unavailable".into());
     }
     if state.running.is_some() || state.manual_run_requested {
@@ -171,11 +171,8 @@ pub fn append_round(plan: &mut Plan, round: CuratorRound) {
         .iter()
         .map(|t| (t.id.clone(), t.status.key().to_string()))
         .collect();
-    plan.control_loop.next_at = (plan.control_loop.mode == ControlLoopMode::Curator).then_some(
-        round
-            .ended_at
-            .saturating_add(curator_delay(Some(round.next_delay_secs)) * 1000),
-    );
+    plan.control_loop
+        .defer(round.ended_at, Some(round.next_delay_secs));
     let text = serde_json::to_string(&round).unwrap_or_default();
     plan.strides.push(crate::plan::Milestone {
         id: crate::plan::ids::short_id("ms"),

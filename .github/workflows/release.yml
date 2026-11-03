@@ -548,7 +548,7 @@ jobs:
       actions: write
       pull-requests: write
     needs: [prepare, macos-arm64, macos-x64, linux-arm64, linux-x86_64, windows-x64, windows-arm64]
-    if: always() && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id == ''
+    if: always() && github.workflow != 'CI' && needs.prepare.result == 'success' && needs.prepare.outputs.promote_run_id == ''
     uses: ./.github/workflows/rust-warnings-summary.yml
     secrets: inherit
     with:

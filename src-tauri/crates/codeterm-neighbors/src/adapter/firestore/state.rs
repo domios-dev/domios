@@ -1,5 +1,5 @@
 use super::{
-    authenticated_request, code_failure, connection, fs, rpc_failure, target_checkpoint,
+    account_connection, authenticated_request, code_failure, fs, rpc_failure, target_checkpoint,
     FirebaseTransport,
 };
 use crate::{
@@ -11,7 +11,7 @@ use serde_json::Value;
 pub(in crate::adapter) async fn listen(
     transport: &FirebaseTransport,
 ) -> Result<Box<dyn StateListener>> {
-    let (mut client, token, database) = connection(transport).await?;
+    let (mut client, token, database) = account_connection(transport).await?;
     let path = format!("{database}/documents/neighborState/{}", transport.uid);
     let (requests, receiver) = tokio::sync::mpsc::channel(1);
     requests

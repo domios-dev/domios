@@ -403,6 +403,7 @@ export interface TeamEffortTarget {
   teamId: string;
   managerTabId: string | null;
   planId?: string;
+  jump?: { view: "board" };
 }
 
 export function TeamUnit({
@@ -655,7 +656,7 @@ export function TeamUnit({
               className="sidebar-team-board-action"
               aria-label={`Open the board for ${displayTitle}`}
               title="Open board"
-              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id })}
+              onClick={() => onOpenEffort({ teamId: team.id, managerTabId: null, planId: plan?.id, jump: { view: "board" } })}
             >
               <ClipboardList size={13} strokeWidth={1.6} aria-hidden="true" />
             </button>

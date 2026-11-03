@@ -70,7 +70,7 @@ pub enum Enrollment {
 }
 
 /// Server refusal reasons plus desktop ones; only `mesh.machines` opens the plans modal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason")]
 pub enum AccountMeshRefusal {
     #[serde(rename = "installation_unverified")]
@@ -166,6 +166,15 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
     }
 }
 
+impl AccountMeshRefusal {
+    pub(super) fn retires_membership(self) -> bool {
+        matches!(
+            self,
+            Self::MachineLimit { .. } | Self::Forbidden | Self::Revoked | Self::ReauthRequired
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnrollTrigger {
@@ -211,6 +220,22 @@ pub struct RegistrySecurity {
 }
 
 impl RegistryObservation {
+    pub(super) fn has_freed_slot_since(&self, known: &Self) -> bool {
+        let active: BTreeSet<_> = self
+            .rows
+            .iter()
+            .filter(|row| row.active)
+            .map(|row| row.installation_id.as_str())
+            .collect();
+        self.cursor.is_none()
+            && known.cursor.is_none()
+            && self.registry_revision >= known.registry_revision
+            && known
+                .rows
+                .iter()
+                .any(|old| old.active && !active.contains(old.installation_id.as_str()))
+    }
+
     pub fn security_view(&self) -> Option<RegistrySecurity> {
         if self.cursor.is_some() {
             return None;
@@ -361,6 +386,8 @@ pub struct RegistryPresenceBinding {
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub terminal_refusals: BTreeMap<String, AccountMeshRefusal>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub reauth_required_accounts: BTreeSet<String>,
     /// First account association; an account switch never rebinds saved pairs.

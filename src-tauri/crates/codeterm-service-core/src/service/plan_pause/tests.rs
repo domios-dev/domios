@@ -522,3 +522,14 @@ fn plan_pause_resume_restores_recorded_effects_and_notifies_live_recorded_agents
     );
     assert_eq!(task_binding(&w), binding_before);
 }
+
+#[test]
+fn plan_pause_leaves_curator_schedule_to_control_loop_reconciliation() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = CronStore::new_with_path(dir.path().join("crons.json"));
+    let mut params = cron_params("Curator schedule", "workspace", "team", true);
+    params.role = Some("curator".into());
+    let job = store.create(params).unwrap();
+    store.set_protected(&job.id, true).unwrap();
+    assert!(enabled_team_schedules(store.list(), "team").is_empty());
+}

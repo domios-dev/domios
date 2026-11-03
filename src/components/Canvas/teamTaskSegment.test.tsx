@@ -3,6 +3,9 @@ import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
 import { act, useCallback, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LinkedText } from "../../../packages/chat-ui/src/codeterm/LinkedText";
 import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
@@ -65,7 +68,12 @@ async function render(ui: ReactElement) {
   document.body.append(host);
   const root = createRoot(host);
   mounted.push({ root, host });
-  await act(async () => root.render(ui));
+  const state: ExtendedState = {
+    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
+  };
+  const store = createMuxStateStore(() => state);
+  await act(async () => root.render(<MuxStateStoreContext.Provider value={store}>{ui}</MuxStateStoreContext.Provider>));
   return host;
 }
 

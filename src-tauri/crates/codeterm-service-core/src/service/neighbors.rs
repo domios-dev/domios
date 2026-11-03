@@ -9,6 +9,8 @@ mod confinement;
 mod delivery;
 mod flags;
 mod handling;
+#[cfg(test)]
+pub(in crate::service) mod paid_fixture;
 mod reconciliation;
 mod recovery;
 pub use flags::FlagCategory;

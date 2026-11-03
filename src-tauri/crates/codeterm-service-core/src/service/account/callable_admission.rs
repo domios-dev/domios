@@ -40,7 +40,12 @@ impl CallableGuard for SessionGuard<'_> {
     }
 
     async fn current(&self) -> bool {
-        if self.neighbors && self.service.require_neighbors_enabled().is_err() {
+        if self.neighbors
+            && self
+                .service
+                .require_neighbor_paid(&self.expected.identity.uid)
+                .is_err()
+        {
             return false;
         }
         let Some(account) = self.service.ext::<AccountCell>().0.get() else {
