@@ -8,18 +8,13 @@ impl crate::service::ServiceContext {
         submit_claim: Option<crate::service::pty_io::submit_transaction::SubmitCycleClaim>,
         client_token: Option<String>,
     ) -> Result<ChatSendStatus, String> {
-        let sent_at = chrono::Utc::now().timestamp_millis().max(0) as u64;
-        let result = self.start_chat_send_with_capture(
+        self.start_chat_send_with_capture(
             tab_id,
             input.into_string(),
             submit_claim,
             client_token,
             None,
-        );
-        if result.is_ok() {
-            self.answer_notification_questions_in_chat(tab_id, sent_at);
-        }
-        result
+        )
     }
 
     pub(crate) fn start_captured_chat_send(
@@ -29,18 +24,7 @@ impl crate::service::ServiceContext {
         client_token: String,
     ) -> Result<ChatSendStatus, String> {
         let tab_id = capture.identity.tab_id.clone();
-        let sent_at = chrono::Utc::now().timestamp_millis().max(0) as u64;
-        let result = self.start_chat_send_with_capture(
-            &tab_id,
-            text,
-            None,
-            Some(client_token),
-            Some(capture),
-        );
-        if result.is_ok() {
-            self.answer_notification_questions_in_chat(&tab_id, sent_at);
-        }
-        result
+        self.start_chat_send_with_capture(&tab_id, text, None, Some(client_token), Some(capture))
     }
 
     fn start_chat_send_with_capture(
@@ -246,8 +230,6 @@ impl crate::service::ServiceContext {
         if original.len() > MAX_PREPARED_BYTES {
             return Err("user original exceeds 4 MiB storage bound".into());
         }
-        let sent_at = chrono::Utc::now().timestamp_millis().max(0) as u64;
-        let tab_id = reservation.authority.tab_id.clone();
         let (prepared, returned) = self.prepare_chat_send_text(
             &reservation.authority.tab_id,
             original.clone(),
@@ -274,9 +256,6 @@ impl crate::service::ServiceContext {
         }
         let send_id = reservation.send_id.clone();
         let result = self.admit_prepared_user_send(reservation, &original, &prepared, body);
-        if result.is_ok() {
-            self.answer_notification_questions_in_chat(&tab_id, sent_at);
-        }
         if result
             .as_ref()
             .err()

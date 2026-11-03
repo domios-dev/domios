@@ -23,6 +23,15 @@ mod watch;
 async fn connection(
     transport: &FirebaseTransport,
 ) -> Result<(FirestoreClient<Channel>, Zeroizing<String>, String)> {
+    transport.calls.require_paid()?;
+    let result = account_connection(transport).await?;
+    transport.calls.require_paid()?;
+    Ok(result)
+}
+
+async fn account_connection(
+    transport: &FirebaseTransport,
+) -> Result<(FirestoreClient<Channel>, Zeroizing<String>, String)> {
     let (channel, token, database) = connection_with(transport, |target| async move {
         let mut endpoint = Channel::from_static(target.uri());
         if target.tls() {
@@ -231,6 +240,7 @@ impl Listener {
     }
 
     async fn reset_target(&mut self) -> Result<()> {
+        self.calls.require_paid()?;
         self.reset_budget.consume()?;
         let sender = self.requests.as_ref().ok_or(Error::ListenProtocol {
             kind: "request_stream_missing",
@@ -239,6 +249,7 @@ impl Listener {
             fs::listen_request::TargetChange::RemoveTarget(1),
             fs::listen_request::TargetChange::AddTarget(self.target()),
         ] {
+            self.calls.require_paid()?;
             sender
                 .send(fs::ListenRequest {
                     database: self.database.clone(),
@@ -257,6 +268,7 @@ impl Listener {
     }
 
     fn request<T>(&self, message: T) -> Result<tonic::Request<T>> {
+        self.calls.require_paid()?;
         authenticated_request(&self.token, &self.database, message)
     }
 
@@ -328,6 +340,7 @@ impl InboxListener for Listener {
         self.membership.pending_count()
     }
     async fn next(&mut self) -> Result<Option<InboxEvent>> {
+        self.calls.require_paid()?;
         if let Some(messages) = self.pending.take() {
             return Ok(Some(InboxEvent::Snapshot(messages)));
         }

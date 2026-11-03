@@ -444,14 +444,6 @@ pub enum PlanControlLoopAction {
     Run { plan_id: String },
     /// Show the plan's control-loop mode and heartbeat interval.
     Show { plan_id: String },
-    /// Switch the plan between Curator rounds and the plain heartbeat.
-    Set {
-        plan_id: String,
-        #[arg(value_parser = ["curator", "heartbeat"])]
-        mode: String,
-        #[arg(long)]
-        interval: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]

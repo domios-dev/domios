@@ -126,16 +126,38 @@ pub(super) struct Inner {
     pub(super) sync_pending: bool,
     pub(super) refreshed_credentials: Option<super::admission::CredentialStamp>,
     pub(super) auth_parked: Option<super::admission::CredentialStamp>,
+    pub(super) terminal_parked: bool,
     pub(super) resolved: HashMap<String, MeshTarget>,
     flight: Option<Flight>,
     awaiting_logout: bool,
     notice_epoch: Option<u64>,
     pub(super) lease: u64,
+    pub(super) launch_renewal_pending: bool,
     pub(super) retry: super::retry::Retry,
     store_unreadable: bool,
 }
 
 impl Inner {
+    pub(super) fn membership_renewal_at(&self) -> Option<u64> {
+        if self.terminal_parked {
+            return None;
+        }
+        self.state.membership.as_ref().map(|membership| {
+            if self.launch_renewal_pending {
+                0
+            } else {
+                membership.verified.refresh_after()
+            }
+        })
+    }
+
+    pub(super) fn resume_terminal(&mut self) {
+        self.terminal_parked = false;
+        if let Some(account) = self.state.signed_in_account() {
+            self.record.terminal_refusals.remove(account);
+        }
+    }
+
     pub(super) fn update(
         &mut self,
         watch: &watch::Sender<Arc<LifecycleState>>,
@@ -187,6 +209,7 @@ impl Inner {
     fn begin_epoch(&mut self) {
         self.cancel_flight();
         self.auth_parked = None;
+        self.terminal_parked = false;
         self.rejoin_authorized = false;
         self.rejoin_window = None;
         self.pending_renew = None;
@@ -256,11 +279,13 @@ impl AccountMesh {
                 publication_refresh_after: 0,
                 sync_pending: false,
                 auth_parked: None,
+                terminal_parked: false,
                 refreshed_credentials: None,
                 flight: None,
                 awaiting_logout: false,
                 notice_epoch: None,
                 lease: 0,
+                launch_renewal_pending: true,
                 retry: Default::default(),
                 store_unreadable: false,
             }),
@@ -397,6 +422,17 @@ impl AccountMesh {
                     .clone();
                 let store_unreadable = inner.store_unreadable;
                 let reauth_required = inner.record.reauth_required_accounts.contains(&account);
+                let terminal = inner
+                    .record
+                    .terminal_refusals
+                    .get(&account)
+                    .copied()
+                    .filter(|refusal| refusal.retires_membership());
+                inner.terminal_parked = terminal.is_some();
+                if inner.terminal_parked {
+                    inner.record.admission_cache = None;
+                }
+                inner.rejoin_required = terminal == Some(AccountMeshRefusal::Revoked);
                 inner.update(&self.watch, |state| {
                     state.account_epoch += 1;
                     state.presence = Presence::SignedIn {
@@ -404,7 +440,8 @@ impl AccountMesh {
                     };
                     state.owner = Some(owner);
                     state.membership = None;
-                    state.enrollment = if store_unreadable || reauth_required {
+                    state.enrollment = if store_unreadable || reauth_required || terminal.is_some()
+                    {
                         Enrollment::Refused
                     } else {
                         Enrollment::Idle
@@ -412,7 +449,8 @@ impl AccountMesh {
                     state.last_refusal = if reauth_required {
                         Some(AccountMeshRefusal::ReauthRequired)
                     } else {
-                        store_unreadable.then_some(AccountMeshRefusal::Unavailable)
+                        terminal
+                            .or_else(|| store_unreadable.then_some(AccountMeshRefusal::Unavailable))
                     };
                     state.limit_notice = None;
                     state.self_installation = None;
@@ -540,6 +578,7 @@ impl AccountMesh {
             if let Some(account) = inner.state.signed_in_account().map(str::to_owned) {
                 inner.record.reauth_required_accounts.remove(&account);
             }
+            inner.resume_terminal();
             inner.rejoin_required |= matches!(
                 inner.state.last_refusal,
                 Some(
@@ -604,7 +643,19 @@ impl AccountMesh {
         });
     }
 
+    pub fn machine_limit_changed(&self) -> bool {
+        self.with(|inner| {
+            if !inner.terminal_parked || !inner.state.plan_limit_locked() {
+                return false;
+            }
+            inner.retry = Default::default();
+            inner.resume_terminal();
+            true
+        })
+    }
+
     pub async fn refresh(self: &Arc<Self>, trigger: EnrollTrigger) -> Settled {
+        let mut resumed_terminal = false;
         let started = self.with(|inner| {
             let Presence::SignedIn { .. } = inner.state.presence else {
                 return Err(match inner.state.presence {
@@ -612,6 +663,11 @@ impl AccountMesh {
                     _ => AccountMeshRefusal::Unauthenticated,
                 });
             };
+            if inner.terminal_parked && trigger != EnrollTrigger::Explicit {
+                if let Some(refusal) = inner.state.last_refusal.filter(|r| r.retires_membership()) {
+                    return Err(refusal);
+                }
+            }
             if inner.rejoin_required
                 && !inner
                     .rejoin_window
@@ -667,6 +723,10 @@ impl AccountMesh {
             if let Some(refusal) = inner.retry.pending(self.now()) {
                 return Err(refusal);
             }
+            if trigger == EnrollTrigger::Explicit {
+                resumed_terminal = inner.terminal_parked;
+                inner.resume_terminal();
+            }
             if let Some(flight) = inner.flight.as_mut() {
                 if flight.epoch == epoch && !flight.cancel.is_cancelled() {
                     flight.rerun = Some(merge(flight.rerun, trigger));
@@ -706,6 +766,9 @@ impl AccountMesh {
             mesh: self,
             cancel: cancel.clone(),
         };
+        if resumed_terminal {
+            self.persist().await;
+        }
         self.push().await;
         let mut trigger = trigger;
         loop {
@@ -714,6 +777,13 @@ impl AccountMesh {
                 result = self.enroll_once(epoch, trigger) => result,
             };
             let next = self.settle(epoch, trigger, &result);
+            if result
+                .as_ref()
+                .err()
+                .is_some_and(|r| r.retires_membership())
+            {
+                self.persist().await;
+            }
             self.push().await;
             match next {
                 Some(rerun) => trigger = rerun,
@@ -769,22 +839,54 @@ impl AccountMesh {
             } else {
                 inner.retry.settle(self.now(), *result);
             }
-            if inner.state.membership.is_some()
-                || inner
-                    .rejoin_window
-                    .as_ref()
-                    .is_some_and(|window| window.recovery_committed)
-                || (inner.rejoin_required
-                    && inner.rejoin_authorized
-                    && inner
+            let terminal = result
+                .as_ref()
+                .err()
+                .is_some_and(|r| r.retires_membership());
+            if terminal {
+                inner.terminal_parked = true;
+                inner.launch_renewal_pending = false;
+                if let (Some(account), Err(refusal)) = (inner.state.signed_in_account(), result) {
+                    inner
+                        .record
+                        .terminal_refusals
+                        .insert(account.to_owned(), *refusal);
+                }
+                inner.retry = Default::default();
+                inner.record.admission_cache = None;
+                inner.pending_renew = None;
+                inner.resolved.clear();
+                inner.published_endpoint = None;
+                inner.published_until = 0;
+                inner.publication_refresh_after = 0;
+                inner.lease += 1;
+            }
+            if result.is_ok() {
+                inner.resume_terminal();
+            }
+            if !terminal
+                && (inner.state.membership.is_some()
+                    || inner
                         .rejoin_window
                         .as_ref()
-                        .is_some_and(|window| window.live(epoch, self.now())))
+                        .is_some_and(|window| window.recovery_committed)
+                    || (inner.rejoin_required
+                        && inner.rejoin_authorized
+                        && inner
+                            .rejoin_window
+                            .as_ref()
+                            .is_some_and(|window| window.live(epoch, self.now()))))
             {
                 inner.retry.keep_recovering(self.now());
             }
             let retry_at = inner.retry.deadline;
             let rerun = if owned
+                && (!terminal
+                    || (*result != Err(AccountMeshRefusal::Revoked)
+                        && inner
+                            .flight
+                            .as_ref()
+                            .is_some_and(|flight| flight.rerun == Some(EnrollTrigger::Explicit))))
                 && inner.auth_parked.is_none()
                 && retry_at.is_none()
                 && !inner.retry.exhausted()
@@ -805,6 +907,9 @@ impl AccountMesh {
             } else {
                 None
             };
+            if rerun.is_some() {
+                inner.resume_terminal();
+            }
             let notice = match result {
                 Err(AccountMeshRefusal::MachineLimit { .. }) => match trigger {
                     EnrollTrigger::Explicit => true,
@@ -827,6 +932,11 @@ impl AccountMesh {
                 _ => None,
             };
             inner.update(&self.watch, |state| {
+                if terminal {
+                    state.membership = None;
+                    state.membership_epoch += 1;
+                    state.publication = Publication::None;
+                }
                 state.retry_at = retry_at;
                 match result {
                     Ok(()) => {

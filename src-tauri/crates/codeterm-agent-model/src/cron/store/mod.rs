@@ -126,12 +126,16 @@ pub struct CronJob {
     /// Per-cron run timeout. None → fall back to global memory.worker_timeout_seconds.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_seconds: Option<u64>,
-    /// Auto-disables at >= 5.
     #[serde(default, skip_serializing_if = "is_zero_u32")]
     pub consecutive_failures: u32,
-    /// Protected crons cannot be deleted, only toggled.
     #[serde(default, skip_serializing_if = "is_false")]
     pub protected: bool,
+}
+
+impl CronJob {
+    pub fn is_plan_control_loop(&self) -> bool {
+        self.protected && self.role.as_deref() == Some("curator")
+    }
 }
 
 fn is_zero_u32(v: &u32) -> bool {

@@ -4,7 +4,6 @@ import type { ApiConfig } from "../../../lib/types";
 import { Chip } from "../../shared/Chip";
 import { DropdownSelect } from "../../shared/DropdownMenu";
 import { LiquidToggle } from "../../shared/LiquidToggle";
-import { Segmented } from "../../shared/Segmented";
 import { PLAN_PAUSE_HINT, PlanModeControls } from "../planView/PlanModeControls";
 import type { Plan } from "../types";
 import { BoardPanel } from "./BoardPanel";
@@ -31,6 +30,7 @@ function writeCollapsed(collapsed: boolean) {
 const MODE_HINT: Record<OversightMode, string> = {
   curator: "An agent reviews the plan each round and nudges the Orchestrator when work drifts.",
   heartbeat: "A plain reminder reaches the Orchestrator on a fixed interval.",
+  off: "Curator rounds and system reminders are off for this Team. Only you can change this setting.",
 };
 
 /** One setting: its name and control on one line, the hint and any live lines across the full width beneath. */
@@ -93,7 +93,7 @@ export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onI
   const [collapsed, setCollapsed] = useState(readCollapsed);
   const toggle = () => { setCollapsed(!collapsed); writeCollapsed(!collapsed); };
   const heartbeatPicker = oversight.mode === "heartbeat";
-  const running = !oversight.paused && !oversight.suspended_reason;
+  const running = oversight.mode !== "off" && !oversight.paused && !oversight.suspended_reason;
   return (
     <BoardPanel
       testId="mc-plan-settings"
@@ -101,7 +101,7 @@ export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onI
       className={collapsed ? "mc-plan-settings mc-plan-settings--folded" : "mc-plan-settings"}
       meta={<span className="mc-plan-settings-meta">
         {collapsed && <span data-testid="mc-plan-settings-summary" className="mc-plan-settings-summary">{oversightSummary(oversight, now)}</span>}
-        <Chip variant={running ? "success" : "muted"}><StatusDot tone={running ? "green" : "muted"} />{oversight.paused ? "Paused" : running ? "Running" : "Suspended"}</Chip>
+        <Chip variant={running ? "success" : "muted"}><StatusDot tone={running ? "green" : "muted"} />{oversight.mode === "off" ? "Off" : oversight.paused ? "Paused" : running ? "Running" : "Suspended"}</Chip>
         <button type="button" className="mc-plan-settings-fold" aria-expanded={!collapsed}
           aria-label={collapsed ? "Expand plan settings" : "Collapse plan settings"} onClick={toggle}>
           <ChevronDown size={14} aria-hidden="true" />
@@ -111,12 +111,12 @@ export function PlanSettingsPanel({ plan, api, oversight, now, onModeChange, onI
       {!collapsed && <div className="mc-plan-settings-grid">
         <PlanSettingRow
           testId="mc-plan-settings-oversight"
-          label="Keep on track"
+          label="Team oversight"
           hint={MODE_HINT[oversight.mode]}
-          control={<Segmented<OversightMode> aria-label="How the Orchestrator is kept on track" value={oversight.mode} onChange={onModeChange} height={26}
-            options={[{ value: "curator", label: "Curator", disabled }, { value: "heartbeat", label: "Heartbeat", disabled }]} />}
+          control={<DropdownSelect aria-label="Team oversight" prefix="Mode" className="w-auto" value={oversight.mode} onChange={value => onModeChange(value as OversightMode)} disabled={disabled}
+            options={[{ value: "curator", label: "Curator · Auto" }, { value: "heartbeat", label: "Heartbeat" }, { value: "off", label: "Off" }]} />}
         >
-          {!heartbeatPicker && onRunNow && <button type="button" className="mc-board-more mc-setting-link" onClick={onRunNow}
+          {oversight.mode === "curator" && onRunNow && <button type="button" className="mc-board-more mc-setting-link" onClick={onRunNow}
             disabled={disabled || !running || Boolean(oversight.fallback_reason) || runPending}>Run now</button>}
           {onOpenGuide && <button type="button" className="mc-board-more mc-setting-link" onClick={onOpenGuide}>
             <BookOpen size={12} aria-hidden="true" />How the Curator works

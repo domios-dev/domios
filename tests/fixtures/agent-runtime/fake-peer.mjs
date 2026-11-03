@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline";
-import { execFileSync } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
+import { promisify } from "node:util";
 import { closeSync, writeSync } from "node:fs";
 const identityKeys = [
   "CODETERM_CLI_PATH", "CODETERM_TAB_ID", "CODETERM_SESSION_BINDING_NONCE",
@@ -13,20 +14,24 @@ if (process.argv[2] === "--cli-probe") {
   }));
   process.exit(0);
 }
-function resolveCli(env, nested) {
+const executeFile = promisify(execFile);
+async function resolveCli(env, nested) {
   const windows = process.platform === "win32";
   const shell = windows ? `${process.env.SystemRoot}\\System32\\cmd.exe` : "/bin/sh";
-  return ["domios", "codeterm"].map(alias => {
+  const probes = [];
+  for (const alias of ["domios", "codeterm"]) {
     const command = nested
       ? (windows ? `cmd.exe /d /s /c ${alias}` : `/bin/sh -c '${alias}'`)
       : alias;
-    return JSON.parse(execFileSync(shell, windows ? ["/d", "/s", "/c", command] : ["-c", command], {
-      env, encoding: "utf8", timeout: 5000,
-    }));
-  });
+    const { stdout } = await executeFile(shell, windows ? ["/d", "/s", "/c", command] : ["-c", command], {
+      env, encoding: "utf8",
+    });
+    probes.push(JSON.parse(stdout));
+  }
+  return probes;
 }
 const input = createInterface({input:process.stdin});
-input.on("line",line=>{
+input.on("line",async line=>{
   const frame=JSON.parse(line);
   if(frame.method==="fixture/exit"){
     process.stderr.write("opaque fixture stderr",()=>process.exit(frame.params.code));
@@ -54,11 +59,16 @@ input.on("line",line=>{
       if (key.toUpperCase() === "PATH") delete baseline[key];
     }
     baseline.PATH = frame.params.inheritedPath;
-    result={
-      baseline:resolveCli(baseline,false),
-      child:resolveCli(process.env,false),
-      grandchild:resolveCli(process.env,true),
-    };
+    try {
+      result={
+        baseline:await resolveCli(baseline,false),
+        child:await resolveCli(process.env,false),
+        grandchild:await resolveCli(process.env,true),
+      };
+    } catch (error) {
+      process.stdout.write(JSON.stringify({id:frame.id,error:{code:-32603,message:String(error),data:{stderr:error.stderr}}})+"\n");
+      return;
+    }
   }
   process.stdout.write(JSON.stringify({id:frame.id,result})+"\n");
 });

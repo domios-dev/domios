@@ -3,7 +3,7 @@ import path from 'node:path';
 import {spawnSync} from 'node:child_process';
 import {createRequire} from 'node:module';
 import {createHash} from 'node:crypto';
-import {pythonInterpreter,runnerToolPaths,runnerRequirements} from './ci-runner-paths.mjs';
+import {bashInterpreter,pythonInterpreter,runnerToolPaths,runnerRequirements} from './ci-runner-paths.mjs';
 import {runnerProfile,profileEnvironment} from './ci-runner-profile.mjs';
 
 const files=directory=>{try{return fs.readdirSync(directory);}catch{return[];}};
@@ -80,7 +80,7 @@ export function bootstrapStep(owner,{root,env,profile,execute=spawnSync,ci=false
   const python=owner?.pythonBootstrap;
   if(python&&!(env.VIRTUAL_ENV&&env.CI_PYTHON&&fs.existsSync(env.CI_PYTHON))){
     if(python==='node scripts/ci-python-env.mjs')run(process.execPath,['scripts/ci-python-env.mjs']);
-    else run('bash',['-euo','pipefail','-c',python]);
+    else run(bashInterpreter(process.platform, env),['-euo','pipefail','-c',python]);
     applyJobFiles(env);
   }
   const role=owner?.role||'node,git,bash';

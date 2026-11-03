@@ -230,7 +230,7 @@ const tests: Test[] = [
       const [open, setOpen] = useState(false);
       return (
         <>
-          <AgentStateIndicator activity={tabActivity({ agent_state: { state: "quiet" } })} onRebind={() => setOpen(true)} />
+          <AgentStateIndicator activity={tabActivity({ agent_state: { state: "quiet" } }, "Idle")} onRebind={() => setOpen(true)} />
           {open && (
             <SessionBindingRecoveryForm
               tabId="tab-a"

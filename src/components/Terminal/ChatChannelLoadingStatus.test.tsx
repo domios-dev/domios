@@ -19,7 +19,7 @@ it("hosts the accessible waiting dots in the existing model row without an extra
     const row = chatChannelLoadingRow(loading, { kind: "none" }, false);
     await act(async () => root.render(
       <AgentStateIndicator
-        activity={tabActivity({ agent_state: { state: "idle" } })}
+        activity={tabActivity({ agent_state: { state: "idle" } }, "Idle")}
         providerName="Fixture provider"
         model="Fixture model"
         renderIdentity={(identity) => <button aria-label="Choose fixture model" onClick={chooseModel}>{identity}</button>}
@@ -60,7 +60,7 @@ it("renders runtime elapsed and completed duration in the existing indicator onl
   const runtime = { state: "loaded" as const, epoch: 2, active_turn_started_at_ms: 100_000, last_turn_duration_ms: 12_000 };
   try {
     for (const state of ["working", "idle"] as const) {
-      const activity = tabActivity({ backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" }, agent_state: { state } });
+      const activity = tabActivity({ backing: { kind: "chat_backend", plugin_id: "fixture", session_id: "thread" }, agent_state: { state } }, state === "working" ? "Working" : "Idle");
       const projected = runtimeActivityLabel(activity.label, activity.kind, runtime, 165_000);
       await act(async () => root.render(<AgentStateIndicator activity={activity} runtimeState={runtime} />));
       expect(host.childElementCount).toBe(1);
@@ -85,7 +85,7 @@ it("clears the working indicator on provider completion despite later background
     const result = runtimeReduce(ctx,state,[frame]);
     state = result.state;
     for (const event of result.events) if (event.kind === "turnState" && event.state !== "needs_input") live = event.state;
-    const activity = tabActivity({backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"thread"},agent_state:{state:live}},"Working");
+    const activity = tabActivity({backing:{kind:"chat_backend",plugin_id:"fixture",session_id:"thread"},agent_state:{state:live}},live === "working" ? "Working" : "Idle");
     await act(async()=>root.render(<AgentStateIndicator activity={activity} onStop={()=>{}} activeTool={{toolName:"command",toolInput:{command:"background"}}} />));
     return activity;
   };

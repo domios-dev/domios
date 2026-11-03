@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import {readFileSync, realpathSync, writeFileSync} from 'node:fs';
 import {resolve, join} from 'node:path';
 import {fileURLToPath} from 'node:url';
@@ -22,14 +23,14 @@ const deadline = performance.now() + deadlineSeconds * 1000;
 async function dc(...args) {
   const remaining = Math.ceil(deadline - performance.now());
   if (remaining <= 0) throw new Error('bounded replay deadline elapsed');
-  return cliResult(exec, 'bash', ['-c', 'source "$1"; shift; dc "$@"', 'upgrade-restore', benchLib, ...args],
+  return cliResult(exec, bashInterpreter(), ['-c', 'source "$1"; shift; dc "$@"', 'upgrade-restore', benchLib, ...args],
     {timeout: remaining, maxBuffer: 32 * 1024 * 1024});
 }
 const identify = await dc('identify', '--json');
 if (!String(identify.connection?.instance ?? '').startsWith('upgrade-restore-')) {
   throw new Error('Replay requires a named upgrade-restore-* DEV instance');
 }
-const health = await exec('bash', ['-c', 'source "$1"; dev_get /api/health', 'upgrade-restore', benchLib],
+const health = await exec(bashInterpreter(), ['-c', 'source "$1"; dev_get /api/health', 'upgrade-restore', benchLib],
   {timeout: Math.max(1, Math.ceil(deadline - performance.now())), maxBuffer: 1024 * 1024});
 const currentHealth = JSON.parse(health.stdout);
 if (currentHealth.build_sha !== expectedBuild) throw new Error('Running full build SHA differs from required replay SHA');
@@ -56,7 +57,7 @@ if (mode === 'stage') {
 if (mode !== 'verify') throw new Error('Unknown replay mode');
 requireRestart(JSON.parse(readFileSync(join(root, 'stage-result.json'), 'utf8')),
   currentHealth.boot_id, fixtureDigest);
-const connection = await exec('bash', ['-c',
+const connection = await exec(bashInterpreter(), ['-c',
   'source "$1"; dev_run node -e \'console.log(JSON.stringify({url:process.env.CODETERM_API_URL,token:process.env.CODETERM_API_TOKEN}))\'',
   'upgrade-restore', benchLib],
 {timeout: Math.max(1, Math.ceil(deadline - performance.now())), maxBuffer: 1024 * 1024});

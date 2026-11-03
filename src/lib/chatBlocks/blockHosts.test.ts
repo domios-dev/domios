@@ -6,7 +6,7 @@ import { FIXTURE_TASK } from "../../components/Canvas/cards/fixtures.testdata";
 import type { Plan, Task } from "../../components/Canvas/types";
 import type { AutomationGraph, BlueprintSnapshot } from "../../components/Automation/types";
 import type { PluginSnapshotStoreState } from "../pluginSnapshotStore";
-import type { CronJob, MultiplexerState, Tab } from "../types";
+import type { CronJob, MultiplexerState, Tab, TabStatus } from "../types";
 import { agentBlockInfo, agentRunState, resolveTabRef } from "./agentBlockState";
 import { createAgentBlockHost } from "./agentBlockHost";
 import { choiceRepliesByMessage, createChoiceBlockHost } from "./choiceBlockHost";
@@ -68,19 +68,21 @@ test("agent_ref_resolves_exact_or_unique_prefix_only", () => {
   assert(resolveTabRef(TABS, "e3ec") === null, "ambiguous prefix must not guess");
 });
 
-test("agent_state_reads_the_live_classification", () => {
-  assert(agentRunState(TABS["e3ec9ee9-1111"]) === "working", "working");
-  assert(agentRunState(TABS["e3ec0000-2222"]) === "waiting", "question is waiting");
+test("agent_state_reads_the_published_status", () => {
+  assert(agentRunState(TABS["e3ec9ee9-1111"], "Working") === "working", "published working");
+  assert(agentRunState(TABS["e3ec0000-2222"], "Waiting") === "waiting", "published waiting");
+  assert(agentRunState(TABS["e3ec9ee9-1111"], "Idle") === "idle", "published idle retires stale working details");
+  assert(agentRunState(TABS["e3ec9ee9-1111"]) === "idle", "missing status does not infer working");
   assert(agentRunState(tab("x", { agent_booting: true })) === "starting", "booting");
   assert(agentRunState(tab("x", { pty_id: null })) === "offline", "no runtime is offline");
   const busy = plan("pl_a", [task("task_1", "AL-1", "in_progress", { assigned_tab_id: "e3ec9ee9-1111" })]);
-  const info = agentBlockInfo(TABS["e3ec9ee9-1111"], [busy], () => "Claude");
+  const info = agentBlockInfo(TABS["e3ec9ee9-1111"], [busy], () => "Claude", "Working");
   assert(info.task?.key === "AL-1" && info.role === "Worker" && info.model === "opus" && info.provider === "Claude" && info.canStop, `info ${JSON.stringify(info)}`);
   assert(!agentBlockInfo(TABS["e3ec0000-2222"], [], () => null).canStop, "only a working agent can be stopped");
 });
 
 test("agent_host_reads_stably_opens_and_stops_through_commands", async () => {
-  const state: Pick<MultiplexerState, "tabs" | "workspaces"> = { tabs: TABS, workspaces: [{ id: "ws", tabs: Object.keys(TABS) } as never] };
+  const state: Pick<MultiplexerState, "tabs" | "workspaces"> & { tabStatuses: Record<string, TabStatus> } = { tabs: TABS, tabStatuses: { "e3ec9ee9-1111": "Working" }, workspaces: [{ id: "ws", tabs: Object.keys(TABS) } as never] };
   const calls: string[] = [];
   const host = createAgentBlockHost({
     mux: { getState: () => state, subscribe: () => () => {} },
@@ -107,7 +109,7 @@ test("agent_host_invalidates_activity_when_only_tab_status_changes", () => {
     interrupt: async () => {},
   });
   for (const [status, expected, canStop] of [
-    ["Idle", "working", true], ["Working", "working", true], ["Waiting", "waiting", false],
+    ["Idle", "idle", false], ["Working", "working", true], ["Waiting", "waiting", false],
   ] as const) {
     tabStatuses = { "e3ec9ee9-1111": status };
     const result = host.binding.read("e3ec9ee9");

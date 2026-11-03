@@ -1,4 +1,5 @@
 // Caller: build.sh ci-tests; scripts tests/ci-rust-tests.test.mjs
+import {bashInterpreter} from './bash-interpreter.mjs';
 import { verifyReceipts, readReceipts } from './ci-rust-receipts.mjs';
 export { verifyReceipts } from './ci-rust-receipts.mjs';
 import fs from 'node:fs';
@@ -283,7 +284,7 @@ async function run(mode, { compileOnly = false } = {}) {
         const filter = `(${scope}) & (${unitFilter})`;
         fs.writeFileSync(config, tomlConfig(filter, listener));
         const log = path.join(directory, `${mode}-${lane.lane}-${listener ? 'listener' : 'normal'}.log`);
-        const result = await captureCommand('bash', ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config)], log, env);
+        const result = await captureCommand(bashInterpreter(), ['scripts/test-capped.sh', '--exec', 'cargo-nextest', ...testArgs(config)], log, env);
         const report = fs.readFileSync(log, 'utf8');
         requireTestSuccess(result, report, `Rust tests failed on ${receipt.runner}`);
         receipt.executed += executedCount(report);

@@ -2,6 +2,10 @@
 """Measure CLI mistake retrieval against the docs-enabled memrerank dev instance."""
 
 from __future__ import annotations
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
 
 import argparse
 import json
@@ -9,10 +13,8 @@ import math
 import os
 import statistics
 import subprocess
-import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from run import ensure_supporter_connected
@@ -94,7 +96,7 @@ def run_dc_command(lib_path: Path, instance: str, args: list[str]) -> str:
     env["CODETERM_INSTANCE"] = instance
     result = subprocess.run(
         [
-            "bash",
+            bash_interpreter(),
             "-c",
             'source "$1"; shift; dc "$@"',
             "cli-eval",

@@ -109,6 +109,7 @@ pub enum ControlLoopMode {
     #[default]
     Curator,
     Heartbeat,
+    Off,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -271,8 +272,14 @@ pub fn curator_delay(chosen: Option<u64>) -> u64 {
 }
 
 impl ControlLoop {
+    pub fn defer(&mut self, now: u64, chosen: Option<u64>) {
+        self.next_at = (self.mode == ControlLoopMode::Curator)
+            .then(|| now.saturating_add(curator_delay(chosen) * 1000));
+    }
+
     pub fn owner_heartbeat(&self) -> bool {
-        self.mode == ControlLoopMode::Heartbeat || self.fallback_reason.is_some()
+        self.mode != ControlLoopMode::Off
+            && (self.mode == ControlLoopMode::Heartbeat || self.fallback_reason.is_some())
     }
 
     pub fn interval(&self, machine_default: u64) -> u64 {

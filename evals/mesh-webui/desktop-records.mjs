@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import assert from 'node:assert/strict';
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
@@ -11,7 +12,7 @@ import {nativePasteReceipt,nativePasteBody} from './records.mjs';
 
 const exec=promisify(execFile);
 export async function desktopDc(args) {
-  const {stdout}=await exec('C:/Program Files/Git/bin/bash.exe',[fileURLToPath(new URL('./desktop-dc.sh',import.meta.url)),...args],{timeout:30000,maxBuffer:32*1024*1024});
+  const {stdout}=await exec(bashInterpreter(),[fileURLToPath(new URL('./desktop-dc.sh',import.meta.url)),...args],{timeout:30000,maxBuffer:32*1024*1024});
   const value=JSON.parse(stdout);assert.notEqual(value.ok,false);return value.result;
 }
 function binding(value,tab) {

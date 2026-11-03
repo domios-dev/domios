@@ -1,6 +1,7 @@
 import { readUpdateIntent, UPDATE_INTENT_KEY } from "../updatePanelModel";
 import type { TransportClient } from "../transportClient";
-import { restoreComposerDrafts } from "./drafts";
+import { composerDraftRecords, restoreComposerDrafts } from "./drafts";
+import { composerDraftPersistence, type DraftPersistence } from "./draftPersistence";
 import { getPersistedChatScrollState, setPersistedChatScrollState, type ChatScrollState } from "../../components/Terminal/chatViewport";
 import { frontendSignals, setCheckpointRestorer } from "./appState";
 import { initializeFrontendUpdateRuntime, ROOT_RENDERED_EVENT, type FrontendRuntimeOptions, type FrontendUpdateOffer } from "./runtime";
@@ -25,9 +26,12 @@ function publishOffer(next: FrontendUpdateOffer | null): void {
   for (const listener of offerListeners) listener();
 }
 
-export async function initializeBrowserFrontendUpdates(client: TransportClient, context: Pick<FrontendRuntimeOptions, "clientId" | "boot" | "bundled" | "onError">) {
+export async function initializeBrowserFrontendUpdates(client: TransportClient, context: Pick<FrontendRuntimeOptions, "clientId" | "boot" | "bundled" | "onError">,
+  persistence: DraftPersistence = composerDraftPersistence) {
+  await persistence.initialize();
   setCheckpointRestorer(value => {
-    const restored = restoreComposerDrafts(value, localStorage);
+    const restored = restoreComposerDrafts(value, persistence.records);
+    for (const [scope, text] of composerDraftRecords(restored)) persistence.edit(scope, text);
     for (const [key, scroll] of Object.entries(restored.scroll)) {
       const local = getPersistedChatScrollState(key);
       if (local) scroll.chat = JSON.stringify(local);
@@ -48,6 +52,7 @@ export async function initializeBrowserFrontendUpdates(client: TransportClient, 
   modals.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["role", "open"] });
   try {
     runtime = await initializeFrontendUpdateRuntime(client, { ...context, held: () => held, signals: frontendSignals, storage: sessionStorage,
+      flushDrafts: () => persistence.flush().catch(error => { context.onError(error); throw error; }),
       navigate: path => location.assign(path), events: window, onOffer: publishOffer,
       event: detail => new CustomEvent(ROOT_RENDERED_EVENT, { detail }),
     });

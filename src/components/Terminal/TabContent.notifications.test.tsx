@@ -11,7 +11,7 @@ import { __setInvokeForTest, __setListenForTest } from "../../lib/bridge";
 const fixture = vi.hoisted(() => ({ state: null as ExtendedState | null }));
 vi.mock("../Titlebar/KeepAwakeTray", () => ({ KeepAwakeTray: () => null }));
 vi.mock("../WebPeerPicker/WebPeerPicker", () => ({ WebPeerPicker: () => null }));
-vi.mock("@codeterm/chat-ui", () => ({ LocalArtifactScope: ({ children }: { children: React.ReactNode }) => <>{children}</>, RichMarkdown: ({ text }: { text: string }) => <div>{text}</div> }));
+vi.mock("@codeterm/chat-ui", () => ({ LocalArtifactScope: ({ children }: { children: React.ReactNode }) => <>{children}</>, DsText: ({ text }: { text: string }) => <div>{text}</div> }));
 vi.mock("../../lib/useAgentDescriptor", () => ({ useAgentDescriptor: () => ({ supports_chat_ui: true, settings_schema: [] }) }));
 vi.mock("../../hooks/useAgentProviders", () => ({ useAgentProviders: () => ({ providers: [], loading: false, error: null }) }));
 vi.mock("./useHeaderTabMenu", () => ({ useHeaderTabMenu: () => null }));

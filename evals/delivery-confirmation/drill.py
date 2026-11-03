@@ -1,7 +1,10 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
 import argparse
 import json
 import os
-from pathlib import Path
 import queue
 import subprocess
 import threading
@@ -60,7 +63,7 @@ def run(args):
     script = Path(__file__).with_name("run.sh")
 
     def cli(*command, input_text=None):
-        result = subprocess.run(["bash", str(script), "--dc", *command],
+        result = subprocess.run([bash_interpreter(), str(script), "--dc", *command],
                                 capture_output=True, text=True, input=input_text, timeout=args.timeout)
         if result.returncode:
             raise RuntimeError(f"dc {command[0]} exit {result.returncode}: {result.stderr}")

@@ -17,7 +17,8 @@ fn watches() -> &'static Mutex<HashMap<String, Watch>> {
     static WATCHES: OnceLock<Mutex<HashMap<String, Watch>>> = OnceLock::new();
     WATCHES.get_or_init(Mutex::default)
 }
-pub(crate) fn cancel(tab: &str) {
+pub(crate) fn cancel(svc: &ServiceContext, tab: &str) {
+    super::agent_runtime::capacity_retry::transcript::retire(svc, tab);
     let old = { watches().lock().remove(tab) };
     drop(old);
 }
@@ -34,7 +35,7 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
         })
     };
     let Some((provider, cwd, session, nonce)) = target else {
-        cancel(tab);
+        cancel(svc, tab);
         return;
     };
     if !svc
@@ -43,7 +44,7 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
         .unwrap_or(false)
     {
         log::debug!("[provider-access] no session capability tab={tab}");
-        cancel(tab);
+        cancel(svc, tab);
         return;
     }
     let queue = svc.pending_delivery_payloads.user_sends.tab(tab);
@@ -92,6 +93,9 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
                 else {
                     return;
                 };
+                super::agent_runtime::capacity_retry::transcript::register(
+                    &svc, &tab, &session, &nonce, &path,
+                );
                 entry._watcher = Some(watcher);
             }
             let _ = tx.try_send(());
@@ -136,6 +140,11 @@ pub(crate) fn ensure(svc: &ServiceContext, tab: &str) {
                             initialized && !incomplete && !partial,
                         );
                         super::provider_signals::apply(&svc, &tab, &session, &nonce, &records);
+                        if !incomplete {
+                            super::agent_runtime::capacity_retry::transcript::observe(
+                                &svc, &tab, &session, &nonce, &records,
+                            );
+                        }
                         if let Some(context) = records
                             .iter()
                             .rev()
@@ -199,6 +208,15 @@ fn read(
                     .get("sessionId")
                     .and_then(serde_json::Value::as_str)
                     .map(str::to_string),
+                role: value
+                    .get("type")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
+                uuid: value
+                    .get("uuid")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_string),
                 provider_observations: provider.parse_session_observations(value),
                 background_work: provider.parse_background_work(value),
                 context_usage: provider.parse_context_usage(value),
@@ -236,8 +254,10 @@ fn read_file(
             incomplete = true;
             continue;
         };
-        if let Some(record) = decode(&value) {
-            if record.provider_observations.is_some()
+        if let Some(mut record) = decode(&value) {
+            record.record_start = Some(end - count as u64);
+            if record.role == "user"
+                || record.provider_observations.is_some()
                 || !record.background_work.is_empty()
                 || record.context_usage.is_some()
             {

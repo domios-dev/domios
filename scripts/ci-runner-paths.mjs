@@ -4,26 +4,16 @@ import {reproLine} from './ci-repro.mjs';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {bashInterpreter} from './bash-interpreter.mjs';
+export {bashInterpreter} from './bash-interpreter.mjs';
 
 export function runnerToolPaths(platform, env, hasFile, children = () => []) {
   const windows = platform === 'win32';
   const paths = windows ? path.win32 : path.posix;
   const directories = [];
   if (windows) {
-    const gitRoots = [
-      env.ProgramFiles && paths.join(env.ProgramFiles, 'Git'),
-      env['ProgramFiles(x86)'] && paths.join(env['ProgramFiles(x86)'], 'Git'),
-      env.LOCALAPPDATA && paths.join(env.LOCALAPPDATA, 'Programs', 'Git'),
-    ].filter(Boolean);
     const inherited = (env.PATH || '').split(';').map((entry) => entry.replace(/^"|"$/g, '')).filter(Boolean);
-    const candidates = [
-      ...gitRoots.map((root) => paths.join(root, 'bin')),
-      ...inherited,
-      ...inherited.filter((directory) => /[\\/]cmd$/i.test(directory)).map((directory) => paths.join(directory, '..', 'bin')),
-    ];
-    const bash = candidates.find((directory) => hasFile(paths.join(directory, 'bash.exe')));
-    if (!bash) throw new Error('Git Bash is required by Rust setup and capped tests; restore Git for Windows on the runner');
-    directories.push(bash);
+    directories.push(paths.dirname(bashInterpreter(platform, env, hasFile)));
     const pythonRoots = [
       env.LOCALAPPDATA && paths.join(env.LOCALAPPDATA, 'Programs', 'Python'),
       env.ProgramFiles,
@@ -46,12 +36,6 @@ export function runnerToolPaths(platform, env, hasFile, children = () => []) {
   directories.push(...rust.filter((directory) => hasFile(paths.join(directory, windows ? 'rustup.exe' : 'rustup'))));
   if (directories.some((directory) => /[\r\n]/.test(directory))) throw new Error('Tool path contains a line break');
   return [...new Set(directories)];
-}
-
-export function bashInterpreter(platform = process.platform, env = process.env, hasFile = fs.existsSync) {
-  if (platform !== 'win32') return 'bash';
-  const directories = runnerToolPaths(platform, env, hasFile);
-  return path.win32.join(directories[0], 'bash.exe');
 }
 
 export const RUNNER_ROLES = {

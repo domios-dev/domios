@@ -84,7 +84,7 @@ Scopes select one subtree: `dialog`, `sidebar` (complementary landmark), `compos
 
 ## Named DEV instance sessions and cleanup
 
-`open --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA` creates or reuses a profile bound to that exact origin, opens its `/web/` UI, and refuses a different origin or an unexpected `/api/health` build SHA. `attach` takes the same options and reuses the owned named session. Origins must be bare HTTP(S) origins without credentials, paths, queries or fragments. Existing unbound user profiles cannot be adopted as per-instance profiles.
+`open --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA` creates or reuses a profile bound to that exact origin, opens its root `/` UI, and refuses a different origin or an unexpected `/api/health` build SHA. `attach` takes the same options and reuses the owned named session. Origins must be bare HTTP(S) origins without credentials, paths, queries or fragments. Existing unbound user profiles cannot be adopted as per-instance profiles.
 
 `connect --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA --stdin` opens the session and accepts the instance API token through piped stdin. Never place the token in argv, a URL or a log. The helper stores and reads back the origin-specific token, then reloads; use snapshot evidence to verify authentication. It never reads an inherited host endpoint or token.
 
@@ -116,7 +116,7 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 ## QA convenience commands
 
-`open --domios-instance qa --api-port 7790 [--ephemeral]` checks the loopback daemon's exact instance name, API port and DEV application identifier, reads that named DEV instance's protected local credential internally, and connects using an automatically named origin-bound profile. The caller supplies no token. It refuses production port 7685, missing credentials and identity mismatches. Names are lowercase slugs. This convenience path uses the standard named DEV data directory and ignores inherited data-directory/host/token overrides; custom data roots can use the explicit named-session and stdin helper above.
+`open --domios-instance qa --api-port 7790 [--ephemeral]` checks the loopback daemon's exact instance name, API port and DEV application identifier, reads that named DEV instance's protected local credential internally, and opens its root `/` UI using an automatically named origin-bound profile. The caller supplies no token. It refuses production port 7685, missing credentials and identity mismatches. Names are lowercase slugs. This convenience path uses the standard named DEV data directory and ignores inherited data-directory/host/token overrides; custom data roots can use the explicit named-session and stdin helper above.
 
 `snapshot --with-text --max-items 80` adds bounded static accessibility leaf text, such as description values and list-item text. It can accompany `--json`, `--scope` and `--actions-only`; static text gets no action refs and sensitive subtrees stay redacted.
 
@@ -139,4 +139,4 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 On every outcome other than `read`, `text` holds the reason.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->

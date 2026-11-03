@@ -1,5 +1,13 @@
 use super::*;
 #[test]
+fn named_sessions_open_the_instance_root() {
+    let args =
+        parse(&["--profile", "dev-qa", "--origin", "http://127.0.0.1:7790/"].map(String::from))
+            .unwrap();
+    assert_eq!(args.ui_url(), "http://127.0.0.1:7790/");
+}
+
+#[test]
 fn named_session_arguments_require_an_explicit_origin_and_profile() {
     let args = [
         "--profile",

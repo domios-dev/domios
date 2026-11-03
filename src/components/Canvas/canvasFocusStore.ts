@@ -9,7 +9,7 @@ export interface CanvasFocusTarget {
 }
 
 /** The team view a plan or task jump lands on. */
-export type PlanTargetJump = { view: "plan" } | { view: "task"; taskId: string };
+export type PlanTargetJump = { view: "board" | "plan" } | { view: "task"; taskId: string };
 
 export interface CanvasWorkspaceTarget extends ReturnToRoute {
   teamId?: string;

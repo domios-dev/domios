@@ -25,7 +25,7 @@ assert.deepEqual(oversightLines({ ...base, last_round_at: null }, NOW), [{ tone:
 assert.deepEqual(oversightLines({ ...base, mode: "heartbeat", next_at: NOW + 18 * M }, NOW), [{ tone: "accent", text: "Next reminder in 18m" }]);
 assert.deepEqual(oversightLines({ ...base, fallback_reason: "opaque reason", next_at: NOW + 18 * M }, NOW), [
   { tone: "warning", text: "Curator unavailable, heartbeat running: opaque reason" },
-  { tone: "muted", text: "Next reminder in 18m" },
+  { tone: "muted", text: "Next Curator retry in 18m" },
 ]);
 assert.equal(oversightLines({ ...base, paused: true }, NOW)[0].tone, "muted");
 assert.equal(oversightLines({ ...base, next_at: null }, NOW)[0].text.startsWith("Next round not scheduled"), true);
@@ -34,7 +34,7 @@ assert.equal(oversightSummary(base, NOW), "Curator, next round in ~1h");
 assert.deepEqual(oversightLines({ ...base, next_at: null, running_round: 81 }, NOW), [{ tone: "green", text: "Round 81 running" }]);
 assert.equal(oversightSummary({ ...base, next_at: null, running_round: 81 }, NOW), "Curator, round 81 running");
 assert.equal(oversightSummary({ ...base, mode: "heartbeat", next_at: NOW + 18 * M }, NOW), "Heartbeat every 30m, next in 18m");
-assert.equal(oversightSummary({ ...base, fallback_reason: "x", next_at: NOW + 18 * M }, NOW), "Heartbeat every 30m, next in 18m");
+assert.equal(oversightSummary({ ...base, fallback_reason: "x", next_at: NOW + 18 * M }, NOW), "Heartbeat fallback, Curator retry in 18m");
 assert.equal(oversightSummary({ ...base, paused: true }, NOW), "Paused");
 
 assert.equal(pauseHint(base, NOW, "running hint"), "running hint");

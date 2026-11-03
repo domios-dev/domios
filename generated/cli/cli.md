@@ -2088,14 +2088,6 @@ Request one Curator round now, subject to the plan and human-wait gates
 
 - `<plan_id>`
 
-#### `domios plan control-loop set`
-
-Switch the plan between Curator rounds and the plain heartbeat
-
-- `--interval`
-- `<mode>`
-- `<plan_id>`
-
 #### `domios plan control-loop show`
 
 Show the plan's control-loop mode and heartbeat interval

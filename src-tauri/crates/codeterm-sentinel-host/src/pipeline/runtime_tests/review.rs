@@ -21,7 +21,8 @@ fn blueprint_v2_runtime_review_memory_is_admitted_with_platform_warning() {
     let root = tempfile::tempdir().unwrap();
     let mut doc = checked.definition.unwrap();
     doc["owner"] = json!("tab");
-    let (fixture, storage, handle, lease) = fixture(doc, root.path());
+    let (fixture, storage, handle, mut lease) = fixture(doc, root.path());
+    lease.cancelled = crate::probe::cancellation::Cancellation::completion_driven().into();
     let (completion, diagnostic) =
         run_recorded(&handle, &fixture.service, &lease, "memory-admission");
     assert_eq!(completion.state, JournalState::Done, "{diagnostic}");

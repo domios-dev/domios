@@ -3,13 +3,15 @@ WHY: Source-only authoring must leave canonical QA exact executable commands.
 ORACLE: A PASS requires independently checked real prompt and policy evidence.
 """
 
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
 import argparse
 import json
 import os
-from pathlib import Path
 import shutil
 import socket
-import sys
 import time
 import urllib.request
 
@@ -572,13 +574,13 @@ def main():
         if options.start:
             with socket.socket() as listener:
                 listener.bind(("127.0.0.1", options.port))
-        command = ["bash", str(REPO / "build.sh"), "dev", "--wait"] if options.start else [
-            "bash", str(REPO / "build.sh"), "kill"]
+        command = [bash_interpreter(), str(REPO / "build.sh"), "dev", "--wait"] if options.start else [
+            bash_interpreter(), str(REPO / "build.sh"), "kill"]
         # build.sh owns the machine gateway and operation-specific deadlines.
-        os.execvpe("bash", command, env)
+        os.execvpe(bash_interpreter(), command, env)
     if options.internal:
         return live(options, root)
-    command = ["bash", "-c", 'source "$1"; shift; dev_run "$@"', "matrix-dev",
+    command = [bash_interpreter(), "-c", 'source "$1"; shift; dev_run "$@"', "matrix-dev",
                str(REPO / "evals/_lib/lib.sh"), sys.executable, str(HERE / "matrix.py"),
                *sys.argv[1:], "--internal"]
     secret = read_secret() if options.connect_jev else None

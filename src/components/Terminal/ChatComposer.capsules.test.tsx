@@ -8,6 +8,11 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { composerDraftPersistence } from "../../lib/frontendUpdate/draftPersistence";
+
+vi.mock("../../lib/frontendUpdate/draftStorage", () => ({
+  createDraftStorage: () => ({ read: async () => new Map<string, string>(), write: async () => {} }),
+}));
 import { capsuleToken } from "./composerCapsules";
 import type { InlineAttachmentSink } from "./useComposerCapsules";
 
@@ -182,7 +187,7 @@ it("restores a draft with its capsules after the composer remounts", async () =>
 });
 
 it("leaves an old plain draft untouched", async () => {
-  window.localStorage.setItem("codeterm:composer-draft:tab-session-chat:capsule-old", "an older draft");
+  composerDraftPersistence.edit("tab-session-chat:capsule-old", "an older draft");
   const { textarea, calls } = await renderComposer("capsule-old");
   expect(textarea.value).toBe("an older draft");
   expect(mirror()).toBeNull();

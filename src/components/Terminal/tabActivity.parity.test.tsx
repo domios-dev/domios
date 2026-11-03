@@ -43,9 +43,9 @@ const root = createRoot(host);
 async function main() {
   try {
     const cases: Array<[Tab, TabStatus | null, boolean, boolean]> = [
-      [agent, "Working", false, false],
-      [{ ...agent, agent_state: { state: "idle" } }, "Working", false, false],
-      [{ ...agent, agent_state: { state: "working" } }, "Idle", true, true],
+      [agent, "Working", true, true],
+      [{ ...agent, agent_state: { state: "idle" } }, "Working", true, true],
+      [{ ...agent, agent_state: { state: "working" } }, "Idle", false, false],
       [{ ...agent, agent_state: { state: "question", subtype: "permission" } }, "Waiting", false, false],
       [{ ...agent, boot_stage: "agent_launching" }, "Working", false, false],
       [{ ...agent, boot_stage: "agent_ready", agent_state: { state: "idle" } }, "Idle", false, false],

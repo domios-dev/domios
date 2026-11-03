@@ -2,15 +2,17 @@
 """Capture dev tab text and let a human assign its state label."""
 
 from __future__ import annotations
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
 
 import argparse
 import hashlib
 import json
 import math
 import subprocess
-import sys
 import uuid
-from pathlib import Path
 from typing import Any
 
 from prepare_fixtures import LABELS, LIVE_INPUT, ROOT, regex_scrub
@@ -37,7 +39,7 @@ CONTEXT_INPUT_FIELDS = {
 
 def dc_json(*args: str) -> Any:
     result = subprocess.run(
-        ["bash", "-c", 'source "$1"; shift; dc "$@"', "capture_screen", str(LIB), *args, "--json"],
+        [bash_interpreter(), "-c", 'source "$1"; shift; dc "$@"', "capture_screen", str(LIB), *args, "--json"],
         capture_output=True,
         text=True,
         check=False,

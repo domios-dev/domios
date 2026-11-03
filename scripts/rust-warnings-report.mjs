@@ -31,7 +31,7 @@ const files = fs.existsSync(directory) ? fs.readdirSync(directory).filter(f => /
 const documents = files.map(f => JSON.parse(fs.readFileSync(path.join(directory, f), 'utf8')));
 const warnings = deduplicate(documents.flatMap(d => d.warnings));
 const targets = [...new Set(documents.map(d => d.target))].sort();
-const required = JSON.parse(process.env.WARNING_ARTIFACTS || '[]');
+const required = [...JSON.parse(process.env.WARNING_ARTIFACTS || '[]'), ...JSON.parse(process.env.WARNING_ADDITIONAL_ARTIFACTS || '[]')];
 const missing = required.filter(name => !files.includes(name + '.json'));
 const incomplete = documents.filter(d => !d.complete).map(d => d.platform + '-' + d.target);
 fs.rmSync(path.join(output, 'rust-warnings-baseline.json'), { force: true });

@@ -50,6 +50,7 @@ function freezeDraft(draft: Draft, previous?: CheckpointSnapshot["drafts"][strin
 
 export function createFrontendSignals(initial: ClientCheckpoint, safety: Safety, restore: (checkpoint: ClientCheckpoint) => ClientCheckpoint | void): FrontendSignals & {
   edit(checkpoint: ClientCheckpoint): void;
+  editSelection(workspaceId: string | null, tabId: string | null): void;
   editDraft(scope: string, text: string): void;
   editScroll(key: string, surface: "chat" | "terminal", value: string): void;
   signal(patch: Partial<Safety>): void;
@@ -72,6 +73,10 @@ export function createFrontendSignals(initial: ClientCheckpoint, safety: Safety,
     },
     subscribe(listener) { listeners.add(listener); return () => { listeners.delete(listener); }; },
     edit(value) { publishCheckpoint(freezeCheckpoint(structuredClone(value))); },
+    editSelection(activeWorkspaceId, activeTabId) {
+      if (checkpoint.activeWorkspaceId === activeWorkspaceId && checkpoint.activeTabId === activeTabId) return;
+      publishCheckpoint(Object.freeze({ ...checkpoint, activeWorkspaceId, activeTabId }));
+    },
     editDraft(scope, text) {
       const key = draftKey(scope);
       const previous = checkpoint.drafts[key];

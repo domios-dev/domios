@@ -19,6 +19,7 @@ enum Effect {
     Control,
     SameDocument,
     Navigation,
+    HeldNavigation,
     Close,
 }
 
@@ -53,6 +54,9 @@ impl Connection {
             ),
             Effect::Navigation => {
                 self.emit("Page.frameRequestedNavigation", json!({"frameId":"main"}))
+            }
+            Effect::HeldNavigation => {
+                self.emit("Page.frameStartedLoading", json!({"frameId":"main"}))
             }
             Effect::Close => self.emit("Inspector.detached", json!({"reason":"target_closed"})),
         }
@@ -186,22 +190,28 @@ async fn click(
 #[tokio::test]
 async fn browser_completion_direct_and_atomic_clicks_wait_for_released_navigation() {
     for atomic in [false, true] {
-        let (runtime, page, connection, _root) = fixture(Effect::Navigation).await;
-        let action = click(&runtime, &page, atomic);
-        tokio::pin!(action);
-        assert!(futures_util::poll!(&mut action).is_pending());
-        assert_eq!(connection.actions.load(Ordering::SeqCst), 1);
-        connection.emit(
-            "Page.lifecycleEvent",
-            json!({"frameId":"child","loaderId":"after","name":"load"}),
-        );
-        assert!(futures_util::poll!(&mut action).is_pending());
-        connection.release_navigation();
-        assert!(action
-            .await
-            .unwrap()
-            .starts_with("navigation loaded: https://page/delayed"));
-        assert_eq!(connection.actions.load(Ordering::SeqCst), 1);
+        for effect in [Effect::Navigation, Effect::HeldNavigation] {
+            let (runtime, page, connection, _root) = fixture(effect).await;
+            let action = click(&runtime, &page, atomic);
+            tokio::pin!(action);
+            assert!(futures_util::poll!(&mut action).is_pending());
+            assert_eq!(connection.actions.load(Ordering::SeqCst), 1);
+            connection.emit(
+                "Page.lifecycleEvent",
+                json!({"frameId":"child","loaderId":"after","name":"load"}),
+            );
+            connection.emit(
+                "Page.lifecycleEvent",
+                json!({"frameId":"main","loaderId":"before","name":"load"}),
+            );
+            assert!(futures_util::poll!(&mut action).is_pending());
+            connection.release_navigation();
+            assert!(action
+                .await
+                .unwrap()
+                .starts_with("navigation loaded: https://page/delayed"));
+            assert_eq!(connection.actions.load(Ordering::SeqCst), 1);
+        }
     }
 }
 
@@ -250,7 +260,7 @@ async fn browser_completion_goto_and_history_need_their_own_navigation() {
 #[tokio::test(start_paused = true)]
 async fn browser_completion_timeout_and_changed_authority_never_replay() {
     for atomic in [false, true] {
-        let (runtime, page, connection, _root) = fixture(Effect::Navigation).await;
+        let (runtime, page, connection, _root) = fixture(Effect::HeldNavigation).await;
         let result = click(&runtime, &page, atomic).await;
         assert!(result.unwrap_err().contains("deadline exceeded"));
         assert_eq!(connection.actions.load(Ordering::SeqCst), 1);

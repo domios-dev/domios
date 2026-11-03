@@ -49,7 +49,7 @@ async function main() {
   } as Tab;
   const state = {
     workspaces: [], tabs: { [tab.id]: tab }, teams: [], active_workspace_id: null, focused_tab_id: tab.id,
-    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
+    notifications: [], tabStatuses: { [tab.id]: "Working" }, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
   } as unknown as ExtendedState;
   const host = document.createElement("div");
   document.body.appendChild(host);
