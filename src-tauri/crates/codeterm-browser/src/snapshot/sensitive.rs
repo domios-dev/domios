@@ -213,7 +213,7 @@ async fn capture(
     page.send("DOM.disable", json!({}))
         .await
         .map_err(|error| format!("DOM frontend reset failed: {error}"))?;
-    let mut events = page.subscribe_session(&[
+    let mut events = page.subscribe_session_reliable(&[
         "DOM.setChildNodes",
         "DOM.documentUpdated",
         "DOM.attributeModified",

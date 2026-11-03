@@ -490,3 +490,49 @@ async fn browser_cdp_deep_reply_fails_its_request_without_waiting_for_deadline()
     assert!(client.close_reason().is_none());
     client.close("fixture complete");
 }
+
+#[tokio::test]
+async fn browser_cdp_reliable_ancestry_backpressures_in_order_and_close_releases_it() {
+    let (connection, _outgoing) = batch_connection();
+    let mut events = connection.subscribe_with_delivery(
+        EventFilter::any().with_methods(&["DOM.setChildNodes"]),
+        true,
+    );
+    let event = |index| {
+        Incoming::Event(CdpEvent {
+            method: "DOM.setChildNodes".into(),
+            params: json!({"index":index}),
+            session_id: None,
+        })
+    };
+    for index in 0..SUBSCRIBER_CAPACITY {
+        connection.0.route(event(index)).await;
+    }
+    {
+        let delivery = connection.0.route(event(SUBSCRIBER_CAPACITY));
+        tokio::pin!(delivery);
+        assert!(futures_util::poll!(&mut delivery).is_pending());
+        assert!(!events.has_lost_events());
+        assert_eq!(events.try_recv().unwrap().params["index"], 0);
+        tokio::time::timeout(Duration::from_secs(1), &mut delivery)
+            .await
+            .unwrap();
+    }
+    for index in 1..=SUBSCRIBER_CAPACITY {
+        assert_eq!(events.try_recv().unwrap().params["index"], index);
+    }
+    assert!(events.try_recv().is_err());
+    assert!(!events.has_lost_events());
+    for index in 0..SUBSCRIBER_CAPACITY {
+        connection.0.route(event(index)).await;
+    }
+    let delivery = connection.0.route(event(SUBSCRIBER_CAPACITY));
+    tokio::pin!(delivery);
+    assert!(futures_util::poll!(&mut delivery).is_pending());
+    connection.close("fixture closed while backpressured");
+    tokio::time::timeout(Duration::from_secs(1), &mut delivery)
+        .await
+        .unwrap();
+    assert!(events.is_closed());
+    assert!(!events.has_lost_events());
+}

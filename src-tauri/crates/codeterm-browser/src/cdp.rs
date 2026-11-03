@@ -59,6 +59,7 @@ struct Subscriber {
     filter: EventFilter,
     sender: mpsc::Sender<Arc<CdpEvent>>,
     dropped: Arc<AtomicU64>,
+    reliable: bool,
 }
 
 #[derive(Default)]
@@ -94,7 +95,7 @@ impl Drop for PendingRequests {
 }
 
 impl Inner {
-    fn route(&self, incoming: Incoming) {
+    async fn route(&self, incoming: Incoming) {
         match incoming {
             Incoming::Response { id, result } => {
                 let reply = self.state.lock().pending.remove(&id);
@@ -102,14 +103,18 @@ impl Inner {
                     let _ = reply.send(result.map_err(CdpError::Protocol));
                 }
             }
-            Incoming::Event(event) => self.fan_out(Arc::new(event)),
+            Incoming::Event(event) => {
+                let event = Arc::new(event);
+                self.fan_out(event.clone());
+                self.fan_out_reliable(event).await;
+            }
         }
     }
 
     fn fan_out(&self, event: Arc<CdpEvent>) {
         let mut state = self.state.lock();
         state.subscribers.retain_mut(|subscriber| {
-            if !subscriber.filter.matches(&event) {
+            if subscriber.reliable || !subscriber.filter.matches(&event) {
                 return true;
             }
             match subscriber.sender.try_send(event.clone()) {
@@ -129,6 +134,25 @@ impl Inner {
                 Err(TrySendError::Closed(_)) => false,
             }
         });
+    }
+
+    async fn fan_out_reliable(&self, event: Arc<CdpEvent>) {
+        let senders: Vec<_> = {
+            let state = self.state.lock();
+            state
+                .subscribers
+                .iter()
+                .filter(|subscriber| subscriber.reliable && subscriber.filter.matches(&event))
+                .map(|subscriber| subscriber.sender.clone())
+                .collect()
+        };
+        let mut closed = self.closed.subscribe();
+        for sender in senders {
+            tokio::select! {
+                _ = closed.wait_for(Option::is_some) => break,
+                _ = sender.send(event.clone()) => {}
+            }
+        }
     }
 
     fn close(&self, reason: &str) {
@@ -268,6 +292,10 @@ impl SocketConnection {
     }
 
     pub fn subscribe(&self, filter: EventFilter) -> EventStream {
+        self.subscribe_with_delivery(filter, false)
+    }
+
+    fn subscribe_with_delivery(&self, filter: EventFilter, reliable: bool) -> EventStream {
         let id = self.0.next_subscriber.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = mpsc::channel(SUBSCRIBER_CAPACITY);
         let dropped = Arc::new(AtomicU64::new(0));
@@ -278,6 +306,7 @@ impl SocketConnection {
                 filter,
                 sender,
                 dropped: dropped.clone(),
+                reliable,
             });
         }
         EventStream {
@@ -295,6 +324,9 @@ pub trait CdpConnection: Send + Sync {
     fn closed(&self) -> watch::Receiver<Option<String>>;
     fn close(&self, reason: &str);
     fn subscribe(&self, filter: EventFilter) -> EventStream;
+    fn subscribe_reliable(&self, filter: EventFilter) -> EventStream {
+        self.subscribe(filter)
+    }
     async fn send_to(
         &self,
         session_id: Option<&str>,
@@ -330,6 +362,9 @@ impl CdpConnection for SocketConnection {
     }
     fn subscribe(&self, filter: EventFilter) -> EventStream {
         self.subscribe(filter)
+    }
+    fn subscribe_reliable(&self, filter: EventFilter) -> EventStream {
+        self.subscribe_with_delivery(filter, true)
     }
     async fn send_to(
         &self,
@@ -461,7 +496,7 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
         };
         match message {
             Some(Ok(Message::Text(text))) => match decode_incoming(&text) {
-                Ok(incoming) => owner.route(incoming),
+                Ok(incoming) => owner.route(incoming).await,
                 Err(error) => {
                     log::warn!("[browser-cdp] undecodable message (chrome -> domios): {error}");
                     match response_id(&text) {
@@ -621,6 +656,16 @@ impl PageChannel {
 
     pub fn subscribe_session(&self, methods: &[&str]) -> EventStream {
         self.client.subscribe(
+            EventFilter {
+                session: SessionFilter::Session(self.session_id.clone()),
+                methods: Vec::new(),
+            }
+            .with_methods(methods),
+        )
+    }
+
+    pub fn subscribe_session_reliable(&self, methods: &[&str]) -> EventStream {
+        self.client.0.subscribe_reliable(
             EventFilter {
                 session: SessionFilter::Session(self.session_id.clone()),
                 methods: Vec::new(),

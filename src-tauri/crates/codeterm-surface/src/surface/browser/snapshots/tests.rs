@@ -91,7 +91,7 @@ use tokio::sync::{mpsc, watch};
 
 struct DeepDom {
     calls: Mutex<Vec<(String, Value)>>,
-    subscribers: Mutex<Vec<mpsc::Sender<Arc<CdpEvent>>>>,
+    subscribers: Mutex<Vec<(EventFilter, mpsc::Sender<Arc<CdpEvent>>)>>,
     emitted: AtomicBool,
     closed: watch::Sender<Option<String>>,
     mutation: u8,
@@ -99,14 +99,15 @@ struct DeepDom {
 
 impl DeepDom {
     fn emit(&self, method: &str, params: Value) {
-        for subscriber in self.subscribers.lock().iter() {
-            subscriber
-                .try_send(Arc::new(CdpEvent {
-                    method: method.into(),
-                    params: params.clone(),
-                    session_id: Some("session".into()),
-                }))
-                .unwrap();
+        let event = Arc::new(CdpEvent {
+            method: method.into(),
+            params,
+            session_id: Some("session".into()),
+        });
+        for (filter, subscriber) in self.subscribers.lock().iter() {
+            if filter.matches(&event) {
+                subscriber.try_send(event.clone()).unwrap();
+            }
         }
     }
 
@@ -130,11 +131,11 @@ impl CdpConnection for DeepDom {
     fn close(&self, reason: &str) {
         self.closed.send_replace(Some(reason.into()));
     }
-    fn subscribe(&self, _: EventFilter) -> EventStream {
+    fn subscribe(&self, filter: EventFilter) -> EventStream {
         let (sender, receiver) = mpsc::channel(256);
         let mut subscribers = self.subscribers.lock();
-        subscribers.retain(|sender| !sender.is_closed());
-        subscribers.push(sender);
+        subscribers.retain(|(_, sender)| !sender.is_closed());
+        subscribers.push((filter, sender));
         EventStream::from_receiver(receiver)
     }
     async fn send_to(
