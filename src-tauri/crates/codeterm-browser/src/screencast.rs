@@ -159,10 +159,11 @@ impl ScreencastParams {
         native_dpr: Option<f64>,
     ) -> FrameMetadata {
         if let Some(native_dpr) = native_dpr {
+            // CSS viewports are whole pixels; rounding removes float drift from the DPR division.
             let scale = self.viewport.dpr / native_dpr;
-            metadata.device_width /= scale;
-            metadata.device_height /= scale;
-            metadata.offset_top /= scale;
+            metadata.device_width = (metadata.device_width / scale).round();
+            metadata.device_height = (metadata.device_height / scale).round();
+            metadata.offset_top = (metadata.offset_top / scale * 1000.0).round() / 1000.0;
         }
         metadata
     }
