@@ -492,47 +492,62 @@ async fn browser_cdp_deep_reply_fails_its_request_without_waiting_for_deadline()
 }
 
 #[tokio::test]
-async fn browser_cdp_reliable_ancestry_backpressures_in_order_and_close_releases_it() {
-    let (connection, _outgoing) = batch_connection();
-    let mut events = connection.subscribe_with_delivery(
-        EventFilter::any().with_methods(&["DOM.setChildNodes"]),
-        true,
-    );
-    let event = |index| {
-        Incoming::Event(CdpEvent {
-            method: "DOM.setChildNodes".into(),
-            params: json!({"index":index}),
-            session_id: None,
-        })
-    };
-    for index in 0..SUBSCRIBER_CAPACITY {
-        connection.0.route(event(index)).await;
-    }
-    {
-        let delivery = connection.0.route(event(SUBSCRIBER_CAPACITY));
-        tokio::pin!(delivery);
-        assert!(futures_util::poll!(&mut delivery).is_pending());
-        assert!(!events.has_lost_events());
-        assert_eq!(events.try_recv().unwrap().params["index"], 0);
-        tokio::time::timeout(Duration::from_secs(1), &mut delivery)
-            .await
+async fn browser_cdp_document_decodes_deep_replies_and_bounds_failures_per_request() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    for depth in [400, 4097, 0] {
+        let document = client.send("DOM.getDocument", json!({"depth":-1,"pierce":true}));
+        let ordinary = client.send("Fixture.ordinary", json!({}));
+        tokio::pin!(document, ordinary);
+        let mut requests = Vec::new();
+        while requests.len() < 2 {
+            tokio::select! {
+                result = &mut document => panic!("document completed before reply: {result:?}"),
+                result = &mut ordinary => panic!("ordinary completed before reply: {result:?}"),
+                request = chrome.inbound.recv() => requests.push(request.unwrap()),
+            }
+        }
+        let id = requests
+            .iter()
+            .find(|request| request["method"] == "DOM.getDocument")
+            .unwrap()["id"]
+            .as_u64()
             .unwrap();
-    }
-    for index in 1..=SUBSCRIBER_CAPACITY {
-        assert_eq!(events.try_recv().unwrap().params["index"], index);
-    }
-    assert!(events.try_recv().is_err());
-    assert!(!events.has_lost_events());
-    for index in 0..SUBSCRIBER_CAPACITY {
-        connection.0.route(event(index)).await;
-    }
-    let delivery = connection.0.route(event(SUBSCRIBER_CAPACITY));
-    tokio::pin!(delivery);
-    assert!(futures_util::poll!(&mut delivery).is_pending());
-    connection.close("fixture closed while backpressured");
-    tokio::time::timeout(Duration::from_secs(1), &mut delivery)
+        let payload = if depth == 0 {
+            format!("{{\"id\":{id},\"result\":broken}}")
+        } else {
+            format!(
+                "{{\"result\":{}0{},\"id\":{id}}}",
+                "[".repeat(depth),
+                "]".repeat(depth)
+            )
+        };
+        chrome.outbound.send(Message::text(payload)).unwrap();
+        let request = requests
+            .iter()
+            .find(|request| request["method"] == "Fixture.ordinary")
+            .unwrap();
+        chrome.reply(request, json!({"result":{"ok":true}}));
+        let (document, ordinary) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(document, ordinary)
+        })
         .await
-        .unwrap();
-    assert!(events.is_closed());
-    assert!(!events.has_lost_events());
+        .expect("document failures must not wait for the command deadline");
+        if depth == 400 {
+            let mut value = document.unwrap();
+            for _ in 0..depth {
+                value = value.as_array_mut().unwrap().pop().unwrap();
+            }
+            assert_eq!(value, json!(0));
+        } else if depth == 4097 {
+            assert!(
+                matches!(document, Err(CdpError::Malformed(detail)) if detail.contains("maximum JSON depth 4096"))
+            );
+        } else {
+            assert!(matches!(document, Err(CdpError::Malformed(_))));
+        }
+        assert_eq!(ordinary.unwrap(), json!({"ok":true}));
+        assert!(client.close_reason().is_none());
+    }
+    client.close("fixture complete");
 }

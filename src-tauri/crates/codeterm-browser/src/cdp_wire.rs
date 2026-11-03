@@ -75,6 +75,91 @@ pub fn decode_incoming(text: &str) -> Result<Incoming, String> {
     }))
 }
 
+const MAX_DOCUMENT_JSON_DEPTH: usize = 4096;
+const DOCUMENT_DECODE_STACK: usize = 64 * 1024 * 1024;
+
+pub(crate) async fn decode_document_incoming(text: String) -> Result<Incoming, String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("browser-document-decode".into())
+        .stack_size(DOCUMENT_DECODE_STACK)
+        .spawn(move || {
+            let result = decode_document(&text);
+            let _ = sender.send(result);
+        })
+        .map_err(|error| format!("CDP document decoder could not start: {error}"))?;
+    receiver
+        .await
+        .map_err(|_| "CDP document decoder stopped without a reply".to_string())?
+}
+
+fn decode_document(text: &str) -> Result<Incoming, String> {
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
+    for byte in text.bytes() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+        } else {
+            match byte {
+                b'"' => quoted = true,
+                b'{' | b'[' => {
+                    depth += 1;
+                    if depth > MAX_DOCUMENT_JSON_DEPTH {
+                        return Err(format!(
+                            "CDP document exceeds maximum JSON depth {MAX_DOCUMENT_JSON_DEPTH}"
+                        ));
+                    }
+                }
+                b'}' | b']' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    #[derive(Deserialize)]
+    struct DocumentReply<'a> {
+        id: u64,
+        #[serde(borrow)]
+        result: Option<&'a serde_json::value::RawValue>,
+        #[serde(borrow)]
+        error: Option<&'a serde_json::value::RawValue>,
+    }
+    let reply: DocumentReply<'_> = serde_json::from_str(text)
+        .map_err(|error| format!("invalid CDP document envelope: {error}"))?;
+    if reply.error.is_some() {
+        return decode_incoming(text);
+    }
+    let result = if let Some(raw) = reply.result {
+        let mut decoder = serde_json::Deserializer::from_str(raw.get());
+        decoder.disable_recursion_limit();
+        Value::deserialize(&mut decoder)
+            .map_err(|error| format!("invalid CDP document JSON: {error}"))?
+    } else {
+        Value::Object(Map::new())
+    };
+    Ok(Incoming::Response {
+        id: reply.id,
+        result: Ok(result),
+    })
+}
+
+pub fn discard_value(value: Value) {
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Array(children) => pending.extend(children),
+            Value::Object(children) => pending.extend(children.into_values()),
+            _ => {}
+        }
+    }
+}
+
 pub(crate) fn response_id(text: &str) -> Result<Option<u64>, String> {
     struct Envelope<'a>(&'a std::cell::Cell<Option<u64>>);
     impl<'de> serde::de::Visitor<'de> for Envelope<'_> {

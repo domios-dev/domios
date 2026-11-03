@@ -145,3 +145,33 @@ fn browser_cdp_recovers_response_id_after_deep_result() {
         Some(73)
     );
 }
+
+#[tokio::test]
+async fn browser_cdp_document_depth_guard_ignores_escaped_strings_and_accepts_its_bound() {
+    let text = format!(
+        "{{\"id\":1,\"result\":{}0{}}}",
+        "[".repeat(4095),
+        "]".repeat(4095)
+    );
+    let Incoming::Response { result, .. } = decode_document_incoming(text).await.unwrap() else {
+        panic!("expected response");
+    };
+    discard_value(result.unwrap());
+    let text = json!({"id":2,"result":{"text":format!("\\\"{}", "[".repeat(5000))}}).to_string();
+    assert!(decode_document_incoming(text).await.is_ok());
+    for text in [
+        r#"{"id":3,"result":broken}"#,
+        r#"{"id":3,"result":{}} trailing"#,
+    ] {
+        assert!(decode_document_incoming(text.into()).await.is_err());
+    }
+    assert_eq!(
+        decode_document_incoming(
+            r#"{"id":4,"error":{"code":-32000,"message":"missing document"}}"#.into()
+        )
+        .await
+        .unwrap(),
+        decode_incoming(r#"{"id":4,"error":{"code":-32000,"message":"missing document"}}"#)
+            .unwrap()
+    );
+}

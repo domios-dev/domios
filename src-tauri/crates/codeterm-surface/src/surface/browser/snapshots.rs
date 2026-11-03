@@ -108,7 +108,12 @@ impl BrowserRuntime {
             .await?;
         self.redact_value(&mut tree);
         let mut nodes = parse_full_ax_tree(&tree)?;
-        sensitive::redact_page(&mut nodes, page).await;
+        let document = self
+            .send(page, "DOM.getDocument", json!({"depth":-1,"pierce":true}))
+            .await?;
+        let redacted = sensitive::redact(&mut nodes, &document);
+        codeterm_browser::cdp_wire::discard_value(document);
+        redacted?;
         if let Some(scope) = &options.scope {
             nodes = query::scoped(&nodes, scope)?;
         }
