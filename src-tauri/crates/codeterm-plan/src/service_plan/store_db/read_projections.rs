@@ -148,7 +148,10 @@ impl PlanDatabase {
     }
 }
 
-fn decode<T: serde::de::DeserializeOwned>(plan_id: &str, document: &str) -> Result<T, PlanError> {
+pub(super) fn decode<T: serde::de::DeserializeOwned>(
+    plan_id: &str,
+    document: &str,
+) -> Result<T, PlanError> {
     let value =
         super::super::store_sync::parse(document).map_err(|reason| PlanError::Quarantined {
             plan_id: plan_id.into(),
@@ -174,12 +177,12 @@ fn append_outline(roots: &mut Vec<Value>, depth: usize, node: Value) {
 #[cfg(test)]
 mod tests;
 
-fn record_query() {
+pub(super) fn record_query() {
     #[cfg(test)]
     METRICS.with(|metrics| metrics.borrow_mut().queries += 1);
 }
 
-fn column<T: rusqlite::types::FromSql>(
+pub(super) fn column<T: rusqlite::types::FromSql>(
     row: &rusqlite::Row<'_>,
     index: usize,
 ) -> rusqlite::Result<T> {

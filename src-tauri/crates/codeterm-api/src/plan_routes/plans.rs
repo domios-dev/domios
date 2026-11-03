@@ -169,11 +169,11 @@ pub async fn list(
                     "Mention query is too long",
                 ));
             }
-            let plans = state.svc.plan_store.chat_snapshot(
-                q.project.as_deref(),
-                q.team.as_deref(),
-                q.query.as_deref(),
-            );
+            let plans = state
+                .svc
+                .plan_store
+                .chat_snapshot(q.project.as_deref(), q.team.as_deref(), q.query.as_deref())
+                .map_err(plan_err)?;
             return Ok(Json(serde_json::json!({ "plans": plans })));
         }
         codeterm_orchestration::validate_active_team_plan_bindings(&state.svc)
