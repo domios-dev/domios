@@ -20,6 +20,19 @@ pub(super) fn ports(handle: &Handle) -> SentinelPorts {
 }
 
 impl BlueprintStore for HandlePorts {
+    fn memory_diagnostics(&self) -> serde_json::Value {
+        let Some(store) = self.0.store.try_lock() else {
+            return serde_json::json!({"busy": true});
+        };
+        serde_json::json!({
+            "count": store.jobs.len(),
+            "approx_bytes": codeterm_util::memory_size::estimate(&store.jobs),
+            "active_runs": store.active.len(),
+            "wake_pending": store.wake_pending.len(),
+            "quarantined": store.quarantined.len(),
+        })
+    }
+
     fn save_candidates(
         &self,
     ) -> std::collections::BTreeMap<

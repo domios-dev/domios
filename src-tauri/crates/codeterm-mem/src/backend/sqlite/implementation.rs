@@ -13,6 +13,28 @@ use crate::{
     SearchHit, SearchQuery, WakeUpOptions,
 };
 impl MemStore for SqliteMemStore {
+    fn memory_diagnostics(&self) -> serde_json::Value {
+        let Some(conn) = self.conn.try_lock() else {
+            return serde_json::json!({"busy": true});
+        };
+        let mut bytes = 0;
+        let mut highwater = 0;
+        let status = unsafe {
+            rusqlite::ffi::sqlite3_db_status(
+                conn.handle(),
+                rusqlite::ffi::SQLITE_DBSTATUS_CACHE_USED,
+                &mut bytes,
+                &mut highwater,
+                0,
+            )
+        };
+        serde_json::json!({
+            "backend": "sqlite",
+            "page_cache_bytes": (status == rusqlite::ffi::SQLITE_OK).then_some(bytes),
+            "vector_index": "SQLite-backed; resident pages included in page_cache_bytes",
+        })
+    }
+
     fn with_export_snapshot(
         &self,
         visitor: &mut dyn FnMut(&dyn crate::backend::ExportSnapshot) -> Result<(), String>,

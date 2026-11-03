@@ -21,6 +21,15 @@ struct Live {
 }
 
 impl HistoryLog {
+    pub(super) fn memory_stats(&self) -> (usize, usize) {
+        let slots = self.live.capacity() * (std::mem::size_of::<(String, Live)>() + 64);
+        let last = self
+            .last
+            .as_ref()
+            .map_or(0, |(id, _, encoded)| id.capacity() + encoded.capacity());
+        (self.live.len(), slots + last)
+    }
+
     pub fn new(path: PathBuf) -> Self {
         Self {
             path,

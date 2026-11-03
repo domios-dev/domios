@@ -99,6 +99,12 @@ pub enum Commands {
     /// Show Domios version and system info
     Identify,
 
+    /// Read-only local owner diagnostics.
+    Diagnostics {
+        #[command(subcommand)]
+        action: DiagnosticsAction,
+    },
+
     /// Configure model endpoints through the installed provider capability
     ModelProvider {
         #[command(subcommand)]
@@ -467,4 +473,10 @@ pub enum Commands {
         #[command(subcommand)]
         action: DebugAction,
     },
+}
+
+#[derive(Subcommand)]
+pub enum DiagnosticsAction {
+    /// Approximate retained subsystem sizes; busy subsystems are skipped.
+    Memory,
 }

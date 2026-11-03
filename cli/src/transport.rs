@@ -91,6 +91,7 @@ pub(crate) fn transport_for(command: &Commands) -> Transport {
         Commands::Analytics { .. } => pre_socket_unsupported("analytics is local-only; run on the owning machine"),
         Commands::Trace { .. } => pre_socket_unsupported("trace files are local-only; run on the owning instance"),
         Commands::Identify => socket_rest(),
+        Commands::Diagnostics { .. } => socket_unsupported("memory diagnostics require a local owner shell"),
         Commands::ModelProvider { .. } => socket_unsupported(
             "model provider secrets and configuration are local-only; run on the target machine",
         ),
