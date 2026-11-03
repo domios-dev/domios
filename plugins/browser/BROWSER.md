@@ -1,10 +1,12 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `domios plugin browser <verb> [args]`. Read this guide with `domios docs BROWSER` or `domios plugin browser help`.
+Every verb is `domios plugin browser <verb> [args]`. Guide: `domios docs BROWSER` or `domios plugin browser help`.
 
 ## When to use it
 
 Use this browser for web tasks and UI verification while the user watches. Use HTTP/APIs for plain data.
+
+Delegate multi-step flows over 10,000 output characters to a Worker for a short result/evidence/blocker report. Set command/time bounds; stop at bot/auth walls. Workers report to their parent. Bound direct checks with scopes, grep and `--out`.
 
 ## Your browser
 
@@ -12,14 +14,14 @@ Use this browser for web tasks and UI verification while the user watches. Use H
 - **Profiles.**
   - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
   - A **named profile** retains logins and cookies. Users create general profiles in the Browser profile menu. Agents select existing profiles with `open --profile NAME`; unknown names fail. For DEV QA, use the origin-bound session commands below, `profile list` and `profile remove NAME` for inactive profiles. Publishing, buying, deleting and sending messages require explicit user instruction.
-- **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
+- **Shared profiles.** Named-profile tabs share cookies/logins; pages and controls stay independent. Closing one leaves the others open.
 - **Another agent's browser.** Add `--of <title|tab-id>` to act there. Its owner sees your activity. It must already be open; you cannot close it. Use refs from its latest snapshot.
 - **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
-- **Shared view.** The user may press *Take control* and click or type alongside you. You are not blocked and not told. Always re-read the page before acting.
+- **Shared view.** *Take control* lets users act alongside you without notice. Re-read the page before acting.
 
 ## The loop: snapshot, act, re-snapshot
 
-With **Take control**, the user can select text, interact and scroll. Ctrl/Cmd+C and Ctrl/Cmd+V copy the remote selection and paste local text; the toolbar offers both actions. User input invalidates refs: take a fresh snapshot afterward.
+With **Take control**, users select text, interact and scroll. Ctrl/Cmd+C/V and the toolbar copy remote selection/paste local text. User input invalidates refs; re-snapshot afterward.
 
 1. `snapshot`: read the page as an accessibility tree with roles, names, control states and element refs. Copy the exact ref shown, including its capture prefix; never construct one from an element's position. **This is the default way to understand a page.**
 2. Act on what the snapshot shows, by ref or by role and name:
@@ -32,12 +34,12 @@ With **Take control**, the user can select text, interact and scroll. Ctrl/Cmd+C
 Rules:
 - Start with `status`; if closed, `open` before declaring the browser unavailable.
 - New snapshots replace all refs. Navigation, SPA navigation and viewer input invalidate them. Capture races refuse. Re-snapshot after visible changes or stale errors.
-- Role/name matches prefer exact names, then substrings. Ambiguous matches list candidate refs; choose one explicitly.
+- Role/name matches prefer exact names, then substrings. Name-only `type "Search" "query"` and `fill "Search" "query"` prefer input roles; `click "Search"` prefers clickable roles. An explicit role stays binding. Hidden matches are excluded; exactly one visible match wins. Multiple visible matches refuse with candidate refs.
 - Snapshots show exposed checked/selected/expanded/disabled/required/readonly/focused/invalid states. The default limit is 200 lines, maximum 2000; only included elements receive refs.
 - Prefer refs or role/name over coordinates/CSS. Wait on evidence with `wait --text T`, `--url U` or `--selector S`, never elapsed time; default deadline 15s.
 - Secrets: pipe exact text to `type <target> --stdin`. It requires a maskable HTML input, masks before insertion and redacts output, snapshots, events and annotations. Never put secrets in arguments or print them.
-- `type` focuses, clears and inserts. For a custom input that ignores it, click first.
-- `text [limit]` reads long content. Use screenshots for visual claims only; they save to your pad. Show with `<ds-image src="ABSOLUTE_PATH" />`.
+- `type` focuses, clears and inserts, refusing hidden, disabled, readonly or unfocusable fields. `type --submit textbox "Search" "query"` holds the action through typing and Enter. Without navigation or submit evidence, it calls `requestSubmit()` on the focused field's form. Completion requires observed navigation or a submit event; inspect the page for application success. An unconfirmed result never replays typing. `press Enter` sends to the currently focused element.
+- `text [limit] [--selector CSS] [--grep TEXT]` reads content. `--grep` keeps lines containing a literal case-insensitive substring before applying the character limit (default 4000, maximum 200000). `--selector` reads the first matching subtree and refuses a missing match. Sensitive subtrees are redacted. Screenshots are for visual claims only; show saved files with `<ds-image src="ABSOLUTE_PATH" />`.
 - Prove actions with a fresh snapshot or state wait: changed value, new heading or success message. Unread results remain unproven, especially sends, submissions, purchases or deletions.
 - Correct actionable argument errors. Never replay uncertain actions or switch browser tools to bypass a refusal. Report flaky behavior honestly.
 
@@ -47,15 +49,15 @@ Stop when `status` reports `needs human` other than `none`: captcha, missing log
 
 ## The user can point at things
 
-Annotations arrive as notices. `inbox` lists unread/undelivered cards; `inbox all` lists all retained cards with element facts, React source, screenshot and user intent. Inspect the named code, answer or change it, then verify.
+`inbox` lists unread annotations; `inbox all` lists retained ones. Notices carry page/element/React pointers, text, attributes, styles, box, context, screenshot and intent. Find the code, act and verify.
 
 ## Device viewport and capture metrics
 
-Agent actions show a blue cursor, ripple, drag trail and typing ring. Long inputs use a caret; secrets stay masked. Reduced motion is static; viewer input hides the layer. Evidence omits it unless `screenshot cursor.png --include-overlay` is requested.
+Actions show a blue cursor, ripple, drag trail and typing ring. Long inputs use a caret; secrets stay masked. Reduced motion is static; viewer input hides it. Evidence omits it unless `screenshot cursor.png --include-overlay` is requested.
 
 `viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
 
-`screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` captures at the requested size and reports the saved path, layout width, content width and CDP layout metrics as JSON. `--restore` restores the previous device metrics even when capture fails; restoration failure is reported explicitly. Without `--restore`, requested metrics stay active.
+`screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` reports the path and layout/content/CDP metrics. `--restore` restores previous metrics even after failure and reports restoration errors. Otherwise requested metrics stay active.
 
 ## Scoped atomic actions
 
@@ -89,21 +91,21 @@ domios config set browser_upload_folders '{"work":["C:/Developer/domios-promo"]}
 
 The equivalent owner-authenticated request is `PATCH /api/config` with `{"key":"browser_upload_folders","value":{"work":["C:/Developer/domios-promo"]}}`. Changes apply to subsequent uploads without restarting the browser.
 
-The live view shows filenames, byte sizes and the input's target origin. Successful selection reads back the input's file list; it does not establish server upload completion. Re-snapshot and verify the page's result. `upload_unconfirmed` means selection or upload may have happened: inspect the page before another attempt. Up to 64 files may be selected per browser lifetime. Files stay read-locked until that browser closes; close it to release them.
+The view shows filenames, sizes and target origin. Selection reads back the file list; verify server completion on the page. `upload_unconfirmed` never authorizes replay. At most 64 files per browser lifetime; closing releases their read locks.
 
 Native `file-picker` driving remains unsupported. Use `upload` before opening a chooser; an already open native dialog requires Take control.
 
 ## Accessible state waits
 
-`wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses Chromium's accessibility tree and its computed accessible names, including aria-only labels. States are `visible`, `hidden`, `enabled` and `expanded`. Hidden also succeeds when no matching accessible element remains; ambiguous matches refuse. Durations use `ms`, `s` or `m`, default to 15s, and are capped at 2m. DOM mutation and input events wake the check; elapsed time only bounds failure. Navigation during a pending wait returns `stale`.
+`wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses computed AX names. States: `visible`, `hidden`, `enabled`, `expanded`. Hidden also accepts no remaining match; ambiguity refuses. Durations: `ms`/`s`/`m`, default 15s, maximum 2m. Mutation/input events wake checks; navigation returns `stale`.
 
 ## Disclosure controls
 
-Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`summary` is a role alias). `expand summary 'Details'` and `collapse summary 'Details'` capture the current control, click only when its expanded state differs, then re-read the accessibility tree to confirm the requested state. Already matching state succeeds without a click. Ambiguous or stale controls refuse; `action_unconfirmed` or `state_unconfirmed` never triggers a replay.
+`summary` aliases Chromium `DisclosureTriangle`. `expand summary 'Details'` / `collapse summary 'Details'` click only if needed, then confirm AX expanded state. Already matching state succeeds without a click. Ambiguity/staleness refuse; unconfirmed actions never replay.
 
 ## QA convenience commands
 
-`open --domios-instance qa --api-port 7790 [--ephemeral]` checks the loopback daemon's exact instance name, API port and DEV application identifier, reads that named DEV instance's protected local credential internally, and opens its root `/` UI using an automatically named origin-bound profile. The caller supplies no token. It refuses production port 7685, missing credentials and identity mismatches. Names are lowercase slugs. This convenience path uses the standard named DEV data directory and ignores inherited data-directory/host/token overrides; custom data roots can use the explicit named-session and stdin helper above.
+`open --domios-instance qa --api-port 7790 [--ephemeral]` verifies the exact DEV name/port/app identifier, reads its protected credential internally and opens `/` in an origin-bound profile. Names are lowercase slugs. Production 7685, missing credentials and identity mismatches refuse. It uses the standard named DEV directory, ignoring inherited directory/host/token overrides; custom roots use explicit sessions and stdin above.
 
 `snapshot --with-text --max-items 80` adds bounded static accessibility leaf text, such as description values and list-item text. It can accompany `--json`, `--scope` and `--actions-only`; static text gets no action refs and sensitive subtrees stay redacted.
 
@@ -147,4 +149,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

@@ -107,6 +107,112 @@ describe("Browser agent presentation", () => {
   });
 });
 
+describe("Browser visible typing and submission", () => {
+  it("refuses hidden, disabled and unfocusable fields before clearing their values", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.body.innerHTML = '<input value="keep"><input value="mobile" style="display:none">';
+      const [input, hidden] = window.document.querySelectorAll("input");
+      const prepare = window.eval(`(${readFileSync(resolve(source, "type-focus.js"), "utf8")})`);
+      const visible = window.eval(`(${readFileSync(resolve(source, "visible.js"), "utf8")})`);
+      expect(prepare.call(hidden, false)).toBe("hidden");
+      expect(hidden.value).toBe("mobile");
+      input.getClientRects = () => [{ width: 20 }] as unknown as ReturnType<typeof input.getClientRects>;
+      expect(visible.call(input)).toBe(true);
+      expect(visible.call(hidden)).toBe(false);
+      input.disabled = true;
+      expect(prepare.call(input, false)).toBe("disabled");
+      expect(input.value).toBe("keep");
+      input.disabled = false;
+      input.style.visibility = "hidden";
+      expect(prepare.call(input, false)).toBe("hidden");
+      input.style.visibility = "visible";
+      input.focus = () => {};
+      expect(prepare.call(input, false)).toBe("focus_failed");
+      expect(input.value).toBe("keep");
+    } finally { window.happyDOM.abort(); }
+  });
+
+  it("masks and clears only the focused field and refuses focus lost during input", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.body.innerHTML = '<input value="before"><button>Other</button>';
+      const input = window.document.querySelector("input")!;
+      input.getClientRects = () => [{ width: 20 }] as unknown as ReturnType<typeof input.getClientRects>;
+      const prepare = window.eval(`(${readFileSync(resolve(source, "type-focus.js"), "utf8")})`);
+      expect(prepare.call(input, true)).toBe("focused");
+      expect(input.type).toBe("password");
+      expect(input.value).toBe("");
+      input.addEventListener("input", () => window.document.querySelector("button")!.focus());
+      expect(prepare.call(input, false)).toBe("focus_lost");
+    } finally { window.happyDOM.abort(); }
+  });
+
+  it("uses one requestSubmit fallback, accepts Enter submit evidence and cleans observers", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.body.innerHTML = '<form><input></form>';
+      const input = window.document.querySelector("input")!;
+      const form = window.document.querySelector("form")!;
+      input.focus();
+      let submissions = 0;
+      form.addEventListener("submit", event => { submissions++; event.preventDefault(); });
+      const submit = window.eval(`(${readFileSync(resolve(source, "submit.js"), "utf8")})`);
+      expect(submit.call(input, "begin", "probe")).toBe("ready");
+      expect(submit.call(input, "finish", "probe")).toBe("submitted");
+      expect(submissions).toBe(1);
+      expect(submit.call(input, "finish", "probe")).toBe("submitted");
+      expect(submissions).toBe(1);
+      expect(submit.call(input, "cleanup", "probe")).toBe("cleaned");
+      expect(submit.call(input, "finish", "probe")).toBe("missing");
+      expect(submit.call(input, "begin", "probe")).toBe("ready");
+      form.dispatchEvent(new window.Event("submit", { bubbles:true, cancelable:true }));
+      expect(submit.call(input, "finish", "probe")).toBe("submitted");
+      expect(submissions).toBe(2);
+      submit.call(input, "cleanup", "probe");
+    } finally { window.happyDOM.abort(); }
+  });
+
+  it("refuses fallback after focus changes and requires actual submit evidence", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.body.innerHTML = '<form><input required><button>Other</button></form>';
+      const input = window.document.querySelector("input")!;
+      const submit = window.eval(`(${readFileSync(resolve(source, "submit.js"), "utf8")})`);
+      input.focus();
+      expect(submit.call(input, "begin", "probe")).toBe("ready");
+      expect(submit.call(input, "finish", "probe")).toBe("submit_unconfirmed");
+      window.document.querySelector("button")!.focus();
+      expect(submit.call(input, "finish", "probe")).toBe("focus_lost");
+      submit.call(input, "cleanup", "probe");
+      input.removeAttribute("required");
+      input.remove();
+      window.document.body.append(input);
+      input.focus();
+      expect(submit.call(input, "begin", "probe")).toBe("ready");
+      expect(submit.call(input, "finish", "probe")).toBe("no_form");
+      submit.call(input, "cleanup", "probe");
+    } finally { window.happyDOM.abort(); }
+  });
+});
+
+describe("Browser filtered text", () => {
+  it("filters before bounding, scopes content and redacts sensitive subtrees", () => {
+    const window = new Window({ url: "https://example.test" });
+    try {
+      window.document.body.innerHTML = '<aside>outside</aside><main>intro<br>Target line<br><span data-sensitive>private detail</span></main>';
+      Object.defineProperty(window.document.querySelector("main"), "innerText", { value:"intro\nTarget line\nprivate detail" });
+      const text = window.eval(`(${readFileSync(resolve(source, "text.js"), "utf8")})`);
+      expect(text("main", "target", 100)).toBe("Target line");
+      expect(text("main", "private", 100)).toBe("(no matching lines)");
+      expect(text("main", null, 100)).not.toContain("outside");
+      expect(text("main", null, 5)).toContain("truncated");
+      expect(() => text("#missing", null, 100)).toThrow("not_found");
+      expect(text("[data-sensitive]", null, 100)).toBe("REDACTED");
+    } finally { window.happyDOM.abort(); }
+  });
+});
+
 describe("Browser atomic page action", () => {
   it("refuses mutation after capture and dispatches a current action once", () => {
     const window = new Window({ url: "http://localhost:7686" });

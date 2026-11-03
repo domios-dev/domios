@@ -31,6 +31,20 @@ fn fixture_snapshot() -> Snapshot {
 }
 
 #[test]
+fn layout_table_summaries_are_omitted_but_controls_and_states_remain() {
+    let nodes = parse_full_ax_tree(&serde_json::json!({"nodes":[
+        {"nodeId":"layout","role":{"value":"LayoutTableCell"},"name":{"value":"Duplicated control summary"},"childIds":["button","state"]},
+        {"nodeId":"button","parentId":"layout","role":{"value":"button"},"name":{"value":"Save"},"backendDOMNodeId":7,"properties":[{"name":"disabled","value":{"value":true}}]},
+        {"nodeId":"state","parentId":"layout","role":{"value":"LayoutTableCell"},"name":{"value":"Stateful"},"properties":[{"name":"expanded","value":{"value":false}}]}
+    ]})).unwrap();
+    let snapshot = build_snapshot(&nodes, 200);
+    assert!(!snapshot.text.contains("Duplicated control summary"));
+    assert!(snapshot.text.contains("button \"Save\" [disabled] [@e1]"));
+    assert!(snapshot.text.contains("Stateful\" [expanded=false]"));
+    assert_eq!(snapshot.refs.get("e1"), Some(&7));
+}
+
+#[test]
 fn browser_snapshot_matches_poc_output_for_recorded_tree() {
     assert_eq!(fixture_snapshot().text, EXPECTED);
 }

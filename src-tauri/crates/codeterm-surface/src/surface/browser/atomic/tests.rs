@@ -68,7 +68,7 @@ impl CdpConnection for DisclosureConnection {
         &self,
         _: Option<&str>,
         method: &str,
-        _: Value,
+        params: Value,
         _: Duration,
     ) -> Result<Value, CdpError> {
         Ok(match method {
@@ -79,6 +79,13 @@ impl CdpConnection for DisclosureConnection {
                 json!({"nodes":[{"nodeId":"d","role":{"value":"DisclosureTriangle"},"name":{"value":"Details"},"backendDOMNodeId":7,"properties":[{"name":"expanded","value":{"value":self.expanded.load(Ordering::SeqCst)}}]}]})
             }
             "DOM.resolveNode" => json!({"object":{"objectId":"summary"}}),
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosVisible")) =>
+            {
+                json!({"result":{"value":true}})
+            }
             "Runtime.callFunctionOn" => {
                 self.actions.fetch_add(1, Ordering::SeqCst);
                 self.expanded.fetch_xor(true, Ordering::SeqCst);

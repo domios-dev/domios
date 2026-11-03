@@ -299,7 +299,6 @@ impl PageShared {
         });
     }
 
-    #[cfg(test)]
     pub(super) fn snapshot(&self) -> Option<Snapshot> {
         self.session.lock().snapshot.clone()
     }
@@ -320,7 +319,9 @@ impl PageShared {
         if session.bound_session.as_deref() != Some(session_id) {
             return Err("the browser session changed — take a new snapshot".into());
         }
-        let capture = uuid::Uuid::new_v4().simple().to_string();
+        use base64::Engine;
+        let capture = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(uuid::Uuid::new_v4().as_bytes());
         session.capture = Some(capture.clone());
         session.snapshot = None;
         Ok(capture)
@@ -621,6 +622,16 @@ mod tests {
         assert!(shared.begin_snapshot("old-session").is_err());
         let old = shared.begin_snapshot("s").unwrap();
         let new = shared.begin_snapshot("s").unwrap();
+        use base64::Engine;
+        assert_eq!(new.len(), 22);
+        assert_eq!(
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(&new)
+                .unwrap()
+                .len(),
+            16
+        );
+        assert_ne!(old, new);
         assert!(shared.finish_snapshot(&old, Snapshot::default()).is_err());
         assert!(shared.snapshot().is_none());
         shared.finish_snapshot(&new, Snapshot::default()).unwrap();

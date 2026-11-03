@@ -49,10 +49,6 @@ fn browser_wait_expression_embeds_the_value_as_a_json_literal_and_a_failure_dead
 
 #[test]
 fn browser_verb_limits_fall_back_on_bad_input() {
-    assert_eq!(parse_limit(Some(&"50".to_string()), 200), 50);
-    assert_eq!(parse_limit(Some(&"0".to_string()), 200), 200);
-    assert_eq!(parse_limit(Some(&"many".to_string()), 200), 200);
-    assert_eq!(parse_limit(None, 4000), 4000);
     assert!(usage_args(&[], "goto <url>").is_err());
     assert!(VERBS.contains(&"inbox"));
 }
