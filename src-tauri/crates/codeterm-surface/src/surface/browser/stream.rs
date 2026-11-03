@@ -29,6 +29,10 @@ pub async fn connect(
             page.as_ref().map(|page| page.target_id()),
         );
         let generation = model.join(viewer.clone(), viewport, recursive);
+        log::debug!(
+            "[browser-viewport] join viewer={viewer} viewport={viewport:?} recursive={recursive} lease={generation:?} owner={:?}",
+            model.owner()
+        );
         if let Err(error) = runtime.apply_viewer_viewport(&mut model).await {
             runtime
                 .shared
@@ -100,6 +104,10 @@ impl Drop for ViewerLease {
         tokio::spawn(async move {
             let mut model = runtime.viewport.lock().await;
             if model.leave(&viewer, generation) {
+                log::debug!(
+                    "[browser-viewport] leave viewer={viewer} lease={generation} owner={:?}",
+                    model.owner()
+                );
                 if let Err(error) = runtime.apply_viewer_viewport(&mut model).await {
                     runtime
                         .shared

@@ -152,6 +152,20 @@ impl ScreencastParams {
             "everyNthFrame": 1,
         })
     }
+
+    fn frame_metadata(
+        &self,
+        mut metadata: FrameMetadata,
+        native_dpr: Option<f64>,
+    ) -> FrameMetadata {
+        if let Some(native_dpr) = native_dpr {
+            let scale = self.viewport.dpr / native_dpr;
+            metadata.device_width /= scale;
+            metadata.device_height /= scale;
+            metadata.offset_top /= scale;
+        }
+        metadata
+    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -418,10 +432,16 @@ pub struct ScreencastDriver {
 }
 
 impl ScreencastDriver {
-    pub fn spawn(page: PageChannel, hub: Arc<FrameHub>) -> Self {
+    pub fn spawn(page: PageChannel, hub: Arc<FrameHub>, native_dpr: Option<f64>) -> Self {
         let (commands, receiver) = mpsc::unbounded_channel();
         let generation = hub.bind(commands);
-        tokio::spawn(run_driver(page, hub.clone(), generation, receiver));
+        tokio::spawn(run_driver(
+            page,
+            hub.clone(),
+            generation,
+            receiver,
+            native_dpr,
+        ));
         Self { hub, generation }
     }
 }
@@ -437,30 +457,31 @@ async fn run_driver(
     hub: Arc<FrameHub>,
     generation: u64,
     mut commands: mpsc::UnboundedReceiver<DriverCommand>,
+    native_dpr: Option<f64>,
 ) {
     let mut frames = page.subscribe_session(&["Page.screencastFrame"]);
-    let mut casting = false;
+    let mut casting = None;
     loop {
         tokio::select! {
             command = commands.recv() => {
                 let Some(command) = command else { break };
                 log::debug!("[browser-screencast] generation {generation}, command {command:?}");
                 match command {
-                    DriverCommand::Start(params) if !casting => {
-                        casting = start_cast(&page, &hub, generation, params).await;
+                    DriverCommand::Start(params) if casting.is_none() => {
+                        casting = start_cast(&page, &hub, generation, params).await.then_some(params);
                     }
                     DriverCommand::Start(_) => {}
                     DriverCommand::Restart(params) => {
-                        if casting {
+                        if casting.is_some() {
                             stop_cast(&page).await;
                         }
-                        casting = start_cast(&page, &hub, generation, params).await;
+                        casting = start_cast(&page, &hub, generation, params).await.then_some(params);
                     }
                     DriverCommand::Stop => {
-                        if casting {
+                        if casting.is_some() {
                             stop_cast(&page).await;
                         }
-                        casting = false;
+                        casting = None;
                     }
                 }
             }
@@ -473,12 +494,12 @@ async fn run_driver(
                         continue;
                     }
                 };
-                if !casting {
+                let Some(params) = casting else {
                     continue;
-                }
+                };
                 match base64::engine::general_purpose::STANDARD.decode(raw.data.as_bytes()) {
                     Ok(jpeg) => {
-                        hub.publish(generation, jpeg, raw.metadata, false);
+                        hub.publish(generation, jpeg, params.frame_metadata(raw.metadata, native_dpr), false);
                     }
                     Err(error) => log::warn!("[browser-screencast] frame is not base64: {error}"),
                 }
