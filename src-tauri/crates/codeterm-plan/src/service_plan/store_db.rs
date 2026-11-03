@@ -49,6 +49,11 @@ const PLAN_SCHEMA: &str = r#"
     );
     CREATE INDEX IF NOT EXISTS plan_operations_state_id
         ON plan_operations(state, id);
+    CREATE INDEX IF NOT EXISTS plan_operations_entity_id
+        ON plan_operations(entity_id);
+    CREATE INDEX IF NOT EXISTS plan_operations_finished_id
+        ON plan_operations(finished_at DESC, id DESC)
+        WHERE state IN ('committed', 'failed') AND finished_at IS NOT NULL;
 
     CREATE VIRTUAL TABLE IF NOT EXISTS plan_fts USING fts5(
         plan_id UNINDEXED,
@@ -219,13 +224,14 @@ impl PlanDatabase {
             .execute("DELETE FROM plan_fts WHERE plan_id = ?1", [id])
             .map_err(db_error)?;
         transaction
-            .execute("DELETE FROM plans WHERE id = ?1", [id])
-            .map_err(db_error)?;
-        transaction
             .execute(
                 "UPDATE plan_operations SET state = 'committed', finished_at = ?2 WHERE id = ?1",
                 params![operation_id, now_ms],
             )
+            .map_err(db_error)?;
+        operation_retention::prune_deleted_plan(&transaction, id)?;
+        transaction
+            .execute("DELETE FROM plans WHERE id = ?1", [id])
             .map_err(db_error)?;
         transaction.commit().map_err(db_error)
     }
@@ -573,3 +579,5 @@ mod startup_queries;
 pub(in crate::service_plan) mod task_page_queries;
 #[cfg(test)]
 mod tests;
+
+mod operation_retention;

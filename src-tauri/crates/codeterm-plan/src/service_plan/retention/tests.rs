@@ -128,3 +128,28 @@ fn retention_cutoff_selects_only_plans_older_than_a_year() {
     assert!(!is_stale(0, 0u64.saturating_sub(PLAN_RETENTION_MS)));
     assert!(!is_stale(NOW_MS, cutoff));
 }
+
+#[test]
+fn daily_retention_prunes_operations_even_without_stale_plans() {
+    let root = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(root.path());
+    let plan = plan_with_history(&store, root.path(), "Live", 0);
+    let connection = Connection::open(store.database_path_for_test()).unwrap();
+    connection
+        .execute(
+            "INSERT INTO plan_operations(entity_id,kind,state,submitted_at,finished_at)
+         VALUES (?1,'persist_plan','committed',1,1)",
+            [&plan],
+        )
+        .unwrap();
+    assert!(store.prune_stale_plans(NOW_MS).is_empty());
+    let old: i64 = connection
+        .query_row(
+            "SELECT COUNT(*) FROM plan_operations WHERE finished_at = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(old, 0);
+    assert!(store.get(&plan).is_some());
+}

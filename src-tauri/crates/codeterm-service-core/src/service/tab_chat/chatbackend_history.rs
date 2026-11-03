@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 
 use parking_lot::Mutex;
 
@@ -203,10 +203,14 @@ pub fn migrate(plugin_id: &str, from_session: &str, to_session: &str) {
 /// A process-shared, lock-guarded history writer. See [`ChatBackendHistory::shared`].
 pub type SharedHistory = Arc<Mutex<ChatBackendHistory>>;
 
-/// Registry of the single shared writer per `(plugin_id, session_id)`. Lives for
-/// the daemon's lifetime; the per-session footprint is one digest per message id.
-static SHARED: LazyLock<Mutex<HashMap<(String, String), SharedHistory>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+struct RegisteredHistory {
+    writer: Weak<Mutex<ChatBackendHistory>>,
+    live: Option<SharedHistory>,
+}
+
+type HistoryRegistry = HashMap<(String, String), RegisteredHistory>;
+
+static SHARED: LazyLock<Mutex<HistoryRegistry>> = LazyLock::new(|| Mutex::new(HashMap::new()));
 
 struct Live {
     digest: u64,
@@ -217,6 +221,7 @@ struct Live {
 /// final record in place when it is the same message, as streaming does).
 pub struct ChatBackendHistory {
     path: PathBuf,
+    indexed: bool,
     meta: bool,
     live: HashMap<String, Live>,
     /// Id and start of the final record when it is a message record.
@@ -237,19 +242,32 @@ impl ChatBackendHistory {
     }
 
     pub fn open_at(path: PathBuf) -> Self {
-        let mut history = Self {
+        let mut history = Self::unindexed(path);
+        history.ensure_indexed();
+        history
+    }
+
+    fn unindexed(path: PathBuf) -> Self {
+        Self {
             path,
+            indexed: false,
             meta: false,
             live: HashMap::new(),
             last: None,
             length: 0,
-        };
-        if let Err(error) = history.index() {
+        }
+    }
+
+    fn ensure_indexed(&mut self) {
+        if self.indexed {
+            return;
+        }
+        self.indexed = true;
+        if let Err(error) = self.index() {
             if error.kind() != std::io::ErrorKind::NotFound {
                 log::warn!("[chatbackend] transcript index failed: {error}");
             }
         }
-        history
     }
 
     fn index(&mut self) -> std::io::Result<()> {
@@ -322,16 +340,19 @@ impl ChatBackendHistory {
     /// can't clobber a row it didn't author (single-writer invariant).
     pub fn shared(plugin_id: &str, session_id: &str) -> SharedHistory {
         let key = (plugin_id.to_string(), session_id.to_string());
-        if let Some(h) = SHARED.lock().get(&key) {
-            return h.clone();
-        }
-        // Build outside the registry lock (never hold it across disk IO); insert is idempotent, first writer wins.
-        let built: SharedHistory = Arc::new(Mutex::new(Self::open(plugin_id, session_id)));
-        SHARED.lock().entry(key).or_insert(built).clone()
+        shared_in(&SHARED, key, session_path(plugin_id, session_id))
+    }
+
+    pub fn release(plugin_id: &str, session_id: &str) {
+        release_in(
+            &mut SHARED.lock(),
+            &(plugin_id.to_owned(), session_id.to_owned()),
+        );
     }
 
     /// Seed the openSession config as the `_meta` first line if not already present.
     pub fn ensure_meta(&mut self, config: &serde_json::Value) {
+        self.ensure_indexed();
         if self.meta || config.is_null() {
             return;
         }
@@ -351,6 +372,7 @@ impl ChatBackendHistory {
 
     /// UPSERT messages by id. Returns whether anything changed (and was written).
     pub fn upsert(&mut self, messages: &[ChatMsg]) -> bool {
+        self.ensure_indexed();
         let mut changed = false;
         for message in messages {
             let Ok(line) = serde_json::to_string(message) else {
@@ -380,6 +402,7 @@ impl ChatBackendHistory {
     }
 
     pub fn remove(&mut self, message_id: &str) -> bool {
+        self.ensure_indexed();
         if self.live.remove(message_id).is_none() {
             return false;
         }
@@ -448,6 +471,37 @@ impl ChatBackendHistory {
             *start += shift;
         }
         Ok(())
+    }
+}
+
+fn shared_in(
+    registry: &Mutex<HistoryRegistry>,
+    key: (String, String),
+    path: PathBuf,
+) -> SharedHistory {
+    let mut entries = registry.lock();
+    entries.retain(|_, entry| entry.writer.strong_count() > 0);
+    if let Some(writer) = entries.get(&key).and_then(|entry| entry.writer.upgrade()) {
+        return writer;
+    }
+    let built = Arc::new(Mutex::new(ChatBackendHistory::unindexed(path)));
+    entries.insert(
+        key,
+        RegisteredHistory {
+            writer: Arc::downgrade(&built),
+            live: Some(built.clone()),
+        },
+    );
+    built
+}
+
+fn release_in(registry: &mut HistoryRegistry, key: &(String, String)) {
+    // In-flight sinks must remain discoverable until their last handle is dropped.
+    if let Some(entry) = registry.get_mut(key) {
+        entry.live = None;
+        if entry.writer.strong_count() == 0 {
+            registry.remove(key);
+        }
     }
 }
 

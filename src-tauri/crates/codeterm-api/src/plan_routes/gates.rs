@@ -39,60 +39,43 @@ pub async fn gate_ask(
     Path(id): Path<String>,
     Json(mut body): Json<GateAskBody>,
 ) -> PlanRouteResult {
-    body.asked_by_tab_id =
-        crate::auth::caller_claim(&state, &headers, body.asked_by_tab_id.as_deref())
-            .map_err(|(status, message)| text_err(status, message))?;
-    if let Some(owner) = state
-        .svc
-        .planner_gate_owner_answerer(&id, body.asked_by_tab_id.as_deref())
-    {
-        let gate = state
+    crate::plan_routes::run_blocking(move || {
+        body.asked_by_tab_id =
+            crate::auth::caller_claim(&state, &headers, body.asked_by_tab_id.as_deref())
+                .map_err(|(status, message)| text_err(status, message))?;
+        if let Some(owner) = state
             .svc
-            .plan_store
-            .ask_gate(
-                &id,
-                &body.question,
-                &body.context,
-                &body.blocking_task_ids,
-                Some(owner.clone()),
-                body.asked_by_tab_id.as_deref(),
-                epoch_ms(),
-            )
-            .map_err(plan_err)?;
-        let svc = state.svc.clone();
-        let plan_id = id.clone();
-        let delivered_gate = gate.clone();
-        let delivery = tokio::task::spawn_blocking(move || {
-            svc.deliver_planner_gate_to_owner(&plan_id, &owner, &delivered_gate)
-        })
-        .await;
-        emit_plan_changed(&state, &id);
-        let delivery = delivery.map_err(|error| {
-            (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({ "error": error.to_string() })),
-            )
-        })?;
-        if let Err(error) = delivery {
-            return Err((
-                axum::http::StatusCode::SERVICE_UNAVAILABLE,
-                Json(serde_json::json!({
-                    "error": "agent_unavailable",
-                    "detail": error,
-                    "gate": gate
-                })),
-            ));
+            .planner_gate_owner_answerer(&id, body.asked_by_tab_id.as_deref())
+        {
+            let gate = state
+                .svc
+                .plan_store
+                .ask_gate(
+                    &id,
+                    &body.question,
+                    &body.context,
+                    &body.blocking_task_ids,
+                    Some(owner.clone()),
+                    body.asked_by_tab_id.as_deref(),
+                    epoch_ms(),
+                )
+                .map_err(plan_err)?;
+            let delivery = state.svc.deliver_planner_gate_to_owner(&id, &owner, &gate);
+            emit_plan_changed(&state, &id);
+            if let Err(error) = delivery {
+                return Err((
+                    axum::http::StatusCode::SERVICE_UNAVAILABLE,
+                    Json(serde_json::json!({
+                        "error": "agent_unavailable",
+                        "detail": error,
+                        "gate": gate
+                    })),
+                ));
+            }
+            return Ok(Json(serde_json::to_value(&gate).unwrap_or_default()));
         }
-        return Ok(Json(serde_json::to_value(&gate).unwrap_or_default()));
-    }
-    let owner = state.clone();
-    let plan_id = id.clone();
-    let asking_tab = body.asked_by_tab_id.clone();
-    let (routed_to, caller_session_id) = tokio::task::spawn_blocking(move || {
-        let state = owner;
-        let id = plan_id;
         let routed_to = resolve_routed_tab(&state, &id);
-        let caller_session_id = asking_tab.as_deref().and_then(|tab_id| {
+        let caller_session_id = body.asked_by_tab_id.as_deref().and_then(|tab_id| {
             state
                 .svc
                 .mux
@@ -100,38 +83,24 @@ pub async fn gate_ask(
                 .get_tab(tab_id)
                 .and_then(|tab| tab.agent_session_id.clone())
         });
-        (routed_to, caller_session_id)
-    })
-    .await
-    .map_err(|_| {
-        text_err(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed",
-        )
-    })?;
-    let (gate, request) = state
-        .svc
-        .plan_store
-        .ask_gate_with_planner_request(
-            &id,
-            &body.question,
-            &body.context,
-            &body.blocking_task_ids,
-            routed_to.clone(),
-            body.asked_by_tab_id.as_deref(),
-            caller_session_id.as_deref(),
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    let request_id = request.request_id.clone();
-    if let Some(tab_id) = routed_to.as_deref() {
-        let svc = state.svc.clone();
-        let tab_id = tab_id.to_string();
-        let _ =
-            tokio::task::spawn_blocking(move || svc.replay_planner_requests_if_routable(&tab_id))
-                .await;
-    }
-    tokio::task::spawn_blocking(move || {
+        let (gate, request) = state
+            .svc
+            .plan_store
+            .ask_gate_with_planner_request(
+                &id,
+                &body.question,
+                &body.context,
+                &body.blocking_task_ids,
+                routed_to.clone(),
+                body.asked_by_tab_id.as_deref(),
+                caller_session_id.as_deref(),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        let request_id = request.request_id.clone();
+        if let Some(tab_id) = routed_to.as_deref() {
+            let _ = state.svc.replay_planner_requests_if_routable(tab_id);
+        }
         let request = state
             .svc
             .plan_store
@@ -188,12 +157,6 @@ pub async fn gate_ask(
         Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
     })
     .await
-    .map_err(|_| {
-        text_err(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            "blocking task failed",
-        )
-    })?
 }
 
 #[derive(Deserialize, Default)]
@@ -208,12 +171,15 @@ pub async fn gate_list(
     Path(id): Path<String>,
     Query(q): Query<GateListQuery>,
 ) -> PlanRouteResult {
-    let gates = state
-        .svc
-        .plan_store
-        .list_gates(&id, q.open_only.unwrap_or(false))
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::to_value(&gates).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        let gates = state
+            .svc
+            .plan_store
+            .list_gates(&id, q.open_only.unwrap_or(false))
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::to_value(&gates).unwrap_or_default()))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -229,25 +195,28 @@ pub async fn gate_answer(
     Path((id, gid)): Path<(String, String)>,
     Json(mut body): Json<GateAnswerBody>,
 ) -> PlanRouteResult {
-    body.answered_by_tab_id =
-        crate::auth::caller_claim(&state, &headers, body.answered_by_tab_id.as_deref())
-            .map_err(|(status, message)| text_err(status, message))?;
-    let gate = state
-        .svc
-        .plan_store
-        .answer_gate(
-            &id,
-            &gid,
-            &body.answer,
-            body.answered_by_tab_id.as_deref(),
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    state
-        .svc
-        .nudge_gate_asker(&id, &gid, &body.answer, body.answered_by_tab_id.as_deref());
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        body.answered_by_tab_id =
+            crate::auth::caller_claim(&state, &headers, body.answered_by_tab_id.as_deref())
+                .map_err(|(status, message)| text_err(status, message))?;
+        let gate = state
+            .svc
+            .plan_store
+            .answer_gate(
+                &id,
+                &gid,
+                &body.answer,
+                body.answered_by_tab_id.as_deref(),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        state
+            .svc
+            .nudge_gate_asker(&id, &gid, &body.answer, body.answered_by_tab_id.as_deref());
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -262,11 +231,14 @@ pub async fn gate_escalate(
     Path((id, gid)): Path<(String, String)>,
     Json(body): Json<GateEscalateBody>,
 ) -> PlanRouteResult {
-    let gate = state
-        .svc
-        .plan_store
-        .escalate_gate(&id, &gid, body.note.as_deref(), epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        let gate = state
+            .svc
+            .plan_store
+            .escalate_gate(&id, &gid, body.note.as_deref(), epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::to_value(&gate).unwrap_or_default()))
+    })
+    .await
 }
