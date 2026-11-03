@@ -9,7 +9,6 @@ struct TranscriptRetry {
     retry: RetryState,
     seen: Vec<String>,
     busy: bool,
-    path: std::path::PathBuf,
     floor: u64,
 }
 
@@ -58,7 +57,6 @@ pub(crate) fn register(
         return;
     }
     state.identity = (session.into(), nonce.into());
-    state.path = path.into();
     state.floor = floor;
     state.retry.attempts = 0;
     state.seen.clear();
@@ -70,7 +68,6 @@ pub(super) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
         remove_pending(svc, tab, &mut state.retry)?;
         state.retry.attempts = 0;
         state.retry.error = None;
-        state.floor = append_boundary(&state.path);
     }
     Ok(())
 }

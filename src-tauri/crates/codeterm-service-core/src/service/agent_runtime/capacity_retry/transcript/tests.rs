@@ -73,17 +73,25 @@ fn transcript_retry_ignores_history_foreign_and_managed_then_schedules_one_conti
 }
 
 #[test]
-fn transcript_retry_user_cancellation_advances_append_boundary_and_fences_claimed_retry() {
-    let (fixture, tab, path) = scene();
+fn transcript_retry_user_cancellation_deduplicates_evidence_and_fences_claimed_retry() {
+    let (fixture, tab, _) = scene();
     let svc = &fixture.service;
     observe_at(svc, &tab, "own", "nonce", &[failure("first", 7)], 123);
     let queue = svc.ext::<DelayedSendQueue>();
     let message = queue.claim_due(10_123).unwrap().remove(0);
-    std::fs::write(path, "opaque-older-error\n").unwrap();
     super::super::cancel(svc, &tab).unwrap();
     assert_eq!(skip_retry(svc, &tab, &message.id), Some(true));
-    observe_at(svc, &tab, "own", "nonce", &[failure("unread-old", 8)], 123);
+    observe_at(svc, &tab, "own", "nonce", &[failure("first", 7)], 123);
     assert!(states().lock()[&tab].retry.pending.is_none());
+    let user = RichMessage {
+        provider_session_id: Some("own".into()),
+        uuid: Some("new-user".into()),
+        record_start: Some(8),
+        role: "user".into(),
+        ..Default::default()
+    };
+    observe_at(svc, &tab, "own", "nonce", &[user], 123);
+    assert!(states().lock()[&tab].busy);
     observe_at(svc, &tab, "own", "nonce", &[failure("second", 19)], 123);
     let pending = states().lock()[&tab].retry.pending.clone().unwrap();
     svc.mux
