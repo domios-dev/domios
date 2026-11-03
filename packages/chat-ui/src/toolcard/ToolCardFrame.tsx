@@ -3,7 +3,7 @@ import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
 import { ArrowUpRight, Copy, ChevronRight, Maximize2, MessageSquarePlus, SquareTerminal } from "lucide-react";
 import { useCompactToolRow } from "../useCompactToolRow";
-import { useId, useState, type CSSProperties, type ReactNode } from "react";
+import { useId, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
 import type { ToolKindVisual } from "./toolKindVisual";
@@ -76,7 +76,8 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
 
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
-  const { header, compact } = useCompactToolRow();
+  const compact = useCompactToolRow();
+  const header = useRef<HTMLDivElement>(null);
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const canExpand = expandable || technicalOpen;
   const open = expanded && canExpand;
@@ -90,6 +91,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const inlineRow = inlineCommand || quietOperation;
   const iconColor = quietOperation ? "var(--ct-muted-fg)" : visual.color;
   const statusColor = event.status === "success" ? "var(--ct-muted-fg)" : outcome.color;
+  const statusIcon = <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
+    <StatusGlyph aria-hidden="true" size={14} className={event.status === "pending" ? "motion-safe:animate-spin" : undefined} />
+  </span>;
   const quiet = !error && !open && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -141,10 +145,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           <span data-testid="toolcard-no-result" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>no result</span>
         )}
         {action}
+        {compact && event.status !== "success" && statusIcon}
         <span className="ct-tool-status-slot">
-        <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
-          <StatusGlyph aria-hidden="true" size={14} className={event.status === "pending" ? "motion-safe:animate-spin" : undefined} />
-        </span>
+        {!compact && statusIcon}
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={compact && canExpand && !fullscreen ? [{
           label: "Open full screen",
           icon: <Maximize2 size={14} aria-hidden />,

@@ -1,9 +1,10 @@
-import React, { act, useState } from "react";
+import React, { act, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, expect, it, vi } from "vitest";
 import { ChatBlockHostProvider } from "./blocks/ChatBlockHost";
 import { renderChatCardMenu } from "../../../src/components/Terminal/ChatCardMenu";
 import { ThoughtLine } from "./toolcard/ThoughtLine";
+import { CompactToolRowsProvider, useCompactToolRow } from "./useCompactToolRow";
 import { ChatNoticeCard } from "./ChatNoticeCard";
 import { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 import { ToolCardFrame } from "./toolcard/ToolCardFrame";
@@ -27,12 +28,71 @@ afterEach(async () => {
   await act(async () => root?.unmount());
   host?.remove();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 function button(name: string) {
   const result = [...document.querySelectorAll("button")].find(node => node.getAttribute("aria-label") === name || node.textContent === name);
   expect(result).toBeTruthy();
   return result!;
 }
+
+function CompactSurface({ children }: { children: React.ReactNode }) {
+  const surface = useRef<HTMLDivElement>(null);
+  return <CompactToolRowsProvider surfaceRef={surface}><div ref={surface} className="ct-chat-surface">{children}</div></CompactToolRowsProvider>;
+}
+
+it("shares one surface observer and pointer listener across tool rows and releases them", async () => {
+  let width = 900;
+  let resize: ResizeObserverCallback | undefined;
+  const observe = vi.fn();
+  const disconnect = vi.fn();
+  vi.stubGlobal("ResizeObserver", class {
+    constructor(callback: ResizeObserverCallback) { resize = callback; }
+    observe = observe;
+    disconnect = disconnect;
+  });
+  const media = window.matchMedia("(pointer: coarse)");
+  Object.defineProperty(media, "matches", { value: false });
+  const addListener = vi.spyOn(media, "addEventListener");
+  const removeListener = vi.spyOn(media, "removeEventListener");
+  const matchMedia = vi.spyOn(window, "matchMedia").mockReturnValue(media);
+  const bounds = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+    return { ...bounds.call(this), width };
+  });
+  function Consumer() {
+    return <button disabled={!useCompactToolRow()} />;
+  }
+  await mount(<CompactSurface>{Array.from({ length: 100 }, (_, index) => <Consumer key={index} />)}</CompactSurface>);
+  expect(observe).toHaveBeenCalledTimes(1);
+  expect(matchMedia).toHaveBeenCalledTimes(1);
+  expect(addListener).toHaveBeenCalledTimes(1);
+  expect([...host.querySelectorAll("button")].every(control => control.disabled)).toBe(true);
+  width = 380;
+  await act(async () => resize?.([], {} as ResizeObserver));
+  expect([...host.querySelectorAll("button")].every(control => !control.disabled)).toBe(true);
+  await act(async () => root.render(null));
+  expect(disconnect).toHaveBeenCalledTimes(1);
+  expect(removeListener).toHaveBeenCalledWith("change", addListener.mock.calls[0][1]);
+});
+
+it("retains compact pending and error status without adding action targets", async () => {
+  const media = window.matchMedia("(pointer: coarse)");
+  Object.defineProperty(media, "matches", { value: true });
+  vi.spyOn(window, "matchMedia").mockReturnValue(media);
+  await mount(<CompactSurface><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu }}>
+    {(["pending", "error", "success"] as const).map(status => {
+      const event: ToolEvent = { id: status, phase: "result", status, kind: "search", message: { id: status, type: "tool_call", content: "" } };
+      return <ToolCardFrame key={status} event={event} expanded={false} onToggle={() => {}}><p>Opaque detail</p></ToolCardFrame>;
+    })}
+  </ChatBlockHostProvider></CompactSurface>);
+  expect(host.querySelectorAll('[role="status"]')).toHaveLength(2);
+  for (const status of ["pending", "error"]) {
+    const indicator = host.querySelector(`[role="status"][aria-label="${status}"]`);
+    expect(indicator?.querySelector("svg")).toBeTruthy();
+    expect(indicator?.closest("button")).toBeNull();
+  }
+});
 
 for (const input of ["coarse", "narrow"] as const) {
   it(`opens the ${input} tool reader from its first menu action and restores kebab focus`, async () => {
@@ -49,9 +109,9 @@ for (const input of ["coarse", "narrow"] as const) {
     });
     let toggles = 0;
     const event: ToolEvent = { id: "compact", phase: "result", status: "success", kind: "search", result: "opaque output", message: { id: "compact", type: "tool_call", content: "" } };
-    await mount(<div className="ct-chat-surface"><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu }}>
+    await mount(<CompactSurface><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu }}>
       <ToolCardFrame event={event} title="Opaque compact row" expanded={false} onToggle={() => { toggles += 1; }}><p>Opaque detail</p></ToolCardFrame>
-    </ChatBlockHostProvider></div>);
+    </ChatBlockHostProvider></CompactSurface>);
     const toggle = button("Expand tool details");
     await act(async () => toggle.click());
     expect(toggles).toBe(1);

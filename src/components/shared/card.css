@@ -450,7 +450,6 @@ button.ct-card__head {
   height: 44px;
 }
 
-.ct-card[data-compact="true"] .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
 .ct-card[data-compact="true"] [data-testid="toolcard-outcome-facts"] > span:has([data-testid="toolcard-duration"]) {
   display: none;
 }

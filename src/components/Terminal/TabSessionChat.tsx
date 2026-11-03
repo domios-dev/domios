@@ -23,7 +23,7 @@ import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowCon
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { ChatLiveOperation } from "./ChatLiveOperation";
-import { LocalArtifactScope } from "@codeterm/chat-ui";
+import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
 import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
@@ -919,6 +919,7 @@ function TabSessionChatBody({
           </span>
         </div>
       )}
+      <CompactToolRowsProvider surfaceRef={scrollRef}>
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -1027,6 +1028,7 @@ function TabSessionChatBody({
         <ChatLiveOperation message={liveOperation} />
         </div>
       </div>
+      </CompactToolRowsProvider>
         <ChatSetupState
           visible={isActive}
           waitingMessages={heldMessagesForLaunch(deliverySends)}
