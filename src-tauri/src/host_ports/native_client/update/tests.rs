@@ -4,6 +4,31 @@ use codeterm_types::native_update::{ExpectedServer, NativeUpdateAction, NativeUp
 use codeterm_types::server_bootstrap::{ClientIdentity, ServerExpectation};
 use uuid::Uuid;
 
+struct DetachedStop;
+
+#[async_trait::async_trait]
+impl ServerStop for DetachedStop {
+    async fn stop_server(&self) -> Result<(), ServerStopError> {
+        unreachable!("detached preparation must not stop the server")
+    }
+}
+
+#[tokio::test]
+async fn detached_preparation_does_not_report_relaunching_before_helper_readiness() {
+    let root = tempfile::tempdir().unwrap();
+    let operation = Arc::new(UpdateOperation::default());
+    operation.admit(record(1, root.path()), persist).unwrap();
+    let stop = UpdateServerStop {
+        inner: Arc::new(DetachedStop),
+        operation: operation.clone(),
+    };
+    stop.prepare_detached_update("1.18.6").await.unwrap();
+    let current = operation.record.lock();
+    let current = current.as_ref().unwrap();
+    assert_eq!(current.result.phase, Phase::Applying);
+    assert_eq!(current.target_version.as_deref(), Some("1.18.6"));
+}
+
 fn record(number: u128, data: &std::path::Path) -> NativeUpdateHandoff {
     let components = ServerComponentManifest {
         schema: 2,

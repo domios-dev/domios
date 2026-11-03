@@ -8,6 +8,8 @@ use std::{
     process::{Command, Stdio},
 };
 
+#[cfg(test)]
+mod tests;
 mod worker;
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -140,10 +142,8 @@ fn prepare_and_launch(
     }
     let root = target.ready.identity.data.join("state/update-handoffs");
     std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
-    let execution = tempfile::Builder::new()
-        .prefix("domios-verified-update-")
-        .tempdir_in(&root)
-        .map_err(|e| e.to_string())?;
+    staging::cleanup(&root);
+    let execution = staging::private_directory(&root)?;
     let directory = execution.path().to_path_buf();
     let app = std::env::current_exe().map_err(|e| e.to_string())?;
     let rollback = directory.join("rollback");
@@ -206,16 +206,45 @@ fn prepare_and_launch(
         .stderr(Stdio::null());
     let _ = execution.keep();
     drop(package.lease);
-    if !command.status().map_err(|e| e.to_string())?.success() {
-        return Err("detached Debian helper launch refused".into());
+    let outcome: Result<(), String> = (|| {
+        if !command.status().map_err(|e| e.to_string())?.success() {
+            return Err(helper_failure(
+                &directory,
+                "detached Debian helper launch refused",
+            ));
+        }
+        acknowledge_helper(&listener, &directory, plan.target.token.as_bytes(), 30_000)
+    })();
+    if let Err(error) = &outcome {
+        persist_failure(&plan_path, error);
+        if let Some(staged) = plan.deb.parent() {
+            let _ = std::fs::write(staged.join("handoff-failure.txt"), error);
+        }
     }
+    outcome
+}
+
+fn helper_failure(directory: &Path, fallback: &str) -> String {
+    std::fs::read_to_string(directory.join("handoff-failure.txt"))
+        .unwrap_or_else(|_| fallback.into())
+}
+
+fn acknowledge_helper(
+    listener: &UnixListener,
+    directory: &Path,
+    token: &[u8],
+    timeout_ms: i32,
+) -> Result<(), String> {
     let mut fd = libc::pollfd {
         fd: listener.as_raw_fd(),
         events: libc::POLLIN,
         revents: 0,
     };
-    if unsafe { libc::poll(&mut fd, 1, 30_000) } != 1 {
-        return Err("detached Debian helper did not acknowledge readiness".into());
+    if unsafe { libc::poll(&mut fd, 1, timeout_ms) } != 1 {
+        return Err(helper_failure(
+            directory,
+            "detached Debian helper did not acknowledge readiness",
+        ));
     }
     let (mut stream, _) = listener.accept().map_err(|e| e.to_string())?;
     stream
@@ -224,9 +253,11 @@ fn prepare_and_launch(
     let mut ack = [0];
     stream.read_exact(&mut ack).map_err(|e| e.to_string())?;
     if ack != [1] {
-        return Err("detached Debian helper preflight failed".into());
+        return Err(helper_failure(
+            directory,
+            "detached Debian helper preflight failed",
+        ));
     }
-    let token = plan.target.token.as_bytes();
     if token.is_empty() || token.len() > 4096 {
         return Err("invalid local update credential length".into());
     }
@@ -256,24 +287,45 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<(), String> {
 
 pub fn entry() -> Option<i32> {
     let path = std::env::var_os("DOMIOS_DEB_HANDOFF")?;
+    let path = std::path::PathBuf::from(path);
     if std::env::var_os("DOMIOS_DEB_DETACH").is_some() {
         unsafe {
             match libc::fork() {
-                -1 => return Some(1),
+                -1 => {
+                    record_failure(
+                        &path,
+                        &format!("helper fork failed: {}", std::io::Error::last_os_error()),
+                    );
+                    return Some(1);
+                }
                 0 => {}
                 _ => return Some(0),
             }
             if libc::setsid() < 0 {
+                record_failure(
+                    &path,
+                    &format!("helper setsid failed: {}", std::io::Error::last_os_error()),
+                );
                 libc::_exit(1);
             }
             match libc::fork() {
-                -1 => libc::_exit(1),
+                -1 => {
+                    record_failure(
+                        &path,
+                        &format!("helper fork failed: {}", std::io::Error::last_os_error()),
+                    );
+                    libc::_exit(1);
+                }
                 0 => {}
                 _ => libc::_exit(0),
             }
         }
     }
-    let outcome = (|| {
+    Some(execute_helper(&path))
+}
+
+fn execute_helper(path: &Path) -> i32 {
+    let outcome: Result<(), String> = (|| {
         let plan: Plan = serde_json::from_slice(&std::fs::read(path).map_err(|e| e.to_string())?)
             .map_err(|e| e.to_string())?;
         let leases = leases(&plan)?;
@@ -283,7 +335,52 @@ pub fn entry() -> Option<i32> {
             .map_err(|e| e.to_string())?;
         runtime.block_on(worker::execute(plan, leases))
     })();
-    Some(if outcome.is_ok() { 0 } else { 1 })
+    match outcome {
+        Ok(()) => 0,
+        Err(error) => {
+            record_failure(path, &error);
+            1
+        }
+    }
+}
+
+fn record_failure(plan_path: &Path, error: &str) {
+    persist_failure(plan_path, error);
+    let Some(directory) = plan_path.parent() else {
+        return;
+    };
+    if let Ok(mut stream) = std::os::unix::net::UnixStream::connect(directory.join("ready.sock")) {
+        let _ = stream.write_all(&[0]);
+    }
+}
+
+fn persist_failure(plan_path: &Path, error: &str) {
+    let Some(directory) = plan_path.parent() else {
+        return;
+    };
+    eprintln!("[updater] Debian helper failed: {error}");
+    let failure_path = directory.join("handoff-failure.txt");
+    if failure_path.exists() {
+        return;
+    }
+    if let Err(write_error) = std::fs::write(failure_path, error) {
+        eprintln!("Debian helper failure could not be saved: {write_error}");
+    }
+    if let Ok(bytes) = std::fs::read(plan_path) {
+        if let Ok(plan) = serde_json::from_slice::<Plan>(&bytes) {
+            let _ = std::fs::write(
+                plan.target
+                    .ready
+                    .identity
+                    .data
+                    .join("debian-update-failure.txt"),
+                error,
+            );
+            if let Some(staged) = plan.deb.parent() {
+                let _ = std::fs::write(staged.join("handoff-failure.txt"), error);
+            }
+        }
+    }
 }
 
 fn leases(plan: &Plan) -> Result<Vec<staging::StageLease>, String> {
