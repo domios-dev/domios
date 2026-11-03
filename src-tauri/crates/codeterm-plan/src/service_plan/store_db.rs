@@ -579,6 +579,7 @@ mod notice_queries;
 mod qa_queries;
 mod related_queries;
 mod search_queries;
+mod section_link_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
 mod list_window_queries;

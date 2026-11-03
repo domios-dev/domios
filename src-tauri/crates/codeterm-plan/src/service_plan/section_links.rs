@@ -149,7 +149,7 @@ fn suggest_for_task<'a>(
     }
 }
 
-fn resolve_selectors(plan: &Plan, selectors: &[String]) -> Vec<String> {
+pub(super) fn resolve_selectors(plan: &Plan, selectors: &[String]) -> Vec<String> {
     let candidates = section_candidates(plan);
     selectors
         .iter()
@@ -176,7 +176,7 @@ impl PlanStore {
         plan_id: &str,
         selectors: &[String],
     ) -> Result<Vec<String>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let plan = self.database.section_link_projection(plan_id, false)?;
         Ok(resolve_selectors(&plan, selectors))
     }
 
@@ -185,17 +185,8 @@ impl PlanStore {
         plan_id: &str,
         task: &Task,
     ) -> Result<Option<SectionLinkSuggestion>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let sections = section_candidates(&plan);
-        Ok(
-            suggest_for_task(&sections, task).map(|(section, reason)| SectionLinkSuggestion {
-                task_id: task.id.clone(),
-                task_name: task.name.clone(),
-                section_id: section.id.clone(),
-                section_title: section.title.clone(),
-                reason,
-            }),
-        )
+        let plan = self.database.section_link_projection(plan_id, false)?;
+        Ok(suggest_section(&plan, task))
     }
 
     pub fn link_task_sections(
@@ -229,28 +220,10 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<SectionRelinkReport, PlanError> {
         if !apply {
-            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            let sections = section_candidates(&plan);
-            let mut suggestions = vec![];
-            let mut unlinked_count = 0;
-            for task in plan.tasks.iter().filter(|task| task.section_ids.is_empty()) {
-                unlinked_count += 1;
-                if let Some((section, reason)) = suggest_for_task(&sections, task) {
-                    suggestions.push(SectionLinkSuggestion {
-                        task_id: task.id.clone(),
-                        task_name: task.name.clone(),
-                        section_id: section.id.clone(),
-                        section_title: section.title.clone(),
-                        reason,
-                    });
-                }
-            }
-            return Ok(SectionRelinkReport {
-                applied: vec![],
-                suggestions,
-                unlinked_count,
-            });
+            let plan = self.database.section_link_projection(plan_id, true)?;
+            return Ok(section_link_preview(&plan));
         }
+
         let mut report = SectionRelinkReport {
             applied: vec![],
             suggestions: vec![],
@@ -285,6 +258,40 @@ impl PlanStore {
             Ok(())
         })?;
         Ok(report)
+    }
+}
+
+pub(super) fn suggest_section(plan: &Plan, task: &Task) -> Option<SectionLinkSuggestion> {
+    let sections = section_candidates(plan);
+    suggest_for_task(&sections, task).map(|(section, reason)| SectionLinkSuggestion {
+        task_id: task.id.clone(),
+        task_name: task.name.clone(),
+        section_id: section.id.clone(),
+        section_title: section.title.clone(),
+        reason,
+    })
+}
+
+pub(super) fn section_link_preview(plan: &Plan) -> SectionRelinkReport {
+    let sections = section_candidates(plan);
+    let mut suggestions = vec![];
+    let mut unlinked_count = 0;
+    for task in plan.tasks.iter().filter(|task| task.section_ids.is_empty()) {
+        unlinked_count += 1;
+        if let Some((section, reason)) = suggest_for_task(&sections, task) {
+            suggestions.push(SectionLinkSuggestion {
+                task_id: task.id.clone(),
+                task_name: task.name.clone(),
+                section_id: section.id.clone(),
+                section_title: section.title.clone(),
+                reason,
+            });
+        }
+    }
+    SectionRelinkReport {
+        applied: vec![],
+        suggestions,
+        unlinked_count,
     }
 }
 
