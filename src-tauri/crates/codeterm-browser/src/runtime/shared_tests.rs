@@ -380,6 +380,7 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
         assert_eq!(result.is_err(), fail);
         if let Ok(shot) = result {
             assert_eq!(shot["metrics"]["cssContentSize"]["width"], 400);
+            assert_eq!(shot["metrics"]["devicePixelRatio"], 2.0);
         }
         let metrics: Vec<_> = connection
             .state

@@ -71,3 +71,10 @@ fn with_text_snapshot_options_can_be_combined_with_controls_only_and_bounds() {
     assert!(options.with_text && options.actions);
     assert_eq!(options.limit, 7);
 }
+#[test]
+fn snapshot_unknown_flags_name_the_positional_limit_syntax() {
+    let error = super::parse(&["--limit".into(), "20".into()]).unwrap_err();
+    assert!(error.contains("snapshot [limit]"));
+    assert!(error.contains("--limit is not supported"));
+}
+

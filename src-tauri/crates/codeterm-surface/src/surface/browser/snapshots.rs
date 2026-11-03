@@ -73,9 +73,9 @@ pub(super) fn parse(args: &[String]) -> Result<Options, String> {
                     .parse::<usize>()
                     .ok()
                     .filter(|n| *n > 0)
-                    .unwrap_or(DEFAULT_MAX_LINES)
+                    .ok_or("invalid snapshot limit; use `domios plugin browser snapshot [positive limit]`")?
             }
-            _ => return Err("unknown snapshot option".into()),
+            flag => return Err(format!("unknown snapshot option {flag}; use `domios plugin browser snapshot [limit] [--json] [--scope 'role:name'] [--max-items N]`; --limit is not supported")),
         }
         i += 1;
     }
@@ -91,7 +91,7 @@ impl BrowserRuntime {
         &self,
         page: &PageChannel,
         args: &[String],
-    ) -> Result<String, String> {
+    ) -> Result<super::output::ReadOutput, String> {
         let options = parse(args)?;
         let backend = options
             .reference
@@ -133,8 +133,13 @@ impl BrowserRuntime {
         } else {
             format!("page: {} — {}\n{}", state.title, state.url, snapshot.text)
         };
+        let output = super::output::ReadOutput {
+            text: result,
+            items: snapshot.items.len(),
+            truncated: snapshot.truncated,
+        };
         self.shared.finish_snapshot(&capture, snapshot)?;
-        Ok(result)
+        Ok(output)
     }
 }
 

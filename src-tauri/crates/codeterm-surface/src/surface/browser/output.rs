@@ -2,6 +2,12 @@ use super::BrowserRuntime;
 use crate::surface::runtime::SurfaceCallCtx;
 use std::path::{Component, Path, PathBuf};
 
+pub(super) struct ReadOutput {
+    pub text: String,
+    pub items: usize,
+    pub truncated: bool,
+}
+
 pub(super) fn parse(args: &[String]) -> Result<(Vec<String>, Option<String>), String> {
     let mut rest = Vec::new();
     let mut output = None;
@@ -78,17 +84,19 @@ impl BrowserRuntime {
         &self,
         ctx: &SurfaceCallCtx,
         output: Option<String>,
-        text: String,
+        read: ReadOutput,
     ) -> Result<String, String> {
-        let text = self.redact_text(&text);
+        let text = self.redact_text(&read.text);
         let Some(output) = output else {
             return Ok(text);
         };
+        let characters = text.chars().count();
+        let bytes = text.len();
         let ctx = ctx.clone();
         let path = tokio::task::spawn_blocking(move || write(&ctx, &output, &text))
             .await
             .map_err(|_| "output_task_failed")??;
-        Ok(path.to_string_lossy().into_owned())
+        Ok(serde_json::json!({"path":path.to_string_lossy(),"characters":characters,"bytes":bytes,"items":read.items,"truncated":read.truncated}).to_string())
     }
 }
 

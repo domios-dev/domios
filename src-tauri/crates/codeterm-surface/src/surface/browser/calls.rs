@@ -91,11 +91,8 @@ impl BrowserRuntime {
             }
             "input" => {
                 let input: InputArgs = parse(method, args)?;
-                let page = self.ensure_page().await?;
-                self.shared.invalidate_snapshot();
-                self.shared.invalidate_action();
-                self.hide_agent_cursor(&page).await;
-                self.dispatch_input(&page, &input).await?;
+                let page = self.host.page().ok_or("the browser has no page")?;
+                self.viewer_input(&page, &input).await?;
                 Value::Null
             }
             "nav" => {
@@ -108,13 +105,14 @@ impl BrowserRuntime {
             "screenshot" => {
                 let shot: ScreenshotArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
+                let viewport = super::metrics::capture_viewport(&self.screenshot_metrics(&page).await?)?;
                 let base64 = self
                     .screenshot_base64(&page, shot.full, shot.include_overlay)
                     .await?;
                 let path = self
                     .save_evidence(ctx, format!("shot-{}.png", now_ms()), base64.clone())
                     .await?;
-                json!({ "base64": base64, "path": path.to_string_lossy() })
+                json!({ "base64": base64, "path": path.to_string_lossy(), "viewport": viewport })
             }
             "profiles.list" => {
                 self.refresh_profiles().await;
@@ -181,6 +179,13 @@ impl BrowserRuntime {
             other => return Err(format!("unknown view method \"{other}\"")),
         };
         Ok(SurfaceCallOutcome::value(value))
+    }
+
+    pub(super) async fn viewer_input(&self, page: &PageChannel, input: &InputArgs) -> Result<(), String> {
+        self.shared.invalidate_snapshot();
+        self.shared.invalidate_action();
+        self.hide_cursor_for_viewer(page);
+        self.dispatch_input(page, input).await
     }
 
     async fn grab_send(

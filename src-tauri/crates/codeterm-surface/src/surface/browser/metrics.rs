@@ -125,6 +125,12 @@ pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, Strin
 }
 
 impl BrowserRuntime {
+    pub(super) async fn screenshot_metrics(&self, page: &codeterm_browser::PageChannel) -> Result<serde_json::Value, String> {
+        let mut metrics = self.send(page, "Page.getLayoutMetrics", json!({})).await?;
+        metrics["devicePixelRatio"] = self.evaluate(page, "window.devicePixelRatio", false).await?;
+        Ok(metrics)
+    }
+
     async fn apply_metrics(&self, viewport: Viewport) -> Result<(), String> {
         match self
             .host
@@ -160,7 +166,7 @@ impl BrowserRuntime {
         let options = parse(args, false)?;
         let page = self.ensure_page().await?;
         let (base64, metrics) = if options.region.is_some() || options.scale.is_some() {
-            let metrics = self.send(&page, "Page.getLayoutMetrics", json!({})).await?;
+            let metrics = self.screenshot_metrics(&page).await?;
             let bounds = if options.full {
                 &metrics["cssContentSize"]
             } else {
@@ -218,11 +224,7 @@ impl BrowserRuntime {
             if let Some(viewport) = options.viewport {
                 self.apply_metrics(viewport).await?;
             }
-            let metrics = if options.metrics {
-                self.send(&page, "Page.getLayoutMetrics", json!({})).await?
-            } else {
-                serde_json::Value::Null
-            };
+            let metrics = self.screenshot_metrics(&page).await?;
             (
                 self.screenshot_base64(&page, options.full, options.include_overlay)
                     .await?,
@@ -234,12 +236,14 @@ impl BrowserRuntime {
             &format!("shot-{}", super::calls::now_ms()),
         );
         let path = self.save_evidence(ctx, name, base64).await?;
+        let viewport = capture_viewport(&metrics)?;
         if options.metrics {
-            Ok(json!({"path":path.to_string_lossy(),"layoutWidth":metrics.pointer("/cssLayoutViewport/clientWidth"),"contentWidth":metrics.pointer("/cssContentSize/width"),"metrics":metrics,"restored":options.restore}).to_string())
+            Ok(json!({"path":path.to_string_lossy(),"viewport":viewport,"layoutWidth":metrics.pointer("/cssLayoutViewport/clientWidth"),"contentWidth":metrics.pointer("/cssContentSize/width"),"metrics":metrics,"restored":options.restore}).to_string())
         } else {
             Ok(format!(
-                "saved {} (show it with <ds-image src=\"{}\" />)",
+                "saved {} (CSS viewport {}x{}, DPR {}; show it with <ds-image src=\"{}\" />)",
                 path.display(),
+                viewport["width"], viewport["height"], viewport["dpr"],
                 path.to_string_lossy()
                     .replace('&', "&amp;")
                     .replace('"', "&quot;")
@@ -248,6 +252,13 @@ impl BrowserRuntime {
             ))
         }
     }
+}
+
+pub(super) fn capture_viewport(metrics: &serde_json::Value) -> Result<serde_json::Value, String> {
+    let width = metrics.pointer("/cssLayoutViewport/clientWidth").and_then(serde_json::Value::as_f64).ok_or("missing CSS viewport width")?;
+    let height = metrics.pointer("/cssLayoutViewport/clientHeight").and_then(serde_json::Value::as_f64).ok_or("missing CSS viewport height")?;
+    let dpr = metrics["devicePixelRatio"].as_f64().filter(|n|n.is_finite() && *n > 0.0).ok_or("missing capture DPR")?;
+    Ok(json!({"width":width,"height":height,"dpr":dpr}))
 }
 
 #[cfg(test)]

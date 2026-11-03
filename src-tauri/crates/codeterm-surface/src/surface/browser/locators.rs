@@ -111,7 +111,7 @@ impl BrowserRuntime {
         let snapshot = self
             .shared
             .snapshot()
-            .ok_or("no snapshot yet — run `snapshot` first")?;
+            .ok_or("no snapshot yet — run `domios plugin browser snapshot` for fresh refs")?;
         let entries = candidates(&snapshot, args)?;
         let target = self
             .choose_visible(

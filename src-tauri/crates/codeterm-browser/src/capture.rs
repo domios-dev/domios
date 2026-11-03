@@ -31,11 +31,12 @@ impl BrowserHost {
                     viewport,
                 )
                 .await?;
-                let metrics = runtime
+                let mut metrics = runtime
                     .page
                     .send("Page.getLayoutMetrics", json!({}))
                     .await
                     .map_err(|e| e.to_string())?;
+                metrics["devicePixelRatio"] = json!(viewport.dpr);
                 let shot = runtime
                     .page
                     .send(

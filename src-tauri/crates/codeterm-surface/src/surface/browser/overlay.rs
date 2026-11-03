@@ -56,6 +56,7 @@ impl BrowserRuntime {
         object_id: Option<&str>,
         mut request: Value,
     ) {
+        self.shared.show_cursor(page);
         // The cursor's name tag shows the agent driving the action: the actor when another agent drives, else the owner.
         if let Some(fields) = request.as_object_mut() {
             let state = self.shared.state();
@@ -91,7 +92,22 @@ impl BrowserRuntime {
     }
 
     pub(super) async fn hide_agent_cursor(&self, page: &PageChannel) {
+        if !self.shared.take_cursor(page) {
+            return;
+        }
         let _ = self.evaluate(page, &format!("{API}?.hide()"), false).await;
+    }
+
+    pub(super) fn hide_cursor_for_viewer(&self, page: &PageChannel) {
+        if !self.shared.take_cursor(page) {
+            return;
+        }
+        let page = page.clone();
+        tokio::spawn(async move {
+            let _ = page.send("Runtime.evaluate", json!({
+                "expression": format!("{API}?.hide()"), "returnByValue": true
+            })).await;
+        });
     }
 
     pub(super) async fn overlay_capture(
