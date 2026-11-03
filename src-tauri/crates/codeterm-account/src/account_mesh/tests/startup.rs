@@ -24,6 +24,12 @@ async fn account_mesh_startup_uses_two_admissions_and_network_noops_use_none() {
     harness.restart().await;
     harness.sign_in("owner").await;
     harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .membership_registry_revision = Some(10);
+    harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
         .await
@@ -52,10 +58,18 @@ async fn account_mesh_startup_uses_two_admissions_and_network_noops_use_none() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(admissions(&harness), 0);
-    assert_eq!(harness.calls("renew"), 0);
+    assert_eq!(admissions(&harness), 1);
+    assert_eq!(harness.calls("renew"), 1);
     assert_eq!(harness.calls("sync"), 0);
     assert_eq!(harness.calls("list"), 0);
+    harness.log.lock().unwrap().clear();
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert_eq!(admissions(&harness), 0);
 }
 
 #[tokio::test]
@@ -69,6 +83,12 @@ async fn account_mesh_startup_withdraws_a_stale_endpoint_in_one_admission() {
         .await
         .unwrap();
     *harness.endpoint.0.lock().unwrap() = None;
+    harness
+        .registry
+        .script
+        .lock()
+        .unwrap()
+        .membership_registry_revision = Some(10);
     harness.restart().await;
     harness.sign_in("owner").await;
     harness.log.lock().unwrap().clear();
@@ -77,7 +97,11 @@ async fn account_mesh_startup_withdraws_a_stale_endpoint_in_one_admission() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(admissions(&harness), 1);
+    assert_eq!(admissions(&harness), 2);
+    assert_eq!(harness.calls("renew"), 1);
+    assert_eq!(harness.calls("withdraw"), 1);
+    assert_eq!(harness.calls("list"), 0);
+    assert_eq!(harness.calls("sync"), 0);
     assert!(harness.registry.endpoint("owner").is_none());
     assert!(!harness.store.record.lock().unwrap().published);
     harness.log.lock().unwrap().clear();
