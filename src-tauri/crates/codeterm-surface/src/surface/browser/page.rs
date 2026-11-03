@@ -96,14 +96,21 @@ pub(super) struct PageShared {
 impl PageShared {
     pub(super) fn show_cursor(&self, page: &PageChannel) {
         let mut session = self.session.lock();
-        if session.bound_page.as_ref().is_some_and(|bound| bound.same_page(page)) {
+        if session
+            .bound_page
+            .as_ref()
+            .is_some_and(|bound| bound.same_page(page))
+        {
             session.cursor_visible = true;
         }
     }
 
     pub(super) fn take_cursor(&self, page: &PageChannel) -> bool {
         let mut session = self.session.lock();
-        session.bound_page.as_ref().is_some_and(|bound| bound.same_page(page))
+        session
+            .bound_page
+            .as_ref()
+            .is_some_and(|bound| bound.same_page(page))
             && std::mem::take(&mut session.cursor_visible)
     }
 
@@ -334,7 +341,10 @@ impl PageShared {
     pub(super) fn begin_snapshot(&self, session_id: &str) -> Result<String, String> {
         let mut session = self.session.lock();
         if session.bound_session.as_deref() != Some(session_id) {
-            return Err("the browser session changed — run `domios plugin browser snapshot` for fresh refs".into());
+            return Err(
+                "the browser session changed — run `domios plugin browser snapshot` for fresh refs"
+                    .into(),
+            );
         }
         use base64::Engine;
         let capture = base64::engine::general_purpose::URL_SAFE_NO_PAD

@@ -39,7 +39,11 @@ impl CdpConnection for Connection {
         _: Duration,
     ) -> Result<Value, CdpError> {
         self.calls.lock().push((method.into(), params.clone()));
-        if method == "Runtime.evaluate" && self.stall_evaluation.load(std::sync::atomic::Ordering::SeqCst) {
+        if method == "Runtime.evaluate"
+            && self
+                .stall_evaluation
+                .load(std::sync::atomic::Ordering::SeqCst)
+        {
             self.animation_started.notify_one();
             return std::future::pending().await;
         }
@@ -96,20 +100,56 @@ async fn fixture(
 async fn browser_viewer_input_dispatches_while_cursor_evaluation_never_answers() {
     let (runtime, page, wire, _dir) = fixture(false).await;
     wire.calls.lock().clear();
-    wire.stall_evaluation.store(true, std::sync::atomic::Ordering::SeqCst);
-    runtime.viewer_input(&page, &super::super::input::InputArgs::key("a", &[])).await.unwrap();
-    assert!(!wire.calls.lock().iter().any(|(method, _)| method == "Runtime.evaluate"));
+    wire.stall_evaluation
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+    runtime
+        .viewer_input(&page, &super::super::input::InputArgs::key("a", &[]))
+        .await
+        .unwrap();
+    assert!(!wire
+        .calls
+        .lock()
+        .iter()
+        .any(|(method, _)| method == "Runtime.evaluate"));
     runtime.shared.show_cursor(&page);
-    let wheel = super::super::input::InputArgs {kind:"wheel".into(),x:Some(20.0),y:Some(30.0),delta_y:Some(100.0),..Default::default()};
+    let wheel = super::super::input::InputArgs {
+        kind: "wheel".into(),
+        x: Some(20.0),
+        y: Some(30.0),
+        delta_y: Some(100.0),
+        ..Default::default()
+    };
     tokio::time::timeout(Duration::from_secs(1), async {
         runtime.viewer_input(&page, &wheel).await.unwrap();
-        runtime.viewer_input(&page, &super::super::input::InputArgs::key("b", &[])).await.unwrap();
-    }).await.expect("viewer input must not wait for page evaluation");
-    tokio::time::timeout(Duration::from_secs(1), wire.animation_started.notified()).await.expect("cursor hide was dispatched");
+        runtime
+            .viewer_input(&page, &super::super::input::InputArgs::key("b", &[]))
+            .await
+            .unwrap();
+    })
+    .await
+    .expect("viewer input must not wait for page evaluation");
+    tokio::time::timeout(Duration::from_secs(1), wire.animation_started.notified())
+        .await
+        .expect("cursor hide was dispatched");
     let calls = wire.calls.lock();
-    assert_eq!(calls.iter().filter(|(method, _)| method == "Runtime.evaluate").count(), 1);
-    assert!(calls.iter().any(|(method, params)| method == "Input.dispatchMouseEvent" && params["type"] == "mouseWheel"));
-    assert_eq!(calls.iter().filter(|(method, _)| method == "Input.dispatchKeyEvent").count(), 4);
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(method, _)| method == "Runtime.evaluate")
+            .count(),
+        1
+    );
+    assert!(calls
+        .iter()
+        .any(|(method, params)| method == "Input.dispatchMouseEvent"
+            && params["type"] == "mouseWheel"));
+    assert_eq!(
+        calls
+            .iter()
+            .filter(|(method, _)| method == "Input.dispatchKeyEvent")
+            .count(),
+        4
+    );
 }
 
 #[tokio::test]

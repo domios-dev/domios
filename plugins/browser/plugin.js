@@ -182,6 +182,9 @@ function runBatch(ctx, execute) {
   return { result: JSON.stringify({ completed: true, results }) };
 }
 
+// plugins/browser/plugin.json
+var version = "1.15.3";
+
 // plugins/browser/src/plugin.ts
 function hostSurfaceCall() {
   return typeof host === "object" && host && host.surface ? host.surface.call : void 0;
@@ -213,11 +216,12 @@ function forward(ctx, call = hostSurfaceCall()) {
   if (ctx.verb === "batch") return runBatch(ctx, (step) => forward(step, call));
   if (ctx.verb === "connect-secret") return { error: "connect accepts its token only through --stdin" };
   const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
-  const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb || "help";
+  const verb = secret !== void 0 && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb === "--help" ? "help" : ctx.verb || "help";
   if (secret !== void 0 && !["type", "connect"].includes(ctx.verb)) return { error: "Browser body input is supported only by type and connect" };
   if (ctx.verb === "connect" && !secret?.trim()) return { error: "connect requires --stdin with a nonempty token" };
   const parsed = parseOf(Array.isArray(ctx.args) ? ctx.args : []);
   if ("error" in parsed) return { error: parsed.error };
+  if (parsed.args.includes("--help")) return { error: "Use `domios plugin browser help` for browser verbs and syntax" };
   const redact = (text) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   if (ctx.verb === "connect") {
     try {
@@ -238,8 +242,10 @@ function forward(ctx, call = hostSurfaceCall()) {
   }
   if (reply && typeof reply === "object") {
     const { result, error } = reply;
-    if (typeof error === "string") return { error: redact(error) };
-    if (typeof result === "string") return { result: redact(result) };
+    const recovery = parsed.of === void 0 ? "domios plugin browser snapshot" : `domios plugin browser snapshot --of ${JSON.stringify(parsed.of)}`;
+    if (typeof error === "string") return { error: redact(error.replaceAll("domios plugin browser snapshot", recovery)) };
+    if (typeof result === "string") return { result: redact(verb === "help" ? `Browser plugin ${version}
+${result}` : result) };
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }

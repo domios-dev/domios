@@ -104,9 +104,14 @@ impl BrowserRuntime {
         }
         let page = page.clone();
         tokio::spawn(async move {
-            let _ = page.send("Runtime.evaluate", json!({
-                "expression": format!("{API}?.hide()"), "returnByValue": true
-            })).await;
+            let _ = page
+                .send(
+                    "Runtime.evaluate",
+                    json!({
+                        "expression": format!("{API}?.hide()"), "returnByValue": true
+                    }),
+                )
+                .await;
         });
     }
 

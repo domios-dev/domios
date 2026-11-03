@@ -62,11 +62,17 @@ impl BrowserRuntime {
             options.limit
         );
         let value = self.evaluate(page, &expression, false).await?;
-        let text = value["text"].as_str().ok_or("text extraction returned no result")?;
+        let text = value["text"]
+            .as_str()
+            .ok_or("text extraction returned no result")?;
         Ok(super::output::ReadOutput {
             text: text.to_string(),
-            items: value["items"].as_u64().ok_or("text extraction returned no item count")? as usize,
-            truncated: value["truncated"].as_bool().ok_or("text extraction returned no truncation state")?,
+            items: value["items"]
+                .as_u64()
+                .ok_or("text extraction returned no item count")? as usize,
+            truncated: value["truncated"]
+                .as_bool()
+                .ok_or("text extraction returned no truncation state")?,
         })
     }
 }

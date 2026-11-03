@@ -381,7 +381,10 @@ impl BrowserRuntime {
                 let mut navigated = page
                     .subscribe_session(&["Page.frameNavigated", "Page.navigatedWithinDocument"]);
                 if self.shared.state().url.contains(fragment.as_str()) {
-                    return Ok(format!("url: {} (contains {fragment})", self.shared.state().url));
+                    return Ok(format!(
+                        "url: {} (contains {fragment})",
+                        self.shared.state().url
+                    ));
                 }
                 let matched = tokio::time::timeout(WAIT_DEADLINE, async {
                     while let Some(event) = navigated.recv().await {
@@ -418,7 +421,8 @@ impl BrowserRuntime {
                     WaitFor::Text(_) => ("--text", format!("text \"{value}\"")),
                     _ => ("--selector", format!("selector {value}")),
                 };
-                let matched = self.evaluate(page, &expression, true)
+                let matched = self
+                    .evaluate(page, &expression, true)
                     .await
                     .map_err(|error| format!("{flag} {value}: {error}"))?;
                 Ok(format!("found {found}: {matched}"))

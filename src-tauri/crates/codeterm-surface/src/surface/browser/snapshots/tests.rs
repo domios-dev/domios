@@ -77,4 +77,3 @@ fn snapshot_unknown_flags_name_the_positional_limit_syntax() {
     assert!(error.contains("snapshot [limit]"));
     assert!(error.contains("--limit is not supported"));
 }
-

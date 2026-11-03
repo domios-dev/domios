@@ -132,7 +132,16 @@ impl BrowserRuntime {
         )?;
         let target = match query::unique(&nodes, &wait.role, Some(&wait.name)) {
             Ok(target) => target,
-            Err(error) if error.starts_with("not_found:") => return Ok((wait.state == State::Hidden).then(|| format!("no accessible {} named {:?} remains at {}", wait.role, wait.name, self.shared.state().url))),
+            Err(error) if error.starts_with("not_found:") => {
+                return Ok((wait.state == State::Hidden).then(|| {
+                    format!(
+                        "no accessible {} named {:?} remains at {}",
+                        wait.role,
+                        wait.name,
+                        self.shared.state().url
+                    )
+                }))
+            }
             Err(error) => return Err(error),
         };
         let matched = match wait.state {
@@ -149,7 +158,14 @@ impl BrowserRuntime {
                 .any(|p| p.name == "disabled" && p.value.value == Some(Value::Bool(true))),
             State::Visible | State::Hidden => {
                 let Some(id) = target.backend_dom_node_id else {
-                    return Ok((wait.state == State::Hidden).then(|| format!("{} {:?} has no DOM node at {}", wait.role, wait.name, self.shared.state().url)));
+                    return Ok((wait.state == State::Hidden).then(|| {
+                        format!(
+                            "{} {:?} has no DOM node at {}",
+                            wait.role,
+                            wait.name,
+                            self.shared.state().url
+                        )
+                    }));
                 };
                 let quads = self
                     .send(page, "DOM.getContentQuads", json!({"backendNodeId":id}))
@@ -158,7 +174,16 @@ impl BrowserRuntime {
                 visible == (wait.state == State::Visible)
             }
         };
-        Ok(matched.then(|| json!({"role":target.role.as_ref().map(|v|v.as_str()),"name":target.name.as_ref().map(|v|v.as_str()),"backendNodeId":target.backend_dom_node_id,"url":self.shared.state().url,"state":format!("{:?}",wait.state)}).to_string()))
+        Ok(matched.then(|| {
+            json!({
+                "role": target.role.as_ref().and_then(|v| v.value.as_ref()).and_then(Value::as_str),
+                "name": target.name.as_ref().and_then(|v| v.value.as_ref()).and_then(Value::as_str),
+                "backendNodeId": target.backend_dom_node_id,
+                "url": self.shared.state().url,
+                "state": format!("{:?}", wait.state)
+            })
+            .to_string()
+        }))
     }
 
     pub(super) async fn wait_accessible(

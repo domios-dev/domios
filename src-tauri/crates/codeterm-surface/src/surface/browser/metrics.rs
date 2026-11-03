@@ -125,9 +125,14 @@ pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, Strin
 }
 
 impl BrowserRuntime {
-    pub(super) async fn screenshot_metrics(&self, page: &codeterm_browser::PageChannel) -> Result<serde_json::Value, String> {
+    pub(super) async fn screenshot_metrics(
+        &self,
+        page: &codeterm_browser::PageChannel,
+    ) -> Result<serde_json::Value, String> {
         let mut metrics = self.send(page, "Page.getLayoutMetrics", json!({})).await?;
-        metrics["devicePixelRatio"] = self.evaluate(page, "window.devicePixelRatio", false).await?;
+        metrics["devicePixelRatio"] = self
+            .evaluate(page, "window.devicePixelRatio", false)
+            .await?;
         Ok(metrics)
     }
 
@@ -243,7 +248,9 @@ impl BrowserRuntime {
             Ok(format!(
                 "saved {} (CSS viewport {}x{}, DPR {}; show it with <ds-image src=\"{}\" />)",
                 path.display(),
-                viewport["width"], viewport["height"], viewport["dpr"],
+                viewport["width"],
+                viewport["height"],
+                viewport["dpr"],
                 path.to_string_lossy()
                     .replace('&', "&amp;")
                     .replace('"', "&quot;")
@@ -255,9 +262,18 @@ impl BrowserRuntime {
 }
 
 pub(super) fn capture_viewport(metrics: &serde_json::Value) -> Result<serde_json::Value, String> {
-    let width = metrics.pointer("/cssLayoutViewport/clientWidth").and_then(serde_json::Value::as_f64).ok_or("missing CSS viewport width")?;
-    let height = metrics.pointer("/cssLayoutViewport/clientHeight").and_then(serde_json::Value::as_f64).ok_or("missing CSS viewport height")?;
-    let dpr = metrics["devicePixelRatio"].as_f64().filter(|n|n.is_finite() && *n > 0.0).ok_or("missing capture DPR")?;
+    let width = metrics
+        .pointer("/cssLayoutViewport/clientWidth")
+        .and_then(serde_json::Value::as_f64)
+        .ok_or("missing CSS viewport width")?;
+    let height = metrics
+        .pointer("/cssLayoutViewport/clientHeight")
+        .and_then(serde_json::Value::as_f64)
+        .ok_or("missing CSS viewport height")?;
+    let dpr = metrics["devicePixelRatio"]
+        .as_f64()
+        .filter(|n| n.is_finite() && *n > 0.0)
+        .ok_or("missing capture DPR")?;
     Ok(json!({"width":width,"height":height,"dpr":dpr}))
 }
 

@@ -105,7 +105,8 @@ impl BrowserRuntime {
             "screenshot" => {
                 let shot: ScreenshotArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
-                let viewport = super::metrics::capture_viewport(&self.screenshot_metrics(&page).await?)?;
+                let viewport =
+                    super::metrics::capture_viewport(&self.screenshot_metrics(&page).await?)?;
                 let base64 = self
                     .screenshot_base64(&page, shot.full, shot.include_overlay)
                     .await?;
@@ -181,7 +182,11 @@ impl BrowserRuntime {
         Ok(SurfaceCallOutcome::value(value))
     }
 
-    pub(super) async fn viewer_input(&self, page: &PageChannel, input: &InputArgs) -> Result<(), String> {
+    pub(super) async fn viewer_input(
+        &self,
+        page: &PageChannel,
+        input: &InputArgs,
+    ) -> Result<(), String> {
         self.shared.invalidate_snapshot();
         self.shared.invalidate_action();
         self.hide_cursor_for_viewer(page);
