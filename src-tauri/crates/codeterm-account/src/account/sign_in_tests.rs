@@ -127,6 +127,14 @@ impl IdentityProvider for RefreshProvider {
         }
         Ok(Self::tokens())
     }
+    async fn refresh_with_identity(
+        &self,
+        token: &Secret,
+        identity: Option<&Identity>,
+    ) -> Result<Tokens> {
+        assert_eq!(identity, Some(&expired_session().identity));
+        self.refresh(token).await
+    }
     async fn revoke(&self, _: &Secret) -> Result<()> {
         Ok(())
     }

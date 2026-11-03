@@ -360,12 +360,15 @@ impl Account {
         let cancelled = self.refresh_cancel.notified();
         tokio::pin!(cancelled);
         cancelled.as_mut().enable();
-        let generation = {
+        let (generation, identity) = {
             let state = self.state.lock().await;
             if state.refresh_blocked {
                 return Err(Error::Cancelled);
             }
-            state.generation
+            (
+                state.generation,
+                state.session.as_ref().map(|s| s.identity.clone()),
+            )
         };
         tokio::time::timeout(self.deadline, async {
             let token = self
@@ -376,7 +379,7 @@ impl Account {
             let tokens = tokio::select! {
                 biased;
                 _ = &mut cancelled => return Err(Error::Cancelled),
-                result = self.provider.refresh(&token) => result?,
+                result = self.provider.refresh_with_identity(&token, identity.as_ref()) => result?,
             };
             self.commit_tokens(tokens, generation, &mut SignInAttempt::default(), false)
                 .await

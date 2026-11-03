@@ -7,6 +7,7 @@ impl AccountMesh {
         let now = self.now();
         self.with(|inner| {
             if inner.auth_parked.is_some()
+                || inner.terminal_parked
                 || inner.state.last_refusal == Some(AccountMeshRefusal::ReauthRequired)
             {
                 return None;
