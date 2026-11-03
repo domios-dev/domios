@@ -47,6 +47,7 @@ pub struct MeshManager {
     account: account_mesh::AccountMeshState,
     account_authority: Option<Arc<dyn account_mesh::AccountMeshAuthority>>,
     pub registry_revision: Option<types::RegistryRevision>,
+    pub signed_registry: Option<codeterm_entitlements::DetachedGrant>,
     clock: Arc<dyn Fn() -> u64 + Send + Sync>,
     gate_generation: tokio::sync::watch::Sender<u64>,
     pending_links: HashMap<String, account_admission::PendingLink>,
@@ -119,6 +120,7 @@ impl MeshManager {
             account: account_mesh::AccountMeshState::default(),
             account_authority: None,
             registry_revision: None,
+            signed_registry: None,
             clock: Arc::new(account_gate::system_now),
             gate_generation: tokio::sync::watch::channel(0).0,
             pending_links: HashMap::new(),
@@ -257,6 +259,12 @@ impl MeshManager {
             {
                 row.instance_id = Some(connection.instance_id);
                 row.online = connection.online && row.active && !row.signed_out;
+                if row.active && !row.signed_out {
+                    if let Some(expiry) = self.peer_membership_expiry(&row.installation_id) {
+                        row.membership_expires_at =
+                            Some(row.membership_expires_at.unwrap_or(0).max(expiry));
+                    }
+                }
             }
         }
         MeshPeersResponse {

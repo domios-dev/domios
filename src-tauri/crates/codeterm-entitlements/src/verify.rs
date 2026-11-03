@@ -6,7 +6,7 @@ use crate::verdict::{TimeState, Verdict};
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
 use ed25519_dalek::Signature;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
 pub const ED25519: &str = "Ed25519";
@@ -14,7 +14,7 @@ pub const ED25519: &str = "Ed25519";
 pub const MAX_CLOCK_SKEW_SECS: u64 = 300;
 const SIGNATURE_BYTES: usize = 64;
 
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DetachedGrant {
     pub payload: String,

@@ -1,4 +1,6 @@
+import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
 import { SidePanelFrame } from "./SidePanelFrame";
+import { taskDetailMatchesReference } from "../usePlanTaskDetail";
 import { useEffect, useState, type RefObject } from "react";
 import { Maximize2 } from "lucide-react";
 import type { ApiConfig, Tab } from "../../../lib/types";
@@ -20,6 +22,7 @@ export interface PlanSidePanelProps {
   target: PlanSidePanelTarget;
   plan: Plan | null;
   taskDetail?: PlanTaskDetail | null;
+  historyController?: TaskHistoryController;
   taskLoading?: boolean;
   taskError?: string | null;
   onRetryTask?: () => Promise<void>;
@@ -49,6 +52,7 @@ export function PlanSidePanel({
   target,
   plan,
   taskDetail = null,
+  historyController,
   taskLoading = false,
   taskError = null,
   onRetryTask,
@@ -68,10 +72,8 @@ export function PlanSidePanel({
   const taskRef = target.taskId;
   const detailMatches = Boolean(
     taskRef
-    && taskDetail?.plan_id === target.planId
-    && taskDetail.task_id === taskRef
-    && taskDetail.context.plan_id === target.planId
-    && taskDetail.task.id === taskRef,
+    && taskDetail
+    && taskDetailMatchesReference(taskDetail, target.planId, taskRef),
   );
   const task = detailMatches
     ? taskDetail!.task
@@ -79,7 +81,7 @@ export function PlanSidePanel({
       ? findTaskByReference(plan.tasks, taskRef)
       : undefined;
   const taskContext = detailMatches ? taskDetail!.context : undefined;
-  const key = taskRef ? taskDisplayKey({ id: taskRef, key: task?.key }) : null;
+  const key = taskRef ? taskDisplayKey(task ?? { id: taskRef }) : null;
   const route = {
     returnTo: target.returnTo,
     planId: target.planId,
@@ -144,6 +146,7 @@ export function PlanSidePanel({
               onOpenTask={openTask}
               onSectionClick={openFullPlan}
             />
+            {detailMatches && taskDetail && <TaskHistoryControls detail={taskDetail} controller={historyController} />}
           </SelectionAsk>
         ) : !key && plan ? (
           <SelectionAsk subject={askSubject(plan, undefined, null)} owner={askOwner(plan, tabs)} onJump={(tabId) => onOpenTab?.(tabId)}>

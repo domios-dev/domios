@@ -247,6 +247,7 @@ export function pagerPages(current: number, count: number): Array<number | "gap"
 
 /** Where the log reads its pages from: the plan's stored log, or the team's cursor-paged event stream. */
 export interface EventPager {
+  error?: string | null;
   /** Pages known so far, including one more when the source says older events exist. */
   pageCount: number;
   /** One page of events, newest first; null while that page is not loaded yet. */

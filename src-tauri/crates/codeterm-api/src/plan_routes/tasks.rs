@@ -23,6 +23,7 @@ use super::{
 };
 
 mod block_authority;
+pub mod history;
 use block_authority::{verify_task_mutation_owner, TaskMutationKind};
 
 #[derive(Debug, Deserialize, Default)]
@@ -127,18 +128,22 @@ pub async fn task_detail(
     _headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    tokio::task::spawn_blocking(move || {
-        codeterm_orchestration::validate_plan_team_binding(&state.svc, &id)
-            .map_err(task_board_team_plan_err)?;
-        let detail = state
-            .svc
-            .plan_store
-            .task_detail_for_plan(&id, &tid)
-            .map_err(plan_err)?;
-        Ok(Json(detail))
-    })
-    .await
-    .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
+    tokio::task::spawn_blocking(move || task_detail_core(&state.svc, &id, &tid))
+        .await
+        .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
+}
+
+fn task_detail_core(
+    svc: &codeterm_service_core::service::ServiceContext,
+    plan_id: &str,
+    task_ref: &str,
+) -> PlanRouteResult {
+    codeterm_orchestration::validate_plan_team_binding(svc, plan_id)
+        .map_err(task_board_team_plan_err)?;
+    svc.plan_store
+        .task_detail_for_plan(plan_id, task_ref)
+        .map(Json)
+        .map_err(plan_err)
 }
 
 fn planner_role_for_tab(state: &AppState, tab_id: &str) -> Option<&'static str> {
@@ -367,122 +372,126 @@ pub async fn task_add(
         crate::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    let execution_fields = serde_json::json!({
-        "assign_tab": body.assign_tab.clone(),
-        "executor_role": body.executor_role.clone(),
-        "role_guidance": body.role_guidance.clone(),
-        "personality": body.personality.clone(),
-        "personality_provenance": body.personality_provenance.clone(),
-        "competition": body.competition.clone(),
-        "lane": if body.lane == TaskLaneMetadata::default() {
-            serde_json::Value::Null
-        } else {
-            serde_json::to_value(&body.lane).unwrap_or_default()
-        },
-    });
-    codeterm_service_core::service::ensure_planner_task_fields_are_structural(
-        &author,
-        &execution_fields,
-    )
-    .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
-    let requested_sections = body
-        .sections
-        .as_deref()
-        .map(|s| {
-            s.split(',')
-                .map(str::trim)
-                .filter(|x| !x.is_empty())
-                .map(|x| x.to_string())
-                .collect::<Vec<String>>()
-        })
-        .unwrap_or_default();
-    let section_ids = state
-        .svc
-        .plan_store
-        .resolve_task_section_ids(&id, &requested_sections)
-        .map_err(plan_err)?;
-    let kind = if body.kind.is_empty() {
-        "implement".to_string()
-    } else {
-        body.kind.clone()
-    };
-    let has_sections = !section_ids.is_empty();
-    let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
-    let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
-    let has_criteria = body
-        .acceptance_criteria
-        .iter()
-        .any(|s| !s.trim().is_empty());
-    let has_test_plan = body
-        .test_plan
-        .as_deref()
-        .is_some_and(|s| !s.trim().is_empty());
-    let has_correctness = body
-        .correctness
-        .as_deref()
-        .is_some_and(|s| !s.trim().is_empty());
-    let external_refs = body.external_refs.clone();
-    let assigned_tab = body.assign_tab.clone();
-    let task_name = body.name.clone();
-    let tid = state
-        .svc
-        .plan_store
-        .add_task_with_external_refs(
-            &id,
-            NewTask {
-                files: body.files,
-                name: body.name,
-                kind,
-                section_ids,
-                model: body.model,
-                model_rationale: body.why,
-                acceptance_criteria: body.acceptance_criteria,
-                test_plan: body.test_plan,
-                qa_plan: body.qa_plan,
-                correctness: body.correctness,
-                body: body.body.unwrap_or_default(),
-                role_guidance: body.role_guidance,
-                executor_role: body.executor_role,
-                personality: body.personality,
-                personality_provenance: body.personality_provenance,
-                competition: body.competition,
-                intent: body.intent,
-                execution_intent: body.execution_intent,
-                parent_task_id: body.parent,
-                depends_on: body.depends_on,
-                assigned_tab_id: body.assign_tab,
-                lane: body.lane,
-                group: body.group,
-                priority: body.priority,
-                handle: body.handle,
-                tags: body.tags,
+    crate::plan_routes::run_blocking(move || {
+        let execution_fields = serde_json::json!({
+            "assign_tab": body.assign_tab.clone(),
+            "executor_role": body.executor_role.clone(),
+            "role_guidance": body.role_guidance.clone(),
+            "personality": body.personality.clone(),
+            "personality_provenance": body.personality_provenance.clone(),
+            "competition": body.competition.clone(),
+            "lane": if body.lane == TaskLaneMetadata::default() {
+                serde_json::Value::Null
+            } else {
+                serde_json::to_value(&body.lane).unwrap_or_default()
             },
-            &external_refs,
-            epoch_ms(),
+        });
+        codeterm_service_core::service::ensure_planner_task_fields_are_structural(
+            &author,
+            &execution_fields,
         )
-        .map_err(plan_err)?;
-    if let Some(tab_id) = assigned_tab.as_deref() {
-        let description = codeterm_service_core::service::task_tab_description(&task_name, None);
-        state
+        .map_err(|message| text_err(axum::http::StatusCode::FORBIDDEN, message))?;
+        let requested_sections = body
+            .sections
+            .as_deref()
+            .map(|s| {
+                s.split(',')
+                    .map(str::trim)
+                    .filter(|x| !x.is_empty())
+                    .map(|x| x.to_string())
+                    .collect::<Vec<String>>()
+            })
+            .unwrap_or_default();
+        let section_ids = state
             .svc
-            .assign_task_tab_description(tab_id, &description)
-            .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
-    }
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({
-        "task_id": tid.clone(),
-        "key": state.svc.plan_store.task_display_key(&id, &tid),
-        "_hints": codeterm_service_core::service::plan::hints::task_create_hints(
-            &id,
-            &tid,
-            has_sections,
-            has_model,
-            has_why,
-            has_criteria,
-            has_test_plan,
-            has_correctness
-        )
-    })))
+            .plan_store
+            .resolve_task_section_ids(&id, &requested_sections)
+            .map_err(plan_err)?;
+        let kind = if body.kind.is_empty() {
+            "implement".to_string()
+        } else {
+            body.kind.clone()
+        };
+        let has_sections = !section_ids.is_empty();
+        let has_model = body.model.as_deref().is_some_and(|s| !s.trim().is_empty());
+        let has_why = body.why.as_deref().is_some_and(|s| !s.trim().is_empty());
+        let has_criteria = body
+            .acceptance_criteria
+            .iter()
+            .any(|s| !s.trim().is_empty());
+        let has_test_plan = body
+            .test_plan
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty());
+        let has_correctness = body
+            .correctness
+            .as_deref()
+            .is_some_and(|s| !s.trim().is_empty());
+        let external_refs = body.external_refs.clone();
+        let assigned_tab = body.assign_tab.clone();
+        let task_name = body.name.clone();
+        let tid = state
+            .svc
+            .plan_store
+            .add_task_with_external_refs(
+                &id,
+                NewTask {
+                    files: body.files,
+                    name: body.name,
+                    kind,
+                    section_ids,
+                    model: body.model,
+                    model_rationale: body.why,
+                    acceptance_criteria: body.acceptance_criteria,
+                    test_plan: body.test_plan,
+                    qa_plan: body.qa_plan,
+                    correctness: body.correctness,
+                    body: body.body.unwrap_or_default(),
+                    role_guidance: body.role_guidance,
+                    executor_role: body.executor_role,
+                    personality: body.personality,
+                    personality_provenance: body.personality_provenance,
+                    competition: body.competition,
+                    intent: body.intent,
+                    execution_intent: body.execution_intent,
+                    parent_task_id: body.parent,
+                    depends_on: body.depends_on,
+                    assigned_tab_id: body.assign_tab,
+                    lane: body.lane,
+                    group: body.group,
+                    priority: body.priority,
+                    handle: body.handle,
+                    tags: body.tags,
+                },
+                &external_refs,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        if let Some(tab_id) = assigned_tab.as_deref() {
+            let description =
+                codeterm_service_core::service::task_tab_description(&task_name, None);
+            state
+                .svc
+                .assign_task_tab_description(tab_id, &description)
+                .map_err(|message| text_err(axum::http::StatusCode::BAD_REQUEST, message))?;
+        }
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({
+            "task_id": tid.clone(),
+            "key": state.svc.plan_store.task_display_key(&id, &tid),
+            "_hints": codeterm_service_core::service::plan::hints::task_create_hints(
+                &id,
+                &tid,
+                has_sections,
+                has_model,
+                has_why,
+                has_criteria,
+                has_test_plan,
+                has_correctness
+            )
+        })))
+    })
+    .await
 }
 
 pub async fn task_update(
@@ -687,6 +696,20 @@ fn task_update_core_with_lane_cleanup_check(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    let remove_tags = body
+        .get("remove_tags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    service
+        .plan_store
+        .remove_task_tags(id, tid, &remove_tags, epoch_ms())
+        .map_err(plan_err)?;
     if let Some(depends_on) = depends_on {
         service
             .plan_store
@@ -782,9 +805,7 @@ fn task_update_core_with_lane_cleanup_check(
             .or_else(|| body.get("status_label").and_then(|v| v.as_str()));
         service.notify_owner_task_in_review(id, tid, by_tab, intent);
     }
-    service
-        .ui
-        .emit("plan-changed", serde_json::json!({ "plan_id": id }));
+    service.emit_committed_plan_changed(&id);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -971,16 +992,19 @@ pub async fn task_attempts(
     _headers: HeaderMap,
     Path((id, tid)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    let attempts = state
-        .svc
-        .plan_store
-        .list_task_attempts(&id, &tid)
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::json!({
-        "plan_id": id,
-        "task_id": tid,
-        "attempts": attempts
-    })))
+    crate::plan_routes::run_blocking(move || {
+        let attempts = state
+            .svc
+            .plan_store
+            .list_task_attempts(&id, &tid)
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::json!({
+            "plan_id": id,
+            "task_id": tid,
+            "attempts": attempts
+        })))
+    })
+    .await
 }
 
 pub async fn task_attempt_show(
@@ -988,16 +1012,19 @@ pub async fn task_attempt_show(
     _headers: HeaderMap,
     Path((id, tid, attempt_id)): Path<(String, String, String)>,
 ) -> PlanRouteResult {
-    let attempt = state
-        .svc
-        .plan_store
-        .show_task_attempt(&id, &tid, &attempt_id)
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::json!({
-        "plan_id": id,
-        "task_id": tid,
-        "attempt": attempt
-    })))
+    crate::plan_routes::run_blocking(move || {
+        let attempt = state
+            .svc
+            .plan_store
+            .show_task_attempt(&id, &tid, &attempt_id)
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::json!({
+            "plan_id": id,
+            "task_id": tid,
+            "attempt": attempt
+        })))
+    })
+    .await
 }
 
 fn rest_task_mutation_authority(
@@ -1067,12 +1094,16 @@ pub async fn task_adopt_checkpoint(
             "blocking task failed",
         )
     })??;
-    let detail = state
-        .svc
-        .plan_store
-        .show_task(&tid)
-        .filter(|detail| detail.plan_id == id)
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?;
+    let store = state.svc.plan_store.clone();
+    let task = tid.clone();
+    let plan = id.clone();
+    let detail = crate::plan_routes::run_blocking(move || {
+        store
+            .show_task(&task)
+            .filter(|detail| detail.plan_id == plan)
+            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))
+    })
+    .await?;
     let (owner_epoch, attempt_id) = state
         .svc
         .adopt_worker_checkpoint(&detail.task.id, tab_id, &session_id, epoch_ms())
@@ -1116,13 +1147,16 @@ pub async fn task_rm(
         crate::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    state
-        .svc
-        .plan_store
-        .rm_task(&id, &tid, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .rm_task(&id, &tid, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 #[cfg(test)]

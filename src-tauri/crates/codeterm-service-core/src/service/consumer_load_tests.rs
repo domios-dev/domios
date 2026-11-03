@@ -525,9 +525,11 @@ fn reconcile_notification_questions_never_loads_unmatched_plans() {
 
     fx.service.reconcile_notification_questions();
 
-    let loaded = store.plan_loads_for_test();
-    assert!(loaded.contains(&active));
-    assert!(loaded.contains(&scheduled));
+    let mut projected = store.curator_schedule_reads_for_test();
+    projected.sort();
+    let mut matched = vec![active, scheduled];
+    matched.sort();
+    assert_eq!(projected, matched);
     assert_never_loaded(store, &[&quiet]);
 }
 

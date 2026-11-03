@@ -2,6 +2,12 @@
   "version": 1,
   "splits": [
     {
+      "from": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "to": [
+        "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs"
+      ]
+    },
+    {
       "from": "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle.rs",
       "to": [
         "src-tauri/crates/codeterm-service-core/src/service/pty_lifecycle/tests.rs"
@@ -9196,63 +9202,63 @@
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "attempt_records_actual_effort_for_claude_and_codex",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "claude",
       "count": 4,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "claude_tab",
       "count": 5,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "claude-model",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "claude-session",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Remaining provider boundary extraction"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "codex",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "codex_tab",
       "count": 3,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "codex-model",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",
       "removalSlice": "Codex Chat-only runtime extraction (task_w9btoo)"
     },
     {
-      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort.rs",
+      "file": "src-tauri/crates/codeterm-service-core/src/service/reasoning_effort/tests.rs",
       "token": "codex-session",
       "count": 1,
       "justification": "Existing develop provider coupling; temporary exact file/token count pending plugin extraction.",

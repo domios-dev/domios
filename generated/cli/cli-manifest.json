@@ -4055,6 +4055,21 @@
       ]
     },
     {
+      "name": "diagnostics",
+      "about": "Read-only local owner diagnostics",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "memory",
+          "about": "Approximate retained subsystem sizes; busy subsystems are skipped",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "docs",
       "about": "Read embedded Domios documentation in full. Omit NAME to list documents",
       "aliases": [],
@@ -14745,6 +14760,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "untag",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TAG",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Remove an exact tag after additions; repeatable",
+                  "aliases": []
+                },
+                {
                   "name": "why",
                   "positional": false,
                   "required": false,
@@ -14944,26 +14969,6 @@
               "possible_values": [],
               "default": null,
               "help": "Set attached Planner: <tab_id> to bind, or \"none\" to waive (requires --note)",
-              "aliases": []
-            },
-            {
-              "name": "spec",
-              "positional": false,
-              "required": false,
-              "value_name": "SPEC",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "spec-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
               "aliases": []
             },
             {
@@ -19059,7 +19064,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content",
+              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; omit id for new items; id addresses existing items only. activeForm defaults to content",
               "aliases": []
             }
           ],

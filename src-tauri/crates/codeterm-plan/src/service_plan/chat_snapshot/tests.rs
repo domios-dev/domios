@@ -25,7 +25,7 @@ fn chat_snapshot_is_bounded_scoped_and_omits_task_bodies() {
         )
         .unwrap();
     let task = store.get(&plan.id).unwrap().tasks.remove(0);
-    store.plan_arc_for_test(&plan.id).lock().tasks = (0..55)
+    plan.tasks = (0..55)
         .map(|index| {
             let mut task = task.clone();
             task.id = format!("task_{index}");
@@ -33,7 +33,10 @@ fn chat_snapshot_is_bounded_scoped_and_omits_task_bodies() {
             task
         })
         .collect();
-    let result = store.chat_snapshot(None, Some("team"), Some("Needle"));
+    store.save(&mut plan, 3).unwrap();
+    let result = store
+        .chat_snapshot(None, Some("team"), Some("Needle"))
+        .unwrap();
     assert_eq!(result.len(), 1);
     assert_eq!(result[0]["tasks"].as_array().unwrap().len(), 50);
     assert!(!serde_json::to_string(&result)
@@ -41,11 +44,14 @@ fn chat_snapshot_is_bounded_scoped_and_omits_task_bodies() {
         .contains("opaque large body"));
     assert!(store
         .chat_snapshot(None, Some("foreign"), Some(""))
+        .unwrap()
         .is_empty());
     assert!(store
         .chat_snapshot(Some("/other-project"), Some("team"), Some(""))
+        .unwrap()
         .is_empty());
     assert!(store
         .chat_snapshot(None, Some("team"), Some("Absent"))
+        .unwrap()
         .is_empty());
 }

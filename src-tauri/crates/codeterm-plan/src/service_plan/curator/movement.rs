@@ -2,7 +2,7 @@ use super::digest::Row;
 use crate::plan::{Plan, TaskStatus};
 use std::collections::BTreeMap;
 
-pub fn rows(plan: &Plan, since: u64, now: u64) -> BTreeMap<String, Vec<Row>> {
+pub fn current_rows(plan: &Plan, since: u64, now: u64) -> BTreeMap<String, Vec<Row>> {
     let mut rows = BTreeMap::<String, Vec<Row>>::new();
     let mut review_count = 0;
     let mut oldest_review = 0;
@@ -83,6 +83,11 @@ pub fn rows(plan: &Plan, since: u64, now: u64) -> BTreeMap<String, Vec<Row>> {
             });
         }
     }
+    rows
+}
+
+pub fn rows(plan: &Plan, since: u64, now: u64) -> BTreeMap<String, Vec<Row>> {
+    let mut rows = current_rows(plan, since, now);
     for stride in plan.strides.iter().filter(|stride| {
         stride.ts > since
             && matches!(

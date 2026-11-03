@@ -48,6 +48,7 @@ pub fn membership(account: &str, installation: &str, expires_at: u64) -> SignedM
 /// Deterministic account authority: possession is bound to the installation id, permits to
 /// the transcript and both installations; `online` models backend reachability.
 pub struct FakeAuthority {
+    pub snapshots: Mutex<Vec<codeterm_entitlements::DetachedGrant>>,
     pub installation_id: String,
     pub online: AtomicBool,
     pub authorize_calls: AtomicUsize,
@@ -57,6 +58,7 @@ pub struct FakeAuthority {
 impl FakeAuthority {
     pub fn new(installation_id: &str) -> Arc<Self> {
         Arc::new(Self {
+            snapshots: Mutex::default(),
             installation_id: installation_id.into(),
             online: AtomicBool::new(true),
             authorize_calls: AtomicUsize::new(0),
@@ -70,6 +72,14 @@ impl FakeAuthority {
 }
 
 impl AccountMeshAuthority for FakeAuthority {
+    fn receive_registry_snapshot<'a>(
+        &'a self,
+        snapshot: &'a codeterm_entitlements::DetachedGrant,
+    ) -> BoxFuture<'a, Result<bool, AdmissionRefusal>> {
+        self.snapshots.lock().push(snapshot.clone());
+        Box::pin(async { Ok(true) })
+    }
+
     fn verify_membership(
         &self,
         token: &str,
@@ -197,6 +207,7 @@ impl Machine {
 
     pub fn sign_in(&self, epoch: u64, account: &str, expires_at: u64) {
         self.mesh.lock().apply_account_state(AccountMeshState {
+            registry_members: None,
             account_epoch: epoch,
             presence: AccountPresence::SignedIn {
                 account_id: account.into(),
@@ -210,6 +221,7 @@ impl Machine {
 
     pub fn sign_out(&self, epoch: u64) {
         self.mesh.lock().apply_account_state(AccountMeshState {
+            registry_members: None,
             account_epoch: epoch,
             presence: AccountPresence::SignedOut,
             membership: None,
@@ -339,7 +351,15 @@ impl LinkTransport for Loopback {
                 LINK_COMMIT_PATH => {
                     let commit: LinkCommit = decode(body)?;
                     mesh.lock().commit_link(&commit)?;
-                    encode(LinkCommitReply { committed: true })
+                    if let Some(snapshot) = commit.signed_registry.as_ref() {
+                        let authority = mesh.lock().account_authority().unwrap();
+                        authority.receive_registry_snapshot(snapshot).await?;
+                    }
+                    let signed_registry = mesh.lock().signed_registry.clone();
+                    encode(LinkCommitReply {
+                        committed: true,
+                        signed_registry,
+                    })
                 }
                 _ => Err(AdmissionRefusal::handshake("unknown path")),
             };

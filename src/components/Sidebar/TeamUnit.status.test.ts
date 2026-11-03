@@ -35,4 +35,7 @@ const cardCounts = deriveCardStatusCounts(d12Buckets);
 assert.equal(cardCounts.todo, 3, "1 pending + 2 paused renders 3 todo on the card aggregate");
 assert.equal(cardCounts.paused, 2, "the detailed breakdown still reports paused=2 separately");
 
+const projected=deriveTeamTaskBuckets({...FIXTURE_PLAN,tasks:[],task_counts:{total:1000,pending:600,in_progress:100,in_review:50,blocked:25,paused:25,done:200}},{});
+assert.equal(projected.find((bucket)=>bucket.key==="todo")?.count,700,"summary counts do not depend on a truncated task window");
+assert.equal(projected.find((bucket)=>bucket.key==="done")?.count,200);
 console.log("TeamUnit status tests passed");

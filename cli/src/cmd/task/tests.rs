@@ -1,3 +1,19 @@
+#[test]
+fn compact_task_show_retains_task_and_plan_header_only() {
+    let input = serde_json::json!({
+        "task": {"id": "task_1", "body": "complete task", "execution_attempts": []},
+        "plan_id": "plan_1", "plan_title": "Plan",
+        "siblings": [{"id": "unrelated"}], "sections": [{"body": "large"}],
+        "plan_owner": {"session_id": "session"}
+    });
+    assert_eq!(
+        super::compact_task_show(&input),
+        serde_json::json!({
+            "task": input["task"], "plan_id": "plan_1", "plan_title": "Plan"
+        })
+    );
+}
+
 mod external_ref_render_tests {
     use crate::cmd::task::render_external_refs;
     use serde_json::json;

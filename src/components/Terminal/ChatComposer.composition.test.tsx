@@ -115,7 +115,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
   document.body.appendChild(host);
   const root = createRoot(host);
   const state = emptyMuxState();
-  if (options.tab) state.tabs[tabId] = options.tab;
+  state.tabs[tabId] = options.tab ?? { id: tabId, pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null };
   const store = createMuxStateStore(() => state);
   function ComposerHarness() {
     const [attachments, setAttachments] = useState(options.attachments ?? []);

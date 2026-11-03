@@ -1,10 +1,13 @@
 import type {RuntimeErrorSignal} from "@codeterm/plugin-sdk";
 import {classifyAccessError, observationRetrying, retryAfterSecs} from "../../provider-shared/accessError";
+import {outputLimit} from "../../provider-shared/outputLimit";
 
 const networkCodes = ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "api_connection_error", "connection_error"];
 
 export function retryError(record: Record<string, unknown>): {retry_error?: RuntimeErrorSignal} {
-  if (record.type !== "assistant" || record.isApiErrorMessage !== true || record.isSidechain === true) return {};
+  if (record.type !== "assistant" || record.isSidechain === true) return {};
+  if (outputLimit(record.message) || (record.isApiErrorMessage === true && outputLimit(record.error))) return {retry_error:{retryable:false, retryableKind:"output_limit"}};
+  if (record.isApiErrorMessage !== true) return {};
   const kind = classifyAccessError(record.error, record);
   const error = record.error && typeof record.error === "object" ? record.error as Record<string, unknown> : {};
   const message = record.message as {content?: {type?: string; text?: string}[]} | undefined;
@@ -18,11 +21,11 @@ export function retryError(record: Record<string, unknown>): {retry_error?: Runt
     const seconds = retryAfterSecs(record.error, record);
     const timestamp = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : NaN;
     const due = reset ?? (seconds != null ? timestamp + seconds * 1000 : NaN);
-    if (typeof due !== "number" || !Number.isSafeInteger(due) || due < 0) return {};
+    if (typeof due !== "number" || !Number.isSafeInteger(due) || due < 0) return {retry_error:{retryable:observationRetrying(record.error, record)}};
     retryableKind = "rate_limited_until";
     retryAtMs = due;
   } else if (kind === "server_overloaded" || (kind === "other" && network)) {
     retryableKind = "transient";
-  } else return {};
+  } else return {retry_error:{retryable:observationRetrying(record.error, record)}};
   return {retry_error:{retryable:observationRetrying(record.error, record), retryableKind, ...(retryAtMs === undefined ? {} : {retryAtMs})}};
 }

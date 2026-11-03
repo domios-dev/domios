@@ -196,7 +196,7 @@ export function stageRectToPage(
 export function viewportRequest(container: Size, dpr: number): StreamViewport | null {
   const w = Math.round(container.width);
   const h = Math.round(container.height);
-  if (w <= 0 || h <= 0) return null;
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) return null;
   return { w, h, dpr: sanitizeDpr(dpr) };
 }
 

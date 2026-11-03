@@ -257,10 +257,10 @@ export function PlanDocumentView({ kind, onOpenSpec, ...surfaceProps }: PlanDocu
   return (
     <div data-testid={`plan-${kind}-surface`} className="plan-document-surface">
       <PlanFetchErrorState
-        loading={loading}
-        error={error}
-        itemCount={plans.length}
-        onRetry={onRetry}
+        loading={loading || data.projectionLoading}
+        error={error ?? data.projectionError}
+        itemCount={selectedPlan ? plans.length : 0}
+        onRetry={data.projectionError ? data.retryProjection : onRetry}
         testId={`plan-${kind}`}
         className="plan-document-state"
       />

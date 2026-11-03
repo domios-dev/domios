@@ -417,10 +417,13 @@ impl ServiceContext {
             .get(plugin_id)
             .and_then(|handler| handler.catalog());
         match catalog {
-            Some(catalog) => catalog
-                .guide
-                .clone()
-                .unwrap_or_else(|| format!("Verbs: {}", catalog.verbs.join(", "))),
+            Some(catalog) => format!(
+                "Host {} build {}\nVerbs:\n{}\n\n{}",
+                codeterm_build_info::version(),
+                codeterm_build_info::sha(),
+                catalog.verbs.join("\n"),
+                catalog.guide.as_deref().unwrap_or("")
+            ),
             None => format!("plugin {plugin_id} has no agent guide"),
         }
     }

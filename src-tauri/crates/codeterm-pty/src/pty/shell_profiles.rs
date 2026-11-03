@@ -5,8 +5,10 @@ mod command;
 mod detection;
 mod integration;
 mod paths;
+mod powershell;
 pub use integration::apply_profile;
 pub use paths::{windows_to_wsl, wsl_to_windows};
+pub use powershell::powershell_utility_command;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ShellProfile {

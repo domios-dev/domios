@@ -309,6 +309,7 @@ impl Port for Worker {
     }
 
     async fn recover(&mut self, failure: &str) {
+        super::persist_failure(&self.plan.directory.join("handoff.json"), failure);
         let path = self.data().join("debian-update-failure.txt");
         let _ = std::fs::remove_file(self.data().join("debian-update-starting.json"));
         let _ = std::fs::write(&path, failure);

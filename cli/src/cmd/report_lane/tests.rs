@@ -616,3 +616,53 @@ fn taskless_and_authoritative_nonrepository_scopes_are_deliberate() {
     .unwrap();
     assert_eq!(fields.1.as_deref(), Some("opaque-nonrepository-result"));
 }
+
+#[test]
+fn readonly_attempt_in_review_needs_no_checkout_or_sha() {
+    let cwd = tempfile::tempdir().unwrap();
+    let plan = json!({"canonical_project_path": cwd.path(), "tasks": [{
+        "id": "task-a", "execution_intent": "repository_mutation",
+        "execution_attempts": [{
+            "executor_tab_id": "tab-a", "placement": "read_only",
+            "execution_intent": "read_only", "acknowledged_at": 11
+        }]
+    }]});
+    let scope = task_readiness_scope_from_plan(&plan, "task-a", "tab-a").unwrap();
+    assert!(!scope.requires_repository);
+    assert_eq!(scope.worktree_path, None);
+    let fields = crate::cmd::report_guard::enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .unwrap();
+    assert_eq!(fields, (None, None, None));
+
+    let mut mutating = plan.clone();
+    mutating["tasks"][0]["execution_attempts"][0]["execution_intent"] = json!("mutating");
+    mutating["tasks"][0]["execution_attempts"][0]["placement"] = json!("isolated_lane");
+    let scope = task_readiness_scope_from_plan(&mutating, "task-a", "tab-a").unwrap();
+    assert!(scope.requires_repository);
+    assert!(crate::cmd::report_guard::enrich_ready_report(
+        Some(&scope),
+        Some(ReportStatusArg::InReview),
+        None,
+        None,
+        ReportBase::default(),
+        None,
+        false,
+    )
+    .unwrap_err()
+    .reason
+    .contains("cannot locate your lane worktree"));
+
+    assert!(
+        task_readiness_scope_from_plan(&plan, "task-a", "foreign-tab")
+            .unwrap()
+            .requires_repository
+    );
+}

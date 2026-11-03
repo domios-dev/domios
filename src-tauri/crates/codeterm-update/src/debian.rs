@@ -29,6 +29,12 @@ impl StagedDebianPackage {
 }
 
 pub async fn stage(manifest_url: Option<&str>) -> Result<Option<StagedDebianPackage>, String> {
+    tokio::task::spawn_blocking(|| {
+        staging::cleanup(&std::env::temp_dir());
+        staging::cleanup(&codeterm_paths::data_dir_path().join("state/update-handoffs"));
+    })
+    .await
+    .map_err(|error| error.to_string())?;
     let manifest = crate::checker::resolve_manifest(
         &crate::InstallMethod::Deb,
         crate::Channel::Stable,

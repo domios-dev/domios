@@ -4,6 +4,7 @@ import { chatSetupView } from "./chatSetupModel";
 import { createStartupSendGate } from "./startupSendGate";
 
 export function useStartupSend(tabId: string, chatBackend: boolean) {
+  const bound = useMuxSelector(state => typeof tabId === "string" && tabId.trim().length > 0 && !!state.tabs[tabId]);
   const nonce = useMuxSelector(state => state.tabs[tabId]?.session_binding_nonce ?? null);
   const starting = useMuxSelector(state => !chatBackend && !!state.tabs[tabId]
     && chatSetupView(state.tabs[tabId]).kind === "starting");
@@ -17,7 +18,8 @@ export function useStartupSend(tabId: string, chatBackend: boolean) {
     return () => window.clearTimeout(timer);
   }, [tabId, nonce, starting, remaining]);
   return {
-    allowed: remaining === 0,
+    allowed: bound && remaining === 0,
+    bound,
     overrideNonce: starting && remaining === 0 ? nonce : null,
   };
 }

@@ -78,7 +78,11 @@ impl PlanStore {
             attempt.branch = task.lane.branch.clone();
             attempt.base = task.lane.base.clone();
             attempt.destination = task.lane.destination.clone();
-            if !attempt.placement.is_isolated_lane() {
+            if matches!(
+                attempt.placement,
+                crate::plan::WorkerPlacement::Shared
+                    | crate::plan::WorkerPlacement::CanonicalWriter
+            ) {
                 attempt.worktree_path = Some(canonical_checkout);
                 attempt.base = None;
             }

@@ -29,6 +29,7 @@ import { InboundMessageCard } from "./codeterm/InboundMessageCard";
 import { NeighborOriginHeader } from "./codeterm/NeighborOriginHeader";
 import { CompactMessageContent } from "./codeterm/CompactMessageContent";
 import { ChatNoticeCard } from "./ChatNoticeCard";
+import { BoundedMessageContent } from "./BoundedMessageContent";
 import { MessageTimeFrame } from "./MessageTimeFrame";
 import { messageRowTime } from "./messageRowTime";
 import type { PeerNameResolver, TabNameResolver } from "./codeterm/templates";
@@ -37,6 +38,7 @@ import {
   CommandBody,
   ImageBadge,
   LongArtifact,
+  LONG_ARTIFACT_PREVIEW_MAX_HEIGHT,
   RichMarkdown,
   TEXT_WRAP_CLASS,
   isLargeArtifact,
@@ -385,13 +387,14 @@ const MessageBubbleContent = React.memo(function MessageBubbleContent({ message,
             <div className="relative min-w-0 w-full">
               {originHeader}
               <div data-testid="user-bubble-row" className="relative ml-auto w-fit max-w-full min-w-0">
-                <div
+                <BoundedMessageContent
+                  collapsedHeight={`${LONG_ARTIFACT_PREVIEW_MAX_HEIGHT}px`}
                   role="group"
                   aria-label="User message"
                   className={`ct-user-bubble${effectiveOrigin ? " ct-user-bubble--relayed" : ""} min-w-0 ${userText} select-text cursor-text ${TEXT_WRAP_CLASS}`}
                 >
                   <DsRenderContext.Provider value={{ authority: sourceIdentity, trusted: dsScope.trusted && effectiveOrigin?.kind !== "neighbor", streaming: streaming ?? dsScope.streaming, cancelled: dsScope.cancelled }}>{userBubbleInner}</DsRenderContext.Provider>
-                </div>
+                </BoundedMessageContent>
                 {userFooter}
               </div>
             </div>

@@ -83,6 +83,43 @@ fn closed_wave() -> Plan {
 }
 
 #[test]
+fn notice_projection_preserves_wave_release_and_historical_map_disarming() {
+    for (complete, map_ts) in [
+        (false, 0),
+        (false, 150),
+        (false, 200),
+        (true, 150),
+        (true, 350),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let store = crate::service::plan::PlanStore::new_for_test(directory.path());
+        let mut plan = closed_wave();
+        plan.project_path = directory.path().display().to_string();
+        if complete {
+            plan.tasks[2].status = TaskStatus::Done;
+            plan.tasks[2].status_changed_at = 300;
+        }
+        if map_ts > 0 {
+            plan.tasks[0]
+                .milestones
+                .push(milestone(MAP_GENERATED_KIND, map_ts));
+            plan.strides.push(milestone(MAP_REQUESTED_KIND, map_ts / 2));
+        }
+        plan.strides
+            .extend((0..256).map(|index| milestone("note", 1000 + index)));
+        store.save(&mut plan, 1).unwrap();
+        store.reset_plan_loads_for_test();
+        let read = store.notice_projection(&plan.id, 10_000, &[]).unwrap();
+        assert_eq!(
+            boundary_digest_lines(read.plan(), MapAvailability::Enabled),
+            boundary_digest_lines(&plan, MapAvailability::Enabled),
+            "complete={complete} map_ts={map_ts}",
+        );
+        assert!(store.plan_loads_for_test().is_empty());
+    }
+}
+
+#[test]
 fn cartographer_map_is_unavailable_unless_enabled_and_sourced() {
     let sourced = map_root(true);
     let bare = map_root(false);

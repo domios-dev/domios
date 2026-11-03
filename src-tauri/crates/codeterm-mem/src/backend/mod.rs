@@ -77,6 +77,10 @@ impl WriteContext {
 }
 
 pub trait MemStore: BlueprintStore + EngineStore + Send + Sync {
+    fn memory_diagnostics(&self) -> serde_json::Value {
+        serde_json::json!({"available": false, "reason": "backend does not expose resident cache sizes"})
+    }
+
     fn with_export_snapshot(
         &self,
         visitor: &mut dyn FnMut(&dyn ExportSnapshot) -> Result<(), String>,

@@ -33,7 +33,8 @@ pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<
     let tab_id = msg.tab_id.clone();
     let body = svc
         .plan_store
-        .prepend_heartbeat_for_orchestrator_tab(&tab_id, &msg.text);
+        .prepend_heartbeat_for_orchestrator_tab(&tab_id, &msg.text)
+        .map_err(|error| error.to_string())?;
     let body = svc
         .plan_store
         .prepend_worker_charter_for_tab(&tab_id, &body);

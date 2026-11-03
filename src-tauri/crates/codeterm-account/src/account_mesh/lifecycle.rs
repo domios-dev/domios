@@ -165,6 +165,9 @@ impl Inner {
     ) {
         let mut next = (*self.state).clone();
         change(&mut next);
+        if next.signed_in_account() != self.state.signed_in_account() {
+            next.signed_registry = None;
+        }
         next.unavailable_installations = self
             .record
             .peer_presence
@@ -473,6 +476,18 @@ impl AccountMesh {
             }
         });
         if changed {
+            let cached = self.with(|inner| {
+                inner
+                    .state
+                    .signed_in_account()
+                    .and_then(|account| inner.record.signed_registries.get(account))
+                    .cloned()
+            });
+            if let Some(cached) = cached {
+                if let Err(error) = self.receive_registry_snapshot(&cached).await {
+                    log::debug!("[account-mesh] persisted registry rejected: {error:?}");
+                }
+            }
             self.persist().await;
             self.push().await;
         }

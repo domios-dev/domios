@@ -58,7 +58,7 @@ pub(super) fn handle(
         None
     };
     let mut current_model = None;
-    if reasoning_effort.is_some() || runtime_mode.is_some() {
+    if name.is_none() && (reasoning_effort.is_some() || runtime_mode.is_some()) {
         let encoded_tab = urlencoding::encode(&tab_id);
         let response = local_http
             .get(format!("{base}/api/tabs/inspect?tab_ids={encoded_tab}"))

@@ -156,7 +156,8 @@ async function main() {
       detached: true, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true,
     });
     const handoff = await new Promise((resolve, reject) => {
-      const deadline = setTimeout(() => { broker.kill(); reject(Error('DEV launch owner handoff deadline')); }, 5000);
+      // Must outlast the broker's own 10 s file-lock acquisition (cold PowerShell start under build load).
+      const deadline = setTimeout(() => { broker.kill(); reject(Error('DEV launch owner handoff deadline')); }, 20000);
       broker.once('message', message => {
         clearTimeout(deadline);
         if (message.error) reject(Object.assign(Error(message.error), { code: message.code, exitCode: message.exitCode }));

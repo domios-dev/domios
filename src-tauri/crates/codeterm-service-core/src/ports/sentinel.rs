@@ -12,6 +12,10 @@ pub struct BlueprintRecord {
 }
 
 pub trait BlueprintStore: Send + Sync {
+    fn memory_diagnostics(&self) -> serde_json::Value {
+        serde_json::json!({"available": false})
+    }
+
     fn save_candidates(
         &self,
     ) -> std::collections::BTreeMap<

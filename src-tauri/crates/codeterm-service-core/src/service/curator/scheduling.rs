@@ -9,12 +9,14 @@ pub struct Mirror {
 
 pub(crate) struct CuratorFireError {
     pub reason: CuratorFailure,
+    pub(super) read_failure: bool,
     detail: String,
 }
 impl From<CuratorFailure> for CuratorFireError {
     fn from(reason: CuratorFailure) -> Self {
         Self {
             reason,
+            read_failure: false,
             detail: reason.as_str().into(),
         }
     }
@@ -23,7 +25,17 @@ impl From<String> for CuratorFireError {
     fn from(detail: String) -> Self {
         Self {
             reason: CuratorFailure::LaunchFailed,
+            read_failure: false,
             detail,
+        }
+    }
+}
+impl From<crate::service::plan::PlanError> for CuratorFireError {
+    fn from(error: crate::service::plan::PlanError) -> Self {
+        Self {
+            reason: CuratorFailure::LaunchFailed,
+            detail: error.to_string(),
+            read_failure: true,
         }
     }
 }
@@ -371,7 +383,7 @@ impl ServiceContext {
             if let Some(round) = fallback {
                 self.journal_curator(&plan.id, &round);
             }
-            self.ui.emit("plan-changed", json!({"plan_id":plan.id}));
+            self.emit_committed_plan_changed(&plan.id);
         }
         Ok(())
     }
@@ -384,7 +396,11 @@ impl ServiceContext {
         self.extensions
             .try_get::<super::CuratorTabs>()
             .ok_or("Curator runtime is unavailable")?;
-        let plan = self.plan_store.get(&job.task).ok_or("plan absent")?;
+        let read = self
+            .plan_store
+            .curator_digest_projection(&job.task, now)
+            .map_err(CuratorFireError::from)?;
+        let plan = read.plan();
         if !curator::eligible(
             &plan,
             self.configuration().orchestration.plan_reminders,
@@ -421,15 +437,10 @@ impl ServiceContext {
             .ok_or(CuratorFailure::OrchestratorAbsent)?;
         let mirror = resolve_mirror(&tab)?;
         let mirror = self.available_mirror(mirror)?;
-        let since = plan
-            .control_loop
-            .last_round
-            .as_ref()
-            .map(|r| r.ended_at)
-            .unwrap_or(now.saturating_sub(CURATOR_INITIAL_WINDOW_MS));
-        let mut rows = digest::plan_rows(&plan, since);
+        let since = read.since();
+        let mut rows = digest::metadata_rows(plan, since);
         super::movement_sources::append(self, &plan, since, now, &mut rows)?;
-        let candidates = self.curator_save_candidates(&plan.id, now)?;
+        let candidates = self.curator_save_candidates(plan, now)?;
         for (id, episodes) in candidates
             .into_iter()
             .filter(|(_, episodes)| episodes.len() >= 2)
@@ -492,21 +503,11 @@ impl ServiceContext {
                 t.lane.worktree_path.is_some() && t.lane.cleanup_status.as_deref() != Some("done")
             })
             .count();
-        let handoff_age = match self.plan_store.list_handoffs(&plan.id) {
-            Ok(handoffs) => handoffs
-                .into_iter()
-                .filter_map(|handoff| handoff.ts)
-                .max()
-                .map(|at| now.saturating_sub(at)),
-            Err(error) => {
-                log::debug!("[curator] handoff digest {}: {error}", plan.id);
-                None
-            }
-        };
+        let handoff_age = read.latest_handoff_at().map(|at| now.saturating_sub(at));
         let mut header=format!("plan {} | {:?} | control loop curator | orchestrator {} activity {:?} | open {} in_progress {} review {} blocked {} | lanes {} pressure {} | handoff_age_ms {:?} | round {}",plan.id,plan.mode,owner,self.resolved_tab_status(&tab),counts.pending,counts.in_progress,counts.in_review,counts.blocked,lanes,if lanes>CURATOR_HIGH_LANES {"high"}else if lanes>CURATOR_ELEVATED_LANES {"elevated"}else{"normal"},handoff_age,number);
         header.push_str(&format!("\nask: {}", super::ask::command(owner)));
         let rubric = codeterm_prompts::prompts::CURATOR_RUBRIC;
-        let real_rounds = curator::synthesis::real_rounds_started(&plan);
+        let real_rounds = read.real_rounds_started();
         let group_close = curator::synthesis::group_close(&plan).filter(|at| {
             plan.control_loop
                 .last_synthesis_group_close_at
@@ -528,7 +529,9 @@ impl ServiceContext {
         } else {
             header
         };
-        let digest = digest::build(&header, &rows);
+        let digest = read
+            .build_digest(&header, &rows, digest::MAX_DIGEST_BYTES)
+            .map_err(CuratorFireError::from)?;
         let action = curator::due_action(
             digest.activity || group_close.is_some() || plan.control_loop.manual_run_requested,
             !codeterm_plan::service_plan::state::orchestrator_actionable_task_ids(&plan).is_empty(),

@@ -29,10 +29,17 @@ pub(super) fn dispatch_worker_placement(
     intent: &ExecutionIntent,
     task: &Task,
 ) -> Result<WorkerPlacement, JsonRpcError> {
+    let default_placement = if *intent == ExecutionIntent::ReadOnly {
+        WorkerPlacement::ReadOnly
+    } else if !task.execution_intent.requires_repository() {
+        WorkerPlacement::NonRepository
+    } else {
+        WorkerPlacement::IsolatedLane
+    };
     match p.and_then(|params| params.get("placement")) {
-        None | Some(Value::Null) => return Ok(WorkerPlacement::IsolatedLane),
+        None | Some(Value::Null) => return Ok(default_placement),
         Some(value) if value.as_str() == Some(PLACEMENT_ISOLATED_LANE) => {
-            return Ok(WorkerPlacement::IsolatedLane)
+            return Ok(default_placement)
         }
         Some(value) if value.as_str() == Some(PLACEMENT_CANONICAL_WRITER) => {}
         Some(_) => {
@@ -98,7 +105,12 @@ pub(super) fn resolve_placement(
     dispatch_worker_placement(p, intent, task).map(|placement| {
         (
             placement,
-            "explicit canonical writer or read-only task".into(),
+            match placement {
+                WorkerPlacement::ReadOnly => "read-only attempt requires no checkout",
+                WorkerPlacement::NonRepository => "non-repository task requires no checkout",
+                _ => "explicit canonical writer",
+            }
+            .into(),
         )
     })
 }
@@ -118,7 +130,8 @@ pub(super) fn verify_canonical_writer_checkout(canonical_cwd: &str) -> Result<()
 
 pub(super) fn compose_dispatch_brief(brief: String, placement: WorkerPlacement) -> String {
     match placement {
-        WorkerPlacement::IsolatedLane => brief,
+        WorkerPlacement::IsolatedLane => format!("{brief}## Placement: isolated lane\nWork in the assigned lane. `domios plan task extend-files` is for shared Workers only; lane Workers do not use it. If the Orchestrator asks you to continue in canonical after integrating the lane, report your literal canonical task commit SHA; its diff must touch only declared task paths.\n\n"),
+        WorkerPlacement::ReadOnly | WorkerPlacement::NonRepository => brief,
         WorkerPlacement::CanonicalWriter => format!("{brief}{CANONICAL_WRITER_BRIEF}"),
         WorkerPlacement::Shared => format!("{brief}## Placement: shared checkout\nUse only your task's declared edit paths. Request additional paths with `domios plan task extend-files --edit-file PATH`. Commit only owned paths with `git commit -- <paths>` in one task commit; report that literal SHA. Never change branches, merge, reset or sweep another Worker's changes. Keep the checkout compiling; report compiler failures in foreign paths to the Orchestrator.\n\n"),
     }
@@ -145,6 +158,28 @@ pub(crate) fn refuse_lane_integration_while_canonical_held(
         return Ok(());
     };
     if holder_task_id == task.id {
+        return Ok(());
+    }
+    let canonical = if plan.canonical_project_path.trim().is_empty() {
+        &plan.project_path
+    } else {
+        &plan.canonical_project_path
+    };
+    if task
+        .lane
+        .worktree_path
+        .as_deref()
+        .and_then(|lane| {
+            codeterm_service_core::service::worker_lane::git_value(
+                lane,
+                ["rev-parse", "--verify", "HEAD^{commit}"],
+            )
+            .ok()
+        })
+        .is_some_and(|tip| {
+            codeterm_service_core::service::worker_lane::is_ancestor(canonical, &tip, "HEAD")
+        })
+    {
         return Ok(());
     }
     let reason = format!(

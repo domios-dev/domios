@@ -64,6 +64,154 @@ fn task_board_page_preserves_team_binding_authorization_errors() {
     assert_eq!(status, axum::http::StatusCode::BAD_REQUEST);
 }
 
+#[test]
+fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_read() {
+    let (fixture, plan_id, task_id, parent_id, _, owner) = update_fixture();
+    let svc = &fixture.service;
+    svc.plan_store
+        .with_plan(&plan_id, 5, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == parent_id)
+                .unwrap()
+                .body = "unrelated body sentinel".into();
+            Ok(())
+        })
+        .unwrap();
+    svc.emit_committed_plan_changed(&plan_id);
+    fixture.ui.0.lock().clear();
+    let Json(updated) = task_update_core(
+        &Arc::new(svc.clone()),
+        &crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner)),
+        &plan_id,
+        &task_id,
+        json!({"body":"selected body"}),
+    )
+    .unwrap();
+    assert_eq!(updated["ok"], true);
+    let event = fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .find(|(event, _)| event == "plan-changed")
+        .map(|(_, payload)| payload.clone())
+        .expect("committed event");
+    let Json(detail) = task_detail_core(svc, &plan_id, &task_id).unwrap();
+    assert_eq!(event["plan_id"], plan_id);
+    assert_eq!(event["task_ids"], json!([task_id]));
+    assert_eq!(event["reset"], false);
+    assert_eq!(event["revision"], detail["revision"]);
+    let Json(board) =
+        crate::plan_routes::projections::board_state_core(svc, &plan_id, 0, false).unwrap();
+    assert_eq!(board["revision"], event["revision"]);
+    assert!(board.get("recent_strides").is_none() && board.get("tasks").is_none());
+    let kind = codeterm_service_core::service::plan::task_history::TaskHistoryKind::Milestones;
+    let Json(history) = history::task_history_core(svc, &plan_id, &task_id, kind, None, 2).unwrap();
+    assert_eq!(history["revision"], event["revision"]);
+    assert!(history["items"].as_array().unwrap().len() <= 2);
+    assert_eq!(detail["task"]["body"], "selected body");
+    assert!(!serde_json::to_string(&event).unwrap().contains("body"));
+    assert!(!serde_json::to_string(&detail)
+        .unwrap()
+        .contains("unrelated body sentinel"));
+    svc.plan_store
+        .with_plan(&plan_id, 6, |plan| {
+            plan.team_id = Some("missing-team".into());
+            Ok(())
+        })
+        .unwrap();
+    let (status, Json(error)) = task_detail_core(svc, &plan_id, &task_id).unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(error.get("task").is_none());
+    let (status, Json(board)) =
+        crate::plan_routes::projections::board_state_core(svc, &plan_id, 0, false).unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(board.get("mission_control").is_none());
+    let (status, Json(error)) =
+        history::task_history_core(svc, &plan_id, &task_id, kind, None, 2).unwrap_err();
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(error.get("items").is_none());
+}
+
+#[test]
+fn task_detail_resolves_scoped_id_handle_and_key_with_exact_id_precedence() {
+    let (fixture, plan_id, task_id, parent_id, dependency_id, _) = update_fixture();
+    let svc = &fixture.service;
+    svc.plan_store
+        .with_plan(&plan_id, 5, |plan| {
+            let selected = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == task_id)
+                .unwrap();
+            selected.handle = Some("qa187-race".into());
+            selected.key = Some("QA1-1103".into());
+            let parent = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == parent_id)
+                .unwrap();
+            parent.handle = Some(task_id.clone());
+            Ok(())
+        })
+        .unwrap();
+    let mut other = Plan::new(
+        "Other scope".into(),
+        fixture.temp.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let mut foreign = svc.plan_store.try_get(&plan_id).unwrap().tasks[0].clone();
+    foreign.id = "task_foreign".into();
+    foreign.handle = Some("qa187-race".into());
+    foreign.key = Some("QA1-1103".into());
+    other.tasks = vec![foreign];
+    svc.plan_store.save(&mut other, 6).unwrap();
+    svc.plan_store.reset_plan_loads_for_test();
+    let Json(expected) = task_detail_core(svc, &plan_id, &task_id).unwrap();
+    assert_eq!(expected["task_id"], task_id);
+    for reference in [&task_id, "qa187-race", "QA187-RACE", "QA1-1103", "qa1-1103"] {
+        let Json(actual) = task_detail_core(svc, &plan_id, reference).unwrap();
+        assert_eq!(actual, expected, "reference {reference}");
+        assert_eq!(
+            svc.plan_store
+                .resolve_task_ref(Some(&plan_id), reference)
+                .unwrap()
+                .task_id,
+            task_id
+        );
+    }
+    for reference in ["task_foreign", "missing", "qa187-ra"] {
+        let (status, Json(body)) = task_detail_core(svc, &plan_id, reference).unwrap_err();
+        assert_eq!(status, StatusCode::NOT_FOUND, "{reference}: {body}");
+        assert_eq!(body["plan_error"]["type"], "task_not_found");
+    }
+    assert!(svc.plan_store.plan_loads_for_test().is_empty());
+    svc.plan_store
+        .with_plan(&plan_id, 7, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|task| task.id == dependency_id)
+                .unwrap()
+                .handle = Some("qa1-1103".into());
+            Ok(())
+        })
+        .unwrap();
+    for reference in ["QA1-1103", "qa1-1103"] {
+        let (status, Json(body)) = task_detail_core(svc, &plan_id, reference).unwrap_err();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["error"].as_str().unwrap().contains("ambiguous"));
+        assert!(svc
+            .plan_store
+            .resolve_task_ref(Some(&plan_id), reference)
+            .is_err());
+    }
+    assert_eq!(
+        task_detail_core(svc, &plan_id, &task_id).unwrap().0["task_id"],
+        task_id
+    );
+}
+
 /// The exact live owner identity the update seam authorizes against:
 /// tab id, bound session and the nonce the tab itself reported back.
 pub(crate) fn owner_headers(tab_id: &str) -> HeaderMap {

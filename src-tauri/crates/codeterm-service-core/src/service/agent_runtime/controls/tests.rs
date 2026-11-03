@@ -37,6 +37,23 @@ fn missing_or_partial_confirmation_cannot_confirm_requested_controls() {
 }
 
 const PROVIDER: &str = "settings-fixture";
+
+#[test]
+fn qualified_model_provider_mismatch_preserves_runtime_tab() {
+    let (fixture, id) = runtime_fixture();
+    fixture.service.agent_registry.register_provider(Box::new(
+        crate::agent::test_provider::MockProvider::new("foreign-settings-fixture"),
+    ));
+    let error = fixture
+        .service
+        .agent_switch_model_with_options(&id, "foreign-settings-fixture:target", None, false)
+        .unwrap_err();
+    assert!(matches!(error, ModelSwitchError::InvalidModel(_)));
+    let mux = fixture.service.mux.read();
+    let tab = mux.get_tab(&id).unwrap();
+    assert_eq!(tab.agent_session_model.as_deref(), Some("prior"));
+    assert!(tab.pending_model_selection.is_none());
+}
 const SOURCE: &str = r#"
 module.exports = {
   runtimePlan(ctx, op) {
@@ -160,7 +177,7 @@ fn runtime_control_confirmation_updates_recorded_model_and_next_turn_settings() 
         .service
         .agent_switch_model_with_restart_fallback(
             &id,
-            "target",
+            "settings-fixture:target",
             Some("high"),
             Some("auto"),
             crate::service::agent_runtime::model::ModelSwitchOptions {

@@ -291,6 +291,9 @@ fn run_plan(
 
         PlanAction::Get { plan_id, sections } => {
             let mut params = json!({});
+            if sections {
+                params["sections"] = json!(true);
+            }
             if let Some(plan_id) = plan_id {
                 params["plan_id"] = json!(plan_id);
             }
@@ -673,8 +676,6 @@ fn run_plan(
         PlanAction::Update {
             plan_id,
             title,
-            spec: _,
-            spec_file: _,
             status,
             mode,
             planner,

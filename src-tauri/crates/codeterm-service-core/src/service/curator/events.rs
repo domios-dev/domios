@@ -23,7 +23,7 @@ pub(crate) fn curator_bootstrap_ids(store: &crate::service::plan::PlanStore) -> 
 impl ServiceContext {
     #[cfg(any(test, feature = "test-support"))]
     pub fn reconcile_curator_for_test(&self, id: &str, now: u64) {
-        self.reconcile_curator_id(id, now);
+        self.reconcile_curator_id(id, now).unwrap();
     }
 
     pub fn start_curator_events(&self) -> Result<(), String> {
@@ -54,7 +54,9 @@ impl ServiceContext {
                             return;
                         };
                         for id in batch {
-                            worker.reconcile_curator_id(&id, now);
+                            if let Err(error) = worker.reconcile_curator_id(&id, now) {
+                                log::error!("[curator] reconcile {id}: {error}");
+                            }
                         }
                     })
                     .await
@@ -64,6 +66,20 @@ impl ServiceContext {
                 }
                 match receiver.recv().await {
                     Ok(event) => match event.event {
+                        SystemEvent::Generic { event_type, .. } if event_type == "plans-loaded" => {
+                            let bootstrap = service.clone();
+                            match tokio::task::spawn_blocking(move || {
+                                curator_bootstrap_ids(&bootstrap.plan_store)
+                            })
+                            .await
+                            {
+                                Ok(current) => {
+                                    plans.extend(current);
+                                    pending.extend(plans.iter().cloned());
+                                }
+                                Err(error) => log::debug!("[curator] plan resync: {error}"),
+                            }
+                        }
                         SystemEvent::Generic { event_type, data }
                             if event_type == "plan-changed"
                                 || event_type == "curator-reconcile" =>
@@ -99,7 +115,11 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn reconcile_curator_id(&self, id: &str, now: u64) {
+    pub(crate) fn reconcile_curator_id(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<(), crate::service::plan::PlanError> {
         let gate = self
             .extensions
             .get_or_init(CuratorReconciliations::default)
@@ -113,11 +133,14 @@ impl ServiceContext {
             }
         };
         let Some(cron) = self.extensions.try_get::<crate::CronState>() else {
-            return;
+            return Ok(());
         };
-        let Some(plan) = self.plan_store.get(id) else {
-            return;
+        let read = match self.plan_store.curator_schedule_projection(id) {
+            Ok(read) => read,
+            Err(crate::service::plan::PlanError::NotFound) => return Ok(()),
+            Err(error) => return Err(error),
         };
+        let plan = read.plan();
         #[cfg(test)]
         super::reconciliation::test_boundary::observe(self, id, true);
         if let Some(index) = self.extensions.try_get::<CuratorTabs>() {
@@ -140,14 +163,12 @@ impl ServiceContext {
         {
             let missing = { self.mux.read().get_tab(tab).is_none() };
             if missing {
-                if let Err(error) = self.settle_closed_curator_tab(tab) {
-                    log::error!("[curator] missing tab {tab}: {error}");
-                }
-                return;
+                return self
+                    .settle_closed_curator_tab(tab)
+                    .map_err(crate::service::plan::PlanError::Io);
             }
         }
-        if let Err(error) = self.reconcile_curator_plan(cron, &plan, now) {
-            log::debug!("[curator] reconcile {id}: {error}");
-        }
+        self.reconcile_curator_plan(cron, plan, now)
+            .map_err(crate::service::plan::PlanError::Io)
     }
 }

@@ -6,6 +6,7 @@ pub mod headless_cli;
 pub mod instance_token;
 pub mod local_endpoint;
 pub mod lock_hold;
+pub mod memory_size;
 pub mod named_thread;
 pub mod network_host;
 pub mod nonblocking_log;

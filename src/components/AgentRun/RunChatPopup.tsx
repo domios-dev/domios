@@ -1,9 +1,9 @@
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 import { useEffect, useRef, useState } from "react";
-import { DEV_BUILD } from "../../lib/devBuild";
 import { createPortal } from "react-dom";
 import { MessageBubble } from "@codeterm/chat-ui";
 import { reduceToolEvents, type NormalizedChatMessage as ChatMessage } from "@codeterm/chat-core";
+import { LiveRunTranscript } from "./useRunTranscript";
 import { invoke } from "../../lib/bridge";
 
 interface Props {
@@ -14,16 +14,11 @@ interface Props {
   provider: string;
   cwd: string;
   sessionId: string;
-  // When set the run is still live — poll the transcript until the popup closes.
+  tabId?: string | null;
   live?: boolean;
   onClose: () => void;
 }
 
-const POLL_MS = 1500;
-
-/// Read-only chat-ui for a hidden worker / cron run, rendered straight from the
-/// session jsonl via the session_transcript command. Same MessageBubble as the
-/// live chat — just no composer.
 export function RunChatPopup({
   title,
   subtitle,
@@ -33,19 +28,21 @@ export function RunChatPopup({
   cwd,
   sessionId,
   live,
+  tabId,
   onClose,
 }: Props) {
+  const [detachedSession, setDetachedSession] = useState<string | null>(null);
+  const watching = Boolean(live && tabId && detachedSession !== sessionId);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
-  const hasLoaded = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const backdropRef = useRef<HTMLDivElement>(null);
   const stickyBottomRef = useRef(true);
 
   useEffect(() => {
     let cancelled = false;
-    hasLoaded.current = false;
+    if (watching) return;
     setMessages([]);
     setError(null);
     setLoaded(false);
@@ -60,25 +57,19 @@ export function RunChatPopup({
           setMessages(Array.isArray(res.messages) ? res.messages : []);
           setError(null);
           setLoaded(true);
-          hasLoaded.current = true;
         })
         .catch((e) => {
           if (!cancelled) {
-            if (DEV_BUILD) console.debug("Background run transcript refresh failed", e);
-            if (!hasLoaded.current && !live) {
-              setError(String(e));
-              setLoaded(true);
-            }
+            setError(String(e));
+            setLoaded(true);
           }
         });
     };
     load();
-    const timer = live ? window.setInterval(load, POLL_MS) : null;
     return () => {
       cancelled = true;
-      if (timer) window.clearInterval(timer);
     };
-  }, [provider, cwd, sessionId, live]);
+  }, [provider, cwd, sessionId, watching]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -134,6 +125,7 @@ export function RunChatPopup({
           </button>
         </div>
 
+        {watching && tabId && <LiveRunTranscript tabId={tabId} sessionId={sessionId} onMessages={setMessages} onError={setError} onLoaded={setLoaded} onDetached={setDetachedSession} />}
         <div ref={scrollRef} className="relative flex-1 overflow-auto px-4 py-3">
           {error && <InlineErrorNotice error={error} operation="reading the agent conversation" />}
           {loaded && !error && messages.length === 0 && (

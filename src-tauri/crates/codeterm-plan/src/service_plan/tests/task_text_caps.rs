@@ -76,8 +76,14 @@ fn task_body_cap_and_control_bytes() {
 #[test]
 fn stored_legacy_control_bytes_do_not_block_later_writes() {
     let (store, plan_id, task_id) = store_with_task(&["status_update"]);
-    store.plan_arc_for_test(&plan_id).lock().tasks[0].test_plan =
-        Some("\u{8}ash scripts/check".into());
+    let mut stored = store.get(&plan_id).unwrap();
+    stored.tasks[0].test_plan = Some("\u{8}ash scripts/check".into());
+    store.save(&mut stored, 2).unwrap();
+    store.clear_plan_cache_for_test();
+    assert_eq!(
+        store.get(&plan_id).unwrap().tasks[0].test_plan.as_deref(),
+        Some("\u{8}ash scripts/check")
+    );
 
     store
         .update_task(
@@ -113,6 +119,7 @@ fn stored_legacy_control_bytes_do_not_block_later_writes() {
             4,
         )
         .unwrap();
+    store.clear_plan_cache_for_test();
     let plan = store.get(&plan_id).unwrap();
     assert_eq!(plan.tasks[0].group.as_deref(), Some("legacy-group"));
     assert_eq!(
@@ -136,17 +143,17 @@ fn stored_legacy_control_bytes_do_not_block_later_writes() {
 #[test]
 fn a_long_lived_plan_with_many_stored_fields_still_accepts_writes() {
     let (store, plan_id, task_id) = store_with_task(&["status_update"]);
-    {
-        let handle = store.plan_arc_for_test(&plan_id);
-        let mut plan = handle.lock();
-        let template = plan.tasks[0].clone();
-        for index in 0..80 {
-            let mut task = template.clone();
-            task.id = format!("task_bulk{index}");
-            task.tags = (0..1000).map(|tag| format!("t{tag}")).collect();
-            plan.tasks.push(task);
-        }
+    let mut stored = store.get(&plan_id).unwrap();
+    let template = stored.tasks[0].clone();
+    for index in 0..80 {
+        let mut task = template.clone();
+        task.id = format!("task_bulk{index}");
+        task.tags = (0..1000).map(|tag| format!("t{tag}")).collect();
+        stored.tasks.push(task);
     }
+    store.save(&mut stored, 2).unwrap();
+    store.clear_plan_cache_for_test();
+    assert_eq!(store.get(&plan_id).unwrap().tasks.len(), 81);
 
     store
         .add_milestone(
@@ -159,5 +166,8 @@ fn a_long_lived_plan_with_many_stored_fields_still_accepts_writes() {
             3,
         )
         .unwrap();
-    assert_eq!(store.get(&plan_id).unwrap().tasks.len(), 81);
+    store.clear_plan_cache_for_test();
+    let plan = store.get(&plan_id).unwrap();
+    assert_eq!(plan.tasks.len(), 81);
+    assert_eq!(plan.tasks[0].milestones.last().unwrap().text, "plain text");
 }

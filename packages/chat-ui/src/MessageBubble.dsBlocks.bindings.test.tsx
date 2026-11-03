@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { ChatBlockActivityProvider } from "./blocks/liveBinding";
 import type { ChatBlockHost } from "./blocks/ChatBlockHost";
 import { MessageBubble, RichMarkdown, ChatBlockHostProvider, configureHtmlFileLoader, binding, mount, html } from "./dsBlocks.testdata";
 
@@ -147,3 +148,18 @@ test("dsBlocks user task snapshots obey explicit trust and committed stream life
   } finally { await view.close(); configureHtmlFileLoader(null); }
 });
 
+
+test("hidden chat blocks release scoped views and acquire again only when visible",async()=>{
+  const view=await mount();
+  const tasks=binding({kind:"loading"} as const);
+  let retained=0;
+  const host:ChatBlockHost={tasks:{binding:{...tasks.source,retain(){retained++;return()=>{retained--;};}},openPlan(){},openTask(){}}};
+  const render=(active:boolean)=>view.render(<ChatBlockActivityProvider active={active}><ChatBlockHostProvider value={host}><RichMarkdown text='<ds-tasks plan="pl_visible" />' interactivePreviews /></ChatBlockHostProvider></ChatBlockActivityProvider>);
+  try{
+    await render(false);assert.equal(tasks.counts.live,0);assert.equal(tasks.counts.refresh,0);assert.equal(retained,0);
+    await render(true);assert.equal(tasks.counts.live,1);assert.equal(tasks.counts.refresh,1);assert.equal(retained,1);
+    await render(false);assert.equal(tasks.counts.live,0);assert.equal(retained,0);
+    await render(true);assert.equal(tasks.counts.live,1);assert.equal(tasks.counts.refresh,2);assert.equal(retained,1);
+  }finally{await view.close();}
+  assert.equal(retained,0);
+});

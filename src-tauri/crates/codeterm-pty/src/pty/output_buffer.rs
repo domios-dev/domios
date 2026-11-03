@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 struct ByteRing {
     bytes: Vec<u8>,
+    limit: usize,
     head: usize,
     len: usize,
 }
@@ -9,10 +10,25 @@ struct ByteRing {
 impl ByteRing {
     fn new(capacity: usize) -> Self {
         Self {
-            bytes: vec![0; capacity],
+            bytes: Vec::new(),
+            limit: capacity,
             head: 0,
             len: 0,
         }
+    }
+
+    fn grow(&mut self, additional: usize) {
+        let needed = self.len.saturating_add(additional).min(self.limit);
+        if needed <= self.bytes.len() {
+            return;
+        }
+        let capacity = needed
+            .max(self.bytes.len().saturating_mul(2))
+            .min(self.limit);
+        let retained = self.copy_range(0, self.len);
+        self.bytes = vec![0; capacity];
+        self.bytes[..retained.len()].copy_from_slice(&retained);
+        self.head = 0;
     }
 
     fn write(&mut self, start: usize, data: &[u8]) {
@@ -22,6 +38,7 @@ impl ByteRing {
     }
 
     fn append(&mut self, data: &[u8]) {
+        self.grow(data.len());
         let capacity = self.bytes.len();
         if capacity == 0 {
             return;
@@ -39,6 +56,7 @@ impl ByteRing {
     }
 
     fn prepend(&mut self, prefix: &[u8]) {
+        self.grow(prefix.len());
         let take = prefix.len().min(self.bytes.len() - self.len);
         if take == 0 {
             return;
@@ -78,6 +96,32 @@ pub struct OutputBuffer {
 }
 
 impl OutputBuffer {
+    pub fn memory_stats(&self) -> serde_json::Value {
+        let sessions: Vec<_> = self
+            .total_written
+            .keys()
+            .map(|id| {
+                let short = self.buffers.get(id);
+                let full = self.full_buffers.get(id);
+                serde_json::json!({
+                    "pty_id": id,
+                    "output_bytes": short.map_or(0, |ring| ring.len),
+                    "output_allocated_bytes": short.map_or(0, |ring| ring.bytes.capacity()),
+                    "scrollback_bytes": full.map_or(0, |ring| ring.len),
+                    "scrollback_allocated_bytes": full.map_or(0, |ring| ring.bytes.capacity()),
+                })
+            })
+            .collect();
+        serde_json::json!({
+            "count": sessions.len(),
+            "approx_bytes": self.buffers.values().chain(self.full_buffers.values())
+                .map(|ring| ring.bytes.capacity()).sum::<usize>(),
+            "output_limit_per_pty": self.max_size,
+            "scrollback_limit_per_pty": self.max_full,
+            "sessions": sessions,
+        })
+    }
+
     pub fn new(max_size: usize) -> Self {
         Self::new_with_caps(max_size, 2 * 1024 * 1024)
     }

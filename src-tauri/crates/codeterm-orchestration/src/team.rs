@@ -604,8 +604,7 @@ pub fn adopt_plan_for_team(
     let plan =
         adopt_plan_for_team_core(&mut mux, &svc.plan_store, team_id, plan_id, caller, now_ms)?;
     drop(mux);
-    svc.ui
-        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
+    svc.emit_committed_plan_changed(&plan_id);
     svc.emit_state_changed(MuxEmitCause::Team);
     Ok(plan)
 }

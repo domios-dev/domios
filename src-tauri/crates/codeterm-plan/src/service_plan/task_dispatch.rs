@@ -610,6 +610,7 @@ impl PlanStore {
             }
             attempt.authorized_gates = authorized_gates.clone();
             attempt.placement = placement;
+            attempt.execution_intent = Some(intent.clone());
             if let Some(inspected) = shared_binding.as_ref() {
                 attempt.checkout_path = Some(inspected.checkout.clone());
                 attempt.shared_start_sha = Some(inspected.head.clone());
@@ -669,6 +670,7 @@ impl PlanStore {
                 || task.interruption.owner_tab_id.as_deref() != Some(tab_id)
                 || attempt.interruption.owner_epoch != task.interruption.owner_epoch
                 || attempt.authorized_gates != authorized_gates
+                || attempt.execution_intent.as_ref() != Some(&intent)
                 || attempt.placement != placement
             {
                 return Err(Self::task_readback_error(

@@ -18,6 +18,7 @@ mod registry_hint;
 mod registry_keys;
 mod registry_presence;
 mod registry_read;
+pub mod registry_snapshot;
 mod rejoin;
 mod retry;
 mod state;

@@ -4,11 +4,25 @@ use candle_transformers::models::bert::{BertModel, Config};
 use tokenizers::Tokenizer;
 
 use crate::embedder::local::{LocalModel, Pooling};
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+static RESIDENT_MODELS: AtomicUsize = AtomicUsize::new(0);
+static WEIGHT_FILE_BYTES: AtomicUsize = AtomicUsize::new(0);
+
+pub(crate) fn memory_diagnostics() -> serde_json::Value {
+    serde_json::json!({
+        "count": RESIDENT_MODELS.load(Ordering::Relaxed),
+        "weight_file_bytes": WEIGHT_FILE_BYTES.load(Ordering::Relaxed),
+        "residency": "lazy loaded; at most two models retained by the embedding worker",
+        "estimate": "weight file sizes; Candle CPU tensors are copied into owned storage, not retained file mappings",
+    })
+}
 
 pub(crate) struct EmbeddingModel {
     model: BertModel,
     tokenizer: Tokenizer,
     pooling: Pooling,
+    weight_bytes: usize,
 }
 
 #[cfg(test)]
@@ -25,15 +39,21 @@ impl EmbeddingModel {
         }
         let tokenizer = files.tokenizer(repo, descriptor.max_tokens)?;
         let weights = files.get(repo, "model.safetensors")?;
+        let weight_bytes = std::fs::metadata(&weights)
+            .map_err(|error| error.to_string())?
+            .len() as usize;
         let vb =
             unsafe { VarBuilder::from_mmaped_safetensors(&[weights], DType::F32, &Device::Cpu) }
                 .map_err(|e| e.to_string())?;
         let model = BertModel::load(vb, &config).map_err(|e| e.to_string())?;
         files.remove_obsolete_onnx();
+        RESIDENT_MODELS.fetch_add(1, Ordering::Relaxed);
+        WEIGHT_FILE_BYTES.fetch_add(weight_bytes, Ordering::Relaxed);
         Ok(Self {
             model,
             tokenizer,
             pooling: descriptor.pooling,
+            weight_bytes,
         })
     }
 
@@ -59,5 +79,12 @@ impl EmbeddingModel {
         let vector = pooled.squeeze(0)?.to_vec1::<f32>()?;
         let norm = vector.iter().map(|v| v * v).sum::<f32>().sqrt() + 1e-12;
         Ok(vector.into_iter().map(|v| v / norm).collect())
+    }
+}
+
+impl Drop for EmbeddingModel {
+    fn drop(&mut self) {
+        RESIDENT_MODELS.fetch_sub(1, Ordering::Relaxed);
+        WEIGHT_FILE_BYTES.fetch_sub(self.weight_bytes, Ordering::Relaxed);
     }
 }

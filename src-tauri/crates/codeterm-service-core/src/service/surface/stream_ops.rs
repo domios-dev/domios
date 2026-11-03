@@ -167,9 +167,11 @@ pub async fn open_surface_stream(
     svc: &ServiceState,
     tab_id: &str,
     viewport: Option<ViewportRequest>,
+    viewer: Option<String>,
+    viewer_target: Option<String>,
 ) -> Result<SurfaceEvents, SurfaceError> {
     let (runtime, _) = svc.surface_runtime(tab_id)?;
-    Ok(runtime.connect(viewport).await)
+    Ok(runtime.connect(viewport, viewer, viewer_target).await)
 }
 
 pub async fn call_surface(

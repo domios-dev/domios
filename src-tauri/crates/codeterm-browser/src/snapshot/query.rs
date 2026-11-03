@@ -31,7 +31,7 @@ pub fn scoped(nodes: &[AxNode], scope: &str) -> Result<Vec<AxNode>, String> {
         _ => {
             let (role, name) = scope
                 .split_once(':')
-                .ok_or("invalid_scope: expected role:name")?;
+                .ok_or("invalid_scope: use `domios plugin browser snapshot --scope 'role:name'`, for example --scope 'main:'; shortcuts: dialog, sidebar, composer")?;
             (role, Some(name))
         }
     };

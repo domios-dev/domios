@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+pub(super) const MAX_AUTOMATIC_FAILURES: u32 = 4;
+
 pub(super) fn refresh_due(
     active: bool,
     snapshot_age: Option<Duration>,
@@ -8,7 +10,7 @@ pub(super) fn refresh_due(
     failures: u32,
     idle_interval: Duration,
 ) -> bool {
-    if in_flight {
+    if in_flight || failures >= MAX_AUTOMATIC_FAILURES {
         return false;
     }
     let freshness = if active {
@@ -28,94 +30,4 @@ pub(super) fn refresh_due(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn active_work_overrides_long_idle_deadline() {
-        assert!(refresh_due(
-            true,
-            Some(Duration::from_secs(301)),
-            Some(Duration::from_secs(301)),
-            false,
-            0,
-            Duration::from_secs(3000)
-        ));
-        assert!(!refresh_due(
-            false,
-            Some(Duration::from_secs(301)),
-            Some(Duration::from_secs(301)),
-            false,
-            0,
-            Duration::from_secs(3000)
-        ));
-    }
-
-    #[test]
-    fn provider_events_keep_fresh_data_without_another_read() {
-        assert!(!refresh_due(
-            true,
-            Some(Duration::from_secs(1)),
-            Some(Duration::from_secs(600)),
-            false,
-            0,
-            Duration::from_secs(3000)
-        ));
-        assert!(refresh_due(
-            true,
-            None,
-            None,
-            false,
-            0,
-            Duration::from_secs(3000)
-        ));
-    }
-
-    #[test]
-    fn in_flight_is_single_flight_even_when_overdue() {
-        assert!(!refresh_due(
-            true,
-            None,
-            None,
-            true,
-            0,
-            Duration::from_secs(3000)
-        ));
-    }
-
-    #[test]
-    fn failure_backoff_is_bounded_during_active_work() {
-        assert!(!refresh_due(
-            true,
-            None,
-            Some(Duration::from_secs(59)),
-            false,
-            1,
-            Duration::from_secs(3000)
-        ));
-        assert!(refresh_due(
-            true,
-            None,
-            Some(Duration::from_secs(60)),
-            false,
-            1,
-            Duration::from_secs(3000)
-        ));
-        assert!(!refresh_due(
-            true,
-            None,
-            Some(Duration::from_secs(299)),
-            false,
-            10,
-            Duration::from_secs(3000)
-        ));
-        assert!(refresh_due(
-            true,
-            None,
-            Some(Duration::from_secs(300)),
-            false,
-            10,
-            Duration::from_secs(3000)
-        ));
-    }
-}
+mod tests;

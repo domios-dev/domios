@@ -211,7 +211,7 @@ fn handle_seed(tags: &[String], title: &str) -> String {
     }
 }
 
-fn unique_handle(seed: String, used: &mut HashSet<String>) -> String {
+pub(in crate::service_plan) fn unique_handle(seed: String, used: &mut HashSet<String>) -> String {
     // Re-slug even stored handles: legacy pre-cap handles blow past OS path
     // limits (Windows MAX_PATH) every time the task file is rewritten.
     let seed = if seed.is_empty() {

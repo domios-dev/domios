@@ -55,8 +55,11 @@ fn de_truthy<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<bool>, D::
 
 #[derive(Deserialize, Default)]
 pub struct ListPlansQuery {
+    pub(crate) view:
+        Option<codeterm_service_core::service::plan::ui_projections::PlanViewProjection>,
     #[serde(default, deserialize_with = "de_truthy")]
     pub(crate) chat: Option<bool>,
+    pub(crate) tab_id: Option<String>,
     pub(crate) query: Option<String>,
     pub(crate) team: Option<String>,
     #[serde(default)]
@@ -169,11 +172,16 @@ pub async fn list(
                     "Mention query is too long",
                 ));
             }
-            let plans = state.svc.plan_store.chat_snapshot(
-                q.project.as_deref(),
-                q.team.as_deref(),
-                q.query.as_deref(),
-            );
+            let plans = state
+                .svc
+                .plan_store
+                .chat_snapshot_for_tab(
+                    q.project.as_deref(),
+                    q.team.as_deref(),
+                    q.query.as_deref(),
+                    q.tab_id.as_deref(),
+                )
+                .map_err(plan_err)?;
             return Ok(Json(serde_json::json!({ "plans": plans })));
         }
         codeterm_orchestration::validate_active_team_plan_bindings(&state.svc)
@@ -196,6 +204,34 @@ pub async fn list(
             }
             None
         };
+        if let Some(view) = q.view {
+            use codeterm_service_core::service::plan::ui_projections::PlanViewProjection;
+            if view != PlanViewProjection::Summary || q.full == Some(true) {
+                return Err(text_err(
+                    StatusCode::BAD_REQUEST,
+                    "Plan lists support only the summary projection",
+                ));
+            }
+            let mut plans = state
+                .svc
+                .plan_store
+                .ui_plan_summaries(want.as_deref())
+                .map_err(plan_err)?;
+            if let Some(status) = q.status {
+                plans.retain(|plan| plan["status"] == status);
+            }
+            if q.unowned == Some(true) {
+                plans.retain(|plan| {
+                    plan["owner"]["tab_id"].is_null() && plan["owner"]["session_id"].is_null()
+                });
+            }
+            if let Some(owner) = q.orchestrator {
+                plans.retain(|plan| {
+                    plan["owner"]["tab_id"] == owner || plan["owner"]["session_id"] == owner
+                });
+            }
+            return Ok(Json(serde_json::json!({"plans":plans})));
+        }
         let mut entries = state.svc.plan_store.list_index();
         filter_plan_project(&mut entries, want.as_deref(), |id| {
             state.svc.plan_store.get(id)
@@ -307,15 +343,18 @@ pub async fn resolve_refs(
     _headers: HeaderMap,
     Json(body): Json<ResolveRefsBody>,
 ) -> PlanRouteResult {
-    let index = state.svc.plan_store.list_index();
-    let refs = body
-        .refs
-        .into_iter()
-        .map(|item| resolve_ref(&state, &index, item))
-        .collect::<Vec<_>>();
-    Ok(Json(
-        serde_json::to_value(ResolveRefsResponse { refs }).unwrap_or_default(),
-    ))
+    crate::plan_routes::run_blocking(move || {
+        let index = state.svc.plan_store.list_index();
+        let refs = body
+            .refs
+            .into_iter()
+            .map(|item| resolve_ref(&state, &index, item))
+            .collect::<Vec<_>>();
+        Ok(Json(
+            serde_json::to_value(ResolveRefsResponse { refs }).unwrap_or_default(),
+        ))
+    })
+    .await
 }
 
 fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) -> ResolvedRef {
@@ -323,7 +362,25 @@ fn resolve_ref(state: &AppState, index: &[IndexEntry], item: ResolveRefRequest) 
     let (plan, missing_state) = load_plan_for_ref(
         &item.plan_id,
         index_entry,
-        || state.svc.plan_store.get(&item.plan_id),
+        || {
+            state
+                .svc
+                .plan_store
+                .reference_projection(
+                    &item.plan_id,
+                    if matches!(item.target_kind, ResolveTargetKind::Task) {
+                        item.target_id.as_deref()
+                    } else {
+                        None
+                    },
+                    if matches!(item.target_kind, ResolveTargetKind::Section) {
+                        item.target_id.as_deref()
+                    } else {
+                        None
+                    },
+                )
+                .ok()
+        },
         |project_root| {
             state
                 .svc
@@ -584,11 +641,14 @@ pub async fn state(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    let snapshot = state
-        .svc
-        .build_plan_state(&id, epoch_ms())
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        let snapshot = state
+            .svc
+            .build_plan_state(&id, epoch_ms())
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::to_value(snapshot).unwrap_or_default()))
+    })
+    .await
 }
 
 pub async fn next(
@@ -596,14 +656,17 @@ pub async fn next(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    let snapshot = state
-        .svc
-        .build_plan_state(&id, epoch_ms())
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::json!({
-        "plan_id": id,
-        "next_actions": snapshot.next_actions,
-    })))
+    crate::plan_routes::run_blocking(move || {
+        let snapshot = state
+            .svc
+            .build_plan_state(&id, epoch_ms())
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::json!({
+            "plan_id": id,
+            "next_actions": snapshot.next_actions,
+        })))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -620,13 +683,16 @@ pub async fn reconcile(
     Path(id): Path<String>,
     Query(q): Query<ReconcileQuery>,
 ) -> PlanRouteResult {
-    let caller = crate::auth::caller_claim(&state, &headers, q.caller_tab_id.as_deref())
-        .map_err(|(status, message)| text_err(status, message))?;
-    let report = state
-        .svc
-        .reconcile_plan(&id, q.fix == Some(true), caller.as_deref(), epoch_ms())
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::to_value(report).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        let caller = crate::auth::caller_claim(&state, &headers, q.caller_tab_id.as_deref())
+            .map_err(|(status, message)| text_err(status, message))?;
+        let report = state
+            .svc
+            .reconcile_plan(&id, q.fix == Some(true), caller.as_deref(), epoch_ms())
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::to_value(report).unwrap_or_default()))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -701,45 +767,14 @@ pub async fn mode_set(
     let mode = serde_json::from_value::<PlanMode>(serde_json::Value::String(body.mode))
         .map_err(|_| plan_err(PlanError::BadMode))?;
     let now = epoch_ms();
-    // are lifecycle. Keeps the single execution-task gate authoritative.
     match mode {
-        PlanMode::Approved => {
+        PlanMode::Approved | PlanMode::Planning => {
             authorize_plan_orchestrator_http(
                 &state.svc,
                 &id,
                 crate::tab_routes::authenticated_plan_caller(&headers),
             )
             .await?;
-            state
-                .svc
-                .plan_store
-                .set_planning_state(
-                    &id,
-                    PlanningState::Approved,
-                    PlanningAuthor::User,
-                    None,
-                    now,
-                )
-                .map_err(plan_err)?;
-        }
-        PlanMode::Planning => {
-            authorize_plan_orchestrator_http(
-                &state.svc,
-                &id,
-                crate::tab_routes::authenticated_plan_caller(&headers),
-            )
-            .await?;
-            state
-                .svc
-                .plan_store
-                .set_planning_state(
-                    &id,
-                    PlanningState::StructureReady,
-                    PlanningAuthor::User,
-                    None,
-                    now,
-                )
-                .map_err(plan_err)?
         }
         PlanMode::Execution => {
             authorize_execution_action_http(
@@ -748,20 +783,33 @@ pub async fn mode_set(
                 crate::tab_routes::authenticated_plan_caller(&headers),
             )
             .await?;
-            state
+        }
+        PlanMode::Paused | PlanMode::Complete => {}
+    }
+    crate::plan_routes::run_blocking(move || {
+        match mode {
+            PlanMode::Approved | PlanMode::Planning => {
+                let planning_state = if mode == PlanMode::Approved {
+                    PlanningState::Approved
+                } else {
+                    PlanningState::StructureReady
+                };
+                state
+                    .svc
+                    .plan_store
+                    .set_planning_state(&id, planning_state, PlanningAuthor::User, None, now)
+                    .map_err(plan_err)?;
+            }
+            _ => state
                 .svc
                 .plan_store
-                .set_mode(&id, PlanMode::Execution, now)
-                .map_err(plan_err)?;
+                .set_mode(&id, mode, now)
+                .map_err(plan_err)?,
         }
-        PlanMode::Paused | PlanMode::Complete => state
-            .svc
-            .plan_store
-            .set_mode(&id, mode, now)
-            .map_err(plan_err)?,
-    }
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 pub async fn delete_plan(
@@ -770,33 +818,40 @@ pub async fn delete_plan(
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
-    state
-        .svc
-        .plan_store
-        .delete(&id)
-        .map_err(|e| text_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .delete(&id)
+            .map_err(|e| text_err(StatusCode::INTERNAL_SERVER_ERROR, e))?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 mod lifecycle;
+use lifecycle::authorize_plan_mutation_http;
+pub(super) use lifecycle::team_plan_err;
 #[cfg(test)]
 use lifecycle::transfer_caller;
 pub use lifecycle::{archive, pause, pause_preview, resume, resume_preview, transfer, unarchive};
-use lifecycle::{authorize_plan_mutation_http, team_plan_err};
 
 pub async fn disown(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .disown(&id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .disown(&id, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -810,13 +865,16 @@ pub async fn claim(
     Path(id): Path<String>,
     Json(body): Json<ClaimBody>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .claim(&id, body.owner, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .claim(&id, body.owner, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -830,13 +888,16 @@ pub async fn kinds_set(
     Path(id): Path<String>,
     Json(body): Json<KindsSetBody>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .set_kinds(&id, kinds_from_csv(&body.kinds), epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .set_kinds(&id, kinds_from_csv(&body.kinds), epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -850,13 +911,16 @@ pub async fn tag_facets_set(
     Path(id): Path<String>,
     Json(body): Json<TagFacetsSetBody>,
 ) -> PlanRouteResult {
-    let facets = tag_facets_from_body(&body.facets)
-        .map_err(|message| text_err(StatusCode::BAD_REQUEST, message))?;
-    state
-        .svc
-        .plan_store
-        .set_tag_facets(&id, facets, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        let facets = tag_facets_from_body(&body.facets)
+            .map_err(|message| text_err(StatusCode::BAD_REQUEST, message))?;
+        state
+            .svc
+            .plan_store
+            .set_tag_facets(&id, facets, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }

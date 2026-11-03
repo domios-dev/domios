@@ -307,12 +307,10 @@ ct_sccache_release_job_local() {
   echo "[cache-policy] job-local sccache stopped and removed"
 }
 
-# Servers exit after sccache's idle timeout, so runners have none between jobs.
 # Starting only when none is live never restarts or downgrades a running server.
 ct_sccache_start_shared_if_absent() {
   ct_sccache_server_live && return 0
   ct_sccache_storage
-  [ "$CT_SCCACHE_STORAGE" = shared ] || return 0
   local started
   started=$(SCCACHE_IDLE_TIMEOUT=0 sccache --start-server 2>&1) || {
     echo "[cache-policy] shared sccache start raced or failed; verifying the live server"
@@ -376,9 +374,9 @@ ct_sccache_restart_locked() {
 
 ct_sccache_start_with_evidence() {
   if [ -n "$1" ]; then
-    SCCACHE_LOG=sccache::server=debug SCCACHE_ERROR_LOG="$1" sccache --start-server >/dev/null 2>&1
+    SCCACHE_IDLE_TIMEOUT=0 SCCACHE_LOG=sccache::server=debug SCCACHE_ERROR_LOG="$1" sccache --start-server >/dev/null 2>&1
   else
-    sccache --start-server >/dev/null 2>&1
+    SCCACHE_IDLE_TIMEOUT=0 sccache --start-server >/dev/null 2>&1
   fi
 }
 
@@ -466,6 +464,13 @@ ct_configure_sccache_locked() {
 }
 
 ct_require_prestarted_sccache() { ct_sccache_with_lock ct_require_prestarted_sccache_locked "$@"; }
+
+ct_ensure_shared_sccache_locked() {
+  ct_forbid_mutable_cache_dir "${SCCACHE_DIR:-}" || return $?
+  ct_reject_basedir_rewriting || return $?
+  ct_sccache_start_shared_if_absent || return $?
+  ct_require_prestarted_sccache_locked
+}
 
 ct_require_prestarted_sccache_locked() {
   export SCCACHE_CACHE_SIZE="${SCCACHE_CACHE_SIZE:-10G}"

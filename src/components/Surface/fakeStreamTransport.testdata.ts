@@ -15,6 +15,7 @@ export interface FakeStreamTransport {
   calls: FakeCall[];
   disconnects(): number;
   connected(): boolean;
+  viewer(): string | undefined;
   callsTo(method: string): FakeCall[];
   respond(method: string, responder: Responder): void;
   emitOpen(): void;
@@ -29,6 +30,7 @@ export function createFakeStreamTransport(): FakeStreamTransport {
   const responders = new Map<string, Responder>();
   let handlers: StreamHandlers | null = null;
   let disconnects = 0;
+  let viewer: string | undefined;
 
   const live = (): StreamHandlers => {
     if (!handlers) throw new Error("fake transport is not connected");
@@ -36,7 +38,8 @@ export function createFakeStreamTransport(): FakeStreamTransport {
   };
 
   const transport: SurfaceStreamTransport = {
-    connect(params, next) {
+    connect(params, next, identity) {
+      viewer = identity;
       connections.push(params);
       handlers = next;
       return () => {
@@ -54,6 +57,7 @@ export function createFakeStreamTransport(): FakeStreamTransport {
   return {
     transport,
     connections,
+    viewer: () => viewer,
     calls,
     disconnects: () => disconnects,
     connected: () => handlers !== null,

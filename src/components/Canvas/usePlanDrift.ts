@@ -1,87 +1,48 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "../../lib/bridge";
+import { onResync } from "../../lib/resync";
 import type { ApiConfig } from "../../lib/types";
 import { fetchReconcile } from "./plansApi";
+import type { CommittedPlanChange } from "./planProjection";
 import type { DriftItem } from "./types";
 
-interface PlanChangedPayload {
-  plan_id?: string;
-}
-
 export function usePlanDrift(api: ApiConfig | undefined, planIds: string[]): Map<string, DriftItem[]> {
-  const [driftByPlan, setDriftByPlan] = useState<Map<string, DriftItem[]>>(new Map());
-  const ctrlRef = useRef<AbortController | null>(null);
-
-  const refresh = useCallback(
-    (targetPlanId?: string) => {
-      if (!api) {
-        setDriftByPlan(new Map());
-        return;
-      }
-      if (targetPlanId && !planIds.includes(targetPlanId)) return;
-      const ids = targetPlanId ? [targetPlanId] : planIds;
-      if (!ids.length) {
-        setDriftByPlan(new Map());
-        return;
-      }
-      ctrlRef.current?.abort();
-      const ctrl = new AbortController();
-      ctrlRef.current = ctrl;
-      void Promise.all(
-        ids.map((id) =>
-          fetchReconcile(api, id, ctrl.signal)
-            .then((drift) => [id, drift] as const)
-            .catch((e) => {
-              if (ctrl.signal.aborted || (e instanceof Error && e.name === "AbortError")) return null;
-              return [id, [] as DriftItem[]] as const;
-            }),
-        ),
-      ).then((pairs) => {
-        if (ctrl.signal.aborted) return;
-        setDriftByPlan((prev) => {
-          const next = targetPlanId ? new Map(prev) : new Map<string, DriftItem[]>();
-          for (const pair of pairs) {
-            if (!pair) continue;
-            const [id, drift] = pair;
-            if (drift.length) next.set(id, drift);
-            else next.delete(id);
-          }
-          return next;
+  const key = JSON.stringify([api?.host, api?.port, api?.token, planIds]);
+  const [state, setState] = useState<{ key: string; drift: Map<string, DriftItem[]> }>({ key: "", drift: new Map() });
+  useEffect(() => {
+    if (!api) return;
+    let active = true;
+    const controllers = new Map<string, AbortController>();
+    const stops: Array<() => void> = [];
+    const ids: string[] = JSON.parse(key)[3];
+    const refresh = (id: string) => {
+      if (!active || !ids.includes(id)) return;
+      controllers.get(id)?.abort();
+      const controller = new AbortController();
+      controllers.set(id, controller);
+      void fetchReconcile(api, id, controller.signal).catch(() => [] as DriftItem[]).then((drift) => {
+        if (!active || controller.signal.aborted) return;
+        setState((previous) => {
+          const next = new Map(previous.key === key ? previous.drift : []);
+          if (drift.length) next.set(id, drift); else next.delete(id);
+          return { key, drift: next };
         });
       });
-    },
-    [api, planIds],
-  );
-
-  useEffect(() => {
-    // competes with first paint / the load-time layout passes.
-    const w = window as unknown as {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-      cancelIdleCallback?: (handle: number) => void;
     };
-    const ric = w.requestIdleCallback;
-    const handle = ric ? ric(() => refresh(), { timeout: 1500 }) : window.setTimeout(() => refresh(), 200);
-    return () => {
-      if (ric && w.cancelIdleCallback) w.cancelIdleCallback(handle);
-      else clearTimeout(handle);
-      ctrlRef.current?.abort();
-    };
-  }, [refresh]);
-
-  useEffect(() => {
-    let active = true;
-    let unlisten: (() => void) | null = null;
-    void listen<PlanChangedPayload>("plan-changed", (ev) => {
-      if (active) refresh(ev.payload?.plan_id);
-    }).then((fn) => {
-      if (!active) fn();
-      else unlisten = fn;
-    });
+    const reload = () => { for (const id of ids) refresh(id); };
+    stops.push(onResync(reload));
+    window.addEventListener("codeterm-web-boot-changed", reload);
+    stops.push(() => window.removeEventListener("codeterm-web-boot-changed", reload));
+    void Promise.all([
+      listen<CommittedPlanChange>("plan-changed", ({ payload }) => refresh(payload.plan_id)),
+      listen("plans-loaded", reload),
+    ].map(async (pending) => { const stop = await pending; if (active) stops.push(stop); else stop(); }))
+      .then(() => { if (active) reload(); });
     return () => {
       active = false;
-      unlisten?.();
+      for (const controller of controllers.values()) controller.abort();
+      for (const stop of stops) stop();
     };
-  }, [refresh]);
-
-  return driftByPlan;
+  }, [api?.host, api?.port, api?.token, key]);
+  return state.key === key ? state.drift : new Map();
 }

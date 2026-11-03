@@ -1,0 +1,2 @@
+service::tab_chat::chatbackend_history::tests::streaming_message_yields_one_final_line_not_n -> service::tab_chat::chatbackend_history::tests::streaming_message_yields_one_latest_committed_message
+service::tab_chat::chatbackend_history::tests::meta_added_after_messages_moves_to_the_first_line_and_keeps_in_place_rewrites -> service::tab_chat::chatbackend_history::tests::meta_added_after_messages_compacts_atomically_then_appends_versions

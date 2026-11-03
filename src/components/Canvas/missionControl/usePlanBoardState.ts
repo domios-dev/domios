@@ -1,5 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { DEV_BUILD } from "../../../lib/devBuild";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { PlanReadError } from "../plansApi";
+import { planRevision } from "../planProjection";
+import type { EventPager } from "./missionControlBoardModel";
+import type { PlanEvent } from "./missionControlState";
+import { formatPlanFetchError } from "../../../lib/fetchResilience";
+import { useScopedPlanRead } from "../useScopedPlanRead";
 import { listen } from "../../../lib/bridge";
 import { KPI_RECORDED_EVENT } from "../../../lib/kpiChanges";
 import type { ApiConfig } from "../../../lib/types";
@@ -9,6 +14,7 @@ export interface PlanBoardStateResult {
   state: PlanBoardState | null;
   loading: boolean;
   error: string | null;
+  events?: EventPager;
 }
 
 const PLAN_BOARD_EVENTS = [
@@ -19,7 +25,6 @@ const PLAN_BOARD_EVENTS = [
   "graph-worker-reported",
   "cron-run-finished",
   "config-changed",
-  "plan-changed",
   KPI_RECORDED_EVENT,
 ] as const;
 
@@ -55,78 +60,14 @@ export function usePlanBoardState(
   api: ApiConfig | undefined,
   planId: string | null,
   revision: number,
+  includeEvents = true,
 ): PlanBoardStateResult {
-  const [state, setState] = useState<PlanBoardState | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const hasLoaded = useRef(false);
-
-  const activeRef = useRef(false);
-  const selectionRef = useRef<string | null>(null);
-  const queuedRefreshRef = useRef(false);
-  const readRef = useRef<AbortController | null>(null);
-
-  const refresh = useCallback(() => {
-    if (!api || !planId || !activeRef.current) return;
-    if (readRef.current) {
-      queuedRefreshRef.current = true;
-      return;
-    }
-
-    const controller = new AbortController();
-    readRef.current = controller;
-    setLoading(true);
-    fetchPlanBoardState(api, planId, controller.signal)
-      .then((next) => {
-        if (!activeRef.current || controller.signal.aborted) return;
-        setState(next);
-        hasLoaded.current = true;
-        setError(null);
-      })
-      .catch((e: unknown) => {
-        if (!activeRef.current || controller.signal.aborted) return;
-        if (DEV_BUILD) console.debug("Background Mission Control refresh failed", e);
-        if (!hasLoaded.current) setError(`Mission Control state unavailable: ${String(e)}`);
-      })
-      .finally(() => {
-        if (readRef.current !== controller) return;
-        readRef.current = null;
-        if (!activeRef.current || controller.signal.aborted) return;
-        setLoading(false);
-        if (queuedRefreshRef.current) {
-          queuedRefreshRef.current = false;
-          refresh();
-        }
-      });
-  }, [api?.host, api?.port, api?.token, planId]);
-
-  useEffect(() => {
-    activeRef.current = true;
-    return () => {
-      activeRef.current = false;
-      queuedRefreshRef.current = false;
-      readRef.current?.abort();
-      readRef.current = null;
-    };
-  }, [api?.host, api?.port, api?.token, planId]);
-
-  useEffect(() => {
-    if (!api || !planId) {
-      selectionRef.current = null;
-      hasLoaded.current = false;
-      setState(null);
-      setError(null);
-      setLoading(false);
-      return;
-    }
-    if (selectionRef.current !== planId) {
-      selectionRef.current = planId;
-      hasLoaded.current = false;
-      setState(null);
-      setError(null);
-    }
-    refresh();
-  }, [api?.host, api?.port, api?.token, planId, refresh, revision]);
+  const query = useScopedPlanRead(api, planId, "mission-control", undefined, async (signal) => {
+    const snapshot = await fetchPlanBoardState(api!, planId!, signal, undefined, includeEvents);
+    if (snapshot.plan_id !== planId) throw new Error("Mission Control response did not match the selected plan.");
+    return snapshot;
+  }, revision * 2 + Number(includeEvents));
+  const refresh = query.refetch;
 
   useEffect(() => {
     if (!api || !planId) return;
@@ -137,7 +78,7 @@ export function usePlanBoardState(
       try {
         for (const event of PLAN_BOARD_EVENTS) {
           const unlisten = await listen<unknown>(event, (entry) => {
-            if (active && eventTargetsPlan(entry.payload, planId)) refresh();
+            if (active && eventTargetsPlan(entry.payload, planId)) void refresh();
           });
           if (!active) {
             unlisten();
@@ -158,5 +99,44 @@ export function usePlanBoardState(
     };
   }, [api?.host, api?.port, api?.token, planId, refresh]);
 
-  return { state, loading, error };
+  const snapshot = query.data;
+  const key = JSON.stringify([api?.host, api?.port, api?.token, planId, snapshot?.revision]);
+  const selected = useRef(key); selected.current = key;
+  const pending = useRef<AbortController | null>(null);
+  const [history, setHistory] = useState<{ key: string; pages: PlanEvent[][]; cursor: number | null; error: string | null } | null>(null);
+  useEffect(() => {
+    pending.current?.abort(); pending.current = null;
+    return () => { pending.current?.abort(); pending.current = null; };
+  }, [key, query.loading]);
+  const events = useMemo<EventPager | undefined>(() => {
+    if (!snapshot) return undefined;
+    if(snapshot.event_window_loaded===false)return {pageCount:1,page:()=>null,caption:`${snapshot.mission_control.event_log.recorded_events} events`};
+    const current = history?.key === key ? history : null;
+    const pages = [snapshot.mission_control.event_log.entries.slice().reverse(), ...(current?.pages ?? [])];
+    const cursor = current ? current.cursor : snapshot.next_event_cursor ?? null;
+    return {
+      pageCount: pages.length + (cursor === null ? 0 : 1),
+      page: (index) => pages[index] ?? null,
+      caption: `${snapshot.mission_control.event_log.recorded_events} events`,
+      error: current?.error,
+      load: (index) => {
+        if (!api || !planId || cursor === null || index !== pages.length || pending.current || query.loading) return;
+        const controller = new AbortController(); pending.current = controller;
+        const generation = query.version.current;
+        setHistory({ key, pages: current?.pages ?? [], cursor, error: null });
+        void fetchPlanBoardState(api, planId, controller.signal, cursor).then(async (page) => {
+          if (controller.signal.aborted || selected.current !== key || query.version.current !== generation) return;
+          if (page.plan_id !== planId || planRevision(page) !== planRevision(snapshot)) { await refresh(); return; }
+          setHistory({ key, pages: [...(current?.pages ?? []), page.mission_control.event_log.entries.slice().reverse()], cursor: page.next_event_cursor ?? null, error: null });
+        }).catch(async (cause) => {
+          if(controller.signal.aborted || selected.current!==key || query.version.current!==generation)return;
+          if (cause instanceof PlanReadError && [400,401,403,404,410].includes(cause.status)) { await refresh(); return; }
+          if (!controller.signal.aborted && selected.current === key && query.version.current === generation)
+            setHistory({ key, pages: current?.pages ?? [], cursor, error: formatPlanFetchError(cause) });
+        }).finally(() => { if (pending.current === controller) pending.current = null; });
+      },
+    };
+  }, [api?.host, api?.port, api?.token, planId, key, snapshot, history, query.loading, query.version, refresh]);
+  return { state: snapshot, loading: query.loading, error: query.error, events };
+
 }

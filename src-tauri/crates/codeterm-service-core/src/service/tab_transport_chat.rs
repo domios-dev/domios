@@ -12,6 +12,7 @@ use super::ServiceContext;
 use crate::agent::chat_types::StructuredChat;
 use crate::chatbackend::ChatBackendProvider;
 use crate::multiplexer::commands::MuxState;
+mod activity;
 mod close;
 mod liveness;
 mod recovery;
@@ -672,6 +673,7 @@ impl ServiceContext {
         match result {
             Ok(delta) => {
                 bound.observe(&delta);
+                self.observe_chatbackend_activity(plugin_id, session_id, &bound, &delta);
                 Ok(delta)
             }
             Err(error) => {
@@ -713,6 +715,9 @@ impl ServiceContext {
             for tab in runtime_tabs {
                 super::agent_runtime::engine::stop_blocking(self, &tab)?;
             }
+            super::tab_chat::chatbackend_history::ChatBackendHistory::release(
+                plugin_id, session_id,
+            );
             return Ok(());
         }
         let bound = self
@@ -722,11 +727,18 @@ impl ServiceContext {
             .remove(&(plugin_id.into(), session_id.into()));
         if let Some(bound) = bound {
             bound.cancel();
-            bound
+            let result = bound
                 .provider
                 .close_session(session_id)
-                .map_err(|e| e.to_string())
+                .map_err(|e| e.to_string());
+            super::tab_chat::chatbackend_history::ChatBackendHistory::release(
+                plugin_id, session_id,
+            );
+            result
         } else {
+            super::tab_chat::chatbackend_history::ChatBackendHistory::release(
+                plugin_id, session_id,
+            );
             Ok(())
         }
     }

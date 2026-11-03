@@ -238,10 +238,6 @@ pub enum PlanAction {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
         title: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        spec: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        spec_file: Option<String>,
         #[arg(long)]
         status: Option<String>,
         #[arg(long)]

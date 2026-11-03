@@ -552,7 +552,7 @@ pub(super) fn run_task(
                 json!({ "plan_id": plan_id, "task_id": task_id }),
             )?;
             if json {
-                return Ok(Some(val));
+                return Ok(Some(crate::cmd::task::compact_task_show(&val)));
             }
             crate::cmd::task::print_task_result(
                 false,
@@ -820,6 +820,7 @@ pub(super) fn run_task(
             group,
             priority,
             tags,
+            remove_tags,
             primary,
             handle,
         } => {
@@ -871,6 +872,7 @@ pub(super) fn run_task(
                 group,
                 priority,
                 tags,
+                remove_tags,
                 primary,
                 handle,
                 external_ref,

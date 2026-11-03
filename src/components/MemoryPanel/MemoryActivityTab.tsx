@@ -331,7 +331,7 @@ function MemoryActivityTabImpl({ api, config, nodes, onNavigateToItem }: Props) 
       )}
       {logWorker &&
         (logWorker.session_id ? (
-          <RunChatPopup
+          <RunChatPopup tabId={logWorker.tab_id}
             title={taskLabel(logWorker)}
             subtitle={[logWorker.agent_provider, logWorker.model].filter(Boolean).join(" / ")}
             status={logWorker.status}

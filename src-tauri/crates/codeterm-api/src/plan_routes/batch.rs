@@ -48,10 +48,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
 }
 
 fn emit_plan_changed(state: &AppState, plan_id: &str) {
-    state
-        .svc
-        .ui
-        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
 }
 
 /// The route's whole write: parse the ops, cross the authority boundary, apply.
@@ -85,27 +82,30 @@ pub async fn batch(
     Path(id): Path<String>,
     Json(body): Json<Value>,
 ) -> BatchRouteResult {
-    let mut params = Some(body);
-    if crate::auth::tab_caller(&state, &headers)
-        .map_err(|(status, message)| text_err(status, message))?
-        .is_some()
-    {
-        let credential = headers
-            .get("authorization")
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.strip_prefix("Bearer "))
-            .unwrap_or_default();
+    crate::plan_routes::run_blocking(move || {
+        let mut params = Some(body);
+        if crate::auth::tab_caller(&state, &headers)
+            .map_err(|(status, message)| text_err(status, message))?
+            .is_some()
+        {
+            let credential = headers
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .and_then(|value| value.strip_prefix("Bearer "))
+                .unwrap_or_default();
+            state
+                .svc
+                .bind_local_rpc(credential, "plan.batch", &mut params)
+                .map_err(|error| text_err(StatusCode::FORBIDDEN, error))?;
+        }
+        let body = params.unwrap_or_default();
         state
             .svc
-            .bind_local_rpc(credential, "plan.batch", &mut params)
-            .map_err(|error| text_err(StatusCode::FORBIDDEN, error))?;
-    }
-    let body = params.unwrap_or_default();
-    state
-        .svc
-        .authorize_batch_completions(&id, &body)
-        .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
-    let result = apply_authorized_batch(&state.svc.plan_store, &id, &body, epoch_ms())?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+            .authorize_batch_completions(&id, &body)
+            .map_err(|message| text_err(StatusCode::FORBIDDEN, message))?;
+        let result = apply_authorized_batch(&state.svc.plan_store, &id, &body, epoch_ms())?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    })
+    .await
 }

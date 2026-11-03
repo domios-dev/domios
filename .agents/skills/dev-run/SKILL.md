@@ -7,6 +7,12 @@ description: Start, restart, kill, and verify the Domios dev instance from insid
 
 Run, restart, and diagnose the Domios dev instance inside this repo. Dev is isolated from production: different config dir, different port, different data.
 
+Compile DEV only in the canonical checkout. Worktrees and lanes must ask the
+Orchestrator for a canonical DEV build; `dev`, `dev-back` and `dev-server` refuse
+lane compilation before stopping any instance. Run `dev-prebuilt` from canonical
+to launch another named instance from the existing build without Cargo. Keep
+incremental compilation and the single canonical `src-tauri/target/named-dev`.
+
 For the pinned two-peer Neighbors acceptance setup and candidate advances, see [QA peers](../qa-peers/SKILL.md).
 
 **Never touch prod.** Prod listens on 7685, dev on 7686. If you ever kill a process, verify by port first.
@@ -121,7 +127,7 @@ It uses the synthetic `demo-domios` project, Auth `19099`, Firestore `18080`,
 Functions `15001` and Hosting `15000`, all on `127.0.0.1`.
 
 Set the explicit runtime opt-in in the DEV utility shell before launching the
-debug server. Keep the normal named-instance selectors for a noncanonical lane:
+debug server. Use the named-instance selectors in the canonical checkout:
 
 ```powershell
 $env:DOMIOS_FIREBASE_EMULATOR = '1'
@@ -223,8 +229,8 @@ saved accounts or redirecting an existing QA binary. Parent separately captures
 and verifies the common layout before an isolated headless start. Do not launch
 the rebuilt default-target artifact against the selected instance's saved QA data.
 
-Every named instance of a checkout shares ONE DEV target,
-`<checkout>/src-tauri/target/named-dev`; CLI, server and app build there.
+Every named instance shares ONE DEV target,
+`<canonical>/src-tauri/target/named-dev`; CLI, server and app build there.
 Named `dev` and `dev-server` compile incrementally (`CARGO_INCREMENTAL=1`) with
 no compiler wrapper (`RUSTC_WRAPPER=` overrides the machine sccache config).
 Release, CI, `install-local` and `worktree-check` keep their cold-by-design
@@ -333,7 +339,7 @@ calls finish, use copied library filenames on Windows, and reject ABI mismatches
 
 All build logic lives in `build.sh`; `build.ps1` forwards to it.
 All Cargo work, including named `dev --wait`, owns the shared build gateway and
-initializes sccache through its common entry. The build writes the existing dev
+applies its cache policy (incremental DEV bypasses sccache). The build writes the existing dev
 provenance record, closes gateway logging and releases the job before invoking
 `dev-prebuilt`, which validates that record and owns launch, READY and cleanup.
 A running app holds no gateway job; `kill` stops it through the existing dev-only
@@ -555,7 +561,7 @@ lsof -nP -iTCP:7685 -sTCP:LISTEN -t
 
 - **2026-10-18: named DEV cannot find its executable, or a second instance cannot replace a running Windows executable.** Interactive named builds previously used the default checkout target while `dev-prebuilt` looked under the instance data directory. Every named `dev` now builds CLI and app under the one checkout target `<checkout>/src-tauri/target/named-dev`, for both foreground and `--wait`; `dev-prebuilt` resolves the same target. Config, installed CLI and the provenance record remain under `~/.domios-dev-<instance-key>`. Run `dev` once with an explicit instance and private port, then start that or any other instance with `dev-prebuilt`. `dev`/`dev-server` refuse to rebuild while another DEV from the target runs (Windows locks its executable); stop it with the printed `kill` first. Cleanup remains scoped to the selected instance; never stop production to unlock a file.
 
-- **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. In Git Bash use `CODETERM_DEV_INSTANCE=my-lane CODETERM_DEV_API_PORT=7799 ./build.sh dev`; in PowerShell set `$env:CODETERM_DEV_INSTANCE='my-lane'; $env:CODETERM_DEV_API_PORT='7799'` before `./build.ps1 dev`. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.domios-dev[-<instance>]/config.toml` to that private port first. Canonical launch ignores parent connection variables and selects 7686. Explicit `CODETERM_DEV_API_PORT=7685` still refuses. Never stop production to resolve the refusal.
+- **2026-10-18: worktree DEV selected production port 7685.** The debug API default accepted inherited `CODETERM_API_PORT`, and a saved `[api].port` overrode that default. Startup refuses a saved production port even with a safe environment override, then selects the explicit dev launch port over safe saved config; TCP and mesh UDP binding also guard it. `dev`, `dev-prebuilt`, and scoped cleanup refuse non-canonical worktrees without an explicit instance and private port. DEV compilation now requires canonical; run named instances from its shared target. In Git Bash use `CODETERM_DEV_INSTANCE=my-lane CODETERM_DEV_API_PORT=7799 ./build.sh dev-prebuilt` from canonical; in PowerShell set `$env:CODETERM_DEV_INSTANCE='my-lane'; $env:CODETERM_DEV_API_PORT='7799'` before `./build.ps1 dev-prebuilt` from canonical. Choose an unused port other than 7685/7686 and use the same settings for `kill`. If the refusal names the saved config, change `[api].port` in `~/.domios-dev[-<instance>]/config.toml` to that private port first. Canonical launch ignores parent connection variables and selects 7686. Explicit `CODETERM_DEV_API_PORT=7685` still refuses. Never stop production to resolve the refusal.
 
 - **2026-10-17: DEV retains an older installed system provider.** DEV skipped embedded bootstrap, leaving installed bundles stale; workspace priority also ignored a newer installed release. Startup now refreshes bundled system ids with the existing version/hash installer, and both initial loading and the watcher keep the newest system version (workspace wins equal versions). Check the final `[js-plugin] codex version=...` startup line or `daemon-reloaded` audit event; an earlier `loaded ...` line or installed manifest alone does not identify the active implementation. After integrating the host repair, the owner rebuilds DEV once with `./build.ps1 dev`. To refresh a running DEV from the official channel without rebuilding, run `source evals/_lib/lib.sh` then `dc plugin update-system codex` in Git Bash from canonical. This installs the channel release and acknowledges live registration; it does not publish unreleased checkout changes. Never copy plugin files manually or downgrade a newer installed release.
 

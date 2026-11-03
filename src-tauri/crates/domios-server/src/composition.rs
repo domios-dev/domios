@@ -338,7 +338,8 @@ pub(crate) fn compose_observed(
         codeterm_service_core::async_runtime::spawn(async move {
             loop {
                 match *readiness.borrow_and_update() {
-                    mem::docs_source::VectorReadiness::Ready => {
+                    mem::docs_source::VectorReadiness::Deferred
+                    | mem::docs_source::VectorReadiness::Ready => {
                         api.complete_subsystem("docs_vectors")
                     }
                     mem::docs_source::VectorReadiness::Failed => api.fail_subsystem("docs_vectors"),

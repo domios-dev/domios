@@ -43,3 +43,45 @@ test("routed card renders Rust attachment segments beside its body", async () =>
     await act(async () => root.unmount());
   }
 });
+
+for (const pasted of [false, true]) {
+  test(`bounds a long ${pasted ? "pasted envelope" : "plain user message"} with an inline reader under the bubble`, async () => {
+    (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+    const body = "Opaque user paragraph\n".repeat(400) + "Final user sentinel";
+    const raw = `<pasted_content id="opaque">\n${body}\n</pasted_content id="opaque">\n\npasted by Domios`;
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const render = (suffix = "") => {
+      const rows = enrichTimelineItems([{ kind: "message", message: {
+        id: "long-user", type: "user", content: pasted ? raw + suffix : body + suffix,
+        segments: pasted ? [{ type: "paste", id: "opaque", body: body + suffix }] : undefined,
+      } }], new WeakMap());
+      return <MessageBubble message={rows[0].msg} origin={rows[0].origin} />;
+    };
+    try {
+      await act(async () => root.render(render()));
+      const bubble = host.querySelector<HTMLElement>('[role="group"][aria-label="User message"]')!;
+      Object.defineProperties(bubble, { scrollHeight: { value: 5910 }, clientHeight: { value: 320 } });
+      await act(async () => root.render(render("\n")));
+      const opener = host.querySelector<HTMLButtonElement>('button[aria-label="Open full screen: Message content"]')!;
+      expect(opener).toBeTruthy();
+      expect(bubble.contains(opener)).toBe(false);
+      const disclosure = host.querySelector<HTMLButtonElement>('button[aria-expanded="false"]')!;
+      expect(disclosure).toBeTruthy();
+      await act(async () => disclosure.click());
+      expect(disclosure.getAttribute("aria-expanded")).toBe("true");
+      await act(async () => disclosure.click());
+      expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+      await act(async () => opener.click());
+      expect(document.querySelector('[role="dialog"] [aria-label="Reader content"]')?.textContent).toContain("Final user sentinel");
+      await act(async () => document.querySelector<HTMLButtonElement>('button[aria-label="Close fullscreen viewer"]')!.click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(opener);
+      expect(disclosure.getAttribute("aria-expanded")).toBe("false");
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+}

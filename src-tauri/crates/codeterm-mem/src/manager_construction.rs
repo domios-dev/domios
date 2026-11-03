@@ -25,7 +25,6 @@ impl MemManager {
             Arc::new(embedder::SystemClock),
             Some(data_dir.to_path_buf()),
         )?;
-        crate::docs_source::start_background_build(data_dir);
         crate::spawn_entity_embedding_backfill(manager.store.clone(), manager.embedder.clone());
         Ok(manager)
     }

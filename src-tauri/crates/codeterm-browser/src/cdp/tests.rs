@@ -443,3 +443,111 @@ async fn browser_cdp_batch_dropped_phase_replies_keep_close_reason() {
     );
     assert!(connection.0.state.lock().pending.is_empty());
 }
+
+#[tokio::test]
+async fn browser_cdp_deep_reply_fails_its_request_without_waiting_for_deadline() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    let deep = client.send("Fixture.deep", json!({}));
+    let ordinary = client.send("Fixture.ordinary", json!({}));
+    tokio::pin!(deep, ordinary);
+    let mut requests = Vec::new();
+    while requests.len() != 2 {
+        tokio::select! {
+            result = &mut deep => panic!("deep request completed before reply: {result:?}"),
+            result = &mut ordinary => panic!("ordinary request completed before reply: {result:?}"),
+            request = chrome.inbound.recv() => requests.push(request.unwrap()),
+        }
+    }
+    let deep_id = requests
+        .iter()
+        .find(|request| request["method"] == "Fixture.deep")
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    chrome
+        .outbound
+        .send(Message::text(format!(
+            "{{\"result\":{}0{},\"id\":{deep_id}}}",
+            "[".repeat(180),
+            "]".repeat(180)
+        )))
+        .unwrap();
+    let ordinary_request = requests
+        .iter()
+        .find(|request| request["method"] == "Fixture.ordinary")
+        .unwrap();
+    chrome.reply(ordinary_request, json!({"result":{"ok":true}}));
+    let (deep_result, ordinary_result) = tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::join!(deep, ordinary)
+    })
+    .await
+    .expect("decoded replies must complete before the command deadline");
+    assert!(
+        matches!(deep_result, Err(CdpError::Malformed(detail)) if detail.contains("recursion limit"))
+    );
+    assert_eq!(ordinary_result.unwrap(), json!({"ok":true}));
+    assert!(client.close_reason().is_none());
+    client.close("fixture complete");
+}
+
+#[tokio::test]
+async fn browser_cdp_document_decodes_deep_replies_and_bounds_failures_per_request() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    for depth in [400, 4097, 0] {
+        let document = client.send("DOM.getDocument", json!({"depth":-1,"pierce":true}));
+        let ordinary = client.send("Fixture.ordinary", json!({}));
+        tokio::pin!(document, ordinary);
+        let mut requests = Vec::new();
+        while requests.len() < 2 {
+            tokio::select! {
+                result = &mut document => panic!("document completed before reply: {result:?}"),
+                result = &mut ordinary => panic!("ordinary completed before reply: {result:?}"),
+                request = chrome.inbound.recv() => requests.push(request.unwrap()),
+            }
+        }
+        let id = requests
+            .iter()
+            .find(|request| request["method"] == "DOM.getDocument")
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let payload = if depth == 0 {
+            format!("{{\"id\":{id},\"result\":broken}}")
+        } else {
+            format!(
+                "{{\"result\":{}0{},\"id\":{id}}}",
+                "[".repeat(depth),
+                "]".repeat(depth)
+            )
+        };
+        chrome.outbound.send(Message::text(payload)).unwrap();
+        let request = requests
+            .iter()
+            .find(|request| request["method"] == "Fixture.ordinary")
+            .unwrap();
+        chrome.reply(request, json!({"result":{"ok":true}}));
+        let (document, ordinary) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(document, ordinary)
+        })
+        .await
+        .expect("document failures must not wait for the command deadline");
+        if depth == 400 {
+            let mut value = document.unwrap();
+            for _ in 0..depth {
+                value = value.as_array_mut().unwrap().pop().unwrap();
+            }
+            assert_eq!(value, json!(0));
+        } else if depth == 4097 {
+            assert!(
+                matches!(document, Err(CdpError::Malformed(detail)) if detail.contains("maximum JSON depth 4096"))
+            );
+        } else {
+            assert!(matches!(document, Err(CdpError::Malformed(_))));
+        }
+        assert_eq!(ordinary.unwrap(), json!({"ok":true}));
+        assert!(client.close_reason().is_none());
+    }
+    client.close("fixture complete");
+}

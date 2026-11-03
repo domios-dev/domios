@@ -30,6 +30,10 @@ pub struct RecordPage {
 
 pub fn page_before(path: &Path, until: u64, budget: u64) -> std::io::Result<RecordPage> {
     let mut file = File::open(path)?;
+    page_before_file(&mut file, until, budget)
+}
+
+pub fn page_before_file(file: &mut File, until: u64, budget: u64) -> std::io::Result<RecordPage> {
     let mut position = until.min(file.metadata()?.len());
     let mut end = None;
     let mut start = position;

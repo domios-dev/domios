@@ -261,3 +261,9 @@ it("persists the owner's Off choice and keeps it selected across refresh", async
   await click("Curator · Auto", document.body);
   expect(stored.mode).toBe("curator");
 });
+
+it("uses committed board settings without a second control-loop read",async()=>{
+  await render(<ConnectedPlanSettings plan={FIXTURE_PLAN} api={API} initial={BASE} fromSnapshot now={NOW} />);
+  expect(requests).toHaveLength(0);
+  expect(button("Team oversight").getAttribute("aria-label")).toContain("Curator");
+});

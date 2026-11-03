@@ -331,11 +331,7 @@ pub async fn finish_session_binding(
         let _ = svc
             .plan_store
             .ack_handoff_resume(&resume.plan_id, &resume.handoff_id, epoch_ms());
-        svc.ui.emit(
-            "plan-changed",
-            serde_json::to_value(serde_json::json!({ "plan_id": resume.plan_id }))
-                .unwrap_or_default(),
-        );
+        svc.emit_committed_plan_changed(&resume.plan_id);
     }
     if let Some(previous_session_id) = claim.prev.as_deref() {
         // Binding is already visible; Chat may have subscribed to the new session.

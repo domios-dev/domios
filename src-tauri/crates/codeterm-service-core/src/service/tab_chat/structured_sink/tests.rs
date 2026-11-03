@@ -472,13 +472,11 @@ fn chatbackend_sink_persists_and_forwards() {
     let inner = Arc::new(CountingSink::default());
     let sink = ChatBackendStructuredSink::new(inner.clone(), plugin, session, None);
 
-    // A streaming message grows in place across two emits.
     sink.emit("tab-1", vec![msg("m1", "He")], None);
     sink.emit("tab-1", vec![msg("m1", "Hello")], None);
 
     // Forwarded to the UI sink each time.
     assert_eq!(inner.emits.load(std::sync::atomic::Ordering::Relaxed), 2);
-    // But the JSONL holds ONE line (UPSERT by id), with the final content.
     let read = chatbackend_history::read_messages(&path);
     assert_eq!(read.len(), 1, "one line per message id");
     assert_eq!(read[0].content, "Hello");
@@ -609,4 +607,40 @@ fn conversation_evidence_uses_injected_journal_and_exact_live_binding() {
                     if session_id == "own-session"
             )
     ));
+}
+
+#[test]
+fn chatbackend_sink_publishes_only_after_the_record_is_readable() {
+    struct PersistedSink(std::path::PathBuf);
+    impl StructuredSink for PersistedSink {
+        fn emit(&self, _: &str, messages: Vec<ChatMsg>, _: Option<String>) {
+            assert_eq!(chatbackend_history::read_messages(&self.0), messages);
+        }
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("persisted.jsonl");
+    let sink = ChatBackendStructuredSink {
+        inner: Arc::new(PersistedSink(path.clone())),
+        history: Arc::new(parking_lot::Mutex::new(
+            chatbackend_history::ChatBackendHistory::open_at(path),
+        )),
+    };
+    sink.emit("tab", vec![msg("id", "first")], None);
+    sink.emit("tab", vec![msg("id", "first plus delta")], None);
+}
+
+#[test]
+fn chatbackend_sink_does_not_publish_a_failed_persistence() {
+    let dir = tempfile::tempdir().unwrap();
+    let parent = dir.path().join("blocked");
+    std::fs::write(&parent, b"not a directory").unwrap();
+    let inner = Arc::new(CountingSink::default());
+    let sink = ChatBackendStructuredSink {
+        inner: inner.clone(),
+        history: Arc::new(parking_lot::Mutex::new(
+            chatbackend_history::ChatBackendHistory::open_at(parent.join("s.jsonl")),
+        )),
+    };
+    sink.emit("tab", vec![msg("id", "not persisted")], None);
+    assert_eq!(inner.emits.load(std::sync::atomic::Ordering::Relaxed), 0);
 }

@@ -225,35 +225,35 @@ pub(super) fn dispatch(
                     .and_then(|v| v.as_str())
                     .map(str::to_string)
             };
-            let listed = store.list_tasks_with_reason(TaskListFilter {
-                project_path: p
-                    .and_then(|x| x.get("project"))
-                    .and_then(|v| v.as_str())
-                    .map(str::to_string),
-                active_only: status.is_none()
-                    && p.and_then(|x| x.get("active")).and_then(|v| v.as_bool()) != Some(false),
-                mine_tabs: if mine {
-                    caller
-                        .map(|id| tab_and_ancestors(svc, id))
-                        .unwrap_or_default()
-                } else {
-                    Default::default()
-                },
-                unassigned: p
-                    .and_then(|x| x.get("unassigned"))
-                    .and_then(|v| v.as_bool())
-                    == Some(true),
-                plan_id,
-                status,
-            });
+            let listed = store
+                .list_tasks_with_reason(TaskListFilter {
+                    project_path: p
+                        .and_then(|x| x.get("project"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string),
+                    active_only: status.is_none()
+                        && p.and_then(|x| x.get("active")).and_then(|v| v.as_bool()) != Some(false),
+                    mine_tabs: if mine {
+                        caller
+                            .map(|id| tab_and_ancestors(svc, id))
+                            .unwrap_or_default()
+                    } else {
+                        Default::default()
+                    },
+                    unassigned: p
+                        .and_then(|x| x.get("unassigned"))
+                        .and_then(|v| v.as_bool())
+                        == Some(true),
+                    plan_id,
+                    status,
+                })
+                .map_err(plan_rpc_err)?;
             Ok(json!(listed))
         }
 
         "task.show" => {
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
-            let detail = store
-                .show_task(&task_id)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
+            let detail = store.show_task_window(&task_id).map_err(plan_rpc_err)?;
             Ok(serde_json::to_value(detail).unwrap_or_default())
         }
 
@@ -605,6 +605,9 @@ pub(super) fn dispatch(
                     lane,
                     now,
                 )
+                .map_err(plan_rpc_err)?;
+            store
+                .remove_task_tags(&id, &tid, &string_array_field(p, "remove_tags"), now)
                 .map_err(plan_rpc_err)?;
             if let Some(speed) = optional_string_field(p, "speed") {
                 store

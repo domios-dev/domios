@@ -169,8 +169,8 @@ export function createHttpSseSurfaceTransport(options: HttpSseSurfaceTransportOp
   };
   const retrySignal = options.retrySignal ?? browserRetrySignal;
   return {
-    connect(params: StreamViewport, handlers: StreamHandlers): Disconnect {
-      const session = new StreamSession(resolved, surfaceStreamUrl(resolved.baseUrl, resolved.tabId, params, options.peerId), handlers, retrySignal);
+    connect(params: StreamViewport, handlers: StreamHandlers, viewer?: string, viewerTarget?: string): Disconnect {
+      const session = new StreamSession(resolved, surfaceStreamUrl(resolved.baseUrl, resolved.tabId, params, options.peerId, viewer, viewerTarget), handlers, retrySignal);
       return () => session.close();
     },
     async invoke<T>(method: string, args: Record<string, unknown> = {}): Promise<T> {

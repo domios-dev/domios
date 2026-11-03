@@ -35,7 +35,12 @@ pub(super) fn session(record: &Value) -> Option<SessionObservations> {
         .get("permissionMode")
         .cloned()
         .and_then(|value| serde_json::from_value::<PermissionMode>(value).ok());
-    let is_error = record.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true);
+    let retry_error = retry::classify(record);
+    let is_error = record.get("isApiErrorMessage").and_then(Value::as_bool) == Some(true)
+        || retry_error.as_ref().is_some_and(|signal| {
+            signal.retryable_kind
+                == Some(codeterm_provider_signals::RuntimeRetryableErrorKind::OutputLimit)
+        });
     let api_error = is_error.then(|| ApiErrorKind::from_error(record.get("error"), record));
     log::debug!("[provider-access] Claude record error={api_error:?}");
     let clears_api_error = record.get("type").and_then(Value::as_str) == Some("assistant")
@@ -43,7 +48,7 @@ pub(super) fn session(record: &Value) -> Option<SessionObservations> {
         && record.get("message").is_some_and(Value::is_object);
     (is_error || permission_mode.is_some() || clears_api_error).then_some(SessionObservations {
         unavailable_model: None,
-        retry_error: retry::classify(record),
+        retry_error,
         retry_succeeded: clears_api_error
             && record["isSidechain"] != true
             && matches!(
