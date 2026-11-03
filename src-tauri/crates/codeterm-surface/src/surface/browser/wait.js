@@ -24,9 +24,15 @@
           }
         } else node = document.querySelector(value);
         if (node) {
-          const text = node.innerText || node.textContent || "";
+          let text = node.innerText || node.textContent || "";
+          const sensitive = '[data-sensitive], input[type="password"], input[autocomplete="current-password"], input[autocomplete="new-password"]';
+          const masked = node.matches(sensitive) || node.closest('[data-sensitive]');
+          if (masked) text = "REDACTED";
+          else for (const child of node.querySelectorAll(sensitive)) {
+            if (child.innerText) text = text.split(child.innerText).join("REDACTED");
+          }
           const at = Math.max(0, text.indexOf(value) - 80);
-          finish(null, {url:location.href, tag:node.localName, id:node.id, role:node.getAttribute("role"), name:node.getAttribute("aria-label"), excerpt:text.slice(at, at + 240)});
+          finish(null, {url:location.href, tag:node.localName, id:node.id.slice(0, 200), role:node.getAttribute("role")?.slice(0, 100), name:masked ? "REDACTED" : node.getAttribute("aria-label")?.slice(0, 200), excerpt:text.slice(at, at + 240)});
         }
       } catch (error) {
         finish(error);

@@ -105,13 +105,14 @@ impl BrowserRuntime {
             "screenshot" => {
                 let shot: ScreenshotArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
+                let viewport = super::metrics::capture_viewport(&self.screenshot_metrics(&page).await?)?;
                 let base64 = self
                     .screenshot_base64(&page, shot.full, shot.include_overlay)
                     .await?;
                 let path = self
                     .save_evidence(ctx, format!("shot-{}.png", now_ms()), base64.clone())
                     .await?;
-                json!({ "base64": base64, "path": path.to_string_lossy() })
+                json!({ "base64": base64, "path": path.to_string_lossy(), "viewport": viewport })
             }
             "profiles.list" => {
                 self.refresh_profiles().await;

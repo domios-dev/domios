@@ -105,7 +105,7 @@ async fn browser_viewer_input_dispatches_while_cursor_evaluation_never_answers()
         runtime.viewer_input(&page, &wheel).await.unwrap();
         runtime.viewer_input(&page, &super::super::input::InputArgs::key("b", &[])).await.unwrap();
     }).await.expect("viewer input must not wait for page evaluation");
-    wire.animation_started.notified().await;
+    tokio::time::timeout(Duration::from_secs(1), wire.animation_started.notified()).await.expect("cursor hide was dispatched");
     let calls = wire.calls.lock();
     assert_eq!(calls.iter().filter(|(method, _)| method == "Runtime.evaluate").count(), 1);
     assert!(calls.iter().any(|(method, params)| method == "Input.dispatchMouseEvent" && params["type"] == "mouseWheel"));

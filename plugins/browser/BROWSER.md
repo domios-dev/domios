@@ -1,6 +1,6 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `domios plugin browser <verb> [args]`. Guide: `domios docs BROWSER` or `domios plugin browser help`.
+Every verb is `domios plugin browser <verb> [args]`. `help` or `--help` works before open and lists the executing plugin version, host build and verbs. Guide: `domios docs BROWSER`.
 
 ## When to use it
 
@@ -35,7 +35,7 @@ Rules:
 - Start with `status`; if closed, `open` before declaring the browser unavailable.
 - New snapshots replace all refs. Navigation, SPA navigation and viewer input invalidate them. Capture races refuse. Re-snapshot after visible changes or stale errors.
 - Role/name matches prefer exact names, then substrings. Name-only `type "Search" "query"` and `fill "Search" "query"` prefer input roles; `click "Search"` prefers clickable roles. An explicit role stays binding. Hidden matches are excluded; exactly one visible match wins. Multiple visible matches refuse with candidate refs.
-- Snapshots show exposed checked/selected/expanded/disabled/required/readonly/focused/invalid states. The default limit is 200 lines, maximum 2000; only included elements receive refs.
+- Snapshots show control states. Use `snapshot [limit]`, not `--limit`: default 200, maximum 2000; only included elements receive refs.
 - Prefer refs or role/name over coordinates/CSS. Wait on evidence with `wait --text T`, `--url U` or `--selector S`, never elapsed time; default deadline 15s.
 - Secrets: pipe exact text to `type <target> --stdin`. It requires a maskable HTML input, masks before insertion and redacts output, snapshots, events and annotations. Never put secrets in arguments or print them.
 - `type` focuses, clears and inserts, refusing hidden, disabled, readonly or unfocusable fields. `type --submit textbox "Search" "query"` holds the action through typing and Enter. Without navigation or submit evidence, it calls `requestSubmit()` on the focused field's form. Completion requires observed navigation or a submit event; inspect the page for application success. An unconfirmed result never replays typing. `press Enter` sends to the currently focused element.
@@ -53,11 +53,11 @@ Stop when `status` reports `needs human` other than `none`: captcha, missing log
 
 ## Device viewport and capture metrics
 
-Actions show a blue cursor, ripple, drag trail and typing ring. Long inputs use a caret; secrets stay masked. Reduced motion is static; viewer input hides it. Evidence omits it unless `screenshot cursor.png --include-overlay` is requested.
+Actions show a cursor and typing ring; secrets stay masked. Viewer input hides them without waiting on the page. Evidence omits them unless `--include-overlay` is requested.
 
 `viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
 
-`screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` reports the path and layout/content/CDP metrics. `--restore` restores previous metrics even after failure and reports restoration errors. Otherwise requested metrics stay active.
+Screenshot replies report CSS viewport width/height and DPR; recheck coordinates after resizing. `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` adds layout/content/CDP metrics. `--restore` restores prior metrics even after failure; otherwise they stay active.
 
 ## Scoped atomic actions
 
@@ -69,7 +69,7 @@ Clicks report synchronous action acknowledgement, same-document navigation or a 
 
 `snapshot --json --scope dialog --actions-only --max-items 30` returns a JSON object with `page`, `scope`, `items`, `truncated` and `maxItems`. Items contain role, bounded name/text, depth and an optional reference. Only included actions receive references. The maximum is 2000 items; `truncated: true` explicitly marks omitted content.
 
-Scopes select one subtree: `dialog`, `sidebar` (complementary landmark), `composer` (form named Composer), or an exact `role:name`. Ambiguous scopes refuse. Password/token inputs and `data-sensitive` subtrees have their values and names redacted in text and JSON snapshots. A failed DOM redaction capture refuses the snapshot.
+Scopes select `dialog`, `sidebar` (complementary), `composer` (form named Composer), or exact `role:name`; use `--scope 'main:'` for an unnamed main. Ambiguity refuses. Password/token inputs and `data-sensitive` subtrees are redacted; failed redaction capture refuses.
 
 ## Named DEV instance sessions and cleanup
 
@@ -99,6 +99,8 @@ Native `file-picker` driving remains unsupported. Use `upload` before opening a 
 
 `wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses computed AX names. States: `visible`, `hidden`, `enabled`, `expanded`. Hidden also accepts no remaining match; ambiguity refuses. Durations: `ms`/`s`/`m`, default 15s, maximum 2m. Mutation/input events wake checks; navigation returns `stale`.
 
+Wait replies identify the matching node or text excerpt and page. Check that evidence: text may match your own chat instruction.
+
 ## Disclosure controls
 
 `summary` aliases Chromium `DisclosureTriangle`. `expand summary 'Details'` / `collapse summary 'Details'` click only if needed, then confirm AX expanded state. Already matching state succeeds without a click. Ambiguity/staleness refuse; unconfirmed actions never replay.
@@ -111,7 +113,7 @@ Native `file-picker` driving remains unsupported. Use `upload` before opening a 
 
 `wait --role switch --name Ligatures --state checked` and `--state unchecked` wait for explicit AX checked state. `pressed`, `unpressed`, `selected` and `unselected` use their corresponding AX properties. Missing or mixed values satisfy neither positive nor negative predicates.
 
-`snapshot --json --with-text --out evidence/page.json` and `text 12000 --out evidence/page.txt` save redacted output directly into the calling agent's pad and return its path. Relative paths resolve against the caller's pad, including with `--of`. Absolute paths must remain inside that pad. Parent traversal, symlinks/reparse points and Windows device names refuse.
+`snapshot --json --with-text --out evidence/page.json` and `text 12000 --out evidence/page.txt` save redacted output in the caller's pad. Replies give path, Unicode characters, UTF-8 bytes, items (snapshot entries or text lines) and truncation. Relative/absolute paths stay inside that pad, including with `--of`; traversal, links and device names refuse.
 
 ## Blueprint node
 
@@ -149,4 +151,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 19 -->
+<!-- revision: 20 -->

@@ -222,6 +222,8 @@ describe("Browser wait evidence", () => {
       const evidence = await wait("text", "Ready", 1000);
       expect(evidence).toMatchObject({url:"https://example.test/chat",tag:"article",id:"instruction",name:"User message",excerpt:"Wait for Ready before proceeding"});
       expect(await wait("selector", "button", 1000)).toMatchObject({tag:"button",excerpt:"Loading"});
+      window.document.body.innerHTML = '<section data-sensitive aria-label="private label">private detail</section>';
+      expect(await wait("selector", "section", 1000)).toMatchObject({name:"REDACTED",excerpt:"REDACTED"});
     } finally { window.happyDOM.abort(); }
   });
 });

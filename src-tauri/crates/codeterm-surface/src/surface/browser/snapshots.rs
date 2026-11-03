@@ -73,7 +73,7 @@ pub(super) fn parse(args: &[String]) -> Result<Options, String> {
                     .parse::<usize>()
                     .ok()
                     .filter(|n| *n > 0)
-                    .unwrap_or(DEFAULT_MAX_LINES)
+                    .ok_or("invalid snapshot limit; use `domios plugin browser snapshot [positive limit]`")?
             }
             flag => return Err(format!("unknown snapshot option {flag}; use `domios plugin browser snapshot [limit] [--json] [--scope 'role:name'] [--max-items N]`; --limit is not supported")),
         }

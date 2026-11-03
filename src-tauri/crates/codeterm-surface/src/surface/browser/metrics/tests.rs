@@ -1,8 +1,9 @@
 use super::*;
 #[test]
 fn screenshot_metrics_report_css_size_and_capture_dpr() {
-    let metrics = json!({"cssLayoutViewport":{"clientWidth":390,"clientHeight":844}});
-    assert_eq!(capture_viewport(&metrics, Viewport {width:780,height:1688,dpr:2.0,mobile:true}), json!({"width":390,"height":844,"dpr":2.0}));
+    let metrics = json!({"cssLayoutViewport":{"clientWidth":390,"clientHeight":844},"devicePixelRatio":2.0});
+    assert_eq!(capture_viewport(&metrics).unwrap(), json!({"width":390.0,"height":844.0,"dpr":2.0}));
+    assert!(capture_viewport(&json!({})).is_err());
 }
 #[test]
 fn browser_overlay_capture_is_explicit() {
