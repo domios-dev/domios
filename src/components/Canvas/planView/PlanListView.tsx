@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { usePlanProjection } from "../usePlanProjection";
+import { usePlanListWindow } from "../usePlanListWindow";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
@@ -126,8 +126,10 @@ export function PlanListView({
     [orderedPlans, selectedPlanId],
   );
 
-  const projection = usePlanProjection(api, listedPlan?.id ?? null, "list");
-  const selectedPlan = api ? projection.plan : listedPlan;
+  const [statusFilter, setStatusFilter] = useState<PlanListStatusFilter>("all");
+  const [textQuery, setTextQuery] = useState("");
+  const projection = usePlanListWindow(api, listedPlan?.id ?? null, statusFilter, textQuery);
+  const selectedPlan = api ? projection.plan ?? listedPlan : listedPlan;
   const visiblePlans = useMemo(() => selectedPlan ? effectivePlans.map((plan) => plan.id === selectedPlan.id ? selectedPlan : plan) : effectivePlans, [effectivePlans, selectedPlan]);
   const activeWork = useMemo(
     () => selectActiveWork(visiblePlans, tabs),
@@ -156,9 +158,7 @@ export function PlanListView({
     [selectedPlan],
   );
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
-  const [statusFilter, setStatusFilter] = useState<PlanListStatusFilter>("all");
   const [doneFilterExpanded, setDoneFilterExpanded] = useState(false);
-  const [textQuery, setTextQuery] = useState("");
   const [expansionOverrides, setExpansionOverrides] = useState<Map<string, boolean>>(new Map());
   const [detail, setDetail] = useState<ListDetail | null>(null);
 
@@ -202,8 +202,8 @@ export function PlanListView({
   );
 
   const cancelledCount = useMemo(
-    () => (selectedPlan ? cancelledTaskCount(selectedPlan) : 0),
-    [selectedPlan],
+    () => api ? projection.plan?.task_window.cancelled ?? 0 : selectedPlan ? cancelledTaskCount(selectedPlan) : 0,
+    [selectedPlan, api, projection.plan],
   );
 
   const rows = useMemo(
@@ -212,10 +212,10 @@ export function PlanListView({
   );
 
   const visibleRows = useMemo(() => {
-    const base = buildVisiblePlanListRows(rows, { statusFilter, textQuery, expansionOverrides });
+    const base = buildVisiblePlanListRows(rows, { statusFilter: api ? "all" : statusFilter, textQuery: api ? "" : textQuery, expansionOverrides });
     if (statusFilter !== "done") return base;
     return boundDoneFilterVisibleRows(base, doneFilterExpanded);
-  }, [rows, statusFilter, textQuery, expansionOverrides, doneFilterExpanded]);
+  }, [rows, statusFilter, textQuery, expansionOverrides, doneFilterExpanded, api]);
 
   const stripEntries = useMemo(
     () => activeWorkEntriesForStrip(planActiveWork, visibleRows),
@@ -399,6 +399,11 @@ export function PlanListView({
                 />
               );
             })}
+            {api && projection.plan && <div className="flex items-center gap-3 px-4 py-3 text-xs">
+              <span>{projection.plan.tasks.length} of {projection.plan.task_window.total} tasks</span>
+              {projection.plan.task_window.next_cursor && <button type="button" className="rounded border px-3 py-1" disabled={projection.loadingMore} onClick={() => void projection.loadMore()}>{projection.loadingMore ? "Loading…" : "Load more tasks"}</button>}
+              {projection.moreError && <p role="alert">{projection.moreError}</p>}
+            </div>}
           </div>
         </>
       )}

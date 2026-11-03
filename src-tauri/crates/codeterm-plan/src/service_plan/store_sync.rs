@@ -25,6 +25,8 @@ pub(super) const TASK_SCHEMA: &str = r#"
         FOREIGN KEY (plan_id) REFERENCES plans(id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS plan_tasks_status ON plan_tasks(status);
+    CREATE INDEX IF NOT EXISTS plan_tasks_status_summary
+        ON plan_tasks(plan_id, json_extract(row_json, '$.status'), json_extract(row_json, '$.status_label'), task_id);
     CREATE INDEX IF NOT EXISTS plan_tasks_board_cursor
         ON plan_tasks(
             plan_id,

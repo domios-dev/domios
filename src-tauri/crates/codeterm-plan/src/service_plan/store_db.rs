@@ -83,6 +83,7 @@ impl PlanDatabase {
         .map_err(db_error)?;
         super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
+        list_window_queries::register_functions(&connection)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
@@ -570,6 +571,8 @@ mod chat_read_queries;
 mod curator_queries;
 mod index_queries;
 pub(super) use index_queries::PlanIndexRow;
+mod board_state_queries;
+mod list_window_queries;
 mod match_queries;
 mod read_projections;
 mod reference_queries;

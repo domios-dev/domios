@@ -9,13 +9,14 @@ import { usePlanControlLoop } from "./usePlanControlLoop";
 import { usePlanSettingsClock } from "./usePlanSettingsClock";
 import { openNotificationCenter } from "../../Notifications/openNotificationCenter";
 
-export function ConnectedPlanSettings({ plan, api, initial, now }: {
+export function ConnectedPlanSettings({ plan, api, initial, now, fromSnapshot = false }: {
   plan: TeamPlanSummary;
   api?: ApiConfig;
   initial?: PlanControlLoop;
+  fromSnapshot?: boolean;
   now?: number;
 }) {
-  const { value, busy, loadError, actionError, update, runNow } = usePlanControlLoop(api, plan.id, plan.updated_at, initial);
+  const { value, busy, loadError, actionError, update, runNow } = usePlanControlLoop(api, plan.id, plan.updated_at, initial, fromSnapshot);
   const guide = useGuideNavigation();
   const clock = usePlanSettingsClock(now);
   const oversight = planOversight(plan, value, !api ? "disconnected" : loadError ? "unavailable" : "loading");

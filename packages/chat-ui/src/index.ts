@@ -97,3 +97,5 @@ export { CanvasToolbar, type CanvasToolbarProps } from "./CanvasToolbar";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
 
 export { DsRenderContext, type DsRenderScope } from "./blocks/DsRenderContext";
+
+export { ChatBlockActivityProvider } from "./blocks/liveBinding";

@@ -194,6 +194,7 @@ function Probe({ revision, capture }: { revision: number; capture: { current: Pl
     <MissionControlBoard
       plan={PLAN}
       state={result.state}
+      eventPager={result.events}
       loading={result.loading}
       error={result.error}
       now={NOW}
@@ -386,6 +387,33 @@ describe("Mission Control live refresh", () => {
       await act(async () => { obsolete.resolve(response(boardState())); await flush(); });
       expect(rendered.host.textContent).toBe("pl_selected");
     } finally { await rendered.unmount(); }
+  });
+
+  it("loads older plan events only on demand and rejects their response after a committed replacement", async()=>{
+    const pending=deferred<Response>();
+    const fetchMock=globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const snapshot=(revision:string,label:string,older:boolean):PlanBoardState=>{
+      const value=boardState({eventCount:older?100:1});
+      return {...value,revision,event_window_loaded:true,next_event_cursor:older?50:null,
+        mission_control:{...value.mission_control,event_log:{recorded_events:older?100:1,truncated:older,entries:[{
+          ts:NOW,last_ts:NOW,count:1,kind:"note",author:"Worker",author_tab_id:null,task_id:null,task_name:null,text:label,
+        }]}}};
+    };
+    fetchMock.mockResolvedValueOnce(response(snapshot("1","Current event",true)));
+    fetchMock.mockReturnValueOnce(pending.promise);
+    fetchMock.mockResolvedValueOnce(response(snapshot("2","Replacement event",false)));
+    const rendered=await render(<Probe revision={1} capture={{current:null}} />);
+    try{
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await act(async()=>{rendered.host.querySelector<HTMLButtonElement>('[aria-label="Older events"]')!.click();await flush();});
+      expect(new URL(String(fetchMock.mock.calls[1]![0])).searchParams.get("event_cursor")).toBe("50");
+      await act(async()=>{emit("plan-changed",{plan_id:PLAN_ID,revision:"2",previous_revision:"1",task_ids:[],reset:true,deleted:false});await flush();});
+      await act(async()=>{pending.resolve(response(snapshot("1","Obsolete history",false)));await flush();});
+      expect(rendered.host.textContent).toContain("Replacement event");
+      expect(rendered.host.textContent).not.toContain("Obsolete history");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      for(const [url] of fetchMock.mock.calls)expect(new URL(String(url)).pathname).toBe(`/api/plans/${PLAN_ID}/board-state`);
+    }finally{await rendered.unmount();}
   });
 
   it("mission_control_animates_changed_figures", async () => {

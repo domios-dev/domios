@@ -15,7 +15,9 @@ import { createChecklistBlockHost } from "./checklistBlockHost";
 import { createJobBlockHost } from "./jobBlockHost";
 import { jobBlockState } from "./jobBlockState";
 import { createJobsBlockStore, type JobsSnapshot } from "./jobsBlockStore";
-import { tasksBlockState } from "./tasksBlockHost";
+import { createScopedPlanBlockRead } from "./scopedPlanBlockRead";
+import type { PlanProjection } from "../../components/Canvas/planProjection";
+import { createTasksBlockHost, tasksBlockState, type PlansSnapshot } from "./tasksBlockHost";
 import { createValueFeed } from "./valueFeed";
 
 const testWindow = new Window({ url: "http://localhost/" });
@@ -267,6 +269,21 @@ test("tasks_state_keeps_the_block_set_with_live_rows", () => {
   assert(carried.kind === "ready" && carried.groups[0].rows[0].status === "in_progress", "carried rows must read live status");
   assert(tasksBlockState({ plans: [], loaded: false }, { planId: "pl_a", refs: [], groups: [], items: null }).kind === "loading", "loading");
   assert(tasksBlockState({ plans: [], loaded: true }, { planId: "pl_a", refs: [], groups: [], items: null }).kind === "missing", "missing");
+});
+
+test("a retained task card reads its selected projection without a global task catalogue",async()=>{
+  let reads=0;
+  const source=createScopedPlanBlockRead<PlanProjection>({epoch:()=>1,watch:()=>({ready:Promise.resolve(),stop(){}}),read:async()=>{reads++;return {...plan("pl_scoped",[]),revision:"1",title:"Scoped plan",tasks:[{...FIXTURE_TASK,id:"chosen",name:"Selected task"}]};}});
+  const headers=createValueFeed<PlansSnapshot>({plans:[],loaded:true});
+  const host=createTasksBlockHost(headers,()=>{},source);
+  const key=JSON.stringify(["pl_scoped",["chosen"],[],null]);
+  assert(host.binding.read(key).kind==="loading","no acquisition before the card retains its view");
+  assert(reads===0,"app-level host stays detached");
+  const release=host.binding.retain!(key);host.binding.refresh(key);
+  for(let index=0;index<10;index++)await Promise.resolve();
+  const value=host.binding.read(key);
+  assert(value.kind==="ready" && value.groups[0].rows[0].name==="Selected task","the requested task is visible without global plans");
+  release();
 });
 
 (async () => {

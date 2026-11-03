@@ -32,7 +32,6 @@ interface PlansContextValue {
   indexError: string | null;
   refetchIndex: () => Promise<void>;
   summaries: UsePlansResult;
-  chat: UsePlansResult;
   requestSummaries: () => () => void;
 }
 
@@ -55,7 +54,6 @@ export function PlansProvider({
     return () => setSummaryReaders((count) => count - 1);
   }, []);
   const summaries = usePlans(api, { enabled: queriesEnabled && summaryReaders > 0, contextKey: peerContext.generation });
-  const chat = usePlans(api, { enabled: queriesEnabled, chat: true, contextKey: peerContext.generation });
 
   const {
     data: index,
@@ -108,7 +106,6 @@ export function PlansProvider({
       indexError: queriesEnabled ? indexError : null,
       refetchIndex,
       summaries: queriesEnabled ? summaries : EMPTY_SUMMARIES,
-      chat: queriesEnabled ? chat : EMPTY_SUMMARIES,
       requestSummaries,
     }),
     [
@@ -121,7 +118,6 @@ export function PlansProvider({
       indexError,
       refetchIndex,
       summaries,
-      chat,
       requestSummaries,
     ],
   );
@@ -208,7 +204,7 @@ export function usePlanSummariesOptional(enabled = true): UsePlansResult | null 
 }
 
 export function useSidebarPlansOptional(): UsePlansResult {
-  return useContext(PlansContext)?.chat ?? EMPTY_SUMMARIES;
+  return usePlanSummariesOptional() ?? EMPTY_SUMMARIES;
 }
 
 export function useCanvasPlans(

@@ -4,8 +4,8 @@ import type { ApiConfig } from "../../../lib/types";
 import { fetchPlanControlLoop, setPlanControlLoop, runPlanControlLoop } from "../plansApi";
 import type { ControlLoopUpdate, PlanControlLoop } from "../planControlLoop";
 
-export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, revision: number, initial?: PlanControlLoop) {
-  const [reading, setReading] = useState<{ planId: string; value: PlanControlLoop } | null>(null);
+export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, revision: number, initial?: PlanControlLoop, fromSnapshot = false) {
+  const [reading, setReading] = useState<{ identity: string; value: PlanControlLoop } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -20,17 +20,17 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
     const controller = new AbortController();
     setLoadError(null);
     setActionError(null);
-    if (api) void fetchPlanControlLoop(api, planId, controller.signal).then((value) => {
-      if (current === request.current) setReading({ planId, value });
+    if (api && !fromSnapshot) void fetchPlanControlLoop(api, planId, controller.signal).then((value) => {
+      if (current === request.current) setReading({ identity, value });
     }).catch((reason: unknown) => {
       if (!controller.signal.aborted && current === request.current) setLoadError(String(reason));
     });
     return () => { controller.abort(); request.current++; };
-  }, [api?.host, api?.port, api?.token, planId, revision]);
+  }, [api?.host, api?.port, api?.token, planId, revision, fromSnapshot, identity]);
 
   useEffect(() => {
-    if (initial) setReading({ planId, value: initial });
-  }, [planId, initial]);
+    if (initial) setReading({ identity, value: initial });
+  }, [identity, initial]);
 
   const mutate = (perform: () => Promise<PlanControlLoop>, showError = false) => {
     if (!api) return Promise.resolve();
@@ -43,7 +43,7 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
         ++request.current;
         const persisted = await perform();
         if (active.current === identity) {
-          setReading({ planId, value: persisted });
+          setReading({ identity, value: persisted });
           setLoadError(null);
         }
       } catch (reason) {
@@ -60,5 +60,5 @@ export function usePlanControlLoop(api: ApiConfig | undefined, planId: string, r
   };
   const update = (value: ControlLoopUpdate) => api ? mutate(() => setPlanControlLoop(api, planId, value)) : Promise.resolve();
   const runNow = () => api ? mutate(() => runPlanControlLoop(api, planId), true) : Promise.resolve();
-  return { value: reading?.planId === planId ? reading.value : initial, busy, loadError, actionError, update, runNow };
+  return { value: reading?.identity === identity ? reading.value : initial, busy, loadError, actionError, update, runNow };
 }

@@ -8,6 +8,29 @@ use crate::service::ServiceContext;
 use codeterm_plan::service_plan::state::lane_rows;
 
 impl ServiceContext {
+    pub fn build_plan_board_state(
+        &self,
+        plan_id: &str,
+        now_ms: u64,
+        event_offset: usize,
+        include_events: bool,
+    ) -> Result<serde_json::Value, PlanError> {
+        let mut read = self.plan_store.board_state_projection(
+            plan_id,
+            now_ms,
+            event_offset,
+            include_events,
+        )?;
+        let suspended = self.curator_suspended_reason_for_state(&read.plan, read.complete);
+        read.value["control_loop"]["suspended_reason"] = serde_json::json!(suspended);
+        if suspended.is_some() {
+            read.value["control_loop"]["next_at"] = serde_json::Value::Null;
+        }
+        read.value["mission_control"]["spend"] =
+            serde_json::json!(super::mission_control_ext::machine_spend(self));
+        Ok(read.value)
+    }
+
     pub fn build_plan_state(
         &self,
         plan_id: &str,

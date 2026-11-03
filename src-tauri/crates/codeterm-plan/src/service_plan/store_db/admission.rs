@@ -4,6 +4,7 @@ use rusqlite::Connection;
 type Schema = Vec<(String, String, String, Option<String>)>;
 const MANAGED_ADDITIVE_INDEXES: &[&str] = &[
     "plan_tasks_board_cursor",
+    "plan_tasks_status_summary",
     "plan_tasks_bound_tabs",
     "plan_tasks_handle_order",
     "plan_milestones_id",

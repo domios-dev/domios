@@ -185,7 +185,9 @@ export interface PlanBoardState {
   control_loop?: import("../planControlLoop").PlanControlLoop;
   plan_id: string;
   task_counts: PlanTaskCounts;
-  mission_control: MissionControlState;
+  mission_control: Pick<MissionControlState, "bounces" | "event_log" | "spend"> & Partial<Omit<MissionControlState, "bounces" | "event_log" | "spend">>;
+  next_event_cursor?: number | null;
+  event_window_loaded?: boolean;
 }
 
 export type TeamPlanSummary = Pick<Plan, "id" | "title" | "team_id" | "status" | "mode" | "planning_state" | "goal" | "updated_at" | "control_loop" | "pause_operations"> & { task_counts?: PlanTaskCounts };
@@ -208,8 +210,13 @@ export async function fetchPlanBoardState(
   api: ApiConfig,
   planId: string,
   signal?: AbortSignal,
+  eventCursor?: number,
+  includeEvents = true,
 ): Promise<PlanBoardState> {
-  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/board-state`, {
+  const query=new URLSearchParams();
+  if(eventCursor!==undefined)query.set("event_cursor",String(eventCursor));
+  if(!includeEvents)query.set("events","false");
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/board-state${query.size ? `?${query}` : ""}`, {
     headers: authHeaders(api),
     signal,
   });

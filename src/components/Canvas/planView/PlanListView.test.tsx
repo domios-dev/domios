@@ -3,6 +3,8 @@
 import { act, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
+import { configureDaemonTransport } from "../../../lib/daemonBootstrap";
+import { __setListenForTest } from "../../../lib/bridge";
 import type { Workspace } from "../../../lib/types";
 import { FIXTURE_PLAN, FIXTURE_SECTION, FIXTURE_TASK } from "../cards/fixtures.testdata";
 import { buildPerfFixturePlans } from "../perfFixture";
@@ -21,7 +23,8 @@ function assert(condition: unknown, message: string): asserts condition {
 
 function setupDom() {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-  const window = new Window({ url: "http://localhost/plan-list-view" });
+  const window = new Window({ url: "http://localhost:7686/plan-list-view" });
+  Object.assign(window, { __CODETERM_DAEMON__: { origin: "http://localhost:7686", token: "fixture" } });
   (window as unknown as { __TAURI_INTERNALS__: Record<string, unknown> }).__TAURI_INTERNALS__ = {};
   Object.defineProperty(globalThis, "window", { value: window, configurable: true });
   Object.defineProperty(globalThis, "document", { value: window.document, configurable: true });
@@ -30,6 +33,8 @@ function setupDom() {
   Object.defineProperty(globalThis, "HTMLButtonElement", { value: window.HTMLButtonElement, configurable: true });
   Object.defineProperty(globalThis, "Node", { value: window.Node, configurable: true });
   Object.defineProperty(globalThis, "PointerEvent", { value: window.PointerEvent, configurable: true });
+  configureDaemonTransport({ origin: "http://localhost:7686", token: "fixture" });
+  __setListenForTest(async () => () => {});
   (window as unknown as { confirm: (msg: string) => boolean }).confirm = () => true;
 }
 
@@ -476,6 +481,41 @@ test("in-flight strip click opens task detail when strip is visible", async () =
   assert(host.querySelector('[data-testid="plan-detail-overlay"]'), "overlay open from strip");
   assert(host.querySelector('[data-testid="plan-detail-kind"]')?.textContent === "task", "task detail");
   await unmount();
+});
+
+test("live list requests a visible cursor window and keeps filter focus while replacing stale pages", async () => {
+  const previousFetch=globalThis.fetch;
+  const requests: URL[]=[];
+  let finishOld!: (value: Response)=>void;
+  let holdPage=true;
+  const plan={...FIXTURE_PLAN,team_id:null,sections:[],tasks:[]};
+  const page=(start:number, count:number, cursor:boolean)=>Response.json({...plan,revision:"1",
+    tasks:Array.from({length:count},(_,index)=>({...FIXTURE_TASK,id:`window-${start+index}`,name:`Window ${start+index}`,status:TaskStatus.Pending,section_ids:[],body:"",milestones:[],execution_attempts:[]})),
+    task_window:{next_cursor:cursor?{position:24,task_id:"window-24"}:null,total:50,cancelled:0}});
+  globalThis.fetch=async(input)=>{
+    const url=new URL(String(input));requests.push(url);
+    if(url.searchParams.has("after_position") && holdPage) return new Promise<Response>((resolve)=>{finishOld=resolve;});
+    if(url.searchParams.get("status")==="blocked") return page(40,1,false);
+    return page(0,25,true);
+  };
+  const {host,unmount}=await render(<PlanListView mode="workspace" workspaceId={WS_ID} workspaces={WORKSPACES} plans={[plan]}
+    api={{enabled:true,host:"localhost",port:7686,token:"fixture",cors:true}} />);
+  try {
+    assert(host.querySelectorAll('[data-testid="plan-list-task"]').length===25,"opening list materializes one window");
+    assert(requests.length===1,"list never acquires hidden pages automatically");
+    const load=Array.from(host.querySelectorAll("button")).find((button)=>button.textContent==="Load more tasks")!;
+    await act(async()=>load.click());
+    const blocked=host.querySelector<HTMLButtonElement>('[data-testid="plan-list-filter-status-blocked"]')!;
+    blocked.focus();
+    await act(async()=>blocked.click());
+    assert(document.activeElement===blocked,"filter control retains focus while a replacement window loads");
+    await act(async()=>{finishOld(page(25,25,false));});
+    assert(host.querySelectorAll('[data-testid="plan-list-task"]').length===1,"late cursor page cannot enter the selected filter");
+    assert(host.textContent?.includes("Window 40"),"the selected filtered row remains visible");
+    assert(requests.every((url)=>url.searchParams.get("view")==="list" && url.searchParams.get("page_size")==="25" && !url.searchParams.has("full")),"all reads stay scoped to list windows");
+    assert(requests.some((url)=>url.searchParams.get("after_task_id")==="window-24"),"page requests carry the compound cursor");
+    holdPage=false;
+  } finally {await unmount();globalThis.fetch=previousFetch;}
 });
 
 let passed = 0;
