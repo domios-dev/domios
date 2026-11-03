@@ -75,6 +75,122 @@ pub fn decode_incoming(text: &str) -> Result<Incoming, String> {
     }))
 }
 
+const MAX_DOCUMENT_JSON_DEPTH: usize = 4096;
+const DOCUMENT_DECODE_STACK: usize = 64 * 1024 * 1024;
+
+pub(crate) async fn decode_document_incoming(text: String) -> Result<Incoming, String> {
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .name("browser-document-decode".into())
+        .stack_size(DOCUMENT_DECODE_STACK)
+        .spawn(move || {
+            let result = decode_document(&text);
+            let _ = sender.send(result);
+        })
+        .map_err(|error| format!("CDP document decoder could not start: {error}"))?;
+    receiver
+        .await
+        .map_err(|_| "CDP document decoder stopped without a reply".to_string())?
+}
+
+fn decode_document(text: &str) -> Result<Incoming, String> {
+    let mut depth = 0usize;
+    let mut quoted = false;
+    let mut escaped = false;
+    for byte in text.bytes() {
+        if quoted {
+            if escaped {
+                escaped = false;
+            } else if byte == b'\\' {
+                escaped = true;
+            } else if byte == b'"' {
+                quoted = false;
+            }
+        } else {
+            match byte {
+                b'"' => quoted = true,
+                b'{' | b'[' => {
+                    depth += 1;
+                    if depth > MAX_DOCUMENT_JSON_DEPTH {
+                        return Err(format!(
+                            "CDP document exceeds maximum JSON depth {MAX_DOCUMENT_JSON_DEPTH}"
+                        ));
+                    }
+                }
+                b'}' | b']' => depth = depth.saturating_sub(1),
+                _ => {}
+            }
+        }
+    }
+    #[derive(Deserialize)]
+    struct DocumentReply<'a> {
+        id: u64,
+        #[serde(borrow)]
+        result: Option<&'a serde_json::value::RawValue>,
+        #[serde(borrow)]
+        error: Option<&'a serde_json::value::RawValue>,
+    }
+    let reply: DocumentReply<'_> = serde_json::from_str(text)
+        .map_err(|error| format!("invalid CDP document envelope: {error}"))?;
+    if reply.error.is_some() {
+        return decode_incoming(text);
+    }
+    let result = if let Some(raw) = reply.result {
+        let mut decoder = serde_json::Deserializer::from_str(raw.get());
+        decoder.disable_recursion_limit();
+        Value::deserialize(&mut decoder)
+            .map_err(|error| format!("invalid CDP document JSON: {error}"))?
+    } else {
+        Value::Object(Map::new())
+    };
+    Ok(Incoming::Response {
+        id: reply.id,
+        result: Ok(result),
+    })
+}
+
+pub fn discard_value(value: Value) {
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::Array(children) => pending.extend(children),
+            Value::Object(children) => pending.extend(children.into_values()),
+            _ => {}
+        }
+    }
+}
+
+pub(crate) fn response_id(text: &str) -> Result<Option<u64>, String> {
+    struct Envelope<'a>(&'a std::cell::Cell<Option<u64>>);
+    impl<'de> serde::de::Visitor<'de> for Envelope<'_> {
+        type Value = ();
+
+        fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str("a CDP message object")
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<(), A::Error> {
+            while let Some(key) = map.next_key::<String>()? {
+                if key == "id" {
+                    self.0.set(Some(map.next_value::<u64>()?));
+                    return Ok(());
+                }
+                map.next_value::<serde::de::IgnoredAny>()?;
+            }
+            Ok(())
+        }
+    }
+    let id = std::cell::Cell::new(None);
+    let mut decoder = serde_json::Deserializer::from_str(text);
+    let result = serde::Deserializer::deserialize_map(&mut decoder, Envelope(&id));
+    if let Some(id) = id.get() {
+        return Ok(Some(id));
+    }
+    result
+        .map(|()| None)
+        .map_err(|error| format!("invalid CDP envelope: {error}"))
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SessionFilter {
     Any,
@@ -163,131 +279,4 @@ pub fn headful_user_agent(user_agent: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn event(method: &str, session_id: Option<&str>) -> CdpEvent {
-        CdpEvent {
-            method: method.into(),
-            params: json!({}),
-            session_id: session_id.map(str::to_string),
-        }
-    }
-
-    #[test]
-    fn browser_cdp_encodes_browser_and_session_requests() {
-        let browser: Value =
-            serde_json::from_str(&encode_request(1, "Target.getTargets", json!({}), None)).unwrap();
-        assert_eq!(
-            browser,
-            json!({"id": 1, "method": "Target.getTargets", "params": {}})
-        );
-        let page: Value = serde_json::from_str(&encode_request(
-            7,
-            "Page.navigate",
-            json!({"url": "about:blank"}),
-            Some("S1"),
-        ))
-        .unwrap();
-        assert_eq!(page["sessionId"], "S1");
-        assert_eq!(page["params"]["url"], "about:blank");
-    }
-
-    #[test]
-    fn browser_cdp_decodes_result_error_and_event() {
-        assert_eq!(
-            decode_incoming(r#"{"id":3,"result":{"frameId":"F"}}"#).unwrap(),
-            Incoming::Response {
-                id: 3,
-                result: Ok(json!({"frameId": "F"}))
-            }
-        );
-        assert_eq!(
-            decode_incoming(r#"{"id":4,"sessionId":"S","error":{"code":-32000,"message":"No node with given id found"}}"#)
-                .unwrap(),
-            Incoming::Response {
-                id: 4,
-                result: Err(ProtocolError {
-                    code: -32000,
-                    message: "No node with given id found".into(),
-                    data: None
-                })
-            }
-        );
-        assert_eq!(
-            decode_incoming(r#"{"id":5}"#).unwrap(),
-            Incoming::Response {
-                id: 5,
-                result: Ok(json!({}))
-            }
-        );
-        let Incoming::Event(event) = decode_incoming(
-            r#"{"method":"Page.screencastFrame","params":{"sessionId":2},"sessionId":"S9"}"#,
-        )
-        .unwrap() else {
-            panic!("expected event");
-        };
-        assert_eq!(event.method, "Page.screencastFrame");
-        assert_eq!(event.session_id.as_deref(), Some("S9"));
-        assert_eq!(event.params["sessionId"], 2);
-    }
-
-    #[test]
-    fn browser_cdp_rejects_malformed_messages() {
-        assert!(decode_incoming("not json").is_err());
-        assert!(decode_incoming("[1]").is_err());
-        assert!(decode_incoming(r#"{"params":{}}"#).is_err());
-        assert!(decode_incoming(r#"{"id":"x"}"#).is_err());
-    }
-
-    #[test]
-    fn browser_cdp_event_filter_scopes_sessions_and_methods() {
-        let page = EventFilter {
-            session: SessionFilter::SessionOrBrowser("S1".into()),
-            methods: Vec::new(),
-        };
-        assert!(page.matches(&event("Page.loadEventFired", Some("S1"))));
-        assert!(page.matches(&event("Target.targetCreated", None)));
-        assert!(!page.matches(&event("Page.loadEventFired", Some("S2"))));
-        let only_session = EventFilter {
-            session: SessionFilter::Session("S1".into()),
-            methods: Vec::new(),
-        }
-        .with_methods(&["Page.screencastFrame", "Runtime."]);
-        assert!(only_session.matches(&event("Page.screencastFrame", Some("S1"))));
-        assert!(only_session.matches(&event("Runtime.consoleAPICalled", Some("S1"))));
-        assert!(!only_session.matches(&event("Page.frameNavigated", Some("S1"))));
-        assert!(!only_session.matches(&event("Page.screencastFrame", None)));
-        let browser = EventFilter {
-            session: SessionFilter::Browser,
-            methods: Vec::new(),
-        };
-        assert!(browser.matches(&event("Target.targetInfoChanged", None)));
-        assert!(!browser.matches(&event("Target.targetInfoChanged", Some("S1"))));
-        assert!(EventFilter::any().matches(&event("Anything.at", Some("S3"))));
-    }
-
-    #[test]
-    fn browser_cdp_picks_first_real_page_target() {
-        let targets = parse_targets(&json!({"targetInfos": [
-            {"targetId": "W", "type": "service_worker", "title": "", "url": "https://a/sw.js", "attached": false},
-            {"targetId": "D", "type": "page", "title": "DevTools", "url": "devtools://devtools/bundled/inspector.html", "attached": false},
-            {"targetId": "P", "type": "page", "title": "Home", "url": "http://127.0.0.1:1420/", "attached": false, "canAccessOpener": false, "browserContextId": "B"},
-            {"broken": true}
-        ]}));
-        assert_eq!(targets.len(), 3);
-        assert_eq!(
-            pick_page_target(&targets).map(|t| t.target_id.as_str()),
-            Some("P")
-        );
-        assert_eq!(pick_page_target(&targets[..2]), None);
-    }
-
-    #[test]
-    fn browser_cdp_user_agent_drops_headless_marker() {
-        assert_eq!(
-            headful_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/141.0.0.0 Safari/537.36"),
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
-        );
-    }
-}
+mod tests;

@@ -2,6 +2,30 @@ use super::{AxNode, AxValue};
 use serde_json::Value;
 use std::collections::HashSet;
 
+fn marked(node: &Value) -> bool {
+    node.get("attributes")
+        .and_then(Value::as_array)
+        .is_some_and(|attrs| {
+            attrs.chunks_exact(2).any(|pair| {
+                let key = pair[0].as_str().unwrap_or("").to_ascii_lowercase();
+                let value = pair[1].as_str().unwrap_or("").to_ascii_lowercase();
+                key == "data-sensitive"
+                    || (key == "type" && value == "password")
+                    || (["name", "id", "autocomplete"].contains(&key.as_str())
+                        && [
+                            "password",
+                            "token",
+                            "secret",
+                            "api-key",
+                            "apikey",
+                            "one-time-code",
+                        ]
+                        .iter()
+                        .any(|needle| value.contains(needle)))
+            })
+        })
+}
+
 pub fn redact(nodes: &mut [AxNode], document: &Value) -> Result<(), String> {
     let root = document
         .get("root")
@@ -9,27 +33,7 @@ pub fn redact(nodes: &mut [AxNode], document: &Value) -> Result<(), String> {
     let mut sensitive = HashSet::new();
     let mut stack = vec![(root, false)];
     while let Some((node, inherited)) = stack.pop() {
-        let attributes = node.get("attributes").and_then(Value::as_array);
-        let marked = inherited
-            || attributes.is_some_and(|attrs| {
-                attrs.chunks_exact(2).any(|pair| {
-                    let key = pair[0].as_str().unwrap_or("").to_ascii_lowercase();
-                    let value = pair[1].as_str().unwrap_or("").to_ascii_lowercase();
-                    key == "data-sensitive"
-                        || (key == "type" && value == "password")
-                        || (["name", "id", "autocomplete"].contains(&key.as_str())
-                            && [
-                                "password",
-                                "token",
-                                "secret",
-                                "api-key",
-                                "apikey",
-                                "one-time-code",
-                            ]
-                            .iter()
-                            .any(|needle| value.contains(needle)))
-                })
-            });
+        let marked = inherited || marked(node);
         if marked {
             if let Some(id) = node.get("backendNodeId").and_then(Value::as_i64) {
                 sensitive.insert(id);
@@ -44,6 +48,11 @@ pub fn redact(nodes: &mut [AxNode], document: &Value) -> Result<(), String> {
             stack.push((child, marked));
         }
     }
+    redact_ids(nodes, &sensitive);
+    Ok(())
+}
+
+fn redact_ids(nodes: &mut [AxNode], sensitive: &HashSet<i64>) {
     let protected: HashSet<_> = nodes
         .iter()
         .filter(|node| {
@@ -74,20 +83,23 @@ pub fn redact(nodes: &mut [AxNode], document: &Value) -> Result<(), String> {
     }
     for node in nodes {
         if hidden.contains(&node.node_id) {
-            node.value = None;
-            node.name = Some(AxValue {
-                value: Some(Value::String("REDACTED".into())),
-            });
-            node.properties.retain(|p| {
-                [
-                    "disabled", "readonly", "required", "focused", "checked", "selected",
-                    "expanded", "invalid",
-                ]
-                .contains(&p.name.as_str())
-            });
+            redact_node(node);
         }
     }
-    Ok(())
+}
+
+fn redact_node(node: &mut AxNode) {
+    node.value = None;
+    node.name = Some(AxValue {
+        value: Some(Value::String("REDACTED".into())),
+    });
+    node.properties.retain(|p| {
+        [
+            "disabled", "readonly", "required", "focused", "checked", "selected", "expanded",
+            "invalid",
+        ]
+        .contains(&p.name.as_str())
+    });
 }
 
 #[cfg(test)]

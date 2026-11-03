@@ -332,6 +332,50 @@ fn canonical_writer_holds_canonical_against_lane_integration() {
 }
 
 #[test]
+fn canonical_writer_allows_accepting_an_ancestor_lane_without_checkout_mutation() {
+    let (_root, store, plan_id, ids) = store_with_tasks(&["writer", "lane"]);
+    let (_git_root, project) = super::git_project();
+    let lane = project.parent().unwrap().join("accepted-lane");
+    super::git(
+        &project,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "lane/accepted",
+            lane.to_str().unwrap(),
+        ],
+    );
+    begin(
+        &store,
+        &plan_id,
+        &ids[0],
+        "writer-tab",
+        Vec::new(),
+        WorkerPlacement::CanonicalWriter,
+    );
+    let mut plan = store.get(&plan_id).unwrap();
+    plan.canonical_project_path = project.display().to_string();
+    plan.tasks
+        .iter_mut()
+        .find(|task| task.id == ids[1])
+        .unwrap()
+        .lane
+        .worktree_path = Some(lane.display().to_string());
+    std::fs::write(project.join("writer-uncommitted.txt"), "active writer").unwrap();
+    refuse_lane_integration_while_canonical_held(&plan, &ids[1]).unwrap();
+    super::git(
+        &lane,
+        &["commit", "--allow-empty", "-m", "unmerged lane change"],
+    );
+    assert!(refuse_lane_integration_while_canonical_held(&plan, &ids[1]).is_err());
+    assert_eq!(
+        std::fs::read_to_string(project.join("writer-uncommitted.txt")).unwrap(),
+        "active writer"
+    );
+}
+
+#[test]
 fn canonical_writer_gate_claim_outside_authorization_is_refused() {
     let (_root, store, plan_id, ids) = store_with_tasks(&["writer"]);
     begin(
@@ -359,7 +403,7 @@ fn canonical_writer_gate_claim_outside_authorization_is_refused() {
 fn canonical_writer_brief_section_rides_only_the_opt_in() {
     let base = "brief-body-token".to_string();
     let isolated = compose_dispatch_brief(base.clone(), WorkerPlacement::IsolatedLane);
-    assert_eq!(isolated, base);
+    assert!(isolated.starts_with(&base));
     assert_eq!(isolated.matches(CANONICAL_WRITER_BRIEF).count(), 0);
 
     let canonical = compose_dispatch_brief(base.clone(), WorkerPlacement::CanonicalWriter);
@@ -394,7 +438,7 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
     );
     assert_eq!(
         dispatch_worker_placement(None, &ExecutionIntent::ReadOnly, &task).unwrap(),
-        WorkerPlacement::IsolatedLane
+        WorkerPlacement::ReadOnly
     );
     assert!(dispatch_worker_placement(
         Some(&json!({ "placement": "canonical_writer" })),
@@ -487,4 +531,22 @@ fn canonical_writer_checkout_must_be_an_attached_repository() {
     super::git(&project, &["checkout", "-q", "--detach"]);
     let error = verify_canonical_writer_checkout(&project_cwd).unwrap_err();
     assert_eq!(error.code, -32012);
+}
+
+#[test]
+fn nonrepository_dispatch_reports_nonrepository_placement() {
+    let task = super::task(json!({
+        "id": "task_nonrepo", "name": "nonrepo", "type": "code",
+        "status": "pending", "execution_intent": "non_repository"
+    }));
+    assert_eq!(
+        dispatch_worker_placement(None, &ExecutionIntent::Mutating, &task).unwrap(),
+        WorkerPlacement::NonRepository
+    );
+    assert!(dispatch_worker_placement(
+        Some(&json!({"placement": "canonical_writer"})),
+        &ExecutionIntent::Mutating,
+        &task
+    )
+    .is_err());
 }

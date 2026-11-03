@@ -89,6 +89,21 @@ assert.deepEqual(clampToDraw({ x: -5, y: 400 }, { x: 50, y: 10, width: 300, heig
 
 assert.deepEqual(viewportRequest({ width: 640.4, height: 480.6 }, 1.5), { w: 640, h: 481, dpr: 1.5 });
 assert.equal(viewportRequest({ width: 0, height: 480 }, 1), null, "a collapsed container requests no stream");
+for (const dpr of [1.25, 1.5]) {
+  const first = viewportRequest({ width: 640.4, height: 480.6 }, dpr);
+  assert.deepEqual(first, { w: 640, h: 481, dpr });
+  assert.deepEqual(requestedFrameSize(first!), { width: Math.round(640 * dpr), height: Math.round(481 * dpr) });
+  assert.equal(viewportAction(false, null, first), "connect");
+  assert.equal(viewportAction(true, first, viewportRequest({ width: 640.4, height: 480.6 }, dpr)), "none");
+  const css = { width: 1320, height: 996 };
+  const layout = layoutStream({ width: 1320 * dpr, height: 996 * dpr }, css, dpr);
+  const normalized = { deviceWidth: 1320, deviceHeight: 996, pageScaleFactor: 1, scrollOffsetY: 222 };
+  assert.deepEqual(canvasToPage(660, 498, { left: 0, top: 0, ...css }, layout.drawCss, normalized), { x: 660, y: 498 }, "device-pixel live frames map clicks to CSS coordinates");
+  assert.deepEqual(stageRectToPage({ x: 330, y: 249 }, { x: 660, y: 498 }, layout.drawCss, normalized), { x: 330, y: 471, width: 330, height: 249 }, "snips retain CSS scroll offsets with a scaled compositor");
+}
+for (const size of [{ width: NaN, height: 480 }, { width: 640, height: Infinity }]) {
+  assert.equal(viewportRequest(size, 1.5), null, "invalid geometry cannot start a stream");
+}
 assert.deepEqual(requestedFrameSize({ w: 640, h: 480, dpr: 2 }), { width: 1280, height: 960 });
 assert.ok(sameViewport({ w: 1, h: 2, dpr: 1 }, { w: 1, h: 2, dpr: 1 }));
 assert.ok(!sameViewport({ w: 1, h: 2, dpr: 1 }, { w: 1, h: 2, dpr: 2 }));

@@ -136,6 +136,33 @@ impl Slots {
 }
 
 impl PlanStore {
+    pub fn cache_memory_stats(&self) -> serde_json::Value {
+        let Some(slots) = self.plan_cache.slots.try_lock() else {
+            return serde_json::json!({"busy": true});
+        };
+        let handles: Vec<_> = slots
+            .entries
+            .iter()
+            .map(|(id, slot)| (id.clone(), slot.plan.clone()))
+            .collect();
+        drop(slots);
+        let plans: Vec<_> = handles
+            .iter()
+            .map(|(id, handle)| {
+                let bytes = handle
+                    .try_lock()
+                    .map(|plan| codeterm_util::memory_size::estimate(&*plan));
+                serde_json::json!({"plan_id": id, "approx_bytes": bytes, "busy": bytes.is_none()})
+            })
+            .collect();
+        serde_json::json!({
+            "count": plans.len(),
+            "capacity": self.plan_cache.capacity,
+            "approx_bytes": plans.iter().filter_map(|plan| plan["approx_bytes"].as_u64()).sum::<u64>(),
+            "plans": plans,
+        })
+    }
+
     /// The one handle by-id readers and writers lock: cached, else loaded from SQL.
     /// An id the index does not know is `NotFound` without touching SQL.
     pub(in crate::service_plan) fn plan_arc(&self, id: &str) -> Result<PlanHandle, PlanError> {

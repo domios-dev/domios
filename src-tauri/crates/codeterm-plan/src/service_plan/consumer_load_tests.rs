@@ -326,12 +326,13 @@ fn related_units_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let groups = store.related_units("task_related");
+    let groups = store.related_units("task_related").unwrap();
     let lineage = groups
         .iter()
         .find(|group| group.edge_type == "lineage")
         .unwrap();
     assert_eq!(lineage.units[0].id, ancestor);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 

@@ -1,4 +1,5 @@
 [
+  "src/lib/clientJournal.test.ts",
   "src/components/Sidebar/TeamUnit.board.test.tsx",
   "src/components/Extensions/PluginDetailPanel.test.tsx",
   "src/lib/providerPromptLifecycle.test.ts",

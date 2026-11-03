@@ -136,7 +136,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
   if (rawCommand) menu.push({ label: "Details", icon: <SquareTerminal size={14} aria-hidden />, checked: technicalOpen,
     onSelect: () => { setTechnicalOpen((open) => !open); setExpanded(true); } });
   return (
-    <ExpandableReader label={heading}>{(fullscreen) => (
+    <ExpandableReader label={heading} openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="file-diff-card"
       data-tool-status={event.status}
@@ -166,6 +166,7 @@ function FileEditCard({ event, diff, showResult, initiallyExpanded, renderHunkAc
           <span className="shrink-0" style={{ color: "var(--ct-red)" }}>−{diff.deletions}</span>
         </span>
       </button>
+      {opener}
       <span className="ct-tool-status-slot"><ChatCardMenu label={`Actions for ${name}`} items={menu} /></span>
       <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} diff for ${name}`} onClick={() => setExpanded(!expanded)} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
         <ChevronRight aria-hidden size={14} className={expanded ? "rotate-90" : ""} />

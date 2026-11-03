@@ -54,8 +54,8 @@ impl ServiceContext {
         caller_tab_id: Option<&str>,
         now_ms: u64,
     ) -> Result<ReconcileResult, PlanError> {
-        let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
-        self.reconcile_plan_record(&plan, fix, caller_tab_id, now_ms)
+        let read = self.plan_store.status_projection(plan_id, now_ms)?;
+        self.reconcile_plan_record(read.plan(), fix, caller_tab_id, now_ms)
     }
 
     pub(crate) fn reconcile_plan_record(
@@ -276,10 +276,7 @@ impl ServiceContext {
 
     pub fn emit_plan_changed(&self, plan_id: &str) {
         self.provider_update_task_state_changed();
-        self.ui.emit(
-            "plan-changed",
-            serde_json::to_value(serde_json::json!({ "plan_id": plan_id })).unwrap_or_default(),
-        );
+        self.emit_committed_plan_changed(plan_id);
     }
 }
 

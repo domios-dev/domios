@@ -42,6 +42,7 @@ impl MeshManager {
         }
         if state.signed_in_account() != self.account.signed_in_account() {
             self.registry_revision = None;
+            self.signed_registry = None;
         }
         self.account = state;
         self.account_ready = true;
@@ -76,6 +77,24 @@ impl MeshManager {
 
     pub fn link_record(&self, peer_id: &str) -> Option<&LinkRecord> {
         self.links.get(peer_id)
+    }
+
+    /// Current authenticated leases supplement registry metadata without changing its authority.
+    pub fn peer_membership_expiry(&self, installation_id: &str) -> Option<u64> {
+        self.links
+            .links
+            .iter()
+            .filter_map(|(peer_id, record)| {
+                (record.installation_id() == Some(installation_id) && self.traffic_open(peer_id))
+                    .then(|| {
+                        record
+                            .remote_membership
+                            .as_ref()
+                            .map(|membership| membership.verified.expires_at)
+                    })
+                    .flatten()
+            })
+            .max()
     }
 
     /// Closes every edge until the account owner publishes its first state, so a persisted

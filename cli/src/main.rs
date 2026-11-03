@@ -346,6 +346,9 @@ fn main_impl() {
         Commands::App { .. } => unreachable!(),
         Commands::Trace { .. } => unreachable!(),
         Commands::Identify => cmd::identify::handle(&mut client, cli.json, resolved_socket),
+        Commands::Diagnostics {
+            action: args::cli::DiagnosticsAction::Memory,
+        } => client.call("diagnostics.memory", None),
 
         Commands::Capabilities => {
             let result = client.call("system.capabilities", None);

@@ -173,8 +173,11 @@ Build-only staging requires the parent-authorized canonical build and artifact r
 
 ## Rebuild cost
 
-Named `dev` and `dev-server` compile incrementally (owner rule). Every named
-instance of a checkout shares the one warm DEV target `src-tauri/target/named-dev`,
+DEV compilation runs only in the canonical checkout; worktrees and lanes must
+ask the Orchestrator for a canonical DEV build. Run `dev-prebuilt` from canonical
+to reuse that build without compiling. Named `dev` and `dev-server` compile
+incrementally (owner rule). Every named
+instance shares the canonical warm DEV target `src-tauri/target/named-dev`,
 which rebuilds only what changed. They run with `CARGO_INCREMENTAL=1`, without
 the portable wrapper, and with `RUSTC_WRAPPER=` set empty so the machine-level
 `build.rustc-wrapper = "sccache"` does not apply. sccache rejects an explicit
@@ -553,8 +556,11 @@ can mean Cargo passed the workspace wrapper to sccache as the compiler. Lane
 wrappers now forward each other and invoke the cache only immediately before
 rustc. Cargo still hashes the per-worktree workspace-wrapper path, preserving
 metadata isolation; do not remove that identity to chase workspace cache hits.
-Ordinary lane checks use an already live sccache server when available and
-respect `CODETERM_USE_SCCACHE=0`; they never start or restart the cache server.
+Lane checks start the machine's shared sccache server when absent under the
+cache-policy lock, then verify it before Cargo. All policy starts disable idle
+expiry. A live server is reused without restart. Missing or disabled sccache,
+failed startup or failed verification refuses compilation; no uncached fallback
+or additional cache directory is allowed.
 
 ## Shared compile cache
 
@@ -686,7 +692,7 @@ calls; a successful build alone is not cache-hit proof.
 | CI refuses with exit 75 while another build is running | CI invoked cache configuration instead of read-only verification | Use `cache-verify` and set `CODETERM_SCCACHE_VERIFY_ONLY=1` for subsequent CI build processes. Provision storage separately while idle. |
 | A dev build requests S3 but refuses with exit 75 after another caller switched the server back to local | An unresolved-key caller could downgrade a previously shared server | Keep the no-downgrade guard: missing keys reuse running S3; keys may switch local to S3 only while idle. |
 | Local fallback line on an intended builder | One or both vault entries could not resolve | Run `domios mem secret sync` locally, inspect secret backend status, then rerun with the machine idle. Never print the values. |
-| Lane check fails in dependency compilation with `sccache: ... os error 10048` | The cache path failed to acquire a Windows socket; this receipt does not establish a Rust source error | Preserve the failed receipt and use the documented process-local `CODETERM_USE_SCCACHE=0` for one bounded lane check. Do not restart the shared cache server or raise the deadline. |
+| Lane check fails in dependency compilation with `sccache: ... os error 10048` | The cache path failed to acquire a Windows socket; this receipt does not establish a Rust source error | Preserve the failed receipt and ask the integration owner to repair the shared cache. Do not compile uncached, restart a live server or raise the deadline. |
 | Shared server startup fails | Endpoint unreachable, credentials rejected, or installed sccache lacks S3 support | Verify Tailscale connectivity and tool features; inspect metadata and server health without secret logging. Preserve the failed receipt. |
 | Windows build reports MSVC not found despite an installed VS 2022 C++ workload | The VC tools are installed outside the default BuildTools directory | Use `setup_env` discovery through the installed `vswhere` utility; the default tools remain first choice, and discovered host/cross compiler paths also enter process PATH. Verify `source build.sh env`; install nothing or change no global PATH for a relocated installation. |
 | Windows PowerShell refuses `build.ps1` because scripts are disabled | The shell process uses a restrictive execution policy | Invoke the authorized build through `powershell.exe -NoProfile -ExecutionPolicy Bypass -File build.ps1 <operation>`; this changes only that process, never machine policy. |
@@ -1617,14 +1623,9 @@ Run the focused selector in canonical and require a nonzero executed test count.
 
 With `rustc-wrapper = "sccache"` in Cargo's user config, sccache 0.16 can
 mis-probe the lane `RUSTC_WORKSPACE_WRAPPER` passthrough with `-E` and report
-`Compiler not supported` before compilation. Scope the workaround to that lane
-check:
-
-```sh
-RUSTC_WRAPPER= CODETERM_USE_SCCACHE=0 ./build.sh lane-check <package> [--tests]
-```
-
-This leaves Cargo configuration and the machine cache unchanged.
+`Compiler not supported` before compilation. Preserve the failed receipt and
+ask the integration owner to repair the wrapper/toolchain. Lane checks require
+the shared cache and refuse `CODETERM_USE_SCCACHE=0`.
 
 
 ### Lane-check reports a missing item that exists in this worktree

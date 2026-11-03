@@ -126,7 +126,6 @@ pub fn snip_rect(args: &SnipArgs) -> Result<Rect, String> {
     Ok(rect)
 }
 
-/// The whole viewport, unclipped: a clip or scale makes Chrome re-render the page, and the screencast shows it.
 pub fn viewport_shot_params() -> Value {
     json!({ "format": "png" })
 }

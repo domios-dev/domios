@@ -129,6 +129,7 @@ fn heartbeat_lists_only_skills_referenced_by_actionable_work() {
         .unwrap();
     assert!(store
         .prepend_heartbeat_for_plan(&plan_id, "")
+        .unwrap()
         .contains(slug));
     store
         .with_plan(&plan_id, 21, |plan| {
@@ -142,6 +143,7 @@ fn heartbeat_lists_only_skills_referenced_by_actionable_work() {
         .unwrap();
     assert!(!store
         .prepend_heartbeat_for_plan(&plan_id, "")
+        .unwrap()
         .contains(slug));
 }
 
@@ -265,7 +267,9 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
     assert_eq!(shown.plan_id, live.id);
     assert_eq!(shown.heartbeat.current_focus, None);
 
-    let text = store.prepend_heartbeat_for_orchestrator_tab("orch-a", "continue");
+    let text = store
+        .prepend_heartbeat_for_orchestrator_tab("orch-a", "continue")
+        .unwrap();
     assert!(text.contains(&format!("plan=\"{}\"", live.id)));
     assert!(!text.contains("old focus"));
 
@@ -305,11 +309,15 @@ fn paused_plan_is_not_resolved_or_prepended_for_heartbeat() {
         .unwrap();
 
     assert_eq!(
-        store.prepend_heartbeat_for_orchestrator_tab("orch-paused", "continue"),
+        store
+            .prepend_heartbeat_for_orchestrator_tab("orch-paused", "continue")
+            .unwrap(),
         "continue"
     );
     assert_eq!(
-        store.prepend_heartbeat_for_plan(&plan_id, "continue"),
+        store
+            .prepend_heartbeat_for_plan(&plan_id, "continue")
+            .unwrap(),
         "continue"
     );
     assert!(store
@@ -321,18 +329,24 @@ fn paused_plan_is_not_resolved_or_prepended_for_heartbeat() {
 fn heartbeat_resolves_for_owner_tab_at_send_time() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     let payload = "opaque-trigger";
-    let first = store.prepend_heartbeat_for_orchestrator_tab("orch-a", payload);
+    let first = store
+        .prepend_heartbeat_for_orchestrator_tab("orch-a", payload)
+        .unwrap();
     assert!(first.contains(super::heartbeat::HEARTBEAT_BLOCK_OPEN));
     assert!(!first.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
     let fragment = "opaque-learning-token";
     store
         .add_heartbeat_learning(Some(&plan_id), None, None, fragment, None, 20)
         .unwrap();
-    let after = store.prepend_heartbeat_for_orchestrator_tab("orch-a", payload);
+    let after = store
+        .prepend_heartbeat_for_orchestrator_tab("orch-a", payload)
+        .unwrap();
     assert_eq!(after.matches(fragment).count(), 1);
     assert!(after.ends_with(payload));
     assert_eq!(
-        store.prepend_heartbeat_for_orchestrator_tab("other", payload),
+        store
+            .prepend_heartbeat_for_orchestrator_tab("other", payload)
+            .unwrap(),
         payload
     );
 }
@@ -341,7 +355,7 @@ fn heartbeat_resolves_for_owner_tab_at_send_time() {
 fn notifier_and_owner_reminder_share_compact_delivery() {
     let (_dir, store, plan_id) = store_with_plan("orch-a");
     for payload in ["opaque-notifier", "opaque-reminder"] {
-        let text = store.prepend_heartbeat_for_plan(&plan_id, payload);
+        let text = store.prepend_heartbeat_for_plan(&plan_id, payload).unwrap();
         assert!(text.contains(super::heartbeat::HEARTBEAT_BLOCK_OPEN));
         assert!(text.contains(super::heartbeat::HEARTBEAT_MORE));
         assert!(!text.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
@@ -363,6 +377,7 @@ fn refreshed_context_gets_reconciliation_once_at_snapshot_boundary() {
     assert!(text.ends_with(payload));
     assert!(!store
         .prepend_heartbeat_for_plan(&plan_id, payload)
+        .unwrap()
         .contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
 }
 
@@ -392,14 +407,18 @@ fn all_tasks_done_plan_produces_no_reconciliation_prepend() {
         .unwrap();
 
     let nudge_body = "Plan reminder: this tab owns unfinished execution-plan work.";
-    let result = store.prepend_heartbeat_for_plan(&plan_id, nudge_body);
+    let result = store
+        .prepend_heartbeat_for_plan(&plan_id, nudge_body)
+        .unwrap();
     assert_eq!(
         result, nudge_body,
         "complete plan must not inject reconciliation"
     );
     assert!(!result.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
 
-    let tab_result = store.prepend_heartbeat_for_orchestrator_tab("orch-a", nudge_body);
+    let tab_result = store
+        .prepend_heartbeat_for_orchestrator_tab("orch-a", nudge_body)
+        .unwrap();
     assert_eq!(
         tab_result, nudge_body,
         "complete plan must be silent via orchestrator tab path"
@@ -412,7 +431,9 @@ fn explicit_complete_mode_plan_produces_no_reconciliation_prepend() {
     store.set_mode(&plan_id, PlanMode::Complete, 20).unwrap();
 
     let nudge_body = "some message";
-    let result = store.prepend_heartbeat_for_plan(&plan_id, nudge_body);
+    let result = store
+        .prepend_heartbeat_for_plan(&plan_id, nudge_body)
+        .unwrap();
     assert_eq!(result, nudge_body);
     assert!(!result.contains(super::heartbeat::STATE_RECONCILIATION_PROMPT));
 }
@@ -432,7 +453,7 @@ fn open_work_plan_still_gets_compact_heartbeat() {
         )
         .unwrap();
 
-    let result = store.prepend_heartbeat_for_plan(&plan_id, "text");
+    let result = store.prepend_heartbeat_for_plan(&plan_id, "text").unwrap();
     assert!(
         result.contains(super::heartbeat::HEARTBEAT_BLOCK_OPEN),
         "open work must not be silenced"
@@ -586,7 +607,9 @@ fn heartbeat_renders_digest_lines_without_other_state() {
         "5 reports await your verdict, oldest 2h — judge".into(),
         "claude: 62% weekly".into(),
     ];
-    let text = store.prepend_heartbeat_for_plan_with_digests(&plan_id, "continue", &digest_lines);
+    let text = store
+        .prepend_heartbeat_for_plan_with_digests(&plan_id, "continue", &digest_lines)
+        .unwrap();
     for fragment in &digest_lines {
         assert_eq!(text.matches(fragment.as_str()).count(), 1);
     }
@@ -778,15 +801,20 @@ fn heartbeat_gate_selected_learnings_render_at_most_three_and_fallback_preserves
         .collect();
     let payload = "opaque delivered payload";
     let digests = vec!["opaque digest".into()];
-    let selected =
-        store.prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, Some(&ids));
+    let selected = store
+        .prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, Some(&ids))
+        .unwrap();
     for (index, fragment) in fragments.iter().enumerate() {
         assert_eq!(selected.contains(fragment), index < 3);
     }
     assert!(selected.contains(payload));
-    let baseline = store.prepend_heartbeat_for_plan_with_digests(&plan_id, payload, &digests);
+    let baseline = store
+        .prepend_heartbeat_for_plan_with_digests(&plan_id, payload, &digests)
+        .unwrap();
     assert_eq!(
-        store.prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, None),
+        store
+            .prepend_heartbeat_with_selected_learnings(&plan_id, payload, &digests, None)
+            .unwrap(),
         baseline
     );
     for (index, fragment) in fragments.iter().enumerate() {

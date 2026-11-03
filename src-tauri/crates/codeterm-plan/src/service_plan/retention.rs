@@ -56,6 +56,9 @@ impl PlanStore {
                 updated_at: plan.updated_at,
             });
         }
+        if let Err(error) = self.database.prune_operations(now_ms) {
+            log::warn!("[plan.retention] could not prune operations: {error}");
+        }
         pruned
     }
 

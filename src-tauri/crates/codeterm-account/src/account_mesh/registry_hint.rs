@@ -24,6 +24,7 @@ impl Drop for Flight<'_> {
 }
 
 impl AccountMesh {
+    // Remove this unsigned hint fallback after signed registry deployment is verified on PROD.
     pub async fn registry_hint(
         &self,
         sender: &str,
@@ -32,6 +33,9 @@ impl AccountMesh {
         revision: Option<u64>,
         security_digest: Option<&str>,
     ) -> Result<bool, AccountMeshRefusal> {
+        if self.state().signed_registry.is_some() {
+            return Ok(false);
+        }
         let (epoch, claim) = self.with(|inner| {
             if inner.state.signed_in_account() != Some(account) {
                 return Err(AccountMeshRefusal::Forbidden);

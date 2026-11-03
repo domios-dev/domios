@@ -317,6 +317,7 @@ impl AccountMesh {
             MeshResult::Membership(result) => Ok(MeshResult::Membership(result)),
             MeshResult::Recovered(result) if !own => {
                 Ok(MeshResult::Membership(super::wire::MembershipResult {
+                    signed_registry: result.signed_registry,
                     operation: super::wire::MembershipOperation::Recover,
                     installation_id: result.installation_id,
                     slot_revision: result.slot_revision,

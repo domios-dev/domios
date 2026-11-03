@@ -9,20 +9,15 @@ configure_lane_build_dir() {
 }
 
 configure_lane_cache() {
-  if [ -n "${RUSTC_WRAPPER:-}" ]; then return 0; fi
   if [ "${CODETERM_USE_SCCACHE:-1}" = 0 ]; then
-    echo "[lane-check] sccache disabled by CODETERM_USE_SCCACHE=0"
-    return 0
+    echo "[lane-check] ERROR: sccache is required; remove CODETERM_USE_SCCACHE=0" >&2
+    return 2
   fi
   if ! command -v sccache >/dev/null 2>&1; then
-    echo "[lane-check] sccache unavailable; this check will compile without cache"
-    return 0
+    echo "[lane-check] ERROR: sccache unavailable; install it before running lane-check" >&2
+    return 2
   fi
-  if declare -F ct_sccache_server_live >/dev/null && ct_sccache_server_live; then
-    ct_require_prestarted_sccache
-  else
-    echo "[lane-check] no live sccache server; this check will compile without cache"
-  fi
+  ct_sccache_with_lock ct_ensure_shared_sccache_locked
 }
 
 configure_lane_workspace_wrapper() {

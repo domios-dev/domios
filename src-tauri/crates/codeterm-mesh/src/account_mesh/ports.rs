@@ -59,6 +59,7 @@ pub struct AccountMeshState {
     /// Installations this machine already knows the server revoked.
     pub revoked_installations: BTreeSet<String>,
     pub unavailable_installations: BTreeSet<String>,
+    pub registry_members: Option<std::collections::BTreeMap<String, (String, u64, u64)>>,
     /// Signed in, enforced, and refused a slot by the machine limit; a dormant gate never sets it.
     pub plan_limit_locked: bool,
 }
@@ -76,6 +77,17 @@ impl AccountMeshState {
         self.membership
             .as_ref()
             .filter(|m| m.verified.account_id == account && m.verified.is_current(now))
+            .filter(|m| {
+                self.registry_members.as_ref().is_none_or(|members| {
+                    members.get(&m.verified.installation_id).is_some_and(
+                        |(key, generation, slot)| {
+                            key == &m.verified.key_id
+                                && *generation == m.verified.key_generation
+                                && *slot == m.verified.slot_revision
+                        },
+                    )
+                })
+            })
     }
 }
 
@@ -169,6 +181,13 @@ pub struct LinkTarget {
 
 /// Account-owned authority the mesh consults; implemented outside this crate.
 pub trait AccountMeshAuthority: Send + Sync {
+    fn receive_registry_snapshot<'a>(
+        &'a self,
+        _snapshot: &'a codeterm_entitlements::DetachedGrant,
+    ) -> BoxFuture<'a, Result<bool, AdmissionRefusal>> {
+        Box::pin(async { Ok(false) })
+    }
+
     fn verify_membership(
         &self,
         token: &str,

@@ -4,6 +4,7 @@ use std::process::Command;
 
 use crate::args::agent::ReportStatusArg;
 use crate::client::RpcClient;
+mod canonical_continuation;
 #[cfg(test)]
 use codeterm_types::agent::ReportOutcomeClass;
 
@@ -233,6 +234,15 @@ pub fn enrich_ready_report(
     }
     if canonical_writer && is_readiness_status(status) && validation_worktree.is_none() {
         return Err(canonical_checkout_refusal());
+    }
+    if is_readiness_status(status) {
+        if let Some(scope) = task_scope {
+            if let Some(metadata) =
+                canonical_continuation::inspect(scope, sha.as_deref(), branch.as_deref())?
+            {
+                return Ok((metadata.branch, metadata.sha, metadata.changed_files));
+            }
+        }
     }
     let (base, acknowledge_dirty) =
         readiness_validation_options(task_scope, base, acknowledge_dirty);

@@ -27,7 +27,7 @@ async fn prior_session_revoke_uses_the_confirmed_callable_contract_and_typed_ref
         vec![(
             "revokePriorInstallationSessions".into(),
             "token-user-1".into(),
-            json!({"installation_id":"desk-7f3a","cutoff":123})
+            json!({"installation_id":"desk-7f3a","cutoff":123,"signed_registry":true})
         )]
     );
     for (reason, expected) in [
@@ -168,6 +168,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
                         schema_version: 1,
                         installation_id: "caller".into(),
                         request_id: "a".repeat(64),
+                        signed_registry: None,
                         requested_membership_seconds: None,
                         operation: MeshOperation::SessionRevoke {
                             target: SessionTarget {
@@ -239,6 +240,7 @@ async fn account_mesh_callable_sends_the_packet_envelope_and_reads_the_result() 
         schema_version: 1,
         installation_id: "desk-7f3a".into(),
         request_id: format!("{}1", "0".repeat(63)),
+        signed_registry: None,
         requested_membership_seconds: None,
         operation: MeshOperation::Publish {
             expected_metadata_revision: 0,

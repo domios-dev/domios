@@ -5,11 +5,13 @@ pub mod attachments;
 pub mod batch;
 pub mod body_files;
 pub mod canvas_elements;
+pub mod change_feed;
 pub mod chat_snapshot;
 pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
 pub mod curator;
+mod curator_projection;
 pub mod digest_rules;
 pub mod element_queries;
 pub mod external_refs;
@@ -63,8 +65,12 @@ pub mod spec;
 pub mod spec_render;
 pub mod spec_store;
 pub mod state;
+mod status_projection;
+pub use curator_projection::CuratorDigestRead;
 mod store_convert_118;
 mod store_db;
+pub use status_projection::{CuratorScheduleRead, PlanNoticeRead, PlanStatusRead};
+pub mod board_state;
 mod store_index;
 mod store_persist;
 mod store_queries;
@@ -79,6 +85,7 @@ mod task_attempt_gates;
 pub mod task_attempts;
 pub mod task_brief;
 mod task_dispatch;
+pub mod task_history;
 mod task_keys;
 pub mod task_queries;
 pub mod task_recovery;
@@ -86,6 +93,7 @@ mod task_remove;
 mod task_speed;
 mod text_bounds;
 mod types;
+pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
@@ -172,7 +180,7 @@ pub struct PlanStore {
     reseed_prepare_lock: Mutex<()>,
     mutation_writer: MutationWriter,
     dispatch_reservations:
-        Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>,
+        Arc<Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>>,
     database: Arc<store_db::PlanDatabase>,
     retention_day: Mutex<Option<u64>>,
     #[cfg(test)]
@@ -181,6 +189,8 @@ pub struct PlanStore {
     plan_touches: Mutex<Vec<String>>,
     #[cfg(any(test, feature = "test-support"))]
     plan_loads: Mutex<Vec<String>>,
+    #[cfg(any(test, feature = "test-support"))]
+    curator_schedule_reads: Mutex<Vec<String>>,
     #[cfg(test)]
     shared_git_observer: RwLock<Option<Arc<dyn Fn(&str, &[&str]) + Send + Sync>>>,
 }
@@ -264,7 +274,7 @@ impl PlanStore {
             task_key_port: RwLock::new(None),
             reseed_prepare_lock: Mutex::new(()),
             mutation_writer: MutationWriter::default(),
-            dispatch_reservations: Mutex::new(HashMap::new()),
+            dispatch_reservations: Arc::new(Mutex::new(HashMap::new())),
             database,
             retention_day: Mutex::new(None),
             #[cfg(test)]
@@ -273,6 +283,8 @@ impl PlanStore {
             plan_touches: Mutex::new(Vec::new()),
             #[cfg(any(test, feature = "test-support"))]
             plan_loads: Mutex::new(Vec::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            curator_schedule_reads: Mutex::new(Vec::new()),
             #[cfg(test)]
             shared_git_observer: RwLock::new(None),
         };

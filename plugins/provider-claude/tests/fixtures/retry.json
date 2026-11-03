@@ -297,7 +297,10 @@
       },
       "error": "rate_limit_error"
     },
-    "signal": null
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null
+    }
   },
   {
     "name": "unsafe-reset",
@@ -321,7 +324,10 @@
       "error": "rate_limit_error",
       "apiErrorResetAtMs": 9007199254740992
     },
-    "signal": null
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null
+    }
   },
   {
     "name": "managed",
@@ -375,7 +381,10 @@
       "error": "ENOTFOUND",
       "apiErrorStatus": 401
     },
-    "signal": null
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null
+    }
   },
   {
     "name": "ordinary-text",
@@ -468,7 +477,10 @@
       },
       "error": "opaque-error"
     },
-    "signal": null
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null
+    }
   },
   {
     "name": "success-own",
@@ -508,6 +520,179 @@
       }
     },
     "signal": null,
+    "succeeded": false
+  },
+  {
+    "name": "length-stop",
+    "record": {
+      "type": "assistant",
+      "uuid": "length-stop",
+      "sessionId": "own-fixture",
+      "message": {
+        "stop_reason": "max_tokens",
+        "content": [
+          {
+            "type": "text",
+            "text": "fragment-7d2"
+          }
+        ]
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "output_limit",
+      "retryAtMs": null
+    },
+    "succeeded": false
+  },
+  {
+    "name": "length-finish",
+    "record": {
+      "type": "assistant",
+      "uuid": "length-finish",
+      "sessionId": "own-fixture",
+      "message": {
+        "finish_reason": "length",
+        "content": [
+          {
+            "type": "text",
+            "text": "fragment-7d2"
+          }
+        ]
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "output_limit",
+      "retryAtMs": null
+    },
+    "succeeded": false
+  },
+  {
+    "name": "incomplete",
+    "record": {
+      "type": "assistant",
+      "uuid": "incomplete",
+      "sessionId": "own-fixture",
+      "message": {
+        "status": "incomplete",
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        },
+        "content": [
+          {
+            "type": "text",
+            "text": "fragment-7d2"
+          }
+        ]
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryableKind": "output_limit",
+      "retryAtMs": null
+    },
+    "succeeded": false
+  },
+  {
+    "name": "structured-error-cap",
+    "record": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "uuid": "structured-error-cap",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "fragment-6d9"
+          }
+        ]
+      },
+      "error": {
+        "status": "incomplete",
+        "incomplete_details": {
+          "reason": "max_output_tokens"
+        }
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null,
+      "retryableKind": "output_limit"
+    },
+    "succeeded": false
+  },
+  {
+    "name": "text-error-cap",
+    "record": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "uuid": "text-error-cap",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "fragment-6d9"
+          }
+        ]
+      },
+      "error": {
+        "message": "Incomplete response returned, reason: max_output_tokens"
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null,
+      "retryableKind": "output_limit"
+    },
+    "succeeded": false
+  },
+  {
+    "name": "text-error-unrelated",
+    "record": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "uuid": "text-error-unrelated",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "fragment-6d9"
+          }
+        ]
+      },
+      "error": {
+        "message": "opaque max_output_tokens"
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null
+    },
+    "succeeded": false
+  },
+  {
+    "name": "text-error-newline",
+    "record": {
+      "type": "assistant",
+      "isApiErrorMessage": true,
+      "uuid": "text-error-newline",
+      "message": {
+        "content": [
+          {
+            "type": "text",
+            "text": "fragment-6d9"
+          }
+        ]
+      },
+      "error": {
+        "message": "Incomplete response\nmax_output_tokens"
+      }
+    },
+    "signal": {
+      "retryable": false,
+      "retryAtMs": null
+    },
     "succeeded": false
   }
 ]

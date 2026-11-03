@@ -103,7 +103,6 @@ impl ExtensionsBuilder {
     }
 
     pub(crate) fn insert_service_slots(&mut self) {
-        self.insert_late::<crate::service::plan::respawn_executor::RetirementReceipts>();
         self.insert_late::<crate::service::neighbors::NeighborRuntimeCell>();
         self.insert_late::<crate::service::neighbors::updates::UpdateCell>();
         self.insert_late::<crate::service::neighbors::history::HistoryCell>();

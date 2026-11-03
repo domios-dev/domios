@@ -1,7 +1,8 @@
-import { daemonFetch } from "../../lib/webApi";
+import { daemonFetch, webRequestContext, assertWebRequestContext } from "../../lib/webApi";
 import type { ControlLoopUpdate, PlanControlLoop } from "./planControlLoop";
 import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
+import { planRevision, type PlanProjection, type PlanProjectionView, type PlanListProjection, type PlanListCursor } from "./planProjection";
 import type {
   DriftItem,
   OrchestratorRef,
@@ -12,6 +13,8 @@ import type {
   PlanTaskBoardCursor,
   PlanTaskBoardPage,
   PlanTaskDetail,
+  PlanTaskHistoryPage,
+  TaskHistoryKind,
   Section,
 } from "./types";
 import type { PlanLifecycleKind, PlanLifecyclePreview } from "./planLifecycle";
@@ -39,8 +42,8 @@ interface PlanIndexResponse {
   plans: PlanIndexEntry[];
 }
 
-interface PlansFullResponse {
-  plans: Plan[];
+interface PlansProjectionResponse {
+  plans: PlanProjection[];
 }
 
 export type PlanRefTargetKind = "plan" | "task" | "section";
@@ -79,13 +82,68 @@ interface ResolveRefsResponse {
   refs: ResolvedPlanRef[];
 }
 
-export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<Plan> {
-  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}`, {
+export class PlanReadError extends Error {
+  constructor(public readonly status: number, message: string) {
+    super(message);
+  }
+}
+
+export async function fetchPlanProjection(api: ApiConfig, planId: string, view: PlanProjectionView, signal?: AbortSignal, project?: string | null): Promise<PlanProjection> {
+  const query = new URLSearchParams({ view });
+  if (project) query.set("project", project);
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/projection?${query}`, {
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plan get failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  if (!res.ok) throw new PlanReadError(res.status, `plan projection failed: ${res.status} ${await res.text()}`);
+  const value = await res.json() as PlanProjection;
+  planRevision(value);
+  if (value.id !== planId) throw new Error("Plan projection did not match the requested plan.");
+  return value;
+}
+
+export async function fetchPlanListWindow(api: ApiConfig, planId: string, status: string, search: string, signal?: AbortSignal, cursor?: PlanListCursor, taskRef?: string, taskIds?: readonly string[], metadata = false): Promise<PlanListProjection> {
+  const query = new URLSearchParams({ view: metadata ? "task_metadata" : "list", page_size: "25", status, search });
+  if (taskIds) query.set("task_ids",JSON.stringify(taskIds));
+  if (taskRef) query.set("task_ref", taskRef);
+  if (cursor) { query.set("after_position", String(cursor.position)); query.set("after_task_id", cursor.task_id); }
+  const response = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/projection?${query}`, { headers: authHeaders(api), signal });
+  if (!response.ok) throw new PlanReadError(response.status, `plan list failed: ${response.status} ${await response.text()}`);
+  const value = await response.json() as PlanListProjection;
+  planRevision(value);
+  if (value.id !== planId || !value.task_window) throw new Error("Plan list did not match the requested window.");
+  return value;
+}
+
+export async function fetchRequestedPlanTaskMetadata(api: ApiConfig, planId: string, status = "all", taskRef?: string, signal?: AbortSignal): Promise<PlanListProjection> {
+  const context = webRequestContext();
+  let cursor: PlanListCursor | undefined;
+  let result: PlanListProjection | undefined;
+  const tasks = new Map<string, Plan["tasks"][number]>();
+  do {
+    assertWebRequestContext(context);
+    const page = await fetchPlanListWindow(api, planId, status, "", signal, cursor, taskRef, undefined, true);
+    assertWebRequestContext(context);
+    if (result && page.revision !== result.revision) throw new Error("Tasks changed while reading the requested list. Read it again to use the current tasks.");
+    for (const task of page.tasks) tasks.set(task.id, task);
+    const next = page.task_window.next_cursor;
+    if (cursor && next && (next.position < cursor.position || next.position === cursor.position && next.task_id <= cursor.task_id)) throw new Error("Task list cursor did not advance.");
+    result = page;
+    cursor = next ?? undefined;
+  } while (cursor);
+  return { ...result!, tasks: [...tasks.values()] };
+}
+
+export interface PlanTaskReference {plan_id:string;task_id:string;name:string;key:string;team_id:string|null;revision:string}
+export async function fetchPlanTaskReference(api:ApiConfig,reference:string,project:string|null,team:string|null,signal?:AbortSignal):Promise<PlanTaskReference|null>{
+  const query=new URLSearchParams({reference});
+  if(project)query.set("project",project);
+  if(team)query.set("team",team);
+  const response=await daemonFetch(api,`/api/plans/task-reference?${query}`,{headers:authHeaders(api),signal});
+  if(response.status===404)return null;
+  if(!response.ok)throw new PlanReadError(response.status,`task reference failed: ${response.status} ${await response.text()}`);
+  const value=await response.json() as PlanTaskReference;
+  planRevision(value);return value;
 }
 
 export async function fetchPlanTaskDetail(
@@ -98,8 +156,20 @@ export async function fetchPlanTaskDetail(
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plan task detail failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  if (!res.ok) throw new PlanReadError(res.status, `plan task detail failed: ${res.status} ${await res.text()}`);
+  const value = await res.json() as PlanTaskDetail;
+  planRevision(value);
+  return value;
+}
+
+export async function fetchPlanTaskHistory(api: ApiConfig, planId: string, taskId: string, kind: TaskHistoryKind, before: number, signal?: AbortSignal): Promise<PlanTaskHistoryPage> {
+  const params = new URLSearchParams({ kind, before: String(before), limit: "50" });
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/tasks/${encodeURIComponent(taskId)}/history?${params}`, { headers: authHeaders(api), signal });
+  if (!res.ok) throw new PlanReadError(res.status, `task history failed: ${res.status} ${await res.text()}`);
+  const page = await res.json() as PlanTaskHistoryPage;
+  planRevision(page);
+  if (page.plan_id !== planId || page.task_id !== taskId) throw new Error("Task history did not match the selected task.");
+  return page;
 }
 
 export async function fetchPlanTaskBoardPage(
@@ -124,8 +194,10 @@ export async function fetchPlanTaskBoardPage(
     `/api/plans/${encodeURIComponent(planId)}/tasks?${params}`,
     { headers: authHeaders(api), signal: options.signal },
   );
-  if (!res.ok) throw new Error(`plan task page failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  if (!res.ok) throw new PlanReadError(res.status, `plan task page failed: ${res.status} ${await res.text()}`);
+  const value = await res.json() as PlanTaskBoardPage;
+  planRevision(value);
+  return value;
 }
 
 export async function fetchSpecSections(api: ApiConfig, specId: string, signal?: AbortSignal): Promise<Section[]> {
@@ -155,7 +227,7 @@ export async function fetchPlanIndex(api: ApiConfig, signal?: AbortSignal): Prom
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plans list failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new PlanReadError(res.status, `plans list failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as PlanIndexResponse;
   return body.plans ?? [];
 }
@@ -176,23 +248,25 @@ export async function resolvePlanRefs(
   return body.refs ?? [];
 }
 
-// Full plan bodies in ONE batched request (?full=1) — no N+1 per-plan fan-out.
 export async function fetchPlans(
   api: ApiConfig,
   signal?: AbortSignal,
-  opts?: { project?: string | null; chat?: boolean; query?: string; team?: string | null },
-): Promise<Plan[]> {
-  const params = new URLSearchParams(opts?.chat ? { chat: "1" } : { full: "1" });
+  opts?: { project?: string | null; chat?: boolean; query?: string; team?: string | null; tabId?: string },
+): Promise<PlanProjection[]> {
+  const params = new URLSearchParams(opts?.chat ? { chat: "1" } : { view: "summary" });
   if (opts?.project) params.set("project", opts.project);
+  if (opts?.tabId) params.set("tab_id", opts.tabId);
   if (opts?.query !== undefined) params.set("query", opts.query);
   if (opts?.team !== undefined) params.set("team", opts.team ?? "");
   const res = await daemonFetch(api, `/api/plans?${params}`, {
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plans list failed: ${res.status} ${await res.text()}`);
-  const body = (await res.json()) as PlansFullResponse;
-  return body.plans ?? [];
+  if (!res.ok) throw new PlanReadError(res.status, `plans list failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as PlansProjectionResponse;
+  const plans = body.plans ?? [];
+  for (const plan of plans) planRevision(plan);
+  return plans;
 }
 
 export async function fetchUnownedPlanIndex(
@@ -225,7 +299,7 @@ export async function createPlan(api: ApiConfig, params: CreatePlanParams): Prom
   if (!res.ok) throw new Error(`plan create failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as { plan_id?: string; plan?: Plan };
   if (body.plan) return body.plan;
-  if (body.plan_id) return fetchPlan(api, body.plan_id);
+  if (body.plan_id) return fetchPlanProjection(api, body.plan_id, "summary");
   throw new Error("plan create returned no plan");
 }
 

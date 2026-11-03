@@ -332,7 +332,12 @@ impl<T: CallableTransport> MeshRegistry for CallableRegistry<T> {
         session: &Session,
         target: &PriorSessionsTarget,
     ) -> RegistryResult<PriorSessionsRevokedResult> {
-        self.call_guarded("revokePriorInstallationSessions", session, target, true)
+        let data = serde_json::json!({
+            "installation_id": target.installation_id,
+            "cutoff": target.cutoff,
+            "signed_registry": true,
+        });
+        self.call_guarded("revokePriorInstallationSessions", session, &data, true)
             .await
     }
     async fn challenge(

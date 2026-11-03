@@ -15,11 +15,16 @@ async function main() {
   assert.deepEqual(model.get("a").documents.map((doc) => doc.name), ["live.md"]);
   assert.equal(model.get("a").home, "/home/ann");
   assert.deepEqual(owners, ["a"]);
+  let emissions = 0;
+  const unsubscribe = model.subscribe(() => emissions++);
+  await model.refresh("a");
+  assert.equal(emissions, 0, "unchanged validated inventories do not re-emit");
+  unsubscribe();
   model.set("a", [...documents]);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   paths = [];
   await model.refresh("a");
-  assert.equal(calls.length, 2);
+  assert.equal(calls.length, 3);
   assert.equal(model.get("a").documents.length, 0);
   const completions: ((result: DocumentFileCheck) => void)[] = [];
   const racing = createChatDocumentsModel(() => new Promise((resolve) => completions.push(resolve)));

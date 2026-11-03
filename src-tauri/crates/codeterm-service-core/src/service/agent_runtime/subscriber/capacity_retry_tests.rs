@@ -175,9 +175,17 @@ async fn capacity_retry_tenth_failure_stops_with_one_system_line() {
         let messages = scene.fixture.service.ext::<DelayedSendQueue>().list(None);
         assert_eq!(messages.len(), usize::from(attempt < 10));
     }
-    assert_eq!(scene.session.cache.lock().snapshot().iter().filter(|item| {
-        item.content == "Automatic retry stopped after 10 attempts. Choose another model or send a new turn."
-    }).count(), 1);
+    assert_eq!(
+        scene
+            .session
+            .cache
+            .lock()
+            .snapshot()
+            .iter()
+            .filter(|item| { item.content.starts_with("Automatic recovery stopped:") })
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]
@@ -254,4 +262,38 @@ async fn capacity_retry_persistence_refusal_still_records_completion_once() {
         .unwrap();
     assert_eq!(queue.list(None).len(), 1);
     assert_eq!(queue.list(None)[0].id, queued[0].id);
+}
+
+#[tokio::test]
+async fn output_limit_runtime_completion_continues_once_and_notifies_parent_once() {
+    let scene = fixtures::scene();
+    let tab = scene.session.context.lock().tab_id.clone();
+    {
+        let mut mux = scene.fixture.service.mux.write();
+        let target = mux.get_tab_mut(&tab).unwrap();
+        target.role = Some(codeterm_types::agent::AgentRole::Worker);
+        target.parent_tab_id = Some("orchestrator".into());
+    }
+    let mut events = scene.fixture.service.events.subscribe();
+    let signal = json!({"retryableKind":"output_limit","retryable":false});
+    fail(&scene, "first", signal.clone(), 123).await;
+    let queue = scene.fixture.service.ext::<DelayedSendQueue>();
+    assert_eq!(queue.list(Some(&tab))[0].scheduled_at_ms, 123);
+    fail(&scene, "second", signal.clone(), 124).await;
+    fail(&scene, "second", signal, 125).await;
+    assert!(queue.list(Some(&tab)).is_empty());
+    let mut notices = Vec::new();
+    while let Ok(event) = events.try_recv() {
+        if let codeterm_events::SystemEvent::Generic { event_type, data } = event.event {
+            if event_type == "automatic-recovery-stopped" {
+                notices.push(data);
+            }
+        }
+    }
+    assert_eq!(notices.len(), 1);
+    assert_eq!(notices[0]["parent_tab_id"], "orchestrator");
+    assert_eq!(
+        notices[0]["recovery"],
+        format!("domios send --tab {tab} \"continue\"")
+    );
 }

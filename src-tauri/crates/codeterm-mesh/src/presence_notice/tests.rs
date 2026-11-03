@@ -43,6 +43,7 @@ fn presence_notice_targets_retained_online_peers_without_reopening_local_traffic
         manager.insert_account_peer_for_test(peer);
     }
     manager.apply_account_state(AccountMeshState {
+        registry_members: None,
         presence: AccountPresence::SignedOut,
         revoked_installations: ["blocked".into()].into_iter().collect(),
         ..Default::default()
@@ -78,6 +79,7 @@ fn registry_invalidation_targets_retained_peers_and_heartbeat_carries_observed_r
     manager.apply_account_state(account);
     assert_eq!(notice_targets(&manager, true).len(), 2);
     manager.apply_account_state(AccountMeshState {
+        registry_members: None,
         presence: AccountPresence::SignedIn {
             account_id: "account".into(),
         },
@@ -93,6 +95,7 @@ fn registry_invalidation_targets_retained_peers_and_heartbeat_carries_observed_r
     let announce: crate::types::PeerAnnounce = serde_json::from_value(value).unwrap();
     assert_eq!(announce.registry, Some(revision));
     manager.apply_account_state(AccountMeshState {
+        registry_members: None,
         presence: AccountPresence::SignedOut,
         ..Default::default()
     });

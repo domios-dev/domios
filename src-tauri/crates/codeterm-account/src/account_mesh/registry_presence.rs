@@ -48,10 +48,12 @@ impl AccountMesh {
                 inner.registry_presence = Some(presence);
             }
         });
-        self.ports
-            .transport
-            .presence_changed(result.metadata_revision)
-            .await;
+        if result.signed_registry.is_none() {
+            self.ports
+                .transport
+                .presence_changed(result.metadata_revision)
+                .await;
+        }
         Ok(())
     }
 

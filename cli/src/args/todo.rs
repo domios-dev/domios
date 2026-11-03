@@ -25,7 +25,7 @@ pub enum TodoAction {
     },
     /// Declare this tab's whole checklist: created on first write, then reconciled; locked items stay.
     Write {
-        /// JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content.
+        /// JSON array of {content,status,activeForm?,id?,link?,reason?}; omit id for new items; id addresses existing items only. activeForm defaults to content.
         #[arg(long, value_name = "PATH")]
         from_pad: String,
     },

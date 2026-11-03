@@ -40,7 +40,7 @@ it.each([
     return { items: [], receiverTargets: {} } as T;
   });
   __setListenForTest(async () => () => {});
-  const state = { workspaces: [], tabs: {}, teams: [], notifications: [], tabStatuses: {}, toasts: [],
+  const state = { workspaces: [], tabs: { capability: { id: "capability", pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } }, teams: [], notifications: [], tabStatuses: {}, toasts: [],
     activeTabIds: {}, generation: 1, pendingCloses: [], active_workspace_id: null, focused_tab_id: null } as ExtendedState;
   const store = createMuxStateStore(() => state);
   const clear = vi.fn();

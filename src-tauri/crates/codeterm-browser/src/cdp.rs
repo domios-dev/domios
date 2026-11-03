@@ -1,5 +1,6 @@
 use super::cdp_wire::{
-    decode_incoming, encode_request, CdpEvent, EventFilter, Incoming, ProtocolError, SessionFilter,
+    decode_document_incoming, decode_incoming, discard_value, encode_request, response_id,
+    CdpEvent, EventFilter, Incoming, ProtocolError, SessionFilter,
 };
 use super::launch::validate_loopback_endpoint;
 use futures_util::{SinkExt, StreamExt};
@@ -53,6 +54,11 @@ impl std::fmt::Display for CdpError {
 
 type Reply = Result<Value, CdpError>;
 
+struct PendingReply {
+    sender: oneshot::Sender<Reply>,
+    document: bool,
+}
+
 struct Subscriber {
     id: u64,
     filter: EventFilter,
@@ -62,7 +68,7 @@ struct Subscriber {
 
 #[derive(Default)]
 struct State {
-    pending: HashMap<u64, oneshot::Sender<Reply>>,
+    pending: HashMap<u64, PendingReply>,
     subscribers: Vec<Subscriber>,
     closed: Option<String>,
 }
@@ -93,15 +99,22 @@ impl Drop for PendingRequests {
 }
 
 impl Inner {
-    fn route(&self, incoming: Incoming) {
+    async fn route(&self, incoming: Incoming) {
         match incoming {
             Incoming::Response { id, result } => {
                 let reply = self.state.lock().pending.remove(&id);
                 if let Some(reply) = reply {
-                    let _ = reply.send(result.map_err(CdpError::Protocol));
+                    if let Err(Ok(value)) = reply.sender.send(result.map_err(CdpError::Protocol)) {
+                        discard_value(value);
+                    }
+                } else if let Ok(value) = result {
+                    discard_value(value);
                 }
             }
-            Incoming::Event(event) => self.fan_out(Arc::new(event)),
+            Incoming::Event(event) => {
+                let event = Arc::new(event);
+                self.fan_out(event.clone());
+            }
         }
     }
 
@@ -141,7 +154,7 @@ impl Inner {
             std::mem::take(&mut state.pending)
         };
         for (_, reply) in pending {
-            let _ = reply.send(Err(CdpError::Closed(reason.to_string())));
+            let _ = reply.sender.send(Err(CdpError::Closed(reason.to_string())));
         }
         self.closed.send_replace(Some(reason.to_string()));
     }
@@ -226,7 +239,13 @@ impl SocketConnection {
             for (method, params) in commands {
                 let id = self.0.next_id.fetch_add(1, Ordering::Relaxed);
                 let (reply, response) = oneshot::channel();
-                state.pending.insert(id, reply);
+                state.pending.insert(
+                    id,
+                    PendingReply {
+                        sender: reply,
+                        document: method == "DOM.getDocument",
+                    },
+                );
                 ids.push(id);
                 responses.push((method.clone(), response));
                 messages.push(Message::text(encode_request(
@@ -459,12 +478,39 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
             break None;
         };
         match message {
-            Some(Ok(Message::Text(text))) => match decode_incoming(&text) {
-                Ok(incoming) => owner.route(incoming),
-                Err(error) => {
-                    log::warn!("[browser-cdp] undecodable message (chrome -> domios): {error}")
+            Some(Ok(Message::Text(text))) => {
+                let document = response_id(&text).ok().flatten().is_some_and(|id| {
+                    owner
+                        .state
+                        .lock()
+                        .pending
+                        .get(&id)
+                        .is_some_and(|reply| reply.document)
+                });
+                let decoded = if document {
+                    decode_document_incoming(text.to_string()).await
+                } else {
+                    decode_incoming(&text)
+                };
+                match decoded {
+                    Ok(incoming) => owner.route(incoming).await,
+                    Err(error) => {
+                        log::warn!("[browser-cdp] undecodable message (chrome -> domios): {error}");
+                        match response_id(&text) {
+                            Ok(Some(id)) => {
+                                let reply = owner.state.lock().pending.remove(&id);
+                                if let Some(reply) = reply {
+                                    let _ = reply.sender.send(Err(CdpError::Malformed(format!(
+                                        "response {id} could not be decoded: {error}"
+                                    ))));
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(envelope_error) => break Some(envelope_error),
+                        }
+                    }
                 }
-            },
+            }
             Some(Ok(Message::Ping(payload))) => {
                 let _ = owner.outgoing.try_send(vec![Message::Pong(payload)]);
             }

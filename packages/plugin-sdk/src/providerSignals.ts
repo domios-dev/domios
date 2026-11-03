@@ -9,7 +9,7 @@ export type RuntimeErrorSignal = {
   code?: string;
   class?: string;
   retryable: boolean;
-  retryableKind?: "transient" | "rate_limited_until";
+  retryableKind?: "transient" | "rate_limited_until" | "output_limit";
   retryAtMs?: number;
 }
 

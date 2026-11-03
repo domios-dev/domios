@@ -202,6 +202,8 @@ export interface ExternalRef {
 }
 
 export interface Task {
+  criteria_count?: number;
+  milestone_count?: number;
   files?: { edit: string[]; read: string[] };
   id: string;
   name: string;
@@ -273,6 +275,7 @@ export interface PlanTaskBoardSummary {
   historical_executor?: PlanTaskHistoricalExecutor | null;
   competition_badge?: PlanTaskCompetitionBadge | null;
   loop_badge?: PlanTaskLoopBadge | null;
+  history?: Record<TaskHistoryKind, number | null>;
 }
 
 export interface PlanTaskBoardLocator {
@@ -327,12 +330,21 @@ export interface PlanTaskDetailContext {
   has_open_subtasks?: boolean;
 }
 
+export type TaskHistoryKind = "milestones" | "attempts";
+export interface PlanTaskHistoryPage {
+  plan_id: string; task_id: string; revision: string;
+  items: Array<Milestone | TaskExecutionAttempt>;
+  next_cursor: number | null;
+}
+
 export interface PlanTaskDetail {
+  revision?: string;
   plan_id: string;
   task_id: string;
   task: Task;
   context: PlanTaskDetailContext;
   loop_badge?: PlanTaskLoopBadge | null;
+  history?: Record<TaskHistoryKind, number | null>;
 }
 
 export type PlanTaskBoardColumnKey = "pending" | "in_progress" | "in_review" | "blocked" | "done";
@@ -361,6 +373,7 @@ export interface PlanTaskBoardCounts {
 }
 
 export interface PlanTaskBoardPage {
+  revision?: string;
   plan_id: string;
   counts?: PlanTaskBoardCounts;
   columns?: Partial<Record<PlanTaskBoardStatus, PlanTaskBoardColumnPage>>;
@@ -441,6 +454,7 @@ export interface EffortLink {
 }
 
 export interface Plan {
+  task_counts?: Partial<Record<TaskStatus, number>> & { total: number };
   control_loop?: import("./planControlLoop").PlanControlLoop;
   pause_operations?: Array<{ paused_at: number; reason: string; resume?: unknown }>;
   id: string;

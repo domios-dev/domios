@@ -143,21 +143,15 @@ where
         }
     }
     let mut mesh = state.mesh.lock();
-    if let Some(membership) = membership.as_deref() {
-        mesh.refresh_peer_membership(&sender_id, membership);
-    }
+    let membership_changed = membership
+        .as_deref()
+        .is_some_and(|membership| mesh.refresh_peer_membership(&sender_id, membership));
     if !mesh.traffic_open(&sender_id) {
         let reason = format!("{:?}", mesh.traffic_decision(&sender_id));
         return Err((StatusCode::FORBIDDEN, reason));
     }
     match mesh.apply_announce(&sender_id, &ann) {
-        Ok(change) if change.changed() => {
-            log::info!(
-                "[mesh/announce] sender={} address counts changed from {} to {}",
-                sender_id,
-                change.previous_addresses.len(),
-                ann.addresses.len()
-            );
+        Ok(change) if change.changed() || membership_changed => {
             drop(mesh);
             state
                 .svc

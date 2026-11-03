@@ -5,6 +5,7 @@ export const NEEDS_HUMAN_KINDS = ["captcha", "consent", "login", "dialog", "file
 export type NeedsHumanKind = (typeof NEEDS_HUMAN_KINDS)[number];
 
 export interface SurfaceState {
+  viewportOwner?: string;
   targetId?: string;
   owner: string;
   title?: string;

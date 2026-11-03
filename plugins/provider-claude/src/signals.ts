@@ -28,8 +28,9 @@ export function parseSessionObservations(value: unknown): ProviderSessionObserva
   if (!record) return null;
   const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
   const permission_mode = (typeof record.permissionMode === "string" && modes.includes(record.permissionMode) ? record.permissionMode : null) as ProviderSessionObservations["permission_mode"];
-  const isError = record.isApiErrorMessage === true;
+  const retry = retryError(record);
+  const isError = record.isApiErrorMessage === true || retry.retry_error?.retryableKind === "output_limit";
   const api_error = isError ? classifyAccessError(record.error, record) : null;
   const clears_api_error = record.type === "assistant" && !isError && !!object(record.message);
-  return isError || permission_mode || clears_api_error ? {api_error, permission_mode, clears_api_error, ...observationExtras(record.error, record), ...retryError(record), ...(clears_api_error && record.isSidechain !== true && ["end_turn", "stop_sequence"].includes(String(object(record.message)?.stop_reason)) ? {retry_succeeded:true} : {})} : null;
+  return isError || permission_mode || clears_api_error ? {api_error, permission_mode, clears_api_error, ...observationExtras(record.error, record), ...retry, ...(clears_api_error && record.isSidechain !== true && ["end_turn", "stop_sequence"].includes(String(object(record.message)?.stop_reason)) ? {retry_succeeded:true} : {})} : null;
 }

@@ -1,9 +1,11 @@
+import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
 import type { RefObject } from "react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { DetailContent } from "../canvasRender/DetailContent";
 import type { SectionNavArgs } from "../nodeRegistry";
 import { taskDisplayKey } from "../taskDisplayKey";
 import type { Plan, PlanTaskDetail } from "../types";
+import { taskDetailMatchesReference } from "../usePlanTaskDetail";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
@@ -15,6 +17,7 @@ export interface TaskSegmentPanelProps {
   tabId: string;
   panelRef: RefObject<HTMLElement | null>;
   detail: PlanTaskDetail | null;
+  historyController?: TaskHistoryController;
   fallbackPlan?: Plan | null;
   taskRef: string;
   loading?: boolean;
@@ -31,6 +34,7 @@ export function TaskSegmentPanel({
   tabId,
   panelRef,
   detail,
+  historyController,
   fallbackPlan = null,
   taskRef,
   loading = false,
@@ -42,9 +46,9 @@ export function TaskSegmentPanel({
 }: TaskSegmentPanelProps) {
   const cachedTask = !api && fallbackPlan ? fallbackPlan.tasks.find((candidate) => candidate.id === taskRef) : undefined;
   const context = detail?.context;
-  const exactDetail = detail?.plan_id === context?.plan_id && detail?.task_id === taskRef && detail.task?.id === taskRef;
+  const exactDetail = detail && context && taskDetailMatchesReference(detail, context.plan_id, taskRef);
   const exactCachedTask = !api && cachedTask?.id === taskRef;
-  const key = taskDisplayKey({ id: taskRef, key: exactDetail ? detail!.task.key : exactCachedTask ? cachedTask?.key : null });
+  const key = taskDisplayKey(exactDetail ? detail!.task : exactCachedTask ? cachedTask! : { id: taskRef });
   const displayTask = exactDetail ? detail!.task : exactCachedTask ? cachedTask : undefined;
   const displayPlan = exactDetail ? undefined : exactCachedTask ? fallbackPlan : undefined;
   return (
@@ -87,6 +91,7 @@ export function TaskSegmentPanel({
               onSectionClick={(args: SectionNavArgs) => onOpenSection?.(args.variant === "spec" ? "spec" : "plan")}
             />
           </SelectionAsk>
+          {exactDetail && <TaskHistoryControls detail={detail!} controller={historyController} />}
         </>
       ) : (
         <p data-testid="plan-task-segment-missing" className="plan-task-segment__note">

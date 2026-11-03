@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { TERMINAL_VIEWER_DISCONNECTED_EVENT, TERMINAL_VIEWER_RECONNECTED_EVENT } from "../../lib/terminalViewerEvents";
 import { RECONNECTED_NOTICE_MS, RECONNECT_GRACE_MS, transitionBrandConnection } from "./brandStateModel";
 import type { BrandConnectionState } from "./brandStateModel";
+import { recordClientHealth } from "../../lib/clientJournal";
 
 export function useServerConnectionState() {
   const [state, setState] = useState<BrandConnectionState>({ kind: "connected" });
@@ -29,6 +30,7 @@ export function useServerConnectionState() {
       const next = transitionBrandConnection(before, "disconnect", Date.now());
       if (next === before) return;
       if (next.kind !== "waiting") return;
+      recordClientHealth({ event: "connection-lost", elapsedMs: 0 });
       clearNotice();
       current.current = next;
       setState(next);
@@ -41,6 +43,7 @@ export function useServerConnectionState() {
       const before = current.current;
       const next = transitionBrandConnection(before, "connect", Date.now());
       if (next === before) return;
+      recordClientHealth({ event: "connection-restored", elapsedMs: "disconnectedAt" in before ? Date.now() - before.disconnectedAt : 0 });
       clearGrace();
       current.current = next;
       setState(next);

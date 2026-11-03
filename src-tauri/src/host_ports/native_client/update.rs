@@ -295,7 +295,7 @@ impl NativeHostClient {
                     state.set_phase(codeterm_update::UpdatePhase::Idle);
                     Phase::NoUpdate
                 }
-                Ok(codeterm_update::apply::ApplyResult::Restarting) => return,
+                Ok(codeterm_update::apply::ApplyResult::Restarting) => Phase::Relaunching,
                 Err(message) => {
                     log::error!(target: "native_updater", "operation_failed cause={}",
                         codeterm_update::native_handoff::failure_code(&message));
@@ -394,13 +394,7 @@ impl ServerStop for UpdateServerStop {
     }
 
     async fn prepare_detached_update(&self, version: &str) -> Result<(), String> {
-        self.prepare_update(version).await?;
-        let operation = self.operation.clone();
-        tokio::task::spawn_blocking(move || {
-            operation.mutate(|record| record.advance(Phase::Relaunching))
-        })
-        .await
-        .map_err(|e| e.to_string())?
+        self.prepare_update(version).await
     }
 }
 

@@ -76,11 +76,8 @@ void (async () => {
   const webEvents = await import("./webEvents");
 
   let resyncRounds = 0;
-  // runFullResync re-dispatches every RESYNC_EVENT with a null payload; one
-  // such null on a single event is one resync.
-  webEvents.webListen("plan-changed", (e) => {
-    if (e.payload === null) resyncRounds++;
-  });
+  const { onResync } = await import("./resync");
+  const stopResync = onResync(() => { resyncRounds++; });
   webEvents.webListen("tab-focused", () => {});
 
   await test("a contiguous stream fires no resync and counts no gap", async () => {
@@ -136,6 +133,7 @@ void (async () => {
   });
 
   console.log(failures === 0 ? "\nall passed" : `\n${failures} failed`);
+  stopResync();
   webEvents.__resetWebEventsForTest();
   process.exit(failures > 0 ? 1 : 0);
 })();

@@ -75,10 +75,7 @@ impl ServiceContext {
             if !finalized {
                 return;
             }
-            service.ui.emit(
-                "plan-changed",
-                serde_json::to_value(json!({"plan_id": plan_id})).unwrap_or_default(),
-            );
+            service.emit_committed_plan_changed(&plan_id);
             let payload = json!({
                 "kind": if peer_online { "remote_ack_timeout" } else { "remote_peer_offline" },
                 "plan_id": plan_id,

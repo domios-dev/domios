@@ -83,9 +83,12 @@ fn open_attempt_task_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.open_attempt_task_for_tab("tab-a", "session-m", "nonce-m"),
+        store
+            .open_attempt_task_for_tab("tab-a", "session-m", "nonce-m")
+            .unwrap(),
         Some((matched, "task_m".into(), "att_m".into()))
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 

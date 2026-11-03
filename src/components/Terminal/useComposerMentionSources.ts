@@ -3,6 +3,7 @@ import { useMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { usePlanDataContextKey, usePlansApiOptional } from "../Canvas/PlansProvider";
 import { fetchPlans } from "../Canvas/plansApi";
 import type { Plan } from "../Canvas/types";
+import { onResync } from "../../lib/resync";
 import { listen } from "../../lib/bridge";
 import { daemonFetch } from "../../lib/webApi";
 import { fileMentionSource, type MentionFile } from "../../lib/mentionSources/files";
@@ -23,9 +24,13 @@ export function useComposerMentionSources(tabId: string) {
   const planListeners = useRef(new Set<() => void>());
   useEffect(() => {
     let active = true;
-    let stop: (() => void) | undefined;
-    void listen("plan-changed", () => { for (const changed of planListeners.current) changed(); }).then((off) => { if (active) stop = off; else off(); });
-    return () => { active = false; stop?.(); };
+    const stops: Array<() => void> = [];
+    const invalidate = () => { for (const changed of planListeners.current) changed(); };
+    stops.push(onResync(invalidate));
+    for (const event of ["plan-changed", "plans-loaded"]) {
+      void listen(event, invalidate).then((off) => { if (active) stops.push(off); else off(); });
+    }
+    return () => { active = false; for (const stop of stops) stop(); };
   }, []);
   const cache = useRef(new Map<string, Promise<AutomationGraph>>());
   const lifetime = useRef(new AbortController());

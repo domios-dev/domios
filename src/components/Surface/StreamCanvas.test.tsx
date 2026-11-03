@@ -24,7 +24,7 @@ interface Recorded {
   cancels: number;
 }
 
-async function renderCanvas(overrides: Partial<StreamCanvasProps> = {}) {
+async function renderCanvas(overrides: Partial<StreamCanvasProps> = {}, resize = true) {
   const feed = createFrameFeed();
   const recorded: Recorded = { viewports: [], inputs: [], picks: [], hovers: [], blocked: 0, exits: 0, cancels: 0 };
   const props: StreamCanvasProps = {
@@ -44,10 +44,10 @@ async function renderCanvas(overrides: Partial<StreamCanvasProps> = {}) {
     ...overrides,
   };
   const view = await render(<StreamCanvas {...props} />);
-  await resizeStages(400, 300);
+  if (resize) await resizeStages(400, 300);
   feed.publish({ data: "", metadata: META });
   await flushAsync();
-  return { ...view, recorded };
+  return { ...view, recorded, feed };
 }
 
 const expectedPoint = (clientX: number, clientY: number) =>
@@ -71,6 +71,84 @@ suite.test("the stage size is reported once per distinct viewport", async () => 
   await resizeStages(500, 300);
   assert.equal(recorded.viewports.length, 2);
   await unmount();
+});
+
+for (const dpr of [1.25, 1.5]) {
+  suite.test(`first layout at DPR ${dpr} reports the real size before an observer callback`, async () => {
+    const previousRect = HTMLElement.prototype.getBoundingClientRect;
+    const previousDpr = window.devicePixelRatio;
+    HTMLElement.prototype.getBoundingClientRect = () => new DOMRect(0, 0, 640.4, 480.6);
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
+    try {
+      const { recorded, unmount } = await renderCanvas({}, false);
+      assert.deepEqual(recorded.viewports, [{ w: 640, h: 481, dpr }]);
+      await resizeStages(640.4, 480.6);
+      assert.equal(recorded.viewports.length, 1, "the first observer notification does not duplicate the request");
+      await unmount();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = previousRect;
+      Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: previousDpr });
+    }
+  });
+}
+
+suite.test("DPR notifications measure immediately and rearm for the next monitor", async () => {
+  const previousDpr = window.devicePixelRatio;
+  const previousMatchMedia = window.matchMedia;
+  const media: Array<HTMLElement & { media: string }> = [];
+  window.matchMedia = (query) => {
+    const next = Object.assign(document.createElement("div"), { media: query });
+    media.push(next);
+    return next as unknown as MediaQueryList;
+  };
+  try {
+    const { recorded, unmount } = await renderCanvas();
+    for (const dpr of [1.25, 1.5]) {
+      Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: dpr });
+      media.slice(-1)[0]!.dispatchEvent(new Event("change"));
+      assert.deepEqual(recorded.viewports.slice(-1)[0], { w: 400, h: 300, dpr });
+      assert.equal(media.slice(-1)[0]!.media, `(resolution: ${dpr}dppx)`);
+    }
+    assert.equal(recorded.viewports.length, 3);
+    await unmount();
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 2 });
+    media.slice(-1)[0]!.dispatchEvent(new Event("change"));
+    assert.equal(recorded.viewports.length, 3, "unmount removes the resolution listener");
+  } finally {
+    window.matchMedia = previousMatchMedia;
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: previousDpr });
+  }
+});
+
+suite.test("low-density decoded frames are drawn and replaced by the next frame", async () => {
+  const previousContext = HTMLCanvasElement.prototype.getContext;
+  const previousDpr = window.devicePixelRatio;
+  const drawn: unknown[] = [];
+  const image = {} as CanvasImageSource;
+  HTMLCanvasElement.prototype.getContext = (() => ({ drawImage: (...args: unknown[]) => drawn.push(args) })) as unknown as typeof previousContext;
+  Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: 1.5 });
+  let width = 200;
+  let closed = 0;
+  try {
+    const { host, feed, recorded, unmount } = await renderCanvas({
+      decode: async () => ({ width, height: width * 0.75, image, close: () => { closed += 1; } }),
+    });
+    const canvas = getByRole(host, "img") as HTMLCanvasElement;
+    assert.deepEqual(drawn, [[image, 0, 0, 200, 150]], "the first lower-density bitmap is painted");
+    assert.equal(canvas.width, 200);
+    width = 600;
+    feed.publish({ data: "", metadata: META });
+    await flushAsync();
+    assert.deepEqual(drawn.slice(-1)[0], [image, 0, 0, 600, 450]);
+    assert.equal(canvas.width, 600);
+    assert.equal(closed, 1, "only replacement releases the lower-density frame");
+    assert.equal(recorded.viewports.length, 1, "frames never trigger resize requests");
+    await unmount();
+    assert.equal(closed, 2);
+  } finally {
+    HTMLCanvasElement.prototype.getContext = previousContext;
+    Object.defineProperty(window, "devicePixelRatio", { configurable: true, value: previousDpr });
+  }
 });
 
 suite.test("resizing retains the native backing store and drops a decode from an obsolete viewport", async () => {

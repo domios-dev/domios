@@ -10,6 +10,9 @@ import { PlanViewShell } from "./PlanViewShell";
 import { PlanSidePanelLayer } from "./PlanSidePanelHost";
 import { planSidePanelStore } from "./planSidePanelStore";
 import { PlansProvider } from "./PlansProvider";
+import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -111,6 +114,32 @@ test("PlanViewShell defaults to board mode", async () => {
   await unmount();
 });
 
+test("opening Board keeps the parked List reader detached", async () => {
+  setupDom();
+  const previousFetch=globalThis.fetch;
+  const requests: URL[]=[];
+  const api: ApiConfig={enabled:true,host:"127.0.0.1",port:7686,token:"test-token",cors:true};
+  globalThis.fetch=async(input)=>{
+    const url=new URL(String(input));requests.push(url);
+    if(url.pathname.endsWith("/board-state"))return Response.json({error:"Fixture has no board snapshot"},{status:503});
+    if(url.pathname.endsWith("/projection"))return Response.json({...FIXTURE_PLAN,tasks:[],team_id:null,revision:"1"});
+    return Response.json({plans:[]});
+  };
+  const state: ExtendedState = {
+    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
+  };
+  const store=createMuxStateStore(()=>state);
+  const {host,unmount}=await render(<MuxStateStoreContext.Provider value={store}>
+    <PlanViewShell {...SHELL_PROPS} mode="focus" planId={FIXTURE_PLAN.id} api={api} plans={[{...FIXTURE_PLAN,tasks:[],team_id:null}]} />
+  </MuxStateStoreContext.Provider>);
+  try {
+    assert(requests.some((url)=>url.pathname.endsWith("/board-state")),"visible Board requests its own reading");
+    assert(!requests.some((url)=>url.searchParams.get("view")==="list"),"hidden List never requests a window");
+    assert(panelFor(host,"plan-list-view")?.hasAttribute("hidden"),"List remains parked");
+  }finally{await unmount();globalThis.fetch=previousFetch;}
+});
+
 test("PlanViewShell restores persisted mode from localStorage", async () => {
   setupDom();
   window.localStorage.setItem(PLAN_VIEW_MODE_STORAGE_KEY, "list");
@@ -208,16 +237,17 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     requestPaths.push(`${url.pathname}${url.search}`);
-    if (url.searchParams.get("full") === "1") {
+    if (url.searchParams.get("view") === "summary") {
       fullCalls++;
-      return Response.json({ plans: [FIXTURE_PLAN] });
+      return Response.json({ plans: [{ ...FIXTURE_PLAN, revision: "1" }] });
     }
     if (url.searchParams.get("chat") === "1") return Response.json({ plans: [] });
+    if (url.pathname.endsWith("/projection")) return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     if (url.pathname === "/api/plans") return Response.json({ plans: [entry] });
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks`) {
       pageCalls++;
       return Response.json({
-        plan_id: FIXTURE_PLAN.id,
+        plan_id: FIXTURE_PLAN.id, revision: "1",
         counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, done: 0, cancelled: 0, total: 0 },
         columns: Object.fromEntries(["pending", "in_progress", "in_review", "blocked", "done"].map((status) => [status, { status, items: [], next_cursor: null }])),
       });
@@ -279,7 +309,7 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
     execution_attempts: [],
   };
   const detail = {
-    plan_id: FIXTURE_PLAN.id,
+    plan_id: FIXTURE_PLAN.id, revision: "1",
     task_id: taskId,
     task,
     context: {
@@ -300,15 +330,16 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     paths.push(url.pathname);
-    if (url.pathname === "/api/plans" && url.searchParams.get("full") === "1") fullCollectionCalls++;
+    if (url.pathname === "/api/plans" && url.searchParams.get("view") === "summary") fullCollectionCalls++;
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks/${taskId}`) {
       detailCalls++;
       return Response.json(detail);
     }
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}`) {
       fullPlanCalls++;
-      return Response.json(FIXTURE_PLAN);
+      return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     }
+    if (url.pathname.endsWith("/projection")) return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     if (url.pathname === "/api/plans") return Response.json({ plans: [] });
     return Response.json({ plans: [] });
   };
@@ -342,14 +373,14 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
   await unmount();
 });
 
-test("task side panel requests scoped detail even when a full plan is already listed", async () => {
+test("task side panel requests scoped detail even when a plan summary is already listed", async () => {
   setupDom();
   planSidePanelStore.close();
   const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "test-token", cors: true };
   const taskId = "task-side-panel-detail";
   const task = { ...FIXTURE_TASK, id: taskId, key: "CT-PANEL", name: "Side panel scoped detail", body: "Panel task description." };
   const detail = {
-    plan_id: FIXTURE_PLAN.id,
+    plan_id: FIXTURE_PLAN.id, revision: "1",
     task_id: taskId,
     task,
     context: {
@@ -373,7 +404,7 @@ test("task side panel requests scoped detail even when a full plan is already li
     }
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}`) {
       fullPlanCalls++;
-      return Response.json(FIXTURE_PLAN);
+      return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     }
     return Response.json({ plans: [] });
   };

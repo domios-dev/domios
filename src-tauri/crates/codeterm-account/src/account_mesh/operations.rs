@@ -8,7 +8,7 @@ use super::membership::{
 use super::ports::RegistryResult;
 use super::state::{
     AccountMeshRefusal, Cleanup, EnrollTrigger, Enrollment, KeyBinding, Presence, Publication,
-    RegistryObservation, SelfInstallation, SignedMembership,
+    SelfInstallation, SignedMembership,
 };
 use super::wire::*;
 use crate::Session;
@@ -18,8 +18,6 @@ use std::future::Future;
 use std::sync::Arc;
 
 type Outcome<T> = Result<T, AccountMeshRefusal>;
-
-const MAX_LIST_PAGES: usize = 8;
 
 pub(super) fn request_id() -> String {
     let mut bytes = [0u8; 32];
@@ -758,91 +756,6 @@ impl AccountMesh {
         }
     }
 
-    /// One bounded online read of the account registry; a stale observation for display only.
-    pub(super) async fn read_registry(&self, signed: &Signed) -> Outcome<RegistryObservation> {
-        let mut rows = Vec::new();
-        let mut cursor = None;
-        let mut registry_revision = 0;
-        for _ in 0..MAX_LIST_PAGES {
-            let page = match self
-                .admission(signed, MeshOperation::List { cursor })
-                .await?
-            {
-                MeshResult::Page(page) => page,
-                _ => return Err(AccountMeshRefusal::Invalid),
-            };
-            registry_revision = page.registry_revision;
-            rows.extend(page.rows);
-            cursor = page.cursor;
-            if cursor.is_none() {
-                break;
-            }
-        }
-        let installation = self.installation();
-        if let Some(own) = rows.iter().find(|row| row.installation_id == installation) {
-            self.remember_metadata(
-                signed.epoch,
-                own.metadata_revision,
-                own.display_name.clone(),
-            );
-        }
-        let observation = RegistryObservation {
-            observed_at: self.now(),
-            registry_revision,
-            rows,
-            cursor,
-        };
-        let keys_changed = self.with(|inner| {
-            if inner.is_current(signed.epoch) || signed.epoch == 0 {
-                let recovered_presence =
-                    inner.record.peer_presence_refresh && observation.cursor.is_none();
-                if recovered_presence {
-                    inner.record.peer_presence_refresh = false;
-                }
-                let changed = recovered_presence
-                    | inner.observe_registry_keys(&observation.rows, &installation);
-                let revoked = inner.record.revoked_installations.clone();
-                let own_invalid = inner.state.membership.as_ref().is_some_and(|membership| {
-                    let own = &membership.verified;
-                    revoked.contains(&own.installation_id)
-                        || inner
-                            .record
-                            .peer_keys
-                            .get(&own.installation_id)
-                            .is_some_and(|known| {
-                                known.generation > own.key_generation
-                                    || (known.generation == own.key_generation
-                                        && known.key_id != own.key_id)
-                            })
-                });
-                let slots_changed = inner
-                    .state
-                    .registry
-                    .as_ref()
-                    .is_some_and(|known| observation.has_freed_slot_since(known));
-                let rearmed = slots_changed && inner.state.plan_limit_locked();
-                if rearmed {
-                    inner.resume_terminal();
-                }
-                inner.update(&self.watch, |state| {
-                    state.revoked_installations = revoked;
-                    if own_invalid {
-                        state.membership = None;
-                    }
-                    state.registry = Some(observation.clone());
-                    state.registry_failure = None;
-                });
-                return changed || rearmed;
-            }
-            false
-        });
-        self.push().await;
-        if keys_changed {
-            self.persist().await;
-        }
-        Ok(observation)
-    }
-
     /// Server `update`, actor-only: renames this installation.
     pub async fn rename_self(
         &self,
@@ -916,7 +829,9 @@ impl AccountMesh {
         if !self.with(|inner| inner.is_current(signed.epoch)) {
             return Err(AccountMeshRefusal::Cancelled);
         }
-        let _ = self.read_registry(&signed).await;
+        if self.state().signed_registry.is_none() {
+            let _ = self.read_registry(&signed).await;
+        }
         self.ports
             .transport
             .installation_revoked(&result.target_installation_id)
@@ -943,6 +858,17 @@ impl AccountMesh {
             .await?;
         if result.schema_version != 1 || result.revoked_count > 1 {
             return Err(AccountMeshRefusal::Invalid);
+        }
+        if let Some(snapshot) = result.signed_registry.as_ref() {
+            let account = account_id(&session.identity.uid);
+            let state = self.state();
+            let epoch = if state.signed_in_account() == Some(account.as_str()) {
+                state.account_epoch
+            } else {
+                0
+            };
+            self.accept_server_registry(snapshot, &account, epoch)
+                .await?;
         }
         Ok(())
     }
@@ -1008,7 +934,9 @@ impl AccountMesh {
         });
         self.persist().await;
         self.push().await;
-        let _ = self.read_registry(&signed).await;
+        if self.state().signed_registry.is_none() {
+            let _ = self.read_registry(&signed).await;
+        }
         self.ports
             .transport
             .installation_revoked(&revoked.target_installation_id)

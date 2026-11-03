@@ -27,6 +27,7 @@ pub const TASK_UPDATE_KEYS: &[&str] = &[
     "primary",
     "priority",
     "qa_plan",
+    "remove_tags",
     "role_guidance",
     "sections",
     "status",
@@ -100,6 +101,17 @@ pub fn validate_task_update_fields(
             unknown_key: Some(unknown_key),
             accepted_keys,
             message: None,
+        });
+    }
+    if fields.get("remove_tags").is_some_and(|value| {
+        !value
+            .as_array()
+            .is_some_and(|tags| tags.iter().all(Value::is_string))
+    }) {
+        return Err(TaskUpdateInputError {
+            unknown_key: None,
+            accepted_keys,
+            message: Some("remove_tags must be an array of tag strings".into()),
         });
     }
     if let Some(personality) = fields.get("personality") {
@@ -199,6 +211,10 @@ pub fn valid_task_update_payloads(
         ("primary", serde_json::json!({ "primary": "area:test" })),
         ("priority", serde_json::json!({ "priority": "p2" })),
         ("qa_plan", serde_json::json!({ "qa_plan": "Run QA" })),
+        (
+            "remove_tags",
+            serde_json::json!({ "remove_tags": ["build-breaking"] }),
+        ),
         (
             "role_guidance",
             serde_json::json!({ "role_guidance": "Review carefully" }),

@@ -313,6 +313,9 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        if self.close_bound_worker_executor(tab_id, reason)? {
+            return Ok(());
+        }
         self.close_tab_with_precondition(tab_id, reason, |_, _| Ok(()))
     }
 

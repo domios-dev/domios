@@ -1,6 +1,6 @@
 use super::BrowserRuntime;
 use codeterm_browser::{
-    snapshot::{parse_full_ax_tree, query},
+    snapshot::{parse_full_ax_tree, query, RefEntry},
     PageChannel,
 };
 use serde_json::json;
@@ -115,7 +115,49 @@ impl BrowserRuntime {
         } else {
             query::scoped(&nodes, &args.within)?
         };
-        let target = query::unique(&nodes, &args.role, Some(&args.name))?;
+        let entries = nodes
+            .iter()
+            .filter(|node| {
+                !node.ignored
+                    && node
+                        .role
+                        .as_ref()
+                        .and_then(|v| v.value.as_ref())
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|role| {
+                            role == args.role
+                                || (args.role == "summary" && role == "DisclosureTriangle")
+                        })
+                    && node
+                        .name
+                        .as_ref()
+                        .and_then(|v| v.value.as_ref())
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .split_whitespace()
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                        .eq_ignore_ascii_case(
+                            &args.name.split_whitespace().collect::<Vec<_>>().join(" "),
+                        )
+            })
+            .filter_map(|node| {
+                node.backend_dom_node_id.map(|backend| RefEntry {
+                    reference: format!("dom-{backend}"),
+                    role: args.role.clone(),
+                    name: args.name.clone(),
+                    backend_node_id: backend,
+                })
+            })
+            .collect::<Vec<_>>();
+        if entries.is_empty() {
+            return Err("not_found: no matching element".into());
+        }
+        let visible = self.choose_visible(page, entries, fill, true).await?;
+        let target = nodes
+            .iter()
+            .find(|node| node.backend_dom_node_id == Some(visible.backend_node_id))
+            .ok_or("stale: missing target")?;
         let before = super::accessible_wait::expanded(target);
         if desired.is_some() && before.is_none() {
             return Err("unsupported: disclosure exposes no expanded state".into());
@@ -137,6 +179,12 @@ impl BrowserRuntime {
             .pointer("/object/objectId")
             .and_then(|v| v.as_str())
             .ok_or("stale: detached element")?;
+        self.present_on(
+            page,
+            Some(id),
+            json!({"kind":if fill {"typing"} else {"click"},"text":args.text}),
+        )
+        .await;
         let result = self.complete_action(page, false, self.send(page,"Runtime.callFunctionOn",json!({"objectId":id,"functionDeclaration":ACT,"arguments":[{"value":epoch},{"value":if fill {"fill"} else {"click"}},{"value":args.text}],"returnByValue":true}))).await;
         let _ = self
             .send(page, "Runtime.releaseObject", json!({"objectId":id}))

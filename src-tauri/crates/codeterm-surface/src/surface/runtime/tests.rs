@@ -28,7 +28,12 @@ impl SurfaceRuntime for FakeRuntime {
         }
     }
 
-    async fn connect(self: Arc<Self>, _viewport: Option<ViewportRequest>) -> SurfaceEvents {
+    async fn connect(
+        self: Arc<Self>,
+        _viewport: Option<ViewportRequest>,
+        _viewer: Option<String>,
+        _viewer_target: Option<String>,
+    ) -> SurfaceEvents {
         Box::pin(futures_util::stream::empty())
     }
 
@@ -257,7 +262,12 @@ impl SurfaceRuntime for ClosingRuntime {
         SurfaceState::default()
     }
 
-    async fn connect(self: Arc<Self>, _viewport: Option<ViewportRequest>) -> SurfaceEvents {
+    async fn connect(
+        self: Arc<Self>,
+        _viewport: Option<ViewportRequest>,
+        _viewer: Option<String>,
+        _viewer_target: Option<String>,
+    ) -> SurfaceEvents {
         Box::pin(futures_util::stream::empty())
     }
 

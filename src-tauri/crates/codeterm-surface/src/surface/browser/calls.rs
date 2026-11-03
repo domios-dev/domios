@@ -11,6 +11,7 @@ use codeterm_browser::PageChannel;
 
 #[derive(Deserialize)]
 struct ResizeArgs {
+    viewer: String,
     width: f64,
     height: f64,
     #[serde(default = "unit_dpr")]
@@ -32,6 +33,8 @@ struct NavArgs {
 struct ScreenshotArgs {
     #[serde(default)]
     full: bool,
+    #[serde(default)]
+    include_overlay: bool,
 }
 
 #[derive(Deserialize)]
@@ -76,23 +79,34 @@ impl BrowserRuntime {
         args: Value,
     ) -> Result<SurfaceCallOutcome, String> {
         let value = match method {
-            "resize" => {
+            "resize" | "viewport.claim" => {
                 let size: ResizeArgs = parse(method, args)?;
-                self.host
-                    .set_viewport(ViewportRequest {
-                        width: size.width,
-                        height: size.height,
-                        dpr: size.dpr,
-                    })
-                    .await?;
-                Value::Null
+                let _guard = self.action_gate.lock().await;
+                let mut model = self.viewport.lock().await;
+                let accepted = model
+                    .request(
+                        &size.viewer,
+                        ViewportRequest {
+                            width: size.width,
+                            height: size.height,
+                            dpr: size.dpr,
+                        },
+                        method == "viewport.claim",
+                    )
+                    .is_some();
+                log::debug!(
+                    "[browser-viewport] {method} viewer={} css={}x{} dpr={} accepted={accepted} owner={:?}",
+                    size.viewer, size.width, size.height, size.dpr, model.owner()
+                );
+                if accepted {
+                    self.apply_viewer_viewport(&mut model).await?;
+                }
+                json!({ "owner": model.owner() })
             }
             "input" => {
                 let input: InputArgs = parse(method, args)?;
-                let page = self.ensure_page().await?;
-                self.shared.invalidate_snapshot();
-                self.shared.invalidate_action();
-                self.dispatch_input(&page, &input).await?;
+                let page = self.host.page().ok_or("the browser has no page")?;
+                self.viewer_input(&page, &input).await?;
                 Value::Null
             }
             "nav" => {
@@ -105,11 +119,15 @@ impl BrowserRuntime {
             "screenshot" => {
                 let shot: ScreenshotArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
-                let base64 = self.screenshot_base64(&page, shot.full).await?;
+                let viewport =
+                    super::metrics::capture_viewport(&self.screenshot_metrics(&page).await?)?;
+                let base64 = self
+                    .screenshot_base64(&page, shot.full, shot.include_overlay)
+                    .await?;
                 let path = self
                     .save_evidence(ctx, format!("shot-{}.png", now_ms()), base64.clone())
                     .await?;
-                json!({ "base64": base64, "path": path.to_string_lossy() })
+                json!({ "base64": base64, "path": path.to_string_lossy(), "viewport": viewport })
             }
             "profiles.list" => {
                 self.refresh_profiles().await;
@@ -176,6 +194,23 @@ impl BrowserRuntime {
             other => return Err(format!("unknown view method \"{other}\"")),
         };
         Ok(SurfaceCallOutcome::value(value))
+    }
+
+    pub(super) async fn viewer_input(
+        &self,
+        page: &PageChannel,
+        input: &InputArgs,
+    ) -> Result<(), String> {
+        self.shared.invalidate_snapshot();
+        self.shared.invalidate_action();
+        self.hide_cursor_for_viewer(page);
+        let mouse_events = super::input::input_commands(input)?
+            .iter()
+            .any(|(method, _)| *method == "Input.dispatchMouseEvent");
+        let scope = self.action_scope(page, mouse_events).await?;
+        let result = self.dispatch_input(page, input).await;
+        scope.finish().await?;
+        result
     }
 
     async fn grab_send(

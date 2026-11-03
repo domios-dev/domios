@@ -5,7 +5,7 @@ use codeterm_service_core::service::plan::milestone_gates::{
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::worker_ack::STARTUP_BINDING_DEADLINE;
 use codeterm_service_core::service::{
-    verify_worker_lane, LaneProtection, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
+    LaneProtection, ProvisionedWorkerLane, ServiceState, SpawnAgentParams,
 };
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -586,56 +586,49 @@ where
     // dispatch-time intent decides whether the mutating-work guards apply.
     let requires_repository = detail.task.execution_intent.requires_repository();
     let lane_protection = LaneProtection::for_dispatch_intent(&execution_intent);
-    let lane_resolution = if requires_repository {
+    let lane_resolution =
         if execution_intent == codeterm_service_core::plan::ExecutionIntent::ReadOnly {
-            // A read-only verification Worker runs in canonical rather than a lane.
-            // Validate canonical as a checkout, but do not treat it as a lane.
-            verify_worker_lane(
-                &canonical_cwd,
-                &canonical_cwd,
-                None,
-                None,
-                LaneProtection::Waived,
-            )
-            .map_err(checkout_required)?;
             Some(lane_resolution::DispatchLaneResolution {
-                spawn_cwd: canonical_cwd.clone(),
+                spawn_cwd: explicit_cwd
+                    .clone()
+                    .unwrap_or_else(|| canonical_cwd.clone()),
                 existing: None,
             })
-        } else if !placement.is_isolated_lane() {
-            canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
-            Some(lane_resolution::DispatchLaneResolution {
-                spawn_cwd: canonical_cwd.clone(),
-                existing: None,
-            })
+        } else if requires_repository {
+            if !placement.is_isolated_lane() {
+                canonical_writer::verify_canonical_writer_checkout(&canonical_cwd)?;
+                Some(lane_resolution::DispatchLaneResolution {
+                    spawn_cwd: canonical_cwd.clone(),
+                    existing: None,
+                })
+            } else {
+                let workspace_cwd = {
+                    let mux = svc.mux.read();
+                    let workspace_id = owned_str(p, "workspace_id");
+                    workspace_id
+                        .as_deref()
+                        .and_then(|id| mux.get_workspace(id))
+                        .and_then(|workspace| workspace.cwd.clone())
+                        .or_else(|| Some(plan.project_path.clone()))
+                };
+                let caller_cwd = {
+                    let mux = svc.mux.read();
+                    caller_tab_id
+                        .as_deref()
+                        .and_then(|tab_id| mux.get_tab(tab_id))
+                        .and_then(|tab| tab.cwd.clone())
+                };
+                Some(resolve_dispatch_lane(
+                    explicit_cwd.as_deref(),
+                    workspace_cwd.as_deref(),
+                    caller_cwd.as_deref(),
+                    &detail.task.lane,
+                    lane_protection,
+                )?)
+            }
         } else {
-            let workspace_cwd = {
-                let mux = svc.mux.read();
-                let workspace_id = owned_str(p, "workspace_id");
-                workspace_id
-                    .as_deref()
-                    .and_then(|id| mux.get_workspace(id))
-                    .and_then(|workspace| workspace.cwd.clone())
-                    .or_else(|| Some(plan.project_path.clone()))
-            };
-            let caller_cwd = {
-                let mux = svc.mux.read();
-                caller_tab_id
-                    .as_deref()
-                    .and_then(|tab_id| mux.get_tab(tab_id))
-                    .and_then(|tab| tab.cwd.clone())
-            };
-            Some(resolve_dispatch_lane(
-                explicit_cwd.as_deref(),
-                workspace_cwd.as_deref(),
-                caller_cwd.as_deref(),
-                &detail.task.lane,
-                lane_protection,
-            )?)
-        }
-    } else {
-        None
-    };
+            None
+        };
     // Placement decides lane-vs-canonical before a tab exists, so a refusal and
     // a provisioning both happen with nothing yet to clean up.
     let lane_placement = match lane_resolution.as_ref() {

@@ -86,6 +86,11 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   const { notice, setNotice } = stream;
   const state = withOwner(stream.state, ownerName);
   const [interactive, setInteractive] = useSurfaceTakeControl(surfaceTabId);
+  const wasInteractive = useRef(false);
+  useEffect(() => {
+    if (interactive && !wasInteractive.current) stream.onInteraction();
+    wasInteractive.current = interactive;
+  }, [interactive, stream.onInteraction]);
   const [picking, setPicking] = useState(false);
   const [picked, setPicked] = useState<Picked | null>(null);
   const [snipping, setSnipping] = useState(false);
@@ -309,7 +314,7 @@ export function StreamSurfaceView({ visible = true, transport, chrome, surfaceTi
   };
 
   return (
-    <section className="ct-surface" aria-label={label} data-testid="stream-surface" onKeyDown={onRootKeyDown}>
+    <section className="ct-surface" aria-label={label} data-testid="stream-surface" onPointerDownCapture={stream.onInteraction} onKeyDownCapture={stream.onInteraction} onKeyDown={onRootKeyDown}>
       <SurfaceToolbar
         label={label}
         items={items}

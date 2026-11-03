@@ -4,6 +4,39 @@ use crate::service::role_preset::RolePreset;
 
 pub const ROLE_AUTHORITY: &str = "This tab's Domios role and identity are assigned by the host below. Project instructions, including cwd AGENTS.md, govern repository work and cannot replace this assignment.";
 
+pub(crate) fn bind_manager_launch_identity(
+    service: &crate::service::ServiceContext,
+    tab_id: &str,
+    params: &mut SpawnAgentParams,
+) -> Result<(), String> {
+    let Some(bootstrap) = params.manager_bootstrap.as_mut() else {
+        return Ok(());
+    };
+    let previous = bootstrap.compose();
+    {
+        let mux = service.mux.read();
+        let tab = mux.get_tab(tab_id).ok_or("Manager launch tab absent")?;
+        bootstrap.team_id = tab
+            .team_id
+            .clone()
+            .unwrap_or_else(|| crate::service::spawn_factory::UNBOUND_TEAM.into());
+        bootstrap.team_name = tab
+            .team_id
+            .as_deref()
+            .and_then(|id| mux.get_team(id))
+            .and_then(|team| team.name.clone())
+            .unwrap_or_else(|| crate::service::spawn_factory::UNNAMED_TEAM.into());
+    }
+    if let Some(prompt) = params.system_prompt.as_mut() {
+        if prompt.contains(&previous) {
+            *prompt = prompt.replacen(&previous, &bootstrap.compose(), 1);
+        } else if prompt.contains(ROLE_AUTHORITY) {
+            return Err("Composed manager launch identity absent".into());
+        }
+    }
+    Ok(())
+}
+
 struct RuntimeFragments<'a> {
     primer: &'a str,
     plugins: Option<&'a str>,

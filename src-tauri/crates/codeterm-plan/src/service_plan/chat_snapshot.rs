@@ -1,12 +1,12 @@
 use super::PlanStore;
-use crate::plan::{Plan, PlanMode, PlanStatus};
+use crate::plan::Plan;
 use serde_json::{json, Value};
 
-fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) -> Value {
+pub(super) fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) -> Value {
     let tasks: Vec<_> = plan.tasks.iter().filter(|task| {
         query.is_none_or(|query| format!("{} {} {}", task.id, task.display_key(), task.name).to_lowercase().contains(query))
     }).take(*remaining).map(|task| {
-        let milestones: Vec<_> = task.milestones.iter().map(|stride| json!({
+        let milestones: Vec<_> = task.milestones.iter().rev().take(1).map(|stride| json!({
             "id": stride.id, "ts": stride.ts, "kind": stride.kind, "from": stride.from,
             "text": "", "links": [], "loop_id": stride.loop_id, "iteration": stride.iteration, "canvas": stride.canvas
         })).collect();
@@ -25,7 +25,7 @@ fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) -> Value {
             "execution_attempts": attempts,
             "section_ids": task.section_ids, "body": "", "milestones": milestones,
             "canvas": task.canvas,
-            "acceptance_criteria": task.acceptance_criteria.iter().map(|_| "").collect::<Vec<_>>()
+            "acceptance_criteria": task.acceptance_criteria.iter().take(1).map(|_| "").collect::<Vec<_>>()
         })
     }).collect();
     *remaining = remaining.saturating_sub(tasks.len());
@@ -39,58 +39,30 @@ fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) -> Value {
 }
 
 impl PlanStore {
-    pub fn chat_snapshot(
+    pub fn chat_snapshot_for_tab(
         &self,
         project: Option<&str>,
         team: Option<&str>,
         query: Option<&str>,
-    ) -> Vec<Value> {
+        tab: Option<&str>,
+    ) -> Result<Vec<Value>, super::PlanError> {
         let project = project.map(|path| {
             super::paths::project_root(std::path::Path::new(path))
                 .display()
                 .to_string()
         });
         let query = query.map(str::to_lowercase);
-        let mut remaining = if query.is_some() { 50 } else { usize::MAX };
-        let mut result = Vec::new();
-        // The index filters on stored columns, so plans outside project, team and status never load.
-        let mut ids: Vec<String> = self
-            .index
-            .read()
-            .values()
-            .filter(|row| {
-                project
-                    .as_ref()
-                    .is_none_or(|project| *project == row.project_path)
-                    && team.is_none_or(|team| row.team_id.as_deref().unwrap_or("") == team)
-                    && (query.is_none() || row.status == PlanStatus::Active)
-            })
-            .map(|row| row.id.clone())
-            .collect();
-        ids.sort();
-        for id in ids {
-            let Ok(plan) = self.plan_arc(&id) else {
-                continue;
-            };
-            let plan = plan.lock();
-            if query.is_some() && plan.mode == PlanMode::Complete {
-                continue;
-            }
-            let value = snapshot(&plan, query.as_deref(), &mut remaining);
-            if query.as_ref().is_none_or(|query| {
-                plan.title.to_lowercase().contains(query)
-                    || plan.id.contains(query)
-                    || value["tasks"]
-                        .as_array()
-                        .is_some_and(|tasks| !tasks.is_empty())
-            }) {
-                result.push(value);
-            }
-            if query.is_some() && result.len() >= 50 {
-                break;
-            }
-        }
-        result
+        self.database
+            .chat_projection(project.as_deref(), team, query.as_deref(), None, tab)
+    }
+
+    pub fn chat_snapshot(
+        &self,
+        project: Option<&str>,
+        team: Option<&str>,
+        query: Option<&str>,
+    ) -> Result<Vec<Value>, super::PlanError> {
+        self.chat_snapshot_for_tab(project, team, query, None)
     }
 }
 

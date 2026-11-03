@@ -424,11 +424,15 @@ fn plan_pause_resume_paused_plan_suppresses_reminders_heartbeat_and_notices_only
     assert!(!after.contains(&w.worker));
     assert!(after.contains(&w.foreign));
     assert_eq!(
-        w.store.prepend_heartbeat_for_plan(&w.plan_id, "body"),
+        w.store
+            .prepend_heartbeat_for_plan(&w.plan_id, "body")
+            .unwrap(),
         "body"
     );
     assert_ne!(
-        w.store.prepend_heartbeat_for_plan(&w.other_plan_id, "body"),
+        w.store
+            .prepend_heartbeat_for_plan(&w.other_plan_id, "body")
+            .unwrap(),
         "body"
     );
     assert!(plan_notices_suppressed(&w.store.get(&w.plan_id).unwrap()));

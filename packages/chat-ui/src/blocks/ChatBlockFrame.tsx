@@ -90,7 +90,7 @@ export function ChatBlockFrame({
   const hasFooter = confirming !== null || actions.length > 0 || fullPage !== undefined || details !== undefined || !body;
 
   return (
-    <ExpandableReader label={title} enabled={Boolean(details || body)}>{(fullscreen) => (
+    <ExpandableReader label={title} enabled={Boolean(details || body)} openerPlacement="header">{(fullscreen, opener) => (
 
     <section
       data-testid="chat-block"
@@ -114,6 +114,7 @@ export function ChatBlockFrame({
           </div>
           {summary && <div className="ct-card__meta mt-0.5 leading-relaxed">{summary}</div>}
         </div>
+        {opener}
         <BlockMenu source={source} title={title} askText={askText} pinned={pinned} pinnable={pinnable} />
       </header>
 

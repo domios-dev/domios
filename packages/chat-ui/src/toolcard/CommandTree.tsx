@@ -2,10 +2,10 @@ import type { ToolEvent } from "@codeterm/chat-core";
 import { FileCode, Terminal } from "lucide-react";
 import { useMemo, useState, type ReactNode } from "react";
 import { type CommandRow } from "../codeterm/commandShape";
-import { isSend, describeAction } from "../codeterm/templates";
+import { describeAction } from "../codeterm/templates";
 import { usePluginNameResolver } from "../codeterm/PluginNames";
 import type { PluginNameResolver } from "../codeterm/pluginAction";
-import { actionVisual } from "./CodetermActionCard";
+import { actionVisual } from "./toolVisualModel";
 import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
 
 export const COMMAND_TREE_CAP = 3;
@@ -46,7 +46,7 @@ function segmentBranch(row: CommandRow, resolvePlugin?: PluginNameResolver): Bra
   if (row.role === "codeterm") {
     const { lead, object } = describeAction(row.invocation, undefined, undefined, undefined, resolvePlugin);
     const visual = actionVisual(row.invocation);
-    return { kind: "segment", role: row.role, glyph: visual.glyph, color: visual.color, iconColor: isSend(row.invocation) ? "var(--ct-bright-blue)" : undefined, lead, object };
+    return { kind: "segment", role: row.role, glyph: visual.glyph, color: visual.color, iconColor: visual.color, lead, object };
   }
   if (row.role === "script") {
     const { language, lineCount } = row.script;
@@ -93,7 +93,7 @@ export function BranchList({ branches, cap, openIndex, onBranch, renderDetail, l
               className={LINE_CLASS}
             >
               <span aria-hidden="true" className="shrink-0" style={branchColor}>{index === branches.length - 1 ? "└" : "├"}</span>
-              {Glyph && <Glyph aria-hidden="true" size={12} className="shrink-0" style={{ color: branch.iconColor ?? (quiet ? QUIET : branch.color) }} />}
+              {Glyph && <Glyph aria-hidden="true" size={12} className="shrink-0" style={{ color: branch.iconColor ?? branch.color }} />}
               <span
                 data-testid="chat-command-tree-lead"
                 className="min-w-0 truncate"

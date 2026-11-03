@@ -381,10 +381,10 @@ export function CodeBlock({
   const shouldDisplayMermaid = mermaidMode && !shouldUsePlainRenderer && expanded && mermaidSvg !== null;
   const suppressMermaidErrorOutput = mermaidMode && !shouldUsePlainRenderer && mermaidError !== null && mermaidSvg === null;
   return (
-    <ExpandableReader label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"} actionLabel="Fullscreen" onOpen={() => { setExpanded(true); setRichRequested(true); }}>{(fullscreen) => (
+    <ExpandableReader label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"} openerPlacement="header" onOpen={() => { setExpanded(true); setRichRequested(true); }}>{(fullscreen, opener) => (
     <div className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
-      <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
-        <div data-testid="chat-code-toolbar" className="flex select-none items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
+      <div className="ct-reader-surface min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
+        <div data-testid="chat-code-toolbar" className="ct-reader-row flex select-none items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="inline-flex min-w-0 items-baseline gap-1.5">
             <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>
             <span className="opacity-70">{language}</span>
@@ -392,6 +392,7 @@ export function CodeBlock({
             <span className="opacity-70">{lineCountValue} {lineCountValue === 1 ? "line" : "lines"}</span>
           </span>
           <span className="ml-auto" />
+          {opener}
           {canCollapse && (
             <button
               type="button"
@@ -412,8 +413,7 @@ export function CodeBlock({
             onClick={copyText}
             aria-label="Copy code"
             title={copied ? "Copied" : "Copy code"}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-            style={{ color: "var(--ct-muted-fg)" }}
+            className="ct-code-copy inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
             <span>{copied ? "Copied" : "Copy"}</span>

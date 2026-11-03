@@ -574,6 +574,7 @@ async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_park
                 schema_version: 1,
                 installation_id: "cleanup-installation".into(),
                 request_id: "a".repeat(64),
+                signed_registry: None,
                 requested_membership_seconds: None,
                 operation: MeshOperation::Withdraw {
                     expected_metadata_revision: 2,
@@ -599,6 +600,7 @@ async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_park
         assert!(matches!(
             result,
             MeshResult::Withdrawn(WithdrawnResult {
+                signed_registry: None,
                 metadata_revision: 3,
                 ..
             })

@@ -123,6 +123,16 @@ struct TransportBridge {
 }
 #[async_trait]
 impl MeshTransport for TransportBridge {
+    async fn registry_changed(&self, snapshot: &codeterm_entitlements::DetachedGrant) {
+        if let Some(service) = self.service.upgrade() {
+            if service.configuration().mesh.enabled {
+                if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
+                    codeterm_mesh::presence_notice::broadcast_registry_snapshot(&mesh, snapshot)
+                        .await;
+                }
+            }
+        }
+    }
     async fn presence_changed(&self, metadata_revision: u64) {
         presence::notify(&self.service, metadata_revision).await;
     }
@@ -132,6 +142,10 @@ impl MeshTransport for TransportBridge {
             if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
                 let mut manager = mesh.lock();
                 manager.apply_account_state(projected.clone());
+                manager.signed_registry = state
+                    .signed_registry
+                    .as_ref()
+                    .map(|snapshot| snapshot.grant.clone());
                 let own = self.installation_id.as_str();
                 manager.account_installations = state.registry.as_ref().map(|registry| registry.rows.iter()
                     .filter(|row| row.installation_id != own)
@@ -171,6 +185,31 @@ pub struct AccountMeshSnapshot {
     pub view: AccountMeshView,
     pub pairs: Vec<serde_json::Value>,
     pub connections: Vec<codeterm_mesh::manager::PeerConnection>,
+}
+
+fn view_with_peer_memberships(
+    state: &LifecycleState,
+    manager: &codeterm_mesh::MeshManager,
+) -> AccountMeshView {
+    let mut view = state.view();
+    if state.account_epoch != manager.account_state().account_epoch
+        || state.signed_in_account() != manager.account_state().signed_in_account()
+    {
+        return view;
+    }
+    if let Some(registry) = view.registry.as_mut() {
+        for row in &mut registry.rows {
+            if row.active
+                && row.presence != codeterm_account::account_mesh::wire::RegistryPresence::SignedOut
+            {
+                if let Some(expiry) = manager.peer_membership_expiry(&row.installation_id) {
+                    row.membership_expires_at =
+                        Some(row.membership_expires_at.unwrap_or(0).max(expiry));
+                }
+            }
+        }
+    }
+    view
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -364,9 +403,14 @@ impl ServiceContext {
 
     pub async fn account_mesh_snapshot(&self) -> Result<AccountMeshSnapshot, String> {
         let service = self.account_mesh().await?;
+        let state = service.mesh.state();
+        let view = self
+            .try_ext::<crate::MeshStateHandle>()
+            .map(|mesh| view_with_peer_memberships(&state, &mesh.lock()))
+            .unwrap_or_else(|| state.view());
         Ok(AccountMeshSnapshot {
             local_installation_id: service.installation_id.clone(),
-            view: service.mesh.state().view(),
+            view,
             pairs: self.account_mesh_pairs(),
             connections: self
                 .try_ext::<crate::MeshStateHandle>()
@@ -580,11 +624,13 @@ fn fallback_mesh_state(
     use codeterm_mesh::account_mesh::{AccountMeshState, AccountPresence};
     match persisted {
         Ok(record) if !record.signed_out => AccountMeshState {
+            registry_members: None,
             presence: AccountPresence::NeverSignedIn,
             revoked_installations: record.revoked_installations,
             ..AccountMeshState::default()
         },
         _ => AccountMeshState {
+            registry_members: None,
             presence: AccountPresence::SignedOut,
             ..AccountMeshState::default()
         },

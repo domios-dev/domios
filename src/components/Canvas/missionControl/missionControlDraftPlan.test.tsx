@@ -58,6 +58,7 @@ function mission(recordedEvents: number): MissionControlState {
 function boardState(recordedEvents: number): PlanBoardState {
   return {
     plan_id: PLAN_ID,
+    revision: String(recordedEvents),
     task_counts: { pending: 0, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 0 },
     mission_control: mission(recordedEvents),
   };
@@ -92,7 +93,10 @@ function installDaemon(daemon: Daemon) {
     const url = String(input);
     if (url.includes(`/api/teams/${TEAM_ID}/mission-control/state`)) return ok(daemon.team);
     if (url.includes(`/api/plans/${PLAN_ID}/mode`) && init?.method === "POST") return ok({ ok: true });
-    if (url.includes(`/api/plans/${PLAN_ID}/state`)) return ok(daemon.board);
+    if (url.includes(`/api/plans/${PLAN_ID}/projection?view=board`)) {
+      return ok({ ...daemon.team.active_plan, revision: daemon.board.revision });
+    }
+    if (url.includes(`/api/plans/${PLAN_ID}/board-state`)) return ok(daemon.board);
     return missing();
   });
   vi.stubGlobal("fetch", fetchMock);
@@ -245,7 +249,9 @@ describe("drafting active plan on the team Board", () => {
     daemon.team = teamState(APPROVED);
     daemon.board = boardState(2);
     await act(async () => {
-      for (const handler of listeners.get("plan-changed") ?? []) handler({ payload: { plan_id: PLAN_ID } });
+      for (const handler of listeners.get("plan-changed") ?? []) {
+        handler({ payload: { plan_id: PLAN_ID, previous_revision: "1", revision: "2", task_ids: [], reset: false, deleted: false } });
+      }
       await flush();
     });
 

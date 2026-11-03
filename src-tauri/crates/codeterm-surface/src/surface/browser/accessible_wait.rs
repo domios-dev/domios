@@ -124,7 +124,7 @@ impl BrowserRuntime {
         &self,
         page: &PageChannel,
         wait: &AccessibleWait,
-    ) -> Result<bool, String> {
+    ) -> Result<Option<String>, String> {
         let nodes = parse_full_ax_tree(
             &self
                 .send(page, "Accessibility.getFullAXTree", json!({}))
@@ -132,32 +132,58 @@ impl BrowserRuntime {
         )?;
         let target = match query::unique(&nodes, &wait.role, Some(&wait.name)) {
             Ok(target) => target,
-            Err(error) if error.starts_with("not_found:") => return Ok(wait.state == State::Hidden),
+            Err(error) if error.starts_with("not_found:") => {
+                return Ok((wait.state == State::Hidden).then(|| {
+                    format!(
+                        "no accessible {} named {:?} remains at {}",
+                        wait.role,
+                        wait.name,
+                        self.shared.state().url
+                    )
+                }))
+            }
             Err(error) => return Err(error),
         };
-        match wait.state {
-            State::Expanded => Ok(expanded(target) == Some(true)),
+        let matched = match wait.state {
+            State::Expanded => expanded(target) == Some(true),
             State::Checked
             | State::Unchecked
             | State::Pressed
             | State::Unpressed
             | State::Selected
-            | State::Unselected => Ok(control_matches(target, wait.state)),
-            State::Enabled => Ok(!target
+            | State::Unselected => control_matches(target, wait.state),
+            State::Enabled => !target
                 .properties
                 .iter()
-                .any(|p| p.name == "disabled" && p.value.value == Some(Value::Bool(true)))),
+                .any(|p| p.name == "disabled" && p.value.value == Some(Value::Bool(true))),
             State::Visible | State::Hidden => {
                 let Some(id) = target.backend_dom_node_id else {
-                    return Ok(wait.state == State::Hidden);
+                    return Ok((wait.state == State::Hidden).then(|| {
+                        format!(
+                            "{} {:?} has no DOM node at {}",
+                            wait.role,
+                            wait.name,
+                            self.shared.state().url
+                        )
+                    }));
                 };
                 let quads = self
                     .send(page, "DOM.getContentQuads", json!({"backendNodeId":id}))
                     .await?;
                 let visible = super::input::quad_center(&quads).is_some();
-                Ok(visible == (wait.state == State::Visible))
+                visible == (wait.state == State::Visible)
             }
-        }
+        };
+        Ok(matched.then(|| {
+            json!({
+                "role": target.role.as_ref().and_then(|v| v.value.as_ref()).and_then(Value::as_str),
+                "name": target.name.as_ref().and_then(|v| v.value.as_ref()).and_then(Value::as_str),
+                "backendNodeId": target.backend_dom_node_id,
+                "url": self.shared.state().url,
+                "state": format!("{:?}", wait.state)
+            })
+            .to_string()
+        }))
     }
 
     pub(super) async fn wait_accessible(
@@ -185,8 +211,8 @@ impl BrowserRuntime {
             );
             self.evaluate(page, &expression, false).await?;
             loop {
-                if self.accessible_condition(page, &wait).await? {
-                    return Ok("accessible state confirmed".to_string());
+                if let Some(evidence) = self.accessible_condition(page, &wait).await? {
+                    return Ok(format!("accessible state confirmed: {evidence}"));
                 }
                 loop {
                     let event = events

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { usePlanListWindow } from "../usePlanListWindow";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
@@ -73,6 +74,7 @@ function entryToDetail(
 }
 
 export function PlanListView({
+  isActive = true,
   mode,
   plans,
   loading = false,
@@ -89,17 +91,10 @@ export function PlanListView({
   onOpenTab,
   api,
   onClose,
-}: PlanViewSurfaceProps) {
+  onOpenPlanTarget,
+}: PlanViewSurfaceProps & { isActive?: boolean }) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
-  const activeWork = useMemo(
-    () => selectActiveWork(effectivePlans, tabs),
-    [effectivePlans, tabs],
-  );
-  const switcherWithInflight = useMemo(
-    () => enrichSwitcherOptions(switcherOptions, activeWork),
-    [switcherOptions, activeWork],
-  );
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
 
   const filteredPlans = useMemo(
@@ -127,11 +122,24 @@ export function PlanListView({
     return defaultPlanId;
   }, [manualPlanId, orderedPlans, defaultPlanId]);
 
-  const selectedPlan = useMemo(
+  const listedPlan = useMemo(
     () => orderedPlans.find((p) => p.id === selectedPlanId) ?? null,
     [orderedPlans, selectedPlanId],
   );
 
+  const [statusFilter, setStatusFilter] = useState<PlanListStatusFilter>("all");
+  const [textQuery, setTextQuery] = useState("");
+  const projection = usePlanListWindow(isActive ? api : undefined, listedPlan?.id ?? null, statusFilter, textQuery);
+  const selectedPlan = api ? projection.plan ?? listedPlan : listedPlan;
+  const visiblePlans = useMemo(() => selectedPlan ? effectivePlans.map((plan) => plan.id === selectedPlan.id ? selectedPlan : plan) : effectivePlans, [effectivePlans, selectedPlan]);
+  const activeWork = useMemo(
+    () => selectActiveWork(visiblePlans, tabs),
+    [visiblePlans, tabs],
+  );
+  const switcherWithInflight = useMemo(
+    () => enrichSwitcherOptions(switcherOptions, activeWork),
+    [switcherOptions, activeWork],
+  );
   const planActiveWork = useMemo(
     () => (selectedPlan ? activeWork.byPlanId.get(selectedPlan.id) ?? [] : []),
     [activeWork, selectedPlan],
@@ -151,9 +159,7 @@ export function PlanListView({
     [selectedPlan],
   );
   const [fetchedSpecSections, setFetchedSpecSections] = useState<Map<string, Section[]>>(new Map());
-  const [statusFilter, setStatusFilter] = useState<PlanListStatusFilter>("all");
   const [doneFilterExpanded, setDoneFilterExpanded] = useState(false);
-  const [textQuery, setTextQuery] = useState("");
   const [expansionOverrides, setExpansionOverrides] = useState<Map<string, boolean>>(new Map());
   const [detail, setDetail] = useState<ListDetail | null>(null);
 
@@ -172,7 +178,7 @@ export function PlanListView({
   const specSourceId = selectedPlan?.primary_spec_id ?? "";
   const specIsFixture = specPlanId ? fixtureSpecSections.has(specPlanId) : false;
   useEffect(() => {
-    if (!api || !specSourceId || specIsFixture) return;
+    if (!isActive || !api || !specSourceId || specIsFixture) return;
     let active = true;
     void fetchSpecSections(api, specSourceId)
       .then((sections) => (active ? ([specPlanId, sections] as const) : null))
@@ -184,7 +190,7 @@ export function PlanListView({
     return () => {
       active = false;
     };
-  }, [api?.host, api?.port, api?.token, specPlanId, specSourceId, specIsFixture]);
+  }, [isActive, api?.host, api?.port, api?.token, specPlanId, specSourceId, specIsFixture]);
 
   const selectedSpecSections = useMemo(() => {
     if (!selectedPlan) return [] as Section[];
@@ -197,8 +203,8 @@ export function PlanListView({
   );
 
   const cancelledCount = useMemo(
-    () => (selectedPlan ? cancelledTaskCount(selectedPlan) : 0),
-    [selectedPlan],
+    () => api ? projection.plan?.task_window.cancelled ?? 0 : selectedPlan ? cancelledTaskCount(selectedPlan) : 0,
+    [selectedPlan, api, projection.plan],
   );
 
   const rows = useMemo(
@@ -207,10 +213,10 @@ export function PlanListView({
   );
 
   const visibleRows = useMemo(() => {
-    const base = buildVisiblePlanListRows(rows, { statusFilter, textQuery, expansionOverrides });
+    const base = buildVisiblePlanListRows(rows, { statusFilter: api ? "all" : statusFilter, textQuery: api ? "" : textQuery, expansionOverrides });
     if (statusFilter !== "done") return base;
     return boundDoneFilterVisibleRows(base, doneFilterExpanded);
-  }, [rows, statusFilter, textQuery, expansionOverrides, doneFilterExpanded]);
+  }, [rows, statusFilter, textQuery, expansionOverrides, doneFilterExpanded, api]);
 
   const stripEntries = useMemo(
     () => activeWorkEntriesForStrip(planActiveWork, visibleRows),
@@ -230,21 +236,24 @@ export function PlanListView({
     (row: PlanListRow) => {
       if (!selectedPlan || !row.taskId) return;
       const task = findTask(selectedPlan, row.taskId);
-      if (task) setDetail({ kind: "task", task, plan: selectedPlan });
+      if (task && api && onOpenPlanTarget) onOpenPlanTarget({ planId: selectedPlan.id, taskId: task.id, teamId: selectedPlan.team_id });
+      else if (task) setDetail({ kind: "task", task, plan: selectedPlan });
     },
-    [selectedPlan],
+    [selectedPlan, api, onOpenPlanTarget],
   );
   const openActiveWork = useCallback(
     (entry: ActiveWorkEntry) => {
       const plan = orderedPlans.find((p) => p.id === entry.planId);
       if (!plan) return;
-      setDetail({ kind: "task", task: entry.task, plan });
+      if (api && onOpenPlanTarget) onOpenPlanTarget({ planId: plan.id, taskId: entry.task.id, teamId: plan.team_id });
+      else setDetail({ kind: "task", task: entry.task, plan });
     },
-    [orderedPlans],
+    [orderedPlans, api, onOpenPlanTarget],
   );
   const openBelonging = useCallback(() => {
-    if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
-  }, [selectedPlan, selectedSpecSections]);
+    if (selectedPlan && api && onOpenPlanTarget) onOpenPlanTarget({ planId: selectedPlan.id, teamId: selectedPlan.team_id });
+    else if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
+  }, [selectedPlan, selectedSpecSections, api, onOpenPlanTarget]);
 
   const closeDetail = useCallback(() => {
     setDetail(null);
@@ -285,7 +294,7 @@ export function PlanListView({
   }, [navStack, orderedPlans, selectedSpecSections]);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const now = Date.now();
-  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
+  const showsData = Boolean(selectedPlan) || (!projection.loading && !projection.error && planFetchShowsData(loading, error ?? null, plans.length));
 
   return (
     <div
@@ -306,10 +315,10 @@ export function PlanListView({
         </button>
       )}
       <PlanFetchErrorState
-        loading={loading}
-        error={error}
-        itemCount={plans.length}
-        onRetry={onRetry}
+        loading={loading || projection.loading}
+        error={error ?? projection.error}
+        itemCount={selectedPlan ? plans.length : 0}
+        onRetry={projection.error ? projection.retry : onRetry}
         testId="plan-list"
         className="plan-list-state"
       />
@@ -342,7 +351,7 @@ export function PlanListView({
             <PlanContextHeader
               summary={boardModel.planSummary}
               spec={boardModel.spec}
-              onOpenPlan={() => setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections })}
+              onOpenPlan={openBelonging}
               onOpenSpec={
                 boardModel.spec
                   ? () => setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections })
@@ -391,6 +400,11 @@ export function PlanListView({
                 />
               );
             })}
+            {api && projection.plan && <div className="flex items-center gap-3 px-4 py-3 text-xs">
+              <span>{projection.plan.tasks.length} of {projection.plan.task_window.total} tasks</span>
+              {projection.plan.task_window.next_cursor && <button type="button" className="rounded border px-3 py-1" disabled={projection.loadingMore} onClick={() => void projection.loadMore()}>{projection.loadingMore ? "Loading…" : "Load more tasks"}</button>}
+              {projection.moreError && <p role="alert">{projection.moreError}</p>}
+            </div>}
           </div>
         </>
       )}

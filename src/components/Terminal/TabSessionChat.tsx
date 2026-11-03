@@ -23,9 +23,9 @@ import { AskRow, ChatTranscriptRow, OutboundReportRow, type ChatTranscriptRowCon
 import { chatWindowRows } from "./chatWindowRowsModel";
 import { projectChatTranscriptActivity } from "./chatTranscriptActivity";
 import { ChatLiveOperation } from "./ChatLiveOperation";
-import { LocalArtifactScope } from "@codeterm/chat-ui";
+import { CompactToolRowsProvider, LocalArtifactScope } from "@codeterm/chat-ui";
 import { chatMessageAccessibleName } from "./chatMessageAccessibleName";
-import { documentsFromTranscript } from "./chatDocuments";
+import { createDocumentInventory } from "./chatDocuments";
 import { chatDocumentsStore } from "./chatDocumentsStore";
 import { chatChangesStore } from "./chatChangesStore";
 import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
@@ -36,7 +36,7 @@ import {
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
-import { ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
+import { ChatBlockActivityProvider, ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
@@ -261,6 +261,7 @@ function TabSessionChatBody({
   const promptAnswers = descriptor?.supports_prompt_answers === true;
   const structuredPrompts = descriptor?.supports_structured_prompts === true;
   const isActive = isVisible;
+  const transcriptMounted = sessionActive ?? isActive;
   const resolvePeerName = useMeshPeerNameResolver(isActive);
   const resolvePluginName = usePluginDisplayNameResolver();
 
@@ -307,8 +308,8 @@ function TabSessionChatBody({
     agentSessionId,
     sessionBindingNonce: tab?.session_binding_nonce,
     onError,
-    active: sessionActive ?? isActive,
-    retainAttachment: true,
+    active: (sessionActive ?? isActive) || awaitsTranscriptEcho(deliverySends),
+    retainAttachment: false,
     diagnosticSink: chatProjectionMonitor.sink,
     allowUnboundAuthority: effectiveChatBackend,
     localAttempt: lazyFirstTurnComposerIsLive(tab) && tab?.pty_id && tab.session_binding_nonce
@@ -330,15 +331,16 @@ function TabSessionChatBody({
         .then((statuses) => statuses.forEach(observeChatSendStatus)).catch(() => {});
     }
   }, [tabId, expandDeliveryTasks, observeChatSendStatus]);
+  const documentInventory = useMemo(() => createDocumentInventory(), [tabId, agentSessionId, tab?.session_binding_nonce]);
   useEffect(() => {
     chatChangesStore.bind(tabId, JSON.stringify([agentSessionId, tab?.session_binding_nonce]));
   }, [tabId, agentSessionId, tab?.session_binding_nonce]);
   useEffect(() => {
     if (!isActive) return;
-    const documents = documentsFromTranscript(allMessages);
+    const documents = documentInventory(allMessages);
     chatDocumentsStore.set(tabId, documents);
     chatChangesStore.set(tabId, allMessages);
-  }, [tabId, allMessages, isActive]);
+  }, [tabId, allMessages, isActive, documentInventory]);
   const bootSetupView = chatSetupView(tab, attachmentState === "attached");
   const hasTranscript = enrichedMessages.length > 0;
   const localFirstTurnSends = useMemo(() => firstTurnLocalSends(deliverySends, tab?.pty_id, tab?.session_binding_nonce),
@@ -398,7 +400,7 @@ function TabSessionChatBody({
   const liveOperation = renderedEnrichedMessages.find(({ msg }) => msg.id === chatTranscriptActivity.liveToolId)?.msg ?? null;
   const chatUserScrollingRef = useRef(false);
   const mountedWindow = useMountedChatWindow({ rows: renderedEnrichedMessages, scrollRef: sharedScrollRef,
-    active: isActive, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
+    active: transcriptMounted, followTailRef: chatFollowTailRef, sessionKey: `${tabId}:${agentSessionId ?? ""}`, userScrollingRef: chatUserScrollingRef });
   const mountedContentVersion = useMemo(() => ({ enrichedMessages, start: mountedWindow.range.start,
     end: mountedWindow.range.end, revision: mountedWindow.revision }),
     [enrichedMessages, mountedWindow.range.start, mountedWindow.range.end, mountedWindow.revision]);
@@ -872,6 +874,7 @@ function TabSessionChatBody({
       ? {rootThreadId:tab.agent_session_id,bindingNonce:tab.session_binding_nonce,epoch:runtime.state.epoch} : null}>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
+    <ChatBlockActivityProvider active={isActive}>
     <PluginNameProvider resolve={resolvePluginName}>
     <HistoryGapProvider label={historyGapLabel} onLoad={async message => {
       prepareForHistoryPrepend();
@@ -918,6 +921,7 @@ function TabSessionChatBody({
           </span>
         </div>
       )}
+      <CompactToolRowsProvider surfaceRef={scrollRef}>
       <div
         ref={scrollRef}
         onScroll={handleScroll}
@@ -971,7 +975,7 @@ function TabSessionChatBody({
         {isActive && railsVisible && <BlueprintChatCards tabId={tabId} workspaceId={workspaceId} />}
         <div ref={mountedWindow.topSpacerRef} aria-hidden="true" style={{ height: mountedWindow.topSpacer }} />
         <div ref={mountedWindow.rowsRef}>
-        <HoldWhileHidden visible={isActive}>
+        <HoldWhileHidden visible={transcriptMounted}>
         {renderedEnrichedMessages.slice(mountedWindow.range.start, mountedWindow.range.end).map((entry, mountedIndex) => {
           const { msg } = entry;
           const messageIndex = mountedWindow.range.start + mountedIndex;
@@ -1026,6 +1030,7 @@ function TabSessionChatBody({
         <ChatLiveOperation message={liveOperation} />
         </div>
       </div>
+      </CompactToolRowsProvider>
         <ChatSetupState
           visible={isActive}
           waitingMessages={heldMessagesForLaunch(deliverySends)}
@@ -1144,6 +1149,7 @@ function TabSessionChatBody({
     </div>
     </HistoryGapProvider>
     </PluginNameProvider>
+    </ChatBlockActivityProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
     </ChildTranscriptScope>

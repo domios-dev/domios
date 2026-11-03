@@ -62,7 +62,7 @@ export function parseDsTasksMention(text: string): DsTasksMention | null {
   return parseDsTasksInputs(text)[0] ?? null;
 }
 
-function parseDsTasksInputs(text: string): DsTasksMention[] {
+export function parseDsTasksInputs(text: string): DsTasksMention[] {
   const inputs: DsTasksMention[] = [];
   for (const segment of parseDsBlocks(text)) {
     let block = segment.type === "block" ? segment.block : null;
@@ -218,8 +218,8 @@ export function dsTaskRow(task: Task): DsTaskRow {
     status: task.status,
     executor: attempt ? attemptTabTitle(attempt) : null,
     model: clean(attempt?.session_model) ?? clean(attempt?.model) ?? clean(task.model),
-    strides: task.milestones.length,
-    criteria: task.acceptance_criteria?.length ?? 0,
+    strides: task.milestone_count ?? task.milestones.length,
+    criteria: task.criteria_count ?? task.acceptance_criteria?.length ?? 0,
     detached: false,
   };
 }

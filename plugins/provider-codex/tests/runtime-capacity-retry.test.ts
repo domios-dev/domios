@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
-import type { AgentRuntime, RuntimeContext, JsonValue, RuntimeFrame, RuntimeErrorSignal } from "@codeterm/plugin-sdk";
+import type { AgentRuntime, RuntimeContext, JsonValue, RuntimeFrame, RuntimeErrorSignal, ProviderSessionObservations } from "@codeterm/plugin-sdk";
 
 const sandbox = vm.createContext({ module: { exports: {} }, exports: {}, host: {} });
 sandbox.exports = sandbox.module.exports;
@@ -79,3 +79,31 @@ for (const method of ["account/updated", "account/login/completed"]) {
   checks++;
 }
 console.log(`runtime retry signals: ${checks + 4} fixture checks passed; all ${codes.length} named schema variants classified`);
+
+for (const turn of [
+  {status:"failed", error:{message:"Incomplete response returned, reason: max_output_tokens",codexErrorInfo:"other"}},
+  {status:"failed", error:{additionalDetails:"Incomplete response returned, reason: max_output_tokens",codexErrorInfo:"other"}},
+  {status:"incomplete", incomplete_details:{reason:"max_output_tokens"}, message:"fragment-4c8"},
+  {status:"incomplete", finish_reason:"length", message:"fragment-9b3"},
+]) {
+  const result = runtime.runtimeReduce(context, null, [{kind:"notification",method:"turn/completed",params:{threadId:"own",turn:{id:"bounded",...turn}}} as RuntimeFrame]);
+  const error = result.events.find(event => event.kind === "chatItem");
+  assert.ok(error?.kind === "chatItem");
+  assert.equal((error.item.toolInput as RuntimeErrorSignal).retryableKind,"output_limit");
+  assert.ok(result.events.some(event => event.kind === "turnState" && event.detail === "failed"));
+}
+assert.equal(signal("other",undefined,"fragment max_output_tokens fragment").retryableKind,undefined);
+console.log("output limit signals: 5 fixture checks passed");
+
+const provider = runtime as AgentRuntime & {parseSessionObservations(value: unknown): ProviderSessionObservations | null};
+for (const payload of [
+  {type:"error",message:"Incomplete response returned, reason: max_output_tokens"},
+  {type:"error",error:"Incomplete response returned, reason: max_output_tokens"},
+  {type:"task_complete",status:"incomplete",incomplete_details:{reason:"max_output_tokens"}},
+]) {
+  const observation = provider.parseSessionObservations({type:"event_msg",payload});
+  assert.equal(observation?.retry_error?.retryableKind,"output_limit");
+  assert.equal(observation?.clears_api_error,false);
+}
+assert.equal(provider.parseSessionObservations({type:"event_msg",payload:{type:"task_complete"}})?.retry_succeeded,true);
+console.log("transcript output limit signals: 4 fixture checks passed");

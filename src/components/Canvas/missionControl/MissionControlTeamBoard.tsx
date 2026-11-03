@@ -27,6 +27,7 @@ export interface MissionControlTeamBoardProps {
   teamId?: string | null;
   deepLinks?: NeedsYouDeepLinks;
   onOpenPlan?: (planId: string) => void;
+  onOpenTask?: (taskId: string, planId?: string) => void;
 }
 
 /** The team's Board while no plan is active: what the team spent, the plans it ran, what waits, and what happened. */
@@ -41,6 +42,7 @@ export function MissionControlTeamBoard({
   teamId,
   deepLinks,
   onOpenPlan,
+  onOpenTask,
 }: MissionControlTeamBoardProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const layout = useMeasuredLayout(rootRef);
@@ -74,7 +76,7 @@ export function MissionControlTeamBoard({
       <NeedsYouPanel refs={refs} deepLinks={deepLinks} />
       {teamId && <UnderwayBoardRow api={api} teamId={teamId} plans={plans} refs={refs} deepLinks={deepLinks} />}
       <BoardCardReading title="Event log" testId="mc-board-event-log" ready={Boolean(team)} error={error}>
-        {team && <BoardEventLog log={NO_PLAN_LOG} milestoneKinds={[]} refs={refs} pager={team.events} />}
+        {team && <BoardEventLog log={NO_PLAN_LOG} milestoneKinds={[]} refs={refs} pager={team.events} onOpenTask={onOpenTask} />}
       </BoardCardReading>
     </div>
   );

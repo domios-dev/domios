@@ -152,21 +152,25 @@ pub async fn list(
                 .map_err(|_| plan_err(PlanError::BadStatus))
         })
         .transpose()?;
-    let listed = state.svc.plan_store.list_tasks_with_reason(TaskListFilter {
-        project_path: q.project,
-        active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
-        mine_tabs: if mine {
-            caller
-                .as_deref()
-                .map(|id| tab_and_ancestors(&state, id))
-                .unwrap_or_default()
-        } else {
-            Default::default()
-        },
-        unassigned: q.unassigned == Some(true),
-        plan_id: q.plan,
-        status,
-    });
+    let listed = state
+        .svc
+        .plan_store
+        .list_tasks_with_reason(TaskListFilter {
+            project_path: q.project,
+            active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
+            mine_tabs: if mine {
+                caller
+                    .as_deref()
+                    .map(|id| tab_and_ancestors(&state, id))
+                    .unwrap_or_default()
+            } else {
+                Default::default()
+            },
+            unassigned: q.unassigned == Some(true),
+            plan_id: q.plan,
+            status,
+        })
+        .map_err(plan_err)?;
     Ok(list_response(listed))
 }
 
@@ -216,10 +220,7 @@ pub async fn take(
         .svc
         .assign_task_tab_description(&tab_id, &description)
         .map_err(|message| (StatusCode::BAD_REQUEST, Json(json!({ "error": message }))))?;
-    state
-        .svc
-        .ui
-        .emit("plan-changed", json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
     Ok(Json(
         json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))
@@ -241,10 +242,7 @@ pub async fn drop_task(
         .plan_store
         .set_task_assignment(&task_id, None, None, epoch_ms())
         .map_err(plan_err)?;
-    state
-        .svc
-        .ui
-        .emit("plan-changed", json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
     Ok(Json(
         json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }),
     ))

@@ -81,7 +81,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
   const countLabel = `${rows.length} commands`;
 
   return (
-    <ExpandableReader label={title}>{(fullscreen) => (
+    <ExpandableReader label={title} openerPlacement="header">{(fullscreen, opener) => (
     <section
 
       data-testid="chat-command-group"
@@ -90,7 +90,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       aria-label={`Command, ${countLabel}`}
       className="ct-card ct-command-inline mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
     >
-      <div className="ct-command-inline__head flex w-full min-w-0 items-center gap-2 text-xs">
+      <div className="ct-reader-row ct-command-inline__head flex w-full min-w-0 items-center gap-2 text-xs">
       <button
         type="button"
         data-testid="chat-command-group-toggle"
@@ -107,6 +107,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <ToolOutcomeFacts event={event} />
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
       </button>
+      {opener}
       <span className="ct-tool-status-slot">
       <span data-testid="chat-command-group-status" role="status" aria-label={statusName(event.status)} className="ct-tool-status-icon flex items-center justify-center">
         <StatusGlyph status={event.status} />

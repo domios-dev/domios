@@ -83,5 +83,21 @@ pub async fn mesh_link_commit(
         .svc
         .ui
         .emit("mesh-state-changed", serde_json::Value::Null);
-    Ok(Json(LinkCommitReply { committed: true }))
+    if let Some(snapshot) = commit.signed_registry.as_ref() {
+        state
+            .svc
+            .account_mesh_registry_snapshot(snapshot)
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({"error": error})),
+                )
+            })?;
+    }
+    let signed_registry = state.mesh.lock().signed_registry.clone();
+    Ok(Json(LinkCommitReply {
+        committed: true,
+        signed_registry,
+    }))
 }

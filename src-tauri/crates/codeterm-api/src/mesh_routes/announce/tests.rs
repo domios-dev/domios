@@ -34,10 +34,14 @@ struct Authority;
 impl AccountMeshAuthority for Authority {
     fn verify_membership(
         &self,
-        _token: &str,
+        token: &str,
         _now: u64,
     ) -> Result<VerifiedMembership, AdmissionRefusal> {
-        let mut verified = membership("peer-installation", 500).verified;
+        let mut verified = membership(
+            "peer-installation",
+            if token == "renewed-again" { 600 } else { 500 },
+        )
+        .verified;
         verified.slot_revision = 2;
         Ok(verified)
     }
@@ -81,6 +85,7 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
         mesh.set_clock(Arc::new(|| 100));
         mesh.bind_account_authority(Arc::new(Authority));
         mesh.apply_account_state(AccountMeshState {
+            registry_members: None,
             presence: AccountPresence::SignedIn {
                 account_id: "account".into(),
             },
@@ -183,4 +188,77 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
     .into_response();
     assert_eq!(retry.status(), StatusCode::OK);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    let events_before = fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .filter(|(name, _)| name == "mesh-state-changed")
+        .count();
+    let token = codeterm_service_core::mesh::crown::sign_request(&private, PEER).unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+    headers.insert(
+        codeterm_service_core::mesh::version::VERSION_HEADER,
+        codeterm_service_core::mesh::version::local_version()
+            .parse()
+            .unwrap(),
+    );
+    headers.insert(
+        codeterm_service_core::mesh::account_mesh::protocol::MEMBERSHIP_HEADER,
+        "renewed-again".parse().unwrap(),
+    );
+    let announce = PeerAnnounce {
+        registry: None,
+        instance_id: PEER.into(),
+        instance_name: "Peer".into(),
+        addresses: vec![PeerAddress::from_ip("192.0.2.9")],
+        api_port: 7685,
+        online: true,
+        web_ui: None,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+    };
+    let response = announce_with_registry_hint(
+        state.clone(),
+        headers.clone(),
+        announce.clone(),
+        |_, _, _| async { panic!("lease-only announce must not read the registry") },
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.0["changed"], true);
+    assert_eq!(
+        state
+            .mesh
+            .lock()
+            .peer_membership_expiry("peer-installation"),
+        Some(600)
+    );
+    assert_eq!(
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "mesh-state-changed")
+            .count(),
+        events_before + 1
+    );
+    let response = announce_with_registry_hint(state, headers, announce, |_, _, _| async {
+        panic!("duplicate lease must not read the registry")
+    })
+    .await
+    .unwrap();
+    assert_eq!(response.0["changed"], false);
+    assert_eq!(
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "mesh-state-changed")
+            .count(),
+        events_before + 1
+    );
 }

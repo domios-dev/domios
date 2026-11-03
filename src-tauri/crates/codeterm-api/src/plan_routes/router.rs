@@ -7,6 +7,10 @@ use axum::{
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route(
+            "/api/plans/task-reference",
+            get(plan_routes::projections::task_reference),
+        )
         .route("/api/plans", post(plan_routes::create))
         .route(
             "/api/plans/{id}/project",
@@ -39,6 +43,14 @@ pub fn router() -> Router<AppState> {
                 .delete(plan_routes::delete_plan),
         )
         .route("/api/plans/{id}/archive", post(plan_routes::archive))
+        .route(
+            "/api/plans/{id}/projection",
+            get(plan_routes::projections::get),
+        )
+        .route(
+            "/api/plans/{id}/board-state",
+            get(plan_routes::projections::board_state),
+        )
         .route("/api/plans/{id}/unarchive", post(plan_routes::unarchive))
         .route("/api/plans/{id}/pause", post(plan_routes::pause))
         .route(
@@ -113,6 +125,10 @@ pub fn router() -> Router<AppState> {
             get(plan_routes::tasks::task_detail)
                 .patch(plan_routes::task_update)
                 .delete(plan_routes::task_rm),
+        )
+        .route(
+            "/api/plans/{id}/tasks/{tid}/history",
+            get(plan_routes::tasks::history::task_history),
         )
         .route(
             "/api/plans/{id}/tasks/{tid}/close",

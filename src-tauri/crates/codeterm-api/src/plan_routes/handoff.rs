@@ -42,10 +42,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
 }
 
 fn emit_plan_changed(state: &AppState, plan_id: &str) {
-    state
-        .svc
-        .ui
-        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
 }
 
 #[derive(Deserialize, Default)]
@@ -60,17 +57,20 @@ pub async fn create(
     Path(id): Path<String>,
     Json(mut body): Json<HandoffCreateRequest>,
 ) -> HandoffRouteResult {
-    body.from = Some(
-        crate::auth::actor_ref(&state, &headers, body.from)
-            .map_err(|(status, message)| text_err(status, message))?,
-    );
-    let result = state
-        .svc
-        .plan_store
-        .create_handoff(&id, body, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        body.from = Some(
+            crate::auth::actor_ref(&state, &headers, body.from)
+                .map_err(|(status, message)| text_err(status, message))?,
+        );
+        let result = state
+            .svc
+            .plan_store
+            .create_handoff(&id, body, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    })
+    .await
 }
 
 pub async fn list(
@@ -78,8 +78,11 @@ pub async fn list(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> HandoffRouteResult {
-    let result = state.svc.plan_store.list_handoffs(&id).map_err(plan_err)?;
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        let result = state.svc.plan_store.list_handoffs(&id).map_err(plan_err)?;
+        Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    })
+    .await
 }
 
 pub async fn show(
@@ -88,15 +91,18 @@ pub async fn show(
     Path(id): Path<String>,
     Query(query): Query<ShowQuery>,
 ) -> HandoffRouteResult {
-    let selector = if query.latest.unwrap_or(false) {
-        None
-    } else {
-        query.selector.as_deref()
-    };
-    let result = state
-        .svc
-        .plan_store
-        .show_handoff(&id, selector)
-        .map_err(plan_err)?;
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        let selector = if query.latest.unwrap_or(false) {
+            None
+        } else {
+            query.selector.as_deref()
+        };
+        let result = state
+            .svc
+            .plan_store
+            .show_handoff(&id, selector)
+            .map_err(plan_err)?;
+        Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    })
+    .await
 }

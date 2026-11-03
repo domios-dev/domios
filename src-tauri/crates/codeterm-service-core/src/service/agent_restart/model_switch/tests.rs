@@ -74,8 +74,22 @@ fn busy_switch_stages_for_every_host_owned_mode_without_provider_operation() {
         ));
         let outcome = fixture
             .service
-            .agent_switch_model(&tab_id, NEXT_MODEL)
+            .agent_switch_model(&tab_id, &format!("staging-provider:{NEXT_MODEL}"))
             .unwrap();
+        assert_eq!(outcome.requested_model, NEXT_MODEL);
+        assert_eq!(
+            fixture
+                .service
+                .mux
+                .read()
+                .get_tab(&tab_id)
+                .unwrap()
+                .pending_model_selection
+                .as_ref()
+                .unwrap()
+                .model,
+            NEXT_MODEL
+        );
         assert_eq!(outcome.confirmation, ModelSwitchConfirmation::AfterTurn);
         assert_eq!(outcome.mechanism, mode);
         assert!(outcome.restart.is_none());

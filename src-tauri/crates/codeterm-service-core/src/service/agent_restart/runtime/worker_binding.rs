@@ -314,15 +314,19 @@ impl ServiceContext {
                 && detail.task.interruption.owner_tab_id.as_deref() == Some(tab_id)
                 && detail.task.interruption.owner_session_id.as_deref()
                     == Some(request.old_thread.as_str())
-                && self.plan_store.open_attempt_task_for_effort_for_tab(
-                    tab_id,
-                    &request.old_thread,
-                    &request.old_nonce,
-                ) == Some((
-                    request.plan_id.clone(),
-                    request.task_id.clone(),
-                    request.attempt_id.clone(),
-                ))
+                && self
+                    .plan_store
+                    .open_attempt_task_for_effort_for_tab(
+                        tab_id,
+                        &request.old_thread,
+                        &request.old_nonce,
+                    )
+                    .map_err(|error| format!("provider_switch_binding_refused: {error}"))?
+                    == Some((
+                        request.plan_id.clone(),
+                        request.task_id.clone(),
+                        request.attempt_id.clone(),
+                    ))
                 && detail.task.execution_attempts.iter().any(|attempt| {
                     attempt.id == request.attempt_id
                         && attempt.provider.as_deref() == Some(request.provider.as_str())
@@ -535,10 +539,13 @@ impl ServiceContext {
         {
             return Err("provider_switch_binding_refused: source session changed".into());
         }
-        let current = tab.agent_session_id.as_deref().and_then(|session_id| {
-            self.plan_store
+        let current = match tab.agent_session_id.as_deref() {
+            Some(session_id) => self
+                .plan_store
                 .open_attempt_task_for_effort_for_tab(tab_id, session_id, nonce)
-        });
+                .map_err(|error| format!("provider_switch_binding_refused: {error}"))?,
+            None => None,
+        };
         let Some((plan_id, task_id, attempt_id)) = current else {
             return Err(
                 "provider_switch_binding_refused: current task attempt cannot be carried".into(),

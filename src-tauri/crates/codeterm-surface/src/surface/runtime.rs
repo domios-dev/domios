@@ -16,6 +16,8 @@ use codeterm_browser::viewport::ViewportRequest;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SurfaceState {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub viewport_owner: Option<String>,
     pub owner: String,
     pub title: String,
     pub url: String,
@@ -175,8 +177,13 @@ pub trait SurfaceRuntime: Send + Sync {
     fn set_owner_name(&self, name: &str);
     #[cfg(test)]
     fn state(&self) -> SurfaceState;
-    /// Applies `viewport` before any frame reaches the returned stream.
-    async fn connect(self: Arc<Self>, viewport: Option<ViewportRequest>) -> SurfaceEvents;
+    /// Registers the viewer and applies its viewport only when it owns the shared page.
+    async fn connect(
+        self: Arc<Self>,
+        viewport: Option<ViewportRequest>,
+        viewer: Option<String>,
+        viewer_target: Option<String>,
+    ) -> SurfaceEvents;
     async fn call(
         &self,
         ctx: &SurfaceCallCtx,

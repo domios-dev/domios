@@ -67,7 +67,7 @@ const { RichMarkdown } = await import("./MarkdownBody");
 
 test("fullscreen code opens a centred reading view with line numbers and an optional side panel", async () => {
   const open = async (host: HTMLElement) => {
-    const fullscreen = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Fullscreen"));
+    const fullscreen = Array.from(host.querySelectorAll("button")).find((button) => button.getAttribute("aria-label")?.startsWith("Open full screen:"));
     assert(fullscreen, "code exposes fullscreen");
     await act(async () => fullscreen.click());
     const dialog = document.querySelector('[aria-label="Fullscreen code"]');
@@ -219,7 +219,7 @@ test("fullscreen Mermaid fits its viewport and exposes accessible view controls"
   );
   await flushEffects();
   const fullscreen = Array.from(host.querySelectorAll("button"))
-    .find((button) => button.textContent?.includes("Fullscreen"));
+    .find((button) => button.getAttribute("aria-label")?.startsWith("Open full screen:"));
   assert(fullscreen, "Mermaid block exposes fullscreen");
   await act(async () => fullscreen.click());
 

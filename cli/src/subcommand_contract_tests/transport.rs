@@ -25,6 +25,13 @@ const FROZEN: &[(&str, &[&str], Local, MeshRelay, ApiVerdict)] = &[
         ApiVerdict::Unsupported("trace files are local-only; run on the owning instance"),
     ),
     (
+        "diagnostics",
+        &["codeterm", "diagnostics", "memory"],
+        Local::Socket,
+        MeshRelay::Fallthrough,
+        ApiVerdict::Unsupported("memory diagnostics require a local owner shell"),
+    ),
+    (
         "identify",
         &["codeterm", "identify"],
         Local::Socket,
@@ -449,7 +456,7 @@ fn mesh_unsupported_reasons_are_preserved() {
         assert!(body.is_none(), "`{name}` refusal must carry no body");
         checked += 1;
     }
-    assert_eq!(checked, 28, "unsupported command count changed");
+    assert_eq!(checked, 29, "unsupported command count changed");
 }
 
 #[test]

@@ -1,4 +1,22 @@
 #[test]
+fn agent_commands_preserve_qualified_model_selectors_for_service_resolution() {
+    for selector in ["fixture:model-a", "foreign:model-a"] {
+        let spawn =
+            Cli::try_parse_from(["domios", "agent", "spawn", "fixture", "--model", selector])
+                .unwrap();
+        assert!(matches!(spawn.command, crate::Commands::Agent {
+            action: AgentAction::Spawn { model: Some(model), .. }
+        } if model == selector));
+        let switch =
+            Cli::try_parse_from(["domios", "agent", "model", selector, "--tab", "fixture-tab"])
+                .unwrap();
+        assert!(matches!(switch.command, crate::Commands::Agent {
+            action: AgentAction::Model { name: Some(model), .. }
+        } if model == selector));
+    }
+}
+
+#[test]
 fn agent_fork_and_model_force_parse() {
     let fork = Cli::try_parse_from(["codeterm", "agent", "fork", "--tab", "fixture"]).unwrap();
     assert!(

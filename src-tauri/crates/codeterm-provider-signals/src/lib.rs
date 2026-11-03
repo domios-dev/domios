@@ -69,6 +69,7 @@ pub struct RuntimeErrorSignal {
 pub enum RuntimeRetryableErrorKind {
     Transient,
     RateLimitedUntil,
+    OutputLimit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -81,6 +82,7 @@ pub struct ProviderTurnIncident {
     pub turn_stopped: bool,
     pub idempotency_key: String,
     pub pauses_for_exhaustion: bool,
+    pub automatic_recovery: bool,
 }
 
 impl ProviderTurnIncident {
@@ -111,6 +113,7 @@ impl ProviderTurnIncident {
             turn_stopped: true,
             idempotency_key: format!("provider-error:{worker}:{turn_id}:{}", class.as_str()),
             pauses_for_exhaustion: class.pauses_for_exhaustion(),
+            automatic_recovery: observation.retry_error.is_some(),
         })
     }
 }

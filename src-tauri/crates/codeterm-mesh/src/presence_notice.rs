@@ -6,6 +6,9 @@ pub const PATH: &str = "/api/mesh/account-presence";
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, untagged)]
 pub enum PresenceNotice {
+    Snapshot {
+        signed_registry: codeterm_entitlements::DetachedGrant,
+    },
     Presence {
         metadata_revision: u64,
     },
@@ -15,6 +18,20 @@ pub enum PresenceNotice {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         security_digest: Option<String>,
     },
+}
+
+pub async fn broadcast_registry_snapshot(
+    mesh: &MeshState,
+    snapshot: &codeterm_entitlements::DetachedGrant,
+) {
+    broadcast(
+        mesh,
+        PresenceNotice::Snapshot {
+            signed_registry: snapshot.clone(),
+        },
+        false,
+    )
+    .await;
 }
 
 pub async fn broadcast_presence_notice(mesh: &MeshState, metadata_revision: u64) {

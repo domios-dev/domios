@@ -6,8 +6,7 @@ use crate::plan::{
 use codeterm_plan::service_plan::curator::{self, digest, note, ControlLoopUpdate, DueAction};
 use codeterm_types::plan::control_loop::{
     CuratorFailure, CuratorSuspension, CURATOR_ELEVATED_LANES, CURATOR_HIGH_LANES,
-    CURATOR_INITIAL_WINDOW_MS, CURATOR_MAX_OUTPUT_TOKENS, CURATOR_MAX_TURNS, CURATOR_TIMEOUT_MS,
-    CURATOR_TIMEOUT_SECS,
+    CURATOR_MAX_OUTPUT_TOKENS, CURATOR_MAX_TURNS, CURATOR_TIMEOUT_MS, CURATOR_TIMEOUT_SECS,
 };
 use serde_json::json;
 
@@ -57,7 +56,7 @@ impl ServiceContext {
     }
 
     pub(crate) fn curator_heartbeat_body(&self, plan: &Plan) -> String {
-        let heartbeat = self.plan_store.prepend_heartbeat_for_plan(&plan.id, "");
+        let heartbeat = crate::service::plan::heartbeat::prepend_plan_heartbeat(plan, "");
         let actions = crate::service::plan::reminders::composition::action_groups(plan);
         let parked = crate::service::plan::reminders::parked_later_group_summary(plan);
         crate::service::plan::reminders::composition::compose(
@@ -154,10 +153,14 @@ impl ServiceContext {
 
     pub fn control_loop_show(&self, plan_id: &str) -> Result<ControlLoop, String> {
         let now = self.curator_now()?;
-        self.reconcile_curator_id(plan_id, now);
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        self.reconcile_curator_id(plan_id, now)
+            .map_err(|error| error.to_string())?;
+        let read = self
+            .plan_store
+            .status_projection(plan_id, now)
+            .map_err(|error| error.to_string())?;
+        let plan = read.plan();
         let mut state = plan.control_loop.clone();
-        state.refresh_counts(now);
         state.suspended_reason = self.curator_suspended_reason(&plan);
         if state.suspended_reason.is_some() {
             state.next_at = None;
@@ -180,19 +183,29 @@ impl ServiceContext {
         self.plan_store
             .set_control_loop(plan_id, update, now)
             .map_err(|e| e.to_string())?;
-        self.reconcile_curator_id(plan_id, now);
-        self.ui.emit("plan-changed", json!({"plan_id":plan_id}));
+        self.reconcile_curator_id(plan_id, now)
+            .map_err(|error| error.to_string())?;
+        self.emit_committed_plan_changed(&plan_id);
         self.control_loop_show(plan_id)
     }
 
-    fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
+    pub(crate) fn curator_suspended_reason(&self, plan: &Plan) -> Option<CuratorSuspension> {
+        self.curator_suspended_reason_for_state(
+            plan,
+            crate::service::plan::heartbeat::is_plan_complete(plan),
+        )
+    }
+
+    pub(crate) fn curator_suspended_reason_for_state(
+        &self,
+        plan: &Plan,
+        complete: bool,
+    ) -> Option<CuratorSuspension> {
         if !self.configuration().orchestration.plan_reminders {
             Some(CuratorSuspension::RemindersDisabled)
         } else if plan.mode == PlanMode::Paused {
             Some(CuratorSuspension::Paused)
-        } else if plan.mode == PlanMode::Complete
-            || plan.status == PlanStatus::Archived
-            || crate::service::plan::heartbeat::is_plan_complete(plan)
+        } else if plan.mode == PlanMode::Complete || plan.status == PlanStatus::Archived || complete
         {
             Some(CuratorSuspension::Complete)
         } else if self.curator_human_wait(plan) {
@@ -270,8 +283,7 @@ impl ServiceContext {
                 )?;
             }
         }
-        self.ui
-            .emit("plan-changed", json!({"plan_id":identity.plan_id}));
+        self.emit_committed_plan_changed(&identity.plan_id);
         if let Some(error) = result_delivery_error {
             return Err(format!(
                 "round finalized; Orchestrator result delivery failed: {error}"

@@ -148,9 +148,9 @@ pub(crate) async fn from_lease(
     frames: Arc<FrameHub>,
 ) -> Result<Runtime, String> {
     let browser = lease.browser.clone();
-    let (page, window_id) = prepare(&browser.client, Some(viewport)).await?;
+    let (page, window_id, native_dpr) = prepare(&browser.client, Some(viewport)).await?;
     lease.target_id = Some(page.target_id().to_string());
-    let screencast = ScreencastDriver::spawn(page.clone(), frames);
+    let screencast = ScreencastDriver::spawn(page.clone(), frames, native_dpr);
     Ok(Runtime {
         mode: BrowserMode::Launched {
             profile: browser.profile.clone(),
@@ -184,8 +184,8 @@ pub(super) async fn attach(http_base: &str, frames: Arc<FrameHub>) -> Result<Run
         .await
         .map_err(|error| format!("GET {version_url}: {error}"))?;
     let endpoint = version_endpoint(&body)?;
-    let (client, page, window_id) = connect(&endpoint, None).await?;
-    let screencast = ScreencastDriver::spawn(page.clone(), frames);
+    let (client, page, window_id, native_dpr) = connect(&endpoint, None).await?;
+    let screencast = ScreencastDriver::spawn(page.clone(), frames, native_dpr);
     Ok(Runtime {
         mode: BrowserMode::Attached {
             http_base: http_base.to_string(),
@@ -215,19 +215,19 @@ pub fn version_endpoint(body: &Value) -> Result<String, String> {
 async fn connect(
     endpoint: &str,
     owned_viewport: Option<Viewport>,
-) -> Result<(CdpClient, PageChannel, Option<i64>), String> {
+) -> Result<(CdpClient, PageChannel, Option<i64>, Option<f64>), String> {
     let client = CdpClient::connect(endpoint).await?;
     let prepared = prepare(&client, owned_viewport).await;
     if prepared.is_err() {
         client.close("page setup failed");
     }
-    prepared.map(|(page, window_id)| (client, page, window_id))
+    prepared.map(|(page, window_id, native_dpr)| (client, page, window_id, native_dpr))
 }
 
 async fn prepare(
     client: &CdpClient,
     owned_viewport: Option<Viewport>,
-) -> Result<(PageChannel, Option<i64>), String> {
+) -> Result<(PageChannel, Option<i64>, Option<f64>), String> {
     let cdp = |error: super::cdp::CdpError| error.to_string();
     let target_id = if owned_viewport.is_some() {
         match create_target(client).await {
@@ -318,7 +318,7 @@ async fn prepare_target(
     client: &CdpClient,
     target_id: &str,
     owned_viewport: Option<Viewport>,
-) -> Result<(PageChannel, Option<i64>), String> {
+) -> Result<(PageChannel, Option<i64>, Option<f64>), String> {
     let cdp = |error: super::cdp::CdpError| error.to_string();
     let mut attached = client.subscribe(EventFilter {
         session: SessionFilter::Browser,
@@ -344,8 +344,23 @@ async fn prepare_target(
         .await
         .map_err(cdp)?;
     let Some(viewport) = owned_viewport else {
-        return Ok((page, None));
+        return Ok((page, None, None));
     };
+    let native_dpr = page
+        .send(
+            "Runtime.evaluate",
+            json!({ "expression": "window.devicePixelRatio", "returnByValue": true }),
+        )
+        .await
+        .map_err(cdp)?
+        .pointer("/result/value")
+        .and_then(Value::as_f64)
+        .filter(|dpr| dpr.is_finite() && *dpr > 0.0)
+        .ok_or("the browser returned an invalid native devicePixelRatio")?;
+    log::debug!(
+        "[browser-viewport] native target={} dpr={native_dpr}",
+        page.target_id()
+    );
     let version = client
         .send("Browser.getVersion", json!({}))
         .await
@@ -367,7 +382,7 @@ async fn prepare_target(
         .ok()
         .and_then(|result| result.get("windowId").and_then(Value::as_i64));
     apply_viewport(client, &page, window_id, viewport).await?;
-    Ok((page, window_id))
+    Ok((page, window_id, Some(native_dpr)))
 }
 
 pub(super) async fn apply_viewport(
@@ -376,6 +391,11 @@ pub(super) async fn apply_viewport(
     window_id: Option<i64>,
     viewport: Viewport,
 ) -> Result<(), String> {
+    log::debug!(
+        "[browser-viewport] emulation target={} viewport={viewport:?} device={:?}",
+        page.target_id(),
+        viewport.device_size()
+    );
     if let Some(window_id) = window_id {
         let bounds = json!({ "windowId": window_id, "bounds": { "width": viewport.width, "height": viewport.height } });
         if let Err(error) = client.send("Browser.setWindowBounds", bounds).await {
@@ -389,7 +409,23 @@ pub(super) async fn apply_viewport(
             "height": viewport.height,
             "deviceScaleFactor": viewport.dpr,
             "mobile": viewport.mobile,
+            // Device metrics alone leave the compositor at the native display density.
+            "viewport": { "x": 0, "y": 0, "width": viewport.width, "height": viewport.height, "scale": 1 },
         }),
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+    let touch = if viewport.mobile {
+        json!({"enabled":true,"maxTouchPoints":5})
+    } else {
+        json!({"enabled":false})
+    };
+    page.send("Emulation.setTouchEmulationEnabled", touch)
+        .await
+        .map_err(|error| error.to_string())?;
+    page.send(
+        "Emulation.setEmitTouchEventsForMouse",
+        json!({"enabled":viewport.mobile,"configuration":"mobile"}),
     )
     .await
     .map(|_| ())

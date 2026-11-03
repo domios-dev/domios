@@ -736,8 +736,8 @@ impl ServiceContext {
                 let heartbeat = if plain {
                     String::new()
                 } else {
-                    self.plan_store.prepend_heartbeat_with_selected_learnings(
-                        &plan.id,
+                    crate::service::plan::heartbeat::prepend_plan_heartbeat_with_selection(
+                        plan,
                         "",
                         &digests,
                         decision.learning_ids.as_deref(),

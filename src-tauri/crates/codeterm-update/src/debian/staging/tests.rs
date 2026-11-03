@@ -32,6 +32,46 @@ fn cleanup_requires_owned_unused_and_stale() {
 }
 
 #[test]
+fn failed_handoff_and_package_are_removed_only_after_their_helpers_release_them() {
+    let root = tempfile::tempdir().unwrap();
+    for filename in ["handoff.json", "domios-update.deb"] {
+        let directory = private_directory(root.path()).unwrap();
+        let path = directory.keep();
+        std::fs::write(path.join(filename), "fixture").unwrap();
+        std::fs::write(path.join("handoff-failure.txt"), "failed").unwrap();
+        let lease = StageLease::acquire(&path).unwrap();
+        #[cfg(unix)]
+        if filename == "handoff.json" {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o775)).unwrap();
+            assert!(StageLease::acquire(&path).is_err());
+        }
+        cleanup(root.path());
+        assert!(path.join(filename).exists());
+        drop(lease);
+        cleanup(root.path());
+        assert!(!path.exists());
+    }
+    let fresh = private_directory(root.path()).unwrap();
+    cleanup(root.path());
+    assert!(fresh.path().exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn cleanup_refuses_a_symlink_in_place_of_the_lease() {
+    let root = tempfile::tempdir().unwrap();
+    let directory = private_directory(root.path()).unwrap();
+    let foreign = root.path().join("foreign");
+    std::fs::write(&foreign, "keep").unwrap();
+    std::os::unix::fs::symlink(&foreign, directory.path().join("in-use")).unwrap();
+    std::fs::write(directory.path().join("handoff-failure.txt"), "failed").unwrap();
+    cleanup(root.path());
+    assert!(directory.path().exists());
+    assert_eq!(std::fs::read_to_string(foreign).unwrap(), "keep");
+}
+
+#[test]
 fn lease_excludes_other_installers_and_cleanup() {
     let mut directory = tempfile::Builder::new();
     directory.prefix(PREFIX);

@@ -14,7 +14,7 @@ function assert(label: string, cond: boolean) {
 }
 
 console.log("webEvents RESYNC_EVENTS:");
-assert("resyncs plan-changed (plan-list convergence)", RESYNC_EVENTS.includes("plan-changed"));
+assert("committed plan changes are never fabricated during resync", !RESYNC_EVENTS.includes("plan-changed" as typeof RESYNC_EVENTS[number]));
 assert("resyncs mesh-state-changed", RESYNC_EVENTS.includes("mesh-state-changed"));
 assert(
   "does NOT resync config-changed (handler applies payload directly)",

@@ -27,23 +27,26 @@ pub async fn milestone_add(
     Path((id, tid)): Path<(String, String)>,
     Json(body): Json<MilestoneAddBody>,
 ) -> PlanRouteResult {
-    let from = crate::auth::actor_ref(&state, &headers, body.from)
-        .map_err(|(status, message)| text_err(status, message))?;
-    let mid = state
-        .svc
-        .plan_store
-        .add_milestone(
-            &id,
-            &tid,
-            &body.kind,
-            &body.text,
-            from,
-            body.add_kind,
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "milestone_id": mid })))
+    crate::plan_routes::run_blocking(move || {
+        let from = crate::auth::actor_ref(&state, &headers, body.from)
+            .map_err(|(status, message)| text_err(status, message))?;
+        let mid = state
+            .svc
+            .plan_store
+            .add_milestone(
+                &id,
+                &tid,
+                &body.kind,
+                &body.text,
+                from,
+                body.add_kind,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "milestone_id": mid })))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -60,20 +63,23 @@ pub async fn milestone_update(
     Path((id, tid, ms_id)): Path<(String, String, String)>,
     Json(body): Json<MilestoneUpdateBody>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .update_milestone(
-            &id,
-            &tid,
-            &ms_id,
-            body.kind.as_deref(),
-            body.text.as_deref(),
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .update_milestone(
+                &id,
+                &tid,
+                &ms_id,
+                body.kind.as_deref(),
+                body.text.as_deref(),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 pub async fn milestone_rm(
@@ -81,11 +87,14 @@ pub async fn milestone_rm(
     _headers: HeaderMap,
     Path((id, tid, ms_id)): Path<(String, String, String)>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .rm_milestone(&id, &tid, &ms_id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .rm_milestone(&id, &tid, &ms_id, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }

@@ -5,6 +5,7 @@ use codeterm_plugin::agent_runtime::{
     RuntimeErrorSignal, RuntimeRetryableErrorKind, RuntimeTurnDetail, RuntimeTurnState,
 };
 
+mod notice;
 pub(crate) mod transcript;
 
 const MAX_ATTEMPTS: u8 = 10;
@@ -16,6 +17,10 @@ pub(super) struct RetryState {
     pending: Option<String>,
     cancelled: std::collections::HashSet<String>,
     error: Option<(String, RuntimeErrorSignal)>,
+    output_continued: bool,
+    stopped: bool,
+    reason: Option<String>,
+    last_failure: Option<String>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -27,33 +32,60 @@ enum Decision {
 }
 
 impl RetryState {
+    fn clear_cycle(&mut self) {
+        self.attempts = 0;
+        self.output_continued = false;
+        self.stopped = false;
+        self.error = None;
+        self.reason = None;
+        self.last_failure = None;
+    }
+
     fn finish(&mut self, turn: &str, detail: Option<&RuntimeTurnDetail>, now: u64) -> Decision {
         if detail.is_none() {
-            self.attempts = 0;
-            self.error = None;
+            self.clear_cycle();
             return Decision::Reset;
         }
         if detail != Some(&RuntimeTurnDetail::Failed) {
             self.error = None;
             return Decision::Ignore;
         }
-        let Some((error_turn, signal)) = self.error.take() else {
-            return Decision::Ignore;
-        };
-        if error_turn != turn || signal.retryable || self.attempts >= MAX_ATTEMPTS {
+        if self.stopped {
             return Decision::Ignore;
         }
+        let Some((error_turn, signal)) = self.error.take() else {
+            if self.last_failure.as_deref() == Some(turn) {
+                return Decision::Ignore;
+            }
+            self.stopped = true;
+            return Decision::Stopped;
+        };
+        if error_turn != turn || signal.retryable {
+            return Decision::Ignore;
+        }
+        self.last_failure = Some(turn.into());
+        if signal.retryable_kind == Some(RuntimeRetryableErrorKind::OutputLimit) {
+            self.reason.get_or_insert_with(|| "output limit".into());
+        }
         let at = match (signal.retryable_kind, signal.retry_at_ms) {
+            (Some(RuntimeRetryableErrorKind::OutputLimit), _) if !self.output_continued => {
+                self.output_continued = true;
+                now
+            }
             (Some(RuntimeRetryableErrorKind::Transient), _) => now.saturating_add(DELAY_MS),
             (Some(RuntimeRetryableErrorKind::RateLimitedUntil), Some(at))
                 if at > now && at <= 9_007_199_254_740_991 =>
             {
                 at
             }
-            _ => return Decision::Ignore,
+            _ => {
+                self.stopped = true;
+                return Decision::Stopped;
+            }
         };
         self.attempts += 1;
         if self.attempts == MAX_ATTEMPTS {
+            self.stopped = true;
             Decision::Stopped
         } else {
             Decision::Schedule {
@@ -99,8 +131,7 @@ fn reset(svc: &ServiceContext, session: &engine::Session) -> Result<(), String> 
     let tab = session.context.lock().tab_id.clone();
     let mut retry = session.capacity_retry.lock();
     remove_pending(svc, &tab, &mut retry)?;
-    retry.attempts = 0;
-    retry.error = None;
+    retry.clear_cycle();
     drop(retry);
     crate::delayed_send::emit_changed(svc, &tab);
     Ok(())
@@ -138,15 +169,23 @@ pub(super) async fn observe(
         {
             if let Some(turn) = item.tool_flow_id.as_deref() {
                 if !session.completions.lock().contains(thread_id, turn) {
-                    let signal = (item.system_subtype.as_deref() == Some("api_error"))
-                        .then(|| {
-                            item.tool_input.as_ref().and_then(|value| {
-                                serde_json::from_value::<RuntimeErrorSignal>(value.clone()).ok()
-                            })
+                    let mut signal = item
+                        .tool_input
+                        .as_ref()
+                        .and_then(|value| {
+                            serde_json::from_value::<RuntimeErrorSignal>(value.clone()).ok()
                         })
-                        .flatten();
-                    session.capacity_retry.lock().error =
-                        signal.map(|signal| (turn.into(), signal));
+                        .unwrap_or(RuntimeErrorSignal {
+                            retryable: false,
+                            retryable_kind: None,
+                            retry_at_ms: None,
+                        });
+                    if item.system_subtype.as_deref() == Some("provider_retry") {
+                        signal.retryable = true;
+                    }
+                    let mut retry = session.capacity_retry.lock();
+                    retry.error = Some((turn.into(), signal));
+                    retry.reason = Some(item.content.clone());
                 }
             }
         }
@@ -169,9 +208,11 @@ pub(super) async fn observe(
             let turn = turn.clone();
             let detail = *detail;
             let tab = context.tab_id.clone();
+            let nonce = context.binding_nonce.clone();
             let line = tokio::task::spawn_blocking(move || {
                 let mut retry = owned_session.capacity_retry.lock();
                 let decision = retry.finish(&turn, detail.as_ref(), at);
+                let stopped = decision == Decision::Stopped;
                 let line = apply_decision(
                     &service,
                     &context.tab_id,
@@ -179,13 +220,21 @@ pub(super) async fn observe(
                     &mut retry,
                     decision,
                 )?;
-                Ok::<_, String>(line)
+                Ok::<_, String>((line, stopped))
             })
             .await
             .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
             .map_err(RuntimeFailure::HookFailed)?;
             crate::delayed_send::emit_changed(svc, &tab);
-            if let Some(line) = line {
+            if line.1 {
+                notice::stopped(
+                    svc,
+                    &tab,
+                    &nonce,
+                    line.0.as_deref().unwrap_or("Turn failed"),
+                );
+            }
+            if let Some(line) = line.0 {
                 publish_line(svc, session, line, at);
             }
         }
@@ -209,7 +258,7 @@ fn apply_decision(
         }
         Decision::Stopped => {
             remove_pending(svc, tab, retry)?;
-            Ok(Some("Automatic retry stopped after 10 attempts. Choose another model or send a new turn.".into()))
+            Ok(Some(format!("Automatic recovery stopped: {}. Recover with: domios send --tab {tab} \"continue\"", retry.reason.as_deref().unwrap_or("turn failed"))))
         }
         Decision::Schedule { attempt, at } => {
             remove_pending(svc, tab, retry)?;

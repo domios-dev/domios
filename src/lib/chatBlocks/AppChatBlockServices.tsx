@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
-import { ChatBlockHostProvider, type ChatBlockHost } from "@codeterm/chat-ui";
+import { ChatBlockHostProvider, decodeTasksBlockKey, type ChatBlockHost, type ChatMentionValue } from "@codeterm/chat-ui";
 import { hostAutomationAdapter, AUTOMATION_GRAPH_EVENT } from "../../components/Automation/hostAdapter";
 import { ALL_JOBS_SCOPE } from "../../components/Automation/types";
 import { useSidebarPlansOptional } from "../../components/Canvas/PlansProvider";
@@ -20,6 +20,17 @@ import { createJobBlockHost } from "./jobBlockHost";
 import { createJobsBlockStore } from "./jobsBlockStore";
 import { createMentionHost } from "./mentionHost";
 import { createTasksBlockHost, type PlansSnapshot } from "./tasksBlockHost";
+import { fetchPlans, fetchPlanTaskReference } from "../../components/Canvas/plansApi";
+import type { PlanProjection } from "../../components/Canvas/planProjection";
+import { planRevision } from "../../components/Canvas/planProjection";
+import type { Plan } from "../../components/Canvas/types";
+import { webRequestContext } from "../webApi";
+import { mentionScopeForTab } from "../mentionSources/scope";
+import { watchMentionState } from "../mentionSources/live";
+import { resolveTabRef } from "./agentBlockState";
+import { createScopedPlanBlockRead } from "./scopedPlanBlockRead";
+import { watchPlanBlockChanges } from "./watchPlanBlockChanges";
+import { readTasksBlockPlan } from "./readTasksBlockPlan";
 import { createValueFeed } from "./valueFeed";
 
 const JOB_EVENTS = ["cron-run-finished", "cron-fired", AUTOMATION_GRAPH_EVENT];
@@ -70,9 +81,37 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       workspaceIds: () => mux.getState().workspaces.map((workspace) => workspace.id),
       watch: watchJobEvents,
     });
+    const epoch=()=>JSON.stringify([webRequestContext(),live.current.api.enabled,live.current.api.host,live.current.api.port,live.current.api.token]);
+    const watch=(changed:Parameters<typeof watchPlanBlockChanges>[0])=>{
+      const offPlans=watchPlanBlockChanges(changed);
+      const offScope=watchMentionState(mux,()=>changed());
+      return {ready:offPlans.ready,stop:()=>{offPlans.stop();offScope();}};
+    };
+    const tasks=createScopedPlanBlockRead<PlanProjection>({
+      epoch,watch,
+      read:(key,signal)=>{const spec=decodeTasksBlockKey(key);if(!spec)throw new Error("Task card is invalid");return readTasksBlockPlan(live.current.api,spec,signal);},
+      targets:(key,_value,change)=>decodeTasksBlockKey(key)?.planId===change.plan_id,
+      revision:planRevision,
+    });
+    const agentPlans=createScopedPlanBlockRead<readonly Plan[]>({
+      epoch,watch,
+      read:async(ref,signal)=>{
+        const tab=resolveTabRef(mux.getState().tabs,ref);
+        return tab ? fetchPlans(live.current.api,signal,{chat:true,tabId:tab.id}) : [];
+      },
+    });
+    const references=createScopedPlanBlockRead<ChatMentionValue|null>({
+      epoch,watch,
+      read:async(key,signal)=>{
+        const [tabId,,reference]=JSON.parse(key) as [string,string,string];
+        const scope=mentionScopeForTab(mux.getState(),tabId);
+        const found=await fetchPlanTaskReference(live.current.api,reference,scope.projectPath,scope.teamId,signal);
+        return found ? {title:`${found.key} ${found.name}`,kind:"task",id:reference,planId:found.plan_id,targetId:found.task_id,teamId:found.team_id,scopeKey:JSON.stringify([scope.projectPath,scope.teamId])} : null;
+      },
+    });
     return {
       mentions: createMentionHost({
-        mux, plans: plainPlans,
+        mux, plans: plainPlans, taskReferences:references,
         readGraph: async (scope, signal) => {
           const graphs = await Promise.all((scope.teamId ? [scope.teamId, null] : [null]).map((teamId) => hostAutomationAdapter.read({ connection_id: "composer", workspace_id: scope.workspaceId!, team_id: teamId }, signal)));
           return { ...graphs[0], nodes: graphs.flatMap((graph) => graph.nodes) };
@@ -87,7 +126,7 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
       }),
       agents: createAgentBlockHost({
         mux: muxSource,
-        plans: plainPlans,
+        plans: plainPlans, scopedPlans:agentPlans,
         providerName: (agentType) => getAgentDescriptor(agentType)?.display_name ?? null,
         selectTab: (workspaceId, tabId) => live.current.selectTabByTab(workspaceId, tabId),
         interrupt: (args) => invoke("interrupt_agent", args),
@@ -118,7 +157,7 @@ export function AppChatBlockServices({ api, children }: { api: ApiConfig; childr
           memory: () => openPanel("memory"),
         },
       }),
-      tasks: createTasksBlockHost(plansFeed, (target: PlanTarget) => live.current.navigate(target)),
+      tasks: createTasksBlockHost(plansFeed, (target: PlanTarget) => live.current.navigate(target),tasks),
     };
   }, [mux, plainPlans, plansFeed]);
 

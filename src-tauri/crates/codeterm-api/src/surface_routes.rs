@@ -104,6 +104,10 @@ pub(crate) async fn close(
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct StreamQuery {
     #[serde(default)]
+    viewer: Option<String>,
+    #[serde(default)]
+    viewer_target: Option<String>,
+    #[serde(default)]
     w: Option<f64>,
     #[serde(default)]
     h: Option<f64>,
@@ -127,9 +131,15 @@ pub(crate) async fn stream(
     Path(tab_id): Path<String>,
     Query(query): Query<StreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, Refusal> {
-    let events = open_surface_stream(&state.svc, &tab_id, stream_viewport(&query))
-        .await
-        .map_err(surface_refusal)?;
+    let events = open_surface_stream(
+        &state.svc,
+        &tab_id,
+        stream_viewport(&query),
+        query.viewer,
+        query.viewer_target,
+    )
+    .await
+    .map_err(surface_refusal)?;
     let events = events.map(|event| {
         let (name, data) = sse_payload(&event);
         Ok(Event::default().event(name).data(data))
