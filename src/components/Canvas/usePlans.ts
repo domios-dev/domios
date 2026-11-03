@@ -17,14 +17,15 @@ export interface UsePlansResult {
 
 export interface UsePlansOptions {
   chat?: boolean;
+  tabId?: string;
   enabled?: boolean;
   project?: string | null;
   contextKey?: number;
 }
 
-export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlansResult {
-  const enabled = options.enabled ?? true;
-  const key = enabled ? JSON.stringify([api.host, api.port, api.token, options.project, options.chat, options.contextKey]) : null;
+export function usePlans(api: ApiConfig | undefined, options: UsePlansOptions = {}): UsePlansResult {
+  const enabled = (options.enabled ?? true) && Boolean(api?.enabled);
+  const key = enabled ? JSON.stringify([api?.host, api?.port, api?.token, options.project, options.chat, options.tabId, options.contextKey]) : null;
   const selected = useRef(key);
   selected.current = key;
   const [state, setState] = useState<{ key: string | null; plans: PlanProjection[]; loading: boolean; error: string | null }>({
@@ -34,6 +35,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
   const refetch = useCallback(() => refresh.current(), []);
   const project = options.project;
   const chat = options.chat;
+  const tabId = options.tabId;
 
   useEffect(() => {
     let active = true;
@@ -58,7 +60,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       listRead = request;
       publish(null, plans.size === 0);
       try {
-        const result = await fetchPlans(api, request.signal, { project, chat });
+        const result = await fetchPlans(api!, request.signal, { project, chat, tabId });
         if (!current() || request.signal.aborted) return;
         const previous = new Map(plans);
         plans.clear();
@@ -85,7 +87,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       observed.set(change.plan_id, revision);
       const old = plans.get(change.plan_id);
       if (old && comparePlanRevisions(old.revision, revision) >= 0) return;
-      if (listRead) { await load(); return; }
+      if (listRead || tabId) { await load(); return; }
       patches.get(change.plan_id)?.abort();
       const request = new AbortController();
       patches.set(change.plan_id, request);
@@ -94,7 +96,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
         publish();
       }
       try {
-        const plan = await fetchPlanProjection(api, change.plan_id, chat ? "chat" : "summary", request.signal, project);
+        const plan = await fetchPlanProjection(api!, change.plan_id, chat ? "chat" : "summary", request.signal, project);
         if (!current() || request.signal.aborted) return;
         if (comparePlanRevisions(plan.revision, revision) < 0) throw new Error("Plan projection predates the committed change.");
         plans.set(plan.id, plan);
@@ -126,7 +128,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       cancelPatches();
       for (const stop of stops) stop();
     };
-  }, [key, api.host, api.port, api.token, project, chat]);
+  }, [key, api?.host, api?.port, api?.token, project, chat, tabId]);
 
   const current = state.key === key;
   return {

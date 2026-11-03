@@ -718,6 +718,7 @@ function ChatComposerImpl({
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
       {contextSlot && createPortal(
         <ComposerContextHeader
+          isActive={isActive}
           pluginError={pluginError}
           sessionIntent={sessionIntent}
           tabId={tabId}

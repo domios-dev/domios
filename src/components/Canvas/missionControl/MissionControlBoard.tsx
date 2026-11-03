@@ -86,7 +86,7 @@ export function MissionControlBoard({
       data-board-layout={layout}
       className="mc-board"
     >
-      <ConnectedPlanSettings key={plan.id} plan={plan} api={api} initial={state?.control_loop ?? plan.control_loop} now={now} />
+      <ConnectedPlanSettings key={plan.id} plan={plan} api={api} initial={state?.control_loop ?? plan.control_loop} fromSnapshot={Boolean(api)} now={now} />
       {spendError && <InlineErrorNotice role="alert" error={spendError} operation="loading team spend" />}
       {error && (
         <div data-testid="mc-board-error"><InlineErrorNotice error={error} operation="loading plans" /></div>

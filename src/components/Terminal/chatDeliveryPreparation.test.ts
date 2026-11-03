@@ -69,3 +69,21 @@ test("desktop remote-control host failures keep the underlying reason in the bub
     __setInvokeForTest(null);
   }
 });
+
+
+test("asynchronous requested task expansion completes before prepared content replaces the draft", async () => {
+  const tab = "task-window-preparation";
+  addChatSend(tab,{id:"tasks",content:"pending",sentAtMs:20});
+  setChatSendDraft(tab,"tasks",{text:"<ds-tasks />",attachments:[],recordedVoiceAttachments:[],capsules:{},reply:null});
+  const original=readChatSends(tab)[0];
+  let finish!: (value: {kind:"expanded";text:string})=>void;
+  const window=new Promise<{kind:"expanded";text:string}>((resolve)=>{finish=resolve;});
+  const preparing=prepareChatDelivery(tab,original,()=>window);
+  assert.equal(readChatSends(tab)[0].content,"pending");
+  assert.ok(readChatSends(tab)[0].draft);
+  finish({kind:"expanded",text:"Requested task window"});
+  assert.equal(await preparing,"Requested task window");
+  assert.equal(readChatSends(tab)[0].content,"Requested task window");
+  assert.equal(readChatSends(tab)[0].draft,undefined);
+  assert.equal(readChatSends(tab).length,1);
+});

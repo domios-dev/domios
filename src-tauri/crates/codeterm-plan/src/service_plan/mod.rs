@@ -68,6 +68,7 @@ mod status_projection;
 mod store_convert_118;
 mod store_db;
 pub use status_projection::{CuratorScheduleRead, PlanStatusRead};
+pub mod board_state;
 mod store_index;
 mod store_persist;
 mod store_queries;

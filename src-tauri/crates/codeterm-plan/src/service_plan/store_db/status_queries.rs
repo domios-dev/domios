@@ -380,7 +380,7 @@ fn history_facts(connection: &Connection, plan: &Plan) -> Result<HistoryFacts, P
     Ok((bounces, held, lane_history))
 }
 
-fn refresh_control_counts(
+pub(super) fn refresh_control_counts(
     connection: &Connection,
     plan: &mut Plan,
     now_ms: u64,

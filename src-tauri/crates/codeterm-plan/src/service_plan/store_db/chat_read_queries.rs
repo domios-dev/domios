@@ -18,8 +18,9 @@ const CHAT_HEADER: &str = "SELECT p.id, json_object(
     FROM plans p LEFT JOIN plan_heartbeat h ON h.plan_id=p.id
     WHERE (?1 IS NULL OR p.project_path=?1) AND (?2 IS NULL OR coalesce(p.team_id,'')=?2)
       AND (?4 IS NULL OR p.id=?4)
+      AND (?5 IS NULL OR p.owner_tab_id=?5 OR json_extract(p.header_json,'$.planner.tab_id')=?5 OR EXISTS(SELECT 1 FROM plan_tasks t WHERE t.plan_id=p.id AND (t.assigned_tab_id=?5 OR json_extract(t.row_json,'$.lane.tab_id')=?5)))
       AND (?3 IS NULL OR (p.status='active' AND coalesce(json_extract(p.header_json,'$.mode'),'planning') <> 'complete'))
-    ORDER BY p.id";
+    ORDER BY p.updated_at DESC,p.id";
 
 impl PlanDatabase {
     pub(in crate::service_plan) fn chat_projection(
@@ -28,6 +29,7 @@ impl PlanDatabase {
         team: Option<&str>,
         query: Option<&str>,
         plan_id: Option<&str>,
+        tab_id: Option<&str>,
     ) -> Result<Vec<Value>, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
@@ -35,7 +37,7 @@ impl PlanDatabase {
         let headers = {
             let mut statement = transaction.prepare_cached(CHAT_HEADER).map_err(db_error)?;
             let rows = statement
-                .query_map(params![project, team, query, plan_id], |row| {
+                .query_map(params![project, team, query, plan_id, tab_id], |row| {
                     Ok((
                         column::<String>(row, 0)?,
                         column::<String>(row, 1)?,
@@ -45,14 +47,26 @@ impl PlanDatabase {
                 .map_err(db_error)?;
             rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?
         };
-        let mut remaining = if query.is_some() { 50 } else { usize::MAX };
+        let mut remaining = 50;
         let mut result = Vec::new();
         for (id, header, heartbeat) in headers {
             let mut plan: Plan = decode(&id, &header)?;
             if let Some(heartbeat) = heartbeat {
                 plan.heartbeat = decode(&id, &heartbeat)?;
             }
-            plan.tasks = chat_tasks(&transaction, &id, query, remaining)?;
+            plan.tasks = chat_tasks(
+                &transaction,
+                &id,
+                query,
+                if tab_id.is_some() {
+                    1
+                } else if query.is_some() {
+                    remaining
+                } else {
+                    remaining.min(20)
+                },
+                tab_id,
+            )?;
             if query.is_none_or(|query| {
                 plan.title.to_lowercase().contains(query)
                     || plan.id.contains(query)
@@ -61,6 +75,9 @@ impl PlanDatabase {
                 let mut value = super::super::chat_snapshot::snapshot(&plan, None, &mut remaining);
                 value["revision"] =
                     serde_json::json!(super::change_feed::revision(&transaction, &id)?.to_string());
+                value["task_counts"] =
+                    serde_json::json!(super::board_state_queries::task_counts(&transaction, &id)?);
+                super::list_window_queries::apply_task_counts(&transaction, &id, &mut value)?;
                 result.push(value);
             }
             if query.is_some() && result.len() >= 50 {
@@ -77,35 +94,25 @@ fn chat_tasks(
     plan_id: &str,
     query: Option<&str>,
     limit: usize,
+    tab_id: Option<&str>,
 ) -> Result<Vec<Task>, PlanError> {
     if limit == 0 {
         return Ok(Vec::new());
     }
     record_query();
     let mut statement = connection.prepare_cached(
-        "SELECT task_id,json_extract(row_json,'$.key'),coalesce(json_extract(row_json,'$.name'),'')
-         FROM plan_tasks WHERE plan_id=?1 ORDER BY position"
+        "SELECT task_id FROM plan_tasks WHERE plan_id=?1 AND (?4 IS NULL OR (status NOT IN ('done','cancelled','paused') AND (assigned_tab_id=?4 OR json_extract(row_json,'$.lane.tab_id')=?4))) AND (?2 IS NULL OR instr(domios_casefold(task_id || ' ' || coalesce(json_extract(row_json,'$.key'),CASE WHEN substr(task_id,1,5)='task_' THEN substr(task_id,6) ELSE task_id END) || ' ' || coalesce(json_extract(row_json,'$.name'),'')),?2)>0)
+         ORDER BY CASE WHEN ?4 IS NOT NULL THEN CASE status WHEN 'in_progress' THEN 0 WHEN 'in_review' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END ELSE 0 END,
+            CASE WHEN ?4 IS NOT NULL THEN coalesce(json_extract(row_json,'$.status_changed_at'),json_extract(row_json,'$.updated_at'),json_extract(row_json,'$.created_at'),0) ELSE updated_at END DESC,
+            CASE WHEN ?4 IS NULL THEN -position ELSE position END,task_id LIMIT ?3"
     ).map_err(db_error)?;
-    let rows = statement
-        .query_map([plan_id], |row| {
-            Ok((
-                column::<String>(row, 0)?,
-                column::<Option<String>>(row, 1)?,
-                column::<String>(row, 2)?,
-            ))
+    let ids = statement
+        .query_map(params![plan_id, query, limit as i64, tab_id], |row| {
+            column::<String>(row, 0)
         })
+        .map_err(db_error)?
+        .collect::<Result<Vec<_>, _>>()
         .map_err(db_error)?;
-    let mut ids = Vec::new();
-    for row in rows {
-        let (id, key, name) = row.map_err(db_error)?;
-        let key = key.unwrap_or_else(|| crate::plan::task_key::fallback_key(&id));
-        if query.is_none_or(|query| format!("{id} {key} {name}").to_lowercase().contains(query)) {
-            ids.push(id);
-            if ids.len() >= limit {
-                break;
-            }
-        }
-    }
     let mut tasks = Vec::new();
     for id in ids {
         record_query();
@@ -121,13 +128,13 @@ fn chat_tasks(
                 'status_changed_at',coalesce(json_extract(row_json,'$.status_changed_at'),0),
                 'section_ids',json(coalesce(json_extract(row_json,'$.section_ids'),'[]')),
                 'canvas',json(coalesce(json_extract(row_json,'$.canvas'),'{}')),
-                'acceptance_criteria',json((SELECT json_group_array('') FROM json_each(t.row_json,'$.acceptance_criteria'))),
+                'acceptance_criteria',json((SELECT json_group_array('') FROM (SELECT value FROM json_each(t.row_json,'$.acceptance_criteria') LIMIT 1))),
                 'milestones',json((SELECT json_group_array(json(document)) FROM (
                     SELECT seq,json_object('id',json_extract(row_json,'$.id'),'ts',json_extract(row_json,'$.ts'),
                         'kind',json_extract(row_json,'$.kind'),'from',json_extract(row_json,'$.from'),
                         'text','','links',json('[]'),'loop_id',json_extract(row_json,'$.loop_id'),
                         'iteration',json_extract(row_json,'$.iteration'),'canvas',json(coalesce(json_extract(row_json,'$.canvas'),'{}'))) AS document
-                    FROM (SELECT seq,row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq DESC LIMIT 50) ORDER BY seq
+                    FROM (SELECT seq,row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq DESC LIMIT 1) ORDER BY seq
                 ))),
                 'execution_attempts',json((SELECT json_group_array(json(document)) FROM (
                     SELECT json_object('id',attempt_id,'executor_tab_id',executor_tab_id,

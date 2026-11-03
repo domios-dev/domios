@@ -21,6 +21,12 @@ export function deriveTeamTaskBuckets(
   plan: Plan,
   _tabs: Record<string, Tab>,
 ): TeamTaskBucket[] {
+  if (plan.task_counts) {
+    const counts = plan.task_counts;
+    const values = { todo: (counts.pending ?? 0) + (counts.in_progress ?? 0), review: counts.in_review ?? 0,
+      blocked: counts.blocked ?? 0, paused: counts.paused ?? 0, done: counts.done ?? 0 };
+    return EMPTY_BUCKETS.map((bucket) => ({ ...bucket, count: values[bucket.key] }));
+  }
   const counts = new Map<TeamTaskBucket["key"], number>(EMPTY_BUCKETS.map((bucket) => [bucket.key, 0]));
   for (const task of plan.tasks) {
     const key: TeamTaskBucket["key"] | null =

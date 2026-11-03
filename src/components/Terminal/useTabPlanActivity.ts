@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useMuxSelector } from "../../store/multiplexer/hooks";
 import { tabsRecordEqual } from "../../store/multiplexer/selectors";
-import { useSidebarPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
+import { usePlans } from "../Canvas/usePlans";
+import { usePlansApiOptional, useSidebarPlansOptional, usePlanIndexOptional } from "../Canvas/PlansProvider";
 import { activeWorkForTab, selectActiveWork } from "../Canvas/planView/activeWork";
 import { resolveTabComposerActivity } from "../Canvas/tabComposerActivity";
 import { findPlanIndexForTab } from "../Canvas/planTabMatch";
@@ -14,9 +15,12 @@ export function useTabHasPlan(tabId: string): boolean {
   return useMemo(() => findPlanIndexForTab(index, tabId, tabs).length > 0, [index, tabId, tabs]);
 }
 
-export function useResolvedTabActivity(tabId: string, workspaceId: string | null) {
+export function useResolvedTabActivity(tabId: string, workspaceId: string | null, enabled = true) {
   const tabs = useMuxSelector((s) => s.tabs, tabsRecordEqual);
-  const full = useSidebarPlansOptional();
+  const fallback = useSidebarPlansOptional();
+  const api = usePlansApiOptional();
+  const scoped = usePlans(api, { chat: true, tabId, enabled });
+  const full = api ? scoped : fallback;
   const openPlanTarget = usePlanTargetNavigation();
   const activity = useMemo(
     () => resolveTabComposerActivity(full.plans, tabId, tabs),

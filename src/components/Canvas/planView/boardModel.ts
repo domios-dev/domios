@@ -381,6 +381,10 @@ export function deriveBoardPlanSummary(plan: Plan, tabs: Record<string, Tab>): B
     total += 1;
     if (task.status === TaskStatus.Done) done += 1;
   }
+  if (plan.task_counts) {
+    done = plan.task_counts.done ?? 0;
+    total = plan.task_counts.total - (plan.task_counts.cancelled ?? 0);
+  }
   const planner = plannerBinding(plan, tabs);
   return {
     title: plan.title.trim() || "Untitled plan",

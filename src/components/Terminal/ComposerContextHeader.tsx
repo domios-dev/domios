@@ -33,6 +33,7 @@ interface ComposerContextHeaderProps {
   pluginError?: string | null;
   sessionIntent?: ChatSessionIntent | null;
   tabId: string;
+  isActive?: boolean;
   workspaceId: string | null;
   delayed: readonly DelayedMessage[];
   heartbeats?: readonly DelayedMessage[];
@@ -148,7 +149,7 @@ export const ComposerContextHeader = memo(function ComposerContextHeader(props: 
 });
 
 function PlannedContextHeader(props: ComposerContextHeaderProps) {
-  const plan = useResolvedTabActivity(props.tabId, props.workspaceId);
+  const plan = useResolvedTabActivity(props.tabId, props.workspaceId, props.isActive ?? true);
   return <ContextHeaderBody {...props} plan={plan.activity ? plan : null} />;
 }
 

@@ -132,6 +132,20 @@ async function main() {
     return Response.json({ plans: [] });
   };
   await plansApi.fetchPlans(API, undefined, { chat: true, query: "COD-12", project: "/repo", team: "team-a" });
+  const windowRequests: URL[] = [];
+  let changeRevision = false;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input)); windowRequests.push(url);
+    const second = url.searchParams.has("after_position");
+    return Response.json({ ...remotePlan, revision: second && changeRevision ? "2" : "1",
+      tasks: [{ id: second ? "second" : "first" }],
+      task_window: { next_cursor: second ? null : { position: 1, task_id: "first" }, total: 2, cancelled: 0 } });
+  };
+  const requested = await plansApi.fetchRequestedPlanTaskMetadata(API, remotePlan.id,"blocked");
+  assert.deepEqual(requested.tasks.map((task) => task.id),["first","second"]);
+  assert(windowRequests.every((url) => url.searchParams.get("view") === "task_metadata" && url.searchParams.get("page_size") === "25" && url.searchParams.get("status") === "blocked" && !url.searchParams.has("full")));
+  changeRevision = true;
+  await assert.rejects(plansApi.fetchRequestedPlanTaskMetadata(API,remotePlan.id),/Tasks changed/);
   console.log("plansApi peer routing passed");
 }
 

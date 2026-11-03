@@ -106,10 +106,10 @@ export function MissionControlPlanSurface({
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [teamError, setTeamError] = useState<string | null>(null);
-  const [boardEvents, setBoardEvents] = useState(0);
+  const [boardEvents, setBoardEvents] = useState("0");
   const boardTeamId = teamId ?? listedPlan?.team_id ?? null;
   const plansRevision = useMemo(
-    () => effectivePlans.reduce((latest, plan) => Math.max(latest, plan.updated_at), 0),
+    () => effectivePlans.map((plan) => `${plan.id}:${"revision" in plan ? plan.revision : plan.updated_at}`).sort().join(","),
     [effectivePlans],
   );
   const teamRevision = `${plansRevision}:${boardEvents}`;
@@ -132,9 +132,9 @@ export function MissionControlPlanSurface({
       .sort((a, b) => b.updated_at - a.updated_at);
   }, [effectivePlans, selectedPlan]);
 
-  const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
+  const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, !boardTeamId || Boolean(teamError));
   const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
-  useEffect(() => setBoardEvents(recordedEvents), [recordedEvents]);
+  useEffect(() => setBoardEvents(boardState.state?.revision ?? String(recordedEvents)), [boardState.state?.revision, recordedEvents]);
   const spendRead = useTeamSpendRead(api, boardTeamId, teamRevision);
   const teamSpend = spendRead.spend;
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
@@ -304,7 +304,7 @@ export function MissionControlPlanSurface({
             onOpenTask={openTask}
             onOpenPlan={openPlanDetail}
             deepLinks={deepLinks}
-            eventPager={team?.events}
+            eventPager={team?.events ?? boardState.events}
             teamSpend={teamSpend}
             spendLoading={spendRead.loading}
             spendError={spendRead.error}

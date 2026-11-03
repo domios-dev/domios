@@ -36,7 +36,7 @@ import {
   messageRowTime,
   isSessionIntentOnlyMessage,
 } from "@codeterm/chat-ui";
-import { ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
+import { ChatBlockActivityProvider, ChatBlockHostProvider, HistoryGapProvider, PluginNameProvider, extractPlanRefs } from "@codeterm/chat-ui";
 import type { InteractiveAnswerHandler, OutboundReportDescriptor } from "@codeterm/chat-ui";
 import { AgentIcon } from "../AgentIcon";
 import { useMultiplexer, useMuxSelector } from "../../store/multiplexer/hooks";
@@ -873,6 +873,7 @@ function TabSessionChatBody({
       ? {rootThreadId:tab.agent_session_id,bindingNonce:tab.session_binding_nonce,epoch:runtime.state.epoch} : null}>
     <LocalArtifactScope tabId={tabId}>
     <ChatBlockHostProvider value={chatBlockHost}>
+    <ChatBlockActivityProvider active={isActive}>
     <PluginNameProvider resolve={resolvePluginName}>
     <HistoryGapProvider label={historyGapLabel} onLoad={async message => {
       prepareForHistoryPrepend();
@@ -1147,6 +1148,7 @@ function TabSessionChatBody({
     </div>
     </HistoryGapProvider>
     </PluginNameProvider>
+    </ChatBlockActivityProvider>
     </ChatBlockHostProvider>
     </LocalArtifactScope>
     </ChildTranscriptScope>

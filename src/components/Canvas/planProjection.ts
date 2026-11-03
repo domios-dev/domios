@@ -1,6 +1,6 @@
 import type { Plan } from "./types";
 
-export type PlanProjectionView = "summary" | "board" | "document" | "list" | "chat";
+export type PlanProjectionView = "summary" | "board" | "document" | "list" | "chat" | "task_metadata";
 export type PlanProjection = Plan & { revision: string };
 
 export interface CommittedPlanChange {
@@ -25,3 +25,8 @@ export function comparePlanRevisions(left: string, right: string): number {
   const b = BigInt(right);
   return a < b ? -1 : a > b ? 1 : 0;
 }
+
+export interface PlanListCursor { position: number; task_id: string }
+export type PlanListProjection = PlanProjection & { task_window: {
+  next_cursor: PlanListCursor | null; total: number; cancelled: number;
+} };

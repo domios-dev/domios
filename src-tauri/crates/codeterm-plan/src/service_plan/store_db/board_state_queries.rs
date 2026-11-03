@@ -1,0 +1,114 @@
+use super::read_projections::{column, decode, record_query};
+use super::{db_error, PlanDatabase};
+use crate::plan::Plan;
+use crate::service_plan::{
+    board_state::BoardStateRead, state::TaskCounts, ui_projections::PlanViewProjection, PlanError,
+};
+use serde_json::{json, Value};
+
+pub(super) const COUNTS_SQL: &str = "SELECT (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='pending'),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='in_progress'),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='in_review'),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='blocked'),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='paused'),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='done'),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1 AND json_extract(row_json,'$.status')='cancelled'),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1)";
+
+pub(super) const BOUNCES_SQL: &str = "SELECT (SELECT count(*) FROM plan_task_attempts WHERE plan_id=?1),
+    (SELECT count(*) FROM (SELECT task_id FROM plan_task_attempts WHERE plan_id=?1 GROUP BY task_id HAVING count(*)>=2)),
+    (SELECT count(*) FROM plan_tasks t INDEXED BY plan_tasks_status_summary WHERE t.plan_id=?1
+        AND json_extract(t.row_json,'$.status')='done'
+        AND (SELECT count(*) FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id)=1),
+    (SELECT count(*) FROM plan_tasks INDEXED BY plan_tasks_status_summary WHERE plan_id=?1
+        AND json_extract(row_json,'$.status') IN ('pending','in_progress','in_review','blocked','paused','done','cancelled')
+        AND json_extract(row_json,'$.status_label')='review bounced')";
+
+impl PlanDatabase {
+    pub(in crate::service_plan) fn board_state_projection(
+        &self,
+        id: &str,
+        now_ms: u64,
+        event_offset: usize,
+        include_events: bool,
+    ) -> Result<BoardStateRead, PlanError> {
+        let mut guard = self.connection.lock();
+        let transaction = guard.transaction().map_err(db_error)?;
+        let header =
+            super::ui_projections::projection(&transaction, id, PlanViewProjection::Summary)?;
+        let mut plan: Plan = serde_json::from_value(header).map_err(super::json_error)?;
+        let counts = task_counts(&transaction, id)?;
+        let complete = counts.total > 0 && counts.done + counts.cancelled == counts.total;
+        record_query();
+        let bounces = transaction
+            .query_row(BOUNCES_SQL, [id], |row| {
+                Ok(crate::service_plan::state::mission_control::BounceSummary {
+                    total_attempts: row.get(0)?,
+                    tasks_on_second_attempt: row.get(1)?,
+                    first_try_done: row.get(2)?,
+                    labelled_bounced: row.get(3)?,
+                })
+            })
+            .map_err(db_error)?;
+        record_query();
+        let raw: String = transaction.query_row("SELECT json_object(
+            'mode',coalesce(json_extract(header_json,'$.control_loop.mode'),'curator'),
+            'heartbeat_interval_secs',json_extract(header_json,'$.control_loop.heartbeat_interval_secs'),
+            'next_at',json_extract(header_json,'$.control_loop.next_at'),
+            'last_round',json_extract(header_json,'$.control_loop.last_round'),
+            'fallback_reason',json_extract(header_json,'$.control_loop.fallback_reason'),
+            'manual_run_requested',json(CASE WHEN json_extract(header_json,'$.control_loop.manual_run_requested') THEN 'true' ELSE 'false' END),
+            'running',CASE WHEN json_type(header_json,'$.control_loop.running')='object' THEN json_object('number',json_extract(header_json,'$.control_loop.running.number')) END)
+            FROM plans WHERE id=?1", [id], |row| column(row,0)).map_err(db_error)?;
+        let mut control_loop: Value = decode(id, &raw)?;
+        super::status_queries::refresh_control_counts(&transaction, &mut plan, now_ms)?;
+        control_loop["counts_7d"] = json!(plan.control_loop.counts_7d);
+        let events = if include_events {
+            super::state_event_queries::event_window(&transaction, id, 50, event_offset)?
+        } else {
+            let recorded=transaction.query_row("SELECT (SELECT count(*) FROM plan_tasks WHERE plan_id=?1)+(SELECT count(*) FROM plan_task_milestones WHERE plan_id=?1)+(SELECT count(*) FROM plan_strides WHERE plan_id=?1)+coalesce(json_array_length(header_json,'$.planning_log'),0)+coalesce(json_array_length(header_json,'$.gates'),0) FROM plans WHERE id=?1",[id],|row|row.get(0)).map_err(db_error)?;
+            crate::service_plan::state::mission_control::EventLog {
+                recorded_events: recorded,
+                truncated: false,
+                entries: Vec::new(),
+            }
+        };
+        let next_event_cursor = events
+            .truncated
+            .then_some(event_offset.saturating_add(events.entries.len()));
+        let value = json!({ "plan_id": id, "revision": super::change_feed::revision(&transaction,id)?.to_string(),
+            "task_counts": counts,"control_loop":control_loop,"mission_control":{"bounces":bounces,"event_log":events},
+            "next_event_cursor":next_event_cursor,"event_window_loaded":include_events });
+        transaction.commit().map_err(db_error)?;
+        Ok(BoardStateRead {
+            plan,
+            value,
+            complete,
+        })
+    }
+}
+
+pub(super) fn task_counts(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> Result<TaskCounts, PlanError> {
+    record_query();
+    let counts = connection
+        .query_row(COUNTS_SQL, [id], |row| {
+            Ok(TaskCounts {
+                pending: row.get(0)?,
+                in_progress: row.get(1)?,
+                in_review: row.get(2)?,
+                blocked: row.get(3)?,
+                paused: row.get(4)?,
+                done: row.get(5)?,
+                cancelled: row.get(6)?,
+                total: row.get(7)?,
+            })
+        })
+        .map_err(db_error)?;
+    Ok(counts)
+}
+
+#[cfg(test)]
+mod tests;

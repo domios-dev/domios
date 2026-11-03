@@ -1,8 +1,8 @@
-import { daemonFetch } from "../../lib/webApi";
+import { daemonFetch, webRequestContext, assertWebRequestContext } from "../../lib/webApi";
 import type { ControlLoopUpdate, PlanControlLoop } from "./planControlLoop";
 import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
-import { planRevision, type PlanProjection, type PlanProjectionView } from "./planProjection";
+import { planRevision, type PlanProjection, type PlanProjectionView, type PlanListProjection, type PlanListCursor } from "./planProjection";
 import type {
   DriftItem,
   OrchestratorRef,
@@ -100,6 +100,50 @@ export async function fetchPlanProjection(api: ApiConfig, planId: string, view: 
   planRevision(value);
   if (value.id !== planId) throw new Error("Plan projection did not match the requested plan.");
   return value;
+}
+
+export async function fetchPlanListWindow(api: ApiConfig, planId: string, status: string, search: string, signal?: AbortSignal, cursor?: PlanListCursor, taskRef?: string, taskIds?: readonly string[], metadata = false): Promise<PlanListProjection> {
+  const query = new URLSearchParams({ view: metadata ? "task_metadata" : "list", page_size: "25", status, search });
+  if (taskIds) query.set("task_ids",JSON.stringify(taskIds));
+  if (taskRef) query.set("task_ref", taskRef);
+  if (cursor) { query.set("after_position", String(cursor.position)); query.set("after_task_id", cursor.task_id); }
+  const response = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/projection?${query}`, { headers: authHeaders(api), signal });
+  if (!response.ok) throw new PlanReadError(response.status, `plan list failed: ${response.status} ${await response.text()}`);
+  const value = await response.json() as PlanListProjection;
+  planRevision(value);
+  if (value.id !== planId || !value.task_window) throw new Error("Plan list did not match the requested window.");
+  return value;
+}
+
+export async function fetchRequestedPlanTaskMetadata(api: ApiConfig, planId: string, status = "all", taskRef?: string, signal?: AbortSignal): Promise<PlanListProjection> {
+  const context = webRequestContext();
+  let cursor: PlanListCursor | undefined;
+  let result: PlanListProjection | undefined;
+  const tasks = new Map<string, Plan["tasks"][number]>();
+  do {
+    assertWebRequestContext(context);
+    const page = await fetchPlanListWindow(api, planId, status, "", signal, cursor, taskRef, undefined, true);
+    assertWebRequestContext(context);
+    if (result && page.revision !== result.revision) throw new Error("Tasks changed while reading the requested list. Read it again to use the current tasks.");
+    for (const task of page.tasks) tasks.set(task.id, task);
+    const next = page.task_window.next_cursor;
+    if (cursor && next && (next.position < cursor.position || next.position === cursor.position && next.task_id <= cursor.task_id)) throw new Error("Task list cursor did not advance.");
+    result = page;
+    cursor = next ?? undefined;
+  } while (cursor);
+  return { ...result!, tasks: [...tasks.values()] };
+}
+
+export interface PlanTaskReference {plan_id:string;task_id:string;name:string;key:string;team_id:string|null;revision:string}
+export async function fetchPlanTaskReference(api:ApiConfig,reference:string,project:string|null,team:string|null,signal?:AbortSignal):Promise<PlanTaskReference|null>{
+  const query=new URLSearchParams({reference});
+  if(project)query.set("project",project);
+  if(team)query.set("team",team);
+  const response=await daemonFetch(api,`/api/plans/task-reference?${query}`,{headers:authHeaders(api),signal});
+  if(response.status===404)return null;
+  if(!response.ok)throw new PlanReadError(response.status,`task reference failed: ${response.status} ${await response.text()}`);
+  const value=await response.json() as PlanTaskReference;
+  planRevision(value);return value;
 }
 
 export async function fetchPlanTaskDetail(
@@ -207,10 +251,11 @@ export async function resolvePlanRefs(
 export async function fetchPlans(
   api: ApiConfig,
   signal?: AbortSignal,
-  opts?: { project?: string | null; chat?: boolean; query?: string; team?: string | null },
+  opts?: { project?: string | null; chat?: boolean; query?: string; team?: string | null; tabId?: string },
 ): Promise<PlanProjection[]> {
   const params = new URLSearchParams(opts?.chat ? { chat: "1" } : { view: "summary" });
   if (opts?.project) params.set("project", opts.project);
+  if (opts?.tabId) params.set("tab_id", opts.tabId);
   if (opts?.query !== undefined) params.set("query", opts.query);
   if (opts?.team !== undefined) params.set("team", opts.team ?? "");
   const res = await daemonFetch(api, `/api/plans?${params}`, {
