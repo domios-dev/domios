@@ -501,44 +501,27 @@ impl PlanStore {
         crate::service_plan::text_bounds::validate_plan_label("milestone kind", kind)?;
         crate::service_plan::text_bounds::validate_plan_text("milestone text", text)?;
         let mid = self.mint_id("ms");
-        let write = self.with_plan(plan_id, now_ms, |p| {
-            let declared = p.milestone_kinds.iter().any(|k| k.key == kind);
-            if !declared {
-                if add_kind {
-                    p.milestone_kinds.push(MilestoneKind {
-                        key: kind.into(),
-                        label: kind.into(),
-                        color: None,
-                    });
-                } else {
-                    return Err(PlanError::UndeclaredKind {
-                        declared: p.milestone_kinds.iter().map(|k| k.key.clone()).collect(),
-                    });
-                }
-            }
-            let task = p
-                .tasks
-                .iter_mut()
-                .find(|t| t.id == task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            task.milestones.push(Milestone {
-                id: mid.clone(),
-                from,
-                kind: kind.into(),
-                text: text.into(),
-                ts: now_ms,
-                links: vec![],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_milestone_added(plan_id, task_id, &mid, kind, text),
-            Some(task_id.to_string()),
+        self.commit_hot_changes(
+            plan_id,
+            vec![
+                crate::service_plan::store_db::hot_write::HotChange::Milestone {
+                    task_id: task_id.into(),
+                    add_kind,
+                    milestone: Milestone {
+                        id: mid.clone(),
+                        from,
+                        kind: kind.into(),
+                        text: text.into(),
+                        ts: now_ms,
+                        links: vec![],
+                        loop_id: None,
+                        iteration: None,
+                        canvas: Default::default(),
+                        attachments: vec![],
+                    },
+                },
+            ],
+            now_ms,
         )?;
         Ok(mid)
     }
@@ -601,21 +584,24 @@ impl PlanStore {
         crate::service_plan::text_bounds::validate_plan_label("stride kind", kind)?;
         crate::service_plan::text_bounds::validate_plan_text("stride text", text)?;
         let mid = self.mint_id("ms");
-        self.with_plan(plan_id, now_ms, |p| {
-            p.strides.push(Milestone {
-                id: mid.clone(),
-                from,
-                kind: kind.into(),
-                text: text.into(),
-                ts: now_ms,
-                links: vec![],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-            Ok(())
-        })?;
+        self.commit_hot_changes(
+            plan_id,
+            vec![crate::service_plan::store_db::hot_write::HotChange::Stride(
+                Milestone {
+                    id: mid.clone(),
+                    from,
+                    kind: kind.into(),
+                    text: text.into(),
+                    ts: now_ms,
+                    links: vec![],
+                    loop_id: None,
+                    iteration: None,
+                    canvas: Default::default(),
+                    attachments: vec![],
+                },
+            )],
+            now_ms,
+        )?;
         Ok(mid)
     }
 

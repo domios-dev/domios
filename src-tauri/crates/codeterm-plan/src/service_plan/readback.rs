@@ -76,6 +76,10 @@ fn normalized_lane_value(value: &Option<String>) -> Option<String> {
 }
 
 impl PlanStore {
+    pub(in crate::service_plan) fn clear_committed_snapshot(&self) {
+        COMMITTED_SNAPSHOT.with(|cell| *cell.borrow_mut() = None);
+    }
+
     pub(in crate::service_plan) fn task_add_expectation(
         task: &Task,
         verify_sections: bool,
@@ -310,40 +314,6 @@ impl PlanStore {
                     format!("missing close milestone for {}", task.id),
                 ));
             }
-        }
-        Ok(())
-    }
-
-    pub(in crate::service_plan) fn verify_task_milestone_added(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        milestone_id: &str,
-        kind: &str,
-        text: &str,
-    ) -> Result<(), PlanError> {
-        let task = self.read_task_for_verification(plan_id, task_id)?;
-        let Some(milestone) = task
-            .milestones
-            .iter()
-            .find(|milestone| milestone.id == milestone_id)
-        else {
-            return Err(Self::task_readback_error(
-                "task_record",
-                format!("missing milestone {milestone_id} for {}", task.id),
-            ));
-        };
-        if milestone.kind != kind {
-            return Err(Self::task_readback_error(
-                "task_record",
-                format!("milestone kind did not match for {}", task.id),
-            ));
-        }
-        if milestone.text != text {
-            return Err(Self::task_readback_error(
-                "task_record",
-                format!("milestone text did not match for {}", task.id),
-            ));
         }
         Ok(())
     }

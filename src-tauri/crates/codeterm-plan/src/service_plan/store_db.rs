@@ -165,8 +165,9 @@ impl PlanDatabase {
 
     /// `Ok(None)` when no row exists; rows that do not parse are `PlanError::Quarantined`.
     pub(super) fn load_plan(&self, id: &str) -> Result<Option<Plan>, PlanError> {
-        let connection = self.connection.lock();
-        let header: Option<String> = connection
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction().map_err(db_error)?;
+        let header: Option<String> = transaction
             .query_row("SELECT header_json FROM plans WHERE id = ?1", [id], |row| {
                 row.get(0)
             })
@@ -175,13 +176,15 @@ impl PlanDatabase {
         let Some(header) = header else {
             return Ok(None);
         };
-        store_sync::load_plan_rows(&connection, id, &header)
+        let result = store_sync::load_plan_rows(&transaction, id, &header)
             .and_then(parse_plan_value)
             .map(Some)
             .map_err(|reason| PlanError::Quarantined {
                 plan_id: id.to_string(),
                 reason,
-            })
+            });
+        transaction.commit().map_err(db_error)?;
+        result
     }
 
     pub(super) fn delete_spec(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
@@ -580,4 +583,5 @@ pub(in crate::service_plan) mod task_page_queries;
 #[cfg(test)]
 mod tests;
 
+pub(in crate::service_plan) mod hot_write;
 mod operation_retention;

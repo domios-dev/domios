@@ -17,8 +17,10 @@ mod changes;
 use changes::{unit_changes, UnitChanges};
 mod embedding;
 mod incremental;
+mod narrow;
 mod recovery;
 pub(super) use incremental::PlanIndexScope;
+pub(super) use narrow::{enqueue_milestone_index, MilestoneIndexDelta};
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
 
@@ -92,6 +94,7 @@ struct Unit {
 }
 
 enum IndexJob {
+    Unit(PathBuf, Unit),
     Plan(Plan, PlanIndexScope),
     Prune(PathBuf, HashSet<String>),
     Embed(PathBuf, Unit),
@@ -104,6 +107,7 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
+            Self::Unit(_, unit) => format!("{}:unit:{}", self.project_key(), unit.id),
             Self::Embed(_, unit) => format!("{}:embed:{}", self.project_key(), unit.id),
             Self::Prune(_, _) => format!("{}:prune", self.project_key()),
             Self::Plan(plan, _) | Self::DeletePlan(plan) => {
@@ -118,6 +122,7 @@ impl IndexJob {
 
     fn project_key(&self) -> String {
         match self {
+            Self::Unit(root, _) => project_scope(root),
             Self::Prune(root, _) | Self::Embed(root, _) => project_scope(root),
             Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
                 project_scope(plan_project_root(plan))
@@ -271,6 +276,9 @@ fn index_queue() -> Arc<IndexQueue> {
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
     match job {
+        IndexJob::Unit(root, unit) => {
+            embedding::queue_changed(root, narrow::mirror_unit(root, unit))
+        }
         IndexJob::Embed(root, unit) => embedding::embed_current(root, unit),
         IndexJob::Prune(root, ids) => recovery::prune_project(root, ids),
         IndexJob::Plan(plan, scope) => embedding::queue_changed(
@@ -932,23 +940,15 @@ fn stride_unit(
     scope: &str,
     plan_status: &str,
 ) -> Unit {
-    Unit {
-        id: stable_id(&plan.id, "stride", &stride.id),
-        kind: "stride",
-        title: format!("{} stride {}", task.name, stride.kind),
-        body: format!(
-            "Plan \"{}\" · task \"{}\" · stride({}): {}",
-            plan.title, task.name, stride.kind, stride.text
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan.id.clone()),
-        spec_id: None,
-        unit_id: stride.id.clone(),
-        unit_title: stride.kind.clone(),
-        parent_title: task.name.clone(),
-        status: Some(format!("{plan_status}:{}", task_status_text(task))),
-        updated_at: stride.ts,
-    }
+    narrow::milestone_unit(
+        &plan.id,
+        &plan.title,
+        &task.name,
+        &task_status_text(task),
+        stride,
+        scope,
+        plan_status,
+    )
 }
 
 fn timestamp_ms_to_rfc3339(ms: u64) -> String {

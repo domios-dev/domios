@@ -329,16 +329,16 @@ impl PlanStore {
         if let Some(Some(guidance)) = role_guidance {
             crate::service_plan::text_bounds::validate_plan_text("role guidance", guidance)?;
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if let Some(guidance) = role_guidance {
-                task.role_guidance = guidance.map(str::to_string);
-            }
-            task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
-            Ok(())
-        })
+        self.commit_hot_changes(
+            plan_id,
+            vec![crate::service_plan::store_db::hot_write::HotChange::Task {
+                selector: task_id.into(),
+                change: crate::service_plan::store_db::hot_write::TaskMetadata::RoleGuidance(
+                    role_guidance.map(|value| value.map(str::to_string)),
+                ),
+            }],
+            now_ms,
+        )
     }
 
     pub fn update_task_personality(
@@ -356,22 +356,20 @@ impl PlanStore {
             })
             .transpose()
             .map_err(PlanError::InvalidExecutorName)?;
-        if let Some(Some(name)) = personality.as_ref() {
+        if let Some(Some(name)) = &personality {
             crate::service_plan::text_bounds::validate_plan_label("personality", name)?;
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if let Some(name) = personality {
-                task.personality = name;
-            }
-            if let Some(provenance) = provenance {
-                task.personality_provenance = provenance;
-            }
-            task.updated_at = now_ms;
-            crate::service_plan::text_bounds::validate_stored_task_text(task)?;
-            Ok(())
-        })
+        self.commit_hot_changes(
+            plan_id,
+            vec![crate::service_plan::store_db::hot_write::HotChange::Task {
+                selector: task_id.into(),
+                change: crate::service_plan::store_db::hot_write::TaskMetadata::Personality {
+                    name: personality,
+                    provenance,
+                },
+            }],
+            now_ms,
+        )
     }
 
     /// Capture report branch and peer values into empty lane fields.

@@ -475,18 +475,28 @@ impl PlanStore {
         if owner.is_empty() || reason.is_empty() || reproduction.is_empty() {
             return Err(PlanError::ReviewOverrideIncomplete);
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            task.review_override = Some(ReviewOverride {
-                owner: owner.into(),
-                reason: reason.into(),
-                reproduction: reproduction.into(),
-                at: now_ms,
-            });
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        for (field, value) in [
+            ("review owner", owner),
+            ("review reason", reason),
+            ("review reproduction", reproduction),
+        ] {
+            crate::service_plan::text_bounds::validate_plan_text(field, value)?;
+        }
+        self.commit_hot_changes(
+            plan_id,
+            vec![crate::service_plan::store_db::hot_write::HotChange::Task {
+                selector: task_id.into(),
+                change: crate::service_plan::store_db::hot_write::TaskMetadata::ReviewOverride(
+                    ReviewOverride {
+                        owner: owner.into(),
+                        reason: reason.into(),
+                        reproduction: reproduction.into(),
+                        at: now_ms,
+                    },
+                ),
+            }],
+            now_ms,
+        )
     }
 
     pub fn reconcile_review_credit(
