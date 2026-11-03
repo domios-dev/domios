@@ -370,23 +370,29 @@ impl PlanDatabase {
         let resolved_id = resolve_detail_task(&connection, plan_id, task_ref)?;
         let task_id = resolved_id.as_str();
         let mut task = load_task_row(&connection, plan_id, task_id)?;
-        let milestones = load_json_rows(
+        let milestones = super::task_history_queries::page(
             &connection,
-            "SELECT row_json FROM plan_task_milestones WHERE plan_id = ?1 AND task_id = ?2 ORDER BY seq",
             plan_id,
             task_id,
+            crate::service_plan::task_history::TaskHistoryKind::Milestones,
+            None,
+            super::task_read_queries::TASK_HISTORY_LIMIT,
         )?;
-        let attempts = load_json_rows(
+        let attempts = super::task_history_queries::page(
             &connection,
-            "SELECT row_json FROM plan_task_attempts WHERE plan_id = ?1 AND task_id = ?2 ORDER BY position",
             plan_id,
             task_id,
+            crate::service_plan::task_history::TaskHistoryKind::Attempts,
+            None,
+            super::task_read_queries::TASK_ATTEMPT_LIMIT,
         )?;
+        let history =
+            json!({ "milestones": milestones.next_cursor, "attempts": attempts.next_cursor });
         let fields = task
             .as_object_mut()
             .ok_or_else(|| quarantined_task(plan_id, "task row is not an object"))?;
-        fields.insert("milestones".into(), Value::Array(milestones));
-        fields.insert("execution_attempts".into(), Value::Array(attempts));
+        fields.insert("milestones".into(), Value::Array(milestones.items));
+        fields.insert("execution_attempts".into(), Value::Array(attempts.items));
 
         let section_ids = fields
             .get("section_ids")
@@ -426,13 +432,14 @@ impl PlanDatabase {
             "task": task,
             "context": context,
             "loop_badge": loop_badge,
+            "history": history,
         });
         connection.commit().map_err(db_error)?;
         Ok(detail)
     }
 }
 
-fn resolve_detail_task(
+pub(super) fn resolve_detail_task(
     connection: &Connection,
     plan_id: &str,
     reference: &str,
@@ -447,35 +454,26 @@ fn resolve_detail_task(
     if exact {
         return Ok(reference.to_string());
     }
-    let mut statement = connection
-        .prepare_cached(
-            "SELECT task_id,json_extract(row_json,'$.handle'),json_extract(row_json,'$.key')
-         FROM plan_tasks WHERE plan_id=?1 ORDER BY position",
-        )
-        .map_err(db_error)?;
-    let mut selected = None;
-    for row in statement
-        .query_map([plan_id], |row| {
-            Ok((
-                column::<String>(row, 0)?,
-                column::<Option<String>>(row, 1)?,
-                column::<Option<String>>(row, 2)?,
-            ))
-        })
-        .map_err(db_error)?
-    {
-        let (id, handle, key) = row.map_err(db_error)?;
-        let key = key.unwrap_or_else(|| crate::plan::task_key::fallback_key(&id));
-        if crate::plan::task_key::name_matches(handle.as_deref(), &key, reference) {
-            if selected.is_some() {
-                return Err(PlanError::Validation(format!(
-                    "task ref '{reference}' is ambiguous"
-                )));
-            }
-            selected = Some(id);
-        }
+    if reference.is_empty() {
+        return Err(PlanError::TaskNotFound);
     }
-    selected.ok_or(PlanError::TaskNotFound)
+    let mut statement = connection.prepare_cached(
+        "SELECT task_id FROM plan_tasks WHERE plan_id=?1 AND (
+            json_extract(row_json,'$.handle') COLLATE NOCASE = ?2 OR
+            coalesce(json_extract(row_json,'$.key'), CASE WHEN substr(task_id,1,5)='task_' THEN substr(task_id,6) ELSE task_id END) COLLATE NOCASE = ?2)
+         ORDER BY position LIMIT 2"
+    ).map_err(db_error)?;
+    let rows = statement
+        .query_map(params![plan_id, reference], |row| column::<String>(row, 0))
+        .map_err(db_error)?;
+    let selected = rows.collect::<Result<Vec<_>, _>>().map_err(db_error)?;
+    match selected.as_slice() {
+        [id] => Ok(id.clone()),
+        [] => Err(PlanError::TaskNotFound),
+        _ => Err(PlanError::Validation(format!(
+            "task ref '{reference}' is ambiguous"
+        ))),
+    }
 }
 
 fn load_header(connection: &Connection, plan_id: &str) -> Result<Value, PlanError> {
@@ -522,28 +520,6 @@ fn load_task_row(
     };
     super::super::store_sync::parse(&task)
         .map_err(|error| quarantined_task(plan_id, &format!("task row is invalid JSON: {error}")))
-}
-
-fn load_json_rows(
-    connection: &Connection,
-    sql: &str,
-    plan_id: &str,
-    task_id: &str,
-) -> Result<Vec<Value>, PlanError> {
-    let mut statement = connection.prepare_cached(sql).map_err(db_error)?;
-    let rows = statement
-        .query_map(params![plan_id, task_id], |row| column::<String>(row, 0))
-        .map_err(db_error)?;
-    rows.map(|row| {
-        let document = row.map_err(db_error)?;
-        super::super::store_sync::parse(&document).map_err(|error| {
-            quarantined_task(
-                plan_id,
-                &format!("task history row is invalid JSON: {error}"),
-            )
-        })
-    })
-    .collect()
 }
 
 fn load_task_sections(

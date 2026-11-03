@@ -123,6 +123,10 @@ pub fn router() -> Router<AppState> {
                 .delete(plan_routes::task_rm),
         )
         .route(
+            "/api/plans/{id}/tasks/{tid}/history",
+            get(plan_routes::tasks::history::task_history),
+        )
+        .route(
             "/api/plans/{id}/tasks/{tid}/close",
             post(plan_routes::task_close),
         )

@@ -76,6 +76,7 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
         target={target}
         plan={target.taskId ? (!api ? listed : null) : api ? unlisted.plan : listed ?? unlisted.plan}
         taskDetail={taskDetail.detail}
+        historyController={taskDetail}
         taskLoading={taskDetail.loading}
         taskError={taskDetail.error}
         onRetryTask={taskDetail.retry}

@@ -580,6 +580,51 @@ async function main() {
     } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
   });
 
+  test("task history loads only on demand and rejects obsolete pages after a live change", async () => {
+    const previousFetch = globalThis.fetch;
+    const obsolete = deferred<Response>();
+    const requests: URL[] = [];
+    let revision = "1";
+    let historyReads = 0;
+    const { TaskHistoryControls } = await import("./planView/TaskHistoryControls");
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input)); requests.push(url);
+      if (url.pathname.endsWith("/history")) {
+        historyReads++;
+        if (historyReads === 1) return obsolete.promise;
+        return Response.json({ plan_id: "history-plan", task_id: "chosen", revision,
+          items: [{ id: "older", text: "Earlier result" }], next_cursor: null });
+      }
+      return Response.json({ plan_id: "history-plan", task_id: "chosen", revision,
+        task: { id: "chosen", name: `Task ${revision}`, milestones: [{ id: "latest", text: `Latest ${revision}` }], execution_attempts: [] },
+        context: { plan_id: "history-plan", sections: [] }, history: { milestones: 50, attempts: null } });
+    };
+    function HistoryProbe() {
+      const state = usePlanTaskDetail(API, "history-plan", "chosen");
+      return <>{state.detail && <><output>{state.detail.task.name}: {state.detail.task.milestones.map((item) => item.text).join(",")}</output>
+        <TaskHistoryControls detail={state.detail} controller={state} /></>}</>;
+    }
+    const host = document.createElement("div"); document.body.appendChild(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => root.render(<HistoryProbe />));
+      assert(requests.length === 1, "opening detail does not request earlier history");
+      const button = () => host.querySelector<HTMLButtonElement>("button")!;
+      await act(async () => button().click());
+      assert(button().disabled, "one pending history read disables its control");
+      revision = "2";
+      await act(async () => {
+        for (const handler of listenHandlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "history-plan", revision: "2", previous_revision: "1", task_ids: ["chosen"], reset: false, deleted: false } });
+      });
+      await act(async () => { obsolete.resolve(Response.json({ plan_id: "history-plan", task_id: "chosen", revision: "1", items: [{ id: "obsolete", text: "Obsolete history" }], next_cursor: null })); });
+      assert(host.querySelector("output")?.textContent === "Task 2: Latest 2", "an old history response cannot enter the new committed detail");
+      await act(async () => button().click());
+      assert(host.querySelector("output")?.textContent === "Task 2: Earlier result,Latest 2", "the requested page extends visible history in order");
+      assert(host.querySelector("button") === null, "the control disappears at the end of history");
+      assert(requests.filter((url) => url.pathname.endsWith("/history")).every((url) => url.pathname === "/api/plans/history-plan/tasks/chosen/history" && url.searchParams.get("kind") === "milestones" && url.searchParams.get("before") === "50" && url.searchParams.get("limit") === "50"), "history requests are cursor-bounded to the selected canonical task");
+    } finally { await act(async () => root.unmount()); host.remove(); globalThis.fetch = previousFetch; }
+  });
+
   let failed = 0;
   for (const [name, fn] of tests) {
     try {

@@ -62,3 +62,26 @@ fn ui_projections_expose_only_the_requested_document_or_visible_task_metadata() 
         .is_empty());
     assert!(fixtures::audit_counts(&database).is_empty());
 }
+
+#[test]
+fn references_materialize_only_requested_labels_without_bodies_or_histories() {
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixtures::fixture(root.path(), 2048, 2048);
+    plan.sections = serde_json::from_value(
+        json!([{"id":"section","title":"Requested title","body":"Unrequested body"}]),
+    )
+    .unwrap();
+    let database = fixtures::database(root.path(), &plan);
+    fixtures::audit(&database);
+    super::super::read_projections::take_metrics();
+    let reference = database
+        .reference_projection(&plan.id, Some("fixture-0001"), Some("section"))
+        .unwrap();
+    assert_eq!(reference.tasks.len(), 1);
+    assert_eq!(reference.tasks[0].id, "task_0001");
+    assert!(reference.tasks[0].body.is_empty() && reference.tasks[0].execution_attempts.is_empty());
+    assert_eq!(reference.sections[0].title, "Requested title");
+    assert!(reference.sections[0].body.is_empty() && reference.strides.is_empty());
+    assert!(super::super::read_projections::take_metrics().materialized_bytes < 4096);
+    assert!(fixtures::audit_counts(&database).is_empty());
+}

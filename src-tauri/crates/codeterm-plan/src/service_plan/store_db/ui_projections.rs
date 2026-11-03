@@ -75,7 +75,7 @@ impl PlanDatabase {
     }
 }
 
-fn projection(
+pub(super) fn projection(
     connection: &Connection,
     id: &str,
     view: PlanViewProjection,

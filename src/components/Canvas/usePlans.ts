@@ -108,7 +108,7 @@ export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlan
       }
     };
     if (key) {
-      stops.push(onResync(() => { void load(); }));
+      stops.push(onResync((reason) => { if (reason === "epoch_changed") observed.clear(); void load(); }));
       const boot = () => { observed.clear(); void load(); };
       window.addEventListener("codeterm-web-boot-changed", boot);
       stops.push(() => window.removeEventListener("codeterm-web-boot-changed", boot));

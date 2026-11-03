@@ -1,3 +1,4 @@
+import { TaskHistoryControls, type TaskHistoryController } from "./TaskHistoryControls";
 import type { RefObject } from "react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { DetailContent } from "../canvasRender/DetailContent";
@@ -16,6 +17,7 @@ export interface TaskSegmentPanelProps {
   tabId: string;
   panelRef: RefObject<HTMLElement | null>;
   detail: PlanTaskDetail | null;
+  historyController?: TaskHistoryController;
   fallbackPlan?: Plan | null;
   taskRef: string;
   loading?: boolean;
@@ -32,6 +34,7 @@ export function TaskSegmentPanel({
   tabId,
   panelRef,
   detail,
+  historyController,
   fallbackPlan = null,
   taskRef,
   loading = false,
@@ -88,6 +91,7 @@ export function TaskSegmentPanel({
               onSectionClick={(args: SectionNavArgs) => onOpenSection?.(args.variant === "spec" ? "spec" : "plan")}
             />
           </SelectionAsk>
+          {exactDetail && <TaskHistoryControls detail={detail!} controller={historyController} />}
         </>
       ) : (
         <p data-testid="plan-task-segment-missing" className="plan-task-segment__note">

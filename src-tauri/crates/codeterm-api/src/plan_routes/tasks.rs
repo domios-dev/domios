@@ -23,6 +23,7 @@ use super::{
 };
 
 mod block_authority;
+pub mod history;
 use block_authority::{verify_task_mutation_owner, TaskMutationKind};
 
 #[derive(Debug, Deserialize, Default)]
