@@ -2,3 +2,8 @@ packages:
   - '.'
   - 'plugins/*'
   - 'packages/*'
+
+overrides:
+  minimatch: '11.0.4'
+  filelist: '2.0.2'
+  glob: '14.0.3'
