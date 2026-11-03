@@ -278,9 +278,7 @@ impl ServiceContext {
                 lines.join("; ")
             ));
         }
-        if assignments.is_empty() || !self.close_bound_worker_executor(&canon_target)? {
-            self.close_tab(target_tab_id)?;
-        }
+        self.close_tab(target_tab_id)?;
         Ok(busy_worker_close_warnings(&canon_target, &assignments))
     }
 
@@ -315,6 +313,9 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<(), String> {
+        if self.close_bound_worker_executor(tab_id, reason)? {
+            return Ok(());
+        }
         self.close_tab_with_precondition(tab_id, reason, |_, _| Ok(()))
     }
 
