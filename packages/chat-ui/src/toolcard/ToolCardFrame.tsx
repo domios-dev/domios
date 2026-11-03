@@ -1,7 +1,8 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
-import { ArrowUpRight, Copy, ChevronRight, MessageSquarePlus, SquareTerminal } from "lucide-react";
+import { ArrowUpRight, Copy, ChevronRight, Maximize2, MessageSquarePlus, SquareTerminal } from "lucide-react";
+import { useCompactToolRow } from "../useCompactToolRow";
 import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
@@ -75,6 +76,7 @@ export function ToolCardChips({ chips, wrap = false }: { chips: readonly string[
 
 export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onToggle, children, primaryContent, title, subtitle, summary, metric, chips, tail, action, variant = "smart", visualOverride, disclosureLabel, menu, minHeight, communication = false, showTechnicalDetails = true, headerTestId, statusTestId = "toolcard-status", statusLabel, expandable = true }: ToolCardFrameProps) {
   const host = useChatBlockHost();
+  const { header, compact } = useCompactToolRow();
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const canExpand = expandable || technicalOpen;
   const open = expanded && canExpand;
@@ -101,16 +103,17 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   }] : baseMenu;
 
   return (
-    <ExpandableReader label={labelText} enabled={canExpand} openerPlacement="header">{(fullscreen, opener) => (
+    <ExpandableReader label={labelText} enabled={canExpand} openerPlacement="header">{(fullscreen, opener, openReader) => (
     <div
       data-testid={testId}
       data-tool-status={event.status}
       data-tool-kind={event.kind}
       data-expanded={open}
+      data-compact={compact}
       className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineRow ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
       style={{ minHeight, "--ct-card-tone": error || quietOperation ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
-      <div data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineRow ? " ct-command-inline__head" : ""}`}>
+      <div ref={header} data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineRow ? " ct-command-inline__head" : ""}`}>
         <button
           type="button"
           aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
@@ -123,7 +126,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           <span className="ct-card__icon" style={{ color: iconColor, ...(subtitle ? { height: 20, alignSelf: "flex-start" as const } : {}) }}>
             <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: iconColor }} />
           </span>
-          <span className={subtitle ? "flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
+          <span className={subtitle ? "ct-tool-labels flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "ct-tool-labels flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
             {label && <span className={inlineCommand ? "sr-only" : `max-w-[60%] shrink-0 truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
             {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal leading-[14px]" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
             <span className={summary === "" ? "hidden" : "ct-tool-subject min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
@@ -131,8 +134,9 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             <ToolOutcomeFacts event={event} />
             {!expanded && tail}
           </span>
+          {compact && canExpand && <ChevronRight aria-hidden size={14} className={`ct-tool-indicator ${open ? "rotate-90" : ""}`} />}
         </button>
-        {opener}
+        {!compact && opener}
         {event.status === "unresolved" && (
           <span data-testid="toolcard-no-result" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>no result</span>
         )}
@@ -141,9 +145,13 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
           <StatusGlyph aria-hidden="true" size={14} className={event.status === "pending" ? "motion-safe:animate-spin" : undefined} />
         </span>
-        <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
+        <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={compact && canExpand && !fullscreen ? [{
+          label: "Open full screen",
+          icon: <Maximize2 size={14} aria-hidden />,
+          onSelect: () => openReader(header.current?.querySelector<HTMLElement>('button[aria-haspopup="menu"]')),
+        }, ...menuItems] : menuItems} />
         </span>
-        {canExpand && <button type="button" aria-label={open ? "Collapse card" : "Expand card"} onClick={onToggle} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
+        {!compact && canExpand && <button type="button" aria-label={open ? "Collapse card" : "Expand card"} onClick={onToggle} className="flex shrink-0 items-center justify-center" style={{ color: "var(--ct-muted-fg)" }}>
           <ChevronRight aria-hidden size={14} className={open ? "rotate-90" : ""} />
         </button>}
       </div>

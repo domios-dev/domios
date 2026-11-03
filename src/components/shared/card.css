@@ -240,25 +240,6 @@ button.ct-card__head {
   opacity: 1;
 }
 
-@media (pointer: coarse), (max-width: 479px) {
-  .ct-card__header [data-testid="toolcard-outcome-facts"] > span:has([data-testid="toolcard-duration"]) {
-    display: none;
-  }
-
-  .ct-card[data-tool-kind="search"] .ct-tool-subject:not(.hidden) {
-    min-width: 8ch;
-    flex: 1 0 8ch;
-  }
-
-  .ct-search-counts {
-    min-width: 0;
-    flex-shrink: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
 .ct-card:hover > .ct-card__header > .ct-reader-opener,
 .ct-card:has(:focus-visible) > .ct-card__header > .ct-reader-opener,
 .ct-card:hover > .ct-card__head > .ct-reader-opener,
@@ -436,4 +417,77 @@ button.ct-card__head {
 .ct-communication-card .ct-card__header { padding-bottom: 6px; }
 .ct-communication-card [data-testid="codeterm-message-content"] :is(h1, h2, h3, h4, h5, h6, p):first-child {
   margin-top: 0;
+}
+
+.ct-card[data-compact="true"] {
+  margin-bottom: 2px;
+  border-width: 0;
+}
+
+.ct-card[data-compact="true"] > .ct-card__header {
+  min-height: 44px;
+  padding: 0 12px;
+  gap: 4px;
+}
+
+.ct-card[data-compact="true"] > .ct-card__header > button:first-child {
+  min-height: 44px;
+  align-items: center;
+}
+
+.ct-tool-indicator {
+  flex: none;
+  color: var(--ct-muted-fg);
+}
+
+.ct-card[data-compact="true"] .ct-card__menu {
+  opacity: 1;
+}
+
+.ct-card[data-compact="true"] .ct-card__menu .ct-row-kebab,
+.ct-card[data-compact="true"] .ct-tool-status-slot:has(.ct-card__menu) {
+  width: 44px;
+  height: 44px;
+}
+
+.ct-card[data-compact="true"] .ct-tool-status-slot:has(.ct-card__menu) > .ct-tool-status-icon,
+.ct-card[data-compact="true"] [data-testid="toolcard-outcome-facts"] > span:has([data-testid="toolcard-duration"]) {
+  display: none;
+}
+
+.ct-card[data-compact="true"][data-tool-kind="search"] .ct-tool-labels {
+  flex-wrap: wrap;
+  gap: 0 6px;
+  height: 18px;
+  overflow: hidden;
+  line-height: 18px;
+}
+
+.ct-card[data-compact="true"][data-tool-kind="search"] .ct-tool-subject:not(.hidden) {
+  min-width: 8ch;
+  flex: 1 1 8ch;
+}
+
+.ct-search-counts {
+  flex: none;
+  white-space: nowrap;
+}
+
+.ct-card[data-compact="true"] .ct-search-counts:not(:empty)::before {
+  content: "· ";
+}
+
+.ct-notice-chevron,
+.ct-card__head:hover > .ct-notice-chevron,
+.ct-card__head:has(:focus-visible) > .ct-notice-chevron {
+  opacity: 0.6;
+}
+
+.ct-code-copy {
+  color: var(--ct-muted-fg);
+}
+
+.ct-code-copy:hover,
+.ct-code-copy:focus-visible {
+  color: var(--ct-fg);
 }

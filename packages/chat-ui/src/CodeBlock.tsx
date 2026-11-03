@@ -413,8 +413,7 @@ export function CodeBlock({
             onClick={copyText}
             aria-label="Copy code"
             title={copied ? "Copied" : "Copy code"}
-            className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150 hover:brightness-110"
-            style={{ color: "var(--ct-muted-fg)" }}
+            className="ct-code-copy inline-flex items-center gap-1 rounded px-1.5 py-0.5 transition-colors duration-150"
           >
             {copied ? <Check size={12} /> : <Copy size={12} />}
             <span>{copied ? "Copied" : "Copy"}</span>

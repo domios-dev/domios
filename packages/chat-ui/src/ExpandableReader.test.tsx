@@ -1,6 +1,9 @@
 import React, { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
+import { ChatBlockHostProvider } from "./blocks/ChatBlockHost";
+import { renderChatCardMenu } from "../../../src/components/Terminal/ChatCardMenu";
+import { ThoughtLine } from "./toolcard/ThoughtLine";
 import { ChatNoticeCard } from "./ChatNoticeCard";
 import { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 import { ToolCardFrame } from "./toolcard/ToolCardFrame";
@@ -23,12 +26,67 @@ async function mount(content: React.ReactNode) {
 afterEach(async () => {
   await act(async () => root?.unmount());
   host?.remove();
+  vi.restoreAllMocks();
 });
 function button(name: string) {
   const result = [...document.querySelectorAll("button")].find(node => node.getAttribute("aria-label") === name || node.textContent === name);
   expect(result).toBeTruthy();
   return result!;
 }
+
+for (const input of ["coarse", "narrow"] as const) {
+  it(`opens the ${input} tool reader from its first menu action and restores kebab focus`, async () => {
+    const matchMedia = window.matchMedia.bind(window);
+    vi.spyOn(window, "matchMedia").mockImplementation(query => {
+      const media = matchMedia(query);
+      if (query === "(pointer: coarse)") Object.defineProperty(media, "matches", { value: input === "coarse" });
+      return media;
+    });
+    const bounds = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      const rect = bounds.call(this);
+      return this.classList.contains("ct-chat-surface") ? { ...rect, width: input === "narrow" ? 380 : 900 } : rect;
+    });
+    let toggles = 0;
+    const event: ToolEvent = { id: "compact", phase: "result", status: "success", kind: "search", result: "opaque output", message: { id: "compact", type: "tool_call", content: "" } };
+    await mount(<div className="ct-chat-surface"><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu }}>
+      <ToolCardFrame event={event} title="Opaque compact row" expanded={false} onToggle={() => { toggles += 1; }}><p>Opaque detail</p></ToolCardFrame>
+    </ChatBlockHostProvider></div>);
+    const toggle = button("Expand tool details");
+    await act(async () => toggle.click());
+    expect(toggles).toBe(1);
+    expect(host.querySelector('[aria-label="Expand card"]')).toBeNull();
+    expect(host.querySelector('[aria-label^="Open full screen:"]')).toBeNull();
+    const kebab = button("Actions for Opaque compact row");
+    for (const close of ["Escape", "button"]) {
+      await act(async () => kebab.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true, cancelable: true })));
+      const first = document.querySelector<HTMLButtonElement>('[role="menuitem"]')!;
+      expect(first).toBeTruthy();
+      expect(first.querySelector("svg")).toBeTruthy();
+      await act(async () => first.click());
+      const dialog = document.querySelector('[role="dialog"][aria-label="Opaque compact row"]');
+      expect(dialog?.textContent).toContain("Opaque detail");
+      expect(toggles).toBe(1);
+      if (close === "Escape") await act(async () => window.dispatchEvent(new KeyboardEvent("keydown", { code: "Escape", bubbles: true })));
+      else await act(async () => button("Close fullscreen viewer").click());
+      expect(document.querySelector('[role="dialog"]')).toBeNull();
+      expect(document.activeElement).toBe(kebab);
+    }
+  });
+}
+
+it("keeps the Thinking reader independent of the disclosure handler", async () => {
+  let toggles = 0;
+  await mount(<ThoughtLine text={"Opaque thought\n".repeat(10)} expanded={false} onToggle={() => { toggles += 1; }} />);
+  const opener = button("Open full screen: Thinking");
+  await act(async () => opener.click());
+  expect(toggles).toBe(0);
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain("Opaque thought");
+  await act(async () => button("Close fullscreen viewer").click());
+  expect(document.activeElement).toBe(opener);
+  await act(async () => host.querySelector<HTMLButtonElement>('button[aria-controls]')!.click());
+  expect(toggles).toBe(1);
+});
 
 it("keeps the same interactive content through open, Escape, close and focus return", async () => {
   function Content() {
