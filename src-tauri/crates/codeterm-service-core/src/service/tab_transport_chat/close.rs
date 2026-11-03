@@ -82,6 +82,10 @@ impl ServiceContext {
                 }
                 sessions.remove(&key);
             }
+            crate::service::tab_chat::chatbackend_history::ChatBackendHistory::release(
+                &plugin_id,
+                &session_id,
+            );
             Ok(ChatBackendCloseReceipt {
                 tab_id: tab_id.into(),
                 session_id,

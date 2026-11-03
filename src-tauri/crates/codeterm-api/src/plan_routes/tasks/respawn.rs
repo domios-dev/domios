@@ -35,11 +35,14 @@ pub async fn task_respawn(
         None,
     )
     .await?;
-    let plan = state
-        .svc
-        .plan_store
-        .get(&id)
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::NotFound))?;
+    let store = state.svc.plan_store.clone();
+    let plan_id = id.clone();
+    let plan = crate::plan_routes::run_blocking(move || {
+        store
+            .get(&plan_id)
+            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::NotFound))
+    })
+    .await?;
     let original_task = codeterm_service_core::plan::task_key::find_task(&plan.tasks, &tid)
         .cloned()
         .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?;
@@ -90,11 +93,15 @@ pub async fn task_respawn(
         .map_err(plan_err)?;
     }
     let original_plan_mode = plan.mode.clone();
-    let mut draft = state
-        .svc
-        .plan_store
-        .build_task_respawn_draft(&id, &tid, body)
-        .map_err(plan_err)?;
+    let store = state.svc.plan_store.clone();
+    let plan_id = id.clone();
+    let task_id = tid.clone();
+    let mut draft = crate::plan_routes::run_blocking(move || {
+        store
+            .build_task_respawn_draft(&plan_id, &task_id, body)
+            .map_err(plan_err)
+    })
+    .await?;
     let parent_tab_id = draft
         .parent_tab_id
         .clone()
@@ -140,11 +147,17 @@ pub async fn task_respawn(
         )
     })?;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
-    let _respawn_reservation = state
-        .svc
-        .plan_store
-        .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
-        .map_err(plan_err)?;
+    let store = state.svc.plan_store.clone();
+    let plan_id = id.clone();
+    let task_id = tid.clone();
+    let source_attempt = draft.source_attempt.id.clone();
+    let attempt = draft.attempt_id.clone();
+    let _respawn_reservation = crate::plan_routes::run_blocking(move || {
+        store
+            .reserve_task_respawn_startup(&plan_id, &task_id, &source_attempt, &attempt)
+            .map_err(plan_err)
+    })
+    .await?;
     let retirement_service = state.svc.clone();
     let retirement_draft = draft.clone();
     tokio::task::spawn_blocking(move || {
