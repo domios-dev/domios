@@ -10,6 +10,7 @@ struct ExecutorSource<'a> {
     plan_id: &'a str,
     task_id: &'a str,
     source_attempt: &'a crate::plan::TaskExecutionAttempt,
+    allow_incomplete_binding: bool,
 }
 
 impl<'a> From<&'a TaskRespawnDraft> for ExecutorSource<'a> {
@@ -18,6 +19,7 @@ impl<'a> From<&'a TaskRespawnDraft> for ExecutorSource<'a> {
             plan_id: &draft.plan_id,
             task_id: &draft.task_id,
             source_attempt: &draft.source_attempt,
+            allow_incomplete_binding: false,
         }
     }
 }
@@ -34,24 +36,40 @@ impl ServiceContext {
         tab_id: &str,
         reason: TabCloseReason,
     ) -> Result<bool, String> {
-        let binding = {
+        let tab = {
             let mux = self.mux.read();
             let canonical = mux
                 .resolve_tab_id(tab_id)
                 .unwrap_or_else(|| tab_id.to_string());
-            mux.get_tab(&canonical).and_then(|tab| {
-                (tab.role == Some(AgentRole::Worker))
-                    .then(|| tab.task_binding.clone())
-                    .flatten()
-            })
+            mux.get_tab(&canonical).cloned()
         };
-        let Some(binding) = binding else {
+        let Some(tab) = tab.filter(|tab| tab.role == Some(AgentRole::Worker)) else {
             return Ok(false);
         };
+        let binding = tab.task_binding.clone().unwrap_or_default();
+        if binding.attempt_id.is_none() {
+            let candidates = self.plan_store.live_task_attempts_for_tab(&tab.id);
+            let candidate = match candidates.as_slice() {
+                [] if binding.plan_id.is_none() && binding.task_id.is_none() => return Ok(false),
+                [candidate] => candidate,
+                _ => return Err("executor current attempt is unavailable or ambiguous".into()),
+            };
+            self.retire_executor_with(
+                ExecutorSource {
+                    plan_id: &candidate.plan_id,
+                    task_id: &candidate.task_id,
+                    source_attempt: &candidate.attempt,
+                    allow_incomplete_binding: true,
+                },
+                reason,
+                |tabs| self.terminate_executor_tabs(tabs),
+            )?;
+            return Ok(true);
+        }
         let (Some(plan_id), Some(task_id), Some(attempt_id)) =
             (binding.plan_id, binding.task_id, binding.attempt_id)
         else {
-            return Ok(false);
+            return Err("executor task binding is incomplete".into());
         };
         let plan = self
             .plan_store
@@ -69,6 +87,7 @@ impl ServiceContext {
                 plan_id: &plan_id,
                 task_id: &task_id,
                 source_attempt: attempt,
+                allow_incomplete_binding: false,
             },
             reason,
             |tabs| self.terminate_executor_tabs(tabs),
@@ -143,9 +162,16 @@ impl ServiceContext {
             reason,
             |mux, id| validate_snapshot(mux, id, draft, &tabs),
             || terminate(&tabs),
-            |mux, id| validate_snapshot(mux, id, draft, &tabs),
+            |mux, id| {
+                validate_snapshot(mux, id, draft, &tabs)?;
+                self.record_executor_termination(draft)
+            },
         )
         .map_err(|error| format!("respawn executor retirement failed: {error}"))?;
+        Ok(())
+    }
+
+    fn record_executor_termination(&self, draft: ExecutorSource<'_>) -> Result<(), String> {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|error| error.to_string())?
@@ -172,9 +198,21 @@ fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
     if tab.id != source.executor_tab_id
         || tab.protected
         || tab.role != Some(AgentRole::Worker)
-        || binding.and_then(|binding| binding.plan_id.as_deref()) != Some(draft.plan_id)
-        || binding.and_then(|binding| binding.task_id.as_deref()) != Some(draft.task_id)
-        || binding.and_then(|binding| binding.attempt_id.as_deref()) != Some(source.id.as_str())
+        || !binding_field_matches(
+            binding.and_then(|binding| binding.plan_id.as_deref()),
+            draft.plan_id,
+            draft.allow_incomplete_binding,
+        )
+        || !binding_field_matches(
+            binding.and_then(|binding| binding.task_id.as_deref()),
+            draft.task_id,
+            draft.allow_incomplete_binding,
+        )
+        || !binding_field_matches(
+            binding.and_then(|binding| binding.attempt_id.as_deref()),
+            &source.id,
+            draft.allow_incomplete_binding,
+        )
         || source
             .session_id
             .as_ref()
@@ -184,6 +222,10 @@ fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
         return Err("respawn source executor identity changed".into());
     }
     Ok(())
+}
+
+fn binding_field_matches(actual: Option<&str>, expected: &str, allow_missing: bool) -> bool {
+    actual.map_or(allow_missing, |actual| actual == expected)
 }
 
 fn source_nonce_matches(tab: &Tab, source: &crate::plan::TaskExecutionAttempt) -> bool {

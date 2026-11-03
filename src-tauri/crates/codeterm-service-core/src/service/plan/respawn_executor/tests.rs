@@ -437,6 +437,227 @@ fn ordinary_close_in_review_persists_termination_and_respawn_accepts_after_resta
     assert_close_persists_termination(crate::plan::TaskStatus::InReview, false);
 }
 
+#[test]
+fn restored_bounced_worker_force_close_records_termination_before_retirement_and_respawns() {
+    let (fixture, draft) = fixture();
+    let source = &draft.source_attempt;
+    let mut agent = crate::service::spawn::AgentSpawnSpec::default();
+    agent
+        .extra_env
+        .insert("CODETERM_PLAN_ID".into(), "plan".into());
+    agent
+        .extra_env
+        .insert("CODETERM_TASK_ID".into(), "task".into());
+    let binding = crate::service::spawn::task_binding_from_spawn(&agent).unwrap();
+    assert!(binding.attempt_id.is_none());
+    {
+        let mut mux = fixture.service.mux.write();
+        let tab = mux.get_tab_mut(&source.executor_tab_id).unwrap();
+        tab.task_binding = Some(binding.clone());
+        tab.agent_type = Some("source-provider".into());
+    }
+    fixture
+        .service
+        .plan_store
+        .with_plan("plan", 2, |plan| {
+            plan.tasks[0].status = crate::plan::TaskStatus::InReview;
+            plan.tasks[0].execution_attempts[0].provider = Some("source-provider".into());
+            Ok(())
+        })
+        .unwrap();
+    fixture
+        .service
+        .plan_store
+        .record_task_attempt_report(
+            "plan",
+            "task",
+            &crate::plan::AgentRef::from_tab(&source.executor_tab_id),
+            "opaque-review-report",
+            Some(codeterm_types::agent::ReportStatus::InReview),
+            3,
+        )
+        .unwrap();
+
+    let snapshot = fixture.service.mux.read().to_session_snapshot();
+    let restored_mux = MultiplexerState::from_session_snapshot(&snapshot);
+    assert_eq!(
+        restored_mux
+            .get_tab(&source.executor_tab_id)
+            .unwrap()
+            .task_binding,
+        Some(binding)
+    );
+    let restored = ServiceFixture::new_at(restored_mux, fixture.temp.path());
+    let svc = &restored.service;
+    let nonce = svc.rotate_session_binding_nonce(&source.executor_tab_id);
+    svc.mux
+        .write()
+        .get_tab_mut(&source.executor_tab_id)
+        .unwrap()
+        .reported_session_binding_nonce = Some(nonce);
+    let continuation = svc
+        .plan_store
+        .bounce_review(
+            "plan",
+            "task",
+            "opaque-review-defect",
+            true,
+            true,
+            crate::plan::AgentRef::from_tab("reviewer"),
+            4,
+        )
+        .unwrap()
+        .continuation
+        .unwrap();
+    svc.plan_store
+        .claim_review_continuation_delivery("plan", "task", &source.id, continuation.epoch, 5)
+        .unwrap();
+    assert!(svc
+        .plan_store
+        .finish_review_continuation("plan", "task", &source.id, continuation.epoch, true, 6)
+        .unwrap());
+    assert_eq!(
+        svc.plan_store.get("plan").unwrap().tasks[0].status,
+        crate::plan::TaskStatus::InProgress
+    );
+    assert!(svc
+        .close_tab_guarded(Some("owner"), &source.executor_tab_id, false)
+        .unwrap_err()
+        .contains("busy worker close refused"));
+    let warnings = svc
+        .close_tab_guarded(Some("owner"), &source.executor_tab_id, true)
+        .unwrap();
+    assert!(warnings
+        .iter()
+        .any(|warning| warning.contains("domios plan task respawn plan task --attempt source")));
+    assert!(svc.mux.read().get_tab(&source.executor_tab_id).is_none());
+
+    let (mux, _) = MultiplexerState::new();
+    let restarted = ServiceFixture::new_at(mux, fixture.temp.path());
+    let store = &restarted.service.plan_store;
+    let task = &store.get("plan").unwrap().tasks[0];
+    let terminated = &task.execution_attempts[0];
+    assert!(
+        terminated
+            .executor_termination
+            .as_ref()
+            .unwrap()
+            .confirmed_at
+            <= terminated.retired_at.unwrap()
+    );
+    assert!(terminated.closed_at.is_some());
+    assert_eq!(
+        terminated.report.as_ref().unwrap().message.as_deref(),
+        Some("opaque-review-report")
+    );
+    let replacement_draft = store
+        .build_task_respawn_draft(
+            "plan",
+            "task",
+            super::super::task_attempts::TaskRespawnRequest {
+                attempt_id: source.id.clone(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    restarted
+        .service
+        .retire_respawn_executor(&replacement_draft)
+        .unwrap();
+    let replacement = store
+        .record_task_respawn_attempt(
+            "plan",
+            "task",
+            "replacement-tab",
+            &replacement_draft,
+            Some("worker"),
+            50,
+        )
+        .unwrap();
+    assert_ne!(replacement.attempt.id, source.id);
+    assert_eq!(replacement.attempt.executor_tab_id, "replacement-tab");
+    assert!(replacement.attempt.executor_termination.is_none());
+    assert_eq!(
+        store.get("plan").unwrap().tasks[0].execution_attempts.len(),
+        2
+    );
+}
+
+#[test]
+fn forced_close_resolves_missing_binding_but_refuses_conflicting_or_ambiguous_attempts() {
+    for field in ["missing", "plan", "task", "ambiguous"] {
+        let (fixture, draft) = fixture();
+        let svc = &fixture.service;
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        {
+            let mut mux = svc.mux.write();
+            let tab = mux.get_tab_mut(tab_id).unwrap();
+            let binding = tab.task_binding.as_mut().unwrap();
+            binding.attempt_id = None;
+            match field {
+                "missing" => tab.task_binding = None,
+                "plan" => binding.plan_id = Some("foreign".into()),
+                "task" => binding.task_id = Some("foreign".into()),
+                _ => {}
+            }
+        }
+        if field == "ambiguous" {
+            svc.plan_store
+                .with_plan("plan", 2, |plan| {
+                    let mut second = plan.tasks[0].clone();
+                    second.id = "other-task".into();
+                    second.execution_attempts[0].id = "other-attempt".into();
+                    plan.tasks.push(second);
+                    Ok(())
+                })
+                .unwrap();
+        }
+        let result = svc.close_tab_guarded(Some("owner"), tab_id, true);
+        if field == "missing" {
+            result.unwrap();
+            assert!(svc
+                .plan_store
+                .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+                .unwrap());
+        } else {
+            assert!(result.is_err(), "{field}");
+            assert!(svc.mux.read().get_tab(tab_id).is_some(), "{field}");
+            assert!(!svc
+                .plan_store
+                .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+                .unwrap());
+        }
+    }
+}
+
+#[test]
+fn termination_receipt_persistence_failure_retains_tab_and_unretired_attempt() {
+    let (fixture, draft) = fixture();
+    let svc = &fixture.service;
+    let result = svc.retire_respawn_executor_with(&draft, |_| {
+        svc.plan_store
+            .with_plan("plan", 2, |plan| {
+                plan.tasks[0].execution_attempts[0].session_binding_nonce = Some("changed".into());
+                Ok(())
+            })
+            .unwrap();
+        Ok(())
+    });
+    assert!(result
+        .unwrap_err()
+        .contains("termination evidence could not be persisted"));
+    assert!(svc
+        .mux
+        .read()
+        .get_tab(&draft.source_attempt.executor_tab_id)
+        .is_some());
+    let plan = svc.plan_store.get("plan").unwrap();
+    let attempt = &plan.tasks[0].execution_attempts[0];
+    assert!(attempt.executor_termination.is_none());
+    assert!(attempt.retired_at.is_none());
+    assert!(attempt.closed_at.is_none());
+}
+
 fn assert_close_persists_termination(status: crate::plan::TaskStatus, guarded: bool) {
     let (fixture, draft) = fixture();
     fixture
