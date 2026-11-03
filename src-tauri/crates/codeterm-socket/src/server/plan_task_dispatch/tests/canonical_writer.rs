@@ -394,7 +394,7 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
     );
     assert_eq!(
         dispatch_worker_placement(None, &ExecutionIntent::ReadOnly, &task).unwrap(),
-        WorkerPlacement::IsolatedLane
+        WorkerPlacement::ReadOnly
     );
     assert!(dispatch_worker_placement(
         Some(&json!({ "placement": "canonical_writer" })),
@@ -487,4 +487,22 @@ fn canonical_writer_checkout_must_be_an_attached_repository() {
     super::git(&project, &["checkout", "-q", "--detach"]);
     let error = verify_canonical_writer_checkout(&project_cwd).unwrap_err();
     assert_eq!(error.code, -32012);
+}
+
+#[test]
+fn nonrepository_dispatch_reports_nonrepository_placement() {
+    let task = super::task(json!({
+        "id": "task_nonrepo", "name": "nonrepo", "type": "code",
+        "status": "pending", "execution_intent": "non_repository"
+    }));
+    assert_eq!(
+        dispatch_worker_placement(None, &ExecutionIntent::Mutating, &task).unwrap(),
+        WorkerPlacement::NonRepository
+    );
+    assert!(dispatch_worker_placement(
+        Some(&json!({"placement": "canonical_writer"})),
+        &ExecutionIntent::Mutating,
+        &task
+    )
+    .is_err());
 }

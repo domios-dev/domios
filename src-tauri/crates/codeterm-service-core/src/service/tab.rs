@@ -278,7 +278,9 @@ impl ServiceContext {
                 lines.join("; ")
             ));
         }
-        self.close_tab(target_tab_id)?;
+        if assignments.is_empty() || !self.close_bound_worker_executor(&canon_target)? {
+            self.close_tab(target_tab_id)?;
+        }
         Ok(busy_worker_close_warnings(&canon_target, &assignments))
     }
 

@@ -29,10 +29,17 @@ pub(super) fn dispatch_worker_placement(
     intent: &ExecutionIntent,
     task: &Task,
 ) -> Result<WorkerPlacement, JsonRpcError> {
+    let default_placement = if *intent == ExecutionIntent::ReadOnly {
+        WorkerPlacement::ReadOnly
+    } else if !task.execution_intent.requires_repository() {
+        WorkerPlacement::NonRepository
+    } else {
+        WorkerPlacement::IsolatedLane
+    };
     match p.and_then(|params| params.get("placement")) {
-        None | Some(Value::Null) => return Ok(WorkerPlacement::IsolatedLane),
+        None | Some(Value::Null) => return Ok(default_placement),
         Some(value) if value.as_str() == Some(PLACEMENT_ISOLATED_LANE) => {
-            return Ok(WorkerPlacement::IsolatedLane)
+            return Ok(default_placement)
         }
         Some(value) if value.as_str() == Some(PLACEMENT_CANONICAL_WRITER) => {}
         Some(_) => {
@@ -98,7 +105,12 @@ pub(super) fn resolve_placement(
     dispatch_worker_placement(p, intent, task).map(|placement| {
         (
             placement,
-            "explicit canonical writer or read-only task".into(),
+            match placement {
+                WorkerPlacement::ReadOnly => "read-only attempt requires no checkout",
+                WorkerPlacement::NonRepository => "non-repository task requires no checkout",
+                _ => "explicit canonical writer",
+            }
+            .into(),
         )
     })
 }
@@ -118,7 +130,7 @@ pub(super) fn verify_canonical_writer_checkout(canonical_cwd: &str) -> Result<()
 
 pub(super) fn compose_dispatch_brief(brief: String, placement: WorkerPlacement) -> String {
     match placement {
-        WorkerPlacement::IsolatedLane => brief,
+        WorkerPlacement::IsolatedLane | WorkerPlacement::ReadOnly | WorkerPlacement::NonRepository => brief,
         WorkerPlacement::CanonicalWriter => format!("{brief}{CANONICAL_WRITER_BRIEF}"),
         WorkerPlacement::Shared => format!("{brief}## Placement: shared checkout\nUse only your task's declared edit paths. Request additional paths with `domios plan task extend-files --edit-file PATH`. Commit only owned paths with `git commit -- <paths>` in one task commit; report that literal SHA. Never change branches, merge, reset or sweep another Worker's changes. Keep the checkout compiling; report compiler failures in foreign paths to the Orchestrator.\n\n"),
     }

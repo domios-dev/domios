@@ -33,6 +33,7 @@ fn fixture() -> (ServiceFixture, TaskRespawnDraft) {
             executor_tab_id: tab_id,
             session_id: Some("source-session".into()),
             session_binding_nonce: Some("source-nonce".into()),
+            acknowledged_at: Some(1),
             ..Default::default()
         },
         provider: "replacement-provider".into(),
@@ -50,6 +51,20 @@ fn fixture() -> (ServiceFixture, TaskRespawnDraft) {
         plan_skill_manifest: Vec::new(),
         authorized_gates: Some(Vec::new()),
     };
+    let mut plan = crate::plan::Plan::new(
+        "Executor retirement".into(),
+        fixture.temp.path().display().to_string(),
+        crate::plan::OrchestratorRef::from_tab("owner"),
+    );
+    plan.id = "plan".into();
+    let mut task: crate::plan::Task = serde_json::from_value(serde_json::json!({
+        "id": "task", "name": "executor", "type": "code", "status": "in_progress",
+        "assigned_tab_id": draft.source_attempt.executor_tab_id,
+    }))
+    .unwrap();
+    task.execution_attempts.push(draft.source_attempt.clone());
+    plan.tasks.push(task);
+    fixture.service.plan_store.save(&mut plan, 1).unwrap();
     (fixture, draft)
 }
 
@@ -400,4 +415,58 @@ fn runtime_provider_change_keeps_one_live_executor_after_confirmed_exit() {
             .count(),
         1
     );
+}
+
+#[test]
+fn forced_close_persists_termination_and_respawn_accepts_after_restart() {
+    let (fixture, draft) = fixture();
+    let source = &draft.source_attempt;
+    fixture
+        .service
+        .plan_store
+        .record_task_attempt_report(
+            "plan",
+            "task",
+            &crate::plan::AgentRef::from_tab(&source.executor_tab_id),
+            "opaque-partial-progress",
+            Some(codeterm_types::agent::ReportStatus::Partial),
+            2,
+        )
+        .unwrap();
+    let warnings = fixture
+        .service
+        .close_tab_guarded(Some("owner"), &source.executor_tab_id, true)
+        .unwrap();
+    assert!(!warnings.is_empty());
+    assert!(fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&source.executor_tab_id)
+        .is_none());
+    let (mux, _) = MultiplexerState::new();
+    let restarted = ServiceFixture::new_at(mux, fixture.temp.path());
+    assert!(restarted
+        .service
+        .plan_store
+        .task_executor_termination_confirmed("plan", "task", source)
+        .unwrap());
+    restarted.service.retire_respawn_executor(&draft).unwrap();
+    let mut foreign = draft.clone();
+    foreign.source_attempt.session_binding_nonce = Some("foreign-nonce".into());
+    assert!(restarted.service.retire_respawn_executor(&foreign).is_err());
+    let replacement = restarted
+        .service
+        .plan_store
+        .record_task_respawn_attempt(
+            "plan",
+            "task",
+            "replacement-tab",
+            &draft,
+            Some("worker"),
+            50,
+        )
+        .unwrap();
+    assert_eq!(replacement.attempt.executor_tab_id, "replacement-tab");
+    assert_eq!(replacement.attempt.executor_termination, None);
 }

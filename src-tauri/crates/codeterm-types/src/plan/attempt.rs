@@ -127,12 +127,25 @@ pub enum WorkerPlacement {
     IsolatedLane,
     CanonicalWriter,
     Shared,
+    ReadOnly,
+    NonRepository,
 }
 
 impl WorkerPlacement {
     pub fn is_isolated_lane(&self) -> bool {
         matches!(self, Self::IsolatedLane)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct TaskExecutorTermination {
+    pub attempt_id: String,
+    pub executor_tab_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_binding_nonce: Option<String>,
+    pub confirmed_at: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
@@ -200,6 +213,10 @@ pub struct TaskExecutionAttempt {
     /// Reserved by dispatch; never inferred from a Worker's checkout path.
     #[serde(default, skip_serializing_if = "WorkerPlacement::is_isolated_lane")]
     pub placement: WorkerPlacement,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_intent: Option<super::ExecutionIntent>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub executor_termination: Option<TaskExecutorTermination>,
     #[serde(default)]
     pub report: Option<TaskExecutionReportSnapshot>,
     #[serde(default)]
