@@ -67,7 +67,7 @@ export function useComposerCapsules({ tabId, textareaRef, sinkRef, onError, keep
   onError: (message: string) => void;
   keepTextInline?: boolean;
 }) {
-  const [raw, setRaw] = usePersistentDraft(`tab-session-chat-capsules:${tabId}`);
+  const [raw, setRaw] = usePersistentDraft(`tab-session-chat-capsules:${tabId}`, onError);
   const [registry, setRegistry] = useState(() => decodeCapsuleRegistry(raw));
   const registryRef = useRef<CapsuleRegistry>(registry);
   registryRef.current = registry;

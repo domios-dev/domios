@@ -255,6 +255,8 @@
   "src/lib/orchestratorOnboard.nonce.test.ts",
   "src/lib/frontendUpdate/runtime.test.ts",
   "src/lib/frontendUpdate/useFrontendApp.test.tsx",
+  "src/lib/frontendUpdate/drafts.test.ts",
+  "src/lib/usePersistentDraft.test.tsx",
   "src/components/DaemonFrontendBootstrap.test.tsx",
   "src/components/Extensions/ChatModelBubble.test.tsx",
   "src/lib/buildMismatchGuard.test.ts",

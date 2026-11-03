@@ -88,3 +88,41 @@ it("mounts the main pane only after the saved chat route is restored", async () 
   expect(host.querySelector('main[aria-label="Conversation"]')).not.toBeNull();
   await act(async () => root.unmount()); host.remove();
 });
+
+it("does not clone checkpoints or persist selection on unrelated renders", async () => {
+  localStorage.clear();
+  saveClientPageSelection({ workspaceId: "page", tabId: "reader" });
+  frontendSignals.hydrate({ activeWorkspaceId: "page", activeTabId: "reader", drafts: {
+    large: { text: "draft".repeat(10000), attachmentIds: [], replyTo: null },
+  }, scroll: {} });
+  const clone = vi.spyOn(frontendSignals, "checkpoint");
+  const writes = vi.spyOn(window.localStorage, "setItem");
+  const initialDrafts = frontendSignals.checkpointView().drafts;
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host);
+  let tabId = "reader";
+  function App() {
+    useFrontendApp({ generation: 1, workspaceId: "page", tabId,
+      pageSnapshot: { active_workspace_id: "page", workspaces: [{ id: "page", tabs: ["reader", "other"], active_tab_id: "reader" }], tabs: { reader: {}, other: {} } },
+      hasWorkspace: () => true, hasTab: () => true, selectWorkspace: () => {}, selectTab: () => {} });
+    return <main />;
+  }
+  rootRendered.mockImplementation(() => {});
+  try {
+    await act(async () => root.render(<App />));
+    await act(async () => root.render(<App />));
+    await act(async () => root.render(<App />));
+    expect(clone).not.toHaveBeenCalled();
+    expect(writes).not.toHaveBeenCalled();
+    tabId = "other";
+    await act(async () => root.render(<App />));
+    expect(loadClientPageSelection()).toEqual({ workspaceId: "page", tabId: "other" });
+    expect(frontendSignals.checkpointView().activeTabId).toBe("other");
+    expect(frontendSignals.checkpointView().drafts).toBe(initialDrafts);
+    expect(writes).toHaveBeenCalledTimes(2);
+    expect(clone).not.toHaveBeenCalled();
+  } finally {
+    await act(async () => root.unmount()); host.remove();
+    clone.mockRestore(); writes.mockRestore();
+  }
+});

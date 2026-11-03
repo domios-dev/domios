@@ -5,7 +5,7 @@ import { TERMINAL_VIEWER_RECONNECTED_EVENT } from "../terminalViewerEvents";
 import { frontendReleaseSummary, publishAppliedFrontendRelease } from "./releaseNotes";
 import type { TransportClient } from "../transportClient";
 import { createFrontendUpdateClient, createSwapController, preparePageReload, type BootContext } from "./client";
-import type { ClientCheckpoint } from "./checkpoint";
+import type { CheckpointWrite, ClientCheckpoint } from "./checkpoint";
 import {
   initialSwapState,
   type CheckpointSnapshot,
@@ -49,6 +49,7 @@ export interface FrontendRuntimeOptions {
   onError(error: unknown): void;
   held?: () => boolean;
   onOffer?(offer: FrontendUpdateOffer | null): void;
+  flushDrafts?(): Promise<void>;
 }
 
 export interface FrontendUpdateOffer {
@@ -62,7 +63,9 @@ export function updateOffer(state: SwapState): FrontendUpdateOffer | null {
 }
 
 export async function initializeFrontendUpdateRuntime(client: TransportClient, options: FrontendRuntimeOptions) {
-  const api = createFrontendUpdateClient({ json: (method, path, body) => client.localJson(method, path, body, { signal: AbortSignal.timeout(5000) }) }, options.clientId);
+  const clientApi = createFrontendUpdateClient({ json: (method, path, body) => client.localJson(method, path, body, { signal: AbortSignal.timeout(5000) }) }, options.clientId);
+  const api = { ...clientApi, persist: (write: CheckpointWrite) => options.flushDrafts
+    ? options.flushDrafts().then(() => clientApi.persist(write)) : clientApi.persist(write) };
   const restored = await api.checkpoint().catch(error => { throw new FrontendUpdateError("checkpoint-unavailable", error); });
   options.signals.hydrate(options.boot && restored ? restored.payload : options.signals.checkpointView());
   const status = await client.localJson<FrontendStatus>("GET", "/api/frontend/status", undefined, { signal: AbortSignal.timeout(5000) })

@@ -1,145 +1,83 @@
-import { useEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
 import { act } from "react";
-import { Window } from "happy-dom";
+import { createRoot } from "react-dom/client";
+import { afterEach, expect, it, vi } from "vitest";
 import { frontendSignals } from "./frontendUpdate/appState";
+import { DraftPersistence } from "./frontendUpdate/draftPersistence";
 import { usePersistentDraft } from "./usePersistentDraft";
 
-type TestFn = () => void | Promise<void>;
-const failures: string[] = [];
-const tests: Array<{ name: string; fn: TestFn }> = [];
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+const cleanups: Array<() => Promise<void>> = [];
+afterEach(async () => { for (const cleanup of cleanups.splice(0)) await cleanup(); });
 
-function test(name: string, fn: TestFn) {
-  tests.push({ name, fn });
-}
-
-function assert(condition: unknown, message: string) {
-  if (!condition) throw new Error(message);
-}
-
-interface HarnessHandle {
-  setValue: (value: string) => void;
-  value: string;
-}
-
-function setupDom() {
+function harness(persistence: DraftPersistence) {
   frontendSignals.hydrate({ activeWorkspaceId: null, activeTabId: null, drafts: {}, scroll: {} });
-  const win = new Window({ url: "http://localhost" });
-  Object.assign(globalThis, {
-    window: win,
-    document: win.document,
-    localStorage: win.localStorage,
-    Event: win.Event,
-    IS_REACT_ACT_ENVIRONMENT: true,
-  });
   const host = document.createElement("div");
-  document.body.appendChild(host);
-  let root: Root | null = createRoot(host);
-  const handle: HarnessHandle = {
-    setValue: () => {},
-    value: "",
-  };
-  const render = async (scope: string) => {
-    await act(async () => {
-      root?.render(<Harness scope={scope} handle={handle} />);
-    });
-  };
-  const unmount = async () => {
-    await act(async () => root?.unmount());
-    root = null;
-  };
-  return { handle, render, unmount, storage: win.localStorage, win };
-}
-
-function Harness({ scope, handle }: { scope: string; handle: HarnessHandle }) {
-  const [value, setValue] = usePersistentDraft(scope);
-  handle.value = value;
-  handle.setValue = setValue;
-  useEffect(() => {
+  document.body.append(host);
+  const root = createRoot(host);
+  const onError = vi.fn();
+  const handle = { value: "", edit: (_value: string) => {} };
+  function Field({ scope }: { scope: string }) {
+    const [value, edit] = usePersistentDraft(scope, onError, persistence);
     handle.value = value;
-  }, [handle, value]);
-  return <textarea value={value} onChange={(e) => setValue(e.target.value)} />;
+    handle.edit = edit;
+    return <textarea aria-label="Draft" value={value} onChange={event => edit(event.target.value)} />;
+  }
+  const render = (scope: string) => act(async () => { root.render(<Field scope={scope} />); });
+  cleanups.push(async () => { await act(async () => root.unmount()); host.remove(); });
+  return { handle, render, onError };
 }
 
-test("captures rapid edits and stores the exact final value synchronously", async () => {
-  const { handle, render, storage, unmount } = setupDom();
-  await render("rapid");
-  await act(async () => {
-    handle.setValue("a");
-    handle.setValue("ab");
-    handle.setValue("abc");
-  });
-  assert(frontendSignals.checkpoint().drafts.rapid.text === "abc", "collector missed the final edit");
-  assert(storage.getItem("codeterm:composer-draft:rapid") === "abc", "final value not stored");
-  await unmount();
+it("keeps rapid edits live without localStorage writes or a checkpoint clone", async () => {
+  const values = new Map<string, string>();
+  const persistence = new DraftPersistence({ read: async () => new Map(), write: async (scope, value) => { if (value === null) values.delete(scope); else values.set(scope, value); } });
+  const field = harness(persistence);
+  const clone = vi.spyOn(frontendSignals, "checkpoint");
+  const save = vi.spyOn(window.localStorage, "setItem");
+  try {
+    await field.render("rapid");
+    await act(async () => { field.handle.edit("a"); field.handle.edit("ab"); field.handle.edit("abc"); await persistence.flush(); });
+    expect(field.handle.value).toBe("abc");
+    expect(frontendSignals.checkpointView().drafts.rapid.text).toBe("abc");
+    expect(values.get("rapid")).toBe("abc");
+    expect(clone).not.toHaveBeenCalled();
+    expect(save).not.toHaveBeenCalled();
+  } finally { clone.mockRestore(); save.mockRestore(); }
 });
 
-test("flushes old scope before switching and never writes into the new scope", async () => {
-  const { handle, render, storage, unmount } = setupDom();
-  await render("scope-a");
-  await act(async () => handle.setValue("alpha"));
-  await render("scope-b");
-  assert(storage.getItem("codeterm:composer-draft:scope-a") === "alpha", "old scope was not flushed");
-  assert(storage.getItem("codeterm:composer-draft:scope-b") === null, "old value leaked into new scope");
-  await act(async () => handle.setValue("beta"));
-  await unmount();
-  assert(storage.getItem("codeterm:composer-draft:scope-b") === "beta", "new scope did not flush on unmount");
+it("restores saved records and flushes each scope without leaking old text", async () => {
+  const values = new Map([["a", "restored"]]);
+  const persistence = new DraftPersistence({ read: async () => new Map(values), write: async (scope, value) => { if (value === null) values.delete(scope); else values.set(scope, value); } });
+  const field = harness(persistence);
+  await field.render("a");
+  expect(field.handle.value).toBe("restored");
+  await act(async () => field.handle.edit("alpha"));
+  await field.render("b");
+  expect(field.handle.value).toBe("");
+  await act(async () => { field.handle.edit("beta"); window.dispatchEvent(new Event("blur")); await persistence.flush(); });
+  expect(values.get("a")).toBe("alpha");
+  expect(values.get("b")).toBe("beta");
+  await act(async () => { field.handle.edit(""); window.dispatchEvent(new Event("pagehide")); await persistence.flush(); });
+  expect(values.get("b")).toBe("");
 });
 
-test("flushes on blur and pagehide", async () => {
-  const { handle, render, storage, win, unmount } = setupDom();
-  await render("events");
-  await act(async () => handle.setValue("blurred"));
-  win.dispatchEvent(new win.Event("blur"));
-  assert(storage.getItem("codeterm:composer-draft:events") === "blurred", "blur did not flush");
-  await act(async () => handle.setValue("hidden"));
-  win.dispatchEvent(new win.Event("pagehide"));
-  assert(storage.getItem("codeterm:composer-draft:events") === "hidden", "pagehide did not flush");
-  await unmount();
+it("surfaces persistence refusal to the composer while preserving its editable value", async () => {
+  const persistence = new DraftPersistence({ read: async () => new Map(), write: async () => { throw new Error("quota"); } });
+  const field = harness(persistence);
+  await field.render("quota");
+  await act(async () => { field.handle.edit("survives"); await persistence.flush().catch(() => {}); });
+  expect(field.handle.value).toBe("survives");
+  expect(field.onError).toHaveBeenCalledWith("Draft could not be saved: quota");
 });
 
-test("quota failures are swallowed and controlled value remains live", async () => {
-  const { handle, render, storage, unmount } = setupDom();
-  const original = storage.setItem.bind(storage);
-  storage.setItem = () => {
-    throw new Error("quota");
-  };
-  await render("quota");
-  await act(async () => handle.setValue("survives"));
-  assert(handle.value === "survives", "controlled value was lost after quota failure");
-  storage.setItem = original;
-  await unmount();
-});
-
-test("registers local fallback with the collector and restores daemon data without local storage", async () => {
-  const { handle, render, storage, unmount } = setupDom();
-  storage.setItem("codeterm:composer-draft:tab-session-chat:restored", "unsent fallback");
-  await render("tab-session-chat:restored");
-  assert(handle.value === "unsent fallback", "fallback was not restored");
-  assert(frontendSignals.checkpoint().drafts["tab-session-chat:restored"].text === "unsent fallback", "fallback missing from collector");
-  storage.clear();
+it("restores checkpoint text and capsule identity without replacing them with older disk records", async () => {
+  const persistence = new DraftPersistence({ read: async () => new Map([["tab-session-chat:t", "old"]]), write: async () => {} });
+  const field = harness(persistence);
   frontendSignals.hydrate({ activeWorkspaceId: null, activeTabId: null, drafts: {
-    "tab-session-chat:daemon": { text: "daemon draft", attachmentIds: ["image1"], replyTo: null, capsules: { image1: { label: "image1", path: "/uploads/image.png", kind: "image" } } },
+    "tab-session-chat:t": { text: "new [image1]", attachmentIds: ["image1"], replyTo: null,
+      capsules: { image1: { label: "image1", path: "/uploads/image.png", kind: "image" } } },
   }, scroll: {} });
-  await render("tab-session-chat:daemon");
-  assert(handle.value === "daemon draft", "checkpoint draft was not restored");
-  assert(storage.length === 0, "restore depended on local storage");
-  assert(frontendSignals.checkpoint().drafts["tab-session-chat:daemon"].attachmentIds[0] === "image1", "metadata was lost on mount");
-  await render("tab-session-chat-capsules:daemon");
-  assert(handle.value.includes("/uploads/image.png"), "attachment reference was not restored");
-  await unmount();
+  await field.render("tab-session-chat:t");
+  expect(field.handle.value).toBe("new [image1]");
+  await field.render("tab-session-chat-capsules:t");
+  expect(JSON.parse(field.handle.value)).toEqual([{ label: "image1", path: "/uploads/image.png", kind: "image" }]);
 });
-
-(async () => {
-  for (const { name, fn } of tests) {
-    try {
-      await fn();
-      console.log(`ok - ${name}`);
-    } catch (e) {
-      failures.push(name);
-      console.error(`FAIL - ${name}:`, e);
-    }
-  }
-  if (failures.length > 0) process.exit(1);
-  console.log("usePersistentDraft checks passed");
-})();

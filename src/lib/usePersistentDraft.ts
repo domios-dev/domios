@@ -1,25 +1,55 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { editFrontendDraft, frontendSignals } from "./frontendUpdate/appState";
-import { hasComposerDraft, readComposerDraft, writeLocalDraft } from "./frontendUpdate/drafts";
+import { hasComposerDraft, readComposerDraft } from "./frontendUpdate/drafts";
+import { composerDraftPersistence, type DraftPersistence } from "./frontendUpdate/draftPersistence";
 
-function readDraft(scope: string): string {
-  return readComposerDraft(frontendSignals.checkpoint().drafts, window.localStorage, scope);
+function readDraft(scope: string, persistence: DraftPersistence): string {
+  const drafts = frontendSignals.checkpointView().drafts;
+  return hasComposerDraft(drafts, scope) ? readComposerDraft(drafts, scope) : persistence.records.get(scope) ?? "";
 }
 
-export function usePersistentDraft(scope: string): [string, (value: string) => void] {
-  const [draft, setDraft] = useState(() => ({ scope, value: readDraft(scope) }));
-  const value = draft.scope === scope ? draft.value : readDraft(scope);
+export function usePersistentDraft(scope: string, onError?: (message: string) => void,
+  persistence: DraftPersistence = composerDraftPersistence): [string, (value: string) => void] {
+  const [draft, setDraft] = useState(() => ({ scope, value: readDraft(scope, persistence) }));
+  const errorCallback = useRef(onError);
+  errorCallback.current = onError;
+  const value = draft.scope === scope ? draft.value : readDraft(scope, persistence);
 
   useEffect(() => {
-    const restored = readDraft(scope);
-    if (!hasComposerDraft(frontendSignals.checkpoint().drafts, scope)) editFrontendDraft(scope, restored);
-    setDraft({ scope, value: restored });
-  }, [scope]);
+    let active = true;
+    let reported: Error | undefined;
+    const sync = () => {
+      if (!active) return;
+      const error = persistence.error(scope);
+      if (error && error !== reported) errorCallback.current?.(`Draft could not be saved: ${error.message}`);
+      reported = error;
+      const value = readDraft(scope, persistence);
+      setDraft(previous => previous.scope === scope && previous.value === value ? previous : { scope, value });
+    };
+    const stop = persistence.subscribe(sync);
+    void persistence.initialize().then(() => {
+      if (!active) return;
+      const restored = readDraft(scope, persistence);
+      if (!hasComposerDraft(frontendSignals.checkpointView().drafts, scope)) editFrontendDraft(scope, restored);
+      sync();
+    });
+    sync();
+    const flush = () => { void persistence.flush().catch(() => {}); };
+    window.addEventListener("blur", flush);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      active = false;
+      stop();
+      flush();
+      window.removeEventListener("blur", flush);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [scope, persistence]);
 
   const edit = useCallback((next: string) => {
-    writeLocalDraft(window.localStorage, scope, next);
     editFrontendDraft(scope, next);
+    persistence.edit(scope, next);
     setDraft({ scope, value: next });
-  }, [scope]);
+  }, [scope, persistence]);
   return [value, edit];
 }
