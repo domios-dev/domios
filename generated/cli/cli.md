@@ -3237,8 +3237,6 @@ Update plan metadata
 - `--note` — Waiver note (required when --planner none)
 - `<plan_id>`
 - `--planner` — Set attached Planner: <tab_id> to bind, or "none" to waive (requires --note)
-- `--spec`
-- `--spec-file`
 - `--status`
 - `--title`
 

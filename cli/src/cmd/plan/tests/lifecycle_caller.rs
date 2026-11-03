@@ -150,8 +150,6 @@ fn lifecycle_actions() -> Vec<(&'static str, PlanAction)> {
             PlanAction::Update {
                 plan_id: "pl_recovered".into(),
                 title: None,
-                spec: None,
-                spec_file: None,
                 status: None,
                 mode: None,
                 planner: Some("none".into()),

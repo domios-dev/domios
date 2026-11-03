@@ -676,8 +676,6 @@ fn run_plan(
         PlanAction::Update {
             plan_id,
             title,
-            spec: _,
-            spec_file: _,
             status,
             mode,
             planner,
