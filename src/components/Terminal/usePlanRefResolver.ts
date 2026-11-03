@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { onResync } from "../../lib/resync";
 import { listen } from "../../lib/bridge";
 import type { ApiConfig } from "../../lib/types";
 import {
@@ -149,6 +150,7 @@ export function usePlanRefResolver(
     const invalidate = () => {
       if (active) setInvalidationGeneration((n) => n + 1);
     };
+    const offResync = onResync(invalidate);
     void listen("plan-changed", invalidate).then((fn) => {
       if (!active) fn();
       else offChanged = fn;
@@ -159,6 +161,7 @@ export function usePlanRefResolver(
     });
     return () => {
       active = false;
+      offResync();
       offChanged?.();
       offLoaded?.();
     };

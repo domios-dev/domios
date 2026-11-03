@@ -12,8 +12,8 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import {
   PlansProvider,
   useCanvasPlans,
-  useFullPlans,
-  useFullPlansOptional,
+  usePlanSummaries,
+  usePlanSummariesOptional,
   useSidebarPlansOptional,
 } from "./PlansProvider";
 
@@ -73,12 +73,12 @@ function setupDom() {
     configurable: true,
     value: async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.includes("/api/plans?") && url.includes("full=1")) {
+      if (url.includes("/api/plans?") && url.includes("view=summary")) {
         fullCalls++;
         lastFullProject = new URL(url).searchParams.get("project");
-        return new Response(JSON.stringify({ plans: fullFixturePlans }), { status: 200 });
+        return new Response(JSON.stringify({ plans: fullFixturePlans.map((plan) => ({ ...plan, revision: "1" })) }), { status: 200 });
       }
-      if (url.includes("chat=1")) return Response.json({ plans: fullFixturePlans });
+      if (url.includes("chat=1")) return Response.json({ plans: fullFixturePlans.map((plan) => ({ ...plan, revision: "1" })) });
       if (url.endsWith("/api/plans")) {
         indexCalls++;
         const entry = {
@@ -118,12 +118,12 @@ function emitPlansLoaded() {
 }
 
 function FullProbe() {
-  useFullPlans();
+  usePlanSummaries();
   return null;
 }
 
 function OptionalFullProbe({ enabled }: { enabled: boolean }) {
-  const full = useFullPlansOptional(enabled);
+  const full = usePlanSummariesOptional(enabled);
   return <output data-testid="optional-full-state">{full ? "enabled" : "disabled"}</output>;
 }
 
@@ -187,7 +187,7 @@ test("plans-loaded event refetches the sidebar plan index immediately", async ()
   await act(async () => root.unmount());
 });
 
-test("full bodies fetched once only when a canvas consumer mounts", async () => {
+test("summaries fetched once only when a canvas consumer mounts", async () => {
   indexCalls = 0;
   fullCalls = 0;
   const { root } = await renderTree(
@@ -202,7 +202,7 @@ test("full bodies fetched once only when a canvas consumer mounts", async () => 
   await act(async () => root.unmount());
 });
 
-test("optional full reader leaves Tasks detached and releases the collection when hidden", async () => {
+test("optional summary reader leaves Tasks detached and releases the collection when hidden", async () => {
   indexCalls = 0;
   fullCalls = 0;
   const { host, root } = await renderTree(
@@ -327,7 +327,7 @@ test("canvas release cannot drop plans while sidebar remains mounted", async () 
   await act(async () => root.unmount());
 });
 
-test("workspace canvas does not rescope the shared full-plan query", async () => {
+test("workspace canvas does not rescope the shared summary query", async () => {
   indexCalls = 0;
   fullCalls = 0;
   lastFullProject = "unset";

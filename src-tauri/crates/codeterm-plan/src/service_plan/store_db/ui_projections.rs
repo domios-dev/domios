@@ -37,6 +37,12 @@ impl PlanDatabase {
         id: &str,
         view: PlanViewProjection,
     ) -> Result<Value, PlanError> {
+        if view == PlanViewProjection::Chat {
+            return self
+                .chat_projection(None, None, None, Some(id))?
+                .pop()
+                .ok_or(PlanError::NotFound);
+        }
         let mut guard = self.connection.lock();
         let transaction = guard.transaction().map_err(db_error)?;
         let value = projection(&transaction, id, view)?;

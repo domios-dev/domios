@@ -26,7 +26,7 @@ export interface MissionControlBoardProps {
   previousPlans?: readonly TeamPlanSummary[];
   /** Switches the host to the Spec, Plan or Tasks view. */
   onOpenView?: (mode: "spec" | "plan" | "tasks") => void;
-  onOpenTask?: (taskId: string) => void;
+  onOpenTask?: (taskId: string, planId?: string) => void;
   onOpenPlan?: (planId: string) => void;
   /** Needs you notifications in this Board's scope, each one jump to its chat message. */
   deepLinks?: NeedsYouDeepLinks;
@@ -116,6 +116,8 @@ export function MissionControlBoard({
           milestoneKinds={("milestone_kinds" in plan ? plan.milestone_kinds : undefined) ?? plans?.find((candidate) => candidate.id === plan.id)?.milestone_kinds ?? []}
           refs={refs}
           pager={eventPager}
+            planId={plan.id}
+            onOpenTask={onOpenTask}
           now={now}
         />
       </BoardCardReading>

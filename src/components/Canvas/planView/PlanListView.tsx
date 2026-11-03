@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { usePlanProjection } from "../usePlanProjection";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
@@ -89,17 +90,10 @@ export function PlanListView({
   onOpenTab,
   api,
   onClose,
+  onOpenPlanTarget,
 }: PlanViewSurfaceProps) {
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
-  const activeWork = useMemo(
-    () => selectActiveWork(effectivePlans, tabs),
-    [effectivePlans, tabs],
-  );
-  const switcherWithInflight = useMemo(
-    () => enrichSwitcherOptions(switcherOptions, activeWork),
-    [switcherOptions, activeWork],
-  );
   const [manualPlanId, setManualPlanId] = useState<string | null>(readStoredPlanId);
 
   const filteredPlans = useMemo(
@@ -127,11 +121,22 @@ export function PlanListView({
     return defaultPlanId;
   }, [manualPlanId, orderedPlans, defaultPlanId]);
 
-  const selectedPlan = useMemo(
+  const listedPlan = useMemo(
     () => orderedPlans.find((p) => p.id === selectedPlanId) ?? null,
     [orderedPlans, selectedPlanId],
   );
 
+  const projection = usePlanProjection(api, listedPlan?.id ?? null, "list");
+  const selectedPlan = api ? projection.plan : listedPlan;
+  const visiblePlans = useMemo(() => selectedPlan ? effectivePlans.map((plan) => plan.id === selectedPlan.id ? selectedPlan : plan) : effectivePlans, [effectivePlans, selectedPlan]);
+  const activeWork = useMemo(
+    () => selectActiveWork(visiblePlans, tabs),
+    [visiblePlans, tabs],
+  );
+  const switcherWithInflight = useMemo(
+    () => enrichSwitcherOptions(switcherOptions, activeWork),
+    [switcherOptions, activeWork],
+  );
   const planActiveWork = useMemo(
     () => (selectedPlan ? activeWork.byPlanId.get(selectedPlan.id) ?? [] : []),
     [activeWork, selectedPlan],
@@ -230,21 +235,24 @@ export function PlanListView({
     (row: PlanListRow) => {
       if (!selectedPlan || !row.taskId) return;
       const task = findTask(selectedPlan, row.taskId);
-      if (task) setDetail({ kind: "task", task, plan: selectedPlan });
+      if (task && api && onOpenPlanTarget) onOpenPlanTarget({ planId: selectedPlan.id, taskId: task.id, teamId: selectedPlan.team_id });
+      else if (task) setDetail({ kind: "task", task, plan: selectedPlan });
     },
-    [selectedPlan],
+    [selectedPlan, api, onOpenPlanTarget],
   );
   const openActiveWork = useCallback(
     (entry: ActiveWorkEntry) => {
       const plan = orderedPlans.find((p) => p.id === entry.planId);
       if (!plan) return;
-      setDetail({ kind: "task", task: entry.task, plan });
+      if (api && onOpenPlanTarget) onOpenPlanTarget({ planId: plan.id, taskId: entry.task.id, teamId: plan.team_id });
+      else setDetail({ kind: "task", task: entry.task, plan });
     },
-    [orderedPlans],
+    [orderedPlans, api, onOpenPlanTarget],
   );
   const openBelonging = useCallback(() => {
-    if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
-  }, [selectedPlan, selectedSpecSections]);
+    if (selectedPlan && api && onOpenPlanTarget) onOpenPlanTarget({ planId: selectedPlan.id, teamId: selectedPlan.team_id });
+    else if (selectedPlan) setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections });
+  }, [selectedPlan, selectedSpecSections, api, onOpenPlanTarget]);
 
   const closeDetail = useCallback(() => {
     setDetail(null);
@@ -285,7 +293,7 @@ export function PlanListView({
   }, [navStack, orderedPlans, selectedSpecSections]);
   const overlayKind: PlanDetailKind | null = detail?.kind ?? null;
   const now = Date.now();
-  const showsData = planFetchShowsData(loading, error ?? null, plans.length);
+  const showsData = Boolean(selectedPlan) || (!projection.loading && !projection.error && planFetchShowsData(loading, error ?? null, plans.length));
 
   return (
     <div
@@ -306,10 +314,10 @@ export function PlanListView({
         </button>
       )}
       <PlanFetchErrorState
-        loading={loading}
-        error={error}
-        itemCount={plans.length}
-        onRetry={onRetry}
+        loading={loading || projection.loading}
+        error={error ?? projection.error}
+        itemCount={selectedPlan ? plans.length : 0}
+        onRetry={projection.error ? projection.retry : onRetry}
         testId="plan-list"
         className="plan-list-state"
       />
@@ -342,7 +350,7 @@ export function PlanListView({
             <PlanContextHeader
               summary={boardModel.planSummary}
               spec={boardModel.spec}
-              onOpenPlan={() => setDetail({ kind: "plan", plan: selectedPlan, specSections: selectedSpecSections })}
+              onOpenPlan={openBelonging}
               onOpenSpec={
                 boardModel.spec
                   ? () => setDetail({ kind: "spec", plan: selectedPlan, specSections: selectedSpecSections })

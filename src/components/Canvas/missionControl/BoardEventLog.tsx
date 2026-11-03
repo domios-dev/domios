@@ -26,6 +26,8 @@ export interface BoardEventLogProps {
   pager?: EventPager;
   /** The moment day labels are read against; defaults to the render time. */
   now?: number;
+  planId?: string;
+  onOpenTask?: (taskId: string, planId?: string) => void;
 }
 
 interface LogRowProps {
@@ -107,12 +109,24 @@ function LogRow({ event, expanded, refs, onToggle }: LogRowProps) {
   );
 }
 
-export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager, now }: BoardEventLogProps) {
+export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager, now, planId, onOpenTask }: BoardEventLogProps) {
   const source = useMemo(() => pager ?? planEventPager(log), [pager, log]);
   const [pageIndex, setPageIndex] = useState(0);
   const lastIndex = Math.max(0, source.pageCount - 1);
   const index = Math.min(pageIndex, lastIndex);
   const entries = source.page(index);
+  const pageRefs = useMemo(() => {
+    const next = new Map(refs);
+    if (!onOpenTask) return next;
+    for (const event of entries ?? []) {
+      const sourcePlan = "plan_id" in event && typeof event.plan_id === "string" ? event.plan_id : planId;
+      const tasks = [...(event.linked_tasks ?? []), ...(event.task_id ? [{ id: event.task_id, name: event.task_name ?? event.task_id }] : [])];
+      for (const task of tasks) {
+        next.set(task.id, { label: next.get(task.id)?.label ?? task.name, open: () => onOpenTask(task.id, sourcePlan) });
+      }
+    }
+    return next;
+  }, [refs, entries, onOpenTask, planId]);
   useEffect(() => {
     if (entries === null) source.load?.(index);
   }, [entries, index, source]);
@@ -142,7 +156,7 @@ export function BoardEventLog({ log, milestoneKinds, refs = NO_REFS, pager, now 
                   key={row.key}
                   event={row.event}
                   expanded={openKeys.includes(row.event.key)}
-                  refs={refs}
+                    refs={pageRefs}
                   onToggle={toggle}
                 />
               ) : row.kind === "day" ? (

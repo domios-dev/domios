@@ -1,12 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
-import { useResilientQuery } from "../../lib/useResilientQuery";
 import { formatPlanFetchError } from "../../lib/fetchResilience";
+import { onResync } from "../../lib/resync";
 import type { ApiConfig } from "../../lib/types";
-import { fetchPlan, fetchPlans } from "./plansApi";
+import { fetchPlanProjection, fetchPlans, PlanReadError } from "./plansApi";
+import { comparePlanRevisions, planRevision, type CommittedPlanChange, type PlanProjection } from "./planProjection";
 import type { Plan } from "./types";
-
-const EMPTY_PLANS: Plan[] = [];
 
 export interface UsePlansResult {
   plans: Plan[];
@@ -23,144 +22,121 @@ export interface UsePlansOptions {
   contextKey?: number;
 }
 
-interface PlanChangedPayload {
-  plan_id: string;
-}
-
 export function usePlans(api: ApiConfig, options: UsePlansOptions = {}): UsePlansResult {
   const enabled = options.enabled ?? true;
-  const project = options.project ?? null;
-  const apiRef = useRef(api);
-  apiRef.current = api;
-  const projectRef = useRef(project);
-  projectRef.current = project;
-  const patchCtrls = useRef(new Map<string, AbortController>());
-
-  const { data: plans, loading, reconnecting, error, refetch, setData } = useResilientQuery(
-    (signal) =>
-      fetchPlans(apiRef.current, signal, {
-        project: projectRef.current,
-        chat: options.chat,
-      }),
-    EMPTY_PLANS,
-    { enabled, deps: [api.host, api.port, api.token, project, options.contextKey, options.chat] },
-  );
-
-  const patchPlan = useCallback(
-    async (planId: string) => {
-      if (!enabled) return;
-      patchCtrls.current.get(planId)?.abort();
-      const ctrl = new AbortController();
-      patchCtrls.current.set(planId, ctrl);
-      try {
-        if (options.chat) { await refetch(); return; }
-        const plan = await fetchPlan(apiRef.current, planId, ctrl.signal);
-        if (ctrl.signal.aborted) return;
-        setData((prev) => {
-          const idx = prev.findIndex((p) => p.id === planId);
-          if (idx < 0) return [...prev, plan];
-          const next = [...prev];
-          next[idx] = plan;
-          return next;
-        });
-      } catch (e) {
-        if (ctrl.signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
-        await refetch();
-      } finally {
-        if (patchCtrls.current.get(planId) === ctrl) patchCtrls.current.delete(planId);
-      }
-    },
-    [enabled, refetch, setData, options.chat],
-  );
+  const key = enabled ? JSON.stringify([api.host, api.port, api.token, options.project, options.chat, options.contextKey]) : null;
+  const selected = useRef(key);
+  selected.current = key;
+  const [state, setState] = useState<{ key: string | null; plans: PlanProjection[]; loading: boolean; error: string | null }>({
+    key: null, plans: [], loading: false, error: null,
+  });
+  const refresh = useRef<() => Promise<void>>(async () => {});
+  const refetch = useCallback(() => refresh.current(), []);
+  const project = options.project;
+  const chat = options.chat;
 
   useEffect(() => {
-    if (!enabled) {
-      setData([]);
-      return;
-    }
     let active = true;
-    const controllers = patchCtrls.current;
-    let unlistenPlanChanged: (() => void) | null = null;
-    let unlistenPlansLoaded: (() => void) | null = null;
-
-    void listen<PlanChangedPayload>("plan-changed", (ev) => {
-      if (!active) return;
-      const planId = ev.payload?.plan_id;
-      if (planId) void patchPlan(planId);
-      else void refetch();
-    }).then((fn) => {
-      if (!active) {
-        fn();
-        return;
+    let listRead: AbortController | null = null;
+    const patches = new Map<string, AbortController>();
+    const plans = new Map<string, PlanProjection>();
+    const observed = new Map<string, string>();
+    const stops: Array<() => void> = [];
+    const current = () => active && key !== null && selected.current === key;
+    const publish = (error: string | null = null, loading = false) => {
+      if (current()) setState({ key, plans: [...plans.values()], loading, error });
+    };
+    const cancelPatches = () => {
+      for (const read of patches.values()) read.abort();
+      patches.clear();
+    };
+    const load = async () => {
+      if (!current()) return;
+      listRead?.abort();
+      cancelPatches();
+      const request = new AbortController();
+      listRead = request;
+      publish(null, plans.size === 0);
+      try {
+        const result = await fetchPlans(api, request.signal, { project, chat });
+        if (!current() || request.signal.aborted) return;
+        const previous = new Map(plans);
+        plans.clear();
+        for (const plan of result) {
+          const old = previous.get(plan.id);
+          plans.set(plan.id, old?.revision === plan.revision ? old : plan);
+        }
+        publish();
+      } catch (cause) {
+        if (current() && !request.signal.aborted) {
+          if (cause instanceof PlanReadError && [400, 401, 403, 404, 410].includes(cause.status)) plans.clear();
+          publish(formatPlanFetchError(cause));
+        }
+      } finally {
+        if (listRead === request) listRead = null;
       }
-      unlistenPlanChanged = fn;
-    });
-    void listen("plans-loaded", () => {
-      if (active) void refetch();
-    }).then((fn) => {
-      if (!active) {
-        fn();
-        return;
+    };
+    refresh.current = load;
+    const patch = async (change: CommittedPlanChange) => {
+      if (!current()) return;
+      const revision = planRevision(change);
+      const seen = observed.get(change.plan_id);
+      if (seen && comparePlanRevisions(seen, revision) >= 0) return;
+      observed.set(change.plan_id, revision);
+      const old = plans.get(change.plan_id);
+      if (old && comparePlanRevisions(old.revision, revision) >= 0) return;
+      if (listRead) { await load(); return; }
+      patches.get(change.plan_id)?.abort();
+      const request = new AbortController();
+      patches.set(change.plan_id, request);
+      if (change.deleted) {
+        plans.delete(change.plan_id);
+        publish();
       }
-      unlistenPlansLoaded = fn;
-    });
-
+      try {
+        const plan = await fetchPlanProjection(api, change.plan_id, chat ? "chat" : "summary", request.signal, project);
+        if (!current() || request.signal.aborted) return;
+        if (comparePlanRevisions(plan.revision, revision) < 0) throw new Error("Plan projection predates the committed change.");
+        plans.set(plan.id, plan);
+        publish();
+      } catch (cause) {
+        if (!current() || request.signal.aborted) return;
+        if (cause instanceof PlanReadError && [400, 401, 403, 404, 410].includes(cause.status)) plans.delete(change.plan_id);
+        publish(cause instanceof PlanReadError && cause.status === 404 ? null : formatPlanFetchError(cause));
+      } finally {
+        if (patches.get(change.plan_id) === request) patches.delete(change.plan_id);
+      }
+    };
+    if (key) {
+      stops.push(onResync(() => { void load(); }));
+      const boot = () => { observed.clear(); void load(); };
+      window.addEventListener("codeterm-web-boot-changed", boot);
+      stops.push(() => window.removeEventListener("codeterm-web-boot-changed", boot));
+      void Promise.all([
+        listen<CommittedPlanChange>("plan-changed", ({ payload }) => { if (current()) void patch(payload).catch(() => load()); }),
+        listen("plans-loaded", () => { void load(); }),
+      ].map(async (subscription) => {
+        const stop = await subscription;
+        if (active) stops.push(stop); else stop();
+      })).then(() => { if (active) void load(); }).catch((cause: unknown) => publish(formatPlanFetchError(cause)));
+    }
     return () => {
       active = false;
-      for (const controller of controllers.values()) controller.abort();
-      controllers.clear();
-      unlistenPlanChanged?.();
-      unlistenPlansLoaded?.();
+      listRead?.abort();
+      cancelPatches();
+      for (const stop of stops) stop();
     };
-  }, [enabled, patchPlan, refetch, setData, options.contextKey]);
+  }, [key, api.host, api.port, api.token, project, chat]);
 
-  return useMemo(() => ({ plans, loading, reconnecting, error, refetch }), [plans, loading, reconnecting, error, refetch]);
+  const current = state.key === key;
+  return {
+    plans: key && current ? state.plans : [],
+    loading: Boolean(key && (!current || state.loading)),
+    reconnecting: Boolean(key && current && state.plans.length && state.error),
+    error: key && current ? state.error : null,
+    refetch,
+  };
 }
 
 export { usePlanTaskBoard, type UsePlanTaskBoardResult } from "./usePlanTaskBoard";
 export { usePlanTaskDetail, type UsePlanTaskDetailResult } from "./usePlanTaskDetail";
-
-export interface UsePlanByIdResult {
-  plan: Plan | null;
-  loading: boolean;
-  error: string | null;
-  retry: () => void;
-}
-
-export function usePlanById(
-  api: ApiConfig | undefined,
-  planId: string | null,
-  contextKey?: number,
-): UsePlanByIdResult {
-  const [result, setResult] = useState<{ planId: string; plan: Plan | null } | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [retryKey, setRetryKey] = useState(0);
-
-  useEffect(() => {
-    if (!api || !planId) {
-      setResult(null);
-      setError(null);
-      return;
-    }
-    const controller = new AbortController();
-    setResult(null);
-    setError(null);
-    void fetchPlan(api, planId, controller.signal)
-      .then((plan) => {
-        if (!controller.signal.aborted) setResult({ planId, plan });
-      })
-      .catch((cause) => {
-        if (controller.signal.aborted || (cause instanceof Error && cause.name === "AbortError")) return;
-        setResult({ planId, plan: null });
-        setError(formatPlanFetchError(cause));
-      });
-    return () => controller.abort();
-  }, [api?.host, api?.port, api?.token, planId, contextKey, retryKey]);
-
-  return {
-    plan: result?.planId === planId ? result.plan : null,
-    loading: Boolean(api && planId && (result?.planId !== planId) && !error),
-    error: result?.planId === planId ? error : null,
-    retry: () => setRetryKey((key) => key + 1),
-  };
-}

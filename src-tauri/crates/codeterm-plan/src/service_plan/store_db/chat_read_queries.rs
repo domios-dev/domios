@@ -17,6 +17,7 @@ const CHAT_HEADER: &str = "SELECT p.id, json_object(
         )))) END
     FROM plans p LEFT JOIN plan_heartbeat h ON h.plan_id=p.id
     WHERE (?1 IS NULL OR p.project_path=?1) AND (?2 IS NULL OR coalesce(p.team_id,'')=?2)
+      AND (?4 IS NULL OR p.id=?4)
       AND (?3 IS NULL OR (p.status='active' AND coalesce(json_extract(p.header_json,'$.mode'),'planning') <> 'complete'))
     ORDER BY p.id";
 
@@ -26,6 +27,7 @@ impl PlanDatabase {
         project: Option<&str>,
         team: Option<&str>,
         query: Option<&str>,
+        plan_id: Option<&str>,
     ) -> Result<Vec<Value>, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
@@ -33,7 +35,7 @@ impl PlanDatabase {
         let headers = {
             let mut statement = transaction.prepare_cached(CHAT_HEADER).map_err(db_error)?;
             let rows = statement
-                .query_map(params![project, team, query], |row| {
+                .query_map(params![project, team, query, plan_id], |row| {
                     Ok((
                         column::<String>(row, 0)?,
                         column::<String>(row, 1)?,
@@ -56,11 +58,10 @@ impl PlanDatabase {
                     || plan.id.contains(query)
                     || !plan.tasks.is_empty()
             }) {
-                result.push(super::super::chat_snapshot::snapshot(
-                    &plan,
-                    None,
-                    &mut remaining,
-                ));
+                let mut value = super::super::chat_snapshot::snapshot(&plan, None, &mut remaining);
+                value["revision"] =
+                    serde_json::json!(super::change_feed::revision(&transaction, &id)?.to_string());
+                result.push(value);
             }
             if query.is_some() && result.len() >= 50 {
                 break;

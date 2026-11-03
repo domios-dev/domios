@@ -52,7 +52,7 @@ impl PlanStore {
         });
         let query = query.map(str::to_lowercase);
         self.database
-            .chat_projection(project.as_deref(), team, query.as_deref())
+            .chat_projection(project.as_deref(), team, query.as_deref(), None)
     }
 }
 

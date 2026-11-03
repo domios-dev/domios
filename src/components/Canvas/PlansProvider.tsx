@@ -15,7 +15,7 @@ import { usePlanPeerContext } from "./usePlanPeerContext";
 import { planBelongsToWorkspace, type PlanWorkspaceContext } from "./planTabMatch";
 
 const EMPTY_INDEX: PlanIndexEntry[] = [];
-const EMPTY_FULL: UsePlansResult = {
+const EMPTY_SUMMARIES: UsePlansResult = {
   plans: [],
   loading: false,
   reconnecting: false,
@@ -31,9 +31,9 @@ interface PlansContextValue {
   indexReconnecting: boolean;
   indexError: string | null;
   refetchIndex: () => Promise<void>;
-  full: UsePlansResult;
+  summaries: UsePlansResult;
   chat: UsePlansResult;
-  requestFull: () => () => void;
+  requestSummaries: () => () => void;
 }
 
 const PlansContext = createContext<PlansContextValue | null>(null);
@@ -49,12 +49,12 @@ export function PlansProvider({
 }) {
   const peerContext = usePlanPeerContext();
   const queriesEnabled = enabled && peerContext.ready;
-  const [fullReaders, setFullReaders] = useState(0);
-  const requestFull = useMemo(() => () => {
-    setFullReaders((count) => count + 1);
-    return () => setFullReaders((count) => count - 1);
+  const [summaryReaders, setSummaryReaders] = useState(0);
+  const requestSummaries = useMemo(() => () => {
+    setSummaryReaders((count) => count + 1);
+    return () => setSummaryReaders((count) => count - 1);
   }, []);
-  const full = usePlans(api, { enabled: queriesEnabled && fullReaders > 0, contextKey: peerContext.generation });
+  const summaries = usePlans(api, { enabled: queriesEnabled && summaryReaders > 0, contextKey: peerContext.generation });
   const chat = usePlans(api, { enabled: queriesEnabled, chat: true, contextKey: peerContext.generation });
 
   const {
@@ -107,9 +107,9 @@ export function PlansProvider({
       indexReconnecting: queriesEnabled && indexReconnecting,
       indexError: queriesEnabled ? indexError : null,
       refetchIndex,
-      full: queriesEnabled ? full : EMPTY_FULL,
-      chat: queriesEnabled ? chat : EMPTY_FULL,
-      requestFull,
+      summaries: queriesEnabled ? summaries : EMPTY_SUMMARIES,
+      chat: queriesEnabled ? chat : EMPTY_SUMMARIES,
+      requestSummaries,
     }),
     [
       api,
@@ -120,9 +120,9 @@ export function PlansProvider({
       indexReconnecting,
       indexError,
       refetchIndex,
-      full,
+      summaries,
       chat,
-      requestFull,
+      requestSummaries,
     ],
   );
 
@@ -182,33 +182,33 @@ export function usePlanIndexOptional(): PlanIndexResult {
   };
 }
 
-export function useFullPlans(): UsePlansResult {
+export function usePlanSummaries(): UsePlansResult {
   const context = usePlansContext();
-  useEffect(context.requestFull, [context.requestFull]);
-  return context.full;
+  useEffect(context.requestSummaries, [context.requestSummaries]);
+  return context.summaries;
 }
 
-export function useFullPlansOptional(enabled = true): UsePlansResult | null {
+export function usePlanSummariesOptional(enabled = true): UsePlansResult | null {
   const context = useContext(PlansContext);
   const [requested, setRequested] = useState(false);
-  const requestFull = context?.requestFull;
+  const requestSummaries = context?.requestSummaries;
   useEffect(() => {
-    if (!enabled || !requestFull) {
+    if (!enabled || !requestSummaries) {
       setRequested(false);
       return;
     }
     setRequested(true);
-    return requestFull();
-  }, [enabled, requestFull]);
+    return requestSummaries();
+  }, [enabled, requestSummaries]);
   if (!context || !enabled) return null;
   return {
-    ...context.full,
-    loading: !requested || context.full.loading,
+    ...context.summaries,
+    loading: !requested || context.summaries.loading,
   };
 }
 
 export function useSidebarPlansOptional(): UsePlansResult {
-  return useContext(PlansContext)?.chat ?? EMPTY_FULL;
+  return useContext(PlansContext)?.chat ?? EMPTY_SUMMARIES;
 }
 
 export function useCanvasPlans(
@@ -216,7 +216,7 @@ export function useCanvasPlans(
   projectPath: string | null,
   scope?: PlanWorkspaceContext & { workspaceId: string | undefined },
 ): UsePlansResult {
-  const full = useFullPlans();
+  const full = usePlanSummaries();
   const plans = useMemo(() => {
     if (mode !== "workspace" || !projectPath) return full.plans;
     const expected = comparableProjectPath(projectPath);

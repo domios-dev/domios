@@ -181,6 +181,7 @@ export interface MissionControlState {
 }
 
 export interface PlanBoardState {
+  revision?: string;
   control_loop?: import("../planControlLoop").PlanControlLoop;
   plan_id: string;
   task_counts: PlanTaskCounts;
@@ -208,7 +209,7 @@ export async function fetchPlanBoardState(
   planId: string,
   signal?: AbortSignal,
 ): Promise<PlanBoardState> {
-  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/state`, {
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/board-state`, {
     headers: authHeaders(api),
     signal,
   });

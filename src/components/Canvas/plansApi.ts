@@ -2,6 +2,7 @@ import { daemonFetch } from "../../lib/webApi";
 import type { ControlLoopUpdate, PlanControlLoop } from "./planControlLoop";
 import { authHeaders, jsonHeaders } from "../MemoryPanel/memoryApi";
 import type { ApiConfig } from "../../lib/types";
+import { planRevision, type PlanProjection, type PlanProjectionView } from "./planProjection";
 import type {
   DriftItem,
   OrchestratorRef,
@@ -39,8 +40,8 @@ interface PlanIndexResponse {
   plans: PlanIndexEntry[];
 }
 
-interface PlansFullResponse {
-  plans: Plan[];
+interface PlansProjectionResponse {
+  plans: PlanProjection[];
 }
 
 export type PlanRefTargetKind = "plan" | "task" | "section";
@@ -85,13 +86,18 @@ export class PlanReadError extends Error {
   }
 }
 
-export async function fetchPlan(api: ApiConfig, planId: string, signal?: AbortSignal): Promise<Plan> {
-  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}`, {
+export async function fetchPlanProjection(api: ApiConfig, planId: string, view: PlanProjectionView, signal?: AbortSignal, project?: string | null): Promise<PlanProjection> {
+  const query = new URLSearchParams({ view });
+  if (project) query.set("project", project);
+  const res = await daemonFetch(api, `/api/plans/${encodeURIComponent(planId)}/projection?${query}`, {
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plan get failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  if (!res.ok) throw new PlanReadError(res.status, `plan projection failed: ${res.status} ${await res.text()}`);
+  const value = await res.json() as PlanProjection;
+  planRevision(value);
+  if (value.id !== planId) throw new Error("Plan projection did not match the requested plan.");
+  return value;
 }
 
 export async function fetchPlanTaskDetail(
@@ -105,7 +111,9 @@ export async function fetchPlanTaskDetail(
     signal,
   });
   if (!res.ok) throw new PlanReadError(res.status, `plan task detail failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  const value = await res.json() as PlanTaskDetail;
+  planRevision(value);
+  return value;
 }
 
 export async function fetchPlanTaskBoardPage(
@@ -131,7 +139,9 @@ export async function fetchPlanTaskBoardPage(
     { headers: authHeaders(api), signal: options.signal },
   );
   if (!res.ok) throw new PlanReadError(res.status, `plan task page failed: ${res.status} ${await res.text()}`);
-  return res.json();
+  const value = await res.json() as PlanTaskBoardPage;
+  planRevision(value);
+  return value;
 }
 
 export async function fetchSpecSections(api: ApiConfig, specId: string, signal?: AbortSignal): Promise<Section[]> {
@@ -161,7 +171,7 @@ export async function fetchPlanIndex(api: ApiConfig, signal?: AbortSignal): Prom
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plans list failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new PlanReadError(res.status, `plans list failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as PlanIndexResponse;
   return body.plans ?? [];
 }
@@ -182,13 +192,12 @@ export async function resolvePlanRefs(
   return body.refs ?? [];
 }
 
-// Full plan bodies in ONE batched request (?full=1) — no N+1 per-plan fan-out.
 export async function fetchPlans(
   api: ApiConfig,
   signal?: AbortSignal,
   opts?: { project?: string | null; chat?: boolean; query?: string; team?: string | null },
-): Promise<Plan[]> {
-  const params = new URLSearchParams(opts?.chat ? { chat: "1" } : { full: "1" });
+): Promise<PlanProjection[]> {
+  const params = new URLSearchParams(opts?.chat ? { chat: "1" } : { view: "summary" });
   if (opts?.project) params.set("project", opts.project);
   if (opts?.query !== undefined) params.set("query", opts.query);
   if (opts?.team !== undefined) params.set("team", opts.team ?? "");
@@ -196,9 +205,11 @@ export async function fetchPlans(
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plans list failed: ${res.status} ${await res.text()}`);
-  const body = (await res.json()) as PlansFullResponse;
-  return body.plans ?? [];
+  if (!res.ok) throw new PlanReadError(res.status, `plans list failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as PlansProjectionResponse;
+  const plans = body.plans ?? [];
+  for (const plan of plans) planRevision(plan);
+  return plans;
 }
 
 export async function fetchUnownedPlanIndex(
@@ -231,7 +242,7 @@ export async function createPlan(api: ApiConfig, params: CreatePlanParams): Prom
   if (!res.ok) throw new Error(`plan create failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as { plan_id?: string; plan?: Plan };
   if (body.plan) return body.plan;
-  if (body.plan_id) return fetchPlan(api, body.plan_id);
+  if (body.plan_id) return fetchPlanProjection(api, body.plan_id, "summary");
   throw new Error("plan create returned no plan");
 }
 

@@ -4,6 +4,7 @@ import { DetailContent } from "../canvasRender/DetailContent";
 import type { SectionNavArgs } from "../nodeRegistry";
 import { taskDisplayKey } from "../taskDisplayKey";
 import type { Plan, PlanTaskDetail } from "../types";
+import { taskDetailMatchesReference } from "../usePlanTaskDetail";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
 import { TaskExecutionBadges } from "./TaskExecutionBadges";
@@ -42,9 +43,9 @@ export function TaskSegmentPanel({
 }: TaskSegmentPanelProps) {
   const cachedTask = !api && fallbackPlan ? fallbackPlan.tasks.find((candidate) => candidate.id === taskRef) : undefined;
   const context = detail?.context;
-  const exactDetail = detail?.plan_id === context?.plan_id && detail?.task_id === taskRef && detail.task?.id === taskRef;
+  const exactDetail = detail && context && taskDetailMatchesReference(detail, context.plan_id, taskRef);
   const exactCachedTask = !api && cachedTask?.id === taskRef;
-  const key = taskDisplayKey({ id: taskRef, key: exactDetail ? detail!.task.key : exactCachedTask ? cachedTask?.key : null });
+  const key = taskDisplayKey(exactDetail ? detail!.task : exactCachedTask ? cachedTask! : { id: taskRef });
   const displayTask = exactDetail ? detail!.task : exactCachedTask ? cachedTask : undefined;
   const displayPlan = exactDetail ? undefined : exactCachedTask ? fallbackPlan : undefined;
   return (
