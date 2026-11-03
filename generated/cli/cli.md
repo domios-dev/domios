@@ -930,6 +930,14 @@ Send a delayed message immediately
 
 - `<id>` — Delayed message ID
 
+#### `domios diagnostics`
+
+Read-only local owner diagnostics
+
+#### `domios diagnostics memory`
+
+Approximate retained subsystem sizes; busy subsystems are skipped
+
 #### `domios docs`
 
 Read embedded Domios documentation in full. Omit NAME to list documents
