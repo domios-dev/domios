@@ -297,6 +297,7 @@ impl FrameHub {
             return;
         }
         state.params = params;
+        self.frames.send_replace(None);
         if state.viewers.count() > 0 {
             send_command(&state.driver, DriverCommand::Restart(params));
         }

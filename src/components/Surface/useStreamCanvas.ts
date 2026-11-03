@@ -61,6 +61,11 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     if (!canvas) return false;
     drawCss.current = letterboxRect(decoded ?? { width: 0, height: 0 }, css.current);
     if (!decoded) return false;
+    if (meta.current && frames.accepts && !frames.accepts({ data: "", metadata: meta.current }, decoded)) {
+      canvas.getContext("2d")?.clearRect(0, 0, canvas.width, canvas.height);
+      drawCss.current = EMPTY_RECT;
+      return false;
+    }
     if (canvas.width !== decoded.width) canvas.width = decoded.width;
     if (canvas.height !== decoded.height) canvas.height = decoded.height;
     const context = canvas.getContext("2d");
@@ -86,7 +91,7 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     let active = true;
     const queue = createLatestWins<StreamFrame>(async (next) => {
       const decoded = await decode(next);
-      if (!active || (frames.accepts && !frames.accepts(next))) {
+      if (!active || (frames.accepts && !frames.accepts(next, decoded))) {
         decoded.close();
         return;
       }
@@ -110,53 +115,34 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
   }, []);
 
   useLayoutEffect(() => {
-    if (!visible) return;
     const stage = stageRef.current;
-    if (!stage) return;
-    const box = stage.getBoundingClientRect();
-    if (box.width > 0 && box.height > 0) {
+    const hide = () => {
+      if (!reported.current) return;
+      reported.current = null;
+      callbacks.current.onHidden?.();
+    };
+    if (!visible || !stage) {
+      hide();
+      return;
+    }
+    const apply = () => {
+      const box = stage.getBoundingClientRect();
       css.current = { width: box.width, height: box.height };
       dpr.current = currentDpr();
-      paintRef.current();
-      const request = viewportRequest(css.current, dpr.current);
-      if (request) {
-        reported.current = request;
-        callbacks.current.onViewport(request);
-      }
-    }
-  }, [visible, stageRef]);
-
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!stage || typeof ResizeObserver === "undefined") return;
-    let scheduled = 0;
-    const apply = () => {
-      scheduled = 0;
-      dpr.current = currentDpr();
-      const request = viewportRequest(css.current, dpr.current);
-      if (request) drawCss.current = letterboxRect(frame.current ?? { width: 0, height: 0 }, css.current);
+      const request = document.visibilityState === "hidden" ? null : viewportRequest(css.current, dpr.current);
       if (!request) {
-        // The shared server viewport may change while hidden, so the next visible size must be re-sent.
-        if (reported.current) {
-          reported.current = null;
-          callbacks.current.onHidden?.();
-        }
-      } else if (!sameViewport(reported.current, request)) {
+        hide();
+        return;
+      }
+      if (!sameViewport(reported.current, request)) {
         reported.current = request;
         callbacks.current.onViewport(request);
       }
+      paintRef.current();
     };
-    const schedule = () => {
-      if (!scheduled) scheduled = requestAnimationFrame(apply);
-    };
-    const observer = new ResizeObserver((entries) => {
-      const box = entries[entries.length - 1]?.contentRect;
-      if (box) css.current = { width: box.width, height: box.height };
-      schedule();
-    });
-    observer.observe(stage);
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(apply);
+    observer?.observe(stage);
     let media: MediaQueryList | null = null;
-    // DPR changes (moving between monitors) never resize the element, so ResizeObserver stays silent.
     const watchDpr = () => {
       media?.removeEventListener("change", onDprChange);
       media = typeof window.matchMedia === "function" ? window.matchMedia(`(resolution: ${currentDpr()}dppx)`) : null;
@@ -164,15 +150,24 @@ export function useStreamCanvas({ visible, canvasRef, stageRef, frames, decode, 
     };
     const onDprChange = () => {
       watchDpr();
-      schedule();
+      apply();
     };
     watchDpr();
-    return () => {
-      observer.disconnect();
-      media?.removeEventListener("change", onDprChange);
-      if (scheduled) cancelAnimationFrame(scheduled);
+    const refocus = () => {
+      hide();
+      apply();
     };
-  }, [stageRef]);
+    document.addEventListener("visibilitychange", apply);
+    window.addEventListener("focus", refocus);
+    apply();
+    return () => {
+      observer?.disconnect();
+      media?.removeEventListener("change", onDprChange);
+      document.removeEventListener("visibilitychange", apply);
+      window.removeEventListener("focus", refocus);
+      hide();
+    };
+  }, [visible, stageRef]);
 
   return {
     mapPoint(clientX, clientY) {
