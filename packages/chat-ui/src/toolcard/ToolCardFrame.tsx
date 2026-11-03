@@ -84,6 +84,10 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const StatusGlyph = outcome.glyph;
   const error = event.status === "error";
   const inlineCommand = event.kind === "command";
+  const quietOperation = event.kind === "read" || event.kind === "search";
+  const inlineRow = inlineCommand || quietOperation;
+  const iconColor = quietOperation ? "var(--ct-muted-fg)" : visual.color;
+  const statusColor = quietOperation && event.status !== "error" && event.status !== "pending" ? "var(--ct-muted-fg)" : outcome.color;
   const quiet = !error && !open && variant !== "codeterm";
   const label = title === undefined ? visual.label : title;
   const detailsId = `chat-details-${useId().replace(/[^a-zA-Z0-9_-]/g, "-")}`;
@@ -102,10 +106,10 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       data-testid={testId}
       data-tool-status={event.status}
       data-expanded={open}
-      className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineCommand ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
-      style={{ minHeight, "--ct-card-tone": error ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
+      className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineRow ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
+      style={{ minHeight, "--ct-card-tone": error || quietOperation ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
-      <div data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineCommand ? " ct-command-inline__head" : ""}`}>
+      <div data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineRow ? " ct-command-inline__head" : ""}`}>
         <button
           type="button"
           aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
@@ -115,11 +119,11 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           onClick={onToggle}
           className={`flex min-w-0 flex-1 gap-2 text-left ${subtitle ? "items-start" : "items-center"}`}
         >
-          <span className="ct-card__icon" style={{ color: visual.color, ...(subtitle ? { height: 20, alignSelf: "flex-start" as const } : {}) }}>
-            <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: visual.color }} />
+          <span className="ct-card__icon" style={{ color: iconColor, ...(subtitle ? { height: 20, alignSelf: "flex-start" as const } : {}) }}>
+            <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: iconColor }} />
           </span>
           <span className={subtitle ? "flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
-            {label && <span className={inlineCommand ? "sr-only" : "max-w-[60%] shrink-0 truncate font-semibold"} style={{ color: communication ? "var(--ct-fg)" : visual.color }}>{label}</span>}
+            {label && <span className={inlineCommand ? "sr-only" : `max-w-[60%] shrink-0 truncate ${quietOperation ? "font-medium" : "font-semibold"}`} style={{ color: communication || quietOperation ? "var(--ct-fg)" : visual.color }}>{label}</span>}
             {subtitle && <span className="max-w-full truncate text-[10.5px] font-normal leading-[14px]" style={{ color: "color-mix(in srgb, var(--ct-muted-fg) 72%, transparent)" }}>{subtitle}</span>}
             <span className={summary === "" ? "hidden" : "min-w-0 truncate"} data-testid="toolcard-summary" style={{ color: "var(--ct-fg)" }}>{summary === "" ? null : (summary ?? event.description ?? event.summary) || "Tool activity"}</span>
             {metric ?? chips}
@@ -132,7 +136,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         )}
         {action}
         <span className="ct-tool-status-slot">
-        <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: outcome.color }}>
+        <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
           <StatusGlyph aria-hidden="true" size={14} className={event.status === "pending" ? "motion-safe:animate-spin" : undefined} />
         </span>
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
@@ -147,7 +151,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         role="region"
         aria-label={disclosureLabel ?? "Tool details"}
         hidden={!open && !fullscreen}
-        className={communication || inlineCommand ? "px-3 pb-3 pt-0.5" : "pb-2 pl-12 pr-3 pt-0.5"}
+        className={communication || inlineRow ? "px-3 pb-3 pt-0.5" : "pb-2 pl-12 pr-3 pt-0.5"}
         style={{ boxSizing: "border-box" }}
       >
         {open || fullscreen ? (

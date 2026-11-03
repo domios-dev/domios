@@ -30,7 +30,7 @@ function searchSummary(event: ToolEvent): string {
 
 export function SearchCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
   const result = counts(event);
-  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title="Search" summary={searchSummary(event)} chips={<span data-testid="toolcard-search-counts" className="shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)", background: "var(--ct-border)" }}>{result.matches} matches · {result.files} files</span>}>
+  return <ToolCardFrame event={event} expanded={expanded} onToggle={onToggle} title="Search" summary={searchSummary(event)} chips={<span data-testid="toolcard-search-counts" className="shrink-0 font-mono text-[10px]" style={{ color: "var(--ct-muted-fg)" }}>{result.matches} matches · {result.files} files</span>}>
     <SearchDetail event={event} />
   </ToolCardFrame>;
 }
