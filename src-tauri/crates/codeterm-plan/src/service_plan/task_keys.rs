@@ -31,14 +31,7 @@ impl PlanStore {
     }
 
     fn task_key_scope(&self, plan_id: &str) -> Option<TaskKeyScope> {
-        let plan = self.plan_arc(plan_id).ok()?;
-        let plan = plan.lock();
-        Some(TaskKeyScope {
-            plan_id: plan.id.clone(),
-            team_id: plan.team_id.clone(),
-            project_path: plan.project_path.clone(),
-            canonical_project_path: plan.canonical_project_path.clone(),
-        })
+        self.database.task_key_scope(plan_id).ok().flatten()
     }
 
     pub fn task_display_key(&self, plan_id: &str, task_ref: &str) -> Option<String> {
