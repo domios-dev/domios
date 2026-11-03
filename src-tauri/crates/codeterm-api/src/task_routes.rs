@@ -152,21 +152,25 @@ pub async fn list(
                 .map_err(|_| plan_err(PlanError::BadStatus))
         })
         .transpose()?;
-    let listed = state.svc.plan_store.list_tasks_with_reason(TaskListFilter {
-        project_path: q.project,
-        active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
-        mine_tabs: if mine {
-            caller
-                .as_deref()
-                .map(|id| tab_and_ancestors(&state, id))
-                .unwrap_or_default()
-        } else {
-            Default::default()
-        },
-        unassigned: q.unassigned == Some(true),
-        plan_id: q.plan,
-        status,
-    });
+    let listed = state
+        .svc
+        .plan_store
+        .list_tasks_with_reason(TaskListFilter {
+            project_path: q.project,
+            active_only: status.is_none() && (q.all != Some(true) || q.active == Some(true)),
+            mine_tabs: if mine {
+                caller
+                    .as_deref()
+                    .map(|id| tab_and_ancestors(&state, id))
+                    .unwrap_or_default()
+            } else {
+                Default::default()
+            },
+            unassigned: q.unassigned == Some(true),
+            plan_id: q.plan,
+            status,
+        })
+        .map_err(plan_err)?;
     Ok(list_response(listed))
 }
 
