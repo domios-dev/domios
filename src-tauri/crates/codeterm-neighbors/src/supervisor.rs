@@ -62,8 +62,17 @@ pub async fn supervise_with(
             events.state(ListenerState::Connecting);
         }
         let work = async {
-            session.prepare().await?;
-            let cursor = session.cursor().await?;
+            // Stop cancels preparation and stream waits; an admitted message always settles.
+            tokio::select! {
+                biased;
+                _ = session.stopped() => return Err(Error::Revoked),
+                result = session.prepare() => result?,
+            }
+            let cursor = tokio::select! {
+                biased;
+                _ = session.stopped() => return Err(Error::Revoked),
+                result = session.cursor() => result?,
+            };
             let mut listener = tokio::select! {
                 biased;
                 _ = session.stopped() => return Err(Error::Revoked),
@@ -97,11 +106,7 @@ pub async fn supervise_with(
             }
             Err(Error::Transport)
         };
-        let result = tokio::select! {
-            biased;
-            _ = session.stopped() => Err(Error::Revoked),
-            result = work => result,
-        };
+        let result = work.await;
         if let Err(error) = result {
             events.failure(error);
         }
