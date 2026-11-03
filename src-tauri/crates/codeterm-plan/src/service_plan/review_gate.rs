@@ -9,6 +9,7 @@ use crate::plan::{
     Task, TaskStatus, DEFAULT_MAX_REVIEW_ROUNDS,
 };
 
+mod accept;
 mod bounce;
 
 pub const REVIEW_MILESTONE_KIND: &str = "review";
@@ -77,9 +78,18 @@ pub struct ReviewGateStatus {
 
 /// Review backlog is advisory; authorization and task lifecycle gates are separate.
 pub fn review_gate_status(plan: &Plan) -> ReviewGateStatus {
-    let wip_count = in_review_count(plan);
-    let wip_limit = plan.review_policy.wip_limit;
-    let credit = plan.review_policy.credit;
+    review_gate_status_for(
+        in_review_count(plan),
+        plan.review_policy.wip_limit,
+        plan.review_policy.credit,
+    )
+}
+
+pub(in crate::service_plan) fn review_gate_status_for(
+    wip_count: usize,
+    wip_limit: u32,
+    credit: i64,
+) -> ReviewGateStatus {
     // Debt policy: once the closure/entry credit ledger runs a full WIP limit
     // in the red, review throughput (not raw slot count) is the constraint.
     let credit_debt_exceeded = credit <= -(wip_limit as i64);
@@ -770,44 +780,47 @@ impl PlanStore {
             return Err(PlanError::QaNoteRequired);
         }
         let mut result = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let idx = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            require_in_review(&plan.tasks[idx])?;
-            let milestone_id =
-                crate::plan::ids::mint_id("ms", |candidate| plan_contains_id(plan, candidate));
-            let task = &mut plan.tasks[idx];
-            task.review_evidence.push(ReviewEvidence {
-                id: crate::plan::ids::short_id("rev"),
-                from: from.clone(),
-                verdict: ReviewVerdict::Hold,
-                note: note.into(),
-                at: now_ms,
-                changed_executable_surfaces: false,
-                distinct_oracle: false,
-            });
-            task.status_label = Some("review held".into());
-            task.updated_at = now_ms;
-            task.milestones.push(review_milestone(
-                milestone_id.clone(),
-                from,
-                &ReviewVerdict::Hold,
-                note,
-                now_ms,
-            ));
-            result = Some(ReviewTransitionResult {
-                plan_id: plan.id.clone(),
-                task_id: task.id.clone(),
-                milestone_id,
-                task_name: task.name.clone(),
-                verdict: ReviewVerdict::Hold,
-                review_round: task.review_round,
-                follow_up_task_id: None,
-                strategy_warning: None,
-                continuation: None,
-            });
-            Ok(())
-        })?;
+        let milestone_id = self.mint_id("ms");
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                require_in_review(&edit.task)?;
+                let task = &mut edit.task;
+                task.review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Hold,
+                    note: note.into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                task.status_label = Some("review held".into());
+                task.updated_at = now_ms;
+                task.milestones.push(review_milestone(
+                    milestone_id.clone(),
+                    from,
+                    &ReviewVerdict::Hold,
+                    note,
+                    now_ms,
+                ));
+                result = Some(ReviewTransitionResult {
+                    plan_id: plan_id.into(),
+                    task_id: task.id.clone(),
+                    milestone_id,
+                    task_name: task.name.clone(),
+                    verdict: ReviewVerdict::Hold,
+                    review_round: task.review_round,
+                    follow_up_task_id: None,
+                    strategy_warning: None,
+                    continuation: None,
+                });
+                Ok(())
+            },
+        )?;
         result.ok_or(PlanError::TaskNotFound)
     }
 
@@ -819,48 +832,50 @@ impl PlanStore {
         epoch: u32,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = plan
-                .tasks
-                .iter()
-                .position(|task| task.id == task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let task = &plan.tasks[task_index];
-            let attempt = task
-                .execution_attempts
-                .iter()
-                .find(|attempt| attempt.id == attempt_id);
-            let valid = task.status == TaskStatus::InReview
-                && task.status_label.as_deref() == Some("awaiting_continuation")
-                && attempt.is_some_and(|attempt| {
-                    attempt.closed_at.is_none()
-                        && attempt.continuation.epoch == epoch
-                        && attempt.continuation.state.as_deref() == Some("awaiting_continuation")
-                });
-            if !valid {
-                return Err(PlanError::ReviewContinuationDeliveryRefused {
-                    task_id: task.id.clone(),
-                    attempt_id: attempt_id.into(),
-                    expected_epoch: epoch,
-                    actual_epoch: attempt.map(|attempt| attempt.continuation.epoch),
-                    task_status: format!("{:?}", task.status),
-                    task_status_label: task.status_label.clone(),
-                    continuation_state: attempt
-                        .and_then(|attempt| attempt.continuation.state.clone()),
-                    attempt_closed: attempt.map(|attempt| attempt.closed_at.is_some()),
-                });
-            }
-            let attempt_index = task
-                .execution_attempts
-                .iter()
-                .position(|attempt| attempt.id == attempt_id)
-                .expect("validated continuation attempt must still exist");
-            let task = &mut plan.tasks[task_index];
-            let attempt = &mut task.execution_attempts[attempt_index];
-            attempt.continuation.state = Some("continuation_delivering".into());
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::Attempts,
+            now_ms,
+            |edit| {
+                let task = &edit.task;
+                let attempt = task
+                    .execution_attempts
+                    .iter()
+                    .find(|attempt| attempt.id == attempt_id);
+                let valid = task.status == TaskStatus::InReview
+                    && task.status_label.as_deref() == Some("awaiting_continuation")
+                    && attempt.is_some_and(|attempt| {
+                        attempt.closed_at.is_none()
+                            && attempt.continuation.epoch == epoch
+                            && attempt.continuation.state.as_deref()
+                                == Some("awaiting_continuation")
+                    });
+                if !valid {
+                    return Err(PlanError::ReviewContinuationDeliveryRefused {
+                        task_id: task.id.clone(),
+                        attempt_id: attempt_id.into(),
+                        expected_epoch: epoch,
+                        actual_epoch: attempt.map(|attempt| attempt.continuation.epoch),
+                        task_status: format!("{:?}", task.status),
+                        task_status_label: task.status_label.clone(),
+                        continuation_state: attempt
+                            .and_then(|attempt| attempt.continuation.state.clone()),
+                        attempt_closed: attempt.map(|attempt| attempt.closed_at.is_some()),
+                    });
+                }
+                let attempt_index = task
+                    .execution_attempts
+                    .iter()
+                    .position(|attempt| attempt.id == attempt_id)
+                    .expect("validated continuation attempt must still exist");
+                let task = &mut edit.task;
+                let attempt = &mut task.execution_attempts[attempt_index];
+                attempt.continuation.state = Some("continuation_delivering".into());
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     pub fn finish_review_continuation(
@@ -872,34 +887,36 @@ impl PlanStore {
         delivered: bool,
         now_ms: u64,
     ) -> Result<bool, PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = plan
-                .tasks
-                .iter_mut()
-                .find(|task| task.id == task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
-                attempt.id == attempt_id
-                    && attempt.closed_at.is_none()
-                    && attempt.continuation.epoch == epoch
-                    && attempt.continuation.state.as_deref() == Some("continuation_delivering")
-            }) else {
-                return Ok(false);
-            };
-            if delivered {
-                attempt.continuation.state = Some("continued".into());
-                attempt.continuation.delivered_at = Some(now_ms);
-                task.status = TaskStatus::InProgress;
-                task.status_label = Some("review bounced".into());
-                task.status_changed_at = now_ms;
-            } else {
-                attempt.continuation.state = Some("bounce_continuation_failed".into());
-                task.status = TaskStatus::InReview;
-                task.status_label = Some("bounce_continuation_failed".into());
-            }
-            task.updated_at = now_ms;
-            Ok(true)
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::Attempts,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let Some(attempt) = task.execution_attempts.iter_mut().find(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.closed_at.is_none()
+                        && attempt.continuation.epoch == epoch
+                        && attempt.continuation.state.as_deref() == Some("continuation_delivering")
+                }) else {
+                    return Ok(false);
+                };
+                if delivered {
+                    attempt.continuation.state = Some("continued".into());
+                    attempt.continuation.delivered_at = Some(now_ms);
+                    task.status = TaskStatus::InProgress;
+                    task.status_label = Some("review bounced".into());
+                    task.status_changed_at = now_ms;
+                } else {
+                    attempt.continuation.state = Some("bounce_continuation_failed".into());
+                    task.status = TaskStatus::InReview;
+                    task.status_label = Some("bounce_continuation_failed".into());
+                }
+                task.updated_at = now_ms;
+                Ok(true)
+            },
+        )
     }
 
     /// ACCEPT verdict: attaches evidence AND closes the task (in_review -> done)
@@ -921,25 +938,29 @@ impl PlanStore {
         if note.is_empty() {
             return Err(PlanError::QaNoteRequired);
         }
-        let mut result = None;
-        let needs_follow_up = residual_risk.is_some_and(|risk| !risk.trim().is_empty())
-            && self.get(plan_id).is_some_and(|plan| {
-                crate::plan::task_key::find_task(&plan.tasks, task_id)
-                    .is_some_and(|task| task.review_round >= max_review_rounds())
-            });
-        let mut follow_up_key = self
+        let risk = residual_risk.map(str::trim).filter(|risk| !risk.is_empty());
+        let needs_follow_up = risk.is_some()
+            && self
+                .database
+                .read_task_core(plan_id, task_id)
+                .is_ok_and(|task| task.review_round >= max_review_rounds());
+        let follow_up_key = self
             .issue_task_keys(plan_id, usize::from(needs_follow_up))
             .into_iter()
             .next();
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            require_in_review(&p.tasks[idx])?;
-            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            let rounds = max_review_rounds();
-            let mut follow_up_task_id = None;
-            {
-                let task = &mut p.tasks[idx];
+        let follow_up_id = risk.map(|_| self.mint_id("task"));
+        let milestone_id = self.mint_id("ms");
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            crate::service_plan::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                require_in_review(&edit.task)?;
+                edit.terminal_check = true;
+                edit.close_all_live = true;
+                edit.review_credit = 1;
+                let task = &mut edit.task;
                 task.review_evidence.push(ReviewEvidence {
                     id: crate::plan::ids::short_id("rev"),
                     from: from.clone(),
@@ -949,15 +970,13 @@ impl PlanStore {
                     changed_executable_surfaces,
                     distinct_oracle,
                 });
-                task.updated_at = now_ms;
                 task.milestones.push(review_milestone(
-                    mid.clone(),
-                    from.clone(),
+                    milestone_id.clone(),
+                    from,
                     &ReviewVerdict::Accept,
                     note,
                     now_ms,
                 ));
-                // A reported peer lane merges only after its exact attempt is judged accepted.
                 if let Some(attempt) = task.execution_attempts.iter_mut().rev().find(|attempt| {
                     attempt.mesh_peer.is_some()
                         && attempt.remote_dispatch_state
@@ -965,85 +984,41 @@ impl PlanStore {
                 }) {
                     super::task_attempts::accept_exact_attempt(attempt, note, now_ms);
                 }
-            }
-            super::mutations::finalize_task_done(p, idx, now_ms)?;
-            if p.tasks[idx].review_round >= rounds {
-                if let Some(risk) = residual_risk.map(str::trim).filter(|r| !r.is_empty()) {
-                    let fid = crate::plan::ids::mint_id("task", |c| plan_contains_id(p, c));
-                    let parent_id = p.tasks[idx].id.clone();
-                    let parent_name = p.tasks[idx].name.clone();
-                    let mut follow_up = Task {
-                        files: Default::default(),
-                        id: fid.clone(),
-                        name: format!("Follow-up hardening: {parent_name}"),
-                        kind: "implement".into(),
-                        model: None,
-                        speed: None,
-                        model_rationale: None,
-                        personality: None,
-                        personality_provenance: None,
-                        acceptance_criteria: vec![],
-                        external_refs: vec![],
-                        test_plan: None,
-                        qa_plan: None,
-                        correctness: None,
-                        status: TaskStatus::Pending,
-                        review_stage: ReviewStage::Review,
-                        qa_state: None,
-                        review_round: 0,
-                        review_oracle: None,
-                        review_evidence: vec![],
-                        key: follow_up_key.take(),
-                        review_override: None,
-                        review_audit: vec![],
-                        status_label: Some("residual risk from bounded review".into()),
-                        priority: p.tasks[idx].priority.clone(),
-                        created_at: now_ms,
-                        updated_at: now_ms,
-                        status_changed_at: now_ms,
-                        handle: None,
-                        tags: vec![],
-                        section_ids: p.tasks[idx].section_ids.clone(),
-                        body: format!("Residual risk documented at round bound: {risk}"),
-                        role_guidance: None,
-                        executor_role: p.tasks[idx].executor_role.clone(),
-                        competition: None,
-                        intent: None,
-                        execution_intent: p.tasks[idx].execution_intent,
-                        parent_task_id: Some(parent_id),
-                        depends_on: vec![],
-                        assigned_tab_id: None,
-                        lane: Default::default(),
-                        taken_by_role: None,
-                        peer: None,
-                        group: p.tasks[idx].group.clone(),
-                        canvas: Default::default(),
-                        milestones: vec![],
-                        execution_attempts: vec![],
-                        pause_reason: None,
-                        interruption: Default::default(),
-                        attachments: vec![],
-                    };
-                    follow_up.id = fid.clone();
-                    p.tasks.push(follow_up);
-                    follow_up_task_id = Some(fid);
-                }
-            }
-            earn_review_credit(&mut p.review_policy);
-            result = Some(ReviewTransitionResult {
-                plan_id: p.id.clone(),
-                task_id: p.tasks[idx].id.clone(),
-                milestone_id: mid,
-                task_name: p.tasks[idx].name.clone(),
-                verdict: ReviewVerdict::Accept,
-                review_round: p.tasks[idx].review_round,
-                follow_up_task_id,
-                strategy_warning: None,
-                continuation: None,
-            });
-            Ok(())
-        })?;
-        result.ok_or(PlanError::TaskNotFound)
+                task.status = TaskStatus::Done;
+                task.status_changed_at = now_ms;
+                task.updated_at = now_ms;
+                super::qa::normalize_task_review_fields(task);
+                super::mutations::clear_task_assignment(task);
+                let follow_up_task_id = if task.review_round >= max_review_rounds() {
+                    match (risk, follow_up_id) {
+                        (Some(risk), Some(id)) => {
+                            edit.created_tasks.push(accept::follow_up(
+                                task,
+                                id.clone(),
+                                follow_up_key,
+                                risk,
+                                now_ms,
+                            ));
+                            Some(id)
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                Ok(ReviewTransitionResult {
+                    plan_id: plan_id.into(),
+                    task_id: task.id.clone(),
+                    milestone_id,
+                    task_name: task.name.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    review_round: task.review_round,
+                    follow_up_task_id,
+                    strategy_warning: None,
+                    continuation: None,
+                })
+            },
+        )
     }
 
     /// Idempotent stale-review escalation: records a durable, auditable

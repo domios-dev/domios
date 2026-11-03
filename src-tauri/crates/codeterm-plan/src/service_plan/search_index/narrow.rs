@@ -2,6 +2,81 @@ use super::*;
 use rusqlite::OptionalExtension;
 
 #[derive(Debug)]
+pub(in crate::service_plan) struct TaskIndexDelta {
+    pub plan_id: String,
+    pub title: String,
+    pub plan_status: String,
+    pub project_path: String,
+    pub canonical_project_path: String,
+    pub task: Task,
+    pub milestones: Vec<Milestone>,
+    pub milestone_status: Vec<String>,
+}
+
+pub(super) struct StatusDelta {
+    pub key: String,
+    pub ids: Vec<String>,
+    pub status: String,
+}
+
+pub(in crate::service_plan) fn enqueue_task_index(
+    _turn: &MutationWriterTurn<'_>,
+    delta: TaskIndexDelta,
+) {
+    let root = PathBuf::from(if delta.canonical_project_path.trim().is_empty() {
+        &delta.project_path
+    } else {
+        &delta.canonical_project_path
+    });
+    let scope = project_scope(&root);
+    let unit = task_unit(
+        &delta.plan_id,
+        &delta.title,
+        &delta.task,
+        &scope,
+        &delta.plan_status,
+    );
+    index_queue().enqueue(IndexJob::Unit(root.clone(), unit));
+    for milestone in &delta.milestones {
+        let unit = milestone_unit(
+            &delta.plan_id,
+            &delta.title,
+            &delta.task.name,
+            &task_status_text(&delta.task),
+            milestone,
+            &scope,
+            &delta.plan_status,
+        );
+        index_queue().enqueue(IndexJob::Unit(root.clone(), unit));
+    }
+    if !delta.milestone_status.is_empty() {
+        index_queue().enqueue(IndexJob::Status(
+            root,
+            StatusDelta {
+                key: format!("{}:{}", delta.plan_id, delta.task.id),
+                ids: delta
+                    .milestone_status
+                    .iter()
+                    .map(|id| stable_id(&delta.plan_id, "stride", id))
+                    .collect(),
+                status: format!("{}:{}", delta.plan_status, task_status_text(&delta.task)),
+            },
+        ));
+    }
+}
+
+pub(super) fn mirror_status(root: &Path, delta: &StatusDelta) -> Result<(), String> {
+    let mut connection = open_index(root)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    for id in &delta.ids {
+        transaction.execute("UPDATE mem_items SET source=json_set(source,'$.status',?2) WHERE id=?1 AND json_extract(source,'$.status') IS NOT ?2", params![id, delta.status]).map_err(|error| error.to_string())?;
+    }
+    transaction.commit().map_err(|error| error.to_string())
+}
+
+#[derive(Debug)]
 pub(in crate::service_plan) struct MilestoneIndexDelta {
     pub plan_id: String,
     pub title: String,
@@ -11,6 +86,7 @@ pub(in crate::service_plan) struct MilestoneIndexDelta {
     pub task_name: String,
     pub task_status: String,
     pub milestone: Milestone,
+    pub remove: bool,
 }
 
 pub(in crate::service_plan) fn enqueue_milestone_index(
@@ -31,7 +107,11 @@ pub(in crate::service_plan) fn enqueue_milestone_index(
         &project_scope(&root),
         &delta.plan_status,
     );
-    index_queue().enqueue(IndexJob::Unit(root, unit));
+    if delta.remove {
+        index_queue().enqueue(IndexJob::DeleteUnit(root, unit.id));
+    } else {
+        index_queue().enqueue(IndexJob::Unit(root, unit));
+    }
 }
 
 pub(super) fn milestone_unit(
@@ -81,6 +161,24 @@ pub(super) fn mirror_unit(root: &Path, unit: &Unit) -> Result<Vec<Unit>, String>
         )
         .optional()
         .map_err(|error| error.to_string())?;
+    if let Some(previous) = &previous {
+        let next = unit_signature(unit);
+        if previous.title == next.title
+            && previous.body == next.body
+            && previous.kind == next.kind
+            && previous.scope == next.scope
+        {
+            if previous != &next {
+                connection
+                    .execute(
+                        "UPDATE mem_items SET source=?2, updated_at=?3 WHERE id=?1",
+                        params![unit.id, next.source, next.updated_at],
+                    )
+                    .map_err(|error| error.to_string())?;
+            }
+            return Ok(Vec::new());
+        }
+    }
     let existing = previous
         .into_iter()
         .map(|previous| (unit.id.clone(), previous))
@@ -92,4 +190,52 @@ pub(super) fn mirror_unit(root: &Path, unit: &Unit) -> Result<Vec<Unit>, String>
         std::slice::from_ref(unit),
         false,
     )
+}
+
+pub(super) fn task_unit(
+    plan_id: &str,
+    plan_title: &str,
+    task: &Task,
+    scope: &str,
+    plan_status: &str,
+) -> Unit {
+    let acceptance_criteria = task.acceptance_criteria.join("\n");
+    let external_refs = task
+        .external_refs
+        .iter()
+        .map(|external_ref| external_ref.canonical_url.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    Unit {
+        id: stable_id(plan_id, "task", &task.id),
+        kind: "task",
+        title: format!("{} task {}", plan_title, task.name),
+        body: format!(
+            "Plan \"{}\" · task: {}\n{}\n{}\n{}",
+            plan_title, task.name, acceptance_criteria, external_refs, task.body
+        ),
+        scope: scope.to_string(),
+        plan_id: Some(plan_id.into()),
+        spec_id: None,
+        unit_id: task.id.clone(),
+        unit_title: task.name.clone(),
+        parent_title: plan_title.into(),
+        status: Some(format!("{plan_status}:{}", task_status_text(task))),
+        updated_at: task.updated_at,
+    }
+}
+
+pub(super) fn delete_unit(root: &Path, id: &str) -> Result<(), String> {
+    let mut connection = open_index(root)?;
+    let transaction = connection
+        .transaction()
+        .map_err(|error| error.to_string())?;
+    delete_unit_vectors(&transaction, id)?;
+    transaction
+        .execute("DELETE FROM mem_fts WHERE mem_id=?1", [id])
+        .map_err(|error| error.to_string())?;
+    transaction
+        .execute("DELETE FROM mem_items WHERE id=?1", [id])
+        .map_err(|error| error.to_string())?;
+    transaction.commit().map_err(|error| error.to_string())
 }

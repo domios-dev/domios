@@ -1,3 +1,4 @@
+use crate::service_plan::store_db::hot_write::AttemptTarget;
 mod respawn_record;
 use serde::{Deserialize, Serialize};
 
@@ -639,13 +640,22 @@ impl PlanStore {
         let session_binding_nonce = session_binding_nonce
             .map(str::trim)
             .filter(|value| !value.is_empty());
-        self.change_attempt(plan_id, task_id, tab_id, None, now_ms, |attempt| {
-            let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
-            attempt.executor_title = title.map(str::to_string);
-            attempt.session_id = session_id.map(str::to_string);
-            attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
-            Ok(Some(()))
-        })?;
+        self.change_attempt(
+            plan_id,
+            task_id,
+            AttemptTarget {
+                tab: tab_id,
+                ..Default::default()
+            },
+            now_ms,
+            |attempt| {
+                let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
+                attempt.executor_title = title.map(str::to_string);
+                attempt.session_id = session_id.map(str::to_string);
+                attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
+                Ok(Some(()))
+            },
+        )?;
         Ok(())
     }
 
@@ -669,8 +679,14 @@ impl PlanStore {
         self.change_attempt(
             plan_id,
             task_id,
-            tab_id,
-            Some(attempt_id),
+            AttemptTarget {
+                tab: tab_id,
+                id: Some(attempt_id),
+                session: Some((session_id, session_binding_nonce)),
+                live: true,
+                model_unknown: true,
+                ..Default::default()
+            },
             now_ms,
             |attempt| {
                 let Some(attempt) = attempt.filter(|attempt| {
@@ -706,8 +722,13 @@ impl PlanStore {
         self.change_attempt(
             plan_id,
             task_id,
-            tab_id,
-            Some(attempt_id),
+            AttemptTarget {
+                tab: tab_id,
+                id: Some(attempt_id),
+                session: Some((session_id, session_binding_nonce)),
+                live: true,
+                ..Default::default()
+            },
             now_ms,
             |attempt| {
                 let Some(attempt) = attempt.filter(|attempt| {
@@ -747,8 +768,12 @@ impl PlanStore {
         self.change_attempt(
             plan_id,
             task_id,
-            tab_id,
-            Some(attempt_id),
+            AttemptTarget {
+                tab: tab_id,
+                id: Some(attempt_id),
+                unretired: true,
+                ..Default::default()
+            },
             now_ms,
             |attempt| {
                 let attempt = attempt
@@ -778,8 +803,13 @@ impl PlanStore {
         self.change_attempt(
             plan_id,
             task_id,
-            tab_id,
-            Some(attempt_id),
+            AttemptTarget {
+                tab: tab_id,
+                id: Some(attempt_id),
+                session: Some((session_id, session_binding_nonce)),
+                live: true,
+                ..Default::default()
+            },
             now_ms,
             |attempt| {
                 let Some(attempt) = attempt.filter(|attempt| {

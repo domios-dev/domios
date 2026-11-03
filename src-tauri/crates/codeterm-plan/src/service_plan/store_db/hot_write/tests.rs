@@ -4,113 +4,8 @@ use crate::service_plan::{load_audit, PlanStore};
 use std::sync::{Arc, Barrier};
 use std::time::Instant;
 
-const SEED: &str = "sql-hot-1162-v1";
-const TASKS: usize = 1162;
-const CONTENT_BYTES: usize = 33_344_717;
-
-fn milestone(id: &str) -> Milestone {
-    Milestone {
-        id: id.into(),
-        from: AgentRef::from_tab("worker"),
-        kind: "decision".into(),
-        text: "bounded append".into(),
-        ts: 20,
-        links: vec![],
-        loop_id: None,
-        iteration: None,
-        canvas: Default::default(),
-        attachments: vec![],
-    }
-}
-
-fn fixture(root: &std::path::Path, strides: usize, attempts: usize) -> Plan {
-    let mut plan = Plan::new(
-        SEED.into(),
-        root.display().to_string(),
-        OrchestratorRef::from_tab("owner"),
-    );
-    plan.id = SEED.into();
-    plan.created_at = 1;
-    plan.updated_at = 1;
-    plan.tasks = (0..TASKS)
-        .map(|i| {
-            let mut task = load_audit::task(&format!("task_{i:04}"), TaskStatus::Pending, None);
-            task.handle = Some(format!("fixture-{i:04}"));
-            task.updated_at = 1;
-            task
-        })
-        .collect();
-    let mut current = load_audit::attempt("current", "worker");
-    current.session_id = Some("session".into());
-    current.session_binding_nonce = Some("nonce".into());
-    plan.tasks[0].execution_attempts.push(current);
-    let empty_bytes = serde_json::to_vec(&plan).unwrap().len();
-    let fill = CONTENT_BYTES - empty_bytes;
-    for (i, task) in plan.tasks.iter_mut().enumerate() {
-        task.body = "x".repeat(fill / TASKS + usize::from(i < fill % TASKS));
-    }
-    assert_eq!(serde_json::to_vec(&plan).unwrap().len(), CONTENT_BYTES);
-    plan.strides = (0..strides)
-        .map(|i| milestone(&format!("history-{i}")))
-        .collect();
-    plan.tasks[1].execution_attempts = (0..attempts)
-        .map(|i| {
-            let mut attempt = load_audit::attempt(&format!("old-{i}"), "unrelated");
-            attempt.closed_at = Some(2);
-            attempt
-        })
-        .collect();
-    plan
-}
-
-fn database(root: &std::path::Path, plan: &Plan) -> PlanDatabase {
-    let database = PlanDatabase::open(root.join("plans.db")).unwrap();
-    database.persist_plan_rows(plan, None).unwrap();
-    let mut spec = crate::plan::Spec::new("owned spec".into(), plan.project_path.clone());
-    spec.plan_id = Some(plan.id.clone());
-    database.persist_spec(&spec).unwrap();
-    database
-}
-
-fn role(value: &str) -> HotChange {
-    HotChange::Task {
-        selector: "task_0000".into(),
-        change: TaskMetadata::RoleGuidance(Some(Some(value.into()))),
-    }
-}
-
-fn audit(database: &PlanDatabase) {
-    let connection = database.connection.lock();
-    connection
-        .execute_batch("CREATE TABLE write_audit(table_name TEXT);")
-        .unwrap();
-    for table in [
-        "plans",
-        "plan_tasks",
-        "plan_task_milestones",
-        "plan_task_attempts",
-        "plan_strides",
-        "specs",
-    ] {
-        for action in ["INSERT", "UPDATE", "DELETE"] {
-            connection.execute_batch(&format!("CREATE TRIGGER audit_{table}_{action} AFTER {action} ON {table} BEGIN INSERT INTO write_audit VALUES ('{table}'); END;")).unwrap();
-        }
-    }
-}
-
-fn audit_counts(database: &PlanDatabase) -> Vec<(String, usize)> {
-    let connection = database.connection.lock();
-    let mut statement = connection
-        .prepare(
-            "SELECT table_name, count(*) FROM write_audit GROUP BY table_name ORDER BY table_name",
-        )
-        .unwrap();
-    statement
-        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-        .unwrap()
-        .map(Result::unwrap)
-        .collect()
-}
+mod fixtures;
+use fixtures::*;
 
 #[test]
 fn hot_work_stays_bounded_with_independently_growing_history() {
@@ -121,23 +16,6 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
         let actual_bytes = serde_json::to_vec(&plan).unwrap().len();
         let database = database(directory.path(), &plan);
         audit(&database);
-        database
-            .connection
-            .lock()
-            .execute(
-                "UPDATE plan_fts SET body='untouched FTS sentinel' WHERE plan_id=?1",
-                [&plan.id],
-            )
-            .unwrap();
-        let fts_before: (i64, String) = database
-            .connection
-            .lock()
-            .query_row(
-                "SELECT rowid, body FROM plan_fts WHERE plan_id=?1",
-                [&plan.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
         let started = Instant::now();
         let metadata = database
             .commit_hot_changes(&plan.id, vec![role("metadata")], 20)
@@ -148,11 +26,23 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
             vec![("plan_tasks".into(), 1), ("plans".into(), 1)]
         );
         assert!(metadata.decoded_bytes < 32 * 1024 && metadata.serialized_bytes < 32 * 1024);
+        assert_and_clear_writes(&database, &metadata);
         let started = Instant::now();
         let text = database
-            .commit_hot_changes(&plan.id, vec![role("changed guidance text")], 21)
+            .commit_hot_changes(
+                &plan.id,
+                vec![HotChange::Fields {
+                    selector: "task_0000".into(),
+                    fields: TaskFields {
+                        body: Some("changed searchable task text".into()),
+                        ..Default::default()
+                    },
+                }],
+                21,
+            )
             .unwrap();
         println!("text_us={} receipt={text:?}", started.elapsed().as_micros());
+        assert_and_clear_writes(&database, &text);
         let started = Instant::now();
         let stride = database
             .commit_hot_changes(
@@ -166,13 +56,17 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
             started.elapsed().as_micros()
         );
         assert_eq!((stride.strides, stride.decoded_bytes), (1, 0));
+        assert_and_clear_writes(&database, &stride);
         let started = Instant::now();
         let (_, attempt) = database
             .change_attempt(
                 &plan.id,
                 "task_0000",
-                "worker",
-                Some("current"),
+                AttemptTarget {
+                    tab: "worker",
+                    id: Some("current"),
+                    ..Default::default()
+                },
                 23,
                 |attempt| {
                     attempt.unwrap().session_model = Some("observed".into());
@@ -185,6 +79,7 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
             started.elapsed().as_micros()
         );
         assert_eq!((attempt.task_rows, attempt.attempts), (1, 1));
+        assert_and_clear_writes(&database, &attempt);
         let started = Instant::now();
         let review = database
             .commit_hot_changes(
@@ -205,6 +100,7 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
             "review_override_us={} receipt={review:?}",
             started.elapsed().as_micros()
         );
+        assert_and_clear_writes(&database, &review);
         let started = Instant::now();
         let record = database
             .commit_hot_changes(
@@ -225,16 +121,7 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
             (record.task_rows, record.milestones, record.search.len()),
             (1, 1, 1)
         );
-        let fts_after: (i64, String) = database
-            .connection
-            .lock()
-            .query_row(
-                "SELECT rowid, body FROM plan_fts WHERE plan_id=?1",
-                [&plan.id],
-                |row| Ok((row.get(0)?, row.get(1)?)),
-            )
-            .unwrap();
-        assert_eq!(fts_before, fts_after);
+        assert_and_clear_writes(&database, &record);
         assert!(!audit_counts(&database)
             .iter()
             .any(|(table, _)| table == "specs"));
@@ -264,7 +151,7 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
             plan.tasks[0].updated_at = 20;
         });
         baseline_operation(&baseline, &plan.id, "text", |plan| {
-            plan.tasks[0].role_guidance = Some("changed guidance text".into());
+            plan.tasks[0].body = "changed searchable task text".into();
             plan.tasks[0].updated_at = 21;
         });
         baseline_operation(&baseline, &plan.id, "stride", |plan| {
@@ -287,42 +174,6 @@ fn hot_work_stays_bounded_with_independently_growing_history() {
             plan.tasks[0].milestones.push(milestone("new-record"));
         });
     }
-}
-
-fn database_for_baseline(root: &std::path::Path, plan: &Plan) -> PlanDatabase {
-    database(root, plan)
-}
-
-fn baseline_operation(
-    database: &PlanDatabase,
-    id: &str,
-    kind: &str,
-    mutate: impl FnOnce(&mut Plan),
-) {
-    let started = Instant::now();
-    let mut plan = database.load_plan(id).unwrap().unwrap();
-    let decoded = serde_json::to_vec(&plan).unwrap().len();
-    mutate(&mut plan);
-    plan.updated_at += 1;
-    let rows = store_rows::split_plan(serde_json::to_value(&plan).unwrap()).unwrap();
-    let serialized = rows.header.len()
-        + rows
-            .tasks
-            .iter()
-            .map(|task| {
-                task.document.len()
-                    + task.milestones.iter().map(String::len).sum::<usize>()
-                    + task
-                        .attempts
-                        .iter()
-                        .map(|attempt| attempt.document.len())
-                        .sum::<usize>()
-            })
-            .sum::<usize>()
-        + rows.strides.iter().map(String::len).sum::<usize>();
-    let writes = database.persist_plan_rows(&plan, None).unwrap();
-    println!("baseline=load_plan+persist_plan_rows operation={kind} strides={} unrelated_attempts={} decoded_reconstructed_bytes={decoded} serialized_row_bytes={serialized} elapsed_us={} writes={writes:?}", plan.strides.len(), plan.tasks[1].execution_attempts.len(), started.elapsed().as_micros());
-    assert!(serialized > 31 * 1024 * 1024);
 }
 
 #[test]
@@ -350,6 +201,26 @@ fn mixed_partial_sql_failure_rolls_back_rows_and_discards_receipt() {
         .to_string()
         .contains("injected after milestone write"));
     assert!(audit_counts(&database).is_empty());
+    {
+        let connection = database.connection.lock();
+        for table in [
+            "plans",
+            "plan_tasks",
+            "plan_task_milestones",
+            "plan_task_attempts",
+            "plan_strides",
+            "specs",
+        ] {
+            for action in ["INSERT", "UPDATE", "DELETE"] {
+                connection
+                    .execute_batch(&format!("DROP TRIGGER audit_{table}_{action};"))
+                    .unwrap();
+            }
+        }
+        connection
+            .execute_batch("DROP TRIGGER fail_stride; DROP TABLE write_audit;")
+            .unwrap();
+    }
     drop(database);
     let reopened = PlanDatabase::open(directory.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);
@@ -505,4 +376,349 @@ fn committed_milestone_indexes_only_its_unit_and_failure_publishes_nothing() {
         .unwrap();
     assert_eq!(count, 1);
     assert_eq!(store.get(&plan.id).unwrap().tasks[0].milestones.len(), 1);
+}
+
+#[test]
+fn real_review_hold_has_bounded_work_as_unrelated_history_grows() {
+    let mut prior = None;
+    for (strides, attempts) in [(0, 0), (2048, 0), (0, 2048)] {
+        let root = tempfile::tempdir().unwrap();
+        let mut plan = fixture(root.path(), strides, attempts);
+        plan.tasks[0].status = TaskStatus::InReview;
+        let actual_bytes = serde_json::to_vec(&plan).unwrap().len();
+        drop(database(root.path(), &plan));
+        let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        load_audit::start(&store);
+        let started = Instant::now();
+        let outcome = store
+            .hold_review(
+                &plan.id,
+                "task_0000",
+                "review hold note",
+                AgentRef::from_tab("owner"),
+                30,
+            )
+            .unwrap();
+        let work = take_work();
+        println!("fixture={SEED} operation=real_review_hold actual_bytes={actual_bytes} strides={strides} unrelated_attempts={attempts} elapsed_us={} task_rows={} header_rows={} attempt_rows={} milestone_rows={} stride_rows={} decoded_bytes={} serialized_bytes={} projected_text_bytes={} hashed_bytes={}", started.elapsed().as_micros(), work[0],work[1],work[2],work[3],work[4],work[5],work[6],work[7],work[8]);
+        assert_eq!(&work[..5], &[2, 1, 0, 1, 0]);
+        assert!(work[5] < 32 * 1024 && work[6] < 32 * 1024);
+        assert!(store.plan_loads_for_test().is_empty());
+        if let Some(prior) = prior {
+            assert_eq!(prior, work);
+        }
+        prior = Some(work);
+        let stored = store.get(&plan.id).unwrap();
+        assert_eq!(stored.tasks[0].status, TaskStatus::InReview);
+        assert_eq!(
+            stored.tasks[0].review_evidence.last().unwrap().note,
+            "review hold note"
+        );
+        assert_eq!(
+            stored.tasks[0].milestones.last().unwrap().id,
+            outcome.milestone_id
+        );
+    }
+}
+
+#[test]
+fn stale_owner_and_denied_review_status_leave_every_row_unchanged() {
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixture(root.path(), 0, 0);
+    plan.tasks[0].status = TaskStatus::InReview;
+    plan.tasks[0].interruption.owner_tab_id = Some("worker".into());
+    plan.tasks[0].interruption.owner_session_id = Some("session".into());
+    plan.tasks[0].interruption.owner_epoch = 2;
+    drop(database(root.path(), &plan));
+    let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+    let stale = crate::service_plan::interruption::TaskMutationAuthority {
+        tab_id: "worker".into(),
+        session_id: "session".into(),
+        session_binding_nonce: "nonce".into(),
+        owner_epoch: 1,
+    };
+    let error = store
+        .close_task_authorized(
+            &plan.id,
+            "task_0000",
+            Some("must roll back"),
+            AgentRef::from_tab("worker"),
+            &stale,
+            20,
+        )
+        .unwrap_err();
+    assert!(error
+        .to_string()
+        .contains("stale task mutation owner epoch"));
+    let error = store
+        .commit_hot_changes(
+            &plan.id,
+            vec![
+                role("must roll back"),
+                HotChange::Fields {
+                    selector: "task_0000".into(),
+                    fields: TaskFields {
+                        status: Some("done".into()),
+                        ..Default::default()
+                    },
+                },
+            ],
+            21,
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        PlanError::TransitionDenied {
+            from: TaskStatus::InReview,
+            to: TaskStatus::Done
+        }
+    ));
+    drop(store);
+    let reopened = PlanStore::open(root.path().join("plans.db")).unwrap();
+    assert_eq!(reopened.get(&plan.id).unwrap(), plan);
+}
+
+#[test]
+fn task_metadata_and_searchable_text_update_only_the_required_fts_record() {
+    use crate::service_plan::search_index;
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixture(root.path(), 0, 0);
+    plan.tasks.truncate(2);
+    for task in &mut plan.tasks {
+        task.body.clear();
+    }
+    drop(database(root.path(), &plan));
+    search_index::init_search_port(Arc::new(crate::service_plan::test_support::TestSearchPort));
+    let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+    store.mirror_plan_index(&plan).unwrap();
+    search_index::flush_index_queue_for_test(root.path());
+    let index = rusqlite::Connection::open(search_index::project_index_path(root.path())).unwrap();
+    let target = format!("planunit_{}_task_task_0000", plan.id);
+    let unrelated = format!("planunit_{}_task_task_0001", plan.id);
+    index
+        .execute(
+            "UPDATE mem_fts SET body='FTS sentinel' WHERE mem_id IN (?1,?2)",
+            params![target, unrelated],
+        )
+        .unwrap();
+    store
+        .commit_hot_changes(
+            &plan.id,
+            vec![HotChange::Fields {
+                selector: "task_0000".into(),
+                fields: TaskFields {
+                    priority: Some("high".into()),
+                    ..Default::default()
+                },
+            }],
+            20,
+        )
+        .unwrap();
+    search_index::flush_index_queue_for_test(root.path());
+    assert_eq!(
+        index
+            .query_row(
+                "SELECT body FROM mem_fts WHERE mem_id=?1",
+                [&target],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        "FTS sentinel"
+    );
+    store
+        .commit_hot_changes(
+            &plan.id,
+            vec![HotChange::Fields {
+                selector: "task_0000".into(),
+                fields: TaskFields {
+                    body: Some("new searchable content".into()),
+                    ..Default::default()
+                },
+            }],
+            21,
+        )
+        .unwrap();
+    search_index::flush_index_queue_for_test(root.path());
+    assert!(index
+        .query_row(
+            "SELECT body FROM mem_fts WHERE mem_id=?1",
+            [&target],
+            |row| row.get::<_, String>(0)
+        )
+        .unwrap()
+        .contains("new searchable content"));
+    assert_eq!(
+        index
+            .query_row(
+                "SELECT body FROM mem_fts WHERE mem_id=?1",
+                [&unrelated],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+        "FTS sentinel"
+    );
+}
+
+#[test]
+fn public_hot_batch_is_atomic_and_resolves_clients_without_loading_plan() {
+    use crate::service_plan::batch::{BatchOp, BatchRequest};
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixture(root.path(), 0, 0);
+    plan.tasks.truncate(2);
+    drop(database(root.path(), &plan));
+    let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+    load_audit::start(&store);
+    let bad = BatchRequest {
+        key: None,
+        ops: vec![
+            BatchOp::SetTaskBody {
+                task: "task_0000".into(),
+                body: "must roll back".into(),
+            },
+            BatchOp::AddMilestone {
+                client_id: None,
+                task: "missing".into(),
+                kind: "decision".into(),
+                text: "failure".into(),
+                from: None,
+                key: None,
+                links: vec![],
+            },
+        ],
+    };
+    assert!(matches!(
+        store.apply_batch(&plan.id, bad, 20),
+        Err(PlanError::TaskNotFound)
+    ));
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_eq!(store.database.load_plan(&plan.id).unwrap().unwrap(), plan);
+    let request = BatchRequest {
+        key: Some("batch-key".into()),
+        ops: vec![
+            BatchOp::SetTaskSections {
+                client_id: Some("target".into()),
+                task: "task_0000".into(),
+                sections: vec![],
+            },
+            BatchOp::SetTaskBody {
+                task: "$target".into(),
+                body: "committed batch body".into(),
+            },
+            BatchOp::AddMilestone {
+                client_id: Some("record".into()),
+                task: "$target".into(),
+                kind: "decision".into(),
+                text: "once".into(),
+                from: None,
+                key: None,
+                links: vec![],
+            },
+        ],
+    };
+    let result = store.apply_batch(&plan.id, request.clone(), 21).unwrap();
+    let replay = store.apply_batch(&plan.id, request, 22).unwrap();
+    assert_eq!(result.milestone_ids, replay.milestone_ids);
+    assert_eq!(result.task_ids, vec!["task_0000"]);
+    assert!(store.plan_loads_for_test().is_empty());
+    let stored = store.database.load_plan(&plan.id).unwrap().unwrap();
+    assert_eq!(stored.tasks[0].body, "committed batch body");
+    assert_eq!(stored.tasks[0].milestones.len(), 1);
+}
+
+#[test]
+fn milestone_edit_and_remove_preserve_surviving_rows_and_append_order() {
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixture(root.path(), 0, 0);
+    plan.tasks.truncate(2);
+    drop(database(root.path(), &plan));
+    let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+    let first = store
+        .add_milestone(
+            &plan.id,
+            "task_0000",
+            "decision",
+            "first",
+            AgentRef::from_tab("worker"),
+            true,
+            20,
+        )
+        .unwrap();
+    let second = store
+        .add_milestone(
+            &plan.id,
+            "task_0000",
+            "decision",
+            "second",
+            AgentRef::from_tab("worker"),
+            false,
+            21,
+        )
+        .unwrap();
+    store
+        .update_milestone(&plan.id, "task_0000", &second, None, Some("edited"), 22)
+        .unwrap();
+    store
+        .rm_milestone(&plan.id, "task_0000", &first, 23)
+        .unwrap();
+    let third = store
+        .add_milestone(
+            &plan.id,
+            "task_0000",
+            "decision",
+            "third",
+            AgentRef::from_tab("worker"),
+            false,
+            24,
+        )
+        .unwrap();
+    let mut loaded = store.database.load_plan(&plan.id).unwrap().unwrap();
+    assert_eq!(
+        loaded.tasks[0]
+            .milestones
+            .iter()
+            .map(|m| m.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![second.as_str(), third.as_str()]
+    );
+    assert_eq!(loaded.tasks[0].milestones[0].text, "edited");
+    loaded.tasks[0].milestones.push(milestone("legacy-append"));
+    store.database.persist_plan_rows(&loaded, None).unwrap();
+    let reopened = store.database.load_plan(&plan.id).unwrap().unwrap();
+    assert_eq!(reopened, loaded);
+}
+
+#[test]
+fn retired_plan_fts_is_dropped_only_after_exact_schema_admission() {
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixture(root.path(), 0, 0);
+    plan.tasks.truncate(2);
+    let database = database(root.path(), &plan);
+    database.connection.lock().execute_batch("CREATE VIRTUAL TABLE plan_fts USING fts5(plan_id UNINDEXED,title,body); INSERT INTO plan_fts VALUES ('retired','unused','unused');").unwrap();
+    drop(database);
+    let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
+    assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);
+    let count: usize = reopened
+        .connection
+        .lock()
+        .query_row(
+            "SELECT count(*) FROM sqlite_schema WHERE name GLOB 'plan_fts*'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn successful_hot_commit_preserves_canonical_path_normalization() {
+    let root = tempfile::tempdir().unwrap();
+    let mut plan = fixture(root.path(), 0, 0);
+    plan.tasks.truncate(2);
+    plan.canonical_project_path.clear();
+    let database = database(root.path(), &plan);
+    database
+        .commit_hot_changes(&plan.id, vec![role("normalized")], 20)
+        .unwrap();
+    let stored = database.load_plan(&plan.id).unwrap().unwrap();
+    assert_eq!(stored.canonical_project_path, plan.project_path);
 }

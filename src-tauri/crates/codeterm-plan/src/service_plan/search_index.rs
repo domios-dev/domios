@@ -20,7 +20,9 @@ mod incremental;
 mod narrow;
 mod recovery;
 pub(super) use incremental::PlanIndexScope;
-pub(super) use narrow::{enqueue_milestone_index, MilestoneIndexDelta};
+pub(super) use narrow::{
+    enqueue_milestone_index, enqueue_task_index, MilestoneIndexDelta, TaskIndexDelta,
+};
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
 
@@ -94,6 +96,8 @@ struct Unit {
 }
 
 enum IndexJob {
+    DeleteUnit(PathBuf, String),
+    Status(PathBuf, narrow::StatusDelta),
     Unit(PathBuf, Unit),
     Plan(Plan, PlanIndexScope),
     Prune(PathBuf, HashSet<String>),
@@ -107,6 +111,8 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
+            Self::Status(_, delta) => format!("{}:status:{}", self.project_key(), delta.key),
+            Self::DeleteUnit(_, id) => format!("{}:unit:{}", self.project_key(), id),
             Self::Unit(_, unit) => format!("{}:unit:{}", self.project_key(), unit.id),
             Self::Embed(_, unit) => format!("{}:embed:{}", self.project_key(), unit.id),
             Self::Prune(_, _) => format!("{}:prune", self.project_key()),
@@ -122,7 +128,9 @@ impl IndexJob {
 
     fn project_key(&self) -> String {
         match self {
-            Self::Unit(root, _) => project_scope(root),
+            Self::Status(root, _) | Self::Unit(root, _) | Self::DeleteUnit(root, _) => {
+                project_scope(root)
+            }
             Self::Prune(root, _) | Self::Embed(root, _) => project_scope(root),
             Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
                 project_scope(plan_project_root(plan))
@@ -276,6 +284,8 @@ fn index_queue() -> Arc<IndexQueue> {
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
     match job {
+        IndexJob::DeleteUnit(root, id) => narrow::delete_unit(root, id),
+        IndexJob::Status(root, delta) => narrow::mirror_status(root, delta),
         IndexJob::Unit(root, unit) => {
             embedding::queue_changed(root, narrow::mirror_unit(root, unit))
         }
@@ -907,30 +917,7 @@ fn collect_spec_sections(
 }
 
 fn task_unit(plan: &Plan, task: &Task, scope: &str, plan_status: &str) -> Unit {
-    let acceptance_criteria = task.acceptance_criteria.join("\n");
-    let external_refs = task
-        .external_refs
-        .iter()
-        .map(|external_ref| external_ref.canonical_url.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    Unit {
-        id: stable_id(&plan.id, "task", &task.id),
-        kind: "task",
-        title: format!("{} task {}", plan.title, task.name),
-        body: format!(
-            "Plan \"{}\" · task: {}\n{}\n{}\n{}",
-            plan.title, task.name, acceptance_criteria, external_refs, task.body
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan.id.clone()),
-        spec_id: None,
-        unit_id: task.id.clone(),
-        unit_title: task.name.clone(),
-        parent_title: plan.title.clone(),
-        status: Some(format!("{plan_status}:{}", task_status_text(task))),
-        updated_at: task.updated_at,
-    }
+    narrow::task_unit(&plan.id, &plan.title, task, scope, plan_status)
 }
 
 fn stride_unit(

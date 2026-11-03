@@ -5,6 +5,22 @@ use crate::plan::{
 use crate::service_plan::{store_rows, text_bounds, PlanError};
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
+mod batch_rows;
+mod milestones;
+mod review_rows;
+mod task_fields;
+pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
+pub(in crate::service_plan) use task_fields::TaskFields;
+
+#[derive(Default)]
+pub(in crate::service_plan) struct AttemptTarget<'a> {
+    pub tab: &'a str,
+    pub id: Option<&'a str>,
+    pub session: Option<(&'a str, &'a str)>,
+    pub unretired: bool,
+    pub live: bool,
+    pub model_unknown: bool,
+}
 
 pub(in crate::service_plan) enum TaskMetadata {
     RoleGuidance(Option<Option<String>>),
@@ -16,6 +32,21 @@ pub(in crate::service_plan) enum TaskMetadata {
 }
 
 pub(in crate::service_plan) enum HotChange {
+    AuditMilestone {
+        task_id: String,
+        milestone: Milestone,
+    },
+    MilestoneEdit {
+        task_id: String,
+        milestone_id: String,
+        kind: Option<String>,
+        text: Option<String>,
+        remove: bool,
+    },
+    Fields {
+        selector: String,
+        fields: TaskFields,
+    },
     Task {
         selector: String,
         change: TaskMetadata,
@@ -28,7 +59,7 @@ pub(in crate::service_plan) enum HotChange {
     Stride(Milestone),
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub(in crate::service_plan) struct CommittedRows {
     pub plan_id: String,
     pub updated_at: u64,
@@ -40,8 +71,60 @@ pub(in crate::service_plan) struct CommittedRows {
     pub header_rows: usize,
     pub decoded_bytes: usize,
     pub serialized_bytes: usize,
+    pub projected_text_bytes: usize,
+    pub hashed_bytes: usize,
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
+    pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,
+}
+
+impl std::fmt::Debug for CommittedRows {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CommittedRows")
+            .field("task_rows", &self.task_rows)
+            .field("header_rows", &self.header_rows)
+            .field("attempts", &self.attempts)
+            .field("milestones", &self.milestones)
+            .field("strides", &self.strides)
+            .field("projected_text_bytes", &self.projected_text_bytes)
+            .field("hashed_bytes", &self.hashed_bytes)
+            .field("decoded_bytes", &self.decoded_bytes)
+            .field("serialized_bytes", &self.serialized_bytes)
+            .field("changed_tasks", &self.tasks.len())
+            .field(
+                "search_deltas",
+                &(self.search.len() + self.task_search.len()),
+            )
+            .finish()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 9]>> = const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(in crate::service_plan) fn record_work(receipt: &CommittedRows) {
+    LAST_COMMITTED_WORK.with(|cell| {
+        *cell.borrow_mut() = Some([
+            receipt.task_rows,
+            receipt.header_rows,
+            receipt.attempts,
+            receipt.milestones,
+            receipt.strides,
+            receipt.decoded_bytes,
+            receipt.serialized_bytes,
+            receipt.projected_text_bytes,
+            receipt.hashed_bytes,
+        ])
+    });
+}
+
+#[cfg(test)]
+fn take_work() -> [usize; 9] {
+    LAST_COMMITTED_WORK.with(|cell| cell.borrow_mut().take().expect("committed hot receipt"))
 }
 
 impl PlanDatabase {
@@ -54,6 +137,12 @@ impl PlanDatabase {
         self.hot_transaction(plan_id, now_ms, |tx, receipt| {
             for change in changes {
                 match change {
+                    HotChange::AuditMilestone { task_id, milestone } => {
+                        let exists = tx.query_row("SELECT EXISTS(SELECT 1 FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 AND json_extract(row_json,'$.id')=?3)", params![plan_id, task_id, milestone.id], |row| row.get::<_, bool>(0)).map_err(db_error)?;
+                        if !exists { append_milestone(tx, plan_id, &task_id, &milestone, receipt)?; }
+                    }
+                    HotChange::MilestoneEdit { task_id, milestone_id, kind, text, remove } => milestones::edit(tx, plan_id, &task_id, &milestone_id, kind.as_deref(), text.as_deref(), remove, receipt)?,
+                    HotChange::Fields { selector, fields } => task_fields::apply(tx, plan_id, &selector, fields, now_ms, receipt)?,
                     HotChange::Task { selector, change } => {
                         let mut task = read_task(tx, plan_id, &selector, receipt)?;
                         match change {
@@ -76,6 +165,7 @@ impl PlanDatabase {
                         }
                         task.updated_at = now_ms;
                         write_task(tx, plan_id, &task, receipt)?;
+                        task_fields::queue_task_index(tx, plan_id, &task, false, false, receipt)?;
                     }
                     HotChange::Milestone {
                         task_id,
@@ -98,20 +188,34 @@ impl PlanDatabase {
         &self,
         plan_id: &str,
         selector: &str,
-        tab_id: &str,
-        attempt_id: Option<&str>,
+        target: AttemptTarget<'_>,
         now_ms: u64,
         change: impl FnOnce(Option<&mut TaskExecutionAttempt>) -> Result<Option<T>, PlanError>,
     ) -> Result<(Option<T>, CommittedRows), PlanError> {
         let mut result = None;
         let receipt = self.hot_transaction(plan_id, now_ms, |tx, receipt| {
-            let task_id = resolve_task(tx, plan_id, selector)?;
+            let task_id = resolve_task(tx, plan_id, selector, receipt)?;
             let row: Option<(i64, String)> = tx
                 .query_row(
                     "SELECT position, row_json FROM plan_task_attempts
                  WHERE plan_id=?1 AND task_id=?2 AND executor_tab_id=?3
-                 AND (?4 IS NULL OR attempt_id=?4) ORDER BY position DESC LIMIT 1",
-                    params![plan_id, task_id, tab_id, attempt_id],
+                 AND (?4 IS NULL OR attempt_id=?4)
+                 AND (?5 IS NULL OR (session_id=?5 AND session_binding_nonce=?6))
+                 AND (NOT ?7 OR json_extract(row_json,'$.retired_at') IS NULL)
+                 AND (NOT ?8 OR json_extract(row_json,'$.closed_at') IS NULL)
+                 AND (NOT ?9 OR json_extract(row_json,'$.session_model') IS NULL)
+                 ORDER BY CASE WHEN ?4 IS NULL THEN position END DESC, position ASC LIMIT 1",
+                    params![
+                        plan_id,
+                        task_id,
+                        target.tab,
+                        target.id,
+                        target.session.map(|value| value.0),
+                        target.session.map(|value| value.1),
+                        target.unretired || target.live,
+                        target.live,
+                        target.model_unknown
+                    ],
                     |row| Ok((row.get(0)?, row.get(1)?)),
                 )
                 .optional()
@@ -146,7 +250,8 @@ impl PlanDatabase {
             receipt.attempts += 1;
             let mut task = read_task(tx, plan_id, &task_id, receipt)?;
             task.updated_at = now_ms;
-            write_task(tx, plan_id, &task, receipt)
+            write_task(tx, plan_id, &task, receipt)?;
+            task_fields::queue_task_index(tx, plan_id, &task, false, false, receipt)
         })?;
         Ok((result, receipt))
     }
@@ -185,14 +290,16 @@ impl PlanDatabase {
             };
             change(&tx, &mut receipt)?;
             if receipt.task_rows + receipt.milestones + receipt.attempts + receipt.strides > 0 {
-                tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2) WHERE id=?1", params![plan_id, now_ms]).map_err(db_error)?;
+                tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms]).map_err(db_error)?;
                 receipt.header_rows += 1;
-                let mut statement = tx.prepare_cached("SELECT DISTINCT assigned_tab_id FROM plan_tasks WHERE plan_id=?1 AND assigned_tab_id IS NOT NULL").map_err(db_error)?;
+                let mut statement = tx.prepare_cached("SELECT DISTINCT assigned_tab_id FROM plan_tasks INDEXED BY plan_tasks_bound_tabs WHERE plan_id=?1 AND assigned_tab_id IS NOT NULL").map_err(db_error)?;
                 receipt.reset_tabs = statement
                     .query_map([plan_id], |row| row.get(0))
                     .map_err(db_error)?
                     .collect::<Result<_, _>>()
                     .map_err(db_error)?;
+                receipt.projected_text_bytes +=
+                    receipt.reset_tabs.iter().map(String::len).sum::<usize>();
             }
             tx.execute(
                 "UPDATE plan_operations SET state='committed', finished_at=?2 WHERE id=?1",
@@ -212,7 +319,12 @@ impl PlanDatabase {
     }
 }
 
-fn resolve_task(tx: &Transaction<'_>, plan_id: &str, selector: &str) -> Result<String, PlanError> {
+fn resolve_task(
+    tx: &Transaction<'_>,
+    plan_id: &str,
+    selector: &str,
+    receipt: &mut CommittedRows,
+) -> Result<String, PlanError> {
     let exact = tx
         .query_row(
             "SELECT task_id FROM plan_tasks WHERE plan_id=?1 AND task_id=?2",
@@ -222,6 +334,7 @@ fn resolve_task(tx: &Transaction<'_>, plan_id: &str, selector: &str) -> Result<S
         .optional()
         .map_err(db_error)?;
     if let Some(id) = exact {
+        receipt.projected_text_bytes += id.len();
         return Ok(id);
     }
     let mut statement = tx.prepare_cached("SELECT task_id, json_extract(row_json, '$.key'), json_extract(row_json, '$.handle') FROM plan_tasks WHERE plan_id=?1 ORDER BY position").map_err(db_error)?;
@@ -237,6 +350,8 @@ fn resolve_task(tx: &Transaction<'_>, plan_id: &str, selector: &str) -> Result<S
         .map_err(db_error)?;
     for row in rows {
         let (id, key, handle) = row.map_err(db_error)?;
+        receipt.projected_text_bytes +=
+            id.len() + key.as_ref().map_or(0, String::len) + handle.as_ref().map_or(0, String::len);
         let key = key.unwrap_or_else(|| crate::plan::task_key::fallback_key(&id));
         if crate::plan::task_key::name_matches(handle.as_deref(), &key, selector) {
             if found.is_some() {
@@ -254,7 +369,7 @@ fn read_task(
     selector: &str,
     receipt: &mut CommittedRows,
 ) -> Result<Task, PlanError> {
-    let id = resolve_task(tx, plan_id, selector)?;
+    let id = resolve_task(tx, plan_id, selector, receipt)?;
     let json: String = tx
         .query_row(
             "SELECT row_json FROM plan_tasks WHERE plan_id=?1 AND task_id=?2",
@@ -335,17 +450,28 @@ fn append_milestone(
     milestone: &Milestone,
     receipt: &mut CommittedRows,
 ) -> Result<(), PlanError> {
-    let (count, digest): (i64, i64) = tx.query_row("SELECT milestone_count, milestone_digest FROM plan_tasks WHERE plan_id=?1 AND task_id=?2", params![plan_id, task_id], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(db_error)?.ok_or(PlanError::TaskNotFound)?;
+    let (count, digest, next): (i64, i64, i64) = tx.query_row("SELECT milestone_count, milestone_digest, (SELECT coalesce(max(seq)+1,0) FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2) FROM plan_tasks WHERE plan_id=?1 AND task_id=?2", params![plan_id, task_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).optional().map_err(db_error)?.ok_or(PlanError::TaskNotFound)?;
     let json = encode(milestone, receipt)?;
     tx.execute(
         "INSERT INTO plan_task_milestones(plan_id, task_id, seq, row_json) VALUES (?1, ?2, ?3, ?4)",
-        params![plan_id, task_id, count, json],
+        params![plan_id, task_id, next, json],
     )
     .map_err(db_error)?;
     tx.execute("UPDATE plan_tasks SET milestone_count=?3, milestone_digest=?4 WHERE plan_id=?1 AND task_id=?2", params![plan_id, task_id, count + 1, store_rows::chain_hash(digest, &json)]).map_err(db_error)?;
     receipt.tasks.insert(task_id.into());
     receipt.task_rows += 1;
     receipt.milestones += 1;
+    queue_milestone_index(tx, plan_id, task_id, milestone, false, receipt)
+}
+
+fn queue_milestone_index(
+    tx: &Transaction<'_>,
+    plan_id: &str,
+    task_id: &str,
+    milestone: &Milestone,
+    remove: bool,
+    receipt: &mut CommittedRows,
+) -> Result<(), PlanError> {
     let delta = tx
         .query_row(
             "SELECT p.title, p.status, p.project_path,
@@ -363,11 +489,12 @@ fn append_milestone(
                     task_name: row.get(4)?,
                     task_status: row.get(5)?,
                     milestone: milestone.clone(),
+                    remove,
                 })
             },
         )
         .map_err(db_error)?;
-    receipt.decoded_bytes += delta.title.len()
+    receipt.projected_text_bytes += delta.title.len()
         + delta.plan_status.len()
         + delta.project_path.len()
         + delta.canonical_project_path.len()

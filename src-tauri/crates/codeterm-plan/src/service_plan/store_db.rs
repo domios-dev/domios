@@ -55,11 +55,6 @@ const PLAN_SCHEMA: &str = r#"
         ON plan_operations(finished_at DESC, id DESC)
         WHERE state IN ('committed', 'failed') AND finished_at IS NOT NULL;
 
-    CREATE VIRTUAL TABLE IF NOT EXISTS plan_fts USING fts5(
-        plan_id UNINDEXED,
-        title,
-        body
-    );
 "#;
 
 /// Creates every missing table and index of the current schema.
@@ -94,6 +89,9 @@ impl PlanDatabase {
             .map_err(db_error)?;
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
+            .map_err(db_error)?;
+        transaction
+            .execute_batch("DROP TABLE IF EXISTS plan_fts;")
             .map_err(db_error)?;
         create_schema(&transaction).map_err(db_error)?;
         transaction
@@ -222,9 +220,6 @@ impl PlanDatabase {
                 "UPDATE plan_operations SET state = 'running' WHERE id = ?1",
                 [operation_id],
             )
-            .map_err(db_error)?;
-        transaction
-            .execute("DELETE FROM plan_fts WHERE plan_id = ?1", [id])
             .map_err(db_error)?;
         transaction
             .execute(
@@ -384,15 +379,6 @@ fn upsert_plan(
     rows: &store_rows::PlanRows,
 ) -> Result<RowWrites, PlanError> {
     let writes = write_plan_rows(transaction, plan, rows)?;
-    transaction
-        .execute("DELETE FROM plan_fts WHERE plan_id = ?1", [&plan.id])
-        .map_err(db_error)?;
-    transaction
-        .execute(
-            "INSERT INTO plan_fts(plan_id, title, body) VALUES (?1, ?2, ?3)",
-            params![plan.id, plan.title, searchable_plan_body(plan)],
-        )
-        .map_err(db_error)?;
     Ok(writes)
 }
 
@@ -528,33 +514,6 @@ fn load_documents<T: serde::de::DeserializeOwned>(
         }
     }
     Ok(documents)
-}
-
-fn searchable_plan_body(plan: &Plan) -> String {
-    let mut body = String::new();
-    if let Some(goal) = &plan.goal {
-        body.push_str(&goal.vector);
-        body.push('\n');
-        body.push_str(&goal.vision);
-        body.push('\n');
-        body.push_str(&goal.constraints.join("\n"));
-        body.push('\n');
-        body.push_str(&goal.postulates.join("\n"));
-        body.push('\n');
-    }
-    for task in &plan.tasks {
-        body.push_str(&task.name);
-        body.push('\n');
-        body.push_str(&task.acceptance_criteria.join("\n"));
-        body.push('\n');
-        for external_ref in &task.external_refs {
-            body.push_str(&external_ref.canonical_url);
-            body.push('\n');
-        }
-        body.push_str(&task.body);
-        body.push('\n');
-    }
-    body
 }
 
 fn db_error(error: rusqlite::Error) -> PlanError {
