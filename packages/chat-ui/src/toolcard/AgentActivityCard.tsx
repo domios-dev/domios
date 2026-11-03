@@ -58,19 +58,20 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
   });
 
   return (
-    <ExpandableReader label={"Agent activity"}>{(fullscreen) => (
+    <ExpandableReader label={"Agent activity"} openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="chat-agent-activity"
       aria-label={`Agent activity, ${counts}`}
       className="mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
       style={{ background: "color-mix(in srgb, var(--ct-surface) 60%, transparent)" }}
     >
+      <div className="ct-reader-row flex min-w-0 items-center gap-2 px-3 py-1.5">
       <button
         type="button"
         aria-expanded={expanded}
         aria-controls={regionId}
         onClick={() => onToggle(!expanded)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
       >
         <Network aria-hidden="true" size={12} className="shrink-0" style={{ color: "var(--ct-accent)" }} />
         <span data-testid="chat-agent-title" className="min-w-0 flex-1 truncate font-mono text-[12px]" style={{ color: "var(--ct-fg)" }}>
@@ -88,6 +89,9 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
         ) : (
           <span data-testid="chat-agent-counts" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{counts}</span>
         )}
+      </button>
+      {opener}
+      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} agent activity`} aria-expanded={expanded} aria-controls={regionId} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center">
         <ChevronRight
           aria-hidden="true"
           size={14}
@@ -95,6 +99,7 @@ export function AgentActivityCard({ event, expanded, onToggle, renderAction }: {
           style={{ color: "var(--ct-muted-fg)" }}
         />
       </button>
+      </div>
       <div id={regionId} role="region" aria-label="Agent activity details" hidden={!expanded && !fullscreen} className="px-3 pb-2">
         {(expanded || fullscreen) && tree.agents.length > 0 && (
           <ul aria-label="Agents" className="m-0 list-none p-0">

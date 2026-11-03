@@ -110,7 +110,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
   };
 
   return (
-    <ExpandableReader label="Tool activity">{(fullscreen) => (
+    <ExpandableReader label="Tool activity" openerPlacement="header">{(fullscreen, opener) => (
     <section
       data-testid="chat-tool-stream"
       data-flow-active={stream.active ? "true" : "false"}
@@ -122,13 +122,14 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         maxHeight: miniView && !fullscreen ? MINI_VIEW_MAX_PX : undefined,
       }}
     >
+      <div className="ct-reader-row flex min-w-0 items-center gap-2 px-3 py-1.5">
       <button
         type="button"
         aria-expanded={expanded}
         aria-controls={regionId}
         aria-label={`${expanded ? "Collapse" : "Expand"} ${countLabel}`}
         onClick={() => onToggle(!expanded)}
-        className="flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-xs"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left text-xs"
       >
         <span data-testid="chat-tool-stream-status" aria-label={statusName(event.status)} className="flex shrink-0">
           <StatusGlyph status={event.status} />
@@ -145,8 +146,12 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
           <span data-testid="chat-tool-stream-running" className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-yellow)" }}>{`${running} running`}</span>
         )}
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
+      </button>
+      {opener}
+      <button type="button" aria-label={`${expanded ? "Collapse" : "Expand"} tool activity`} aria-expanded={expanded} aria-controls={regionId} onClick={() => onToggle(!expanded)} className="flex shrink-0 items-center">
         <ChevronRight aria-hidden="true" size={14} className={`shrink-0 ${expanded ? "rotate-90" : ""}`} style={{ color: "var(--ct-muted-fg)" }} />
       </button>
+      </div>
       {miniView && !fullscreen && (
         <ol data-testid="chat-tool-stream-mini" aria-label="Recent actions" className="m-0 list-none px-3 pb-1.5 pl-8">
           {stream.members.slice(-MINI_VIEW_ROWS).map((member) => (

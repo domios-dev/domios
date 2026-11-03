@@ -1,6 +1,6 @@
 import { createContext, useContext, useId, useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
 import { boundedMessageIsClipped, boundedMessageLayout } from "./boundedMessageModel";
-import { ExpandableReader } from "./ExpandableReader";
+import { ExpandableReader, useReaderHost } from "./ExpandableReader";
 import { useFullscreenViewer } from "./FullscreenOverlay";
 
 const MessageBoundsContext = createContext(false);
@@ -17,6 +17,7 @@ interface Props extends HTMLAttributes<HTMLElement> {
 
 export function BoundedMessageContent({ collapsedHeight, as: Tag = "div", unbounded = false,
   children, style, hidden, id, ...props }: Props) {
+  const readerHost = useReaderHost();
   const parentOwnsBounds = useParentMessageBounds();
   const fullscreen = useFullscreenViewer();
   const ownsBounds = !unbounded && !parentOwnsBounds;
@@ -48,7 +49,7 @@ export function BoundedMessageContent({ collapsedHeight, as: Tag = "div", unboun
   return (
     <MessageBoundsContext.Provider value={ownsBounds || parentOwnsBounds}>
     <div className="min-w-0 max-w-full" hidden={hidden} style={ownsBounds ? undefined : { display: "contents" }}>
-      <ExpandableReader label="Message content" enabled={ownsBounds && !hidden && (clipped || expanded)}>
+      <ExpandableReader label="Message content" enabled={!readerHost && ownsBounds && !hidden && (clipped || expanded)}>
         {(full) => content(full)}
       </ExpandableReader>
       {ownsBounds && !fullscreen && (clipped || expanded) && (
