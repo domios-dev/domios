@@ -30,6 +30,25 @@ function presentation(reduced = false) {
 }
 
 describe("Browser agent presentation", () => {
+  it("restarts the tag animation when the same name reappears without measuring again", async () => {
+    const {window,root,api,end} = presentation();
+    try {
+      const tag = root.querySelector(".tag")!;
+      let cancellations = 0;
+      let measurements = 0;
+      Object.defineProperty(tag, "getAnimations", { value: () => [{ cancel() { cancellations++; } }] });
+      Object.defineProperty(tag, "offsetWidth", { get() { measurements++; return 100; } });
+      for (let index = 0; index < 2; index++) {
+        const pending = api.present({kind:"move",name:"Opaque agent",x:24,y:24});
+        end(".cursor");
+        await pending;
+        api.hide();
+      }
+      expect(cancellations).toBe(2);
+      expect(measurements).toBe(1);
+    } finally { window.happyDOM.abort(); }
+  });
+
   it("flips the name tag at viewport edges and measures only when the name changes", async () => {
     const {window,root,api} = presentation(true);
     try {

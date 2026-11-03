@@ -110,6 +110,7 @@
     tag.classList.toggle('flip-y', y + 30 > window.innerHeight);
     if (name && appearing && !reduced.matches) {
       tag.style.animation = 'none';
+      tag.getAnimations().forEach(animation => animation.cancel());
       tag.style.animation = 'tagin 160ms cubic-bezier(.2,.8,.2,1) both';
     }
     cursor.style.setProperty('--from-x', `${point.x}px`);
