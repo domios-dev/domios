@@ -1021,10 +1021,7 @@ impl ServiceContext {
             }),
             now_ms,
         ) {
-            Ok(()) => self.ui.emit(
-                "plan-changed",
-                serde_json::to_value(serde_json::json!({ "plan_id": plan_id })).unwrap_or_default(),
-            ),
+            Ok(()) => self.emit_committed_plan_changed(&plan_id),
             Err(e) => log::warn!("[spawn] failed to bind planner ref for plan {plan_id}: {e}"),
         }
     }

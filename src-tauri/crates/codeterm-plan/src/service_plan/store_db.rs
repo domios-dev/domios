@@ -67,6 +67,7 @@ pub(super) fn create_schema(connection: &Connection) -> rusqlite::Result<()> {
 pub(super) struct PlanDatabase {
     path: PathBuf,
     connection: Mutex<Connection>,
+    pub(super) pending_changes: Mutex<super::change_feed::PendingPlanChanges>,
 }
 
 impl PlanDatabase {
@@ -114,6 +115,7 @@ impl PlanDatabase {
         Ok(Self {
             path,
             connection: Mutex::new(connection),
+            pending_changes: Mutex::new(super::change_feed::PendingPlanChanges::default()),
         })
     }
 
@@ -216,6 +218,8 @@ impl PlanDatabase {
         let transaction = connection
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
+        let previous_revision = change_feed::revision(&transaction, id)?;
+        let revision = change_feed::next_revision(previous_revision, operation_id)?;
         transaction
             .execute(
                 "UPDATE plan_operations SET state = 'running' WHERE id = ?1",
@@ -232,7 +236,16 @@ impl PlanDatabase {
         transaction
             .execute("DELETE FROM plans WHERE id = ?1", [id])
             .map_err(db_error)?;
-        transaction.commit().map_err(db_error)
+        transaction.commit().map_err(db_error)?;
+        self.pending_changes.lock().insert(change_feed::change(
+            id,
+            revision,
+            previous_revision,
+            Vec::new(),
+            true,
+            true,
+        ));
+        Ok(())
     }
 
     #[cfg(test)]
@@ -265,7 +278,9 @@ impl PlanDatabase {
                     [operation_id],
                 )
                 .map_err(db_error)?;
-            let writes = upsert_plan(&transaction, plan, &rows)?;
+            let previous_revision = change_feed::revision(&transaction, &plan.id)?;
+            let revision = change_feed::next_revision(previous_revision, operation_id)?;
+            let writes = upsert_plan(&transaction, plan, &rows, Some(revision))?;
             if let Some(spec) = owned_spec {
                 upsert_spec(&transaction, spec)?;
             }
@@ -276,6 +291,14 @@ impl PlanDatabase {
                 )
                 .map_err(db_error)?;
             transaction.commit().map_err(db_error)?;
+            self.pending_changes.lock().insert(change_feed::change(
+                &plan.id,
+                revision,
+                previous_revision,
+                Vec::new(),
+                true,
+                false,
+            ));
             Ok(writes)
         })();
         if let Err(error) = &result {
@@ -322,7 +345,7 @@ impl PlanDatabase {
             .transaction_with_behavior(TransactionBehavior::Immediate)
             .map_err(db_error)?;
         for (plan, rows) in plans.iter().zip(rows) {
-            upsert_plan(&transaction, plan, rows)?;
+            upsert_plan(&transaction, plan, rows, None)?;
         }
         transaction.commit().map_err(db_error)
     }
@@ -378,8 +401,9 @@ fn upsert_plan(
     transaction: &rusqlite::Transaction<'_>,
     plan: &Plan,
     rows: &store_rows::PlanRows,
+    revision: Option<i64>,
 ) -> Result<RowWrites, PlanError> {
-    let writes = write_plan_rows(transaction, plan, rows)?;
+    let writes = write_plan_rows_at_revision(transaction, plan, rows, revision)?;
     Ok(writes)
 }
 
@@ -388,6 +412,15 @@ pub(super) fn write_plan_rows(
     transaction: &rusqlite::Transaction<'_>,
     plan: &Plan,
     rows: &store_rows::PlanRows,
+) -> Result<RowWrites, PlanError> {
+    write_plan_rows_at_revision(transaction, plan, rows, None)
+}
+
+fn write_plan_rows_at_revision(
+    transaction: &rusqlite::Transaction<'_>,
+    plan: &Plan,
+    rows: &store_rows::PlanRows,
+    revision: Option<i64>,
 ) -> Result<RowWrites, PlanError> {
     let status = serde_json::to_value(&plan.status)
         .map_err(json_error)?
@@ -419,7 +452,8 @@ pub(super) fn write_plan_rows(
     transaction
         .execute(
             "INSERT INTO plans(id, title, status, team_id, project_path, updated_at, stride_count, stride_digest, header_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, json_set(?9, '$._revision', coalesce(?10,
+                 (SELECT json_extract(header_json, '$._revision') FROM plans WHERE id=?1), 0)))
              ON CONFLICT(id) DO UPDATE SET title=excluded.title, status=excluded.status,
              team_id=excluded.team_id,
              project_path=excluded.project_path, updated_at=excluded.updated_at,
@@ -434,7 +468,8 @@ pub(super) fn write_plan_rows(
                 plan.updated_at,
                 rows.strides.len() as i64,
                 rows.stride_digest(),
-                rows.header
+                rows.header,
+                revision
             ],
         )
         .map_err(db_error)?;
@@ -530,6 +565,7 @@ fn json_error(error: serde_json::Error) -> PlanError {
 }
 
 pub(super) mod admission;
+mod change_feed;
 mod chat_read_queries;
 mod curator_queries;
 mod index_queries;

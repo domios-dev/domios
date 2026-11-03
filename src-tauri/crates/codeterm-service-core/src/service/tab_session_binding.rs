@@ -93,11 +93,7 @@ impl ServiceContext {
                             "[set_agent_session_id] task ACK supervision failed tab={tab_id}: {error}"
                         );
                     }
-                    self.ui.emit(
-                        "plan-changed",
-                        serde_json::to_value(serde_json::json!({ "plan_id": ready.plan_id }))
-                            .unwrap_or_default(),
-                    );
+                    self.emit_committed_plan_changed(&ready.plan_id);
                 }
                 Ok(None) => {}
                 Err(error) => log::warn!(

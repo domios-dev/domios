@@ -34,7 +34,7 @@ fn learning_error(error: OrchestratorLearningError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
-    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
+    svc.emit_committed_plan_changed(&plan_id);
 }
 
 pub(super) fn dispatch(

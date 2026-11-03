@@ -62,6 +62,8 @@ pub(in crate::service_plan) enum HotChange {
 #[derive(Default)]
 pub(in crate::service_plan) struct CommittedRows {
     pub plan_id: String,
+    pub revision: i64,
+    pub previous_revision: i64,
     pub updated_at: u64,
     pub tasks: BTreeSet<String>,
     pub attempts: usize,
@@ -287,11 +289,14 @@ impl PlanDatabase {
             let mut receipt = CommittedRows {
                 plan_id: plan_id.into(),
                 updated_at: now_ms,
+                previous_revision: super::change_feed::revision(&tx, plan_id)?,
                 ..Default::default()
             };
+            receipt.revision =
+                super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
             change(&tx, &mut receipt)?;
             if receipt.task_rows + receipt.milestones + receipt.attempts + receipt.strides > 0 {
-                tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms]).map_err(db_error)?;
+                tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$._revision', ?3, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms, receipt.revision]).map_err(db_error)?;
                 receipt.header_rows += 1;
                 let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
                 receipt.projected_text_bytes += root.len();
@@ -311,6 +316,18 @@ impl PlanDatabase {
             )
             .map_err(db_error)?;
             tx.commit().map_err(db_error)?;
+            if receipt.header_rows > 0 {
+                self.pending_changes
+                    .lock()
+                    .insert(super::change_feed::change(
+                        plan_id,
+                        receipt.revision,
+                        receipt.previous_revision,
+                        receipt.tasks.iter().cloned().collect(),
+                        false,
+                        false,
+                    ));
+            }
             Ok(receipt)
         })();
         if let Err(error) = &result {

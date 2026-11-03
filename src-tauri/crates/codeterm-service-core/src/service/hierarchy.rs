@@ -745,11 +745,7 @@ impl ServiceContext {
                             report_outcome = Some(ReportOutcomeClass::BlockProposed);
                         }
                         self.plan_turn_counter.reset_activity(tab_id);
-                        self.ui.emit(
-                            "plan-changed",
-                            serde_json::to_value(serde_json::json!({ "plan_id": plan_id }))
-                                .unwrap_or_default(),
-                        );
+                        self.emit_committed_plan_changed(&plan_id);
                     }
                     Err(cause) => {
                         let outcome = cause.report_outcome;

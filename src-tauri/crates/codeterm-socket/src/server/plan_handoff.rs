@@ -2,7 +2,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use codeterm_service_core::service::plan::handoff::{HandoffCreateRequest, HandoffReseedRequest};
 use codeterm_service_core::service::plan::PlanError;
@@ -26,7 +26,7 @@ fn plan_rpc_err(e: PlanError) -> JsonRpcError {
 }
 
 fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
-    svc.ui.emit("plan-changed", json!({ "plan_id": plan_id }));
+    svc.emit_committed_plan_changed(&plan_id);
 }
 
 fn provider_command_for_reseed(

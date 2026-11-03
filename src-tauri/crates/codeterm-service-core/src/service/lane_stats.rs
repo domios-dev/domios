@@ -161,10 +161,7 @@ fn record_lane_turn(
             *record = stats;
         }
     }) {
-        ui.emit(
-            "plan-changed",
-            serde_json::json!({ "plan_id": target.plan_id }),
-        );
+        crate::service::plan::change_events::emit_committed_plan_change(ui, store, &target.plan_id);
     }
 }
 

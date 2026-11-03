@@ -95,7 +95,8 @@ fn sql_status_matches_complete_state_actions_reconcile_counts_and_event_folding(
     let read = database.status_projection(&plan.id, 100_000, &[]).unwrap();
     let mut projected = snapshot(read.plan(), 100_000);
     read.apply_history_facts(&mut projected, 100_000);
-    let expected = snapshot(&plan, 100_000);
+    let mut expected = snapshot(&plan, 100_000);
+    expected.revision = "1".into();
     assert_eq!(
         serde_json::to_value(&projected).unwrap(),
         serde_json::to_value(&expected).unwrap()
@@ -159,9 +160,11 @@ fn sql_status_work_and_materialization_ignore_unrelated_bodies_and_old_history()
         assert_eq!(serialized, 0);
         assert!(metrics.materialized_bytes < 4 * 1024 * 1024);
         assert!(fixtures::audit_counts(&database).is_empty());
+        let mut expected = snapshot(&plan, 10_000);
+        expected.revision = "1".into();
         assert_eq!(
             serde_json::to_value(&projected).unwrap(),
-            serde_json::to_value(snapshot(&plan, 10_000)).unwrap()
+            serde_json::to_value(expected).unwrap()
         );
         println!("fixture={} consumer=state tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra_body} anchor_strides=256 queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded);

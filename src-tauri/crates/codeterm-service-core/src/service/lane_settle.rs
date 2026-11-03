@@ -527,8 +527,7 @@ impl ServiceContext {
                 return;
             }
         }
-        self.ui
-            .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
+        self.emit_committed_plan_changed(&plan_id);
     }
 
     /// Marks every unsettled lane of a finished task terminal so history is never re-checked.
@@ -556,8 +555,7 @@ impl ServiceContext {
             match result {
                 Ok(count) => {
                     log::debug!("[lane-settle] {plan_id}: {count} finished lanes marked");
-                    self.ui
-                        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
+                    self.emit_committed_plan_changed(&plan_id);
                 }
                 Err(error) => log::warn!("[lane-settle] {plan_id} history not marked: {error}"),
             }

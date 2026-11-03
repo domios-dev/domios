@@ -120,8 +120,10 @@ impl PlanDatabase {
                     EXISTS(SELECT 1 FROM json_each(p.header_json,'$.planner_inbox') WHERE json_extract(value,'$.phase')='delivery_uncertain')
              FROM plans p WHERE id=?1",[plan_id],|row| Ok((row.get(0)?,row.get(1)?))
         ).map_err(db_error)?;
+        let revision = super::change_feed::revision(&transaction, plan_id)?.to_string();
         transaction.commit().map_err(db_error)?;
         Ok(PlanStatusRead {
+            revision,
             plan,
             event_log,
             bounces,

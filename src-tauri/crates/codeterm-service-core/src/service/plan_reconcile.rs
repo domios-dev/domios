@@ -276,10 +276,7 @@ impl ServiceContext {
 
     pub fn emit_plan_changed(&self, plan_id: &str) {
         self.provider_update_task_state_changed();
-        self.ui.emit(
-            "plan-changed",
-            serde_json::to_value(serde_json::json!({ "plan_id": plan_id })).unwrap_or_default(),
-        );
+        self.emit_committed_plan_changed(plan_id);
     }
 }
 

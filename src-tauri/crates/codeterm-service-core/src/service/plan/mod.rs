@@ -1,5 +1,6 @@
 // Re-export the domain crate's service_plan surface
 pub use codeterm_plan::service_plan::*;
+pub mod change_events;
 
 // App-crate adapters (tauri/mem/mux deps)
 pub mod adopt;
