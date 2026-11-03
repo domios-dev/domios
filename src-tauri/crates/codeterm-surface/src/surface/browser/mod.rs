@@ -4,6 +4,7 @@ mod calls;
 mod completion;
 mod diagnostics;
 mod domios_instance;
+mod drag;
 mod grab;
 mod heuristics;
 mod inbox;
