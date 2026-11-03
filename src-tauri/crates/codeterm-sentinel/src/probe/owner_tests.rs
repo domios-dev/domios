@@ -4,6 +4,59 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
 use std::time::Duration;
 
+struct RetryRetirement {
+    cancel: Sender<()>,
+    settle: Receiver<bool>,
+}
+
+impl RetainedResources for RetryRetirement {
+    fn request_cancel(&mut self) -> Vec<String> {
+        self.cancel.send(()).unwrap();
+        Vec::new()
+    }
+
+    fn wait_for_settlement(&mut self) -> Settlement {
+        Settlement {
+            primary: Some("probe_timeout".into()),
+            errors: Vec::new(),
+            remains_unconfirmed: !self.settle.recv_timeout(Duration::from_secs(2)).unwrap(),
+        }
+    }
+}
+
+#[test]
+fn next_probe_admission_retries_retirement_without_releasing_unconfirmed_capacity() {
+    let owner = ProbeResourceOwner::new();
+    let guards = (0..MAX_RESOURCE_SLOTS - 1)
+        .map(|_| owner.reserve().unwrap())
+        .collect::<Vec<_>>();
+    let (cancel_tx, cancel_rx) = mpsc::channel();
+    let (settle_tx, settle_rx) = mpsc::channel();
+    let mut guard = owner.reserve().unwrap();
+    guard.register_resource().unwrap();
+    guard.retain(Box::new(RetryRetirement {
+        cancel: cancel_tx,
+        settle: settle_rx,
+    }));
+    cancel_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    settle_tx.send(false).unwrap();
+    assert!(owner.wait_for_terminal_unconfirmed_with_timeout(Duration::from_secs(2)));
+    assert_eq!(owner.snapshot().free, 0);
+    assert!(matches!(
+        owner.reserve(),
+        Err(super::owner::AdmissionError::Full)
+    ));
+    cancel_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+    assert_eq!(owner.snapshot().unconfirmed, 1);
+    assert_eq!(owner.snapshot().reserved, MAX_RESOURCE_SLOTS - 1);
+    settle_tx.send(true).unwrap();
+    assert!(owner.wait_for_free_slots_with_timeout(1, Duration::from_secs(2)));
+    assert_eq!(owner.snapshot().settled_total, 1);
+    owner.reserve().unwrap().release().unwrap();
+    drop(guards);
+    assert_eq!(owner.snapshot().free, MAX_RESOURCE_SLOTS);
+}
+
 struct ExitEvidence {
     exited: Arc<AtomicBool>,
     io_complete: Arc<AtomicBool>,
