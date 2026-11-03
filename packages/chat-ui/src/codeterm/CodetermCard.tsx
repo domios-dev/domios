@@ -1,6 +1,6 @@
 import { ExpandableReader } from "../ExpandableReader";
 import type { CSSProperties } from "react";
-import { actionVisual } from "../toolcard/CodetermActionCard";
+import { actionVisual } from "../toolcard/toolVisualModel";
 import { ToolCardActionButton } from "../toolcard/ToolCardFrame";
 import type { CodetermInvocation } from "./recognize";
 import { renderTemplate, isSend, type TabNameResolver } from "./templates";

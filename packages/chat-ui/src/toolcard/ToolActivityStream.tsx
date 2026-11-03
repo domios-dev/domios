@@ -1,6 +1,6 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { toolStreamLabel, type ToolEvent } from "@codeterm/chat-core";
-import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useId, useState, type ReactNode } from "react";
 import { toolCommandShape, type CommandRow } from "../codeterm/commandShape";
 import { COMMAND_TREE_CAP, CommandTree, commandCallKey, rememberOpenSegment } from "./CommandTree";
@@ -8,6 +8,8 @@ import { MemberBranches } from "./MemberBranches";
 import { ThoughtLine } from "./ThoughtLine";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 import { shellFileOperationPreview } from "./ShellFileOperations";
+
+import { toolStepVisual, toolOutcomeVisual } from "./toolVisualModel";
 
 const MINI_VIEW_MAX_PX = 200;
 const MINI_VIEW_ROWS = 6;
@@ -19,29 +21,19 @@ function memberKey(member: ToolEvent): string {
 
 export type RenderStreamAction = (member: ToolEvent, expanded: boolean, onToggle: (next: boolean) => void) => ReactNode;
 
-function statusColor(status: ToolEvent["status"]): string {
-  if (status === "unresolved" || status === "interrupted") return "var(--ct-muted-fg)";
-  return status === "error" ? "var(--ct-red)" : status === "pending" ? "var(--ct-accent)" : "var(--ct-green)";
-}
-
 export function statusName(status: ToolEvent["status"]): string {
-  return status === "unresolved" ? "no result" : status;
+  return toolOutcomeVisual[status].label;
 }
 
-export function StatusGlyph({ status }: { status: ToolEvent["status"] }) {
-  const style = { color: statusColor(status) };
-  if (status === "pending") {
-    return <LoaderCircle data-testid="chat-tool-stream-spinner" aria-hidden="true" size={12} className="shrink-0 motion-safe:animate-spin" style={style} />;
-  }
-  if (status === "unresolved") {
-    return <Minus data-testid="chat-tool-stream-no-result" aria-hidden="true" size={12} className="shrink-0" style={style} />;
-  }
-  if (status === "interrupted") {
-    return <Minus data-testid="chat-tool-stream-interrupted" aria-hidden="true" size={12} className="shrink-0" style={style} />;
-  }
-  return status === "error"
-    ? <CircleX aria-hidden="true" size={12} className="shrink-0" style={style} />
-    : <Check aria-hidden="true" size={12} className="shrink-0" style={style} />;
+export function StatusGlyph({ status, event }: { status: ToolEvent["status"]; event?: ToolEvent }) {
+  const visual = event ? toolStepVisual(event) : toolOutcomeVisual[status];
+  const Glyph = visual.glyph;
+  const testId = status === "pending" ? "chat-tool-stream-spinner"
+    : status === "unresolved" ? "chat-tool-stream-no-result"
+    : status === "interrupted" ? "chat-tool-stream-interrupted" : undefined;
+  return <span role={event ? "img" : undefined} aria-label={event ? visual.label : undefined} className="flex shrink-0"><Glyph data-testid={testId} aria-hidden="true" size={12}
+    className={`shrink-0${status === "pending" ? " motion-safe:animate-spin" : ""}`}
+    style={{ color: visual.color }} /></span>;
 }
 
 function actionLabel(member: ToolEvent): string {
@@ -93,7 +85,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
                 className="flex w-full min-w-0 items-center gap-2 rounded px-2 py-1 text-left font-mono text-[11.5px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]"
                 style={{ color: "var(--ct-fg)" }}
               >
-                <StatusGlyph status={member.status} />
+                <StatusGlyph status={member.status} event={member} />
                 <span className="min-w-0 truncate">{actionLabel(member)}</span>
                 <ToolOutcomeFacts event={member} />
               </button>
@@ -159,7 +151,7 @@ export function ToolActivityStream({ event, expanded, onToggle, renderAction }: 
         <ol data-testid="chat-tool-stream-mini" aria-label="Recent actions" className="m-0 list-none px-3 pb-1.5 pl-8">
           {stream.members.slice(-MINI_VIEW_ROWS).map((member) => (
             <li key={member.id} className="flex min-w-0 items-center gap-1.5 font-mono text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
-              <StatusGlyph status={member.status} />
+              <StatusGlyph status={member.status} event={member} />
               <span className="min-w-0 truncate">{actionLabel(member)}</span>
               <ToolOutcomeFacts event={member} />
             </li>

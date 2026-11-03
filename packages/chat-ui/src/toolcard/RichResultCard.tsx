@@ -1,12 +1,13 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { attachmentPathName as fileName } from "@codeterm/chat-core";
 import { localThumbnailSource, type ThumbnailSource, type ToolEvent, type ToolRichResult } from "@codeterm/chat-core";
-import { Check, ChevronRight, CircleX, LoaderCircle, Minus } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useId, type ReactNode } from "react";
 import { useLocalImage } from "../localImage";
 import { ToolOutputContent } from "../ToolOutputContent";
 import { ImageResultBody } from "./ImageResultBody";
-import { toolKindVisual } from "./toolKindVisual";
+import { toolEventVisual } from "./toolVisualModel";
+import { StatusGlyph } from "./ToolActivityStream";
 
 function thumbnailNote(source: ThumbnailSource, failed: boolean): string {
   if (source.kind === "local") return failed ? "not shown: local file could not be read" : "not shown yet: reading local file";
@@ -22,12 +23,6 @@ function rowSummary(rich: ToolRichResult | undefined, event: ToolEvent): string 
   return event.summary;
 }
 
-function StatusGlyph({ status }: { status: ToolEvent["status"] }) {
-  if (status === "pending") return <LoaderCircle aria-hidden="true" size={12} className="motion-safe:animate-spin" style={{ color: "var(--ct-yellow)" }} />;
-  if (status === "error") return <CircleX aria-hidden="true" size={12} style={{ color: "var(--ct-red)" }} />;
-  if (status === "unresolved") return <Minus aria-hidden="true" size={12} style={{ color: "var(--ct-muted-fg)" }} />;
-  return <Check aria-hidden="true" size={12} style={{ color: "var(--ct-green)" }} />;
-}
 
 function Field({ name, children }: { name: string; children: ReactNode }) {
   return (
@@ -40,7 +35,7 @@ function Field({ name, children }: { name: string; children: ReactNode }) {
 
 export function RichResultCard({ event, expanded, onToggle }: { event: ToolEvent; expanded: boolean; onToggle: () => void }) {
   const regionId = useId();
-  const visual = toolKindVisual[event.kind];
+  const visual = toolEventVisual(event);
   const Glyph = visual.glyph;
   const rich = event.richResult?.kind === event.kind ? event.richResult : undefined;
   const source = localThumbnailSource(rich?.kind === "image" ? rich.path : undefined);

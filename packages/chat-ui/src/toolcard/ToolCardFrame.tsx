@@ -1,11 +1,12 @@
 import { ExpandableReader } from "../ExpandableReader";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import { toolCommandLabel, type ToolEvent } from "@codeterm/chat-core";
-import { ArrowUpRight, Check, CircleX, Copy, LoaderCircle, ChevronRight, MessageSquarePlus, Minus, SquareTerminal } from "lucide-react";
+import { ArrowUpRight, Copy, ChevronRight, MessageSquarePlus, SquareTerminal } from "lucide-react";
 import { useId, useState, type CSSProperties, type ReactNode } from "react";
 import { useChatBlockHost, type ChatBlockHost, type ChatCardMenuItem } from "../blocks/ChatBlockHost";
 import { askExcerpt, ChatCardMenu, copyPlainText } from "../ChatCardMenu";
-import { toolKindVisual, type ToolKindVisual } from "./toolKindVisual";
+import type { ToolKindVisual } from "./toolKindVisual";
+import { toolEventVisual, toolOutcomeVisual, toolVisualForOutcome } from "./toolVisualModel";
 import { ToolOutcomeFacts } from "./ToolOutcomeFacts";
 import { rawToolPayload } from "./toolParsing";
 
@@ -77,11 +78,10 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
   const [technicalOpen, setTechnicalOpen] = useState(false);
   const canExpand = expandable || technicalOpen;
   const open = expanded && canExpand;
-  const visual = visualOverride ?? toolKindVisual[event.kind];
+  const visual = visualOverride ? toolVisualForOutcome(visualOverride, event.status) : toolEventVisual(event);
   const Glyph = visual.glyph;
-  const statusColor = event.status === "error"
-    ? "var(--ct-red)"
-    : event.status === "pending" ? "var(--ct-accent)" : event.status === "unresolved" || event.status === "interrupted" ? "var(--ct-muted-fg)" : "var(--ct-green)";
+  const outcome = toolOutcomeVisual[event.status];
+  const StatusGlyph = outcome.glyph;
   const error = event.status === "error";
   const inlineCommand = event.kind === "command";
   const quiet = !error && !open && variant !== "codeterm";
@@ -116,7 +116,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
           className={`flex min-w-0 flex-1 gap-2 text-left ${subtitle ? "items-start" : "items-center"}`}
         >
           <span className="ct-card__icon" style={{ color: visual.color, ...(subtitle ? { height: 20, alignSelf: "flex-start" as const } : {}) }}>
-            <Glyph aria-hidden="true" size={14} strokeWidth={2} />
+            <Glyph aria-hidden="true" size={14} strokeWidth={2} style={{ color: visual.color }} />
           </span>
           <span className={subtitle ? "flex min-w-0 flex-1 flex-col items-start gap-0 font-mono text-[12.5px] leading-[18px]" : "flex min-w-0 flex-1 items-baseline gap-2 font-mono text-[12.5px]"}>
             {label && <span className={inlineCommand ? "sr-only" : "max-w-[60%] shrink-0 truncate font-semibold"} style={{ color: communication ? "var(--ct-fg)" : visual.color }}>{label}</span>}
@@ -132,10 +132,8 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         )}
         {action}
         <span className="ct-tool-status-slot">
-        <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: statusColor }}>
-          {event.status === "pending"
-            ? <LoaderCircle className="animate-spin" size={14} />
-            : event.status === "error" ? <CircleX size={14} /> : event.status === "unresolved" || event.status === "interrupted" ? <Minus size={14} /> : <Check size={14} />}
+        <span data-testid={statusTestId} role="status" className="ct-tool-status-icon flex w-4 shrink-0 items-center justify-center" aria-label={statusLabel ?? (event.status === "unresolved" ? "no result" : event.status)} style={{ color: outcome.color }}>
+          <StatusGlyph aria-hidden="true" size={14} className={event.status === "pending" ? "motion-safe:animate-spin" : undefined} />
         </span>
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={menuItems} />
         </span>
