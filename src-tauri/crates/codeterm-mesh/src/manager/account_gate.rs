@@ -79,6 +79,24 @@ impl MeshManager {
         self.links.get(peer_id)
     }
 
+    /// Current authenticated leases supplement registry metadata without changing its authority.
+    pub fn peer_membership_expiry(&self, installation_id: &str) -> Option<u64> {
+        self.links
+            .links
+            .iter()
+            .filter_map(|(peer_id, record)| {
+                (record.installation_id() == Some(installation_id) && self.traffic_open(peer_id))
+                    .then(|| {
+                        record
+                            .remote_membership
+                            .as_ref()
+                            .map(|membership| membership.verified.expires_at)
+                    })
+                    .flatten()
+            })
+            .max()
+    }
+
     /// Closes every edge until the account owner publishes its first state, so a persisted
     /// sign-out is never bypassed during startup.
     pub fn await_account_state(&mut self) {
