@@ -89,6 +89,18 @@ parse_dev_build_mode() {
   fi
 }
 parse_dev_build_mode "$CMD" "${@:2}" || exit 2
+require_canonical_dev_build() {
+  case "$1" in dev|dev-server|dev-link-measure|dev-update-installer) ;; *) return 0 ;; esac
+  local current canonical
+  current="$(git rev-parse --show-toplevel)" || return 2
+  canonical="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -n 1)" || return 2
+  if [ -z "$canonical" ] || [ "$current" != "$canonical" ]; then
+    echo "ERROR: DEV compilation requires the canonical checkout: $canonical" >&2
+    echo 'Ask the Orchestrator for a canonical DEV build; run dev-prebuilt from canonical to reuse it.' >&2
+    return 2
+  fi
+}
+require_canonical_dev_build "$CMD" || exit 2
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
 if ct_uses_local_build_env; then ct_load_local_build_env || exit 2; fi
@@ -836,6 +848,7 @@ case "$CMD" in
 esac
 
 prepare_named_dev_target() {
+  require_canonical_dev_build dev || exit 2
   adopt_named_dev_target || exit 2
   refuse_named_dev_rebuild_while_running || exit 2
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
