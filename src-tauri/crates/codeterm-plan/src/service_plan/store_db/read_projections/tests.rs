@@ -192,3 +192,187 @@ fn section_outline_reads_one_committed_snapshot_during_concurrent_commits() {
     writer.join().unwrap();
     assert_eq!(database.section_outline(&plan.id).unwrap()["title"], "A");
 }
+
+#[test]
+fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
+    use crate::plan::TaskStatus;
+    use crate::service_plan::task_queries::{TaskListEmptyReason, TaskListFilter};
+    let directory = tempfile::tempdir().unwrap();
+    let store = PlanStore::new_for_test(directory.path());
+    let mut plan = Plan::new(
+        "Tasks".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::from_tab("owner"),
+    );
+    plan.sections = sections();
+    let mut selected =
+        crate::service_plan::load_audit::task("task_selected", TaskStatus::Pending, Some("worker"));
+    selected.body = "selected body".into();
+    selected.parent_task_id = Some("task_parent".into());
+    selected.depends_on = vec!["task_done".into(), "task_missing".into()];
+    selected.section_ids = vec!["sec_b".into()];
+    selected.milestones = (0..75)
+        .map(|i| {
+            serde_json::from_value(json!({"id":format!("m{i}"),"kind":"note","ts":i,"from":{}}))
+                .unwrap()
+        })
+        .collect();
+    selected.execution_attempts = (0..20)
+        .map(|i| crate::service_plan::load_audit::attempt(&format!("a{i}"), "old"))
+        .collect();
+    let mut sibling =
+        crate::service_plan::load_audit::task("task_sibling", TaskStatus::Blocked, None);
+    sibling.parent_task_id = Some("task_parent".into());
+    plan.tasks = vec![
+        crate::service_plan::load_audit::task("task_parent", TaskStatus::InProgress, None),
+        selected,
+        sibling,
+        crate::service_plan::load_audit::task("task_done", TaskStatus::Done, None),
+    ];
+    store.save(&mut plan, 1).unwrap();
+    crate::service_plan::load_audit::start(&store);
+    let detail = store.show_task_window("task_selected").unwrap();
+    assert_eq!(detail.task.body, "selected body");
+    assert_eq!(detail.parent.unwrap().id, "task_parent");
+    assert_eq!(
+        detail
+            .siblings
+            .iter()
+            .map(|t| t.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["task_sibling"]
+    );
+    assert_eq!(detail.sections[0].title, "Nested");
+    assert_eq!(detail.dependency_waits.len(), 1);
+    assert!(detail.dependency_waits[0].missing);
+    assert_eq!(detail.dependency_waits[0].task_id, "task_missing");
+    assert_eq!(
+        detail.presentation,
+        crate::service_plan::state::TaskPresentation::WaitingOnDependencies
+    );
+    assert_eq!(detail.task.milestones.len(), 50);
+    assert_eq!(detail.task.milestones.first().unwrap().id, "m25");
+    assert_eq!(detail.task.milestones.last().unwrap().id, "m74");
+    assert_eq!(detail.task.execution_attempts.len(), 8);
+    assert_eq!(detail.task.execution_attempts.first().unwrap().id, "a12");
+    let authority_detail = store.show_task("task_selected").unwrap();
+    assert_eq!(authority_detail.task.execution_attempts.len(), 20);
+    assert_eq!(authority_detail.task.milestones.len(), 75);
+    let mine = store.list_tasks_with_reason(TaskListFilter {
+        plan_id: Some(plan.id.clone()),
+        mine_tabs: ["worker".into()].into(),
+        active_only: true,
+        ..Default::default()
+    });
+    assert_eq!(mine.tasks.len(), 1);
+    assert_eq!(mine.tasks[0].task.id, "task_selected");
+    assert_eq!(mine.tasks[0].section_titles, vec!["Nested"]);
+    let inactive = store.list_tasks_with_reason(TaskListFilter {
+        plan_id: Some(plan.id.clone()),
+        active_only: true,
+        status: Some(TaskStatus::Done),
+        ..Default::default()
+    });
+    assert!(matches!(
+        inactive.empty_reason,
+        Some(TaskListEmptyReason::AllTasksInactive { hidden: 1 })
+    ));
+    assert!(store.plan_loads_for_test().is_empty());
+    assert!(store.cached_plan_ids_for_test().is_empty());
+}
+
+#[test]
+fn selected_task_list_detail_and_chat_materialization_stays_bounded() {
+    use crate::service_plan::task_queries::TaskListFilter;
+    let mut previous = None;
+    for (strides, attempts, extra_body) in [(0, 0, 0), (2048, 0, 0), (0, 2048, 0), (0, 0, 32768)] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.tasks[0].assigned_tab_id = Some("selected".into());
+        plan.tasks[1].body.push_str(&"x".repeat(extra_body));
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        let store = PlanStore::open(database.path()).unwrap();
+        let mut measurements = Vec::new();
+        for consumer in ["task_detail", "task_list", "chat"] {
+            take_metrics();
+            super::super::super::store_sync::take_decoded_row_bytes();
+            super::super::super::store_rows::take_serialized_row_bytes();
+            let response = match consumer {
+                "task_detail" => {
+                    serde_json::to_value(store.show_task_window("task_0000").unwrap()).unwrap()
+                }
+                "task_list" => serde_json::to_value(store.list_tasks_with_reason(TaskListFilter {
+                    plan_id: Some(plan.id.clone()),
+                    mine_tabs: ["selected".into()].into(),
+                    ..Default::default()
+                }))
+                .unwrap(),
+                _ => serde_json::to_value(store.chat_snapshot(None, None, Some("task_0000")))
+                    .unwrap(),
+            };
+            let metrics = take_metrics();
+            let decoded = super::super::super::store_sync::take_decoded_row_bytes();
+            let serialized = super::super::super::store_rows::take_serialized_row_bytes();
+            let response_bytes = serde_json::to_vec(&response).unwrap().len();
+            assert!(metrics.materialized_bytes < 1024 * 1024);
+            assert_eq!(serialized, 0);
+            assert!(fixtures::audit_counts(&database).is_empty());
+            println!("fixture={} consumer={consumer} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} extra_body={extra_body} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+            measurements.push((consumer, metrics, decoded, response_bytes));
+        }
+        assert!(store.plan_loads_for_test().is_empty());
+        if let Some(previous) = &previous {
+            assert_eq!(&measurements, previous);
+        }
+        previous = Some(measurements);
+    }
+}
+
+#[test]
+fn task_detail_and_chat_keep_committed_snapshots_and_unicode_search() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = Plan::new(
+        "A".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let mut task =
+        crate::service_plan::load_audit::task("task_one", crate::plan::TaskStatus::Pending, None);
+    task.body = "A".into();
+    task.name = "ÄTHER".into();
+    plan.tasks = vec![task];
+    let database = fixtures::database(directory.path(), &plan);
+    let store = PlanStore::open(database.path()).unwrap();
+    let chat = store.chat_snapshot(None, None, Some("äther"));
+    assert_eq!(chat[0]["tasks"][0]["id"], "task_one");
+    assert_eq!(chat[0]["tasks"][0]["body"], "");
+    let barrier = Arc::new(Barrier::new(2));
+    let writer_barrier = barrier.clone();
+    let path = database.path();
+    let id = plan.id.clone();
+    let writer = std::thread::spawn(move || {
+        let mut connection = rusqlite::Connection::open(path).unwrap();
+        connection
+            .busy_timeout(std::time::Duration::from_secs(5))
+            .unwrap();
+        for index in 0..16 {
+            let text = if index % 2 == 0 { "B" } else { "A" };
+            let transaction = connection.transaction().unwrap();
+            transaction
+                .execute("UPDATE plans SET title=?2 WHERE id=?1", params![id, text])
+                .unwrap();
+            transaction.execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.body',?2) WHERE plan_id=?1",params![id,text]).unwrap();
+            writer_barrier.wait();
+            transaction.commit().unwrap();
+            writer_barrier.wait();
+        }
+    });
+    for _ in 0..16 {
+        barrier.wait();
+        let detail = store.show_task("task_one").unwrap();
+        assert_eq!(detail.plan_title, detail.task.body);
+        barrier.wait();
+    }
+    writer.join().unwrap();
+}

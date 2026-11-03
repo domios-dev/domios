@@ -529,10 +529,12 @@ fn json_error(error: serde_json::Error) -> PlanError {
 }
 
 pub(super) mod admission;
+mod chat_read_queries;
 mod index_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod match_queries;
 mod read_projections;
+mod task_read_queries;
 pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 #[cfg(test)]
 mod schema_tests;
