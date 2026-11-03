@@ -10,6 +10,7 @@ mod heuristics;
 mod inbox;
 mod input;
 mod interactions;
+mod locators;
 mod metrics;
 mod output;
 mod page;
@@ -19,6 +20,8 @@ mod sessions;
 mod snapshots;
 mod snip;
 mod stream;
+mod text;
+mod typing;
 mod upload;
 mod verbs;
 

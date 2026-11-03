@@ -208,7 +208,23 @@ pub fn build_snapshot_with_text(
         let role = node.role.as_ref().map(AxValue::as_str).unwrap_or("");
         let name = collapse_whitespace(node.name.as_ref().map(AxValue::as_str).unwrap_or(""));
         let static_leaf = with_text && role == "StaticText" && !name.is_empty();
-        let visible = !node.ignored && (!HIDDEN_ROLES.contains(&role) || static_leaf);
+        let layout_wrapper = matches!(role, "LayoutTable" | "LayoutTableRow" | "LayoutTableCell")
+            && node.value.is_none()
+            && !node.properties.iter().any(|property| {
+                matches!(
+                    property.name.as_str(),
+                    "disabled"
+                        | "required"
+                        | "readonly"
+                        | "focused"
+                        | "checked"
+                        | "selected"
+                        | "expanded"
+                        | "invalid"
+                )
+            });
+        let visible =
+            !node.ignored && !layout_wrapper && (!HIDDEN_ROLES.contains(&role) || static_leaf);
         let backend = node.backend_dom_node_id.filter(|id| *id != 0);
         let interactive = visible && INTERACTIVE.contains(&role) && backend.is_some();
         let mut next_depth = depth;

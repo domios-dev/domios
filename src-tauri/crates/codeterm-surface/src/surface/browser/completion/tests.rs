@@ -107,6 +107,13 @@ impl CdpConnection for Connection {
                 {"nodeId":"button","parentId":"form","role":{"value":"button"},"name":{"value":"Go"},"backendDOMNodeId":7}
             ]}),
             "Runtime.evaluate" => json!({"result":{"value":0}}),
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosVisible")) =>
+            {
+                json!({"result":{"value":true}})
+            }
             "Runtime.callFunctionOn" => {
                 self.act();
                 json!({"result":{"value":"performed"}})

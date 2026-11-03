@@ -48,7 +48,6 @@ pub const VERBS: &[&str] = &[
     "close",
 ];
 
-const DEFAULT_TEXT_LIMIT: usize = 4000;
 const DEFAULT_SCROLL: f64 = 800.0;
 
 /// `open [url] [--profile NAME]`: the url and the requested profile, if any.
@@ -102,12 +101,6 @@ pub fn wait_expression(wait: &WaitFor) -> Option<String> {
         Value::String(value.clone()),
         WAIT_DEADLINE.as_millis(),
     ))
-}
-
-fn parse_limit(raw: Option<&String>, default: usize) -> usize {
-    raw.and_then(|raw| raw.parse::<usize>().ok())
-        .filter(|limit| *limit > 0)
-        .unwrap_or(default)
 }
 
 fn usage_args<'a>(args: &'a [String], usage: &str) -> Result<&'a [String], String> {
@@ -274,25 +267,19 @@ impl BrowserRuntime {
                     .to_string())
             }
             "expand" | "collapse" => self.disclosure_verb(page, args, verb == "expand").await,
-            "click" | "fill" if verb == "fill" || args.iter().any(|a| a == "--within") => {
+            "click" | "fill" if args.iter().any(|a| a == "--within") => {
                 self.atomic_action(page, args, verb == "fill").await
             }
             "click" => {
-                let target = self.resolve(args)?;
+                let target = self.visible_target(page, args, false).await?;
                 let completion = self.click_node(page, target.backend_node_id).await?;
                 Ok(format!(
                     "clicked {}: {} (re-snapshot before the next action)",
                     target.label, completion
                 ))
             }
-            "type" | "type-secret" => {
-                let (text, locator) = usage_args(args, "type @eN|<role> <name> <text>")?
-                    .split_last()
-                    .ok_or("usage: type @eN|<role> <name> <text>")?;
-                let target = self.resolve(locator)?;
-                self.type_into(page, target.backend_node_id, text, verb == "type-secret")
-                    .await?;
-                Ok(format!("typed into {}", target.label))
+            "type" | "type-secret" | "fill" => {
+                self.type_verb(page, args, verb == "type-secret").await
             }
             "press" => {
                 let (key, mods) = usage_args(args, "press <key> [shift|ctrl|alt|meta]")?
@@ -314,15 +301,7 @@ impl BrowserRuntime {
             }
             "text" => {
                 let (args, output) = super::output::parse(args)?;
-                let limit = parse_limit(args.first(), DEFAULT_TEXT_LIMIT);
-                let expression =
-                    format!("document.body ? document.body.innerText.slice(0, {limit}) : \"\"");
-                let value = self.evaluate(page, &expression, false).await?;
-                let text = value
-                    .as_str()
-                    .filter(|text| !text.is_empty())
-                    .unwrap_or("(empty page)")
-                    .to_string();
+                let text = self.text_verb(page, &args).await?;
                 self.output_verb(ctx, output, text).await
             }
             "wait" if args.iter().any(|a| a == "--role") => {
@@ -363,48 +342,6 @@ impl BrowserRuntime {
         })
         .await
         .map(|(_, completion)| completion)
-    }
-
-    async fn type_into(
-        &self,
-        page: &PageChannel,
-        backend_node_id: i64,
-        text: &str,
-        secret: bool,
-    ) -> Result<(), String> {
-        let resolved = self
-            .send(
-                page,
-                "DOM.resolveNode",
-                json!({ "backendNodeId": backend_node_id }),
-            )
-            .await?;
-        let object_id = resolved
-            .pointer("/object/objectId")
-            .and_then(Value::as_str)
-            .ok_or("the element could not be resolved")?;
-        if secret {
-            let masked = self.send(page, "Runtime.callFunctionOn", json!({
-                "objectId": object_id,
-                "functionDeclaration": "function(){ if (!(this instanceof HTMLInputElement)) return false; this.type='password'; return this.type==='password'; }",
-                "returnByValue": true,
-            })).await?;
-            if masked.pointer("/result/value").and_then(Value::as_bool) != Some(true) {
-                return Err("Secret typing requires an input that can be masked".into());
-            }
-        }
-        self.send(
-            page,
-            "Runtime.callFunctionOn",
-            json!({
-                "objectId": object_id,
-                "functionDeclaration": "function(){ this.focus(); if ('value' in this) { this.value=''; this.dispatchEvent(new Event('input',{bubbles:true})); } }",
-            }),
-        )
-        .await?;
-        self.send(page, "Input.insertText", json!({ "text": text }))
-            .await
-            .map(|_| ())
     }
 
     pub(super) async fn evaluate(
