@@ -82,3 +82,44 @@ fn bounded_ancestry_redacts_ax_only_descendants_and_protected_properties() {
         Some(json!("Visible"))
     );
 }
+
+#[test]
+fn unrelated_mutation_and_incomplete_records_preserve_public_ancestry() {
+    let mut dom = Dom::default();
+    dom.record(
+        &json!({"nodeId":1,"backendNodeId":1,"children":[
+            {"nodeId":2,"backendNodeId":2},
+            {"nodeId":3,"backendNodeId":3,"children":[{"nodeId":4,"backendNodeId":4}]}
+        ]}),
+        None,
+    )
+    .unwrap();
+    let event = |method: &str, params| crate::cdp_wire::CdpEvent {
+        method: method.into(),
+        params,
+        session_id: Some("page".into()),
+    };
+    dom.event(&event(
+        "DOM.childNodeRemoved",
+        json!({"parentNodeId":1,"nodeId":3}),
+    ))
+    .unwrap();
+    dom.event(&event("DOM.documentUpdated", json!({}))).unwrap();
+    assert!(dom
+        .event(&event("DOM.setChildNodes", json!({"parentId":99})))
+        .is_err());
+    dom.record(&json!({"nodeId":6,"backendNodeId":6}), Some(99))
+        .unwrap();
+    let mut nodes: Vec<AxNode> = serde_json::from_value(json!([
+        {"nodeId":"public","backendDOMNodeId":2,"name":{"value":"Search"}},
+        {"nodeId":"removed","backendDOMNodeId":4,"name":{"value":"Detached"}},
+        {"nodeId":"unknown","backendDOMNodeId":6,"name":{"value":"Unknown"}},
+        {"nodeId":"virtual","parentId":"unknown","name":{"value":"Unknown descendant"}}
+    ]))
+    .unwrap();
+    redact_ids(&mut nodes, &dom.sensitive_ids());
+    assert_eq!(nodes[0].name.as_ref().unwrap().value, Some(json!("Search")));
+    for node in &nodes[1..] {
+        assert_eq!(node.name.as_ref().unwrap().value, Some(json!("REDACTED")));
+    }
+}

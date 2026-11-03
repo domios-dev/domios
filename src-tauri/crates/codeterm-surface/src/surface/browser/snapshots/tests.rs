@@ -132,7 +132,9 @@ impl CdpConnection for DeepDom {
     }
     fn subscribe(&self, _: EventFilter) -> EventStream {
         let (sender, receiver) = mpsc::channel(256);
-        self.subscribers.lock().push(sender);
+        let mut subscribers = self.subscribers.lock();
+        subscribers.retain(|sender| !sender.is_closed());
+        subscribers.push(sender);
         EventStream::from_receiver(receiver)
     }
     async fn send_to(
@@ -146,6 +148,10 @@ impl CdpConnection for DeepDom {
         Ok(match method {
             "Target.attachToTarget" => json!({"sessionId":"session"}),
             "Accessibility.enable" => json!({}),
+            "DOM.disable" => {
+                self.emitted.store(false, Ordering::SeqCst);
+                json!({})
+            }
             "Accessibility.getFullAXTree" => {
                 let mut nodes = vec![
                     json!({"nodeId":"root","role":{"value":"RootWebArea"},"backendDOMNodeId":1,"childIds":
@@ -153,7 +159,7 @@ impl CdpConnection for DeepDom {
                 ];
                 for id in 2..=1800 {
                     nodes.push(json!({"nodeId":id.to_string(),"parentId":"root","backendDOMNodeId":id,
-                        "role":{"value":"textbox"},"name":{"value":if id <= 162 {"opaque-secret"} else {"Public"}},
+                        "role":{"value":if id == 1701 {"combobox"} else {"textbox"}},"name":{"value":if id <= 162 {"opaque-secret"} else if id == 1701 {"Search"} else {"Public"}},
                         "value":{"value":if id <= 162 {"opaque-secret"} else {"visible"}}}));
                 }
                 json!({"nodes":nodes})
@@ -192,6 +198,12 @@ impl CdpConnection for DeepDom {
                             json!({"nodeId":1700,"name":"data-sensitive","value":""}),
                         );
                     }
+                    if self.mutation == 3 {
+                        self.emit(
+                            "DOM.childNodeRemoved",
+                            json!({"parentNodeId":1,"nodeId":1800}),
+                        );
+                    }
                 }
                 json!({"nodeIds":ids.iter().map(|id| if id == 79 {json!(0)} else {id.clone()}).collect::<Vec<_>>()})
             }
@@ -202,7 +214,7 @@ impl CdpConnection for DeepDom {
 
 #[tokio::test]
 async fn deep_dom_snapshot_uses_bounded_ancestry_and_redacts_flattened_ax_descendants() {
-    for mutation in 0..=2 {
+    for mutation in 0..=3 {
         let connection = Arc::new(DeepDom {
             calls: Mutex::new(Vec::new()),
             subscribers: Mutex::new(Vec::new()),
@@ -223,57 +235,71 @@ async fn deep_dom_snapshot_uses_bounded_ancestry_and_redacts_flattened_ax_descen
             Default::default(),
         );
         runtime.shared.bind(&page);
-        let started = Instant::now();
-        let output = runtime
-            .snapshot_verb(
-                &page,
-                &["--json".into(), "--max-items".into(), "2000".into()],
-            )
-            .await
-            .unwrap();
-        eprintln!(
-            "1800-node AX / 162-level DOM snapshot: {:?}; mutation={mutation}",
+        for capture in 1..=2 {
+            let started = Instant::now();
+            let output = runtime
+                .snapshot_verb(
+                    &page,
+                    &["--json".into(), "--max-items".into(), "2000".into()],
+                )
+                .await
+                .unwrap();
+            eprintln!(
+            "1800-node AX / 162-level DOM snapshot: {:?}; mutation={mutation}; capture={capture}",
             started.elapsed()
         );
-        let snapshot: Value = serde_json::from_str(&output.text).unwrap();
-        let items = snapshot["items"].as_array().unwrap();
-        assert_eq!(items.len(), 1799);
-        let redacted = items
-            .iter()
-            .filter(|item| item["name"] == "REDACTED")
-            .count();
-        assert_eq!(
-            redacted,
-            match mutation {
-                0 => 84,
-                1 => 85,
-                _ => 1799,
-            }
-        );
-        assert!(!items.iter().any(|item| item["name"] == "REDACTED"
-            && item["text"].as_str().unwrap().contains("opaque-secret")));
-        assert_eq!(
-            items.iter().filter(|item| item["name"] == "Public").count(),
-            match mutation {
-                0 => 1638,
-                1 => 1637,
-                _ => 0,
-            }
-        );
-        let calls = connection.calls.lock();
-        assert_eq!(
-            calls
+            let snapshot: Value = serde_json::from_str(&output.text).unwrap();
+            let items = snapshot["items"].as_array().unwrap();
+            assert_eq!(items.len(), 1799);
+            let redacted = items
                 .iter()
-                .filter(|(method, _)| method == "DOM.pushNodesByBackendIdsToFrontend")
-                .count(),
-            29
-        );
-        assert_eq!(
-            calls
-                .iter()
-                .filter(|(method, _)| method == "DOM.getDocument")
-                .count(),
-            1
-        );
+                .filter(|item| item["name"] == "REDACTED")
+                .count();
+            assert_eq!(
+                redacted,
+                match mutation {
+                    1 | 3 => 85,
+                    _ => 84,
+                }
+            );
+            assert!(!items.iter().any(|item| item["name"] == "REDACTED"
+                && item["text"].as_str().unwrap().contains("opaque-secret")));
+            assert_eq!(
+                items.iter().filter(|item| item["name"] == "Public").count(),
+                match mutation {
+                    1 | 3 => 1636,
+                    _ => 1637,
+                }
+            );
+            assert_eq!(
+                items
+                    .iter()
+                    .filter(|item| item["role"] == "combobox" && item["name"] == "Search")
+                    .count(),
+                1
+            );
+            let calls = connection.calls.lock();
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|(method, _)| method == "DOM.pushNodesByBackendIdsToFrontend")
+                    .count(),
+                29 * capture
+            );
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|(method, _)| method == "DOM.getDocument")
+                    .count(),
+                capture
+            );
+            assert_eq!(
+                calls
+                    .iter()
+                    .filter(|(method, _)| method == "DOM.disable")
+                    .count(),
+                capture
+            );
+        }
     }
 }

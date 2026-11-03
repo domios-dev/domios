@@ -6,7 +6,6 @@ use std::collections::{HashMap, HashSet};
 #[derive(Default)]
 struct Dom {
     nodes: HashMap<i64, DomNode>,
-    uncertain: bool,
 }
 
 struct DomNode {
@@ -49,17 +48,20 @@ impl Dom {
         match event.method.as_str() {
             "DOM.attributeModified" => {
                 if marked(&json!({"attributes":[event.params["name"],event.params["value"]]})) {
-                    self.mark_node(&event.params["nodeId"]);
+                    self.mark_node(&event.params["nodeId"], "sensitive attribute changed");
                 }
                 return Ok(());
             }
             "DOM.attributeRemoved" => return Ok(()),
             "DOM.childNodeRemoved" => {
-                self.mark_node(&event.params["nodeId"]);
+                self.mark_node(&event.params["nodeId"], "node detached during capture");
                 return Ok(());
             }
             "DOM.shadowRootPopped" => {
-                self.mark_node(&event.params["rootId"]);
+                self.mark_node(
+                    &event.params["rootId"],
+                    "shadow root detached during capture",
+                );
                 return Ok(());
             }
             "DOM.childNodeInserted" => {
@@ -69,6 +71,10 @@ impl Dom {
                 return self.record(&event.params["root"], event.params["hostId"].as_i64());
             }
             "DOM.setChildNodes" => {}
+            "DOM.documentUpdated" => {
+                log::debug!("[browser-snapshot] DOM document updated; retaining observed ancestry and redacting unresolved backend nodes individually");
+                return Ok(());
+            }
             _ => return Err("redaction_failed: DOM changed during snapshot".into()),
         }
         let parent = event
@@ -87,9 +93,13 @@ impl Dom {
         Ok(())
     }
 
-    fn mark_node(&mut self, id: &Value) {
+    fn mark_node(&mut self, id: &Value, reason: &str) {
         if let Some(node) = id.as_i64().and_then(|id| self.nodes.get_mut(&id)) {
             node.marked = true;
+            log::debug!(
+                "[browser-snapshot] backend node {:?} treated as sensitive: {reason}",
+                node.backend
+            );
         }
     }
 
@@ -97,6 +107,7 @@ impl Dom {
         let mut sensitive = HashSet::new();
         let mut resolved = HashMap::new();
         for id in self.nodes.keys() {
+            let backend = self.nodes[id].backend;
             let mut path = Vec::new();
             let mut visiting = HashSet::new();
             let mut next = Some(*id);
@@ -107,10 +118,12 @@ impl Dom {
                     break;
                 }
                 if !visiting.insert(id) {
+                    log::debug!("[browser-snapshot] backend node {backend:?} treated as sensitive: cyclic DOM ancestry at frontend node {id}");
                     marked = true;
                     break;
                 }
                 let Some(node) = self.nodes.get(&id) else {
+                    log::debug!("[browser-snapshot] backend node {backend:?} treated as sensitive: missing DOM ancestor {id}");
                     marked = true;
                     break;
                 };
@@ -147,8 +160,8 @@ async fn collect(
         tokio::select! {
             event = events.recv() => {
                 let event = event.ok_or("redaction_failed: DOM observation closed")?;
-                if dom.event(&event).is_err() {
-                    dom.uncertain = true;
+                if let Err(error) = dom.event(&event) {
+                    log::debug!("[browser-snapshot] incomplete {} ancestry record: {error}; unresolved backend nodes will be redacted individually", event.method);
                 }
             }
             result = &mut request => break result.map_err(|error| format!("redaction_failed: {error}"))?,
@@ -158,30 +171,48 @@ async fn collect(
         let Ok(event) = events.try_recv() else {
             break;
         };
-        if dom.event(&event).is_err() {
-            dom.uncertain = true;
+        if let Err(error) = dom.event(&event) {
+            log::debug!("[browser-snapshot] incomplete {} ancestry record: {error}; unresolved backend nodes will be redacted individually", event.method);
         }
     }
     if events.has_lost_events() {
-        dom.uncertain = true;
+        log::debug!("[browser-snapshot] DOM ancestry events lost; unresolved backend nodes will be redacted individually");
     }
     Ok(result)
 }
 
 pub async fn redact_page(nodes: &mut [AxNode], page: &PageChannel) {
-    if let Err(error) = capture(nodes, page).await {
+    let ids: HashSet<_> = nodes
+        .iter()
+        .filter_map(|node| node.backend_dom_node_id)
+        .collect();
+    let ids: Vec<_> = ids.into_iter().collect();
+    let mut dom = Dom::default();
+    let mut unavailable = HashSet::new();
+    if let Err(error) = capture(&ids, page, &mut dom, &mut unavailable).await {
         log::debug!("[browser-snapshot] sensitive ancestry unavailable: {error}");
-        redact_all(nodes);
     }
+    let known: HashSet<_> = dom.nodes.values().filter_map(|node| node.backend).collect();
+    let mut sensitive = dom.sensitive_ids();
+    sensitive.extend(unavailable);
+    for id in ids.iter().filter(|id| !known.contains(id)) {
+        log::debug!(
+            "[browser-snapshot] backend node {id} treated as sensitive: no DOM ancestry received"
+        );
+        sensitive.insert(*id);
+    }
+    redact_ids(nodes, &sensitive);
 }
 
-fn redact_all(nodes: &mut [AxNode]) {
-    for node in nodes {
-        redact_node(node);
-    }
-}
-
-async fn capture(nodes: &mut [AxNode], page: &PageChannel) -> Result<(), String> {
+async fn capture(
+    ids: &[i64],
+    page: &PageChannel,
+    dom: &mut Dom,
+    unavailable: &mut HashSet<i64>,
+) -> Result<(), String> {
+    page.send("DOM.disable", json!({}))
+        .await
+        .map_err(|error| format!("DOM frontend reset failed: {error}"))?;
     let mut events = page.subscribe_session(&[
         "DOM.setChildNodes",
         "DOM.documentUpdated",
@@ -192,11 +223,10 @@ async fn capture(nodes: &mut [AxNode], page: &PageChannel) -> Result<(), String>
         "DOM.shadowRootPushed",
         "DOM.shadowRootPopped",
     ]);
-    let mut dom = Dom::default();
     let document = collect(
         page,
         &mut events,
-        &mut dom,
+        dom,
         "DOM.getDocument",
         json!({"depth":0,"pierce":true}),
     )
@@ -207,45 +237,42 @@ async fn capture(nodes: &mut [AxNode], page: &PageChannel) -> Result<(), String>
             .ok_or("redaction_failed: DOM document missing")?,
         None,
     )?;
-    let ids: HashSet<_> = nodes
-        .iter()
-        .filter_map(|node| node.backend_dom_node_id)
-        .collect();
-    let ids: Vec<_> = ids.into_iter().collect();
-    let mut unavailable = HashSet::new();
     for ids in ids.chunks(64) {
         let result = collect(
             page,
             &mut events,
-            &mut dom,
+            dom,
             "DOM.pushNodesByBackendIdsToFrontend",
             json!({"backendNodeIds":ids}),
         )
-        .await?;
+        .await;
         let pushed = result
-            .get("nodeIds")
-            .and_then(Value::as_array)
-            .ok_or("redaction_failed: DOM ancestry result missing")?;
-        if pushed.len() != ids.len() {
-            return Err("redaction_failed: DOM ancestry result length mismatch".into());
-        }
-        for (backend, id) in ids.iter().zip(pushed) {
-            if id
-                .as_i64()
-                .is_none_or(|id| id == 0 || !dom.nodes.contains_key(&id))
-            {
+            .as_ref()
+            .ok()
+            .and_then(|result| result.get("nodeIds"))
+            .and_then(Value::as_array);
+        for (index, backend) in ids.iter().enumerate() {
+            let id = pushed
+                .and_then(|ids| ids.get(index))
+                .and_then(Value::as_i64);
+            let reason = match id {
+                None => Some("DOM push returned no frontend id"),
+                Some(0) => Some("DOM backend node is detached"),
+                Some(id)
+                    if dom
+                        .nodes
+                        .get(&id)
+                        .is_some_and(|node| node.backend != Some(*backend)) =>
+                {
+                    Some("DOM frontend/backend identity mismatch")
+                }
+                _ => None,
+            };
+            if let Some(reason) = reason {
+                log::debug!("[browser-snapshot] backend node {backend} treated as sensitive: {reason}; push error: {:?}", result.as_ref().err());
                 unavailable.insert(*backend);
             }
         }
-    }
-    let known: HashSet<_> = dom.nodes.values().filter_map(|node| node.backend).collect();
-    if dom.uncertain {
-        redact_all(nodes);
-    } else {
-        let mut sensitive = dom.sensitive_ids();
-        sensitive.extend(unavailable);
-        sensitive.extend(ids.iter().filter(|id| !known.contains(id)));
-        redact_ids(nodes, &sensitive);
     }
     Ok(())
 }
