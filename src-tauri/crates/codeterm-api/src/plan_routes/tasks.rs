@@ -695,6 +695,20 @@ fn task_update_core_with_lane_cleanup_check(
             epoch_ms(),
         )
         .map_err(plan_err)?;
+    let remove_tags = body
+        .get("remove_tags")
+        .and_then(Value::as_array)
+        .map(|tags| {
+            tags.iter()
+                .filter_map(Value::as_str)
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    service
+        .plan_store
+        .remove_task_tags(id, tid, &remove_tags, epoch_ms())
+        .map_err(plan_err)?;
     if let Some(depends_on) = depends_on {
         service
             .plan_store

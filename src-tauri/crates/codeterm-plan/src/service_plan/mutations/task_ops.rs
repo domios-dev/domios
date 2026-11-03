@@ -175,9 +175,37 @@ impl PlanStore {
                     parent_task_id: parent_task_id.map(|value| value.map(str::to_string)),
                     group: group.map(|value| value.map(str::to_string)),
                     tags: tags.to_vec(),
+                    remove_tags: Vec::new(),
                     primary: primary.map(str::to_string),
                     handle: handle.map(str::to_string),
                     lane,
+                },
+            }],
+            now_ms,
+        )
+    }
+
+    pub fn remove_task_tags(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        tags: &[String],
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        if tags.is_empty() {
+            return Ok(());
+        }
+        for tag in tags {
+            crate::service_plan::text_bounds::validate_plan_text("task tag", tag)?;
+        }
+        use crate::service_plan::store_db::hot_write::{HotChange, TaskFields};
+        self.commit_hot_changes(
+            plan_id,
+            vec![HotChange::Fields {
+                selector: task_id.into(),
+                fields: TaskFields {
+                    remove_tags: tags.to_vec(),
+                    ..Default::default()
                 },
             }],
             now_ms,
@@ -603,3 +631,5 @@ fn non_empty_arg(value: Option<&str>) -> Option<&str> {
 
 #[cfg(test)]
 mod fill_lane_tests;
+#[cfg(test)]
+mod tag_tests;

@@ -11,6 +11,8 @@ pub struct TaskReadinessScope {
     pub canonical_writer: bool,
     pub shared: bool,
     pub canonical_checkout_path: Option<PathBuf>,
+    pub canonical_continuation_path: Option<PathBuf>,
+    pub files: codeterm_types::plan::TaskFiles,
     pub base: Option<String>,
     pub requires_repository: bool,
 }
@@ -123,6 +125,18 @@ fn task_readiness_scope_from_task_with_canonical_path(
             .and_then(Value::as_str)
             == Some("shared"),
         canonical_checkout_path,
+        canonical_continuation_path: (!canonical_writer
+            && attempt.is_none_or(|attempt| attempt.get("mesh_peer").is_none_or(Value::is_null)))
+        .then(|| {
+            canonical_project_path
+                .map(|path| PathBuf::from(codeterm_paths::strip_verbatim_prefix(path)))
+        })
+        .flatten(),
+        files: task
+            .get("files")
+            .cloned()
+            .and_then(|files| serde_json::from_value(files).ok())
+            .unwrap_or_default(),
         base: record.and_then(|record| nonempty(record.get("base"))),
         requires_repository: task.get("execution_intent").and_then(Value::as_str)
             != Some("non_repository")
@@ -141,6 +155,8 @@ impl Default for TaskReadinessScope {
             canonical_writer: false,
             shared: false,
             canonical_checkout_path: None,
+            canonical_continuation_path: None,
+            files: Default::default(),
             base: None,
             requires_repository: true,
         }

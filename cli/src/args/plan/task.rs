@@ -337,6 +337,9 @@ pub enum PlanTaskAction {
         priority: Option<String>,
         #[arg(long = "tag")]
         tags: Vec<String>,
+        /// Remove an exact tag after additions; repeatable
+        #[arg(long = "untag", value_name = "TAG")]
+        remove_tags: Vec<String>,
         #[arg(long)]
         primary: Option<String>,
         #[arg(long)]

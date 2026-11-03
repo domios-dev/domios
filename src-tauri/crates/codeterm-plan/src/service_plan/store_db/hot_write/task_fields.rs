@@ -18,6 +18,7 @@ pub(in crate::service_plan) struct TaskFields {
     pub parent_task_id: Option<Option<String>>,
     pub group: Option<Option<String>>,
     pub tags: Vec<String>,
+    pub remove_tags: Vec<String>,
     pub primary: Option<String>,
     pub handle: Option<String>,
     pub lane: Option<TaskLaneUpdate>,
@@ -33,6 +34,7 @@ pub(super) fn apply(
 ) -> Result<(), PlanError> {
     let mut task = read_task(tx, plan_id, selector, receipt)?;
     let handles_changed = !fields.tags.is_empty()
+        || !fields.remove_tags.is_empty()
         || fields.primary.is_some()
         || fields.handle.is_some()
         || task.handle.is_none();
@@ -145,7 +147,8 @@ pub(super) fn apply(
         task.group = value;
     }
     tag_model::apply_tags(&mut task.tags, &fields.tags, fields.primary.as_deref());
-    if !fields.tags.is_empty() || fields.primary.is_some() {
+    task.tags.retain(|tag| !fields.remove_tags.contains(tag));
+    if !fields.tags.is_empty() || !fields.remove_tags.is_empty() || fields.primary.is_some() {
         task.handle = None;
     }
     if let Some(value) = fields.handle {

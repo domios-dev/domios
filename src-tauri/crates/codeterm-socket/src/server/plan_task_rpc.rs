@@ -606,6 +606,9 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
+            store
+                .remove_task_tags(&id, &tid, &string_array_field(p, "remove_tags"), now)
+                .map_err(plan_rpc_err)?;
             if let Some(speed) = optional_string_field(p, "speed") {
                 store
                     .update_task_speed(&id, &tid, speed, now)

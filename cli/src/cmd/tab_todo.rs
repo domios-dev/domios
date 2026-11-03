@@ -11,7 +11,7 @@ use crate::args::tab_todo::TabTodoAction;
 use crate::client::RpcClient;
 
 const MAX_TODO_INPUT_BYTES: usize = 64 * 1024;
-const WRITE_SCHEMA: &str = "Accepted schema: [{id?: string, content?: string, status: pending|in_progress|completed|blocked|skipped, activeForm?: string, link?: string, reason?: string}]. New items require content; activeForm defaults to content; blocked/skipped require reason.";
+const WRITE_SCHEMA: &str = "Accepted schema: [{id?: string, content?: string, status: pending|in_progress|completed|blocked|skipped, activeForm?: string, link?: string, reason?: string}]. New items require content and omit id; id addresses existing items only; activeForm defaults to content; blocked/skipped require reason.";
 
 fn parse_write_items(value: Value) -> Result<Vec<AgentTodoWriteItem>, String> {
     let items = value

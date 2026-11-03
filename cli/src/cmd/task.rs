@@ -131,9 +131,24 @@ fn empty_task_list_message(val: &Value) -> String {
         .unwrap_or_else(|| "(no tasks)".into())
 }
 
+pub(crate) fn compact_task_show(val: &Value) -> Value {
+    let mut result = serde_json::Map::new();
+    for key in ["task", "plan_id", "plan_title"] {
+        if let Some(value) = val.get(key) {
+            result.insert(key.into(), value.clone());
+        }
+    }
+    Value::Object(result)
+}
+
 pub(crate) fn print_task_result(json: bool, val: &Value, show_opts: Option<TaskShowOpts>) {
     if json {
-        println!("{}", crate::cmd::output::encode(val).unwrap());
+        let payload = if show_opts.is_some() {
+            compact_task_show(val)
+        } else {
+            val.clone()
+        };
+        println!("{}", crate::cmd::output::encode(&payload).unwrap());
         return;
     }
 

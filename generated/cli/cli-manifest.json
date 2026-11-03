@@ -14760,6 +14760,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "untag",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TAG",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Remove an exact tag after additions; repeatable",
+                  "aliases": []
+                },
+                {
                   "name": "why",
                   "positional": false,
                   "required": false,
@@ -19054,7 +19064,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content",
+              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; omit id for new items; id addresses existing items only. activeForm defaults to content",
               "aliases": []
             }
           ],
