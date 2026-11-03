@@ -6,6 +6,106 @@ import { describe, expect, it } from "vitest";
 const source = resolve(import.meta.dirname, "../../../src-tauri/crates/codeterm-surface/src/surface/browser");
 const begin = readFileSync(resolve(source, "atomic-begin.js"), "utf8");
 const action = readFileSync(resolve(source, "atomic-action.js"), "utf8");
+const overlay = readFileSync(resolve(source, "agent-overlay.js"), "utf8");
+
+function presentation(reduced = false) {
+  const window = new Window({ url: "https://example.test" });
+  window.eval(`
+    const attach = Element.prototype.attachShadow;
+    Element.prototype.attachShadow = function(options) {
+      window.testRoot = attach.call(this, options);
+      return window.testRoot;
+    };
+    window.matchMedia = () => ({matches:${reduced},addEventListener(){}});
+  `);
+  window.eval(overlay);
+  const root = window.eval("window.testRoot") as ShadowRoot;
+  const api = window.eval("window[Symbol.for('domios.browser.presentation')]") as {
+    present(request: {kind:string; x?:number; y?:number; text?:string; secret?:boolean}, target?:unknown): Promise<void>;
+    hide(): void;
+    capture(hidden:boolean): void;
+  };
+  const end = (selector: string) => root.querySelector(selector)!.dispatchEvent(new window.Event("animationend") as unknown as Event);
+  return {window,root,api,end};
+}
+
+describe("Browser agent presentation", () => {
+  it("injects once in a closed, non-interactive layer and survives body replacement", () => {
+    const {window,root} = presentation(true);
+    try {
+      window.eval(overlay);
+      expect(window.document.querySelectorAll("domios-agent-cursor")).toHaveLength(1);
+      const host = window.document.querySelector("domios-agent-cursor")!;
+      expect(host.shadowRoot).toBeNull();
+      expect(host.style.pointerEvents).toBe("none");
+      expect(host.style.position).toBe("fixed");
+      expect(host.getAttribute("aria-hidden")).toBe("true");
+      expect(window.document.querySelector(".cursor")).toBeNull();
+      window.document.body.innerHTML = "<main>new route</main>";
+      expect(root.host.isConnected).toBe(true);
+    } finally { window.happyDOM.abort(); }
+  });
+
+  it("waits for travel and click animation events and cancels on viewer input", async () => {
+    const {window,root,api,end} = presentation();
+    try {
+      let finished = false;
+      const pending = api.present({kind:"click",x:100,y:80}).then(() => { finished = true; });
+      expect(finished).toBe(false);
+      end(".cursor");
+      await Promise.resolve();
+      expect(finished).toBe(false);
+      expect((root.querySelector(".ripple") as HTMLElement).style.animation).toContain("press");
+      end(".ripple");
+      await pending;
+      expect(finished).toBe(true);
+      const cancelled = api.present({kind:"typing",text:"hello"}, window.document.body);
+      api.hide();
+      await cancelled;
+      expect((root.querySelector(".cursor") as HTMLElement).hidden).toBe(true);
+      expect((root.querySelector(".field") as HTMLElement).hidden).toBe(true);
+    } finally { window.happyDOM.abort(); }
+  });
+
+  it("uses static reduced-motion markers, masks secrets and never edits the field", async () => {
+    const {window,root,api} = presentation(true);
+    try {
+      window.document.body.innerHTML = '<input value="original">';
+      const field = window.document.querySelector("input")!;
+      const label = root.querySelector(".typing")!;
+      await api.present({kind:"typing",text:"visible"}, field);
+      expect(label.textContent).toBe("visible▏");
+      expect(root.querySelectorAll('[style*="animation:"]')).toHaveLength(0);
+      await api.present({kind:"typing",text:"opaque-secret",secret:true}, field);
+      expect(label.textContent).toBe("••••  ▏");
+      expect(root.textContent).not.toContain("opaque-secret");
+      field.type = "password";
+      await api.present({kind:"typing",text:"password-value"}, field);
+      expect(label.textContent).toBe("••••  ▏");
+      field.type = "text";
+      await api.present({kind:"typing",text:"x".repeat(100)}, field);
+      expect(label.textContent).toBe("Typing  ▏");
+      expect(field.value).toBe("original");
+      api.capture(true);
+      expect((root.host as HTMLElement).style.visibility).toBe("hidden");
+      api.capture(true); api.capture(false);
+      expect((root.host as HTMLElement).style.visibility).toBe("hidden");
+      api.capture(false);
+      expect((root.host as HTMLElement).style.visibility).toBe("visible");
+    } finally { window.happyDOM.abort(); }
+  });
+
+  it("shows a bounded trail only during a drag segment", async () => {
+    const {window,root,api,end} = presentation();
+    try {
+      const pending = api.present({kind:"drag",x:200,y:100});
+      expect((root.querySelector(".trail") as HTMLElement).hidden).toBe(false);
+      end(".cursor");
+      await pending;
+      expect((root.querySelector(".trail") as HTMLElement).hidden).toBe(true);
+    } finally { window.happyDOM.abort(); }
+  });
+});
 
 describe("Browser atomic page action", () => {
   it("refuses mutation after capture and dispatches a current action once", () => {

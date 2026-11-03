@@ -1,5 +1,15 @@
 use super::*;
 #[test]
+fn browser_overlay_capture_is_explicit() {
+    assert!(!parse(&[], false).unwrap().include_overlay);
+    assert!(
+        parse(&args(&["--include-overlay"]), false)
+            .unwrap()
+            .include_overlay
+    );
+    assert!(parse(&args(&["set", "400", "500", "--include-overlay"]), true).is_err());
+}
+#[test]
 fn browser_region_scale_capture_validates_bounds_and_combinations() {
     let options = parse(
         &args(&["zoom.png", "--region", "10,20,300,400", "--scale", "2"]),

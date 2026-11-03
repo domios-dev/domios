@@ -103,6 +103,7 @@ impl BrowserRuntime {
         y: f64,
         buttons: i64,
     ) -> Result<(), String> {
+        self.present(page, json!({"kind":if kind == "mousePressed" {"click"} else if buttons == 1 {"drag"} else {"move"},"x":x,"y":y})).await;
         self.send(page,"Input.dispatchMouseEvent",json!({"type":kind,"x":x,"y":y,"button":if buttons == 0 && kind == "mouseMoved" {"none"} else {"left"},"buttons":buttons,"clickCount":1})).await.map(|_| ())
     }
 

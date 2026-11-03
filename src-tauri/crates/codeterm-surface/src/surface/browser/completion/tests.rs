@@ -108,6 +108,9 @@ impl CdpConnection for Connection {
             ]}),
             "Runtime.evaluate" => json!({"result":{"value":0}}),
             "Runtime.callFunctionOn" => {
+                if params["awaitPromise"] == true {
+                    return Ok(json!({"result":{}}));
+                }
                 self.act();
                 json!({"result":{"value":"performed"}})
             }
