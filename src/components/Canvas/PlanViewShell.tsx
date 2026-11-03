@@ -68,15 +68,16 @@ function useTaskSegment(
   useLayoutEffect(() => {
     const planId = target?.planId;
     const jump = target?.jump;
-    if (!planId || !jump) return;
+    if (!jump) return;
     if (jump.view === "task") {
+      if (!planId) return;
       setSegment((current) => current?.planId === planId && current.taskRef === jump.taskId
         ? current
         : { planId, taskRef: jump.taskId });
       return;
     }
     setSegment((current) => current === null ? current : null);
-    setViewMode("plan");
+    setViewMode(jump.view);
   }, [target, setViewMode]);
   return [segment, setSegment];
 }
