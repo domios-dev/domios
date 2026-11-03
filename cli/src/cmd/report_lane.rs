@@ -125,7 +125,11 @@ fn task_readiness_scope_from_task_with_canonical_path(
         canonical_checkout_path,
         base: record.and_then(|record| nonempty(record.get("base"))),
         requires_repository: task.get("execution_intent").and_then(Value::as_str)
-            != Some("non_repository"),
+            != Some("non_repository")
+            && attempt
+                .and_then(|attempt| attempt.get("execution_intent"))
+                .and_then(Value::as_str)
+                != Some("read_only"),
     }
 }
 

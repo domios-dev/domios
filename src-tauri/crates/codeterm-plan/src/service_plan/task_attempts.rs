@@ -7,6 +7,7 @@ use codeterm_types::agent::ReportStatus;
 
 use super::{PlanError, PlanMatch, PlanStore, TaskMatch};
 
+mod executor_termination;
 mod launch_binding;
 mod plan_skill_evidence;
 pub mod remote_dispatch;
