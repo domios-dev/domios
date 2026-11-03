@@ -1,4 +1,6 @@
 [
+  "src/components/Sidebar/TeamUnit.board.test.tsx",
+  "src/components/Extensions/PluginDetailPanel.test.tsx",
   "src/lib/providerPromptLifecycle.test.ts",
   "src/components/Terminal/permissionPromptStartup.test.tsx",
   "src/components/Terminal/ChatLiveOperation.test.tsx",
