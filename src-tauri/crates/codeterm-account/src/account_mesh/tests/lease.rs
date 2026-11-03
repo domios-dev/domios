@@ -208,6 +208,7 @@ fn account_mesh_lease_opt_in_is_additive_for_an_old_request_reader() {
         schema_version: 1,
         installation_id: INSTALLATION.into(),
         request_id: "a".repeat(64),
+        signed_registry: Some(true),
         requested_membership_seconds: Some(86400),
         operation: MeshOperation::Renew {
             expected_slot_revision: 1,
@@ -215,6 +216,11 @@ fn account_mesh_lease_opt_in_is_additive_for_an_old_request_reader() {
     };
     let value = serde_json::to_value(body).unwrap();
     assert_eq!(value["requested_membership_seconds"], 86400);
+    assert_eq!(value["signed_registry"], true);
+    assert_eq!(
+        super::super::key::jcs_sha256_hex(&value).unwrap(),
+        "563528ee076a0ea2044e1f1925340565bf6587ad9b4efa4333c4d098e22a510e"
+    );
     let old: OldRequest = serde_json::from_value(value).unwrap();
     assert_eq!(
         (
