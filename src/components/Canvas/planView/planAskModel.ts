@@ -1,5 +1,5 @@
 import { tabActivity } from "../../../lib/tabActivity";
-import type { Tab } from "../../../lib/types";
+import type { Tab, TabStatus } from "../../../lib/types";
 import { ownerName, ownerTabId } from "../owner";
 import type { Plan } from "../types";
 import type { PlanAskReference } from "./planAskMapping";
@@ -22,7 +22,7 @@ export type PlanAskOwner =
 const FALLBACK_OWNER_NAME = "Orchestrator";
 
 /** Only the plan's recorded owner tab is ever a destination; an absent or agentless tab is reported, never substituted. */
-export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<string, Tab> | undefined): PlanAskOwner {
+export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<string, Tab> | undefined, statuses?: Record<string, TabStatus>): PlanAskOwner {
   const tabId = ownerTabId(plan.owner);
   if (!tabId) return { status: "missing" };
   const tab = tabs?.[tabId];
@@ -33,7 +33,7 @@ export function resolvePlanAskOwner(plan: Pick<Plan, "owner">, tabs: Record<stri
     status: "ready",
     tabId,
     name,
-    busy: tabActivity(tab).active,
+    busy: tabActivity(tab, statuses?.[tabId]).active,
     chatBackend,
     agentSessionId: tab.agent_session_id ?? null,
     sessionBindingNonce: tab.session_binding_nonce ?? null,

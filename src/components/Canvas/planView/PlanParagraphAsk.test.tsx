@@ -8,6 +8,8 @@ import type { Plan } from "../types";
 import { PlanPlanView, PlanSpecView } from "./PlanDocumentView";
 
 const sendTrackedChatMessage = vi.hoisted(() => vi.fn());
+const mux = vi.hoisted(() => ({ tabStatuses: {} as Record<string, "Working" | "Idle"> }));
+vi.mock("../../../store/multiplexer/hooks", () => ({ useMuxSelector: (selector: (state: typeof mux) => unknown) => selector(mux) }));
 const transcript = vi.hoisted(() => ({ messages: [] as Array<Record<string, unknown>> }));
 
 vi.mock("../../Terminal/chatSendStatus", () => ({ sendTrackedChatMessage }));
@@ -38,6 +40,7 @@ const ASK_PLAN: Plan = {
 };
 
 function ownerTab(state: "idle" | "working" = "idle"): Record<string, Tab> {
+  mux.tabStatuses["orch-1"] = state === "working" ? "Working" : "Idle";
   return {
     "orch-1": {
       id: "orch-1",

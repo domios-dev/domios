@@ -49,7 +49,7 @@ function harness(messages: readonly NormalizedChatMessage[], onInspect: (threadI
     <MuxStateStoreContext.Provider value={store}>
       <AgentInspectionProvider onInspect={onInspect}>
         <ComposerBackgroundWorkProvider tabId="tab-a" messages={messages}>
-          <AgentStateIndicator activity={tabActivity({agent_session_id:"root",agent_state:{state:"working"}})} activeTool={messages.find(message=>message.type === "tool_call" && message.toolKind === "command")} providerName="fixture" model="fixture-model" renderIdentity={()=> <button type="button" aria-label="Choose fixture model" />} />
+          <AgentStateIndicator activity={tabActivity({agent_session_id:"root",agent_state:{state:"working"}}, "Working")} activeTool={messages.find(message=>message.type === "tool_call" && message.toolKind === "command")} providerName="fixture" model="fixture-model" renderIdentity={()=> <button type="button" aria-label="Choose fixture model" />} />
           <ComposerContextHeader
             tabId="tab-a" workspaceId={null} delayed={[]} adapter={adapter}
             onEditDelayed={() => undefined} onDeleteDelayed={() => undefined} onScheduleDelayed={() => undefined}

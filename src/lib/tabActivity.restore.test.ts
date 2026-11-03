@@ -5,7 +5,7 @@ import type { BootStage } from "./types";
 
 for (const boot_stage of ["pty_starting", "pty_spawned", "reader_ready", "shell_ready"] satisfies BootStage[]) {
   for (const [state, expected] of [["working", "working"], ["idle", "idle"], ["question", "waiting-on-user"]] as const) {
-    const activity = tabActivity({ ...restoredBoundAgent, boot_stage, agent_state: { state } });
+    const activity = tabActivity({ ...restoredBoundAgent, boot_stage, agent_state: { state } }, state === "working" ? "Working" : state === "question" ? "Waiting" : "Idle");
     assert.equal(activity.kind, expected);
     assert.equal(activity.launching, false);
     assert.equal(activity.canStop, state === "working");

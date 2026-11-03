@@ -50,8 +50,8 @@ describe("tab row accessibility surface", () => {
     const window = new Window();
     for (const phase of ["compacting", undefined] as const) {
       const input = tab({ agent_type: "fixture", agent_session_id: "session", agent_state: { state: "working", phase } });
-      window.document.body.innerHTML = render(input, { hasAgent: true });
-      const activity = tabActivity(input);
+      window.document.body.innerHTML = render(input, { hasAgent: true, status: "Working" });
+      const activity = tabActivity(input, "Working");
       const status = window.document.querySelector('[role="status"]');
       expect(status?.textContent?.includes(phase ? activity.label : activity.status)).toBe(true);
       expect(window.document.querySelector('[data-testid="tab-working-activity"]')?.getAttribute("aria-label")).toBe(activity.label);
