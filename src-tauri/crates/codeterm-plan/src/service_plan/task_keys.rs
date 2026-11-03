@@ -35,8 +35,19 @@ impl PlanStore {
     }
 
     pub fn task_display_key(&self, plan_id: &str, task_ref: &str) -> Option<String> {
-        let plan = self.plan_arc(plan_id).ok()?;
-        let plan = plan.lock();
-        task_key::find_task(&plan.tasks, task_ref).map(|task| task.display_key())
+        let rows = self.database.scoped_task_references(plan_id).ok()?;
+        let display_key = |row: &super::store_db::TaskRefRow| {
+            row.key
+                .clone()
+                .unwrap_or_else(|| task_key::fallback_key(&row.task_id))
+        };
+        if let Some(row) = rows.iter().find(|row| row.task_id == task_ref) {
+            return Some(display_key(row));
+        }
+        let mut matches = rows.iter().filter(|row| {
+            task_key::name_matches(row.handle.as_deref(), &display_key(row), task_ref)
+        });
+        let key = display_key(matches.next()?);
+        matches.next().is_none().then_some(key)
     }
 }

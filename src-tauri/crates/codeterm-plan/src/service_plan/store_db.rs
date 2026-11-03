@@ -532,6 +532,7 @@ pub(super) mod admission;
 mod index_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod match_queries;
+mod read_projections;
 pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 #[cfg(test)]
 mod schema_tests;

@@ -4,7 +4,7 @@ use crate::service_plan::{load_audit, PlanStore};
 use std::sync::{Arc, Barrier};
 use std::time::Instant;
 
-mod fixtures;
+pub(in crate::service_plan::store_db) mod fixtures;
 use fixtures::*;
 
 #[test]
