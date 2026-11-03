@@ -18,6 +18,9 @@ use zeroize::Zeroizing;
 
 #[async_trait]
 pub trait AuthenticatedCall: Send + Sync {
+    fn require_paid(&self) -> Result<()> {
+        Ok(())
+    }
     fn firestore_target(&self, project: &str) -> Result<FirestoreTarget> {
         FirestoreTarget::google(project)
     }

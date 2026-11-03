@@ -61,7 +61,7 @@ pub async fn supervise_with(
         if attempt == 0 {
             events.state(ListenerState::Connecting);
         }
-        let result = async {
+        let work = async {
             session.prepare().await?;
             let cursor = session.cursor().await?;
             let mut listener = tokio::select! {
@@ -96,8 +96,12 @@ pub async fn supervise_with(
                 }
             }
             Err(Error::Transport)
-        }
-        .await;
+        };
+        let result = tokio::select! {
+            biased;
+            _ = session.stopped() => Err(Error::Revoked),
+            result = work => result,
+        };
         if let Err(error) = result {
             events.failure(error);
         }

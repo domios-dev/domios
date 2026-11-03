@@ -140,14 +140,16 @@ impl ServiceContext {
                 .drive_deadlines(|tick| {
                     let service = service.clone();
                     async move {
-                        if tick.refresh_due {
-                            if let Err(error) =
-                                service.refresh_billing(RefreshEvent::Deadline).await
-                            {
-                                log::debug!("Deadline refresh failed: {error}");
-                            }
-                        }
                         service.announce_limit_gate();
+                        if tick.refresh_due {
+                            crate::async_runtime::spawn(async move {
+                                if let Err(error) =
+                                    service.refresh_billing(RefreshEvent::Deadline).await
+                                {
+                                    log::debug!("Deadline refresh failed: {error}");
+                                }
+                            });
+                        }
                     }
                 })
                 .await;

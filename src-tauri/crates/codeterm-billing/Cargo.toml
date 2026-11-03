@@ -4,6 +4,9 @@ name = "codeterm-billing"
 version = "0.0.0"
 edition = "2021"
 
+[features]
+test-support = []
+
 [dependencies]
 codeterm-entitlements = { path = "../codeterm-entitlements" }
 log = "0.4"

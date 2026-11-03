@@ -103,6 +103,19 @@ async fn missing_concierge_never_admits_acknowledges_or_advances_a_cursor() {
     let metadata = Metadata::new(fixture.temp.path().to_owned(), "owner");
     let friendship = "a".repeat(64);
     service.set_neighbor_friend_receiver_for_test(&friendship, Some(true), 1);
+    let user = codeterm_account::Session {
+        identity: codeterm_account::Identity {
+            uid: "owner".into(),
+            email: None,
+            display_name: None,
+            photo_url: None,
+            provider: "fake".into(),
+        },
+        login_generation: 0,
+        id_token: codeterm_account::Secret::new("fixture"),
+        expires_at: None,
+    };
+    crate::service::neighbors::paid_fixture::bind(service, &user, fixture.temp.path()).await;
     let (_, stopped) = tokio::sync::watch::channel(false);
     let session = listener::Session {
         service: service.clone(),
