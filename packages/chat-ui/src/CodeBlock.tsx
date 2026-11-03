@@ -383,7 +383,7 @@ export function CodeBlock({
   return (
     <ExpandableReader label={mermaidMode ? "Fullscreen Mermaid diagram" : "Fullscreen code"} openerPlacement="header" onOpen={() => { setExpanded(true); setRichRequested(true); }}>{(fullscreen, opener) => (
     <div className="min-w-0 w-full max-w-full" data-testid="chat-code-block" data-code-language={language}>
-      <div className="min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
+      <div className="ct-reader-surface min-w-0 w-full max-w-full overflow-hidden rounded-md border border-[var(--ct-border)]" style={{ background: "var(--ct-bg)" }}>
         <div data-testid="chat-code-toolbar" className="ct-reader-row flex select-none items-center gap-1.5 px-3 pb-1 pt-2 text-[11px] leading-4" style={{ color: "var(--ct-muted-fg)" }}>
           <span className="inline-flex min-w-0 items-baseline gap-1.5">
             <span className="font-medium" style={{ color: "var(--ct-fg)" }}>Code</span>

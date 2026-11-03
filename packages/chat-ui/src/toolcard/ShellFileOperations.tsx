@@ -25,7 +25,7 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
     }
     setOpen(next);
   };
-  return <ExpandableReader label={filename || "File preview"} openerPlacement="header">{(fullscreen, opener) => <>
+  return <ExpandableReader label={filename || "File preview"} openerPlacement="header">{(fullscreen, opener) => <div className="ct-reader-surface min-w-0">
     <div className="ct-reader-row flex min-w-0 items-center gap-1.5">
     <FloatingTooltip content={operation.path} focusable={false} className="block min-w-0 flex-1">
       <button type="button" aria-expanded={open} aria-controls={regionId}
@@ -57,7 +57,7 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
         {replacement?.unsupported && <div role="note" aria-label="Partial replacement preview">Some replacements cannot be previewed. See command details.</div>}
       </BoundedMessageContent>}
     </div>
-  </>}</ExpandableReader>;
+  </div>}</ExpandableReader>;
 }
 
 export function shellFileOperationPreview(event: ToolEvent) {
