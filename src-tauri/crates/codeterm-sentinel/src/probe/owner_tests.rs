@@ -208,6 +208,8 @@ fn stale_process_releases_capacity_while_capture_waits_for_its_event() {
         owner.reserve(),
         Err(super::owner::AdmissionError::Full)
     ));
+    // Full admission requeues retirement; wait until that attempt returns ownership.
+    assert!(owner.wait_for_terminal_unconfirmed_with_timeout(Duration::from_secs(2)));
     capture.exited.store(true, Ordering::SeqCst);
     let mut reclaimed = owner.reserve().unwrap();
     reclaimed.register_resource().unwrap();
