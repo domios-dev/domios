@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
 import { FIXTURE_PLAN } from "./cards/fixtures.testdata";
-import type { UsePlanTaskBoardResult, UsePlansResult } from "./usePlans";
+import type { UsePlanTaskBoardResult, UsePlanTaskDetailResult, UsePlansResult } from "./usePlans";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -173,6 +173,28 @@ async function flushMicrotasks() {
   await Promise.resolve();
   await Promise.resolve();
   await Promise.resolve();
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((complete) => { resolve = complete; });
+  return { promise, resolve };
+}
+
+async function renderScopedProbe<T>(read: () => T, describe: (value: T) => string) {
+  let current!: T;
+  function Probe() {
+    current = read();
+    return <output>{describe(current)}</output>;
+  }
+  const host = document.createElement("div");
+  document.body.appendChild(host);
+  const root = createRoot(host);
+  await act(async () => { root.render(<Probe />); });
+  return { host, root, current: () => current, unmount: async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  } };
 }
 
 async function main() {
@@ -414,6 +436,80 @@ async function main() {
     assert(readCurrent()?.detail?.plan_id === "replacement-detail-plan", "only the selected task detail is exposed");
     await act(async () => root.unmount());
     host.remove();
+  });
+
+  test("task board reconnect and changes reject older snapshots and cursor pages without whole-plan reads", async () => {
+    const previousFetch = globalThis.fetch;
+    const initial = deferred<Response>();
+    const cursor = deferred<Response>();
+    const requests: URL[] = [];
+    let deleted = false;
+    const page = (name: string) => Response.json({
+      plan_id: "live-board", counts: { pending: 1 },
+      columns: { pending: { status: "pending", items: [{ id: name, name }], next_cursor: { created_at: 1, position: 1, task_id: name } } },
+    });
+    globalThis.fetch = async (input) => {
+      const url = new URL(String(input));
+      requests.push(url);
+      if (requests.length === 1) return initial.promise;
+      if (url.searchParams.has("status")) return cursor.promise;
+      return deleted ? new Response("", { status: 404 }) : page("current");
+    };
+    const probe = await renderScopedProbe<UsePlanTaskBoardResult>(() => usePlanTaskBoard(API, "live-board"),
+      (state) => state.data?.columns?.pending?.items.map((task) => task.name).join(",") ?? state.error ?? "Loading");
+    try {
+      await act(async () => { emitPlanChanged("live-board"); });
+      assert(probe.host.textContent === "current", "change delivers current scoped board");
+      await act(async () => { initial.resolve(page("obsolete")); });
+      assert(probe.host.textContent === "current", "late initial snapshot cannot overwrite a change");
+      let pendingPage!: Promise<void>;
+      await act(async () => { pendingPage = probe.current().loadNextPage("pending"); });
+      const { fireResync } = await import("../../lib/resync");
+      await act(async () => { fireResync(); });
+      await act(async () => {
+        cursor.resolve(Response.json({ plan_id: "live-board", column: { status: "pending", items: [{ id: "obsolete", name: "obsolete" }], next_cursor: null } }));
+        await pendingPage;
+      });
+      assert(probe.host.textContent === "current", "cursor from before recovery cannot resurrect a task");
+      deleted = true;
+      await act(async () => { emitPlanChanged("live-board"); });
+      assert(probe.current().data === null && Boolean(probe.current().error), "deletion removes stale board state");
+      assert(requests.length === 5, "initial, change, cursor, recovery and deletion each issue one scoped request");
+      assert(requests.every((url) => url.pathname === "/api/plans/live-board/tasks" && !url.searchParams.has("full")), "recovery has no whole-plan fallback");
+    } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
+  });
+
+  test("selected task refresh preserves readable detail and rejects late data after deletion or authority change", async () => {
+    const previousFetch = globalThis.fetch;
+    const pending = deferred<Response>();
+    const requests: URL[] = [];
+    let forbidden = false;
+    const detail = (name: string) => Response.json({ plan_id: "live-detail", task_id: "canonical",
+      task: { id: "canonical", key: "COD-42", handle: "inspect", name }, context: { plan_id: "live-detail", sections: [] } });
+    globalThis.fetch = async (input) => {
+      requests.push(new URL(String(input)));
+      if (forbidden) return new Response("", { status: 403 });
+      return requests.length === 2 ? pending.promise : detail("Current task");
+    };
+    const probe = await renderScopedProbe<UsePlanTaskDetailResult>(() => usePlanTaskDetail(API, "live-detail", "cod-42"),
+      (state) => state.detail?.task.name ?? state.error ?? "Loading");
+    try {
+      assert(probe.host.textContent === "Current task", "canonical identity is accepted for a human task key");
+      await act(async () => { emitPlanChanged("unrelated"); });
+      assert(requests.length === 1, "unrelated plan changes do not read the selected task");
+      await act(async () => { emitPlanChanged("live-detail"); });
+      assert(probe.host.textContent === "Current task", "detail stays readable during a live refresh");
+      forbidden = true;
+      await act(async () => { window.dispatchEvent(new window.Event("codeterm-web-boot-changed")); });
+      assert(probe.current().detail === null && Boolean(probe.current().error), "lost authority clears the selected detail");
+      await act(async () => { pending.resolve(detail("Obsolete task")); });
+      assert(probe.current().detail === null, "late authorized response cannot restore denied state");
+      forbidden = false;
+      const { fireResync } = await import("../../lib/resync");
+      await act(async () => { fireResync(); });
+      assert(probe.host.textContent === "Current task", "recovery reloads only the selected task");
+      assert(requests.every((url) => url.pathname === "/api/plans/live-detail/tasks/cod-42"), "all refreshes remain scoped to the selected task");
+    } finally { await probe.unmount(); globalThis.fetch = previousFetch; }
   });
 
   let failed = 0;

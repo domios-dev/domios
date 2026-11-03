@@ -332,6 +332,61 @@ describe("Mission Control live refresh", () => {
     await rendered.unmount();
   });
 
+  it("mission_control_recovery_rejects_pre_event_snapshots_and_clears_deleted_state", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const initial = deferred<Response>();
+    const obsolete = deferred<Response>();
+    fetchMock.mockReturnValueOnce(initial.promise);
+    fetchMock.mockResolvedValueOnce(response(boardState({ tasks: 4 })));
+    fetchMock.mockReturnValueOnce(obsolete.promise);
+    fetchMock.mockResolvedValueOnce(new Response("", { status: 404 }));
+    fetchMock.mockResolvedValueOnce(response(boardState({ tasks: 7 })));
+    const capture: { current: PlanBoardStateResult | null } = { current: null };
+    const rendered = await render(<Probe revision={7} capture={capture} />);
+    try {
+      await act(async () => { emit("plan-changed", { plan_id: PLAN_ID }); await flush(); });
+      expect(capture.current?.state?.task_counts.total).toBe(4);
+      await act(async () => { initial.resolve(response(boardState({ tasks: 1 }))); await flush(); });
+      expect(capture.current?.state?.task_counts.total).toBe(4);
+      await act(async () => { emit("graph-worker-progress", { plan_id: PLAN_ID }); await flush(); });
+      expect(capture.current?.state?.task_counts.total).toBe(4);
+      const { fireResync } = await import("../../../lib/resync");
+      await act(async () => { fireResync(); await flush(); });
+      expect(capture.current?.state).toBeNull();
+      expect(capture.current?.error).toBeTruthy();
+      await act(async () => { obsolete.resolve(response(boardState({ tasks: 2 }))); await flush(); });
+      expect(capture.current?.state).toBeNull();
+      await act(async () => { window.dispatchEvent(new Event("codeterm-web-boot-changed")); await flush(); });
+      expect(capture.current?.state?.task_counts.total).toBe(7);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
+      for (const [url] of fetchMock.mock.calls) expect(new URL(String(url)).pathname).toBe(`/api/plans/${PLAN_ID}/state`);
+    } finally { await rendered.unmount(); }
+  });
+
+  it("mission_control_selection_and_peer_changes_hide_prior_authority_state", async () => {
+    const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>;
+    const obsolete = deferred<Response>();
+    fetchMock.mockResolvedValueOnce(response(boardState({ tasks: 3 })));
+    fetchMock.mockReturnValueOnce(obsolete.promise);
+    fetchMock.mockResolvedValueOnce(response({ ...boardState({ tasks: 8 }), plan_id: "pl_selected" }));
+    const capture: { current: PlanBoardStateResult | null } = { current: null };
+    function Selection({ planId, token }: { planId: string; token: string }) {
+      const result = usePlanBoardState({ ...API, token }, planId, 1);
+      capture.current = result;
+      return <output>{result.state?.plan_id ?? "Loading"}</output>;
+    }
+    const rendered = await render(<Selection planId={PLAN_ID} token="old-authority" />);
+    try {
+      expect(rendered.host.textContent).toBe(PLAN_ID);
+      await act(async () => { rendered.root.render(<Selection planId={PLAN_ID} token="new-authority" />); await flush(); });
+      expect(rendered.host.textContent).toBe("Loading");
+      await act(async () => { rendered.root.render(<Selection planId="pl_selected" token="new-authority" />); await flush(); });
+      expect(rendered.host.textContent).toBe("pl_selected");
+      await act(async () => { obsolete.resolve(response(boardState())); await flush(); });
+      expect(rendered.host.textContent).toBe("pl_selected");
+    } finally { await rendered.unmount(); }
+  });
+
   it("mission_control_animates_changed_figures", async () => {
     const rendered = await render(
         <MissionControlBoard plan={PLAN} state={boardState({ output: 100, turns: 10, allowance: 20, tasks: 1 })} now={NOW} />,

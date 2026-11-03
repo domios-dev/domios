@@ -1,4 +1,5 @@
 import { daemonFetch } from "../../../lib/webApi";
+import { PlanReadError } from "../plansApi";
 // Mirrors the Rust projection in codeterm-plan service_plan/state/mission_control.rs;
 // field names match its JSON wire shape.
 
@@ -211,7 +212,7 @@ export async function fetchPlanBoardState(
     headers: authHeaders(api),
     signal,
   });
-  if (!res.ok) throw new Error(`plan state failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) throw new PlanReadError(res.status, `plan state failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as PlanBoardState;
   return body;
 }

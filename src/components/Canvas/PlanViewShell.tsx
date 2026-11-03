@@ -17,6 +17,7 @@ import { TaskSegmentPanel } from "./planView/TaskSegmentPanel";
 import { findTaskByReference, taskSegmentLabel } from "./taskDisplayKey";
 import { useFullPlansOptional } from "./PlansProvider";
 import { usePlanTaskDetail } from "./usePlans";
+import { taskDetailMatchesReference } from "./usePlanTaskDetail";
 
 const BoardSurface = memo(MissionControlPlanSurface);
 const ListSurface = memo(PlanListView);
@@ -150,7 +151,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   );
   const detail = useMemo(() => {
     const selectedDetail = taskDetail.detail;
-    if (!segment || !selectedDetail || selectedDetail.plan_id !== segment.planId || selectedDetail.task_id !== segment.taskRef) return null;
+    if (!segment || !selectedDetail || !taskDetailMatchesReference(selectedDetail, segment.planId, segment.taskRef)) return null;
     return selectedDetail;
   }, [segment, taskDetail.detail]);
   const cachedTask = useMemo(() => {
