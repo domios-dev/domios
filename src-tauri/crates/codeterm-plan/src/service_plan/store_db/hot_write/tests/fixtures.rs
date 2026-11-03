@@ -118,29 +118,17 @@ pub(super) fn baseline_operation(
     kind: &str,
     mutate: impl FnOnce(&mut Plan),
 ) {
+    crate::service_plan::store_sync::take_decoded_row_bytes();
+    store_rows::take_serialized_row_bytes();
     let started = Instant::now();
     let mut plan = database.load_plan(id).unwrap().unwrap();
-    let decoded = serde_json::to_vec(&plan).unwrap().len();
     mutate(&mut plan);
     plan.updated_at += 1;
-    let rows = store_rows::split_plan(serde_json::to_value(&plan).unwrap()).unwrap();
-    let serialized = rows.header.len()
-        + rows
-            .tasks
-            .iter()
-            .map(|task| {
-                task.document.len()
-                    + task.milestones.iter().map(String::len).sum::<usize>()
-                    + task
-                        .attempts
-                        .iter()
-                        .map(|attempt| attempt.document.len())
-                        .sum::<usize>()
-            })
-            .sum::<usize>()
-        + rows.strides.iter().map(String::len).sum::<usize>();
     let writes = database.persist_plan_rows(&plan, None).unwrap();
-    println!("baseline=load_plan+persist_plan_rows operation={kind} strides={} unrelated_attempts={} decoded_reconstructed_bytes={decoded} serialized_row_bytes={serialized} elapsed_us={} writes={writes:?}", plan.strides.len(), plan.tasks[1].execution_attempts.len(), started.elapsed().as_micros());
+    let elapsed = started.elapsed();
+    let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
+    let serialized = store_rows::take_serialized_row_bytes();
+    println!("baseline=load_plan+persist_plan_rows operation={kind} strides={} unrelated_attempts={} decoded_row_bytes={decoded} serialized_row_bytes={serialized} elapsed_us={} writes={writes:?}", plan.strides.len(), plan.tasks[1].execution_attempts.len(), elapsed.as_micros());
     assert!(serialized > 31 * 1024 * 1024);
 }
 

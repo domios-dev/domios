@@ -657,5 +657,17 @@ pub(super) fn grouped_documents(
 }
 
 pub(super) fn parse(document: &str) -> Result<Value, String> {
+    #[cfg(test)]
+    DECODED_ROW_BYTES.with(|bytes| bytes.set(bytes.get() + document.len()));
     serde_json::from_str(document).map_err(|error| error.to_string())
+}
+
+#[cfg(test)]
+thread_local! {
+    static DECODED_ROW_BYTES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+pub(super) fn take_decoded_row_bytes() -> usize {
+    DECODED_ROW_BYTES.with(|bytes| bytes.replace(0))
 }
