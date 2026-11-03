@@ -573,6 +573,7 @@ mod curator_queries;
 mod curator_snapshot;
 mod index_queries;
 mod notice_queries;
+mod related_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
 mod list_window_queries;

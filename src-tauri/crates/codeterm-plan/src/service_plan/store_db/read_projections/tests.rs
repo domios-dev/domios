@@ -7,6 +7,7 @@ use std::sync::{Arc, Barrier};
 mod curator_digest_tests;
 mod curator_schedule_tests;
 mod notice_tests;
+mod related_tests;
 mod status_tests;
 
 fn sections() -> Vec<Section> {
