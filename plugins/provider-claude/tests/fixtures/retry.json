@@ -469,5 +469,45 @@
       "error": "opaque-error"
     },
     "signal": null
+  },
+  {
+    "name": "success-own",
+    "record": {
+      "type": "assistant",
+      "uuid": "opaque-success",
+      "sessionId": "own-fixture",
+      "isSidechain": false,
+      "message": {
+        "stop_reason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      }
+    },
+    "signal": null,
+    "succeeded": true
+  },
+  {
+    "name": "success-sidechain",
+    "record": {
+      "type": "assistant",
+      "uuid": "opaque-success",
+      "sessionId": "own-fixture",
+      "isSidechain": true,
+      "message": {
+        "stop_reason": "end_turn",
+        "content": [
+          {
+            "type": "text",
+            "text": "opaque-fragment"
+          }
+        ]
+      }
+    },
+    "signal": null,
+    "succeeded": false
   }
 ]

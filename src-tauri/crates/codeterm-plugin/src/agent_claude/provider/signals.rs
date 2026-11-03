@@ -45,6 +45,7 @@ pub(super) fn session(record: &Value) -> Option<SessionObservations> {
         unavailable_model: None,
         retry_error: retry::classify(record),
         retry_succeeded: clears_api_error
+            && record["isSidechain"] != true
             && matches!(
                 record["message"]["stop_reason"].as_str(),
                 Some("end_turn" | "stop_sequence")

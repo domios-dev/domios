@@ -13,5 +13,6 @@ for (const fixture of cases) {
     const signal = plugin.parseSessionObservations(fixture.record)?.retry_error;
     const normalized = signal ? {...JSON.parse(JSON.stringify(signal)), retryAtMs:signal.retryAtMs ?? null} : null;
     assert.deepEqual(normalized, fixture.signal);
+    if (fixture.succeeded !== undefined) assert.equal(plugin.parseSessionObservations(fixture.record)?.retry_succeeded === true, fixture.succeeded);
   });
 }

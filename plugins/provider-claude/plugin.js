@@ -716,7 +716,7 @@ function parseSessionObservations(value) {
   const isError = record3.isApiErrorMessage === true;
   const api_error = isError ? classifyAccessError(record3.error, record3) : null;
   const clears_api_error = record3.type === "assistant" && !isError && !!object2(record3.message);
-  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3), ...retryError(record3), ...clears_api_error && ["end_turn", "stop_sequence"].includes(String(object2(record3.message)?.stop_reason)) ? { retry_succeeded: true } : {} } : null;
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3), ...retryError(record3), ...clears_api_error && record3.isSidechain !== true && ["end_turn", "stop_sequence"].includes(String(object2(record3.message)?.stop_reason)) ? { retry_succeeded: true } : {} } : null;
 }
 
 // plugins/provider-claude/src/backgroundWork.ts
