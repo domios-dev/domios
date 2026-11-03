@@ -12,6 +12,7 @@ mod input;
 mod interactions;
 mod locators;
 mod metrics;
+mod mouse;
 mod output;
 mod overlay;
 mod page;
@@ -109,7 +110,7 @@ pub struct BrowserRuntime {
     secrets: Mutex<Vec<String>>,
     uploads: Mutex<Vec<upload::AdmittedFile>>,
     upload_gate: tokio::sync::Mutex<()>,
-    action_gate: tokio::sync::Mutex<()>,
+    action_gate: Arc<tokio::sync::Mutex<()>>,
     overlay_session: tokio::sync::Mutex<Option<String>>,
 }
 
@@ -150,7 +151,7 @@ impl BrowserRuntime {
             secrets: Mutex::new(Vec::new()),
             uploads: Mutex::new(Vec::new()),
             upload_gate: tokio::sync::Mutex::new(()),
-            action_gate: tokio::sync::Mutex::new(()),
+            action_gate: Arc::new(tokio::sync::Mutex::new(())),
             overlay_session: tokio::sync::Mutex::new(None),
         }
     }

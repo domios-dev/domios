@@ -22,6 +22,7 @@ pub async fn connect(
     viewer_target: Option<String>,
 ) -> SurfaceEvents {
     let lease = if let (Some(viewer), Some(viewport)) = (viewer, viewport) {
+        let _guard = runtime.action_gate.lock().await;
         let mut model = runtime.viewport.lock().await;
         let page = runtime.host.page();
         let recursive = super::viewport::recursive_viewer(
@@ -102,6 +103,7 @@ impl Drop for ViewerLease {
         let viewer = self.viewer.clone();
         let generation = self.generation;
         tokio::spawn(async move {
+            let _guard = runtime.action_gate.lock().await;
             let mut model = runtime.viewport.lock().await;
             if model.leave(&viewer, generation) {
                 log::debug!(

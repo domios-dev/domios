@@ -4,7 +4,13 @@ use codeterm_browser::{
     cdp_wire::{CdpEvent, EventFilter},
 };
 use parking_lot::Mutex;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::sync::{mpsc, watch};
 
 #[derive(Clone, Copy)]
@@ -20,6 +26,7 @@ struct Connection {
     calls: Mutex<Vec<(String, Value)>>,
     subscribers: Mutex<Vec<(EventFilter, mpsc::Sender<Arc<CdpEvent>>)>>,
     closed: watch::Sender<Option<String>>,
+    touch: AtomicBool,
 }
 
 fn payload() -> Value {
@@ -50,7 +57,18 @@ impl CdpConnection for Connection {
         _: Duration,
     ) -> Result<Value, CdpError> {
         self.calls.lock().push((method.into(), params.clone()));
+        if method == "Input.dispatchMouseEvent" && self.touch.load(Ordering::SeqCst) {
+            return Err(CdpError::Malformed(
+                "mouse event sent with touch conversion active".into(),
+            ));
+        }
         Ok(match method {
+            "Emulation.setEmitTouchEventsForMouse" => {
+                self.touch
+                    .store(params["enabled"] == true, Ordering::SeqCst);
+                json!({})
+            }
+            "DOM.getContentQuads" => json!({"quads":[[0,0,20,0,20,20,0,20]]}),
             "Target.attachToTarget" => json!({"sessionId":"session"}),
             "Page.getFrameTree" => json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}}),
             "Input.dispatchMouseEvent"
@@ -104,6 +122,7 @@ async fn fixture(
         calls: Mutex::new(Vec::new()),
         subscribers: Mutex::new(Vec::new()),
         closed: watch::channel(None).0,
+        touch: AtomicBool::new(false),
     });
     let page = CdpClient::from_connection(connection.clone())
         .attach_page("target")
@@ -119,6 +138,53 @@ async fn fixture(
     );
     runtime.shared.bind(&page);
     (runtime, page, connection, root)
+}
+
+#[tokio::test]
+async fn browser_mobile_drag_restores_touch_and_preserves_later_desktop_click_and_mobile_tap() {
+    let (runtime, page, connection, _root) = fixture(Mode::Native).await;
+    for (mobile, drag) in [(true, true), (false, false), (true, false)] {
+        runtime
+            .host
+            .set_device_viewport(
+                codeterm_browser::viewport::ViewportRequest {
+                    width: 380.0,
+                    height: 844.0,
+                    dpr: 2.0,
+                },
+                mobile,
+            )
+            .await
+            .unwrap();
+        page.send(
+            "Emulation.setEmitTouchEventsForMouse",
+            json!({"enabled":mobile}),
+        )
+        .await
+        .unwrap();
+        if drag {
+            runtime
+                .interaction_verb(&page, "drag", &["0", "0", "100", "100"].map(String::from))
+                .await
+                .unwrap();
+            assert!(connection.touch.load(Ordering::SeqCst));
+        } else {
+            assert!(runtime
+                .click_node(&page, 7)
+                .await
+                .unwrap()
+                .starts_with("action acknowledged;"));
+        }
+    }
+    assert_eq!(
+        connection
+            .calls
+            .lock()
+            .iter()
+            .filter(|(method, _)| method == "Input.synthesizeTapGesture")
+            .count(),
+        1
+    );
 }
 
 #[tokio::test]

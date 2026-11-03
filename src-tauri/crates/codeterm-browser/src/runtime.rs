@@ -414,6 +414,12 @@ pub(super) async fn apply_viewport(
         }),
     )
     .await
+    .map_err(|error| error.to_string())?;
+    page.send(
+        "Emulation.setEmitTouchEventsForMouse",
+        json!({"enabled":viewport.mobile,"configuration":"mobile"}),
+    )
+    .await
     .map(|_| ())
     .map_err(|error| error.to_string())
 }

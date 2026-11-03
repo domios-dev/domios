@@ -105,7 +105,18 @@ impl BrowserRuntime {
         args: &[String],
     ) -> Result<String, String> {
         let request = parse(verb, args)?;
-        let _guard = self.action_gate.lock().await;
+        let scope = self
+            .action_scope(
+                page,
+                verb != "scroll-to"
+                    && matches!(
+                        request,
+                        Interaction::Target(_)
+                            | Interaction::DragRefs(_, _)
+                            | Interaction::DragPoints(_)
+                    ),
+            )
+            .await?;
         if let Interaction::Form(locator, value) = &request {
             return self.element_action(page, locator, "form", value).await;
         }
@@ -166,7 +177,9 @@ impl BrowserRuntime {
                     Interaction::DragPoints([x, y, end_x, end_y]) => (*x, *y, *end_x, *end_y),
                     _ => unreachable!(),
                 };
-                return self.drag_action(page, [x, y, end_x, end_y], epoch).await;
+                let result = self.drag_action(page, [x, y, end_x, end_y], epoch).await;
+                scope.finish().await?;
+                return result;
             }
             _ => return Err("unsupported interaction".into()),
         }
@@ -188,6 +201,7 @@ impl BrowserRuntime {
             })
             .await;
         self.shared.invalidate_snapshot();
+        scope.finish().await?;
         result.map(|(_, completion)| {
             format!("{verb}: {completion}; re-snapshot to verify the result")
         })

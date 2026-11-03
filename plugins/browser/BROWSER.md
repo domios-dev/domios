@@ -57,6 +57,8 @@ Actions show a cursor and typing ring; secrets stay masked. Viewer input hides t
 
 `viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
 
+Owned mobile viewports enable touch emulation; use viewport commands to change modes, as external CDP emulation changes are outside the browser's state contract.
+
 Screenshot replies report CSS viewport width/height and DPR; recheck coordinates after resizing. `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` adds layout/content/CDP metrics. `--restore` restores prior metrics even after failure; otherwise they stay active.
 
 ## Scoped atomic actions
@@ -151,4 +153,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

@@ -341,7 +341,19 @@ impl BrowserRuntime {
             .await;
         self.shared.check_action(&authority)?;
         self.complete_action(page, false, async {
-            self.dispatch_input(page, &InputArgs::click(x, y)).await?;
+            if self.host.viewport().mobile {
+                // Converted touch acks never drain Chromium's pending mouse callback FIFO.
+                self.send(
+                    page,
+                    "Input.synthesizeTapGesture",
+                    json!({
+                        "x":x,"y":y,"gestureSourceType":"mouse","tapCount":1,"duration":0,
+                    }),
+                )
+                .await?;
+            } else {
+                self.dispatch_input(page, &InputArgs::click(x, y)).await?;
+            }
             Ok(Value::Null)
         })
         .await

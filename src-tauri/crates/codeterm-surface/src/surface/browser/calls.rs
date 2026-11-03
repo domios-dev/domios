@@ -81,6 +81,7 @@ impl BrowserRuntime {
         let value = match method {
             "resize" | "viewport.claim" => {
                 let size: ResizeArgs = parse(method, args)?;
+                let _guard = self.action_gate.lock().await;
                 let mut model = self.viewport.lock().await;
                 let accepted = model
                     .request(
@@ -203,7 +204,13 @@ impl BrowserRuntime {
         self.shared.invalidate_snapshot();
         self.shared.invalidate_action();
         self.hide_cursor_for_viewer(page);
-        self.dispatch_input(page, input).await
+        let mouse_events = super::input::input_commands(input)?
+            .iter()
+            .any(|(method, _)| *method == "Input.dispatchMouseEvent");
+        let scope = self.action_scope(page, mouse_events).await?;
+        let result = self.dispatch_input(page, input).await;
+        scope.finish().await?;
+        result
     }
 
     async fn grab_send(

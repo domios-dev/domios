@@ -161,6 +161,7 @@ impl BrowserRuntime {
     }
 
     pub(super) async fn viewport_verb(&self, args: &[String]) -> Result<String, String> {
+        let _guard = self.action_gate.lock().await;
         let viewport = parse(args, true)?.viewport.ok_or("missing viewport")?;
         self.apply_metrics(viewport).await?;
         Ok(json!({"width":viewport.width,"height":viewport.height,"dpr":viewport.dpr,"mobile":viewport.mobile}).to_string())
@@ -171,6 +172,7 @@ impl BrowserRuntime {
         ctx: &SurfaceCallCtx,
         args: &[String],
     ) -> Result<String, String> {
+        let _guard = self.action_gate.lock().await;
         let options = parse(args, false)?;
         let page = self.ensure_page().await?;
         let (base64, metrics) = if options.region.is_some() || options.scale.is_some() {

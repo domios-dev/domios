@@ -410,8 +410,73 @@ async fn temporary_mobile_capture_restores_previous_metrics_after_success_and_fa
                 "viewport":{"x":0,"y":0,"width":1600,"height":900,"scale":1}})
         );
         assert_eq!(host.viewport(), Viewport::default());
+        let touch: Vec<_> = connection
+            .state
+            .lock()
+            .requests
+            .iter()
+            .filter(|(_, method, _)| method == "Emulation.setEmitTouchEventsForMouse")
+            .map(|(_, _, params)| params.clone())
+            .collect();
+        assert_eq!(
+            touch,
+            vec![
+                json!({"enabled":false,"configuration":"mobile"}),
+                json!({"enabled":true,"configuration":"mobile"}),
+                json!({"enabled":false,"configuration":"mobile"}),
+            ]
+        );
         host.close().await;
     }
+}
+
+#[tokio::test]
+async fn owned_viewport_touch_mode_tracks_changes_and_attached_targets_are_untouched() {
+    let root = tempfile::tempdir().unwrap();
+    let connection = FakeConnection::new();
+    let lease = acquire(
+        root.path().join("profile"),
+        connection.clone(),
+        Arc::new(AtomicUsize::new(0)),
+    )
+    .await;
+    let host = crate::BrowserHost::new(crate::BrowserHostConfig::under_data_dir(root.path()));
+    let runtime = from_lease(lease, Viewport::default(), hub()).await.unwrap();
+    let client = runtime.client.clone();
+    let page = runtime.page.clone();
+    host.install(runtime);
+    for mobile in [true, false] {
+        host.set_device_viewport(
+            crate::ViewportRequest {
+                width: 380.0,
+                height: 844.0,
+                dpr: 2.0,
+            },
+            mobile,
+        )
+        .await
+        .unwrap();
+    }
+    let touch: Vec<_> = connection
+        .state
+        .lock()
+        .requests
+        .iter()
+        .filter(|(_, method, _)| method == "Emulation.setEmitTouchEventsForMouse")
+        .map(|(_, _, params)| params["enabled"].clone())
+        .collect();
+    assert_eq!(touch, vec![json!(false), json!(true), json!(false)]);
+    connection.state.lock().requests.clear();
+    prepare_target(&client, page.target_id(), None)
+        .await
+        .unwrap();
+    assert!(!connection
+        .state
+        .lock()
+        .requests
+        .iter()
+        .any(|(_, method, _)| method.starts_with("Emulation.")));
+    host.close().await;
 }
 
 #[tokio::test]
