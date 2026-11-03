@@ -66,6 +66,7 @@ Account fields: ACCOUNT. Backup and update contracts: API-STATE. Listener and we
 | POST | `/api/essence-maps` | List essence maps for a project. |
 | POST | `/api/frontend/activate` | Activate a verified interface bundle. |
 | POST | `/api/frontend/check` | Check for a compatible interface bundle. |
+| POST | `/api/frontend/client-health` | Record an owner-authorized bounded client health event. |
 | POST | `/api/frontend/diagnostic` | Admit a bounded frontend diagnostic. |
 | POST | `/api/frontend/healthy` | Confirm interface health after activation. |
 | POST | `/api/frontend/ready` | Record frontend readiness. |
@@ -124,4 +125,4 @@ Provider hook bodies and nonce admission: API-TABS.
 | POST | `/api/tabs/{id}/hook/stop` | Admit a provider stop hook. |
 | POST | `/api/tabs/{id}/launch-artifacts/release` | Release owned provider launch artifacts. |
 
-<!-- revision: 16 -->
+<!-- revision: 17 -->

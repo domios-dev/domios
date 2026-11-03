@@ -40,7 +40,7 @@ it.each([[true, true, true], [true, true, false], [true, false, true], [false, t
   });
   __setListenForTest(async () => () => {});
   const state: ExtendedState = {
-    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    workspaces: [], tabs: { paste: { id: "paste", pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } }, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
   };
   const host = document.createElement("div"); document.body.append(host);

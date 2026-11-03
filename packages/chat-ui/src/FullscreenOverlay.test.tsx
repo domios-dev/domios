@@ -161,7 +161,7 @@ test("only an active content viewer owns nested code and anchored menus, and Esc
   }
   const find = (text: string) => Array.from(document.querySelectorAll("button")).find(button => button.textContent === text)!;
   await mount(<Viewer />);
-  const outsideFullscreen = host.querySelector<HTMLButtonElement>('[aria-label="Ordinary code"] [title="Open in fullscreen"]')!;
+  const outsideFullscreen = host.querySelector<HTMLButtonElement>('[aria-label="Ordinary code"] [aria-label="Open full screen: Fullscreen code"]')!;
   assert.equal(outsideFullscreen.hidden, false);
   await act(async () => find("Outside menu").click());
   assert.equal(document.querySelector("[data-anchored-popover]")?.parentElement, document.body);
@@ -170,7 +170,7 @@ test("only an active content viewer owns nested code and anchored menus, and Esc
   const opener = find("Open viewer");
   await act(async () => { opener.focus(); opener.click(); });
   const viewer = document.querySelector('[role="dialog"]')!;
-  assert.equal(viewer.querySelector<HTMLButtonElement>('[title="Open in fullscreen"]')?.hidden, true);
+  assert.equal(viewer.querySelector<HTMLButtonElement>('[aria-label="Open full screen: Fullscreen code"]')?.hidden, true);
   assert.equal(outsideFullscreen.hidden, false);
   const menuTrigger = find("Inside menu");
   await act(async () => { menuTrigger.focus(); menuTrigger.click(); });
@@ -183,7 +183,7 @@ test("only an active content viewer owns nested code and anchored menus, and Esc
   await act(async () => window.dispatchEvent(new window.KeyboardEvent("keydown", { code: "Escape", key: "Escape", cancelable: true })));
   assert.equal(document.querySelector('[role="dialog"]'), null);
   assert.equal(document.activeElement, opener);
-  assert.equal(host.querySelector<HTMLButtonElement>('dialog [title="Open in fullscreen"]')?.hidden, false);
+  assert.equal(host.querySelector<HTMLButtonElement>('dialog [aria-label="Open full screen: Fullscreen code"]')?.hidden, false);
 });
 test("closing nested viewers restores page scrolling and the original opener", async () => {
   function NestedHarness() {

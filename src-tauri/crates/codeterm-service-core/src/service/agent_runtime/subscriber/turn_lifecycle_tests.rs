@@ -231,17 +231,26 @@ async fn terminal_turn_outcomes_settle_the_transcript_live_row() {
         }
         publish(&scene, vec![completed], 20).await;
         assert_idle(&scene);
-        let row = scene.session.cache.lock().snapshot().pop().unwrap();
+        let row = scene
+            .session
+            .cache
+            .lock()
+            .snapshot()
+            .into_iter()
+            .find(|row| row.id == "command")
+            .unwrap();
         assert_eq!(row.tool_status.as_deref(), Some("interrupted"));
         assert_eq!(row.tool_completed_at_ms, Some(20));
         let events = scene.fixture.ui.0.lock();
         let tab = scene.session.context.lock().tab_id.clone();
-        let last = events
+        let settled = events
             .iter()
             .rev()
-            .find(|(name, _)| name == &format!("tab-chat-msg-{tab}"))
+            .filter(|(name, _)| name == &format!("tab-chat-msg-{tab}"))
+            .flat_map(|(_, payload)| payload["messages"].as_array().unwrap())
+            .find(|row| row["id"] == "command")
             .unwrap();
-        assert_eq!(last.1["messages"][0]["toolStatus"], "interrupted");
+        assert_eq!(settled["toolStatus"], "interrupted");
     }
 }
 

@@ -1,4 +1,4 @@
-# Secret-audit report: Browser fixture addendum
+# Secret-audit addenda
 
 This adds to the original secret audit recorded under plan `pl_7lsisa`, task
 `task_zmyr1n` (Sentinel worker report, 2026-10-23). Values are not reproduced.
@@ -11,3 +11,16 @@ The fixture supplies synthetic page text and a final URL to a fake Browser
 surface. It never authenticates a request. History remains intact; no blanket
 path or rule exemption is added. Local scan results are recorded in the
 integration report after verification.
+
+## Provider output-limit comparisons
+
+| Fingerprint | Verdict | Action |
+| --- | --- | --- |
+| `5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-claude/plugin.js:generic-api-key:667` | Protocol field comparisons, not a credential | Ignore this exact historical fingerprint. |
+| `5a57f7e202bb85820fb933e6dded30656671860b:plugins/provider-codex/plugin.js:generic-api-key:1178` | Protocol field comparisons, not a credential | Ignore this exact historical fingerprint. |
+
+Both generated lines compare `stop_reason` with `max_tokens` and `finish_reason`
+with `length` inside `outputLimit`. Neither contains a credential or performs
+authentication. The scanner reports these comparisons as `generic-api-key`
+findings. Source, history, scanner rules and all other findings remain subject
+to the same checks.
