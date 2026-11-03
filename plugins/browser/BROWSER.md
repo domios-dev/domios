@@ -1,12 +1,12 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `domios plugin browser <verb> [args]`. Read this guide with `domios docs BROWSER` or `domios plugin browser help`.
+Every verb is `domios plugin browser <verb> [args]`. Guide: `domios docs BROWSER` or `domios plugin browser help`.
 
 ## When to use it
 
 Use this browser for web tasks and UI verification while the user watches. Use HTTP/APIs for plain data.
 
-Delegate multi-step flows producing over 10,000 characters to a Worker; return a short result/evidence/blocker report. Set command/time bounds; stop at bot/auth walls. Workers report to their parent. Keep small checks direct; bound output with scopes, grep and `--out`.
+Delegate multi-step flows over 10,000 output characters to a Worker for a short result/evidence/blocker report. Set command/time bounds; stop at bot/auth walls. Workers report to their parent. Bound direct checks with scopes, grep and `--out`.
 
 ## Your browser
 
@@ -14,14 +14,14 @@ Delegate multi-step flows producing over 10,000 characters to a Worker; return a
 - **Profiles.**
   - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
   - A **named profile** retains logins and cookies. Users create general profiles in the Browser profile menu. Agents select existing profiles with `open --profile NAME`; unknown names fail. For DEV QA, use the origin-bound session commands below, `profile list` and `profile remove NAME` for inactive profiles. Publishing, buying, deleting and sending messages require explicit user instruction.
-- **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
+- **Shared profiles.** Named-profile tabs share cookies/logins; pages and controls stay independent. Closing one leaves the others open.
 - **Another agent's browser.** Add `--of <title|tab-id>` to act there. Its owner sees your activity. It must already be open; you cannot close it. Use refs from its latest snapshot.
 - **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
-- **Shared view.** The user may press *Take control* and click or type alongside you. You are not blocked and not told. Always re-read the page before acting.
+- **Shared view.** *Take control* lets users act alongside you without notice. Re-read the page before acting.
 
 ## The loop: snapshot, act, re-snapshot
 
-With **Take control**, the user can select text, interact and scroll. Ctrl/Cmd+C and Ctrl/Cmd+V copy the remote selection and paste local text; the toolbar offers both actions. User input invalidates refs: take a fresh snapshot afterward.
+With **Take control**, users select text, interact and scroll. Ctrl/Cmd+C/V and the toolbar copy remote selection/paste local text. User input invalidates refs; re-snapshot afterward.
 
 1. `snapshot`: read the page as an accessibility tree with roles, names, control states and element refs. Copy the exact ref shown, including its capture prefix; never construct one from an element's position. **This is the default way to understand a page.**
 2. Act on what the snapshot shows, by ref or by role and name:
@@ -52,6 +52,8 @@ Stop when `status` reports `needs human` other than `none`: captcha, missing log
 `inbox` lists unread annotations; `inbox all` lists retained ones. Notices carry page/element/React pointers, text, attributes, styles, box, context, screenshot and intent. Find the code, act and verify.
 
 ## Device viewport and capture metrics
+
+Actions show a blue cursor, ripple, drag trail and typing ring. Long inputs use a caret; secrets stay masked. Reduced motion is static; viewer input hides it. Evidence omits it unless `screenshot cursor.png --include-overlay` is requested.
 
 `viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
 
@@ -147,4 +149,4 @@ Each step uses standalone validation, authority and redaction; put `--of` in its
 - `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
 - `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
 
-<!-- revision: 18 -->
+<!-- revision: 19 -->

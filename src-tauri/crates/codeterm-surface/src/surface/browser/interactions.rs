@@ -124,6 +124,11 @@ impl BrowserRuntime {
             }
             Interaction::Target(locator) => {
                 let (x, y) = self.target_point(page, locator).await?;
+                self.present(
+                    page,
+                    json!({"kind":if verb == "hover" {"move"} else {"click"},"x":x,"y":y}),
+                )
+                .await;
                 if verb == "hover" {
                     commands.push((
                         "Input.dispatchMouseEvent",
@@ -211,7 +216,15 @@ impl BrowserRuntime {
             .and_then(Value::as_str)
             .ok_or("stale: detached element")?;
         self.resolve(locator)?;
+        if action != "scroll" {
+            self.present_on(page, Some(id), json!({"kind":"click"}))
+                .await;
+        }
         let result = self.complete_action(page,false,self.send(page,"Runtime.callFunctionOn",json!({"objectId":id,"functionDeclaration":include_str!("element-action.js"),"arguments":[{"value":epoch},{"value":action},{"value":value}],"returnByValue":true}))).await;
+        if action == "scroll" && result.is_ok() {
+            self.present_on(page, Some(id), json!({"kind":"move"}))
+                .await;
+        }
         let _ = self
             .send(page, "Runtime.releaseObject", json!({"objectId":id}))
             .await;

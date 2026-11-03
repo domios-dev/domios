@@ -32,6 +32,8 @@ struct NavArgs {
 struct ScreenshotArgs {
     #[serde(default)]
     full: bool,
+    #[serde(default)]
+    include_overlay: bool,
 }
 
 #[derive(Deserialize)]
@@ -92,6 +94,7 @@ impl BrowserRuntime {
                 let page = self.ensure_page().await?;
                 self.shared.invalidate_snapshot();
                 self.shared.invalidate_action();
+                self.hide_agent_cursor(&page).await;
                 self.dispatch_input(&page, &input).await?;
                 Value::Null
             }
@@ -105,7 +108,9 @@ impl BrowserRuntime {
             "screenshot" => {
                 let shot: ScreenshotArgs = parse(method, args)?;
                 let page = self.ensure_page().await?;
-                let base64 = self.screenshot_base64(&page, shot.full).await?;
+                let base64 = self
+                    .screenshot_base64(&page, shot.full, shot.include_overlay)
+                    .await?;
                 let path = self
                     .save_evidence(ctx, format!("shot-{}.png", now_ms()), base64.clone())
                     .await?;

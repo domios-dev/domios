@@ -9,6 +9,7 @@ pub(super) struct MetricsArgs {
     pub restore: bool,
     pub metrics: bool,
     pub full: bool,
+    pub include_overlay: bool,
     pub name: Option<String>,
     pub region: Option<[f64; 4]>,
     pub scale: Option<f64>,
@@ -20,6 +21,7 @@ pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, Strin
         restore: false,
         metrics: false,
         full: false,
+        include_overlay: false,
         name: None,
         region: None,
         scale: None,
@@ -72,6 +74,7 @@ pub(super) fn parse(args: &[String], setting: bool) -> Result<MetricsArgs, Strin
             "--restore" => out.restore = true,
             "--metrics-json" => out.metrics = true,
             "--full" => out.full = true,
+            "--include-overlay" if !setting => out.include_overlay = true,
             "--dpr" => {
                 i += 1;
                 dpr = args
@@ -181,7 +184,7 @@ impl BrowserRuntime {
             if width * height * scale.powi(2) > 16_777_216.0 {
                 return Err("capture exceeds pixel limit".into());
             }
-            let shot = self.send(&page,"Page.captureScreenshot",json!({"format":"png","captureBeyondViewport":true,"clip":{"x":x,"y":y,"width":width,"height":height,"scale":scale}})).await?;
+            let shot = self.capture_screenshot(&page,json!({"format":"png","captureBeyondViewport":true,"clip":{"x":x,"y":y,"width":width,"height":height,"scale":scale}}),options.include_overlay).await?;
             (
                 shot["data"]
                     .as_str()
@@ -190,10 +193,20 @@ impl BrowserRuntime {
                 metrics,
             )
         } else if let Some(viewport) = options.viewport.filter(|_| options.restore) {
+            if !options.include_overlay {
+                self.overlay_capture(&page, true).await?;
+            }
             let shot = self
                 .host
                 .capture_with_viewport(viewport, options.full)
-                .await?;
+                .await;
+            let restored = if !options.include_overlay {
+                self.overlay_capture(&page, false).await
+            } else {
+                Ok(())
+            };
+            let shot = shot?;
+            restored?;
             (
                 shot["data"]
                     .as_str()
@@ -210,7 +223,11 @@ impl BrowserRuntime {
             } else {
                 serde_json::Value::Null
             };
-            (self.screenshot_base64(&page, options.full).await?, metrics)
+            (
+                self.screenshot_base64(&page, options.full, options.include_overlay)
+                    .await?,
+                metrics,
+            )
         };
         let name = super::inbox::evidence_file_name(
             options.name.as_deref().unwrap_or(""),

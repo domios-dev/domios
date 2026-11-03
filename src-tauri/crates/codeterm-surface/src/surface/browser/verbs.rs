@@ -336,6 +336,10 @@ impl BrowserRuntime {
         let quads = self.send(page, "DOM.getContentQuads", node).await?;
         let (x, y) =
             input::quad_center(&quads).ok_or("element has no visible box (hidden or zero-size)")?;
+        let authority = self.shared.begin_action(page)?;
+        self.present(page, json!({"kind":"click","x":x,"y":y}))
+            .await;
+        self.shared.check_action(&authority)?;
         self.complete_action(page, false, async {
             self.dispatch_input(page, &InputArgs::click(x, y)).await?;
             Ok(Value::Null)

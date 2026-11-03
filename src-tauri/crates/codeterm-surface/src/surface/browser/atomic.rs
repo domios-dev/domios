@@ -179,6 +179,12 @@ impl BrowserRuntime {
             .pointer("/object/objectId")
             .and_then(|v| v.as_str())
             .ok_or("stale: detached element")?;
+        self.present_on(
+            page,
+            Some(id),
+            json!({"kind":if fill {"typing"} else {"click"},"text":args.text}),
+        )
+        .await;
         let result = self.complete_action(page, false, self.send(page,"Runtime.callFunctionOn",json!({"objectId":id,"functionDeclaration":ACT,"arguments":[{"value":epoch},{"value":if fill {"fill"} else {"click"}},{"value":args.text}],"returnByValue":true}))).await;
         let _ = self
             .send(page, "Runtime.releaseObject", json!({"objectId":id}))

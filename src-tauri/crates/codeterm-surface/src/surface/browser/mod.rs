@@ -13,6 +13,7 @@ mod interactions;
 mod locators;
 mod metrics;
 mod output;
+mod overlay;
 mod page;
 mod redaction;
 mod resume;
@@ -107,6 +108,7 @@ pub struct BrowserRuntime {
     uploads: Mutex<Vec<upload::AdmittedFile>>,
     upload_gate: tokio::sync::Mutex<()>,
     action_gate: tokio::sync::Mutex<()>,
+    overlay_session: tokio::sync::Mutex<Option<String>>,
 }
 
 fn cdp_error(error: codeterm_browser::CdpError) -> String {
@@ -146,6 +148,7 @@ impl BrowserRuntime {
             uploads: Mutex::new(Vec::new()),
             upload_gate: tokio::sync::Mutex::new(()),
             action_gate: tokio::sync::Mutex::new(()),
+            overlay_session: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -218,6 +221,7 @@ impl BrowserRuntime {
         }
         self.shared.bind(&page);
         self.send(&page, "Runtime.enable", json!({})).await?;
+        self.install_overlay(&page).await?;
         self.send(
             &page,
             "Network.enable",
@@ -229,6 +233,9 @@ impl BrowserRuntime {
     }
 
     async fn send(&self, page: &PageChannel, method: &str, params: Value) -> Result<Value, String> {
+        if method == "Page.captureScreenshot" {
+            return self.capture_screenshot(page, params, false).await;
+        }
         page.send(method, params).await.map_err(cdp_error)
     }
 
@@ -267,12 +274,17 @@ impl BrowserRuntime {
             .map(|(_, completion)| completion)
     }
 
-    async fn screenshot_base64(&self, page: &PageChannel, full: bool) -> Result<String, String> {
+    async fn screenshot_base64(
+        &self,
+        page: &PageChannel,
+        full: bool,
+        include_overlay: bool,
+    ) -> Result<String, String> {
         let shot = self
-            .send(
+            .capture_screenshot(
                 page,
-                "Page.captureScreenshot",
                 json!({ "format": "png", "captureBeyondViewport": full }),
+                include_overlay,
             )
             .await?;
         shot.get("data")
