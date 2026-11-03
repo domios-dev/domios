@@ -239,6 +239,7 @@ impl ServiceContext {
         if !self
             .plan_store
             .task_bindings_with_name_for_tab(reporter_tab_id)
+            .map_err(|error| error.to_string())?
             .is_empty()
         {
             return Err(format!(

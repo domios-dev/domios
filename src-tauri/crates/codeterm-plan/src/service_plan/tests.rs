@@ -573,7 +573,7 @@ fn closed_task_assignment_is_not_indexed_or_bound() {
         .unwrap();
     assert!(entry.assigned_tab_ids.is_empty());
     assert!(store.task_binding_for_tab("tab-live").is_none());
-    assert!(store.task_bindings_for_tab("tab-live").is_empty());
+    assert!(store.task_bindings_for_tab("tab-live").unwrap().is_empty());
 }
 
 #[test]
