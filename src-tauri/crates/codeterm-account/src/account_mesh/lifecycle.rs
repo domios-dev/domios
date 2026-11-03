@@ -126,7 +126,6 @@ pub(super) struct Inner {
     pub(super) sync_pending: bool,
     pub(super) refreshed_credentials: Option<super::admission::CredentialStamp>,
     pub(super) auth_parked: Option<super::admission::CredentialStamp>,
-    pub(super) terminal_parked: bool,
     pub(super) resolved: HashMap<String, MeshTarget>,
     flight: Option<Flight>,
     awaiting_logout: bool,
@@ -199,7 +198,6 @@ impl Inner {
     fn begin_epoch(&mut self) {
         self.cancel_flight();
         self.auth_parked = None;
-        self.terminal_parked = false;
         self.rejoin_authorized = false;
         self.rejoin_window = None;
         self.pending_renew = None;
@@ -269,7 +267,6 @@ impl AccountMesh {
                 publication_refresh_after: 0,
                 sync_pending: false,
                 auth_parked: None,
-                terminal_parked: false,
                 refreshed_credentials: None,
                 flight: None,
                 awaiting_logout: false,
@@ -619,17 +616,6 @@ impl AccountMesh {
         });
     }
 
-    pub fn machine_limit_changed(&self) -> bool {
-        self.with(|inner| {
-            if !inner.terminal_parked || !inner.state.plan_limit_locked() {
-                return false;
-            }
-            inner.retry = Default::default();
-            inner.terminal_parked = false;
-            true
-        })
-    }
-
     pub async fn refresh(self: &Arc<Self>, trigger: EnrollTrigger) -> Settled {
         let started = self.with(|inner| {
             let Presence::SignedIn { .. } = inner.state.presence else {
@@ -638,11 +624,6 @@ impl AccountMesh {
                     _ => AccountMeshRefusal::Unauthenticated,
                 });
             };
-            if inner.terminal_parked && trigger != EnrollTrigger::Explicit {
-                if let Some(refusal) = inner.state.last_refusal.filter(|r| r.retires_membership()) {
-                    return Err(refusal);
-                }
-            }
             if inner.rejoin_required
                 && !inner
                     .rejoin_window
@@ -698,9 +679,6 @@ impl AccountMesh {
             if let Some(refusal) = inner.retry.pending(self.now()) {
                 return Err(refusal);
             }
-            if trigger == EnrollTrigger::Explicit {
-                inner.terminal_parked = false;
-            }
             if let Some(flight) = inner.flight.as_mut() {
                 if flight.epoch == epoch && !flight.cancel.is_cancelled() {
                     flight.rerun = Some(merge(flight.rerun, trigger));
@@ -748,13 +726,6 @@ impl AccountMesh {
                 result = self.enroll_once(epoch, trigger) => result,
             };
             let next = self.settle(epoch, trigger, &result);
-            if result
-                .as_ref()
-                .err()
-                .is_some_and(|r| r.retires_membership())
-            {
-                self.persist().await;
-            }
             self.push().await;
             match next {
                 Some(rerun) => trigger = rerun,
@@ -810,47 +781,22 @@ impl AccountMesh {
             } else {
                 inner.retry.settle(self.now(), *result);
             }
-            let terminal = result
-                .as_ref()
-                .err()
-                .is_some_and(|r| r.retires_membership());
-            if terminal {
-                inner.terminal_parked = true;
-                inner.retry = Default::default();
-                inner.record.admission_cache = None;
-                inner.pending_renew = None;
-                inner.resolved.clear();
-                inner.published_endpoint = None;
-                inner.published_until = 0;
-                inner.publication_refresh_after = 0;
-                inner.lease += 1;
-            }
-            if result.is_ok() {
-                inner.terminal_parked = false;
-            }
-            if !terminal
-                && (inner.state.membership.is_some()
-                    || inner
+            if inner.state.membership.is_some()
+                || inner
+                    .rejoin_window
+                    .as_ref()
+                    .is_some_and(|window| window.recovery_committed)
+                || (inner.rejoin_required
+                    && inner.rejoin_authorized
+                    && inner
                         .rejoin_window
                         .as_ref()
-                        .is_some_and(|window| window.recovery_committed)
-                    || (inner.rejoin_required
-                        && inner.rejoin_authorized
-                        && inner
-                            .rejoin_window
-                            .as_ref()
-                            .is_some_and(|window| window.live(epoch, self.now()))))
+                        .is_some_and(|window| window.live(epoch, self.now())))
             {
                 inner.retry.keep_recovering(self.now());
             }
             let retry_at = inner.retry.deadline;
             let rerun = if owned
-                && (!terminal
-                    || (*result != Err(AccountMeshRefusal::Revoked)
-                        && inner
-                            .flight
-                            .as_ref()
-                            .is_some_and(|flight| flight.rerun == Some(EnrollTrigger::Explicit))))
                 && inner.auth_parked.is_none()
                 && retry_at.is_none()
                 && !inner.retry.exhausted()
@@ -871,9 +817,6 @@ impl AccountMesh {
             } else {
                 None
             };
-            if rerun.is_some() {
-                inner.terminal_parked = false;
-            }
             let notice = match result {
                 Err(AccountMeshRefusal::MachineLimit { .. }) => match trigger {
                     EnrollTrigger::Explicit => true,
@@ -896,11 +839,6 @@ impl AccountMesh {
                 _ => None,
             };
             inner.update(&self.watch, |state| {
-                if terminal {
-                    state.membership = None;
-                    state.membership_epoch += 1;
-                    state.publication = Publication::None;
-                }
                 state.retry_at = retry_at;
                 match result {
                     Ok(()) => {

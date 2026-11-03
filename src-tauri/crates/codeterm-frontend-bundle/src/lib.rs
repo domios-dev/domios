@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::{Arc, OnceLock},
+    sync::Arc,
 };
 use store::Store;
 
@@ -24,7 +24,6 @@ pub struct FrontendBundles {
     root: PathBuf,
     inner: Mutex<(Store, Activation)>,
     check_job: update::CheckJob,
-    discovery: OnceLock<Result<update::Discovery, String>>,
     pub api_version: u32,
     app_version: semver::Version,
     public_key: Option<String>,
@@ -80,7 +79,6 @@ impl FrontendBundles {
             root: root.into(),
             inner: Mutex::new((store, state)),
             check_job: update::CheckJob::default(),
-            discovery: OnceLock::new(),
             api_version,
             app_version,
             public_key,
@@ -129,7 +127,11 @@ impl FrontendBundles {
         if local.state == codeterm_plugins::AvailabilityState::ReadyToApply {
             return Ok(local);
         }
-        let manifest = &self.discovery()?.manifest;
+        let key = self
+            .public_key
+            .as_deref()
+            .ok_or("Frontend signing identity not provisioned")?;
+        let manifest = update::discover(&self.discovery_url, key, self.allow_loopback)?;
         Ok(selection::offer_availability(
             &self.rendered().version,
             Some(selection::Offer {
@@ -149,33 +151,13 @@ impl FrontendBundles {
         let floor = self.version_floor();
         let verified = update::download_and_stage(
             &store,
-            self.discovery()?,
+            &self.discovery_url,
             &floor,
             key,
             self.api_version,
             self.allow_loopback,
         )?;
         self.stage_verified(&verified)
-    }
-
-    fn discovery(&self) -> Result<&update::Discovery, String> {
-        self.discovery_with(|| {
-            let key = self
-                .public_key
-                .as_deref()
-                .ok_or("Frontend signing identity not provisioned")?;
-            update::discover(&self.discovery_url, key, self.allow_loopback)
-        })
-    }
-
-    fn discovery_with(
-        &self,
-        fetch: impl FnOnce() -> Result<update::Discovery, String>,
-    ) -> Result<&update::Discovery, String> {
-        self.discovery
-            .get_or_init(fetch)
-            .as_ref()
-            .map_err(Clone::clone)
     }
 
     fn stage_verified(&self, verified: &manifest::VerifiedManifest) -> Result<Value, String> {

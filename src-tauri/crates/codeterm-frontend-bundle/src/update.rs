@@ -24,20 +24,15 @@ impl Drop for CheckLease<'_> {
     }
 }
 
-pub struct Discovery {
-    pub(crate) manifest: manifest::Manifest,
-    metadata: Vec<u8>,
-    signature: String,
-}
-
 pub fn download_and_stage(
     store: &Store,
-    discovery: &Discovery,
+    discovery: &str,
     floor: &semver::Version,
     key: &str,
     api: u32,
     allow_loopback: bool,
 ) -> Result<manifest::VerifiedManifest, String> {
+    manifest::validate_url(discovery, allow_loopback)?;
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::custom(move |attempt| {
             if attempt.previous().len() >= 5 {
@@ -53,31 +48,10 @@ pub fn download_and_stage(
         .timeout(std::time::Duration::from_secs(60))
         .build()
         .map_err(|e| e.to_string())?;
-    stage_with(
-        store,
-        discovery,
-        floor,
-        key,
-        api,
-        allow_loopback,
-        |url, limit| download(&client, url, limit),
-    )
-}
-
-pub(crate) fn stage_with(
-    store: &Store,
-    discovery: &Discovery,
-    floor: &semver::Version,
-    key: &str,
-    api: u32,
-    allow_loopback: bool,
-    fetch: impl FnOnce(&str, usize) -> Result<Vec<u8>, String>,
-) -> Result<manifest::VerifiedManifest, String> {
-    let Discovery {
-        manifest,
-        metadata,
-        signature,
-    } = discovery;
+    let metadata = download(&client, discovery, 16384)?;
+    let signature = String::from_utf8(download(&client, &format!("{discovery}.minisig"), 16384)?)
+        .map_err(|e| e.to_string())?;
+    let manifest = manifest::verify_metadata(&metadata, &signature, key, api, allow_loopback)?;
     if !manifest::newer_than(&manifest.version, floor) {
         return Err("Frontend release is not newer than the running frontend".into());
     }
@@ -85,9 +59,9 @@ pub(crate) fn stage_with(
         return Err("Incompatible frontend API".into());
     }
     manifest::validate_url(&manifest.url, allow_loopback)?;
-    let archive = fetch(&manifest.url, MAX_ARCHIVE_BYTES)?;
-    let verified = manifest::verify(metadata, signature, &archive, key, api, allow_loopback)?;
-    store.install(&verified, signature, &archive)?;
+    let archive = download(&client, &manifest.url, MAX_ARCHIVE_BYTES)?;
+    let verified = manifest::verify(&metadata, &signature, &archive, key, api, allow_loopback)?;
+    store.install(&verified, &signature, &archive)?;
     Ok(verified)
 }
 
@@ -122,27 +96,15 @@ fn download(
     Ok(bytes)
 }
 
-pub fn discover(discovery: &str, key: &str, allow_loopback: bool) -> Result<Discovery, String> {
-    let source = codeterm_plugins::update_source::discovery_source();
-    discover_with(discovery, key, allow_loopback, |url, limit| {
-        source.fetch(url, limit)
-    })
-}
-
-pub(crate) fn discover_with(
+pub fn discover(
     discovery: &str,
     key: &str,
     allow_loopback: bool,
-    fetch: impl Fn(&str, usize) -> Result<Vec<u8>, String>,
-) -> Result<Discovery, String> {
+) -> Result<manifest::Manifest, String> {
     manifest::validate_url(discovery, allow_loopback)?;
-    let metadata = fetch(discovery, 16384)?;
-    let signature = String::from_utf8(fetch(&format!("{discovery}.minisig"), 16384)?)
+    let source = codeterm_plugins::update_source::discovery_source();
+    let metadata = source.fetch(discovery, 16384)?;
+    let signature = String::from_utf8(source.fetch(&format!("{discovery}.minisig"), 16384)?)
         .map_err(|e| e.to_string())?;
-    let manifest = manifest::verify_discovery(&metadata, &signature, key, allow_loopback)?;
-    Ok(Discovery {
-        manifest,
-        metadata,
-        signature,
-    })
+    manifest::verify_discovery(&metadata, &signature, key, allow_loopback)
 }

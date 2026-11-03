@@ -815,14 +815,6 @@ impl AccountMesh {
                                         && known.key_id != own.key_id)
                             })
                 });
-                let slots_changed = inner
-                    .state
-                    .registry
-                    .as_ref()
-                    .is_some_and(|known| observation.has_freed_slot_since(known));
-                if slots_changed && inner.state.plan_limit_locked() {
-                    inner.terminal_parked = false;
-                }
                 inner.update(&self.watch, |state| {
                     state.revoked_installations = revoked;
                     if own_invalid {

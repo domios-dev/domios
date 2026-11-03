@@ -336,7 +336,7 @@ impl ServiceContext {
             .extensions
             .try_get::<AccountMeshCell>()
             .and_then(|cell| cell.0.get())
-            .is_some_and(|service| service.mesh.machine_limit_changed());
+            .is_some_and(|service| service.mesh.state().plan_limit_locked());
         if locked {
             self.spawn_account_mesh_refresh(EnrollTrigger::Lease);
         }

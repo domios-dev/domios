@@ -343,13 +343,6 @@ impl IdentityProvider for Firebase {
         .await
     }
     async fn refresh(&self, token: &Secret) -> Result<Tokens> {
-        self.refresh_with_identity(token, None).await
-    }
-    async fn refresh_with_identity(
-        &self,
-        token: &Secret,
-        identity: Option<&Identity>,
-    ) -> Result<Tokens> {
         let response = self
             .transport
             .post(
@@ -362,23 +355,12 @@ impl IdentityProvider for Firebase {
             )
             .await?;
         let expires_at = token_expiry(&response, "expires_in")?;
-        let id_token = Secret::new(required(&response, "id_token")?);
-        let refresh_token = Secret::new(required(&response, "refresh_token")?);
-        if let Some(identity) = identity {
-            if required(&response, "user_id")? != identity.uid || identity.provider != self.id() {
-                return Err(Error::Credentials);
-            }
-            return Ok(Tokens {
-                session: Session {
-                    login_generation: 0,
-                    identity: identity.clone(),
-                    id_token,
-                    expires_at: Some(expires_at),
-                },
-                refresh_token,
-            });
-        }
-        self.session(id_token, refresh_token, expires_at).await
+        self.session(
+            Secret::new(required(&response, "id_token")?),
+            Secret::new(required(&response, "refresh_token")?),
+            expires_at,
+        )
+        .await
     }
     async fn revoke(&self, _: &Secret) -> Result<()> {
         // The client API has no revocation endpoint; logout deletes the desktop credential.

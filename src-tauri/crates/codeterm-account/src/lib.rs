@@ -126,13 +126,6 @@ pub trait IdentityProvider: Send + Sync {
     async fn start_login(&self, flow: &LoginFlow) -> Result<LoginStart>;
     async fn redeem(&self, request: Redemption) -> Result<Tokens>;
     async fn refresh(&self, refresh_token: &Secret) -> Result<Tokens>;
-    async fn refresh_with_identity(
-        &self,
-        refresh_token: &Secret,
-        _identity: Option<&Identity>,
-    ) -> Result<Tokens> {
-        self.refresh(refresh_token).await
-    }
     async fn revoke(&self, refresh_token: &Secret) -> Result<()>;
 }
 #[async_trait]
