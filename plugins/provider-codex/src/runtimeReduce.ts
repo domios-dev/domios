@@ -4,6 +4,7 @@ import { rateLimitEvents } from "./runtimeUsage";
 import { object, text, list, serverRequestMethods } from "./runtimeProtocol";
 import { json, runtimeItem } from "./runtimeMessages";
 import { runtimeError } from "./runtimeErrors";
+import {outputLimit} from "../../provider-shared/outputLimit";
 import { loginCompleted } from "./runtimeLogin";
 import { notificationAuth } from "./runtimeAuth";
 import { runtimeQuestions } from "./runtimeQuestions";
@@ -220,7 +221,7 @@ export function runtimeReduce(ctx: RuntimeContext, raw: JsonValue, frames: reado
         events.push(...interruptPendingCalls(state,threadId,turnId));
         delete state.activeTurnId;
         delete state.compacting;
-        const failure = object(object(params.turn).error);
+        const failure = outputLimit(params.turn) ? object(params.turn) : object(object(params.turn).error);
         if (Object.keys(failure).length) {
           const error = runtimeError(failure,false,state.rateLimitSnapshot);
           events.push({kind:"chatItem",threadId,item:stamp(state,{id:`${turnId}:error`,seq:state.seq+1,type:"system",content:error.message,systemSubtype:"api_error",toolInput:error.metadata},params)});

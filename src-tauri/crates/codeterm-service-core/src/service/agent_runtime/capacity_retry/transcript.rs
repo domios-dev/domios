@@ -58,7 +58,7 @@ pub(crate) fn register(
     }
     state.identity = (session.into(), nonce.into());
     state.floor = floor;
-    state.retry.attempts = 0;
+    state.retry.clear_cycle();
     state.seen.clear();
     state.busy = false;
 }
@@ -66,8 +66,7 @@ pub(crate) fn register(
 pub(super) fn cancel(svc: &ServiceContext, tab: &str) -> Result<(), String> {
     if let Some(state) = states().lock().get_mut(tab) {
         remove_pending(svc, tab, &mut state.retry)?;
-        state.retry.attempts = 0;
-        state.retry.error = None;
+        state.retry.clear_cycle();
     }
     Ok(())
 }
@@ -136,14 +135,20 @@ fn observe_at(
     }
     let mut lines = Vec::new();
     for row in records {
-        if row.provider_session_id.as_deref() != Some(session)
+        if row
+            .provider_session_id
+            .as_deref()
+            .is_some_and(|id| id != session)
             || row.record_start.is_none_or(|offset| offset < state.floor)
         {
             continue;
         }
-        let Some(id) = row.uuid.as_deref().filter(|id| !id.is_empty()) else {
-            continue;
-        };
+        let record_id = format!("record:{}", row.record_start.unwrap_or_default());
+        let id = row
+            .uuid
+            .as_deref()
+            .filter(|id| !id.is_empty())
+            .unwrap_or(&record_id);
         if !codeterm_provider_signals::admit_key(&mut state.seen, id) {
             continue;
         }
@@ -171,18 +176,40 @@ fn observe_at(
         };
         state.busy = false;
         state.retry.error = Some((id.into(), signal.clone()));
+        state.retry.reason = Some(
+            if signal.retryable_kind == Some(RuntimeRetryableErrorKind::OutputLimit) {
+                "output limit".into()
+            } else {
+                row.blocks
+                    .iter()
+                    .filter(|block| block.kind == "text")
+                    .find_map(|block| block.data.get("text").and_then(serde_json::Value::as_str))
+                    .map(str::to_string)
+                    .unwrap_or_else(|| {
+                        format!(
+                            "provider turn failure: {:?} ({:?})",
+                            observation.and_then(|observation| observation.api_error),
+                            signal.retryable_kind
+                        )
+                    })
+            },
+        );
         let decision = state
             .retry
             .finish(id, Some(&RuntimeTurnDetail::Failed), now);
+        let stopped = decision == Decision::Stopped;
         match apply_decision(svc, tab, Some(session.into()), &mut state.retry, decision) {
-            Ok(Some(content)) => lines.push(content),
+            Ok(Some(content)) => lines.push((content, stopped)),
             Ok(None) => {}
             Err(error) => log::warn!("[capacity-retry] {error}"),
         }
     }
     drop(states);
     crate::delayed_send::emit_changed(svc, tab);
-    for content in lines {
+    for (content, stopped) in lines {
+        if stopped {
+            super::notice::stopped(svc, tab, nonce, &content);
+        }
         let item = ChatMsg {
             id: format!("capacity-retry:{}", uuid::Uuid::new_v4().simple()),
             kind: "system".into(),

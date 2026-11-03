@@ -1170,6 +1170,17 @@ var serverRequestMethods = [
   "mcpServer/elicitation/request"
 ];
 
+// plugins/provider-shared/outputLimit.ts
+function outputLimit(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record6 = value;
+  const details = record6.incomplete_details;
+  if (record6.stop_reason === "max_tokens" || record6.finish_reason === "length") return true;
+  if (record6.status === "incomplete" && details?.reason === "max_output_tokens") return true;
+  const message = record6.message;
+  return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
+}
+
 // plugins/provider-codex/src/runtimeTurnStatus.ts
 function threadStatus(raw) {
   const status = object(raw);
@@ -1183,6 +1194,7 @@ function threadStatus(raw) {
   return { state: "working" };
 }
 function turnOutcome(turn) {
+  if (outputLimit(turn)) return "failed";
   const status = object(turn).status;
   return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
 }
@@ -2826,14 +2838,16 @@ function runtimeClass(code, status) {
   return "provider_error";
 }
 function runtimeError(value, willRetry = false, limits) {
-  const error = object(value);
+  const error = typeof value === "string" ? { message: value } : object(value);
   const info = error.codexErrorInfo;
   const infoObject = object(info);
   const keys = Object.keys(infoObject);
   const code = typeof info === "string" ? info : keys.length === 1 ? keys[0] : void 0;
-  const message = text2(error.additionalDetails) ?? text2(error.message) ?? "Provider request failed";
+  const diagnostic = text2(error.additionalDetails) ?? text2(error.message);
+  const limited = outputLimit(error) || outputLimit({ message: diagnostic });
+  const message = diagnostic ?? (limited ? "Output limit reached" : "Provider request failed");
   const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry, ...retrySignal(code, status, limits) } };
+  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry, ...limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits) } };
 }
 function retrySignal(code, status, limits) {
   if (status === 401 || status === 403) return {};
@@ -3316,7 +3330,7 @@ function runtimeReduce(ctx, raw, frames) {
         events.push(...interruptPendingCalls(state, threadId, turnId));
         delete state.activeTurnId;
         delete state.compacting;
-        const failure2 = object(object(params.turn).error);
+        const failure2 = outputLimit(params.turn) ? object(params.turn) : object(object(params.turn).error);
         if (Object.keys(failure2).length) {
           const error = runtimeError(failure2, false, state.rateLimitSnapshot);
           events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
@@ -4003,16 +4017,17 @@ function parseSessionObservations(value) {
   const record6 = value;
   if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
   const payload = record6.payload;
-  if (payload.type === "error") {
+  if (payload.type === "error" || payload.type === "task_complete" && outputLimit(payload)) {
     const error = payload.error ?? payload;
     return {
       api_error: classifyAccessError(error, payload),
       permission_mode: null,
       clears_api_error: false,
-      ...observationExtras(error, record6)
+      ...observationExtras(error, record6),
+      retry_error: runtimeError(error, payload.willRetry === true).metadata
     };
   }
-  if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true };
+  if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true, retry_succeeded: true };
   return null;
 }
 

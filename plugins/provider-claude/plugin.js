@@ -659,10 +659,23 @@ function observationExtras(error, record3) {
   return extras;
 }
 
+// plugins/provider-shared/outputLimit.ts
+function outputLimit(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record3 = value;
+  const details = record3.incomplete_details;
+  if (record3.stop_reason === "max_tokens" || record3.finish_reason === "length") return true;
+  if (record3.status === "incomplete" && details?.reason === "max_output_tokens") return true;
+  const message = record3.message;
+  return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
+}
+
 // plugins/provider-claude/src/retry.ts
 var networkCodes = ["ENOTFOUND", "ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE", "UND_ERR_CONNECT_TIMEOUT", "api_connection_error", "connection_error"];
 function retryError(record3) {
-  if (record3.type !== "assistant" || record3.isApiErrorMessage !== true || record3.isSidechain === true) return {};
+  if (record3.type !== "assistant" || record3.isSidechain === true) return {};
+  if (outputLimit(record3.message) || record3.isApiErrorMessage === true && outputLimit(record3.error)) return { retry_error: { retryable: false, retryableKind: "output_limit" } };
+  if (record3.isApiErrorMessage !== true) return {};
   const kind = classifyAccessError(record3.error, record3);
   const error = record3.error && typeof record3.error === "object" ? record3.error : {};
   const message = record3.message;
@@ -681,12 +694,12 @@ function retryError(record3) {
     const seconds = retryAfterSecs(record3.error, record3);
     const timestamp = typeof record3.timestamp === "string" ? Date.parse(record3.timestamp) : NaN;
     const due = reset ?? (seconds != null ? timestamp + seconds * 1e3 : NaN);
-    if (typeof due !== "number" || !Number.isSafeInteger(due) || due < 0) return {};
+    if (typeof due !== "number" || !Number.isSafeInteger(due) || due < 0) return { retry_error: { retryable: observationRetrying(record3.error, record3) } };
     retryableKind = "rate_limited_until";
     retryAtMs = due;
   } else if (kind === "server_overloaded" || kind === "other" && network) {
     retryableKind = "transient";
-  } else return {};
+  } else return { retry_error: { retryable: observationRetrying(record3.error, record3) } };
   return { retry_error: { retryable: observationRetrying(record3.error, record3), retryableKind, ...retryAtMs === void 0 ? {} : { retryAtMs } } };
 }
 
@@ -713,10 +726,11 @@ function parseSessionObservations(value) {
   if (!record3) return null;
   const modes = ["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"];
   const permission_mode = typeof record3.permissionMode === "string" && modes.includes(record3.permissionMode) ? record3.permissionMode : null;
-  const isError = record3.isApiErrorMessage === true;
+  const retry = retryError(record3);
+  const isError = record3.isApiErrorMessage === true || retry.retry_error?.retryableKind === "output_limit";
   const api_error = isError ? classifyAccessError(record3.error, record3) : null;
   const clears_api_error = record3.type === "assistant" && !isError && !!object2(record3.message);
-  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3), ...retryError(record3), ...clears_api_error && record3.isSidechain !== true && ["end_turn", "stop_sequence"].includes(String(object2(record3.message)?.stop_reason)) ? { retry_succeeded: true } : {} } : null;
+  return isError || permission_mode || clears_api_error ? { api_error, permission_mode, clears_api_error, ...observationExtras(record3.error, record3), ...retry, ...clears_api_error && record3.isSidechain !== true && ["end_turn", "stop_sequence"].includes(String(object2(record3.message)?.stop_reason)) ? { retry_succeeded: true } : {} } : null;
 }
 
 // plugins/provider-claude/src/backgroundWork.ts

@@ -2,10 +2,32 @@ use codeterm_provider_signals::{ApiErrorKind, RuntimeErrorSignal, RuntimeRetryab
 use serde_json::Value;
 
 pub(super) fn classify(record: &Value) -> Option<RuntimeErrorSignal> {
-    if record["type"] != "assistant"
-        || record["isApiErrorMessage"] != true
-        || record["isSidechain"] == true
+    classify_retry(record).or_else(|| {
+        (record["type"] == "assistant"
+            && record["isApiErrorMessage"] == true
+            && record["isSidechain"] != true)
+            .then(|| RuntimeErrorSignal {
+                retryable: ApiErrorKind::retrying(record.get("error"), record),
+                retryable_kind: None,
+                retry_at_ms: None,
+            })
+    })
+}
+
+fn classify_retry(record: &Value) -> Option<RuntimeErrorSignal> {
+    if record["type"] != "assistant" || record["isSidechain"] == true {
+        return None;
+    }
+    if output_limit(&record["message"])
+        || (record["isApiErrorMessage"] == true && output_limit(&record["error"]))
     {
+        return Some(RuntimeErrorSignal {
+            retryable: false,
+            retryable_kind: Some(RuntimeRetryableErrorKind::OutputLimit),
+            retry_at_ms: None,
+        });
+    }
+    if record["isApiErrorMessage"] != true {
         return None;
     }
     let error = &record["error"];
@@ -69,11 +91,34 @@ pub(super) fn classify(record: &Value) -> Option<RuntimeErrorSignal> {
         }
         ApiErrorKind::ServerOverloaded => (RuntimeRetryableErrorKind::Transient, None),
         ApiErrorKind::Other if network => (RuntimeRetryableErrorKind::Transient, None),
-        _ => return None,
+        _ => {
+            return Some(RuntimeErrorSignal {
+                retryable: ApiErrorKind::retrying(Some(error), record),
+                retryable_kind: None,
+                retry_at_ms: None,
+            })
+        }
     };
     Some(RuntimeErrorSignal {
         retryable: ApiErrorKind::retrying(Some(error), record),
         retryable_kind: Some(retryable_kind),
         retry_at_ms,
     })
+}
+
+fn output_limit(value: &Value) -> bool {
+    value["stop_reason"] == "max_tokens"
+        || value["finish_reason"] == "length"
+        || (value["status"] == "incomplete"
+            && value["incomplete_details"]["reason"] == "max_output_tokens")
+        || value["message"].as_str().is_some_and(|message| {
+            message.encode_utf16().count() <= 16384
+                && message.to_ascii_lowercase().split('\n').any(|line| {
+                    line.split_once("incomplete response")
+                        .is_some_and(|(_, tail)| {
+                            tail.split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                                .any(|token| token == "max_output_tokens")
+                        })
+                })
+        })
 }

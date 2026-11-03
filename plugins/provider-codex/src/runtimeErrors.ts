@@ -1,5 +1,6 @@
 import {object,text} from "./runtimeProtocol";
 import type { RuntimeErrorSignal } from "@codeterm/plugin-sdk";
+import {outputLimit} from "../../provider-shared/outputLimit";
 
 function statusCode(value: unknown): number | null {
   if (typeof value === "number" && Number.isInteger(value)) return value;
@@ -26,14 +27,16 @@ function runtimeClass(code: string | undefined, status: number | null): string {
 }
 
 export function runtimeError(value:unknown, willRetry=false, limits?:unknown): {message:string; metadata:RuntimeErrorSignal} {
-  const error=object(value);
+  const error=typeof value === "string" ? {message:value} : object(value);
   const info=error.codexErrorInfo;
   const infoObject=object(info);
   const keys=Object.keys(infoObject);
   const code=typeof info === "string" ? info : keys.length === 1 ? keys[0] : undefined;
-  const message=text(error.additionalDetails) ?? text(error.message) ?? "Provider request failed";
+  const diagnostic=text(error.additionalDetails) ?? text(error.message);
+  const limited=outputLimit(error) || outputLimit({message:diagnostic});
+  const message=diagnostic ?? (limited ? "Output limit reached" : "Provider request failed");
   const status=statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return {message,metadata:{...(code ? {code} : {}),class:runtimeClass(code, status),retryable:willRetry,...retrySignal(code,status,limits)}};
+  return {message,metadata:{...(code ? {code} : {}),class:runtimeClass(code, status),retryable:willRetry,...(limited ? {retryableKind:"output_limit" as const} : retrySignal(code,status,limits))}};
 }
 
 function retrySignal(code:string|undefined, status:number|null, limits:unknown): Pick<RuntimeErrorSignal,"retryableKind"|"retryAtMs"> {
