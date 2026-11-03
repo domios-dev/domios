@@ -84,6 +84,7 @@ impl PlanDatabase {
         super::store_convert_118::convert_legacy_database(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
         auxiliary_queries::register_functions(&connection)?;
+        worker_read_queries::register_functions(&connection)?;
         list_window_queries::register_functions(&connection)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
@@ -580,6 +581,7 @@ mod qa_queries;
 mod related_queries;
 mod search_queries;
 mod section_link_queries;
+mod worker_read_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
 mod list_window_queries;

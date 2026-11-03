@@ -14,6 +14,7 @@ mod related_tests;
 mod search_tests;
 mod section_link_tests;
 mod status_tests;
+mod worker_read_tests;
 
 fn sections() -> Vec<Section> {
     serde_json::from_value(json!([

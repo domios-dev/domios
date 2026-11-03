@@ -293,9 +293,10 @@ fn recent_worker_attempt_titles_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.recent_worker_attempt_titles("ws-a", None, 5),
+        store.recent_worker_attempt_titles("ws-a", None, 5).unwrap(),
         vec!["Bolt".to_string()]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -366,10 +367,14 @@ fn planner_replay_candidates_never_loads_unmatched_plans() {
     start(&store);
 
     assert!(
-        store.planner_replay_candidates("planner-a").is_empty(),
+        store
+            .planner_replay_candidates("planner-a")
+            .unwrap()
+            .is_empty(),
         "a planner with no open request has nothing to replay"
     );
-    assert_eq!(store.plan_loads_for_test(), vec![planned]);
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(&store, &[&planned]);
     assert_never_loaded(&store, &[&other]);
 }
 
