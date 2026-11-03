@@ -419,7 +419,34 @@ fn runtime_provider_change_keeps_one_live_executor_after_confirmed_exit() {
 
 #[test]
 fn forced_close_persists_termination_and_respawn_accepts_after_restart() {
+    assert_close_persists_termination(crate::plan::TaskStatus::InProgress, true);
+}
+
+#[test]
+fn forced_close_in_review_persists_termination_and_respawn_accepts_after_restart() {
+    assert_close_persists_termination(crate::plan::TaskStatus::InReview, true);
+}
+
+#[test]
+fn forced_close_blocked_persists_termination_and_respawn_accepts_after_restart() {
+    assert_close_persists_termination(crate::plan::TaskStatus::Blocked, true);
+}
+
+#[test]
+fn ordinary_close_in_review_persists_termination_and_respawn_accepts_after_restart() {
+    assert_close_persists_termination(crate::plan::TaskStatus::InReview, false);
+}
+
+fn assert_close_persists_termination(status: crate::plan::TaskStatus, guarded: bool) {
     let (fixture, draft) = fixture();
+    fixture
+        .service
+        .plan_store
+        .with_plan("plan", 2, |plan| {
+            plan.tasks[0].status = status.clone();
+            Ok(())
+        })
+        .unwrap();
     let source = &draft.source_attempt;
     fixture
         .service
@@ -433,11 +460,18 @@ fn forced_close_persists_termination_and_respawn_accepts_after_restart() {
             2,
         )
         .unwrap();
-    let warnings = fixture
-        .service
-        .close_tab_guarded(Some("owner"), &source.executor_tab_id, true)
-        .unwrap();
-    assert!(!warnings.is_empty());
+    if guarded {
+        let warnings = fixture
+            .service
+            .close_tab_guarded(Some("owner"), &source.executor_tab_id, true)
+            .unwrap();
+        assert_eq!(
+            !warnings.is_empty(),
+            status == crate::plan::TaskStatus::InProgress
+        );
+    } else {
+        fixture.service.close_tab(&source.executor_tab_id).unwrap();
+    }
     assert!(fixture
         .service
         .mux

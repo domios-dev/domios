@@ -29,12 +29,22 @@ impl ServiceContext {
         })
     }
 
-    pub(crate) fn close_bound_worker_executor(&self, tab_id: &str) -> Result<bool, String> {
-        let binding = self.mux.read().get_tab(tab_id).and_then(|tab| {
-            (tab.role == Some(AgentRole::Worker))
-                .then(|| tab.task_binding.clone())
-                .flatten()
-        });
+    pub(crate) fn close_bound_worker_executor(
+        &self,
+        tab_id: &str,
+        reason: TabCloseReason,
+    ) -> Result<bool, String> {
+        let binding = {
+            let mux = self.mux.read();
+            let canonical = mux
+                .resolve_tab_id(tab_id)
+                .unwrap_or_else(|| tab_id.to_string());
+            mux.get_tab(&canonical).and_then(|tab| {
+                (tab.role == Some(AgentRole::Worker))
+                    .then(|| tab.task_binding.clone())
+                    .flatten()
+            })
+        };
         let Some(binding) = binding else {
             return Ok(false);
         };
@@ -60,7 +70,7 @@ impl ServiceContext {
                 task_id: &task_id,
                 source_attempt: attempt,
             },
-            TabCloseReason::User,
+            reason,
             |tabs| self.terminate_executor_tabs(tabs),
         )?;
         Ok(true)
