@@ -9,6 +9,7 @@ mod binding_tests;
 mod curator_digest_tests;
 mod curator_schedule_tests;
 mod notice_tests;
+mod qa_tests;
 mod related_tests;
 mod search_tests;
 mod status_tests;

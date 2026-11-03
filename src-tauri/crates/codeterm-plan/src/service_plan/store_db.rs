@@ -576,6 +576,7 @@ mod curator_queries;
 mod curator_snapshot;
 mod index_queries;
 mod notice_queries;
+mod qa_queries;
 mod related_queries;
 mod search_queries;
 pub(super) use index_queries::PlanIndexRow;

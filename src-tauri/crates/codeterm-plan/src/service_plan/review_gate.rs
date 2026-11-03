@@ -458,12 +458,11 @@ fn require_in_review(task: &Task) -> Result<(), PlanError> {
 impl PlanStore {
     /// Read-only review-backpressure status for heartbeat/status surfaces.
     pub fn review_gate_status(&self, plan_id: &str) -> Result<ReviewGateStatus, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        Ok(review_gate_status(&plan))
+        self.database.review_gate_projection(plan_id)
     }
 
     pub fn qa_waves(&self, plan_id: &str) -> Result<Vec<QaWave>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
+        let plan = self.database.qa_wave_projection(plan_id)?;
         Ok(qa_waves(&plan))
     }
 
