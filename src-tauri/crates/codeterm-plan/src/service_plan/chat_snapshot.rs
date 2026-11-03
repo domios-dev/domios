@@ -1,8 +1,8 @@
 use super::PlanStore;
-use crate::plan::Plan;
+use crate::plan::{Plan, PlanMode, PlanStatus};
 use serde_json::{json, Value};
 
-pub(super) fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) -> Value {
+fn snapshot(plan: &Plan, query: Option<&str>, remaining: &mut usize) -> Value {
     let tasks: Vec<_> = plan.tasks.iter().filter(|task| {
         query.is_none_or(|query| format!("{} {} {}", task.id, task.display_key(), task.name).to_lowercase().contains(query))
     }).take(*remaining).map(|task| {
@@ -51,12 +51,46 @@ impl PlanStore {
                 .to_string()
         });
         let query = query.map(str::to_lowercase);
-        self.database
-            .chat_projection(project.as_deref(), team, query.as_deref())
-            .unwrap_or_else(|error| {
-                log::warn!("[plan.store] chat projection failed: {error}");
-                Vec::new()
+        let mut remaining = if query.is_some() { 50 } else { usize::MAX };
+        let mut result = Vec::new();
+        // The index filters on stored columns, so plans outside project, team and status never load.
+        let mut ids: Vec<String> = self
+            .index
+            .read()
+            .values()
+            .filter(|row| {
+                project
+                    .as_ref()
+                    .is_none_or(|project| *project == row.project_path)
+                    && team.is_none_or(|team| row.team_id.as_deref().unwrap_or("") == team)
+                    && (query.is_none() || row.status == PlanStatus::Active)
             })
+            .map(|row| row.id.clone())
+            .collect();
+        ids.sort();
+        for id in ids {
+            let Ok(plan) = self.plan_arc(&id) else {
+                continue;
+            };
+            let plan = plan.lock();
+            if query.is_some() && plan.mode == PlanMode::Complete {
+                continue;
+            }
+            let value = snapshot(&plan, query.as_deref(), &mut remaining);
+            if query.as_ref().is_none_or(|query| {
+                plan.title.to_lowercase().contains(query)
+                    || plan.id.contains(query)
+                    || value["tasks"]
+                        .as_array()
+                        .is_some_and(|tasks| !tasks.is_empty())
+            }) {
+                result.push(value);
+            }
+            if query.is_some() && result.len() >= 50 {
+                break;
+            }
+        }
+        result
     }
 }
 
