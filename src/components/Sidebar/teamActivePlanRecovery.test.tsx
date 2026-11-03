@@ -109,7 +109,7 @@ function summary(value: Plan): PlanProjection {
     ...value,
     revision: String(value.updated_at),
     tasks: [],
-    task_counts: { pending: value.tasks.length, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
+    task_counts: { total: value.tasks.length, pending: value.tasks.length, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0 },
   };
 }
 
@@ -182,7 +182,7 @@ function installFetch() {
         return response({ plans: backendPlans.map(indexEntry) });
       }
       if (url.endsWith("/api/mux/state")) return response(backendSnapshot);
-      const planId = url.match(/\/api\/plans\/([^/?]+)\?view=summary$/)?.[1];
+      const planId = url.match(/\/api\/plans\/([^/?]+)\/projection\?view=summary$/)?.[1];
       const found = backendPlans.find((value) => value.id === planId);
       return found ? response(summary(found)) : new Response("not found", { status: 404 });
     })()),
