@@ -7,14 +7,14 @@ use crate::embedder::local::{LocalModel, Pooling};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 static RESIDENT_MODELS: AtomicUsize = AtomicUsize::new(0);
-static MAPPED_WEIGHT_BYTES: AtomicUsize = AtomicUsize::new(0);
+static WEIGHT_FILE_BYTES: AtomicUsize = AtomicUsize::new(0);
 
 pub(crate) fn memory_diagnostics() -> serde_json::Value {
     serde_json::json!({
         "count": RESIDENT_MODELS.load(Ordering::Relaxed),
-        "mapped_weight_bytes": MAPPED_WEIGHT_BYTES.load(Ordering::Relaxed),
-        "residency": "lazy loaded; at most two models; released after an idle receive deadline",
-        "idle_unload_after_ms": crate::embedding_worker::MODEL_IDLE_TIMEOUT.as_millis(),
+        "weight_file_bytes": WEIGHT_FILE_BYTES.load(Ordering::Relaxed),
+        "residency": "lazy loaded; at most two models retained by the embedding worker",
+        "estimate": "weight file sizes; Candle CPU tensors are copied into owned storage, not retained file mappings",
     })
 }
 
@@ -48,7 +48,7 @@ impl EmbeddingModel {
         let model = BertModel::load(vb, &config).map_err(|e| e.to_string())?;
         files.remove_obsolete_onnx();
         RESIDENT_MODELS.fetch_add(1, Ordering::Relaxed);
-        MAPPED_WEIGHT_BYTES.fetch_add(weight_bytes, Ordering::Relaxed);
+        WEIGHT_FILE_BYTES.fetch_add(weight_bytes, Ordering::Relaxed);
         Ok(Self {
             model,
             tokenizer,
@@ -85,6 +85,6 @@ impl EmbeddingModel {
 impl Drop for EmbeddingModel {
     fn drop(&mut self) {
         RESIDENT_MODELS.fetch_sub(1, Ordering::Relaxed);
-        MAPPED_WEIGHT_BYTES.fetch_sub(self.weight_bytes, Ordering::Relaxed);
+        WEIGHT_FILE_BYTES.fetch_sub(self.weight_bytes, Ordering::Relaxed);
     }
 }

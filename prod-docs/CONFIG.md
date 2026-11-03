@@ -7,8 +7,7 @@ Sensitive configuration and state use private file writes: Unix files use `0600`
 `domios system api-token` prints only the selected local host credential, without a newline or a daemon connection. Capture it privately; tab callers and `--mesh` are refused. Tabs receive distinct launch-scoped credentials through `CODETERM_API_TOKEN`; they never receive or fall back to the host credential.
 
 ## Full Reference
-
-The local owner can run `domios diagnostics memory` (or add `--json`) for process RSS and approximate retained subsystem sizes. It reports cache counts, per-plan estimates, per-PTY output allocations and screen cell bounds, chat caches, history writers, embedding mappings, SQLite page cache, Blueprints and notifications. Busy locks are skipped. Estimates exclude allocator overhead and cannot sum to RSS; mapped weights and screen bounds are labeled separately. Tab credentials and mesh callers are refused. The command never loads models or plans.
+The local owner can run `domios diagnostics memory` (or add `--json`) for process RSS and approximate retained subsystem sizes. It reports cache counts, per-plan estimates, per-PTY output allocations and screen cell bounds, chat caches, history writers, loaded embedding weight-file sizes, SQLite page cache, Blueprints and notifications. Busy locks are skipped. Estimates exclude allocator overhead and cannot sum to RSS; weight-file sizes and screen bounds are labeled separately. Tab credentials and mesh callers are refused. The command never loads models or plans.
 
 ```toml
 [theme]
@@ -237,5 +236,5 @@ Domios account sign-in and product analytics settings: `domios docs ACCOUNT`.
 `memory.backend` selects `"sqlite"` (default) or `"postgres"`. For build requirements, secret-store credentials and migration before switching an existing store, see the memory help referenced above.
 
 **Docker server:** See the distribution's packaging/docker/README.md for setup and recovery.
-Local embedding weights load on demand and are released when the worker's idle receive deadline expires; the next request loads them again. The current deadline is included in the memory breakdown.
-<!-- revision: 132 -->
+Docs vectors build only on the first enabled hybrid-doc search. With docs hybrid search disabled, startup does not load a model for docs; BM25 remains available while an enabled vector build warms. Actual mem vector search still loads its model on demand.
+<!-- revision: 133 -->

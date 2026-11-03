@@ -56,7 +56,7 @@ impl ServiceContext {
             "process_resident_bytes": system.process(pid).map(sysinfo::Process::memory),
             "process_virtual_bytes": system.process(pid).map(sysinfo::Process::virtual_memory),
             "measurement": "approximate serialized field storage; excludes allocator overhead, spare capacity and skipped fields; cache charges and PTY allocations use their own accounting",
-            "limitations": "not an allocator census; model mappings and screen upper bounds are not RSS; shared allocations may overlap; busy subsystems are skipped",
+            "limitations": "not an allocator census; model weight file sizes and screen upper bounds are not RSS; shared allocations may overlap; busy subsystems are skipped",
             "subsystems": {
                 "tabs": mux,
                 "plan_cache": self.plan_store.cache_memory_stats(),

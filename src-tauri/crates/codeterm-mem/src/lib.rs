@@ -117,7 +117,7 @@ impl MemManager {
         #[cfg(feature = "embeddings")]
         let models = embedding_model::memory_diagnostics();
         #[cfg(not(feature = "embeddings"))]
-        let models = serde_json::json!({"count": 0, "mapped_weight_bytes": 0});
+        let models = serde_json::json!({"count": 0, "weight_file_bytes": 0});
         serde_json::json!({"models": models, "store": self.store.memory_diagnostics()})
     }
 

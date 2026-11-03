@@ -310,11 +310,15 @@ impl ScreenState {
     }
 
     pub fn remove_if_generation(&self, pty_id: &str, generation: u64) -> bool {
+        self.remove_matching_generation(pty_id, Some(generation))
+    }
+
+    pub fn remove_matching_generation(&self, pty_id: &str, generation: Option<u64>) -> bool {
         let Some(screen) = self.existing(pty_id) else {
             return false;
         };
         let mut state = screen.entry.state.lock();
-        if state.pty_generation() != Some(generation) {
+        if state.pty_generation() != generation {
             return false;
         }
         state.remove();

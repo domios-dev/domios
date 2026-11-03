@@ -44,8 +44,7 @@ impl ServiceContext {
         if data.is_empty() {
             return false;
         }
-        self.output_buf.lock().append(pty_id, data);
-        self.output_stream_pty_changed(pty_id);
+        let mut output = self.output_buf.lock();
         let accepted = match generation {
             Some(generation) => self
                 .screen_state
@@ -55,6 +54,13 @@ impl ServiceContext {
                 true
             }
         };
+        if accepted {
+            output.append(pty_id, data);
+        }
+        drop(output);
+        if accepted {
+            self.output_stream_pty_changed(pty_id);
+        }
         super::pty_frame_timing::parsed(pty_id, data.len(), accepted);
         accepted
     }

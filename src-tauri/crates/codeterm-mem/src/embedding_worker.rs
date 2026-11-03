@@ -8,7 +8,6 @@ use std::time::Duration;
 const QUEUE_CAPACITY: usize = 64;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(120);
 const QUERY_BURST: usize = 8;
-pub(crate) const MODEL_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 type Reply = mpsc::SyncSender<Result<Vec<f32>, String>>;
 
 struct Request {
@@ -128,10 +127,7 @@ impl Receivers {
         request
     }
 
-    fn next_event(
-        &self,
-        idle_timeout: Option<Duration>,
-    ) -> Result<Option<Request>, mpsc::RecvTimeoutError> {
+    fn next_event(&self) -> Result<Option<Request>, mpsc::RecvError> {
         let woke = self.wake.try_recv().is_ok();
         if let Some(request) = self.try_next() {
             return Ok(Some(request));
@@ -144,20 +140,14 @@ impl Receivers {
         if let Some(waiting) = &self.waiting {
             let _ = waiting.send(());
         }
-        match idle_timeout {
-            Some(timeout) => self.wake.recv_timeout(timeout)?,
-            None => self
-                .wake
-                .recv()
-                .map_err(|_| mpsc::RecvTimeoutError::Disconnected)?,
-        }
+        self.wake.recv()?;
         Ok(self.try_next())
     }
 
     #[cfg(test)]
     fn next(&self) -> Result<Request, mpsc::RecvError> {
         loop {
-            if let Some(request) = self.next_event(None).map_err(|_| mpsc::RecvError)? {
+            if let Some(request) = self.next_event()? {
                 return Ok(request);
             }
         }
@@ -219,31 +209,14 @@ fn run<M: Sync>(
     load: impl Fn(&'static LocalModel) -> Result<M, String>,
     forward: impl Fn(&M, &str) -> Result<Vec<f32>, String> + Sync,
 ) {
-    run_with_idle_timeout(receivers, pool, load, forward, MODEL_IDLE_TIMEOUT);
-}
-
-fn run_with_idle_timeout<M: Sync>(
-    receivers: Receivers,
-    pool: impl Fn() -> rayon::ThreadPoolBuilder,
-    load: impl Fn(&'static LocalModel) -> Result<M, String>,
-    forward: impl Fn(&M, &str) -> Result<Vec<f32>, String> + Sync,
-    idle_timeout: Duration,
-) {
     let mut model = ModelCache {
         entries: Vec::new(),
     };
     loop {
         model.retain(&receivers.residency.lock());
-        let request =
-            match receivers.next_event((!model.entries.is_empty()).then_some(idle_timeout)) {
-                Ok(request) => request,
-                Err(mpsc::RecvTimeoutError::Timeout) => {
-                    log::debug!("[embed] releasing {} idle models", model.entries.len());
-                    model.entries.clear();
-                    continue;
-                }
-                Err(mpsc::RecvTimeoutError::Disconnected) => break,
-            };
+        let Ok(request) = receivers.next_event() else {
+            break;
+        };
         model.retain(&receivers.residency.lock());
         let mut pending = request;
         if pending.is_none() {

@@ -72,6 +72,7 @@ pub mod lane_settle;
 pub mod lane_stats;
 pub mod launch_artifacts;
 pub mod launch_delivery;
+mod pty_memory;
 pub use launch_delivery::prepare_spawn_input as launch_delivery_prepare_spawn_input;
 pub(crate) mod launch_diagnostics;
 pub(crate) mod launch_input_gate;
@@ -788,10 +789,16 @@ impl ServiceContext {
 
     pub fn kill_ptys(&self, pty_ids: &[String]) {
         self.pty_ownership.release_ptys(pty_ids);
+        let generations: Vec<_> = pty_ids
+            .iter()
+            .map(|id| (id.clone(), self.screen_state.pty_generation(id)))
+            .collect();
         let mut manager = self.pty.lock();
         for id in pty_ids {
             let _ = manager.kill(id);
         }
+        drop(manager);
+        self.retire_pty_memory(&generations);
     }
 
     pub fn plans_startup_loaded(&self) -> bool {
