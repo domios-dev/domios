@@ -62,9 +62,15 @@ impl PlanStore {
         &self,
         plan_id: &str,
     ) -> Result<CuratorScheduleRead, PlanError> {
-        Ok(CuratorScheduleRead {
-            plan: self.database.curator_schedule_projection(plan_id)?,
-        })
+        let plan = self.database.curator_schedule_projection(plan_id)?;
+        #[cfg(any(test, feature = "test-support"))]
+        self.curator_schedule_reads.lock().push(plan_id.to_string());
+        Ok(CuratorScheduleRead { plan })
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn curator_schedule_reads_for_test(&self) -> Vec<String> {
+        self.curator_schedule_reads.lock().clone()
     }
 
     pub fn status_projection(

@@ -183,6 +183,8 @@ pub struct PlanStore {
     plan_touches: Mutex<Vec<String>>,
     #[cfg(any(test, feature = "test-support"))]
     plan_loads: Mutex<Vec<String>>,
+    #[cfg(any(test, feature = "test-support"))]
+    curator_schedule_reads: Mutex<Vec<String>>,
     #[cfg(test)]
     shared_git_observer: RwLock<Option<Arc<dyn Fn(&str, &[&str]) + Send + Sync>>>,
 }
@@ -275,6 +277,8 @@ impl PlanStore {
             plan_touches: Mutex::new(Vec::new()),
             #[cfg(any(test, feature = "test-support"))]
             plan_loads: Mutex::new(Vec::new()),
+            #[cfg(any(test, feature = "test-support"))]
+            curator_schedule_reads: Mutex::new(Vec::new()),
             #[cfg(test)]
             shared_git_observer: RwLock::new(None),
         };
