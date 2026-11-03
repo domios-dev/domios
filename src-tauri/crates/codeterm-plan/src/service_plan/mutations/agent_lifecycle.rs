@@ -286,6 +286,8 @@ fn apply_change(plan: &mut Plan, change: &AgentLifecyclePlanChange, now_ms: u64)
                 plan.owner = rebind.owner.clone();
                 plan.team_id = Some(rebind.team_id.clone());
             }
+            // A plan rebound to a live Team owner is no longer orphaned, matching adopt_plan_for_team.
+            plan.orphaned = None;
             if rebind.clear_planner && plan.planner.is_some() {
                 plan.planner = None;
                 clear_planner_delivery_provenance(plan);
