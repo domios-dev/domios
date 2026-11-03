@@ -560,3 +560,95 @@ fn app_upgrade_past_a_staged_frontend_release_withdraws_the_offer() {
     assert_eq!(item.installed.as_deref(), Some("1.0.0"));
     assert_eq!(item.latest.as_deref(), Some("1.0.0"));
 }
+
+#[test]
+fn frontend_discovery_is_shared_per_launch_and_reused_for_staging() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let root = tempfile::tempdir().unwrap();
+    let app = open_app(root.path(), "0.9.0");
+    let fetches = AtomicUsize::new(0);
+    let discover = || {
+        super::update::discover_with(
+            "https://example.test/manifest.json",
+            PUBLIC_KEY,
+            false,
+            |url, _| {
+                fetches.fetch_add(1, Ordering::SeqCst);
+                Ok(if url.ends_with(".minisig") {
+                    SIGNATURE.as_bytes().to_vec()
+                } else {
+                    METADATA.to_vec()
+                })
+            },
+        )
+    };
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            let app = &app;
+            let discover = &discover;
+            scope.spawn(move || {
+                app.discovery_with(discover).unwrap();
+            });
+        }
+    });
+    assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    assert_eq!(app.availability().unwrap().latest.as_deref(), Some("1.0.0"));
+    let stage = super::update::stage_with(
+        &Store::open(root.path()).unwrap(),
+        app.discovery().unwrap(),
+        &app.version_floor(),
+        PUBLIC_KEY,
+        2,
+        false,
+        |url, _| {
+            assert_eq!(url, fixture().url);
+            Ok(ARCHIVE.to_vec())
+        },
+    )
+    .unwrap();
+    app.stage_verified(&stage).unwrap();
+    assert_eq!(
+        app.availability().unwrap().state,
+        codeterm_plugins::AvailabilityState::ReadyToApply
+    );
+    assert_eq!(fetches.load(Ordering::SeqCst), 2);
+    assert!(Store::open(root.path())
+        .unwrap()
+        .asset("frontend-v1.0.0", "index.html")
+        .is_ok());
+    assert!(super::update::stage_with(
+        &Store::open(root.path()).unwrap(),
+        app.discovery().unwrap(),
+        &semver::Version::parse("1.0.0").unwrap(),
+        PUBLIC_KEY,
+        2,
+        false,
+        |_, _| panic!("version floor must reject before archive download"),
+    )
+    .is_err());
+    let relaunched = open_app(root.path(), "0.9.0");
+    relaunched.discovery_with(discover).unwrap();
+    assert_eq!(fetches.load(Ordering::SeqCst), 4);
+}
+
+#[test]
+fn frontend_discovery_failure_is_shared_without_refetching() {
+    let root = tempfile::tempdir().unwrap();
+    let app = open_app(root.path(), "0.9.0");
+    assert!(app
+        .discovery_with(|| super::update::discover_with(
+            "https://example.test/manifest.json",
+            PUBLIC_KEY,
+            false,
+            |url, _| Ok(if url.ends_with(".minisig") {
+                b"invalid".to_vec()
+            } else {
+                METADATA.to_vec()
+            }),
+        ))
+        .is_err());
+    assert!(app
+        .discovery_with(|| panic!("failed discovery is shared"))
+        .is_err());
+    assert!(app.availability().is_err());
+}

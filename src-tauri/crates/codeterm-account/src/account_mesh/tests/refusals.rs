@@ -118,6 +118,7 @@ async fn account_mesh_machine_over_limit_refuses_links_with_plan_limit_code_unti
     );
 
     harness.registry.script.lock().unwrap().membership = None;
+    assert!(harness.mesh.machine_limit_changed());
     harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
     let paid = harness.state();
     assert!(!paid.plan_limit_locked());
