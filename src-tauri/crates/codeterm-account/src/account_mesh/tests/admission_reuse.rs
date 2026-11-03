@@ -46,20 +46,8 @@ async fn account_mesh_admission_reuse_within_validity_makes_zero_calls() {
 
 #[tokio::test]
 async fn account_mesh_admission_reuse_expiry_runs_one_handshake() {
-    for expired in [false, true] {
+    for elapsed in [3000, 3600] {
         let harness = admitted().await;
-        let membership = harness
-            .state()
-            .membership
-            .as_ref()
-            .unwrap()
-            .verified
-            .clone();
-        let elapsed = if expired {
-            membership.expires_at
-        } else {
-            membership.refresh_after()
-        } - START;
         harness.clock.set(START + elapsed);
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));

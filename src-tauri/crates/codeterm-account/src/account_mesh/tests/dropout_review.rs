@@ -77,14 +77,17 @@ fn account_mesh_short_lease_margin_is_capped_at_ten_minutes() {
         issued_at: START,
         expires_at: START + duration,
     };
-    for duration in [1, 119, 120, 121, 600, 1800, 2400, 3600, 86400] {
-        let latest_margin = 120u64.max(duration / 24).min(duration / 2);
-        let earliest_margin = 600u64.max(duration / 12).min(duration / 2);
-        let due = membership(duration).refresh_after();
-        assert!(
-            (START + duration - earliest_margin..=START + duration - latest_margin).contains(&due)
+    for (duration, margin) in [
+        (600, 150),
+        (1800, 450),
+        (2400, 600),
+        (3600, 600),
+        (86400, 21600),
+    ] {
+        assert_eq!(
+            membership(duration).refresh_after(),
+            START + duration - margin
         );
-        assert!(due > START);
     }
 }
 

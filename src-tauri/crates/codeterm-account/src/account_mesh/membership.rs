@@ -71,15 +71,12 @@ impl VerifiedMembership {
     }
     pub fn refresh_after(&self) -> u64 {
         let duration = self.expires_at.saturating_sub(self.issued_at);
-        let latest_margin = 120.max(duration / 24).min(duration / 2);
-        let earliest_margin = 600.max(duration / 12).min(duration / 2);
-        let seed = sha256_hex(self.installation_id.as_bytes())
-            .bytes()
-            .take(16)
-            .fold(0u64, |hash, byte| {
-                hash.wrapping_mul(31).wrapping_add(u64::from(byte))
-            });
-        let margin = latest_margin + seed % (earliest_margin - latest_margin + 1);
+        let proportional = if duration <= 3600 {
+            (duration / 4).min(600)
+        } else {
+            duration / 4
+        };
+        let margin = 120.max(proportional).min(duration / 2);
         self.expires_at.saturating_sub(margin)
     }
 }

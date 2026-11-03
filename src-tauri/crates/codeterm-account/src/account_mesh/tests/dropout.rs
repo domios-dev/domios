@@ -89,15 +89,7 @@ async fn account_mesh_active_slot_with_different_key_uses_recover_after_rotation
 #[tokio::test]
 async fn account_mesh_outage_beyond_retry_window_renews_before_expiry() {
     let harness = enrolled().await;
-    harness.clock.set(
-        harness
-            .state()
-            .membership
-            .as_ref()
-            .unwrap()
-            .verified
-            .refresh_after(),
-    );
+    harness.clock.set(START + 64800);
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
     let mut delays = Vec::new();
     for _ in 0..12 {
@@ -226,15 +218,7 @@ async fn account_mesh_untyped_403_and_404_retry_without_rejoining() {
         };
         let mapped = refusal(&failure);
         assert_eq!(mapped, RegistryRefusal::Unavailable);
-        harness.clock.set(
-            harness
-                .state()
-                .membership
-                .as_ref()
-                .unwrap()
-                .verified
-                .refresh_after(),
-        );
+        harness.clock.set(START + 64800);
         harness.registry.script.lock().unwrap().membership_once = Some(mapped);
         assert_eq!(
             harness.mesh.refresh(EnrollTrigger::Lease).await,

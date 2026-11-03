@@ -770,17 +770,7 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
     harness.registry.entered.notified().await;
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
 
-    let cadence = Duration::from_secs(
-        harness
-            .state()
-            .membership
-            .as_ref()
-            .unwrap()
-            .verified
-            .refresh_after()
-            - harness.mesh.now(),
-    );
-    assert_eq!(next_renewal(&harness).await, cadence);
+    assert_eq!(next_renewal(&harness).await, Duration::from_secs(3000));
     assert_eq!(harness.state().enrollment, Enrollment::Refused);
     assert_eq!(
         next_renewal(&harness).await,
@@ -805,7 +795,7 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
     assert_eq!(harness.calls("renew"), 4);
     assert_eq!(
         next_renewal(&harness).await,
-        cadence,
+        Duration::from_secs(3000),
         "a renewed membership returns to the lease cadence"
     );
 }
