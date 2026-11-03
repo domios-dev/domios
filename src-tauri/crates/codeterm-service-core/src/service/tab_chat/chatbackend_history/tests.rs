@@ -233,6 +233,81 @@ fn unparseable_trailing_line_is_skipped() {
 }
 
 #[test]
+fn closing_releases_writer_after_the_last_inflight_handle() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.jsonl");
+    let registry = Mutex::new(HistoryRegistry::new());
+    let key = ("plugin".into(), "session".into());
+    let writer = shared_in(&registry, key.clone(), path.clone());
+    let weak = Arc::downgrade(&writer);
+    writer.lock().upsert(&[msg("1", "before close")]);
+    drop(writer);
+    assert!(weak.upgrade().is_some(), "live sessions keep their index");
+    let inflight = shared_in(&registry, key.clone(), path.clone());
+    release_in(&mut registry.lock(), &key);
+    let late = shared_in(&registry, key.clone(), path.clone());
+    assert!(Arc::ptr_eq(&inflight, &late));
+    late.lock().upsert(&[msg("1", "after close")]);
+    drop(inflight);
+    drop(late);
+    assert!(weak.upgrade().is_none());
+    release_in(&mut registry.lock(), &key);
+    assert!(registry.lock().is_empty());
+    let reopened = shared_in(&registry, key.clone(), path.clone());
+    assert!(!reopened.lock().upsert(&[msg("1", "after close")]));
+    assert_eq!(read_messages(&path)[0].content, "after close");
+    release_in(&mut registry.lock(), &key);
+}
+
+#[test]
+fn racing_writer_acquisition_returns_one_instance() {
+    let dir = tempfile::tempdir().unwrap();
+    let registry = Mutex::new(HistoryRegistry::new());
+    let barrier = std::sync::Barrier::new(2);
+    let key = ("plugin".into(), "racing".into());
+    let path = dir.path().join("session.jsonl");
+    std::thread::scope(|scope| {
+        let acquire = || {
+            barrier.wait();
+            shared_in(&registry, key.clone(), path.clone())
+        };
+        let first = scope.spawn(acquire);
+        let second = scope.spawn(acquire);
+        let first = first.join().unwrap();
+        let second = second.join().unwrap();
+        assert!(Arc::ptr_eq(&first, &second));
+        release_in(&mut registry.lock(), &key);
+        assert!(Arc::ptr_eq(
+            &first,
+            &shared_in(&registry, key.clone(), path.clone())
+        ));
+    });
+    release_in(&mut registry.lock(), &key);
+    assert!(registry.lock().is_empty());
+}
+
+#[test]
+fn close_before_indexing_cannot_retain_or_duplicate_the_writer() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("session.jsonl");
+    let registry = Mutex::new(HistoryRegistry::new());
+    let key = ("plugin".into(), "closing".into());
+    let writer = shared_in(&registry, key.clone(), path.clone());
+    assert!(!writer.lock().indexed);
+    release_in(&mut registry.lock(), &key);
+    let late = shared_in(&registry, key.clone(), path.clone());
+    assert!(Arc::ptr_eq(&writer, &late));
+    writer.lock().upsert(&[msg("1", "late append")]);
+    assert_eq!(read_messages(&path)[0].content, "late append");
+    let weak = Arc::downgrade(&writer);
+    drop(writer);
+    drop(late);
+    assert!(weak.upgrade().is_none());
+    release_in(&mut registry.lock(), &key);
+    assert!(registry.lock().is_empty());
+}
+
+#[test]
 fn a_torn_tail_is_preserved_and_replaced_by_the_next_record() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("s.jsonl");

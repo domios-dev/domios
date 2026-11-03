@@ -7,15 +7,17 @@ pub(crate) struct DispatchReservationOwner {
     tab_id: String,
 }
 
-pub struct TaskDispatchReservation<'a> {
-    store: &'a PlanStore,
+pub struct TaskDispatchReservation {
+    reservations: std::sync::Arc<
+        parking_lot::Mutex<std::collections::HashMap<(String, String), DispatchReservationOwner>>,
+    >,
     key: (String, String),
     attempt_id: String,
 }
 
-impl Drop for TaskDispatchReservation<'_> {
+impl Drop for TaskDispatchReservation {
     fn drop(&mut self) {
-        let mut reservations = self.store.dispatch_reservations.lock();
+        let mut reservations = self.reservations.lock();
         if reservations
             .get(&self.key)
             .is_some_and(|owner| owner.attempt_id == self.attempt_id)
@@ -32,7 +34,7 @@ impl PlanStore {
         task_id: &str,
         source_attempt_id: &str,
         attempt_id: &str,
-    ) -> Result<TaskDispatchReservation<'_>, PlanError> {
+    ) -> Result<TaskDispatchReservation, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
         let task = self
             .get(plan_id)
@@ -58,7 +60,7 @@ impl PlanStore {
         drop(reservations);
         drop(_writer_turn);
         Ok(TaskDispatchReservation {
-            store: self,
+            reservations: self.dispatch_reservations.clone(),
             key,
             attempt_id: attempt_id.to_string(),
         })
@@ -85,7 +87,7 @@ impl PlanStore {
         tab_id: &str,
         observed_startup_owner: Option<DispatchStartupOwner>,
         observed_startup_owner_is_live: bool,
-    ) -> Result<TaskDispatchReservation<'_>, PlanError> {
+    ) -> Result<TaskDispatchReservation, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
         let current_owner = self.get(plan_id).and_then(|plan| {
             crate::plan::task_key::find_task(&plan.tasks, task_id)
@@ -118,7 +120,7 @@ impl PlanStore {
         drop(reservations);
         drop(_writer_turn);
         Ok(TaskDispatchReservation {
-            store: self,
+            reservations: self.dispatch_reservations.clone(),
             key,
             attempt_id: attempt_id.to_string(),
         })

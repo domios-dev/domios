@@ -39,22 +39,25 @@ pub async fn section_add(
         crate::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    let sid = state
-        .svc
-        .plan_store
-        .add_section(
-            &id,
-            &body.title,
-            &body.body,
-            body.parent.as_deref(),
-            &body.tags,
-            body.primary.as_deref(),
-            body.handle.as_deref(),
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "section_id": sid })))
+    crate::plan_routes::run_blocking(move || {
+        let sid = state
+            .svc
+            .plan_store
+            .add_section(
+                &id,
+                &body.title,
+                &body.body,
+                body.parent.as_deref(),
+                &body.tags,
+                body.primary.as_deref(),
+                body.handle.as_deref(),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "section_id": sid })))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -68,15 +71,18 @@ pub async fn ingest(
     Path(id): Path<String>,
     Json(body): Json<IngestBody>,
 ) -> PlanRouteResult {
-    let result = state
-        .svc
-        .plan_store
-        .ingest_plan_sections(&id, &body.markdown, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(
-        serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "sections": [] })),
-    ))
+    crate::plan_routes::run_blocking(move || {
+        let result = state
+            .svc
+            .plan_store
+            .ingest_plan_sections(&id, &body.markdown, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(
+            serde_json::to_value(result).unwrap_or_else(|_| serde_json::json!({ "sections": [] })),
+        ))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -106,22 +112,25 @@ pub async fn section_update(
         crate::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    state
-        .svc
-        .plan_store
-        .update_section(
-            &id,
-            &sid,
-            body.title.as_deref(),
-            body.body.as_deref(),
-            &body.tags,
-            body.primary.as_deref(),
-            body.handle.as_deref(),
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .update_section(
+                &id,
+                &sid,
+                body.title.as_deref(),
+                body.body.as_deref(),
+                &body.tags,
+                body.primary.as_deref(),
+                body.handle.as_deref(),
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 pub async fn section_rm(
@@ -135,11 +144,14 @@ pub async fn section_rm(
         crate::tab_routes::authenticated_plan_caller(&headers),
     )
     .await?;
-    state
-        .svc
-        .plan_store
-        .rm_section(&id, &sid, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .rm_section(&id, &sid, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }

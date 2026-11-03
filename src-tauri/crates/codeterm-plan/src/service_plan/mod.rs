@@ -172,7 +172,7 @@ pub struct PlanStore {
     reseed_prepare_lock: Mutex<()>,
     mutation_writer: MutationWriter,
     dispatch_reservations:
-        Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>,
+        Arc<Mutex<HashMap<(String, String), task_dispatch::DispatchReservationOwner>>>,
     database: Arc<store_db::PlanDatabase>,
     retention_day: Mutex<Option<u64>>,
     #[cfg(test)]
@@ -264,7 +264,7 @@ impl PlanStore {
             task_key_port: RwLock::new(None),
             reseed_prepare_lock: Mutex::new(()),
             mutation_writer: MutationWriter::default(),
-            dispatch_reservations: Mutex::new(HashMap::new()),
+            dispatch_reservations: Arc::new(Mutex::new(HashMap::new())),
             database,
             retention_day: Mutex::new(None),
             #[cfg(test)]

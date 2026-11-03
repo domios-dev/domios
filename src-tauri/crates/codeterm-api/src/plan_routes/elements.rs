@@ -26,13 +26,16 @@ pub async fn layout_set(
     Path(id): Path<String>,
     Json(body): Json<LayoutSetBody>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .set_layout(&id, &body.element, body.x, body.y, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .set_layout(&id, &body.element, body.x, body.y, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -53,13 +56,16 @@ pub async fn note_add(
     Path(id): Path<String>,
     Json(body): Json<NoteAddBody>,
 ) -> PlanRouteResult {
-    let eid = state
-        .svc
-        .plan_store
-        .add_note(&id, &body.text, body.links, body.x, body.y, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "element_id": eid })))
+    crate::plan_routes::run_blocking(move || {
+        let eid = state
+            .svc
+            .plan_store
+            .add_note(&id, &body.text, body.links, body.x, body.y, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "element_id": eid })))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -74,20 +80,23 @@ pub async fn note_update(
     Path((id, element_id)): Path<(String, String)>,
     Json(body): Json<NoteUpdateBody>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .update_element(
-            &id,
-            &element_id,
-            Some("note"),
-            Some(serde_json::json!({ "text": body.text })),
-            None,
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .update_element(
+                &id,
+                &element_id,
+                Some("note"),
+                Some(serde_json::json!({ "text": body.text })),
+                None,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -109,21 +118,24 @@ pub async fn element_add(
     Path(id): Path<String>,
     Json(body): Json<ElementAddBody>,
 ) -> PlanRouteResult {
-    let eid = state
-        .svc
-        .plan_store
-        .add_element(
-            &id,
-            &body.kind,
-            body.content,
-            body.links,
-            body.x,
-            body.y,
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "element_id": eid })))
+    crate::plan_routes::run_blocking(move || {
+        let eid = state
+            .svc
+            .plan_store
+            .add_element(
+                &id,
+                &body.kind,
+                body.content,
+                body.links,
+                body.x,
+                body.y,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "element_id": eid })))
+    })
+    .await
 }
 
 #[derive(Deserialize, Default)]
@@ -142,20 +154,23 @@ pub async fn element_update(
     Path((id, element_id)): Path<(String, String)>,
     Json(body): Json<ElementUpdateBody>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .update_element(
-            &id,
-            &element_id,
-            body.kind.as_deref(),
-            body.content,
-            body.links,
-            epoch_ms(),
-        )
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .update_element(
+                &id,
+                &element_id,
+                body.kind.as_deref(),
+                body.content,
+                body.links,
+                epoch_ms(),
+            )
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 pub async fn element_rm(
@@ -163,13 +178,16 @@ pub async fn element_rm(
     _headers: HeaderMap,
     Path((id, element_id)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .rm_element(&id, &element_id, epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .rm_element(&id, &element_id, epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }
 
 pub async fn coverage(
@@ -177,12 +195,15 @@ pub async fn coverage(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    let report = state
-        .svc
-        .plan_store
-        .coverage_report(&id)
-        .ok_or_else(|| plan_err(PlanError::NotFound))?;
-    Ok(Json(serde_json::to_value(report).unwrap_or_default()))
+    crate::plan_routes::run_blocking(move || {
+        let report = state
+            .svc
+            .plan_store
+            .coverage_report(&id)
+            .ok_or_else(|| plan_err(PlanError::NotFound))?;
+        Ok(Json(serde_json::to_value(report).unwrap_or_default()))
+    })
+    .await
 }
 
 #[derive(Deserialize)]
@@ -196,11 +217,14 @@ pub async fn groups_set(
     Path(id): Path<String>,
     Json(body): Json<GroupsSetBody>,
 ) -> PlanRouteResult {
-    state
-        .svc
-        .plan_store
-        .set_task_groups(&id, groups_from_csv(&body.groups), epoch_ms())
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &id);
-    Ok(Json(serde_json::json!({ "ok": true })))
+    crate::plan_routes::run_blocking(move || {
+        state
+            .svc
+            .plan_store
+            .set_task_groups(&id, groups_from_csv(&body.groups), epoch_ms())
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &id);
+        Ok(Json(serde_json::json!({ "ok": true })))
+    })
+    .await
 }

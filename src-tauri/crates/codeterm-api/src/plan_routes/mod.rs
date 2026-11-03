@@ -182,3 +182,11 @@ fn tag_facets_from_body(
 ) -> Result<Vec<codeterm_service_core::plan::TagFacet>, String> {
     tag_facets_from_value(value)
 }
+
+async fn run_blocking<T: Send + 'static>(
+    operation: impl FnOnce() -> Result<T, (StatusCode, Json<Value>)> + Send + 'static,
+) -> Result<T, (StatusCode, Json<Value>)> {
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
+}
