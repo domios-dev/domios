@@ -117,7 +117,10 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
       className={`ct-card group/toolcard mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden${communication ? " ct-communication-card" : ""}${inlineRow ? " ct-command-inline" : ""}${quiet ? " ct-card--quiet" : ""}${error ? " ct-card--error" : ""}`}
       style={{ minHeight, "--ct-card-tone": error || quietOperation ? "var(--ct-muted-fg)" : visual.color } as CSSProperties}
     >
-      <div ref={header} data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineRow ? " ct-command-inline__head" : ""}`}>
+      <div ref={header} data-testid={headerTestId} className={`ct-card__header flex min-w-0 items-center gap-2.5 px-3 py-2 text-left text-xs${inlineRow ? " ct-command-inline__head" : ""}`}
+        onClick={compact && canExpand ? (event) => {
+          if (event.target instanceof Element && !event.target.closest('button, a, input, select, textarea, [role="button"]')) onToggle();
+        } : undefined}>
         <button
           type="button"
           aria-label={disclosureLabel ? `${expanded ? "Hide" : "Show"} ${disclosureLabel}` : expanded ? "Collapse tool details" : "Expand tool details"}
@@ -138,7 +141,6 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
             <ToolOutcomeFacts event={event} />
             {!expanded && tail}
           </span>
-          {compact && canExpand && <ChevronRight aria-hidden size={14} className={`ct-tool-indicator ${open ? "rotate-90" : ""}`} />}
         </button>
         {!compact && opener}
         {event.status === "unresolved" && (
@@ -146,6 +148,7 @@ export function ToolCardFrame({ testId = "chat-tool-call", event, expanded, onTo
         )}
         {action}
         {compact && event.status !== "success" && statusIcon}
+        {compact && canExpand && <ChevronRight aria-hidden size={14} className={`ct-tool-indicator ${open ? "rotate-90" : ""}`} />}
         <span className="ct-tool-status-slot">
         {!compact && statusIcon}
         <ChatCardMenu label={`Actions for ${labelText || "tool call"}`} items={compact && canExpand && !fullscreen ? [{

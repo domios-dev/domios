@@ -80,10 +80,11 @@ it("retains compact pending and error status without adding action targets", asy
   const media = window.matchMedia("(pointer: coarse)");
   Object.defineProperty(media, "matches", { value: true });
   vi.spyOn(window, "matchMedia").mockReturnValue(media);
+  let toggles = 0;
   await mount(<CompactSurface><ChatBlockHostProvider value={{ renderMenu: renderChatCardMenu }}>
     {(["pending", "error", "success"] as const).map(status => {
       const event: ToolEvent = { id: status, phase: "result", status, kind: "search", message: { id: status, type: "tool_call", content: "" } };
-      return <ToolCardFrame key={status} event={event} expanded={false} onToggle={() => {}}><p>Opaque detail</p></ToolCardFrame>;
+      return <ToolCardFrame key={status} event={event} expanded={false} onToggle={() => { toggles += 1; }}><p>Opaque detail</p></ToolCardFrame>;
     })}
   </ChatBlockHostProvider></CompactSurface>);
   expect(host.querySelectorAll('[role="status"]')).toHaveLength(2);
@@ -91,7 +92,9 @@ it("retains compact pending and error status without adding action targets", asy
     const indicator = host.querySelector(`[role="status"][aria-label="${status}"]`);
     expect(indicator?.querySelector("svg")).toBeTruthy();
     expect(indicator?.closest("button")).toBeNull();
+    await act(async () => indicator?.dispatchEvent(new MouseEvent("click", { bubbles: true })));
   }
+  expect(toggles).toBe(2);
 });
 
 for (const input of ["coarse", "narrow"] as const) {
