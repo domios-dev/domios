@@ -41,8 +41,8 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
   const connection = useRef<Connection>({ disconnect: null, sent: null, latest: null, mismatch: null });
   const profile = useRef(state.profile);
   profile.current = state.profile;
-  const [feed] = useState(() => createFrameFeed((frame, decoded) => profile.current === "attached"
-    || !documentActive() || acceptViewportFrame(frame.metadata, connection.current.latest, decoded)));
+  const [feed] = useState(() => createFrameFeed((frame) => profile.current === "attached"
+    || !documentActive() || acceptViewportFrame(frame.metadata, connection.current.latest)));
 
   const resizer = useMemo<{ current: ReturnType<typeof createViewportResizer> | null }>(() => ({ current: null }), [transport]);
   useEffect(() => () => { resizer.current?.dispose(); resizer.current = null; }, [resizer]);
@@ -111,6 +111,8 @@ export function useSurfaceStream(transport: SurfaceStreamTransport, initialState
       current.disconnect?.();
       current.disconnect = null;
       current.sent = null;
+    } else if (current.latest && !current.disconnect) {
+      connect(current.latest);
     }
   }, [connect, visible]);
 

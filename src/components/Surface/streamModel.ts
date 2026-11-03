@@ -194,7 +194,6 @@ export function stageRectToPage(
 }
 
 export function viewportRequest(container: Size, dpr: number): StreamViewport | null {
-  if (!Number.isFinite(container.width) || !Number.isFinite(container.height)) return null;
   const w = Math.round(container.width);
   const h = Math.round(container.height);
   if (w <= 0 || h <= 0) return null;

@@ -29,12 +29,7 @@ import { PREVIEW_PAUSED_TEXT } from "./SurfacePreviewPaused";
 import { changeValue, flushAsync, getByRole, queryByRole, render, resizeStages, testSuite } from "./surfaceTestDom.testdata";
 
 const suite = testSuite("StreamSurfaceView");
-const decode: FrameDecoder = async (frame) => ({
-  width: Math.round(frame.metadata.deviceWidth * window.devicePixelRatio),
-  height: Math.round(frame.metadata.deviceHeight * window.devicePixelRatio),
-  image: {} as CanvasImageSource,
-  close: () => undefined,
-});
+const decode: FrameDecoder = async () => ({ width: 800, height: 600, image: {} as CanvasImageSource, close: () => undefined });
 const state: SurfaceState = { owner: "Jev", title: "Login", url: "https://a.test/", activity: "typing", profile: "clean", profiles: [] };
 const label = surfaceLabel(state.owner, BROWSER_SURFACE_TITLE);
 
