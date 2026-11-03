@@ -8,6 +8,7 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import { useProviderPromptLifecycle } from "./useProviderPromptLifecycle";
 import { AgentStateIndicator } from "./AgentStateIndicator";
 import { manualPendingPrompt } from "../../lib/promptAnswers";
@@ -66,9 +67,9 @@ async function withComposer(
   try {
     await act(async () => {
       root.render(
-        <MuxStateStoreContext.Provider value={store}>
+        <DraftStorageFixture><MuxStateStoreContext.Provider value={store}>
           <Presentation />
-        </MuxStateStoreContext.Provider>,
+        </MuxStateStoreContext.Provider></DraftStorageFixture>,
       );
     });
     await act(async () => { await new Promise<void>((resolve) => setImmediate(resolve)); });

@@ -19,6 +19,7 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import { prepareBrowserUpload } from "./browserImageUpload";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -80,7 +81,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     const [attachments, setAttachments] = useState<string[]>([]);
     const [bubble, setBubble] = useState("");
     const sends = useChatSends("picker");
-    return <MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
+    return <DraftStorageFixture><MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
       {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} userFooter={<><ChatDeliveryState state="sending" /><DroppedUploadNotice tabId="picker" id="sent" names={sends.find(send => send.id === "sent")?.droppedUploads} /></>} /></div>}
       <ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
         attachments={attachments} addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
@@ -88,7 +89,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
         clearAttachments={() => setAttachments([])} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
         addOptimistic={(content) => { addChatSend("picker", { id: "sent", content, sentAtMs: Date.now() }); setBubble(content); return "sent"; }} updateOptimistic={(_id, content) => setBubble(content)}
         observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} /></ComposerIssuesProvider>
-    </LocalArtifactScope></MuxStateStoreContext.Provider>;
+    </LocalArtifactScope></MuxStateStoreContext.Provider></DraftStorageFixture>;
   }
   try {
     await act(async () => root.render(<Harness />));

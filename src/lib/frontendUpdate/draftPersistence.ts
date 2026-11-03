@@ -71,9 +71,9 @@ export class DraftPersistence {
         } catch (error) {
           this.errors.set(scope, error instanceof Error ? error : new Error(String(error)));
           write.pending = true;
+          failedRevision = revision;
           this.emit();
           if (write.revision !== revision) continue;
-          failedRevision = revision;
           break;
         }
       }
