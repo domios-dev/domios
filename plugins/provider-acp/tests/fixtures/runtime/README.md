@@ -133,3 +133,8 @@ completion and interruption of the remaining running cards. Tests also cover an
 early queued reply and code-point truncation at an astral boundary. Existing
 agent_thought_chunk fixtures remain collapsed thinking rows; the semantic origin
 of Clifive's reasoning-like passage remains unverified by the run-5 receipts.
+
+many-turns-tool-admission runs sequential completed tool turns beyond the identity
+admission budget. Each new tool remains running until its completion update;
+settled identities are reclaimed before admission while running identities remain
+protected. The fixture also participates in native/QuickJS shared replay.

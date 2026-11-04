@@ -113,3 +113,35 @@ fn opaque_session_ids_do_not_alias_runtime_transcripts() {
         chatbackend_history::runtime_path("other", "part/one")
     );
 }
+
+#[test]
+fn transcript_io_failures_are_nonfatal_and_recovery_remains_available() {
+    let root = tempfile::tempdir().unwrap();
+    let io = TranscriptIo::default();
+    assert!(io
+        .read_rows(&root.path().join("missing.jsonl"), "fixture")
+        .is_empty());
+    assert!(!io.read_failed.load(Ordering::Relaxed));
+    assert!(chatbackend_history::try_read_messages(root.path()).is_err());
+    assert!(io.read_rows(root.path(), "fixture").is_empty());
+    assert!(io.read_failed.load(Ordering::Relaxed));
+    assert!(io.read_rows(root.path(), "fixture").is_empty());
+    let mut invalid = ChatBackendHistory::open_at(root.path().to_path_buf());
+    assert!(invalid
+        .snapshot(vec![row("item", 0, "assistant", "body")])
+        .is_err());
+    io.write_rows(
+        &mut invalid,
+        vec![row("item", 0, "assistant", "body")],
+        "fixture",
+    );
+    assert!(io.write_failed.load(Ordering::Relaxed));
+    let path = root.path().join("valid.jsonl");
+    let expected = vec![row("item", 0, "assistant", "body")];
+    io.write_rows(
+        &mut ChatBackendHistory::open_at(path.clone()),
+        expected.clone(),
+        "fixture",
+    );
+    assert_eq!(io.read_rows(&path, "fixture"), expected);
+}

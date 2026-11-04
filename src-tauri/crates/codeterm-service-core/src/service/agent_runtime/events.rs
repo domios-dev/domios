@@ -159,14 +159,21 @@ pub fn translate_with_items(
     loading: bool,
 ) -> Option<RuntimeEvent> {
     if let AgentRuntimeEvent::ChatItemPatch { thread_id, item } = event {
-        if let Some(stored) = maps
-            .items
-            .iter()
-            .find(|stored| stored.thread_id == *thread_id && stored.item.id == item.id)
-        {
+        if let Some(stored) = maps.items.iter().find(|stored| {
+            stored.thread_id == *thread_id
+                && stored.item.id == item.id
+                && matches!(
+                    stored.item.kind.as_str(),
+                    "tool" | "tool_call" | "tool_result"
+                )
+        }) {
             let mut merged = serde_json::to_value(&stored.item).ok()?;
-            let patch = serde_json::to_value(item).ok()?;
-            merged.as_object_mut()?.extend(patch.as_object()?.clone());
+            let mut patch = serde_json::to_value(item).ok()?;
+            let fields = patch.as_object_mut()?;
+            for key in ["id", "seq", "type", "content"] {
+                fields.remove(key);
+            }
+            merged.as_object_mut()?.extend(fields.clone());
             let mut next: ChatMsg = serde_json::from_value(merged).ok()?;
             next.seq = stored.item.seq;
             return Some(RuntimeEvent::ItemUpdated {

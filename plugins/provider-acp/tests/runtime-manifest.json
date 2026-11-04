@@ -139,6 +139,7 @@
     "two-turns-restart-third.json",
     "self-send-overlapping-prompts.json",
     "tool-output-retention.json",
-    "oversize-astral-cut.json"
+    "oversize-astral-cut.json",
+    "many-turns-tool-admission.json"
   ]
 }

@@ -317,7 +317,7 @@ fn settled_turn_appends_are_refused_once_per_row() {
 #[test]
 fn tool_patch_preserves_full_retained_card_and_sequence() {
     let mut maps = RuntimeMaps::default();
-    let mut original = item("tool", true, "");
+    let mut original = item("tool", true, "Original tool caption");
     original.tool_title = Some("Opaque tool".into());
     original.tool_input = Some(serde_json::json!({"command":"opaque"}));
     original.tool_result = Some("x".repeat(15900));
@@ -326,7 +326,7 @@ fn tool_patch_preserves_full_retained_card_and_sequence() {
         thread_id: "t".into(),
         item: ChatMsg {
             id: "tool".into(),
-            kind: "tool".into(),
+            kind: "assistant".into(),
             seq: 99,
             tool_status: Some("completed".into()),
             ..Default::default()
@@ -336,6 +336,8 @@ fn tool_patch_preserves_full_retained_card_and_sequence() {
     fold(&mut maps, 1, &event);
     let row = &maps.items[0].item;
     assert_eq!(row.seq, 0);
+    assert_eq!(row.kind, "tool");
+    assert_eq!(row.content, "Original tool caption");
     assert_eq!(row.tool_title.as_deref(), Some("Opaque tool"));
     assert_eq!(
         row.tool_input,
@@ -343,4 +345,32 @@ fn tool_patch_preserves_full_retained_card_and_sequence() {
     );
     assert_eq!(row.tool_result.as_ref().unwrap().len(), 15900);
     assert_eq!(row.tool_status.as_deref(), Some("completed"));
+}
+
+#[test]
+fn tool_patches_cannot_blank_or_retype_conversation_rows() {
+    for kind in ["user", "assistant", "thinking"] {
+        let mut maps = RuntimeMaps::default();
+        let original = ChatMsg {
+            id: "row".into(),
+            seq: 7,
+            kind: kind.into(),
+            content: "Original body".into(),
+            ..Default::default()
+        };
+        put(&mut maps, 1, original.clone());
+        let patch = AgentRuntimeEvent::ChatItemPatch {
+            thread_id: "t".into(),
+            item: ChatMsg {
+                id: "row".into(),
+                kind: "tool_call".into(),
+                tool_status: Some("completed".into()),
+                ..Default::default()
+            },
+        };
+        let event = translate_with_items(&patch, &mut maps, false).unwrap();
+        assert!(matches!(event, RuntimeEvent::Notice { .. }));
+        fold(&mut maps, 1, &event);
+        assert_eq!(maps.items[0].item, original);
+    }
 }

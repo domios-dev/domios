@@ -311,12 +311,23 @@ function emit(state, events, row, patch = false) {
     ...row.toolKind ? { toolKind: row.toolKind } : {},
     ...row.toolStatus ? { toolStatus: row.toolStatus } : {}
   };
-  if (row.toolStatus === "running" && !previous && utf8Length(JSON.stringify(state.items)) + utf8Length(JSON.stringify(retained)) > 16384) {
+  if (row.toolStatus === "running" && !previous && !admitToolIdentity(state, retained)) {
     events.push({ kind: "chatItem", threadId: state.sessionId, item: { ...row, toolStatus: "interrupted", toolInterrupted: true, content: "[ACP tool tracking capacity exhausted]" } });
     return;
   }
   state.items[row.id] = retained;
   if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== void 0 || row.toolResult !== void 0 || row.fileDiffs !== void 0 || row.toolInterrupted) events.push({ kind: patch ? "chatItemPatch" : "chatItem", threadId: state.sessionId, item: row });
+}
+function admitToolIdentity(state, retained) {
+  let bytes = utf8Length(JSON.stringify(state.items)) + utf8Length(JSON.stringify({ [retained.id]: retained })) - 1;
+  const submittedId = `${state.sessionId}:turn:${state.turn}:item:1`;
+  for (const [id, row] of Object.entries(state.items)) {
+    if (bytes <= 16384) break;
+    if (row.toolStatus === "running" || id === state.chunk?.id || id === submittedId) continue;
+    bytes -= utf8Length(JSON.stringify({ [id]: row })) - 1;
+    delete state.items[id];
+  }
+  return bytes <= 16384;
 }
 function rememberControl(state, kind, update) {
   const encoded = JSON.stringify(update);

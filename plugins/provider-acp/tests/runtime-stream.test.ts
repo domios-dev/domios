@@ -364,3 +364,15 @@ for (const scenario of ["tool-identities","overlapping-prompts","overlapping-ear
   } catch (error) { followupFailures.push(`${scenario}: ${String(error)}`); }
 }
 assert.deepEqual(followupFailures,[]);
+
+let longSession:JsonValue=null;
+for (let turn=1;turn<=140;turn++) {
+  const update:RuntimeFrame=updateFrame({sessionUpdate:"tool_call",toolCallId:`turn-${turn}-tool`,title:"Retained title ".repeat(8),kind:"execute",status:"in_progress"});
+  const running=reduceStream(context,longSession,[update],{...cursor,prompt:turn});
+  assert.ok(running.events.some(event=>event.kind === "chatItem" && event.item.toolStatus === "running"),`turn ${turn} admits a running tool after older turns finish`);
+  const complete=reduceStream(context,running.state,[updateFrame({sessionUpdate:"tool_call_update",toolCallId:`turn-${turn}-tool`,status:"completed",rawOutput:"done"})],{...cursor,prompt:turn});
+  assert.ok(complete.events.some(event=>event.kind === "chatItemPatch" && event.item.toolStatus === "completed"));
+  longSession=settleStream(context,complete.state,"end_turn").state;
+  assert.ok(Buffer.byteLength(JSON.stringify(longSession))<65536);
+}
+console.log("✓ ACP tool admission reclaims settled identities across 140 turns");

@@ -4,9 +4,53 @@ use super::{
     model::{RuntimeFailure, REREADABLE_CACHE_ROWS},
 };
 use crate::service::tab_chat::chatbackend_history::{self, ChatBackendHistory};
-use codeterm_plugin::agent_runtime::AgentRuntimeCapability;
+use codeterm_plugin::agent_runtime::{AgentRuntimeCapability, RuntimeContext};
 use codeterm_types::agent::chat_types::ChatMsg;
-use std::sync::Arc;
+use std::{
+    path::Path,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+};
+
+#[derive(Default)]
+pub(super) struct TranscriptIo {
+    read_failed: AtomicBool,
+    write_failed: AtomicBool,
+}
+
+impl TranscriptIo {
+    fn read_rows(&self, path: &Path, tab: &str) -> Vec<ChatMsg> {
+        match chatbackend_history::try_read_messages(path) {
+            Ok(rows) => rows,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => {
+                warn_once(&self.read_failed, tab, "restore", error);
+                Vec::new()
+            }
+        }
+    }
+
+    fn write_rows(&self, writer: &mut ChatBackendHistory, rows: Vec<ChatMsg>, tab: &str) {
+        if let Err(error) = writer.snapshot(rows) {
+            warn_once(&self.write_failed, tab, "persist", error);
+        }
+    }
+}
+
+fn warn_once(flag: &AtomicBool, tab: &str, operation: &str, error: impl std::fmt::Display) {
+    if !flag.swap(true, Ordering::Relaxed) {
+        log::warn!("[runtime-transcript] tab={tab} {operation} failed; continuing: {error}");
+    }
+}
+
+fn same_binding(current: &RuntimeContext, expected: &RuntimeContext) -> bool {
+    current.epoch == expected.epoch
+        && current.thread_id == expected.thread_id
+        && current.binding_nonce == expected.binding_nonce
+        && current.cwd == expected.cwd
+}
 
 fn enabled(capability: &AgentRuntimeCapability) -> bool {
     !capability.stored_history
@@ -29,66 +73,77 @@ pub(super) async fn restore(session: &Arc<Session>) -> Result<(), RuntimeFailure
     if !selected(session) {
         return Ok(());
     }
-    let session = session.clone();
-    tokio::task::spawn_blocking(move || {
-        let context = session.context.lock().clone();
+    let worker = session.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let context = worker.context.lock().clone();
         let Some(thread) = context.thread_id.as_deref() else {
             return Ok(());
         };
-        let path = chatbackend_history::runtime_path(&session.provider, thread);
-        let rows = match chatbackend_history::try_read_messages(&path) {
-            Ok(rows) => rows,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-            Err(error) => return Err(RuntimeFailure::HookFailed(error.to_string())),
+        let path = chatbackend_history::runtime_path(&worker.provider, thread);
+        let rows = worker.transcript_io.read_rows(&path, &context.tab_id);
+        let current = {
+            let current = worker.context.lock();
+            same_binding(&current, &context)
         };
-        let mut current = session.context.lock();
-        if current.epoch != context.epoch
-            || current.thread_id != context.thread_id
-            || current.binding_nonce != context.binding_nonce
-            || current.cwd != context.cwd
-        {
+        if !current {
             return Err(RuntimeFailure::Superseded);
         }
         let ordinal = {
-            let mut cache = session.cache.lock();
+            let mut cache = worker.cache.lock();
             cache.restore_transcript(rows.clone());
             cache.next_ordinal()
         };
         for row in rows {
-            events::reconcile_history(&mut session.maps.lock(), context.epoch, thread, row);
+            events::reconcile_history(&mut worker.maps.lock(), context.epoch, thread, row);
+        }
+        let mut current = worker.context.lock();
+        if !same_binding(&current, &context) {
+            return Err(RuntimeFailure::Superseded);
         }
         current.restored_row_ordinal =
             Some(ordinal.max(current.restored_row_ordinal.unwrap_or_default()));
         Ok(())
     })
-    .await
-    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    .await;
+    match result {
+        Ok(result) => result,
+        Err(error) => {
+            let tab = session.context.lock().tab_id.clone();
+            warn_once(&session.transcript_io.read_failed, &tab, "restore", error);
+            Ok(())
+        }
+    }
 }
 
-pub(super) async fn persist(session: &Arc<Session>) -> Result<(), RuntimeFailure> {
+pub(super) async fn persist(session: &Arc<Session>) {
     if !selected(session) {
-        return Ok(());
+        return;
     }
-    let session = session.clone();
-    tokio::task::spawn_blocking(move || {
-        let (thread, rows) = {
-            let context = session.context.lock();
-            let Some(thread) = context.thread_id.as_deref() else {
-                return Ok(());
-            };
-            (
-                thread.to_owned(),
-                session.cache.lock().tail(REREADABLE_CACHE_ROWS),
-            )
+    let worker = session.clone();
+    let result = tokio::task::spawn_blocking(move || {
+        let context = worker.context.lock().clone();
+        let Some(thread) = context.thread_id.as_deref() else {
+            return;
         };
-        let rows = bounded_rows(rows);
-        ChatBackendHistory::runtime_shared(&session.provider, &thread)
-            .lock()
-            .snapshot(rows)
-            .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))
+        let rows = bounded_rows(worker.cache.lock().tail(REREADABLE_CACHE_ROWS));
+        let current = {
+            let current = worker.context.lock();
+            same_binding(&current, &context)
+        };
+        if !current {
+            return;
+        }
+        worker.transcript_io.write_rows(
+            &mut ChatBackendHistory::runtime_shared(&worker.provider, thread).lock(),
+            rows,
+            &context.tab_id,
+        );
     })
-    .await
-    .map_err(|error| RuntimeFailure::HookFailed(error.to_string()))?
+    .await;
+    if let Err(error) = result {
+        let tab = session.context.lock().tab_id.clone();
+        warn_once(&session.transcript_io.write_failed, &tab, "persist", error);
+    }
 }
 
 fn bounded_rows(rows: Vec<ChatMsg>) -> Vec<ChatMsg> {

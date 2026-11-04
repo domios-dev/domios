@@ -342,8 +342,8 @@ the previous projection before appending. Reducer state should retain offsets
 and bounded metadata instead of message bodies. This event adds no host I/O or
 filesystem, environment, network or session authority.
 
-Tool cards can use chatItemPatch to merge supplied fields into the exact retained
-thread/item while preserving its sequence and absent fields. Missing cards produce
+Tool cards can use chatItemPatch to merge optional fields into the exact retained
+tool row while preserving its identity, sequence, type, content and absent fields. Missing cards produce
 a bounded notice rather than a partial replacement. Append admission also requires
 the retained row's active turn, or history loading; a failed append emits at most
 one notice per row and epoch. The plugin has no append-failure feedback signal.
@@ -355,3 +355,7 @@ snapshot. It restores row IDs/order before resume. RuntimeContext.restoredRowOrd
 is the next persisted source-row ordinal, a conservative lower bound for new
 turn ordinals across restart; it exposes no transcript bodies or new I/O authority.
 Providers declaring remote or stored history keep their existing history path.
+
+Fallback transcript I/O failures log once per session and operation, then allow
+runtime startup and turn settlement to continue. Binding changes still supersede
+a restore.
