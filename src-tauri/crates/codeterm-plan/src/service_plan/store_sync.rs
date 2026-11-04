@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 // Query columns are VIRTUAL generated columns over `row_json`, so they never drift from the row.
+#[cfg(test)]
 pub(super) const TASK_SCHEMA: &str = r#"
     CREATE TABLE IF NOT EXISTS plan_tasks (
         plan_id TEXT NOT NULL,
@@ -37,9 +38,6 @@ pub(super) const TASK_SCHEMA: &str = r#"
         );
     CREATE INDEX IF NOT EXISTS plan_tasks_assigned_tab_id
         ON plan_tasks(assigned_tab_id) WHERE assigned_tab_id IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS plan_tasks_lane_tab_id
-        ON plan_tasks(json_extract(row_json, '$.lane.tab_id'), plan_id)
-        WHERE json_extract(row_json, '$.lane.tab_id') IS NOT NULL;
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_worktree_path
         ON plan_tasks(lane_worktree_path) WHERE lane_worktree_path IS NOT NULL;
     CREATE INDEX IF NOT EXISTS plan_tasks_lane_branch
@@ -83,6 +81,7 @@ pub(super) const TASK_SCHEMA: &str = r#"
         ON plan_task_attempts(open) WHERE open;
 "#;
 
+#[cfg(test)]
 pub(super) const PLAN_LEVEL_SCHEMA: &str = r#"
     CREATE TABLE IF NOT EXISTS plan_sections (
         plan_id TEXT NOT NULL,

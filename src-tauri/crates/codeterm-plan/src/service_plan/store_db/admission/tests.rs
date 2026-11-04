@@ -37,16 +37,17 @@ fn declared_indexes(connection: &Connection) -> Vec<(String, String)> {
 }
 
 #[test]
-fn schema_admission_allows_every_declared_index_to_be_missing() {
+fn schema_admission_rejects_every_missing_index() {
     let expected = Connection::open_in_memory().unwrap();
     super::super::create_schema(&expected).unwrap();
     let actual = Connection::open_in_memory().unwrap();
     super::super::create_schema(&actual).unwrap();
     let indexes = declared_indexes(&expected);
     assert!(!indexes.is_empty());
-    for (name, _) in indexes {
+    for (name, table) in indexes {
         actual.execute_batch(&format!("DROP INDEX {name}")).unwrap();
-        validate(&actual, &expected).unwrap();
+        assert!(validate(&actual, &expected).is_err(), "{name} on {table}");
+        super::super::create_schema(&actual).unwrap();
     }
 }
 

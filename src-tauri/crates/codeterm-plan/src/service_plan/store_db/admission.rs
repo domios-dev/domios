@@ -21,13 +21,7 @@ pub(in crate::service_plan) fn validate(
 ) -> Result<(), PlanError> {
     let actual = schema(connection).map_err(db_error)?;
     let expected = schema(expected).map_err(db_error)?;
-    // Every declared index is additive: opening creates a missing one, so an older
-    // database may lack it. Tables, triggers and present indexes must match exactly.
-    let admissible = |expected: &(String, String, String, Option<String>)| {
-        expected.0 == "index" || actual.contains(expected)
-    };
-    let declared = actual.iter().all(|entry| expected.contains(entry));
-    if !declared || !expected.iter().all(admissible) {
+    if actual != expected {
         return Err(PlanError::Io(
             "unrecognized, partial or mixed plan database schema".into(),
         ));

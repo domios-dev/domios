@@ -3137,6 +3137,7 @@ EOF
     preflight_step resources-bundles prepare_bundle_stubs
     preflight_step dependencies preflight_real env CI=true pnpm install --frozen-lockfile
     preflight_step rustfmt bash scripts/check-rustfmt.sh
+    preflight_step plan-schema python scripts/check-plan-schema.py
     preflight_step file-sizes bash scripts/check-file-sizes.sh --fail
     preflight_step provider-boundary node scripts/check-provider-boundary.mjs
     preflight_step tauri-reach bash scripts/check-tauri-reach.sh
