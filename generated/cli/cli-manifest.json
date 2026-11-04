@@ -1599,7 +1599,7 @@
               "value_name": "PROVIDER_RESERVE_PCT",
               "possible_values": [],
               "default": "0",
-              "help": null,
+              "help": "Advisory provider allowance reserve for a mutating Worker: below it, or when exhausted, the receipt warns; it never blocks the spawn",
               "aliases": []
             },
             {
@@ -10427,7 +10427,7 @@
         },
         {
           "name": "locate",
-          "about": "File + line range of a body block, for in-place edits with file tools",
+          "about": "Read-only body snapshot file + line range; write via typed mutation commands",
           "aliases": [],
           "args": [
             {
@@ -13588,7 +13588,7 @@
                     "mutating"
                   ],
                   "default": null,
-                  "help": "Explicit task intent used by provider reserve policy",
+                  "help": "Explicit task intent; mutating work reports the advisory provider allowance",
                   "aliases": []
                 },
                 {
@@ -13651,7 +13651,7 @@
                   "value_name": "PROVIDER_RESERVE_PCT",
                   "possible_values": [],
                   "default": "0",
-                  "help": "Optional minimum remaining provider allowance for mutating work (0 = no reserve)",
+                  "help": "Advisory provider allowance reserve for mutating work: below it, or when exhausted, the receipt carries a provider_allowance_low warning; never blocks (0 = warn only when exhausted)",
                   "aliases": []
                 },
                 {
