@@ -53,20 +53,7 @@ fn preflight_compete_review_capacity(
     plan_id: &str,
     task_id: &str,
 ) -> Result<(), codeterm_service_core::service::plan::PlanError> {
-    let plan = store
-        .get(plan_id)
-        .ok_or(codeterm_service_core::service::plan::PlanError::NotFound)?;
-    let task = plan
-        .tasks
-        .iter()
-        .find(|task| task.id == task_id)
-        .ok_or(codeterm_service_core::service::plan::PlanError::TaskNotFound)?;
-    if task.status == codeterm_service_core::plan::TaskStatus::Pending {
-        codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(
-            &plan, task,
-        )?;
-    }
-    Ok(())
+    store.compete_review_capacity_projection(plan_id, task_id)
 }
 
 /// Only a Mutating task gets per-competitor lanes. Any other intent — including

@@ -344,6 +344,9 @@ impl PlanStore {
 
 mod task_authority_projection;
 pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
+pub use store_db::read_projections::provider_switch::{
+    ProviderSwitchTaskContextRead, ProviderSwitchTaskRead,
+};
 pub use task_authority_projection::{
     BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
     PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,

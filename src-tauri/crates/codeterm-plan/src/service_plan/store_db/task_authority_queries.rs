@@ -7,7 +7,7 @@ use crate::service_plan::{
 };
 use rusqlite::{params, OptionalExtension};
 
-const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
+pub(super) const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                 SELECT p.id AS plan_id,t.task_id,t.row_json,t.assigned_tab_id,p.updated_at,t.position,
                     t.task_id=?1 AS exact,
                     sum(t.task_id=?1) OVER (PARTITION BY p.id) AS exact_count,
