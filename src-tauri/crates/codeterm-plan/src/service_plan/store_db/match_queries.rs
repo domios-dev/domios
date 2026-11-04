@@ -5,16 +5,6 @@ use super::{db_error, PlanDatabase};
 use crate::service_plan::plan_match::{self, PlanMatch};
 use crate::service_plan::PlanError;
 
-/// Reference fields of one task row, for resolving a task by id, key or handle.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TaskRefRow {
-    pub plan_id: String,
-    pub task_id: String,
-    pub key: Option<String>,
-    pub handle: Option<String>,
-    pub name: String,
-}
-
 /// Reference fields of one plan section at any depth.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SectionRefRow {
@@ -22,14 +12,6 @@ pub struct SectionRefRow {
     pub section_id: String,
     pub handle: Option<String>,
     pub title: String,
-}
-
-/// A text field of one task row, with the row's plan and task ids.
-#[derive(Debug, Clone, PartialEq)]
-pub struct TaskFieldRow {
-    pub plan_id: String,
-    pub task_id: String,
-    pub value: String,
 }
 
 /// A text field of one attempt row, with the row's plan, task and attempt ids.
@@ -73,29 +55,6 @@ impl PlanDatabase {
             .map_err(db_error)?;
         let rows = statement
             .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
-            .map_err(db_error)?;
-        rows.collect::<Result<_, _>>().map_err(db_error)
-    }
-
-    pub(in crate::service_plan) fn task_field_values(
-        &self,
-        path: &str,
-    ) -> Result<Vec<TaskFieldRow>, PlanError> {
-        let connection = self.connection.lock();
-        let mut statement = connection
-            .prepare_cached(
-                "SELECT plan_id, task_id, json_extract(row_json, ?1) FROM plan_tasks
-                 WHERE json_type(row_json, ?1) = 'text'",
-            )
-            .map_err(db_error)?;
-        let rows = statement
-            .query_map([path], |row| {
-                Ok(TaskFieldRow {
-                    plan_id: row.get(0)?,
-                    task_id: row.get(1)?,
-                    value: row.get(2)?,
-                })
-            })
             .map_err(db_error)?;
         rows.collect::<Result<_, _>>().map_err(db_error)
     }

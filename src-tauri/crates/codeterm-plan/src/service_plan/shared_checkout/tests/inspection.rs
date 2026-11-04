@@ -125,7 +125,7 @@ fn git_inspection_keeps_writer_free_and_report_refuses_files_changed_during_insp
     assert!(error
         .to_string()
         .contains("context changed during Git inspection"));
-    let current = store.show_task(&task).unwrap().task;
+    let current = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(current.status, TaskStatus::InProgress);
     assert!(current.execution_attempts[0].report.is_none());
     assert_eq!(current.files.edit, ["owned", "added"]);
@@ -157,7 +157,7 @@ fn dispatch_refuses_files_changed_while_reading_head_without_creating_an_attempt
         .to_string()
         .contains("context changed during Git inspection"));
     assert!(store
-        .show_task(&task)
+        .inspect_task_for_test(&task)
         .unwrap()
         .task
         .execution_attempts

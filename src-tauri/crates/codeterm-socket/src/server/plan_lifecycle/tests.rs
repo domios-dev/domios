@@ -69,7 +69,7 @@ fn owner_close_and_record_persist_direct_completion_for_each_open_status() {
                     succeeds,
                     "{status:?}, batch={batch}: {result:?}"
                 );
-                let persisted = svc.plan_store.show_task(&task).unwrap().task;
+                let persisted = svc.plan_store.inspect_task_for_test(&task).unwrap().task;
                 assert_eq!(
                     persisted.status,
                     if succeeds {

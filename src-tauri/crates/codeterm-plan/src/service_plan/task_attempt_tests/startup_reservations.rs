@@ -78,7 +78,7 @@ fn repeated_runtime_binding_keeps_one_plan_attempt() {
         )
         .unwrap();
     let attempts_before = store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -92,7 +92,7 @@ fn repeated_runtime_binding_keeps_one_plan_attempt() {
         assert_eq!(ready.attempt.id, attempt_id);
     }
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.execution_attempts.len(), attempts_before);
     let bound: Vec<_> = task
         .execution_attempts
@@ -141,7 +141,7 @@ fn acknowledgement_reads_current_task_after_dispatch_despite_retained_snapshot()
     assert_eq!(acknowledged.task_id, task_id);
     assert_eq!(acknowledged.attempt.acknowledged_at, Some(4));
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.status,
+        store.inspect_task_for_test(&task_id).unwrap().task.status,
         TaskStatus::InProgress
     );
 }

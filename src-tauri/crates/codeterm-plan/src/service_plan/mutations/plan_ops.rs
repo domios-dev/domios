@@ -212,7 +212,7 @@ impl PlanStore {
         if let Some(handle) = handle {
             crate::service_plan::text_bounds::validate_plan_label("section handle", handle)?;
         }
-        let sid = self.mint_id("sec");
+        let sid = self.mint_id("sec")?;
         let mut section_tags = tags.to_vec();
         super::tag_model::apply_tags(&mut section_tags, &[], primary);
         let section = Section {
@@ -260,7 +260,7 @@ impl PlanStore {
         let external_refs =
             crate::service_plan::external_refs::canonicalize_external_refs(external_refs)?;
         crate::service_plan::text_bounds::validate_external_refs(&external_refs)?;
-        let tid = self.mint_id("task");
+        let tid = self.mint_id("task")?;
         let assigned_tab_id = new
             .assigned_tab_id
             .clone()
@@ -269,7 +269,7 @@ impl PlanStore {
         if lane.tab_id.is_none() {
             lane.tab_id = assigned_tab_id.clone();
         }
-        let key = self.issue_task_keys(plan_id, 1).into_iter().next();
+        let key = self.issue_task_keys(plan_id, 1)?.into_iter().next();
         let mut task = Task {
             files: new.files.validated().map_err(PlanError::InvalidPlanText)?,
             id: tid.clone(),
@@ -404,7 +404,7 @@ impl PlanStore {
         if let Some(result) = result {
             crate::service_plan::text_bounds::validate_plan_text("task result", result)?;
         }
-        let milestone_id = self.mint_id("ms");
+        let milestone_id = self.mint_id("ms")?;
         self.with_task_rows(
             plan_id,
             task_id,
@@ -483,7 +483,7 @@ impl PlanStore {
     ) -> Result<String, PlanError> {
         crate::service_plan::text_bounds::validate_plan_label("milestone kind", kind)?;
         crate::service_plan::text_bounds::validate_plan_text("milestone text", text)?;
-        let mid = self.mint_id("ms");
+        let mid = self.mint_id("ms")?;
         self.commit_hot_changes(
             plan_id,
             vec![
@@ -560,7 +560,7 @@ impl PlanStore {
     ) -> Result<String, PlanError> {
         crate::service_plan::text_bounds::validate_plan_label("stride kind", kind)?;
         crate::service_plan::text_bounds::validate_plan_text("stride text", text)?;
-        let mid = self.mint_id("ms");
+        let mid = self.mint_id("ms")?;
         self.commit_hot_changes(
             plan_id,
             vec![crate::service_plan::store_db::hot_write::HotChange::Stride(
@@ -594,8 +594,8 @@ impl PlanStore {
             return Err(PlanError::GateRequiresQuestion);
         }
         crate::service_plan::text_bounds::validate_plan_text("retrospective", text)?;
-        let mid = self.mint_id("ms");
-        let supersede_id = self.mint_id("ms");
+        let mid = self.mint_id("ms")?;
+        let supersede_id = self.mint_id("ms")?;
         self.with_plan(plan_id, now_ms, |p| {
             if retrospective::latest_retrospective(p).is_some() {
                 p.strides.push(Milestone {
@@ -640,7 +640,7 @@ impl PlanStore {
         incident: Option<PlanIncident>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let mid = self.mint_id("ms");
+        let mid = self.mint_id("ms")?;
         self.with_plan(plan_id, now_ms, |p| {
             if let Some(incident) = incident.as_ref() {
                 if incident.kind.trim().is_empty() || incident.text.trim().is_empty() {

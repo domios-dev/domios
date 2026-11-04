@@ -65,7 +65,7 @@ fn prepared() -> (
 #[test]
 fn acknowledged_launch_binding_changes_only_missing_identity_and_replay_is_no_write() {
     let (_dir, store, request) = prepared();
-    let mut expected = store.show_task(&request.task_id).unwrap().task;
+    let mut expected = store.inspect_task_for_test(&request.task_id).unwrap().task;
     let index = expected.execution_attempts.len() - 1;
     expected.execution_attempts[index].session_id = Some(request.session_id.clone());
     expected.execution_attempts[index].session_binding_nonce = Some(request.nonce.clone());
@@ -74,7 +74,10 @@ fn acknowledged_launch_binding_changes_only_missing_identity_and_replay_is_no_wr
         .complete_acknowledged_dispatch_binding(request.clone(), 8)
         .unwrap();
     assert_eq!(completed, expected.execution_attempts[index]);
-    assert_eq!(store.show_task(&request.task_id).unwrap().task, expected);
+    assert_eq!(
+        store.inspect_task_for_test(&request.task_id).unwrap().task,
+        expected
+    );
     let persisted = store.get(&request.plan_id).unwrap();
     assert_eq!(
         store

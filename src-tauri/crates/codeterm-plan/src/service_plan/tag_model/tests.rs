@@ -87,7 +87,12 @@ fn renaming_task_keeps_existing_handle() {
             2,
         )
         .unwrap();
-    let before = store.show_task(&task_id).unwrap().task.handle.unwrap();
+    let before = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .handle
+        .unwrap();
 
     store
         .update_task(
@@ -113,7 +118,12 @@ fn renaming_task_keeps_existing_handle() {
         )
         .unwrap();
 
-    let after = store.show_task(&task_id).unwrap().task.handle.unwrap();
+    let after = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .handle
+        .unwrap();
     assert_eq!(after, before);
 }
 

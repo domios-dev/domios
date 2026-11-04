@@ -300,7 +300,7 @@ fn bounce_reopens_a_closed_continuation_without_replacing_its_note() {
         .unwrap();
 
     assert!(reopened.continuation.is_none());
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, crate::plan::TaskStatus::Pending);
     assert_eq!(task.review_evidence.len(), 1);
     assert_eq!(task.review_evidence[0].note, "preserve this review note");

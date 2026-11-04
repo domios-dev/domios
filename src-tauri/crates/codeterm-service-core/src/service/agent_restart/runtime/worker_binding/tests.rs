@@ -253,7 +253,11 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     fixture
@@ -281,8 +285,12 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             )
             .unwrap();
     }
-    let source_acknowledged_at =
-        store.show_task(&task_id).unwrap().task.execution_attempts[0].acknowledged_at;
+    let source_acknowledged_at = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
+        .acknowledged_at;
     assert_eq!(source_acknowledged_at.is_some(), omit_attempt);
 
     if matches!(case, CarryCase::Closed(_)) {
@@ -359,7 +367,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             .service
             .signal_worker_interruption(&tab_id, event)
             .unwrap());
-        let source = store.show_task(&task_id).unwrap().task;
+        let source = store.inspect_task_for_test(&task_id).unwrap().task;
         assert_eq!(
             source.execution_attempts[0].closed_at.is_some(),
             matches!(case, CarryCase::Closed(_))
@@ -393,7 +401,11 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             .lock()
             .contains_key(&super::key(&fixture.service, &tab_id)));
         assert_eq!(
-            store.show_task(&task_id).unwrap().task.execution_attempts[0]
+            store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task
+                .execution_attempts[0]
                 .session_id
                 .as_deref(),
             Some("thread")
@@ -439,7 +451,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
             .service
             .finalize_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
             .unwrap());
-        let persisted = store.show_task(&task_id).unwrap().task;
+        let persisted = store.inspect_task_for_test(&task_id).unwrap().task;
         assert_eq!(persisted.execution_attempts.len(), 1);
         assert_eq!(persisted.execution_attempts[0].closed_at, Some(4));
         assert_eq!(
@@ -464,7 +476,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         .finalize_authorized_runtime_restart_binding(&tab_id, thread, "new-nonce")
         .unwrap());
 
-    let rebound = store.show_task(&task_id).unwrap().task;
+    let rebound = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(rebound.execution_attempts.len(), 1);
     assert_eq!(rebound.execution_attempts[0].id, attempt_id);
     assert_eq!(
@@ -516,7 +528,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         acknowledged.attempt.acknowledged_at,
         expected_acknowledged_at
     );
-    let persisted = store.show_task(&task_id).unwrap().task;
+    let persisted = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(persisted.execution_attempts.len(), 1);
     assert_eq!(persisted.execution_attempts[0].id, attempt_id);
     assert_eq!(

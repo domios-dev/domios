@@ -288,7 +288,12 @@ fn exact_first_user_ack_and_final_answer_persist_a_real_worker_report() {
         .unwrap();
     assert_eq!(worker_report.from_tab_id, worker);
     assert_eq!(worker_report.status, Some(ReportStatus::InReview));
-    let task = fixture.service.plan_store.show_task(&task_id).unwrap().task;
+    let task = fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task;
     assert_eq!(task.status, crate::plan::TaskStatus::InReview);
     assert!(task
         .milestones

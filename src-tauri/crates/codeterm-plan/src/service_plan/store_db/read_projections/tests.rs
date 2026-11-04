@@ -40,6 +40,7 @@ mod search_tests;
 mod section_link_tests;
 mod status_tests;
 mod tab_tests;
+mod task_key_reader_tests;
 mod transfer_authority_tests;
 mod worker_read_tests;
 
@@ -117,13 +118,15 @@ fn section_and_reference_reads_do_not_materialize_unrelated_body_or_history() {
         super::super::super::store_rows::take_serialized_row_bytes();
         let outline = database.section_outline(&plan.id).unwrap();
         let selected = database.selected_section(&plan.id, "nested").unwrap();
-        let references = database.scoped_task_references(&plan.id).unwrap();
+        let references = database
+            .resolve_task_reference(Some(&plan.id), "task_0000")
+            .unwrap();
         let section_refs = database.scoped_section_references(&plan.id).unwrap();
         let metrics = take_metrics();
         let decoded = super::super::super::store_sync::take_decoded_row_bytes();
         let serialized = super::super::super::store_rows::take_serialized_row_bytes();
         let response_bytes = serde_json::to_vec(&(outline, selected)).unwrap().len();
-        assert_eq!(references.len(), fixtures::TASKS);
+        assert_eq!(references.len(), 1);
         assert_eq!(section_refs.len(), 5);
         assert_eq!(metrics.queries, 5);
         assert!(metrics.materialized_bytes < 100_000);
@@ -169,11 +172,17 @@ fn scoped_resolvers_keep_case_precedence_ambiguity_and_deletion() {
     assert!(store.resolve_task_ref(Some(&plan.id), "task_al").is_err());
     assert!(store.resolve_task_ref(Some(&plan.id), "cod-1").is_err());
     assert_eq!(
-        store.task_display_key(&plan.id, "task_alpha").as_deref(),
+        store
+            .task_display_key(&plan.id, "task_alpha")
+            .unwrap()
+            .as_deref(),
         Some("COD-1")
     );
-    assert!(store.task_display_key(&plan.id, "task_al").is_none());
-    assert!(store.task_display_key(&plan.id, "cod-1").is_none());
+    assert!(store
+        .task_display_key(&plan.id, "task_al")
+        .unwrap()
+        .is_none());
+    assert!(store.task_display_key(&plan.id, "cod-1").unwrap().is_none());
     assert_eq!(
         store
             .resolve_section_ref(Some(&plan.id), "nested")
@@ -276,14 +285,10 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
     crate::service_plan::load_audit::start(&store);
     let context = store
         .database
-        .task_detail_snapshot(
-            &crate::service_plan::PlanMatch::Ids(vec![plan.id.clone()]),
-            "task_selected",
-            true,
-        )
+        .task_detail_projection("task_selected")
         .expect("SQL task context decodes")
         .unwrap();
-    assert_eq!(context.tasks[1].interruption.owner_epoch, 7);
+    assert_eq!(context.task.interruption.owner_epoch, 7);
     let detail = store.show_task_window("task_selected").unwrap();
     assert_eq!(detail.task.body, "selected body");
     assert_eq!(detail.parent.unwrap().id, "task_parent");
@@ -308,7 +313,7 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
     assert_eq!(detail.task.milestones.last().unwrap().id, "m74");
     assert_eq!(detail.task.execution_attempts.len(), 8);
     assert_eq!(detail.task.execution_attempts.first().unwrap().id, "a12");
-    let authority_detail = store.show_task("task_selected").unwrap();
+    let authority_detail = store.inspect_task_for_test("task_selected").unwrap();
     assert_eq!(authority_detail.task.interruption.owner_epoch, 7);
     assert_eq!(
         authority_detail.task.interruption.owner_tab_id.as_deref(),

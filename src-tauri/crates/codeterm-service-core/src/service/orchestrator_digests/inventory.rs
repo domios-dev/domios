@@ -1,7 +1,6 @@
 use std::collections::HashSet;
 
 use crate::multiplexer::types::{AgentRole, ShellActivity};
-use crate::plan::{Plan, TaskStatus};
 use crate::service::plan::digest_rules::PlanDigestCounters;
 use crate::service::ServiceContext;
 use codeterm_types::pty::TabStatus;
@@ -150,25 +149,6 @@ impl NoticeInventorySnapshot {
         counters.idle_workers.sort();
         counters.idle_workers.truncate(5);
     }
-}
-
-pub(super) fn populate(svc: &ServiceContext, plan: &Plan, counters: &mut PlanDigestCounters) {
-    let snapshot = snapshot_notice_inventory(
-        svc,
-        &plan.id,
-        plan.team_id.as_deref(),
-        plan.owner.tab_id.as_deref(),
-    );
-    let finished = plan
-        .tasks
-        .iter()
-        .filter(|task| task.status == TaskStatus::Done)
-        .map(|task| codeterm_plan::service_plan::NoticeFinishedBinding {
-            task_id: task.id.clone(),
-            assigned_tab_id: task.assigned_tab_id.clone(),
-        })
-        .collect::<Vec<_>>();
-    snapshot.populate(&finished, counters);
 }
 
 struct JobRoot<'a> {

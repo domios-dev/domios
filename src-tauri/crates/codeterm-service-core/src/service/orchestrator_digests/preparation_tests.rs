@@ -1,5 +1,6 @@
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
+use crate::plan::TaskStatus;
 use crate::service::plan::load_audit::{execution_plan, seed, task};
 use crate::service::test_fixture::ServiceFixture;
 
@@ -46,6 +47,12 @@ fn sql_failure_after_digest_facts_leaves_rate_rule_available_for_the_next_round(
     assert!(read
         .compose_owner("directive", &prepared.lines, None, false, now)
         .is_err());
+    assert!(svc
+        .plan_turn_counter
+        .digest_rule_due(&owner, "pressure", now_epoch_secs(), 3600));
+    assert!(
+        deliver_orchestrator_notice_exact(svc, &id, &owner, "system", "opaque payload").is_err()
+    );
     assert!(svc
         .plan_turn_counter
         .digest_rule_due(&owner, "pressure", now_epoch_secs(), 3600));

@@ -123,7 +123,7 @@ fn add_reported_generation(
             assigned_at,
         )
         .unwrap();
-    let assigned = store.show_task(task_id).unwrap().task;
+    let assigned = store.inspect_task_for_test(task_id).unwrap().task;
     let attempt_id = assigned.execution_attempts.last().unwrap().id.clone();
     store
         .acknowledge_task_attempt(
@@ -315,7 +315,7 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     let runtime = fixture();
     let store = &runtime.fixture.service.plan_store;
     let before_plan = store.get(&runtime.plan_id).unwrap();
-    let before_task = store.show_task(&runtime.task_id).unwrap().task;
+    let before_task = store.inspect_task_for_test(&runtime.task_id).unwrap().task;
     let before_runtime = runtime_inventory(&runtime.fixture);
     let owner = {
         let mux = runtime.fixture.service.mux.read();
@@ -428,7 +428,7 @@ fn plan_review_cleaned_runtime_two_generations_endpoint() {
     .expect("the current authenticated owner can bounce the terminal review");
     assert!(result.get("continuation").is_none_or(Value::is_null));
     let after_plan = store.get(&runtime.plan_id).unwrap();
-    let after_task = store.show_task(&runtime.task_id).unwrap().task;
+    let after_task = store.inspect_task_for_test(&runtime.task_id).unwrap().task;
     assert_eq!(after_task.status, TaskStatus::Pending);
     assert_eq!(after_task.status_label.as_deref(), Some("review bounced"));
     assert_eq!(after_task.review_stage, ReviewStage::Review);

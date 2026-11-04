@@ -129,7 +129,11 @@ fn respawn_fixture(
             },
         )
         .unwrap();
-    (plan.id, store.show_task(&task_id).unwrap().task, draft)
+    (
+        plan.id,
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        draft,
+    )
 }
 
 #[test]
@@ -183,7 +187,7 @@ fn non_repository_respawn_in_non_git_directory_persists_acknowledged_replacement
     store
         .acknowledge_live_task_attempt_for_tab("tab-replacement", None, None, 8)
         .unwrap();
-    let persisted = store.show_task(&task.id).unwrap().task;
+    let persisted = store.inspect_task_for_test(&task.id).unwrap().task;
     assert_eq!(persisted.status, TaskStatus::InProgress);
     assert_eq!(
         persisted.assigned_tab_id.as_deref(),

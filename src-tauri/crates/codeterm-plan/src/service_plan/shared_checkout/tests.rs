@@ -275,7 +275,7 @@ fn shared_reservation_serializes_overlap_and_extension_checks() {
     store
         .extend_task_edit_files(&plan.id, winner, vec!["new.rs".into()], 7)
         .unwrap();
-    let task = store.show_task(winner).unwrap().task;
+    let task = store.inspect_task_for_test(winner).unwrap().task;
     assert_eq!(task.files.edit, ["shared.rs", "new.rs"]);
     assert!(store
         .update_task_files(
@@ -288,7 +288,10 @@ fn shared_reservation_serializes_overlap_and_extension_checks() {
             8
         )
         .is_err());
-    assert_eq!(store.show_task(winner).unwrap().task.files, task.files);
+    assert_eq!(
+        store.inspect_task_for_test(winner).unwrap().task.files,
+        task.files
+    );
     let error = store
         .update_task_files(
             &plan.id,
@@ -301,7 +304,10 @@ fn shared_reservation_serializes_overlap_and_extension_checks() {
         )
         .unwrap_err();
     assert!(error.to_string().contains("cannot release edit paths"));
-    assert_eq!(store.show_task(winner).unwrap().task.files, task.files);
+    assert_eq!(
+        store.inspect_task_for_test(winner).unwrap().task.files,
+        task.files
+    );
 }
 
 #[test]

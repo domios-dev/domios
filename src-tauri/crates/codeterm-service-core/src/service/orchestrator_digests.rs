@@ -3,8 +3,7 @@ mod inventory;
 mod preparation_tests;
 pub(crate) use inventory::{snapshot_notice_inventory, NoticeInventorySnapshot};
 
-use crate::plan::{Plan, TaskStatus};
-use crate::service::plan::digest_rules::{evaluate_digest_rules, plan_digest_counters};
+use crate::service::plan::digest_rules::evaluate_digest_rules;
 use crate::service::plan::usage_digest::{
     needs_refresh, usage_digest_lines, UsageDigestRow, FRESHNESS_MS,
 };
@@ -94,42 +93,44 @@ fn deliver_notice_with_learning_selection(
     }
     let read = svc
         .plan_store
-        .notice_projection(
-            plan_id,
-            now_epoch_ms(),
-            selection.learning_ids.unwrap_or_default(),
-        )
+        .notice_projection(plan_id)
         .map_err(|error| error.to_string())?;
-    let plan = read.plan();
-    if crate::service::plan::pause_operation::plan_notices_suppressed(&plan)
-        && !selection.mode_transition
-    {
+    if read.mode == crate::plan::PlanMode::Paused && !selection.mode_transition {
         return Err("plan_paused: plan notices are suppressed while the plan is paused".into());
     }
-    let owner = plan
-        .owner
-        .tab_id
-        .as_deref()
+    let owner = read
+        .owner_tab_id
+        .clone()
         .ok_or("plan owner has no local delivery target")?;
-    deliver_exact_role_target("orchestrator", plan_id, owner, requested_target, |target| {
-        let injected = if crate::service::plan::heartbeat::is_plan_complete(&plan) {
-            text.to_string()
-        } else {
-            let now_ms = now_epoch_ms();
-            let counters = read.digest_counters(now_ms, count_stalled_lanes(plan, now_ms));
-            let digest_lines =
-                collect_digest_lines_with_counters(svc, plan, Some(owner), Some(counters));
-            crate::service::plan::heartbeat::prepend_plan_heartbeat_with_selection(
-                &plan,
-                text,
-                &digest_lines,
-                selection.learning_ids,
+    deliver_exact_role_target(
+        "orchestrator",
+        plan_id,
+        &owner,
+        requested_target,
+        |target| {
+            let (injected, marks) = if read.complete {
+                (text.to_string(), Vec::new())
+            } else {
+                let now = now_epoch_ms();
+                let inventory =
+                    snapshot_notice_inventory(svc, plan_id, read.team_id.as_deref(), Some(&owner));
+                let input = read
+                    .digest_input(now, &inventory.targets())
+                    .map_err(|error| error.to_string())?;
+                let prepared =
+                    prepare_digest_lines_for_input(svc, &input, &inventory, Some(&owner));
+                let injected = read
+                    .prepend_heartbeat(now, text, &prepared.lines, selection.learning_ids)
+                    .map_err(|error| error.to_string())?;
+                (injected, prepared.rate_marks)
+            };
+            drop(read);
+            apply_digest_rate_marks(svc, &marks);
+            deliver_notice_payload(
+                svc, plan_id, target, &owner, context, text, &injected, observer,
             )
-        };
-        deliver_notice_payload(
-            svc, plan_id, target, owner, context, text, &injected, observer,
-        )
-    })
+        },
+    )
 }
 
 fn deliver_notice_payload(
@@ -166,81 +167,6 @@ fn deliver_notice_payload(
         }
     }
     result
-}
-
-fn collect_digest_lines_with_counters(
-    svc: &ServiceContext,
-    plan: &Plan,
-    tab_id: Option<&str>,
-    counters: Option<crate::service::plan::digest_rules::PlanDigestCounters>,
-) -> Vec<String> {
-    if counters.is_none() {
-        use codeterm_plan::service_plan::{
-            NoticeDigestInput, NoticeFinishedBinding, NoticeQueueRead,
-        };
-        let now = now_epoch_ms();
-        let counters = plan_digest_counters(plan, now, count_stalled_lanes(plan, now));
-        let inventory = snapshot_notice_inventory(
-            svc,
-            &plan.id,
-            plan.team_id.as_deref(),
-            plan.owner.tab_id.as_deref(),
-        );
-        let input = NoticeDigestInput {
-            plan_id: plan.id.clone(),
-            team_id: plan.team_id.clone(),
-            owner_tab_id: plan.owner.tab_id.clone(),
-            project_root: if plan.canonical_project_path.is_empty() {
-                plan.project_path.clone()
-            } else {
-                plan.canonical_project_path.clone()
-            },
-            queue: NoticeQueueRead {
-                in_review: counters.in_review,
-                in_progress: counters.in_progress,
-                oldest_in_review_age_ms: counters.oldest_in_review_age_ms,
-                stalled_lanes: counters.stalled_lanes,
-                finished_lanes: counters.finished_lanes,
-                lane_candidates: counters.lane_candidates,
-            },
-            cartography: crate::service::cartographer::cartography_facts(plan),
-            finished_bindings: plan
-                .tasks
-                .iter()
-                .filter(|task| task.status == TaskStatus::Done)
-                .map(|task| NoticeFinishedBinding {
-                    task_id: task.id.clone(),
-                    assigned_tab_id: task.assigned_tab_id.clone(),
-                })
-                .collect(),
-        };
-        return collect_digest_lines_for_input(svc, &input, &inventory, tab_id);
-    }
-    let mut out = Vec::new();
-    out.extend(crate::service::cartographer::digest_lines(
-        plan,
-        svc.configuration().orchestration.map.enabled,
-    ));
-    out.extend(queue_pressure_lines(svc, plan, tab_id, counters));
-    out.extend(usage_lines(svc));
-    out.truncate(8);
-    out
-}
-
-fn queue_pressure_lines(
-    svc: &ServiceContext,
-    plan: &Plan,
-    tab_id: Option<&str>,
-    counters: Option<crate::service::plan::digest_rules::PlanDigestCounters>,
-) -> Vec<String> {
-    let cfg = svc.configuration().orchestration.digests;
-    let now_ms = now_epoch_ms();
-    let stalled = count_stalled_lanes(plan, now_ms);
-    let mut counters = counters.unwrap_or_else(|| plan_digest_counters(plan, now_ms, stalled));
-    inventory::populate(svc, plan, &mut counters);
-    let (lines, marks) = prepare_queue_pressure_lines(svc, &cfg, &counters, tab_id);
-    apply_digest_rate_marks(svc, &marks);
-    lines
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -307,20 +233,7 @@ pub(crate) fn prepare_digest_lines_for_input(
     inventory: &NoticeInventorySnapshot,
     tab_id: Option<&str>,
 ) -> PreparedNoticeDigests {
-    use crate::service::plan::digest_rules::PlanDigestCounters;
-    let mut counters = PlanDigestCounters {
-        plan_id: input.plan_id.clone(),
-        in_review: input.queue.in_review,
-        in_progress: input.queue.in_progress,
-        oldest_in_review_age_ms: input.queue.oldest_in_review_age_ms,
-        stalled_lanes: input.queue.stalled_lanes,
-        jobs: 0,
-        agent_tabs: 0,
-        idle_utility_shells: 0,
-        idle_workers: Vec::new(),
-        finished_lanes: input.queue.finished_lanes,
-        lane_candidates: input.queue.lane_candidates.clone(),
-    };
+    let mut counters = input.queue_counters();
     inventory.populate(&input.finished_bindings, &mut counters);
     let cfg = svc.configuration().orchestration;
     let mut lines = crate::service::cartographer::digest_lines_from_input(input, cfg.map.enabled);
@@ -329,17 +242,6 @@ pub(crate) fn prepare_digest_lines_for_input(
     lines.extend(usage_lines(svc));
     lines.truncate(8);
     PreparedNoticeDigests { lines, rate_marks }
-}
-
-pub(crate) fn collect_digest_lines_for_input(
-    svc: &ServiceContext,
-    input: &codeterm_plan::service_plan::NoticeDigestInput,
-    inventory: &NoticeInventorySnapshot,
-    tab_id: Option<&str>,
-) -> Vec<String> {
-    let prepared = prepare_digest_lines_for_input(svc, input, inventory, tab_id);
-    apply_digest_rate_marks(svc, &prepared.rate_marks);
-    prepared.lines
 }
 
 fn usage_lines(svc: &ServiceContext) -> Vec<String> {
@@ -396,13 +298,6 @@ fn queue_usage_refresh(svc: &ServiceContext, provider_id: &str) {
     {
         poller.refresh_now(provider_id, None);
     }
-}
-
-fn count_stalled_lanes(plan: &Plan, now_ms: u64) -> usize {
-    crate::plan::reconcile::aged_open_tasks(plan, now_ms)
-        .into_iter()
-        .filter(|task| task.status == TaskStatus::InProgress)
-        .count()
 }
 
 fn now_epoch_ms() -> u64 {

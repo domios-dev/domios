@@ -1,4 +1,5 @@
 use super::*;
+use crate::plan::Plan;
 
 #[test]
 fn job_count_includes_each_team_root_once_and_excludes_child_stages() {
