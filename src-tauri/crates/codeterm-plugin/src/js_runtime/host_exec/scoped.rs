@@ -24,17 +24,23 @@ where
     )
 }
 
-/// Finishes a job record whose worker launch is dropped without running, so a
-/// withdrawn or refused job never leaves an unfinished record behind.
+/// Removes the record of a job whose worker launch is dropped without running, so a
+/// withdrawn or refused job never holds a job-table slot.
 struct Unlaunched {
     job: Option<String>,
-    outcome: String,
 }
 
 impl Drop for Unlaunched {
     fn drop(&mut self) {
-        if let Some(job) = self.job.take() {
-            finish_json_job(&job, &self.outcome);
+        let Some(job) = self.job.take() else {
+            return;
+        };
+        let removed = EXEC_JOBS.lock().remove(&job);
+        if let Some(removed) = removed {
+            removed.done_event.signal();
+            for waiter in removed.waiters {
+                waiter.notify_change();
+            }
         }
     }
 }
@@ -55,9 +61,6 @@ where
     F: FnOnce(T) -> String + Send + 'static,
 {
     let job_id = start_exec_job(plugin_id)?;
-    let mut not_started = timeout_result.clone();
-    not_started["error"] = "unavailable".into();
-    not_started["requestMayHaveStarted"] = false.into();
     let mut failure = timeout_result.clone();
     failure["error"] = serde_json::Value::String(
         if failure["requestMayHaveStarted"] == true {
@@ -84,7 +87,6 @@ where
     }
     let mut pending = Unlaunched {
         job: Some(job_id.clone()),
-        outcome: not_started.to_string(),
     };
     let admitted = admit(Box::new(move |token| {
         let Some(worker) = pending.job.take() else {
@@ -95,11 +97,7 @@ where
                 .unwrap_or_else(|_| failure.to_string())
         });
     }));
-    if let Err(error) = admitted {
-        let refused = EXEC_JOBS.lock().remove(&job_id);
-        drop(refused);
-        return Err(error);
-    }
+    admitted?;
     Ok(job_id)
 }
 pub(in crate::js_runtime) fn abort_scoped_json_job(plugin: &str, scope: &str, id: &str) -> bool {
