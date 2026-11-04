@@ -25,6 +25,21 @@ pub(super) fn dispatch(
         return super::tab_todos::dispatch(method, params, svc);
     }
     match method {
+        "tab.send_cancel" => {
+            let send_id = get_string_param(params, "send_id")?;
+            let status = svc
+                .cancel_retained_agent_send(&send_id)
+                .map_err(|message| JsonRpcError {
+                    code: -32602,
+                    message,
+                    data: None,
+                })?;
+            serde_json::to_value(status).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
+        }
         "tab.send_status" => {
             let send_id = get_string_param(params, "send_id")?;
             let status = svc
