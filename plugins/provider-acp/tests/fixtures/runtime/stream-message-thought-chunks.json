@@ -476,14 +476,11 @@
         }
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemAppend",
         "threadId": "session-fixture",
-        "item": {
-          "id": "session-fixture:turn:1:item:1",
-          "seq": 1,
-          "type": "user",
-          "content": "Hello"
-        }
+        "offset": 3,
+        "itemId": "session-fixture:turn:1:item:1",
+        "content": "lo"
       },
       {
         "kind": "chatItem",
@@ -497,15 +494,11 @@
         }
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemAppend",
         "threadId": "session-fixture",
-        "item": {
-          "id": "session-fixture:turn:1:item:2",
-          "seq": 2,
-          "type": "thinking",
-          "content": "Thinking",
-          "collapsed": true
-        }
+        "offset": 5,
+        "itemId": "session-fixture:turn:1:item:2",
+        "content": "ing"
       },
       {
         "kind": "chatItem",
@@ -524,14 +517,11 @@
         "turnId": "turn-fixture"
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemAppend",
         "threadId": "session-fixture",
-        "item": {
-          "id": "session-fixture:turn:1:item:3",
-          "seq": 3,
-          "type": "assistant",
-          "content": "Answer"
-        }
+        "offset": 3,
+        "itemId": "session-fixture:turn:1:item:3",
+        "content": "wer"
       },
       {
         "kind": "turnState",

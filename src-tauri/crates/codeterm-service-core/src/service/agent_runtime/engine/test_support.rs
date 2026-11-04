@@ -67,6 +67,7 @@ pub(crate) fn loaded_runtime(
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
         bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
+        transcript_io: Default::default(),
         prompts: Mutex::new(HashMap::new()),
         prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
         process: crate::service::agent_runtime::process_slot::ProcessSlot::new(Some(process)),

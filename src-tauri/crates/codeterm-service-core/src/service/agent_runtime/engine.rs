@@ -41,6 +41,7 @@ pub struct Session {
     pub maps: Mutex<super::events::RuntimeMaps>,
     pub(super) provider_operation_failures: std::sync::atomic::AtomicU32,
     pub(super) bookkeeping_warning_emitted: std::sync::atomic::AtomicBool,
+    pub(super) transcript_io: super::transcript::TranscriptIo,
     pub prompts: Mutex<HashMap<RpcId, OutstandingRequest>>,
     pub(super) prompts_cancelled: std::sync::atomic::AtomicBool,
     pub process: ProcessSlot<Arc<Process>>,
@@ -428,6 +429,7 @@ async fn ensure_with_fork(
                     reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
+                        restored_row_ordinal: None,
                         stream_window: None,
                         host_mcp: None,
                         client_bridges: None,
@@ -458,6 +460,7 @@ async fn ensure_with_fork(
                     maps: Mutex::new(super::events::RuntimeMaps::default()),
                     provider_operation_failures: std::sync::atomic::AtomicU32::new(0),
                     bookkeeping_warning_emitted: std::sync::atomic::AtomicBool::new(false),
+                    transcript_io: Default::default(),
                     prompts: Mutex::new(HashMap::new()),
                     prompts_cancelled: std::sync::atomic::AtomicBool::new(false),
                     process: ProcessSlot::new(None),
@@ -749,6 +752,7 @@ async fn ensure_locked(
     session
         .initialization
         .ensure(|| async {
+            super::transcript::restore(session).await?;
             let result = run(
                 svc,
                 provider,

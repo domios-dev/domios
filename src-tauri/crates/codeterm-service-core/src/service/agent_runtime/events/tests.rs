@@ -207,3 +207,265 @@ fn authentication_declarations_are_cleared_with_the_runtime_epoch() {
     maps.reset(2);
     assert!(maps.authentication.is_none());
 }
+
+#[test]
+fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../plugins/provider-acp/tests/fixtures/runtime");
+    for name in [
+        "long-stream-complete",
+        "long-stream-cancel",
+        "oversize-single-frame",
+        "oversize-astral-cut",
+    ] {
+        let fixture: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(format!("{name}.json"))).unwrap(),
+        )
+        .unwrap();
+        let events: Vec<AgentRuntimeEvent> =
+            serde_json::from_value(fixture["expected"]["events"].clone()).unwrap();
+        let mut maps = RuntimeMaps::default();
+        for _ in 0..2 {
+            for source in &events {
+                let event = translate_with_items(source, &mut maps, false).unwrap();
+                fold(&mut maps, 1, &event);
+            }
+            assert_eq!(maps.items.len(), 1);
+            let content = &maps.items[0].item.content;
+            if name.starts_with("oversize-") {
+                assert!(content.contains("[ACP row truncated: oversized text update]"));
+                assert!(content.ends_with("healthy"));
+            } else {
+                assert_eq!(*content, format!("{}🌍", "x".repeat(4092)).repeat(128));
+                assert_eq!(content.len(), 512 * 1024);
+            }
+        }
+        if name == "long-stream-cancel" {
+            assert!(events.iter().any(|event| matches!(
+                event,
+                AgentRuntimeEvent::TurnState {
+                    state: RuntimeTurnState::Idle,
+                    detail: Some(RuntimeTurnDetail::Interrupted),
+                    ..
+                }
+            )));
+        }
+    }
+}
+
+#[test]
+fn append_requires_the_exact_thread_row_and_byte_offset() {
+    let mut maps = RuntimeMaps::default();
+    let mut row = item("row", false, "🌍");
+    row.kind = "assistant".into();
+    put(&mut maps, 1, row);
+    for (thread, id, offset) in [("foreign", "row", 4), ("t", "missing", 4), ("t", "row", 1)] {
+        let source = AgentRuntimeEvent::ChatItemAppend {
+            thread_id: thread.into(),
+            item_id: id.into(),
+            content: "suffix".into(),
+            offset,
+        };
+        let event = translate_with_items(&source, &mut maps, true).unwrap();
+        assert!(matches!(event, RuntimeEvent::Notice { .. }));
+        fold(&mut maps, 1, &event);
+        assert_eq!(maps.items[0].item.content, "🌍");
+    }
+}
+
+#[test]
+fn settled_turn_appends_are_refused_once_per_row() {
+    let mut maps = RuntimeMaps::default();
+    let turn = |id: &str, state| {
+        translate(&AgentRuntimeEvent::TurnState {
+            thread_id: "t".into(),
+            turn_id: Some(id.into()),
+            state,
+            detail: None,
+            status_line: None,
+            started_at: None,
+            completed_at: None,
+            parent_thread_id: None,
+        })
+    };
+    fold(&mut maps, 1, &turn("first", RuntimeTurnState::Working));
+    let mut row = item("row", false, "🌍");
+    row.kind = "assistant".into();
+    put(&mut maps, 1, row);
+    fold(&mut maps, 1, &turn("first", RuntimeTurnState::Idle));
+    fold(&mut maps, 1, &turn("next", RuntimeTurnState::Working));
+    let append = AgentRuntimeEvent::ChatItemAppend {
+        thread_id: "t".into(),
+        item_id: "row".into(),
+        content: "late".into(),
+        offset: 4,
+    };
+    assert!(matches!(
+        translate_with_items(&append, &mut maps, false),
+        Some(RuntimeEvent::Notice { .. })
+    ));
+    for _ in 0..100 {
+        assert!(translate_with_items(&append, &mut maps, false).is_none());
+    }
+    assert_eq!(maps.items[0].item.content, "🌍");
+    assert!(matches!(
+        translate_with_items(&append, &mut maps, true),
+        Some(RuntimeEvent::ItemUpdated { .. })
+    ));
+}
+
+#[test]
+fn tool_patch_preserves_full_retained_card_and_sequence() {
+    let mut maps = RuntimeMaps::default();
+    let mut original = item("tool", true, "Original tool caption");
+    original.tool_title = Some("Opaque tool".into());
+    original.tool_input = Some(serde_json::json!({"command":"opaque"}));
+    original.tool_result = Some("x".repeat(15900));
+    put(&mut maps, 1, original);
+    let patch = AgentRuntimeEvent::ChatItemPatch {
+        thread_id: "t".into(),
+        item: ChatMsg {
+            id: "tool".into(),
+            kind: "assistant".into(),
+            seq: 99,
+            tool_status: Some("completed".into()),
+            ..Default::default()
+        },
+    };
+    let event = translate_with_items(&patch, &mut maps, false).unwrap();
+    fold(&mut maps, 1, &event);
+    let row = &maps.items[0].item;
+    assert_eq!(row.seq, 0);
+    assert_eq!(row.kind, "tool");
+    assert_eq!(row.content, "Original tool caption");
+    assert_eq!(row.tool_title.as_deref(), Some("Opaque tool"));
+    assert_eq!(
+        row.tool_input,
+        Some(serde_json::json!({"command":"opaque"}))
+    );
+    assert_eq!(row.tool_result.as_ref().unwrap().len(), 15900);
+    assert_eq!(row.tool_status.as_deref(), Some("completed"));
+}
+
+#[test]
+fn tool_patches_cannot_blank_or_retype_conversation_rows() {
+    for kind in ["user", "assistant", "thinking"] {
+        let mut maps = RuntimeMaps::default();
+        let original = ChatMsg {
+            id: "row".into(),
+            seq: 7,
+            kind: kind.into(),
+            content: "Original body".into(),
+            ..Default::default()
+        };
+        put(&mut maps, 1, original.clone());
+        let patch = AgentRuntimeEvent::ChatItemPatch {
+            thread_id: "t".into(),
+            item: ChatMsg {
+                id: "row".into(),
+                kind: "tool_call".into(),
+                tool_status: Some("completed".into()),
+                ..Default::default()
+            },
+        };
+        let event = translate_with_items(&patch, &mut maps, false).unwrap();
+        assert!(matches!(event, RuntimeEvent::Notice { .. }));
+        fold(&mut maps, 1, &event);
+        assert_eq!(maps.items[0].item, original);
+    }
+}
+
+#[test]
+fn binding_change_between_restore_steps_preserves_new_cache_and_maps() {
+    use super::super::model::{ItemCache, RuntimeFailure};
+    use super::super::transcript::apply_restored_rows;
+    use parking_lot::Mutex;
+    use std::cell::{Cell, RefCell};
+
+    let original = RuntimeContext {
+        epoch: 1,
+        thread_id: Some("old-thread".into()),
+        binding_nonce: "old-nonce".into(),
+        ..Default::default()
+    };
+    for changed in [
+        RuntimeContext {
+            epoch: 2,
+            ..original.clone()
+        },
+        RuntimeContext {
+            thread_id: Some("new-thread".into()),
+            ..original.clone()
+        },
+        RuntimeContext {
+            binding_nonce: "new-nonce".into(),
+            ..original.clone()
+        },
+    ] {
+        for before_cache in [true, false] {
+            let current = RefCell::new(original.clone());
+            let cache = Mutex::new(ItemCache::default());
+            let maps = Mutex::new(RuntimeMaps::default());
+            maps.lock().prepare_restore(&original);
+            let mut fresh = item("new-row", false, "New binding body");
+            fresh.kind = "assistant".into();
+            let replace_binding = || {
+                *current.borrow_mut() = changed.clone();
+                let mut target = cache
+                    .try_lock()
+                    .expect("binding changes occur between cache steps");
+                *target = ItemCache::default();
+                target.reconcile(fresh.clone());
+                drop(target);
+                let mut target = maps
+                    .try_lock()
+                    .expect("binding changes occur between map steps");
+                target.reset(changed.epoch);
+                target.sync_active_turn(&changed);
+                reconcile_history(
+                    &mut target,
+                    changed.epoch,
+                    changed.thread_id.as_deref().unwrap(),
+                    fresh.clone(),
+                );
+            };
+            if before_cache {
+                replace_binding();
+            }
+            let checks = Cell::new(0);
+            let result = apply_restored_rows(
+                &cache,
+                &maps,
+                &original,
+                vec![item("old-row", false, "Stale body")],
+                || {
+                    let index = checks.get();
+                    checks.set(index + 1);
+                    if !before_cache && index == 1 {
+                        assert!(cache.try_lock().unwrap().get("old-row").is_some());
+                        replace_binding();
+                    }
+                    let current = current.borrow();
+                    current.epoch == original.epoch
+                        && current.thread_id == original.thread_id
+                        && current.binding_nonce == original.binding_nonce
+                },
+            );
+            assert!(matches!(result, Err(RuntimeFailure::Superseded)));
+            assert_eq!(cache.lock().snapshot(), vec![fresh.clone()]);
+            let mut target = maps.lock();
+            assert_eq!(target.epoch, changed.epoch);
+            assert_eq!(target.items.len(), 1);
+            assert_eq!(target.items[0].item, fresh);
+            assert!(!reconcile_history_current(
+                &mut target,
+                &original,
+                "old-thread",
+                item("late", false, "stale")
+            ));
+            assert!(!target.prepare_restore(&original));
+            assert_eq!(target.epoch, changed.epoch);
+            assert_eq!(target.items.len(), 1);
+        }
+    }
+}

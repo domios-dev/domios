@@ -108,3 +108,33 @@ a second failure refuses visibly. Environment credentials use placeholders only.
 `mcp-no-fallback-{auth,session-missing,method-not-found}` keep ACP v1 errors
 -32000, -32002 and -32601 on their existing typed refusal paths without a retry.
 `mcp-fallback-generic-error` proves that a generic -32603 still retries once.
+
+
+## Bounded stream fixtures
+
+`long-stream-complete` and `long-stream-cancel` extend the schema-derived text
+chunk shape to 128 chunks totaling 512 KiB, including non-ASCII text to pin UTF-8
+append offsets. Cancellation sends session/cancel while session/prompt is
+outstanding, then settles only on its cancelled response. `oversize-single-frame`
+projects a visible truncation marker for a 500,000-character frame and retains
+the subsequent healthy chunk. These synthetic stress fixtures share the capture
+limitations above; they are not live receipts. Both JS and native replay discover
+them through runtime-manifest.json. Native host folding replays their row events
+twice to prove exact final content and stable row count.
+
+The follow-up scenarios remain synthetic, modeled on the run-5 receipt symptoms,
+because run 5 did not capture raw ACP stdio frames. two-turns-restart-third preserves
+two completed turns across an epoch replacement and uses the restored row ordinal
+for a third distinct turn. self-send-overlapping-prompts keeps the first prompt
+active until its stopReason, then starts and settles the queued prompt exactly
+once, without changing either send's delivery evidence. tool-output-retention
+keeps three large tool results and original card identities through a late
+completion and interruption of the remaining running cards. Tests also cover an
+early queued reply and code-point truncation at an astral boundary. Existing
+agent_thought_chunk fixtures remain collapsed thinking rows; the semantic origin
+of Clifive's reasoning-like passage remains unverified by the run-5 receipts.
+
+many-turns-tool-admission runs sequential completed tool turns beyond the identity
+admission budget. Each new tool remains running until its completion update;
+settled identities are reclaimed before admission while running identities remain
+protected. The fixture also participates in native/QuickJS shared replay.

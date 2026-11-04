@@ -4,10 +4,11 @@ import { planRow, usage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
+interface TextCursor { offset:number; chars:number; echo?:string }
 interface StreamState {
   epoch:number; nonce:string; sessionId:string; replay:number; prompt:number;
-  turn:number; ordinal:number; seq:number; chunk?:{kind:string; id:string; content:string};
-  items:Record<string,ChatMsg>; textById:Record<string,string>; warnings:Record<string,number>; controls:Record<string,JsonValue>;
+  turn:number; ordinal:number; seq:number; chunk?:TextCursor & {kind:string; id:string; dropped?:boolean};
+  items:Record<string,ChatMsg>; offsetById:Record<string,TextCursor>; warnings:Record<string,number>; controls:Record<string,JsonValue>;
   evidenced:string[]; compacted:string[]; seenItems:string[]; loading:boolean; settled:boolean; started:boolean;
 }
 const json=(value:unknown):JsonValue=>value as JsonValue;
@@ -15,23 +16,48 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
   const previous=object(raw);
   if (previous.epoch !== ctx.epoch || previous.nonce !== ctx.bindingNonce || previous.sessionId !== ctx.threadId)
     return {epoch:ctx.epoch,nonce:ctx.bindingNonce,sessionId:ctx.threadId!,replay:cursor.replay,prompt:cursor.prompt,
-      turn:cursor.prompt || 1,ordinal:0,seq:0,items:Object.create(null),textById:Object.create(null),warnings:Object.create(null),controls:Object.create(null),evidenced:[],compacted:[],seenItems:[],loading:cursor.loading,settled:false,started:false};
+      turn:cursor.prompt || 1,ordinal:0,seq:0,items:Object.create(null),offsetById:Object.create(null),warnings:Object.create(null),controls:Object.create(null),evidenced:[],compacted:[],seenItems:[],loading:cursor.loading,settled:false,started:false};
   const state=previous as unknown as StreamState;
-  const copy:StreamState={...state,items:Object.assign(Object.create(null),state.items),textById:Object.assign(Object.create(null),state.textById),warnings:Object.assign(Object.create(null),state.warnings),controls:{...state.controls},
+  const copy:StreamState={...state,items:Object.assign(Object.create(null),state.items),offsetById:Object.assign(Object.create(null),state.offsetById),warnings:Object.assign(Object.create(null),state.warnings),controls:{...state.controls},
     evidenced:[...state.evidenced],compacted:[...state.compacted],seenItems:[...state.seenItems],...(state.chunk ? {chunk:{...state.chunk}} : {})};
   if (copy.replay !== cursor.replay) {
-    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];copy.textById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];copy.offsetById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
   } else if (copy.prompt !== cursor.prompt) {
-    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];copy.textById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];copy.offsetById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
   }
   copy.prompt=cursor.prompt;copy.loading=cursor.loading;
   return copy;
 }
-function emit(state:StreamState, events:AgentEvent[], row:ChatMsg):void {
+function emit(state:StreamState, events:AgentEvent[], row:ChatMsg, patch=false):void {
   const previous=state.items[row.id];
   row.seq=previous?.seq ?? ++state.seq;
-  state.items[row.id]=row;
-  if (JSON.stringify(previous) !== JSON.stringify(row)) events.push({kind:"chatItem",threadId:state.sessionId,item:row});
+  if (utf8Length(JSON.stringify(row)) > 32768) {
+    row={id:row.id,seq:row.seq,type:row.type,content:"[ACP row truncated: update exceeded the display budget]",
+      ...(row.toolStatus ? {toolStatus:row.toolStatus,toolId:row.toolId} : {})};
+  }
+  const retained:ChatMsg={...previous,id:row.id,seq:row.seq,type:row.type,content:"",
+    ...(row.toolId ? {toolId:row.toolId} : {}),
+    ...(row.toolTitle ? {toolTitle:Array.from(row.toolTitle).slice(0,256).join("")} : {}),
+    ...(row.toolName ? {toolName:Array.from(row.toolName).slice(0,256).join("")} : {}),
+    ...(row.toolKind ? {toolKind:row.toolKind} : {}),
+    ...(row.toolStatus ? {toolStatus:row.toolStatus} : {})};
+  if (row.toolStatus === "running" && !previous && !admitToolIdentity(state,retained)) {
+    events.push({kind:"chatItem",threadId:state.sessionId,item:{...row,toolStatus:"interrupted",toolInterrupted:true,content:"[ACP tool tracking capacity exhausted]"}});
+    return;
+  }
+  state.items[row.id]=retained;
+  if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== undefined || row.toolResult !== undefined || row.fileDiffs !== undefined || row.toolInterrupted) events.push({kind:patch ? "chatItemPatch" : "chatItem",threadId:state.sessionId,item:row});
+}
+function admitToolIdentity(state:StreamState, retained:ChatMsg):boolean {
+  let bytes=utf8Length(JSON.stringify(state.items))+utf8Length(JSON.stringify({[retained.id]:retained}))-1;
+  const submittedId=`${state.sessionId}:turn:${state.turn}:item:1`;
+  for (const [id,row] of Object.entries(state.items)) {
+    if (bytes <= 16384) break;
+    if (row.toolStatus === "running" || id === state.chunk?.id || id === submittedId) continue;
+    bytes-=utf8Length(JSON.stringify({[id]:row}))-1;
+    delete state.items[id];
+  }
+  return bytes <= 16384;
 }
 function rememberControl(state:StreamState, kind:string, update:Record<string,JsonValue>):void {
   const encoded=JSON.stringify(update);
@@ -48,11 +74,11 @@ function warn(state:StreamState, events:AgentEvent[], rawKind:string):void {
 function closeChunk(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):void {
   const chunk=state.chunk;
   if (chunk?.kind === "user_message_chunk" && !state.loading) {
-    const claim=ctx.claimedSends.find(claim=>claim.threadId === ctx.threadId && !state.evidenced.includes(claim.sendId)
-      && claim.input.attachments.length === 0 && claim.input.text === chunk.content);
+    const claim=ctx.claimedSends.find(claim=>claim.sendId === chunk.echo && claim.threadId === ctx.threadId
+      && !state.evidenced.includes(claim.sendId) && claim.input.attachments.length === 0 && claim.input.text.length === chunk.chars);
     if (claim) {
       if (!events.some(event=>event.kind === "chatItem" && event.item.id === chunk.id))
-        events.push({kind:"chatItem",threadId:state.sessionId,item:state.items[chunk.id]});
+        events.push({kind:"chatItem",threadId:state.sessionId,item:{...state.items[chunk.id],content:claim.input.text}});
       state.evidenced.push(claim.sendId);
       events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:claim.sendId,turnId:ctx.activeTurnId ?? `${state.sessionId}:turn:${state.turn}`,itemId:chunk.id});
     }
@@ -70,8 +96,9 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
   const events:AgentEvent[]=[];
   closeChunk(ctx,next,events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
-    emit(next,events,{...row,toolStatus:"interrupted",toolInterrupted:true});
+    emit(next,events,{id:row.id,seq:row.seq,type:row.type,content:"",toolId:row.toolId,toolStatus:"interrupted",toolInterrupted:true},true);
   events.push({kind:"turnState",threadId:ctx.threadId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})});
+  boundState(next);
   return {state:json(next),events};
 }
 export function clientRequest(method:string):boolean {
@@ -104,7 +131,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     startTurn(ctx,state,events);
     if (ownSubmitted && !state.loading && !state.settled && !state.evidenced.includes(ownSubmitted.sendId)) {
       if (!events.some(event=>event.kind === "chatItem" && event.item.id === submittedId))
-        events.push({kind:"chatItem",threadId:state.sessionId,item:state.items[submittedId]});
+        events.push({kind:"chatItem",threadId:state.sessionId,item:{...state.items[submittedId],content:ownSubmitted.input.text}});
       state.evidenced.push(ownSubmitted.sendId);
       events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:ownSubmitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:submittedId});
     }
@@ -118,12 +145,31 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
         if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) { state.turn++;state.ordinal=0;state.seenItems=[]; }
         state.ordinal++;
         const id=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
-        state.chunk={kind,id,content:explicit ? state.textById[id] ?? "" : ""};
+        state.chunk={kind,id,offset:0,chars:0,...(explicit ? state.offsetById[id] : {})};
+        if (explicit && state.offsetById[id] === undefined && utf8Length(JSON.stringify(state.offsetById))+utf8Length(id)+32 > 16384) {
+          state.chunk.dropped=true;
+          emit(state,events,{id,seq:0,type:kind === "agent_thought_chunk" ? "thinking" : kind === "user_message_chunk" ? "user" : "assistant",
+            content:"[ACP row truncated: message identity budget exhausted]"});
+        }
       }
-      state.chunk.content+=content.text;
-      if (explicit) state.textById[state.chunk.id]=state.chunk.content;
+      const chunk=state.chunk;
+      if (chunk.dropped) continue;
+      if (kind === "user_message_chunk" && !state.loading) {
+        const claim=ctx.claimedSends.find(claim=>claim.threadId === ctx.threadId && !state.evidenced.includes(claim.sendId)
+          && claim.input.attachments.length === 0 && (chunk.chars === 0 || claim.sendId === chunk.echo)
+          && claim.input.text.slice(chunk.chars,chunk.chars+content.text.length) === content.text);
+        chunk.echo=claim?.sendId;
+      }
+      chunk.chars+=content.text.length;
       const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
-      emit(state,events,{id:state.chunk.id,seq:0,type,content:state.chunk.content,...(type === "thinking" ? {collapsed:true} : {})});
+      const value=content.text.length > 16384 ? Array.from(content.text).slice(0,8192).join("")+"\n[ACP row truncated: oversized text update]" : content.text;
+      const previous=state.items[chunk.id];
+      const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:value,...(type === "thinking" ? {collapsed:true} : {})};
+      events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:value,offset:chunk.offset}
+        : {kind:"chatItem",threadId:state.sessionId,item:row});
+      state.items[row.id]={...row,content:""};
+      chunk.offset+=utf8Length(value);
+      if (explicit) state.offsetById[chunk.id]={offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {})};
       if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
       continue;
     }
@@ -134,7 +180,13 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       const previous=id ? state.items[id] : undefined;
       if (id && !state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
       const row=reduceTool(update,previous,state.seq+1);
-      if (row) emit(state,events,row);
+      if (row && (previous || kind === "tool_call")) {
+        if (kind === "tool_call_update") {
+          if (update.title === undefined) { delete row.toolTitle;delete row.toolName; }
+          if (update.kind === undefined) delete row.toolKind;
+        }
+        emit(state,events,row,kind === "tool_call_update");
+      }
     } else if (kind === "plan") {
       closeChunk(ctx,state,events);
       const id=`${ctx.threadId}:plan`;
@@ -164,5 +216,34 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     }
     else warn(state,events,kind);
   }
+  boundState(state);
   return {state:json(state),events};
+}
+
+function utf8Length(value:string):number {
+  let bytes=0;
+  for (const character of value) {
+    const code=character.codePointAt(0)!;
+    bytes+=code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
+  }
+  return bytes;
+}
+function boundState(state:StreamState):void {
+  for (const key of ["evidenced","compacted","seenItems"] as const) state[key]=state[key].slice(-32);
+  let bytes=utf8Length(JSON.stringify(state));
+  for (const key of ["items","controls","warnings"] as const) {
+    for (const id of Object.keys(state[key])) {
+      if (bytes <= 47000) break;
+      const value=state[key][id];
+      if (id === state.chunk?.id || key === "items" && object(value).toolStatus === "running") continue;
+      bytes-=utf8Length(JSON.stringify({[id]:value}))-1;
+      delete state[key][id];
+    }
+  }
+  for (const key of ["evidenced","compacted","seenItems"] as const) {
+    while (bytes > 47000 && state[key].length) {
+      const removed=state[key].shift()!;
+      bytes-=utf8Length(JSON.stringify(removed))+1;
+    }
+  }
 }

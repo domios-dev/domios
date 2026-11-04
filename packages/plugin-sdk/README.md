@@ -327,3 +327,35 @@ All frames still reach the reducer. The provider uses this metadata to preserve
 previous-turn chunks and session controls while attributing only postwrite
 updates to the new prompt. These host-only values add no wire fields or I/O
 authority.
+
+
+## Incremental runtime rows
+
+Emit `chatItem` for the first content of a row, then `chatItemAppend` with
+`threadId`, `itemId`, `content` and `offset`. The offset is the UTF-8 byte length
+of the content already emitted for that row. The host appends only when the
+exact thread, row and byte offset match its retained row, then publishes the
+updated row through the ordinary chat path. A missing row or mismatched offset
+produces a visible notice without changing the retained content. Loading replay
+starts each row again with `chatItem` and the same deterministic ID, so it replaces
+the previous projection before appending. Reducer state should retain offsets
+and bounded metadata instead of message bodies. This event adds no host I/O or
+filesystem, environment, network or session authority.
+
+Tool cards can use chatItemPatch to merge optional fields into the exact retained
+tool row while preserving its identity, sequence, type, content and absent fields. Missing cards produce
+a bounded notice rather than a partial replacement. Append admission also requires
+the retained row's active turn, or history loading; a failed append emits at most
+one notice per row and epoch. The plugin has no append-failure feedback signal.
+
+Runtimes declaring neither readHistory nor storedHistory use a host transcript
+snapshot at turn settlement. The existing off-thread history writer retains only
+rows, within the existing row/window limits, and atomically replaces the previous
+snapshot. It restores row IDs/order before resume. RuntimeContext.restoredRowOrdinal
+is the next persisted source-row ordinal, a conservative lower bound for new
+turn ordinals across restart; it exposes no transcript bodies or new I/O authority.
+Providers declaring remote or stored history keep their existing history path.
+
+Fallback transcript I/O failures log once per session and operation, then allow
+runtime startup and turn settlement to continue. Binding changes still supersede
+a restore.

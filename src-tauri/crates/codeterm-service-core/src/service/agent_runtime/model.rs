@@ -523,6 +523,24 @@ impl ItemCache {
         self.evict();
         item
     }
+    pub fn next_ordinal(&self) -> u64 {
+        self.items
+            .back()
+            .map_or(0, |row| row.seq.saturating_add(1).max(0) as u64)
+    }
+    pub fn restore_transcript(&mut self, rows: Vec<ChatMsg>) {
+        for row in rows {
+            if self.positions.contains_key(&row.id) {
+                continue;
+            }
+            let seq = row.seq;
+            let id = row.id.clone();
+            self.reconcile(row);
+            if let Some(index) = self.index(&id) {
+                self.items[index].seq = seq;
+            }
+        }
+    }
     pub fn snapshot(&self) -> Vec<ChatMsg> {
         self.items.iter().cloned().collect()
     }

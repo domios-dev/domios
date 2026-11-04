@@ -39,6 +39,7 @@ async fn publish_with_origin(
         return Err(RuntimeFailure::Superseded);
     }
     engine::validate_binding(svc, session)?;
+    session.maps.lock().sync_active_turn(&context);
     let evidence = super::super::model::validated_evidence(&context.claimed_sends, &events);
     let enriched = events
         .into_iter()
@@ -71,11 +72,32 @@ async fn publish_with_origin(
                 continue;
             }
         }
-        let mut runtime = events::translate(&event.event);
+        let append = matches!(
+            &event.event,
+            AgentRuntimeEvent::ChatItemAppend { .. } | AgentRuntimeEvent::ChatItemPatch { .. }
+        );
+        let loading = matches!(
+            session.state.lock().phase,
+            super::super::model::RuntimePhase::Loading
+        );
+        let mut runtime = if append {
+            let mut maps = session.maps.lock();
+            maps.ensure_epoch(epoch);
+            let Some(runtime) = events::translate_with_items(&event.event, &mut maps, loading)
+            else {
+                continue;
+            };
+            events::fold(&mut maps, epoch, &runtime);
+            runtime
+        } else {
+            events::translate(&event.event)
+        };
         if !super::turn_lifecycle::prepare(svc, session, at, &mut runtime) {
             continue;
         }
-        events::fold(&mut session.maps.lock(), epoch, &runtime);
+        if !append {
+            events::fold(&mut session.maps.lock(), epoch, &runtime);
+        }
         if let RuntimeEvent::RequestUpdated {
             thread_id,
             item_id: Some(item_id),
@@ -235,6 +257,9 @@ async fn publish_with_origin(
             .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?
             .map_err(RuntimeFailure::HookFailed)?;
         }
+    }
+    if run_completed {
+        super::super::transcript::persist(session).await;
     }
     if (run_completed || run_chat_item) && svc.run_watcher.has_runtime_run(&context.tab_id) {
         let owner = svc.clone();
