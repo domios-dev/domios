@@ -693,7 +693,7 @@ fn plan_id_for_team_never_loads_unmatched_plans() {
 }
 
 #[test]
-fn for_each_plan_uncached_streams_every_plan_without_filling_the_cache() {
+fn export_all_plan_documents_never_loads_whole_plans_or_cache() {
     let (_dir, store, project) = fixture();
     let first = seed(
         &store,
@@ -705,13 +705,18 @@ fn for_each_plan_uncached_streams_every_plan_without_filling_the_cache() {
     );
     start(&store);
 
-    let mut seen = Vec::new();
-    store.for_each_plan_uncached(|plan| seen.push(plan.id));
+    let mut seen: Vec<String> = store
+        .export_all_plan_documents()
+        .unwrap()
+        .into_iter()
+        .map(|plan| plan["id"].as_str().unwrap().to_string())
+        .collect();
     seen.sort();
     let mut expected = vec![first, second];
     expected.sort();
     assert_eq!(seen, expected);
     assert!(store.cached_plan_ids_for_test().is_empty());
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]

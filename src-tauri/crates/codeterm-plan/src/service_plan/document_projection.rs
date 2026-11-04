@@ -29,11 +29,19 @@ pub struct PlannerGateRead {
 
 impl PlannerGateRead {
     pub fn owner_for_gate(&self, asked_by_tab_id: Option<&str>) -> Option<&str> {
-        let PlannerRef::Tab { tab_id, .. } = self.planner.as_ref()? else {
+        Self::owner_for_gate_fields(&self.owner, self.planner.as_ref(), asked_by_tab_id)
+    }
+
+    pub fn owner_for_gate_fields<'a>(
+        owner: &'a OrchestratorRef,
+        planner: Option<&PlannerRef>,
+        asked_by_tab_id: Option<&str>,
+    ) -> Option<&'a str> {
+        let PlannerRef::Tab { tab_id, .. } = planner? else {
             return None;
         };
         (asked_by_tab_id == Some(tab_id.as_str()))
-            .then_some(self.owner.tab_id.as_deref())
+            .then_some(owner.tab_id.as_deref())
             .flatten()
     }
 }
