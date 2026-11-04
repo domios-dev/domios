@@ -21,7 +21,7 @@ export function createSeqGapTracker(): SeqGapTracker {
 
   return {
     observe(nextBoot, seq, previous) {
-      if (boot !== nextBoot || last === null) {
+      if (boot !== nextBoot || last === null || !Number.isSafeInteger(last)) {
         boot = nextBoot;
         last = seq;
         return { verdict: "origin-changed", expected: null };
@@ -35,6 +35,8 @@ export function createSeqGapTracker(): SeqGapTracker {
       return { verdict: "gap", expected };
     },
     adopt(nextBoot, seq) {
+      // A malformed baseline would make every later frame look like a gap.
+      if (!Number.isSafeInteger(seq)) return;
       boot = nextBoot;
       last = seq;
     },
