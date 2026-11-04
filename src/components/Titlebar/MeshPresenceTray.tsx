@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
+import { useMeshConnections } from "../MeshPanel/useMeshConnections";
+import { BusyState } from "../shared/BusyState";
 import { Check } from "lucide-react";
 import { invoke } from "../../lib/bridge";
 import { useConfig } from "../../hooks/useConfig";
@@ -27,6 +29,7 @@ async function setEnabled(next: boolean, generation: number): Promise<boolean> {
 export function MeshPresenceTray() {
   const { config, ready } = useConfig();
   const generation = webRequestContext();
+  const connecting = useMeshConnections(ready && config.mesh.enabled);
   const [presence, setPresence] = useState<{ generation: number; value: Presence } | null>(null);
   const currentPresence = presence?.generation === generation ? presence.value : null;
   const state = ready ? currentPresence ?? (config.mesh.enabled ? "online" : "offline") : null;
@@ -51,7 +54,7 @@ export function MeshPresenceTray() {
         : { background: "var(--ct-muted, #888)", opacity: 0.4 };
 
   const title = state === "online"
-    ? "Mesh: online — peers see this machine"
+    ? `Mesh: online — peers see this machine${connecting > 0 ? `; ${connecting} peer${connecting === 1 ? "" : "s"} connecting` : ""}`
     : state === "offline"
       ? "Mesh: offline — invisible to peers, Tailscale untouched"
       : "Mesh status…";
@@ -62,10 +65,11 @@ export function MeshPresenceTray() {
         ref={triggerRef}
         onClick={() => setOpen((v) => !v)}
         title={title}
+        aria-label={title}
         className="flex items-center justify-center w-7 h-7 rounded-md transition-colors hover:bg-[var(--ct-hover)]"
       >
         <span
-          className="inline-block w-2.5 h-2.5 rounded-full transition-all"
+          className={`inline-block w-2.5 h-2.5 rounded-full transition-all${connecting > 0 ? " motion-safe:animate-pulse" : ""}`}
           style={dotStyle}
         />
       </button>
@@ -75,6 +79,7 @@ export function MeshPresenceTray() {
           className="ct-portal-menu ct-menu w-[220px]"
         >
           <div className="ct-menu-caption">Mesh presence</div>
+          {connecting > 0 && <div role="status" className="px-3 py-2"><BusyState inline label={`${connecting} peer${connecting === 1 ? "" : "s"} connecting`} phase="work" /></div>}
           <PresenceItem
             label="Online"
             sub="Visible to peers"

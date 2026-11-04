@@ -62,7 +62,10 @@ pub async fn mesh_link_confirm(
         .authority
         .authorize_link(confirmation.request.clone())
         .await
-        .map_err(refused)?;
+        .map_err(|error| {
+            state.mesh.lock().fail_pending_connection(&confirm.link_id);
+            refused(error)
+        })?;
     state
         .mesh
         .lock()
@@ -80,5 +83,21 @@ pub async fn mesh_link_commit(
         .svc
         .ui
         .emit("mesh-state-changed", serde_json::Value::Null);
-    Ok(Json(LinkCommitReply { committed: true }))
+    if let Some(snapshot) = commit.signed_registry.as_ref() {
+        state
+            .svc
+            .account_mesh_registry_snapshot(snapshot)
+            .await
+            .map_err(|error| {
+                (
+                    StatusCode::FORBIDDEN,
+                    Json(serde_json::json!({"error": error})),
+                )
+            })?;
+    }
+    let signed_registry = state.mesh.lock().signed_registry.clone();
+    Ok(Json(LinkCommitReply {
+        committed: true,
+        signed_registry,
+    }))
 }

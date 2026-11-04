@@ -78,7 +78,8 @@ impl AccountMesh {
         signed: &Signed,
     ) -> Result<bool, super::AccountMeshRefusal> {
         let candidate = self.with(|inner| {
-            if inner.state.membership.is_some() || inner.record.signed_out {
+            if inner.state.membership.is_some() || inner.record.signed_out || inner.terminal_parked
+            {
                 return None;
             }
             Some((
@@ -110,8 +111,6 @@ impl AccountMesh {
         ) else {
             return Ok(false);
         };
-        let long_lease = verified.is_current(self.now())
-            && verified.expires_at.saturating_sub(verified.issued_at) > 3600;
         let restored = self.with(|inner| {
             if !inner.is_current(signed.epoch)
                 || inner
@@ -150,15 +149,13 @@ impl AccountMesh {
                     token: cache.token,
                     verified,
                 });
-                state.registry = cache.registry;
+                if state.signed_registry.is_none() {
+                    state.registry = cache.registry;
+                }
                 state.publication = publication;
             });
             true
         });
-        if restored && long_lease {
-            self.list_fresh().await?;
-            return Ok(true);
-        }
-        Ok(false)
+        Ok(restored)
     }
 }

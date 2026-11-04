@@ -375,9 +375,8 @@ impl PlanStore {
     }
 
     pub fn list_handoffs(&self, plan_id: &str) -> Result<Vec<HandoffListItem>, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let mut items = plan
-            .elements
+        let elements = self.database.handoff_metadata(plan_id)?;
+        let mut items = elements
             .iter()
             .filter(|element| element.kind == "handoff")
             .map(|element| HandoffListItem {
@@ -410,24 +409,11 @@ impl PlanStore {
         plan_id: &str,
         selector: Option<&str>,
     ) -> Result<HandoffDetail, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let element = if let Some(selector) = selector {
-            plan.elements
-                .iter()
-                .filter(|element| element.kind == "handoff")
-                .find(|element| {
-                    element.id == selector
-                        || selector.parse::<u64>().ok() == Some(content_seq(&element.content))
-                })
-        } else {
-            plan.elements
-                .iter()
-                .filter(|element| element.kind == "handoff")
-                .max_by_key(|element| content_seq(&element.content))
-        }
-        .ok_or(PlanError::NotFound)?;
-        let path = super::body_files::handoff_path(&plan, &element.id)
+        let (storage, element) = self.database.selected_handoff(plan_id, selector)?;
+        let directory = storage
+            .state_dir()
             .map_err(|e| PlanError::Io(e.to_string()))?;
+        let path = super::body_files::handoff_path_in(&directory, &element.id);
         let body = std::fs::read_to_string(path).unwrap_or_default();
         Ok(HandoffDetail {
             id: element.id.clone(),

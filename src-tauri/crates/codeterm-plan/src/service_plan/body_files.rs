@@ -77,7 +77,13 @@ pub fn task_stride_log_path(plan: &Plan, task: &Task) -> std::io::Result<PathBuf
 }
 
 pub fn handoff_path(plan: &Plan, element_id: &str) -> std::io::Result<PathBuf> {
-    body_path(plan, BodyKind::Handoff, element_id)
+    Ok(handoff_path_in(&plan_body_dir(plan)?, element_id))
+}
+
+pub(super) fn handoff_path_in(directory: &Path, element_id: &str) -> PathBuf {
+    directory
+        .join(BodyKind::Handoff.dir_name())
+        .join(format!("{element_id}.md"))
 }
 
 pub fn milestone_path(plan: &Plan, task: &Task, milestone: &Milestone) -> std::io::Result<PathBuf> {

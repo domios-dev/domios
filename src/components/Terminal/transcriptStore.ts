@@ -187,11 +187,11 @@ const IGNORE_CHANGE = () => {};
 
 /** A held view keeps its subscription, so the window is never evicted, but
  *  renders the window it last saw until it is live again. */
-export function useTranscriptWindow(key: string, live = true): TranscriptWindow {
-  const held = useMemo(() => live ? null : readTranscriptWindow(key), [key, live]);
+export function useTranscriptWindow(key: string, live = true, retained = true): TranscriptWindow {
+  const held = useMemo(() => !retained ? EMPTY_WINDOW : live ? null : readTranscriptWindow(key), [key, live, retained]);
   const subscribeToKey = useCallback(
-    (onChange: () => void) => subscribe(key, held ? IGNORE_CHANGE : onChange),
-    [key, held],
+    (onChange: () => void) => retained ? subscribe(key, held ? IGNORE_CHANGE : onChange) : IGNORE_CHANGE,
+    [key, held, retained],
   );
   const read = useCallback(() => held ?? readTranscriptWindow(key), [key, held]);
   return useSyncExternalStore(subscribeToKey, read, read);

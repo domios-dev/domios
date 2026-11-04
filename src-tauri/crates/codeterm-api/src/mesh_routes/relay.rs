@@ -1,97 +1,39 @@
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use crate::stream_census::{track, StreamGuard, StreamKind};
 use axum::{
     body::Body,
     extract::{Path as AxumPath, Query, State as AxumState},
     http::{header, HeaderMap, HeaderValue, Method, StatusCode},
     response::Response,
-    Json,
+    Extension, Json,
 };
 use std::sync::LazyLock;
 
 mod caller;
 mod capability;
+mod origin;
 
-fn sync_input_for_access<'a>(
-    full_access: bool,
-    sender_id: Option<&str>,
-    peers: &'a [codeterm_service_core::mesh::types::GossipPeerInfo],
-) -> Vec<&'a codeterm_service_core::mesh::types::GossipPeerInfo> {
-    peers
-        .iter()
-        .filter(|peer| full_access || Some(peer.instance_id.as_str()) == sender_id)
-        .collect()
-}
-
-fn sync_output_for_access(
-    full_access: bool,
-    our_id: &str,
-    mut payload: codeterm_service_core::mesh::types::MeshSyncPayload,
-) -> codeterm_service_core::mesh::types::MeshSyncPayload {
-    if !full_access {
-        payload.peers.retain(|peer| peer.instance_id == our_id);
-    }
-    payload
-}
-
-pub async fn mesh_sync(
-    AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
-    Json(payload): Json<codeterm_service_core::mesh::types::MeshSyncPayload>,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    log::debug!("[mesh/sync] Incoming sync: {} peers", payload.peers.len());
-    check_auth(&state, &headers).map_err(|(s, e)| {
-        log::warn!("[mesh/sync] Auth FAILED: {}", e);
-        (s, e.to_string())
-    })?;
-
-    let access = crate::auth::caller_access_level(&state, &headers)
-        .map_err(|(status, message)| (status, message))?;
-    let full_access = access == codeterm_service_core::mesh::types::AccessLevel::Full;
-
-    // Re-verify sender token here only to recover authoritative sender_id for peer bookkeeping.
-    // If parsing fails, fail soft so new token formats don't disrupt gossip.
-    let sender_id = sender_id_from_headers(&state, &headers);
-
-    // Sync only refreshes metadata of already-paired peers; it never discovers new ones.
-    let mut mesh = state.mesh.lock();
-    if let Some(voucher) = sender_id.as_deref() {
-        for info in sync_input_for_access(full_access, Some(voucher), &payload.peers) {
-            mesh.apply_gossip_peer_info(info);
-        }
-    }
-    drop(mesh);
-
-    let mut mesh = state.mesh.lock();
-    let our_id = mesh.ident.identity.instance_id.clone();
-    let our_payload = sync_output_for_access(full_access, &our_id, mesh.build_sync_payload());
-    state
-        .svc
-        .ui
-        .emit("mesh-state-changed", serde_json::Value::Null);
-    Ok(Json(serde_json::to_value(our_payload).unwrap()))
-}
-
-/// Decode the Authorization bearer token and return the signed sender's
-/// instance_id, or None if the header is absent / unsigned / unverifiable.
-/// Used by mesh_sync to attribute gossip vouches; auth_middleware has
-/// already gated whether the request runs at all.
-fn sender_id_from_headers(state: &AppState, headers: &HeaderMap) -> Option<String> {
-    let auth = headers.get("authorization").and_then(|v| v.to_str().ok())?;
-    let token = auth.strip_prefix("Bearer ").unwrap_or("");
-    if token.is_empty() {
-        return None;
-    }
-    let mesh = state.mesh.lock();
-    let mut known_keys = mesh.known_public_keys();
-    if let Some(ref pk) = mesh.ident.identity.public_key {
-        known_keys.insert(mesh.ident.identity.instance_id.clone(), pk.clone());
-    }
-    codeterm_service_core::mesh::crown::verify_signed_request(token, &known_keys).ok()
-}
+mod sync;
+pub use sync::mesh_sync;
+#[cfg(test)]
+use sync::{sync_input_for_access, sync_output_for_access};
 
 /// Verify relay sender: must be paired. Paired = trusted.
 pub(super) fn check_mesh_relay_auth(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<String, (StatusCode, String)> {
+    let peer = check_mesh_signature(state, headers)?;
+    if !crate::auth::authenticated_origin(state, headers)?.owner_trusted() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "An agent relay cannot use peer authority".into(),
+        ));
+    }
+    Ok(peer)
+}
+
+pub(super) fn check_mesh_signature(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Result<String, (StatusCode, String)> {
@@ -387,21 +329,25 @@ fn spawn_registration_from_relay(
 
 pub async fn mesh_relay_to_peer(
     AxumState(state): AxumState<AppState>,
+    Extension(identity): Extension<crate::auth::CallerIdentity>,
     headers: HeaderMap,
     Json(mut req): Json<PeerRelayCommand>,
 ) -> Result<Json<PeerRelayResponse>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
-    if crate::auth::caller_peer_id(&state, &headers).is_none() {
-        if let Some(caller) = crate::auth::tab_caller(&state, &headers)? {
-            capability::authorize(&state, &caller, &req.method, &req.path).await?;
-            caller::bind(&caller, &req.method, &req.path, &mut req.body)
-                .map_err(|message| (StatusCode::FORBIDDEN, message))?;
-        }
+    let actor = crate::auth::ActorHeaders::authenticated(
+        &identity,
+        crate::auth::authenticated_origin(&state, &headers)?,
+        headers.clone(),
+    );
+    if let crate::auth::CallerIdentity::Tab(caller) = &identity {
+        capability::authorize(&state, &caller, &req.method, &req.path).await?;
+        caller::bind(&caller, &req.method, &req.path, &mut req.body)
+            .map_err(|message| (StatusCode::FORBIDDEN, message))?;
     }
     let (client, peer_id, peer_name, peer_version) = {
         let mesh = state.mesh.lock();
         resolve_relay_peer(&mesh, &req.target_peer_id)?
     };
+    let client = origin::peer_client(&state, &headers, client)?;
     let answered_by = |response| {
         Json(PeerRelayResponse {
             response,
@@ -429,7 +375,11 @@ pub async fn mesh_relay_to_peer(
         codeterm_service_core::service::execution_sandbox_refuse_confined_mesh_delegation(
             &state.svc,
             &[
-                crate::tab_routes::caller_tab_header(&headers).as_deref(),
+                actor
+                    .as_ref()
+                    .ok()
+                    .and_then(|actor| crate::tab_routes::caller_tab_header(actor))
+                    .as_deref(),
                 named("spawned_by_tab_id"),
                 named("creator_tab_id"),
                 named("parent_tab_id"),
@@ -439,7 +389,10 @@ pub async fn mesh_relay_to_peer(
     }
     codeterm_service_core::service::mesh_artifacts_transfer(
         &state.svc,
-        crate::tab_routes::caller_tab_header(&headers).as_deref(),
+        actor
+            .as_ref()
+            .map(|actor| crate::tab_routes::caller_tab_header(actor))
+            .map_err(|(_, message)| message.clone()),
         &client,
         &req.method,
         &req.path,
@@ -501,7 +454,9 @@ pub async fn mesh_relay(
     headers: HeaderMap,
     Json(cmd): Json<codeterm_service_core::mesh::types::RelayCommand>,
 ) -> Result<Json<codeterm_service_core::mesh::types::RelayResponse>, (StatusCode, String)> {
-    let sender_id = check_mesh_relay_auth(&state, &headers)?;
+    let sender_id = check_mesh_signature(&state, &headers)?;
+    let origin = crate::auth::authenticated_origin(&state, &headers)?;
+    let agent = crate::auth::authenticated_agent(&state, &headers)?;
 
     let Some(delivery_id) = cmd
         .delivery_id
@@ -509,12 +464,14 @@ pub async fn mesh_relay(
         .map(str::trim)
         .filter(|id| !id.is_empty())
     else {
-        return perform_relay(&state, &sender_id, &cmd).await.map(Json);
+        return perform_relay(&state, &sender_id, &cmd, origin, agent.as_ref())
+            .await
+            .map(Json);
     };
 
     // At-most-once (#240): one dispatch per (authenticated sender, delivery_id);
     // duplicates replay; a saturated in-flight window is rejected, never grown.
-    let key = super::send_dedupe::dedupe_key(&sender_id, delivery_id);
+    let key = super::send_dedupe::dedupe_key(&format!("{sender_id}:{origin:?}"), delivery_id);
     let entry = match super::send_dedupe::MeshDeliveryDedupe::global()
         .acquire(key.clone(), super::send_dedupe::now_ms())
     {
@@ -544,7 +501,7 @@ pub async fn mesh_relay(
 
     // Cache the outcome so concurrent duplicates ack it; fold transport/validation
     // errors into ok:false rather than an axum error waiters could never observe.
-    let response = perform_relay(&state, &sender_id, &cmd)
+    let response = perform_relay(&state, &sender_id, &cmd, origin, agent.as_ref())
         .await
         .unwrap_or_else(
             |(status, message)| codeterm_service_core::mesh::types::RelayResponse {
@@ -690,8 +647,10 @@ async fn perform_relay(
     state: &AppState,
     sender_id: &str,
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    origin: crate::auth::AuthenticatedOrigin,
+    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
-    let mut response = perform_relay_unredacted(state, sender_id, cmd).await?;
+    let mut response = perform_relay_unredacted(state, sender_id, cmd, origin, agent).await?;
     if let Some(data) = response.data.as_mut() {
         crate::peer_redaction::redact_for_peer(data);
     }
@@ -718,6 +677,8 @@ async fn perform_relay_unredacted(
     state: &AppState,
     sender_id: &str,
     cmd: &codeterm_service_core::mesh::types::RelayCommand,
+    origin: crate::auth::AuthenticatedOrigin,
+    agent: Option<&codeterm_service_core::mesh::crown::AuthenticatedAgent>,
 ) -> Result<codeterm_service_core::mesh::types::RelayResponse, (StatusCode, String)> {
     // debug, not info — polling peers once put 285k of these in a single
     // rotated log generation, the largest contributor to a 250 MB log dir.
@@ -754,7 +715,17 @@ async fn perform_relay_unredacted(
             )
         })?;
         let tab_owner = |tab_id: &str| crate::auth::tab_owner_peer_id(state, tab_id);
-        match authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body, tab_owner) {
+        let authorization =
+            authorize_peer_relay(sender_id, &access, &method, &cmd.path, &cmd.body, tab_owner);
+        if !origin.owner_trusted()
+            && matches!(authorization, PeerRelayAuthorization::WorkspaceClose { .. })
+        {
+            return Err((
+                StatusCode::FORBIDDEN,
+                "An agent relay cannot use peer authority".into(),
+            ));
+        }
+        match authorization {
             PeerRelayAuthorization::Rejected => {
                 return Ok(relay_failure(
                     StatusCode::FORBIDDEN.as_u16(),
@@ -774,7 +745,7 @@ async fn perform_relay_unredacted(
                 return close_workspace_from_mesh_peer(state, peer_id, workspace_id, force).await;
             }
             PeerRelayAuthorization::MeshRpc { peer_id } => {
-                return mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body).await;
+                return mesh_rpc_from_mesh_peer(state, peer_id, &cmd.body, origin, agent).await;
             }
             PeerRelayAuthorization::Forward => {}
         }
@@ -801,41 +772,15 @@ async fn perform_relay_unredacted(
         cmd.method,
         cmd.path
     );
-    let local_url = format!("http://127.0.0.1:{}{}", state.api_port, cmd.path);
-    let signed_token = state.mesh.lock().sign_request().map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Sign failed: {}", e),
-        )
-    })?;
-
+    let request = origin::loopback_request(state, origin, cmd, &body, agent)?;
     let client = local_forward_http_client();
-    let deadline = local_forward_deadline(&cmd.method, &cmd.path);
-    let req = match cmd.method.to_uppercase().as_str() {
-        "GET" => client.get(&local_url),
-        "POST" => client.post(&local_url).json(&body),
-        "PUT" => client.put(&local_url).json(&body),
-        "PATCH" => client.patch(&local_url).json(&body),
-        "DELETE" => client.delete(&local_url),
-        _ => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("Unsupported method: {}", cmd.method),
-            ));
-        }
-    };
 
     // Recheck immediately before forwarding. Once the downstream route may
     // have written to a PTY, its result and dedupe receipt must remain intact.
     if let Some(refusal) = relay_prewrite_refusal(state, sender_id) {
         return Ok(refusal);
     }
-    let resp = match req
-        .header("Authorization", format!("Bearer {}", signed_token))
-        .timeout(deadline)
-        .send()
-        .await
-    {
+    let resp = match client.execute(request).await {
         Ok(resp) => resp,
         Err(error) => return Ok(local_forward_failure(&error)),
     };
@@ -973,7 +918,6 @@ pub async fn mesh_relay_stream(
     headers: HeaderMap,
     Query(q): Query<RelayStreamQuery>,
 ) -> Result<Response, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let diagnostic_level = crate::stream_diagnostics::configured_level(
         state.config.lock().diagnostics.terminal_transport,
     );
@@ -1022,15 +966,13 @@ pub async fn mesh_relay_stream(
         ) {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
-                format!(
-                    "Peer {} uses an incompatible Mesh relay protocol",
-                    peer.instance_name
-                ),
+                origin::protocol_refusal(&peer.instance_name, peer.relay_protocol_version).1,
             ));
         }
         mesh.client_for(&q.peer)
             .ok_or_else(|| peer_unroutable_error(&peer.instance_name))?
     };
+    let client = origin::peer_client(&state, &headers, client)?;
     let resp = client.open_relay_stream(&path).await.map_err(|e| {
         (
             StatusCode::GATEWAY_TIMEOUT,
@@ -1122,10 +1064,7 @@ pub async fn mesh_relay_asset(
         ) {
             return Err((
                 StatusCode::UPGRADE_REQUIRED,
-                format!(
-                    "Peer {} uses an incompatible Mesh relay protocol",
-                    paired.instance_name
-                ),
+                origin::protocol_refusal(&paired.instance_name, paired.relay_protocol_version).1,
             ));
         }
         let client = mesh
@@ -1197,3 +1136,7 @@ mod sync_access_tests;
 #[cfg(test)]
 #[path = "relay/connection_reuse_tests.rs"]
 mod connection_reuse_tests;
+
+#[cfg(test)]
+#[path = "relay/origin_tests.rs"]
+mod origin_tests;

@@ -16,6 +16,6 @@ async fn agent_browser_defaults_to_temporary_and_rejects_missing_profiles() {
     assert_eq!(*runtime.profile_request.lock(), "");
     assert_eq!(
         runtime.view_only_methods(),
-        ["profiles.create", "profiles.delete"]
+        ["profiles.create", "profiles.delete", "viewport.claim"]
     );
 }

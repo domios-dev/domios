@@ -34,7 +34,7 @@ impl ServiceContext {
             tab,
             provider,
             launch,
-            crate::config::save_config_pub,
+            crate::config::save_config_and_apply,
         )?;
         if crate::service::general_agent::session_contract::owns_main(&self.mux.read(), tab) {
             crate::service::general_agent::persist_switched_session(provider, session);
@@ -47,21 +47,24 @@ impl ServiceContext {
         tab: &Tab,
         provider: &str,
         launch: &RestorableLaunchParameters,
-        save: impl FnOnce(&crate::config::schema::AppConfig) -> Result<(), String>,
+        save: impl FnOnce(
+            &parking_lot::Mutex<crate::config::schema::AppConfig>,
+            crate::config::schema::AppConfig,
+        ) -> Result<crate::config::schema::AppConfig, String>,
     ) -> Result<(), String> {
         if !crate::service::general_agent::session_contract::owns_main(&self.mux.read(), tab) {
             return Ok(());
         }
         let config = self.ext::<crate::config::ConfigState>();
-        let mut current = config.lock();
+        let current = config.lock();
         let mut next = current.clone();
         next.general_agent.agent_provider = provider.into();
         next.general_agent.model = launch.model.clone();
         next.general_agent.reasoning_effort = launch.resolved_reasoning_effort.clone();
-        save(&next).map_err(|error| {
+        drop(current);
+        save(config, next).map_err(|error| {
             format!("provider_switch_default_persist_failed: target is running; {error}")
         })?;
-        *current = next;
         Ok(())
     }
 }

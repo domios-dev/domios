@@ -7,13 +7,15 @@ export interface ProviderAuthStatus {
 
 export type RuntimeErrorSignal = {
   code?: string;
-  class: string;
+  class?: string;
   retryable: boolean;
-  retryableKind?: "transient" | "rate_limited_until";
+  retryableKind?: "transient" | "rate_limited_until" | "output_limit";
   retryAtMs?: number;
 }
 
 export interface ProviderSessionObservations {
+  retry_error?: RuntimeErrorSignal;
+  retry_succeeded?: boolean;
   unavailable_model?: string;
   api_error: "rate_limit" | "usage_limit" | "server_overloaded" | "auth_expiry" | "authentication" | "other" | null;
   permission_mode: "default" | "acceptEdits" | "bypassPermissions" | "plan" | "dontAsk" | "auto" | null;

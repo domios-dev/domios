@@ -135,6 +135,9 @@ pub(super) fn deliver_turn(
     nonce: &str,
     turn: &codeterm_provider_signals::ProviderTurnIncident,
 ) {
+    if turn.automatic_recovery {
+        return;
+    }
     let context = {
         let mux = svc.mux.read();
         let Some(tab) = mux.get_tab(tab_id).filter(|tab| {

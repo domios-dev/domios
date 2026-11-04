@@ -9,7 +9,7 @@ use axum::{
     Json,
 };
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 use super::super::{changed_by_from_headers, emit_activity};
 
@@ -18,7 +18,6 @@ pub async fn mem_delete(
     headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let changed_by = changed_by_from_headers(&headers);
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let before = state.svc.mem.extraction_authority().open_generations(&id);
@@ -37,7 +36,6 @@ pub async fn mem_forget_area(
     headers: HeaderMap,
     Path(area): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let author = crate::mem_routes::memory_author(&state, &headers).await?;
     let outcome = delete_area(state.svc.mem.clone(), area.clone(), author)
         .await

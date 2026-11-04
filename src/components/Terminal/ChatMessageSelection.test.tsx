@@ -39,8 +39,8 @@ const ROWS: SelectableRow[] = [
   asRow(message("a2", "assistant", "plain reply")),
 ];
 
-const muxState = (): ExtendedState => ({
-  workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [],
+const muxState = (tabId: string): ExtendedState => ({
+  workspaces: [], tabs: { [tabId]: { id: tabId, pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } }, teams: [], active_workspace_id: null, focused_tab_id: null, notifications: [],
   tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
 });
 
@@ -111,7 +111,7 @@ async function render(tabId: string, rows = ROWS) {
   __setListenForTest((async () => () => {}) as never);
   host = document.createElement("div"); document.body.append(host);
   root = createRoot(host);
-  await act(async () => root?.render(<MuxStateStoreContext.Provider value={createMuxStateStore(muxState)}>
+  await act(async () => root?.render(<MuxStateStoreContext.Provider value={createMuxStateStore(() => muxState(tabId))}>
     <Harness tabId={tabId} rows={rows} />
     <ChatComposer tabId={tabId} tabProvider={null} currentPtyId={null} pendingPrompt={null} attachments={[]} addAttachments={() => {}}
       removeAttachment={() => {}} clearAttachments={() => {}} handlePasteEvent={() => {}} onWillSendMessage={() => {}}

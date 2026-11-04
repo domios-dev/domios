@@ -1,5 +1,6 @@
 use super::cdp_wire::{
-    decode_incoming, encode_request, CdpEvent, EventFilter, Incoming, ProtocolError, SessionFilter,
+    decode_document_incoming, decode_incoming, discard_value, encode_request, response_id,
+    CdpEvent, EventFilter, Incoming, ProtocolError, SessionFilter,
 };
 use super::launch::validate_loopback_endpoint;
 use futures_util::{SinkExt, StreamExt};
@@ -53,16 +54,21 @@ impl std::fmt::Display for CdpError {
 
 type Reply = Result<Value, CdpError>;
 
+struct PendingReply {
+    sender: oneshot::Sender<Reply>,
+    document: bool,
+}
+
 struct Subscriber {
     id: u64,
     filter: EventFilter,
     sender: mpsc::Sender<Arc<CdpEvent>>,
-    dropped: u64,
+    dropped: Arc<AtomicU64>,
 }
 
 #[derive(Default)]
 struct State {
-    pending: HashMap<u64, oneshot::Sender<Reply>>,
+    pending: HashMap<u64, PendingReply>,
     subscribers: Vec<Subscriber>,
     closed: Option<String>,
 }
@@ -76,16 +82,39 @@ struct Inner {
     closed: watch::Sender<Option<String>>,
 }
 
+struct PendingRequests {
+    client: Weak<Inner>,
+    ids: Vec<u64>,
+}
+
+impl Drop for PendingRequests {
+    fn drop(&mut self) {
+        if let Some(client) = self.client.upgrade() {
+            let mut state = client.state.lock();
+            for id in &self.ids {
+                state.pending.remove(id);
+            }
+        }
+    }
+}
+
 impl Inner {
-    fn route(&self, incoming: Incoming) {
+    async fn route(&self, incoming: Incoming) {
         match incoming {
             Incoming::Response { id, result } => {
                 let reply = self.state.lock().pending.remove(&id);
                 if let Some(reply) = reply {
-                    let _ = reply.send(result.map_err(CdpError::Protocol));
+                    if let Err(Ok(value)) = reply.sender.send(result.map_err(CdpError::Protocol)) {
+                        discard_value(value);
+                    }
+                } else if let Ok(value) = result {
+                    discard_value(value);
                 }
             }
-            Incoming::Event(event) => self.fan_out(Arc::new(event)),
+            Incoming::Event(event) => {
+                let event = Arc::new(event);
+                self.fan_out(event.clone());
+            }
         }
     }
 
@@ -98,12 +127,12 @@ impl Inner {
             match subscriber.sender.try_send(event.clone()) {
                 Ok(()) => true,
                 Err(TrySendError::Full(_)) => {
-                    subscriber.dropped += 1;
-                    if subscriber.dropped.is_power_of_two() {
+                    let dropped = subscriber.dropped.fetch_add(1, Ordering::Relaxed) + 1;
+                    if dropped.is_power_of_two() {
                         log::warn!(
                             "[browser-cdp] subscriber {} is behind; dropped {} events (latest {})",
                             subscriber.id,
-                            subscriber.dropped,
+                            dropped,
                             event.method
                         );
                     }
@@ -125,7 +154,7 @@ impl Inner {
             std::mem::take(&mut state.pending)
         };
         for (_, reply) in pending {
-            let _ = reply.send(Err(CdpError::Closed(reason.to_string())));
+            let _ = reply.sender.send(Err(CdpError::Closed(reason.to_string())));
         }
         self.closed.send_replace(Some(reason.to_string()));
     }
@@ -210,7 +239,13 @@ impl SocketConnection {
             for (method, params) in commands {
                 let id = self.0.next_id.fetch_add(1, Ordering::Relaxed);
                 let (reply, response) = oneshot::channel();
-                state.pending.insert(id, reply);
+                state.pending.insert(
+                    id,
+                    PendingReply {
+                        sender: reply,
+                        document: method == "DOM.getDocument",
+                    },
+                );
                 ids.push(id);
                 responses.push((method.clone(), response));
                 messages.push(Message::text(encode_request(
@@ -218,7 +253,11 @@ impl SocketConnection {
                 )));
             }
         }
-        let result = async {
+        let _pending = PendingRequests {
+            client: Arc::downgrade(&self.0),
+            ids,
+        };
+        async {
             tokio::time::timeout_at(until, self.0.outgoing.send(messages))
                 .await
                 .map_err(|_| CdpError::Deadline("input batch queue".into()))?
@@ -243,29 +282,24 @@ impl SocketConnection {
             ))
             .await
         }
-        .await;
-        if result.is_err() {
-            let mut state = self.0.state.lock();
-            for id in ids {
-                state.pending.remove(&id);
-            }
-        }
-        result
+        .await
     }
 
     pub fn subscribe(&self, filter: EventFilter) -> EventStream {
         let id = self.0.next_subscriber.fetch_add(1, Ordering::Relaxed);
         let (sender, receiver) = mpsc::channel(SUBSCRIBER_CAPACITY);
+        let dropped = Arc::new(AtomicU64::new(0));
         let mut state = self.0.state.lock();
         if state.closed.is_none() {
             state.subscribers.push(Subscriber {
                 id,
                 filter,
                 sender,
-                dropped: 0,
+                dropped: dropped.clone(),
             });
         }
         EventStream {
+            dropped,
             receiver,
             id,
             client: Arc::downgrade(&self.0),
@@ -338,6 +372,9 @@ impl CdpConnection for SocketConnection {
 pub struct CdpClient(Arc<dyn CdpConnection>);
 
 impl CdpClient {
+    pub(crate) fn same_connection(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
     pub async fn connect(endpoint: &str) -> Result<Self, String> {
         Ok(Self::from_connection(Arc::new(
             SocketConnection::connect(endpoint).await?,
@@ -441,12 +478,39 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
             break None;
         };
         match message {
-            Some(Ok(Message::Text(text))) => match decode_incoming(&text) {
-                Ok(incoming) => owner.route(incoming),
-                Err(error) => {
-                    log::warn!("[browser-cdp] undecodable message (chrome -> domios): {error}")
+            Some(Ok(Message::Text(text))) => {
+                let document = response_id(&text).ok().flatten().is_some_and(|id| {
+                    owner
+                        .state
+                        .lock()
+                        .pending
+                        .get(&id)
+                        .is_some_and(|reply| reply.document)
+                });
+                let decoded = if document {
+                    decode_document_incoming(text.to_string()).await
+                } else {
+                    decode_incoming(&text)
+                };
+                match decoded {
+                    Ok(incoming) => owner.route(incoming).await,
+                    Err(error) => {
+                        log::warn!("[browser-cdp] undecodable message (chrome -> domios): {error}");
+                        match response_id(&text) {
+                            Ok(Some(id)) => {
+                                let reply = owner.state.lock().pending.remove(&id);
+                                if let Some(reply) = reply {
+                                    let _ = reply.sender.send(Err(CdpError::Malformed(format!(
+                                        "response {id} could not be decoded: {error}"
+                                    ))));
+                                }
+                            }
+                            Ok(None) => {}
+                            Err(envelope_error) => break Some(envelope_error),
+                        }
+                    }
                 }
-            },
+            }
             Some(Ok(Message::Ping(payload))) => {
                 let _ = owner.outgoing.try_send(vec![Message::Pong(payload)]);
             }
@@ -472,14 +536,26 @@ async fn read_loop(mut reader: futures_util::stream::SplitStream<Socket>, inner:
 
 /// Dropping the stream unsubscribes it.
 pub struct EventStream {
+    dropped: Arc<AtomicU64>,
     receiver: mpsc::Receiver<Arc<CdpEvent>>,
     id: u64,
     client: Weak<Inner>,
 }
 
 impl EventStream {
+    pub fn has_lost_events(&self) -> bool {
+        self.dropped.load(Ordering::Relaxed) != 0
+    }
+    pub fn try_recv(&mut self) -> Result<Arc<CdpEvent>, mpsc::error::TryRecvError> {
+        self.receiver.try_recv()
+    }
+
+    pub fn is_closed(&self) -> bool {
+        self.receiver.is_closed()
+    }
     pub fn from_receiver(receiver: mpsc::Receiver<Arc<CdpEvent>>) -> Self {
         Self {
+            dropped: Arc::new(AtomicU64::new(0)),
             receiver,
             id: 0,
             client: Weak::new(),
@@ -513,6 +589,12 @@ pub struct PageChannel {
 }
 
 impl PageChannel {
+    pub fn same_page(&self, other: &Self) -> bool {
+        self.client.same_connection(&other.client)
+            && self.session_id == other.session_id
+            && self.target_id == other.target_id
+    }
+
     pub fn session_id(&self) -> &str {
         &self.session_id
     }

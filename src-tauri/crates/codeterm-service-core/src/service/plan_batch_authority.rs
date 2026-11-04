@@ -146,9 +146,9 @@ fn authorize_caller(
         if tab_id.is_some_and(|tab| tab_holds(task, tab)) {
             continue;
         }
-        return Err(BatchWriteError::Refused(refuse(
-            store, plan_id, task, tab_id,
-        )));
+        return Err(BatchWriteError::Refused(
+            refuse(store, plan_id, task, tab_id).map_err(BatchWriteError::Plan)?,
+        ));
     }
     Ok(())
 }
@@ -203,10 +203,16 @@ fn holder_label(task: &Task) -> String {
 
 /// Names both sides of the mismatch to the caller and leaves the same fact in the
 /// daemon log, because a silent no-op only replaces a silent corruption.
-fn refuse(store: &PlanStore, plan_id: &str, task: &Task, tab_id: Option<&str>) -> BatchRefusal {
+fn refuse(
+    store: &PlanStore,
+    plan_id: &str,
+    task: &Task,
+    tab_id: Option<&str>,
+) -> Result<BatchRefusal, PlanError> {
     let caller = tab_id.unwrap_or("<no caller_tab_id>");
     let bindings = tab_id
         .map(|tab| store.task_bindings_with_name_for_tab(tab))
+        .transpose()?
         .unwrap_or_default();
     let held = if bindings.is_empty() {
         "holds no live task binding".to_string()
@@ -234,10 +240,10 @@ fn refuse(store: &PlanStore, plan_id: &str, task: &Task, tab_id: Option<&str>) -
         "[plan/authority] {STALE_TASK_HINT_REFUSAL}: tab '{caller}' attempted a batch write to \
          {plan_id}/{task_id} it does not hold; refused, nothing written"
     );
-    BatchRefusal {
+    Ok(BatchRefusal {
         message,
         attempting_tab: tab_id.map(str::to_string),
         plan_id: plan_id.to_string(),
         task_id,
-    }
+    })
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use super::MeshManager;
+use super::{ConnectionPhase, MeshManager};
 use crate::account_mesh::protocol::{
     LinkCommit, LinkConfirm, LinkHello, LinkHelloReply, PartyDescriptor,
 };
@@ -16,6 +16,7 @@ use crate::types::{self, PairedPeer};
 pub(crate) const PENDING_TTL_SECS: u64 = 60;
 pub(crate) const MAX_PENDING: usize = 8;
 
+#[derive(Clone)]
 pub struct PendingLink {
     pub(super) initiator: PartyDescriptor,
     pub(super) initiator_membership: SignedMembership,
@@ -25,6 +26,7 @@ pub struct PendingLink {
     pub(super) created_at: u64,
     /// Both permits are held; the pair is recorded only on the initiator's commit.
     confirmed: bool,
+    confirming: bool,
 }
 
 /// What the responder must hold after verifying a confirm, before its own online permit.
@@ -165,10 +167,49 @@ impl MeshManager {
         Ok(())
     }
 
+    pub fn connection_deadline(&self) -> Option<u64> {
+        self.pending_links
+            .values()
+            .map(|pending| pending.created_at.saturating_add(PENDING_TTL_SECS + 1))
+            .chain(
+                self.paired_peers
+                    .keys()
+                    .filter_map(|peer| self.admission_deadline(peer))
+                    .filter(|deadline| *deadline > self.now()),
+            )
+            .chain(
+                self.peer_request_retry
+                    .values()
+                    .copied()
+                    .filter(|deadline| *deadline > self.now()),
+            )
+            .min()
+    }
+
+    pub fn expire_pending_connections(&mut self) {
+        self.prune_pending();
+    }
+
+    pub fn fail_pending_connection(&mut self, link_id: &str) {
+        if let Some(pending) = self.pending_links.remove(link_id) {
+            self.set_connection_phase(
+                &pending.initiator.party.installation_id,
+                ConnectionPhase::Failed,
+            );
+        }
+    }
+
     fn prune_pending(&mut self) {
         let now = self.now();
-        self.pending_links
-            .retain(|_, pending| now.saturating_sub(pending.created_at) <= PENDING_TTL_SECS);
+        let expired: Vec<_> = self
+            .pending_links
+            .iter()
+            .filter(|(_, pending)| now.saturating_sub(pending.created_at) > PENDING_TTL_SECS)
+            .map(|(id, _)| id.clone())
+            .collect();
+        for id in expired {
+            self.fail_pending_connection(&id);
+        }
     }
 
     /// Responder, step 1: verify the initiator's membership, then commit to a fresh nonce.
@@ -204,6 +245,10 @@ impl MeshManager {
             .sign_possession(&possession_digest(&digest, RESPONDER_ROLE))?;
         let mesh_signature = transcript::sign_mesh(&context.private_key, &digest, RESPONDER_ROLE)
             .map_err(AdmissionRefusal::handshake)?;
+        self.set_connection_phase(
+            &hello.initiator.party.installation_id,
+            ConnectionPhase::Verifying,
+        );
         self.pending_links.insert(
             hello.link_id.clone(),
             PendingLink {
@@ -214,6 +259,7 @@ impl MeshManager {
                 account_epoch: context.account_epoch,
                 created_at: self.now(),
                 confirmed: false,
+                confirming: false,
             },
         );
         Ok(LinkHelloReply {
@@ -226,8 +272,19 @@ impl MeshManager {
         })
     }
 
-    /// Responder, step 2a: consume the pending entry and verify the initiator's proof and permit.
+    /// Responder, step 2a: reserve the pending entry and verify the initiator's proof and permit.
     pub fn begin_link_confirm(
+        &mut self,
+        confirm: &LinkConfirm,
+    ) -> Result<LinkConfirmation, AdmissionRefusal> {
+        let result = self.begin_link_confirm_inner(confirm);
+        if result.is_err() {
+            self.fail_pending_connection(&confirm.link_id);
+        }
+        result
+    }
+
+    fn begin_link_confirm_inner(
         &mut self,
         confirm: &LinkConfirm,
     ) -> Result<LinkConfirmation, AdmissionRefusal> {
@@ -235,14 +292,18 @@ impl MeshManager {
         if self
             .pending_links
             .get(&confirm.link_id)
-            .is_some_and(|pending| pending.confirmed)
+            .is_some_and(|pending| pending.confirmed || pending.confirming)
         {
             return Err(AdmissionRefusal::handshake("link already confirmed"));
         }
         let pending = self
             .pending_links
-            .remove(&confirm.link_id)
+            .get(&confirm.link_id)
+            .cloned()
             .ok_or_else(|| AdmissionRefusal::handshake("unknown or expired link"))?;
+        if let Some(entry) = self.pending_links.get_mut(&confirm.link_id) {
+            entry.confirming = true;
+        }
         let context = self.admission_context()?;
         if context.account_epoch != pending.account_epoch
             || context.account_id != pending.account_id
@@ -298,11 +359,23 @@ impl MeshManager {
         confirmation: LinkConfirmation,
     ) -> Result<(), AdmissionRefusal> {
         let mut pending = confirmation.pending;
+        if !self
+            .pending_links
+            .contains_key(&confirmation.request.link_nonce)
+            || self.now().saturating_sub(pending.created_at) > PENDING_TTL_SECS
+        {
+            self.fail_pending_connection(&confirmation.request.link_nonce);
+            return Err(AdmissionRefusal::Cancelled);
+        }
         if self.account.account_epoch != pending.account_epoch
             || self.account.signed_in_account() != Some(pending.account_id.as_str())
         {
             return Err(AdmissionRefusal::Cancelled);
         }
+        self.set_connection_phase(
+            &pending.initiator.party.installation_id,
+            ConnectionPhase::Committing,
+        );
         pending.confirmed = true;
         pending.created_at = self.now();
         self.pending_links
@@ -312,6 +385,14 @@ impl MeshManager {
 
     /// Responder, step 3: the initiator proved it verified our permit; record the pair.
     pub fn commit_link(&mut self, commit: &LinkCommit) -> Result<(), AdmissionRefusal> {
+        let result = self.commit_link_inner(commit);
+        if result.is_err() {
+            self.fail_pending_connection(&commit.link_id);
+        }
+        result
+    }
+
+    fn commit_link_inner(&mut self, commit: &LinkCommit) -> Result<(), AdmissionRefusal> {
         self.prune_pending();
         if !self
             .pending_links
@@ -322,7 +403,8 @@ impl MeshManager {
         }
         let pending = self
             .pending_links
-            .remove(&commit.link_id)
+            .get(&commit.link_id)
+            .cloned()
             .ok_or_else(|| AdmissionRefusal::handshake("unknown or unconfirmed link"))?;
         if self.account.account_epoch != pending.account_epoch
             || self.account.signed_in_account() != Some(pending.account_id.as_str())
@@ -339,13 +421,23 @@ impl MeshManager {
                 "initiator commit proof invalid",
             ));
         }
-        self.admit_new_link(
+        self.pending_links.remove(&commit.link_id);
+        let result = self.admit_new_link(
             &pending.initiator,
             &[],
             pending.initiator_membership,
             &pending.account_id,
             &commit.link_id,
-        )
+        );
+        self.set_connection_phase(
+            &pending.initiator.party.installation_id,
+            if result.is_ok() {
+                ConnectionPhase::Ready
+            } else {
+                ConnectionPhase::Failed
+            },
+        );
+        result
     }
 
     /// Persists an account-admitted edge. Existing records keep their access policy.
@@ -421,6 +513,7 @@ impl MeshManager {
         record.consecutive_misses = 0;
         record.instance_name = peer.instance_name.clone();
         self.save().map_err(AdmissionRefusal::handshake)?;
+        self.peer_request_retry.remove(&party.instance_id);
         self.bump_gate();
         log::info!("[mesh/account] linked {}", party.instance_id);
         Ok(())

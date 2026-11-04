@@ -379,6 +379,7 @@ fn reserve_pair_tabs(
                 );
             }
         }
+        mux.set_orchestrator_role(&orchestrator_tab_id)?;
         let reservation = mux.resolve_or_mint_team_for_parent(&orchestrator_tab_id)?;
         if let Some(tab) = mux.get_tab_mut(&planner_tab_id) {
             tab.team_id = Some(reservation.team_id.clone());
@@ -850,3 +851,7 @@ fn apply_team_title(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "orchestration_pair/cwd_tests.rs"]
+mod cwd_tests;

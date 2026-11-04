@@ -370,8 +370,6 @@ impl ServiceContext {
 
         let launch = spec.chatbackend_launch.as_deref();
 
-        // Persisted as the JSONL `_meta` header so a restored tab can re-open from the same config.
-        let history_meta = config.clone();
         let runtime_fork = launch.and_then(|launch| launch.runtime_fork.clone());
 
         {
@@ -422,6 +420,15 @@ impl ServiceContext {
         if role.is_none() && emit_state_change && runtime_fork.is_none() {
             self.emit_state_changed(MuxEmitCause::TabLifecycle);
         }
+
+        if let Some(launch) = launch.filter(|launch| launch.params.manager_bootstrap.is_some()) {
+            let mut params = launch.params.clone();
+            params.system_prompt = config["systemPrompt"].as_str().map(str::to_owned);
+            super::orchestrator::bind_manager_launch_identity(self, &tab_id, &mut params)
+                .inspect_err(|_| self.rollback_provisional_tab(&ws_id, &tab_id))?;
+            config["systemPrompt"] = serde_json::json!(params.system_prompt);
+        }
+        let history_meta = config.clone();
 
         self.ensure_agent_pad(&tab_id).inspect_err(|_| {
             self.rollback_provisional_tab(&ws_id, &tab_id);
@@ -772,17 +779,28 @@ impl ServiceContext {
                 session_binding_nonce,
                 Some(svc.chat_send_ledger.clone()),
             );
-            // Durable wrapper: forwards to the UI sink and UPSERTs each delta to the session JSONL by id.
+            let history_plugin = plugin_id.clone();
+            let history_session = session_id.clone();
             let sink: std::sync::Arc<
                 dyn crate::service::tab_chat::structured_sink::StructuredSink,
-            > = std::sync::Arc::new(
-                crate::service::tab_chat::structured_sink::ChatBackendStructuredSink::new(
-                    inner,
-                    &plugin_id,
-                    &session_id,
-                    Some(&history_meta),
-                ),
-            );
+            > = match tokio::task::spawn_blocking(move || {
+                std::sync::Arc::new(
+                    crate::service::tab_chat::structured_sink::ChatBackendStructuredSink::new(
+                        inner,
+                        &history_plugin,
+                        &history_session,
+                        Some(&history_meta),
+                    ),
+                )
+            })
+            .await
+            {
+                Ok(sink) => sink,
+                Err(error) => {
+                    log::warn!("[chatbackend] history initialization failed: {error}");
+                    return;
+                }
+            };
             // None on the first tick ⇒ the plugin returns the whole transcript and seeds the cursor.
             let mut cursor: Option<String> = None;
             let mut delay_ms = POLL_IDLE_MS;
@@ -805,9 +823,10 @@ impl ServiceContext {
                 let tab_id_for_tick = tab_id.clone();
                 let cooldowns = watcher_cooldowns.clone();
                 let verdict_ids = last_watcher_verdict_ids.clone();
+                let tick_sink = sink.clone();
                 match tokio::task::spawn_blocking(
                     move || -> Result<
-                        (StructuredChat, HashMap<String, u64>, HashMap<String, String>),
+                        (PollTick, HashMap<String, u64>, HashMap<String, String>),
                         String,
                     > {
                         let mut cooldowns = cooldowns;
@@ -831,21 +850,21 @@ impl ServiceContext {
                             &delta,
                             now_ms,
                         );
-                        Ok((delta, cooldowns, verdict_ids))
+                        let tick = plan_poll_tick(&delta, cur, delay_ms, last_signature);
+                        if tick.emit {
+                            tick_sink.emit(&tab_id_for_tick, delta.messages, None);
+                        }
+                        Ok((tick, cooldowns, verdict_ids))
                     },
                 )
                 .await
                 {
-                    Ok(Ok((delta, cooldowns, verdict_ids))) => {
+                    Ok(Ok((tick, cooldowns, verdict_ids))) => {
                         watcher_cooldowns = cooldowns;
                         last_watcher_verdict_ids = verdict_ids;
-                        let tick = plan_poll_tick(&delta, cursor.take(), delay_ms, last_signature);
                         cursor = tick.cursor;
                         delay_ms = tick.delay_ms;
                         last_signature = tick.signature;
-                        if tick.emit {
-                            sink.emit(&tab_id, delta.messages, None);
-                        }
                     }
                     Ok(Err(e)) => {
                         if let Ok(bound) = svc.chatbackend_bound_session(&plugin_id, &session_id) {

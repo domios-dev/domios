@@ -1,4 +1,4 @@
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
@@ -13,8 +13,10 @@ pub(crate) async fn ingest(
     headers: HeaderMap,
     Json(body): Json<Value>,
 ) -> Result<Json<Value>, (StatusCode, &'static str)> {
+    super::hook_authority::recover_launch(&state.svc, &tab_id, &headers, &body)
+        .await
+        .map_err(|(status, _)| (status, "launch binding recovery failed"))?;
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers)?;
         let provider = state
             .svc
             .mux

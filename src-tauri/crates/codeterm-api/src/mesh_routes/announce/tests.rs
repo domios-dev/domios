@@ -5,13 +5,9 @@ use codeterm_service_core::mesh::{
         AccountPresence, AdmissionRefusal, BoxFuture, LinkAuthorizationRequest,
         LinkPermitExpectation, LinkTarget, SignedMembership, VerifiedMembership,
     },
-    types::{PeerAddress, PeerAnnounce, RegistryRevision, RELAY_PROTOCOL_VERSION},
+    types::{PeerAddress, PeerAnnounce, RELAY_PROTOCOL_VERSION},
 };
-use std::sync::{
-    atomic::{AtomicUsize, Ordering},
-    Arc,
-};
-use tokio::sync::Notify;
+use std::sync::Arc;
 
 const PEER: &str = "00000000-0000-4000-8000-000000000001";
 
@@ -34,10 +30,14 @@ struct Authority;
 impl AccountMeshAuthority for Authority {
     fn verify_membership(
         &self,
-        _token: &str,
+        token: &str,
         _now: u64,
     ) -> Result<VerifiedMembership, AdmissionRefusal> {
-        let mut verified = membership("peer-installation", 500).verified;
+        let mut verified = membership(
+            "peer-installation",
+            if token == "renewed-again" { 600 } else { 500 },
+        )
+        .verified;
         verified.slot_revision = 2;
         Ok(verified)
     }
@@ -67,7 +67,7 @@ impl AccountMeshAuthority for Authority {
 }
 
 #[tokio::test]
-async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_retries_skip_hint() {
+async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
     use axum::response::IntoResponse;
     use codeterm_service_core::{
         multiplexer::state::MultiplexerState, service::test_fixture::ServiceFixture,
@@ -81,6 +81,7 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
         mesh.set_clock(Arc::new(|| 100));
         mesh.bind_account_authority(Arc::new(Authority));
         mesh.apply_account_state(AccountMeshState {
+            registry_members: None,
             presence: AccountPresence::SignedIn {
                 account_id: "account".into(),
             },
@@ -119,11 +120,6 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
         "renewed".parse().unwrap(),
     );
     let announce = PeerAnnounce {
-        registry: Some(RegistryRevision {
-            account_id: "account".into(),
-            revision: 2,
-            security_digest: "changed".into(),
-        }),
         instance_id: PEER.into(),
         instance_name: "Peer".into(),
         addresses: vec![PeerAddress::from_ip("192.0.2.9")],
@@ -132,32 +128,19 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
         web_ui: None,
         relay_protocol_version: RELAY_PROTOCOL_VERSION,
     };
-    let entered = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let finished = Arc::new(Notify::new());
-    let calls = Arc::new(AtomicUsize::new(0));
-    let hint = {
-        let (entered, release, finished, calls) = (
-            entered.clone(),
-            release.clone(),
-            finished.clone(),
-            calls.clone(),
-        );
-        move |_, _, _| async move {
-            calls.fetch_add(1, Ordering::SeqCst);
-            entered.notify_one();
-            release.notified().await;
-            finished.notify_one();
-            Err("Offline".into())
-        }
-    };
-    let response =
-        announce_with_registry_hint(state.clone(), headers.clone(), announce.clone(), hint)
-            .await
-            .unwrap()
-            .into_response();
+    let response = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        mesh_announce_inbound(
+            AxumState(state.clone()),
+            headers.clone(),
+            Json(announce.clone()),
+        ),
+    )
+    .await
+    .expect("announce completes without backend access")
+    .unwrap()
+    .into_response();
     assert_eq!(response.status(), StatusCode::OK);
-    entered.notified().await;
     {
         let mesh = state.mesh.lock();
         assert_eq!(
@@ -173,14 +156,165 @@ async fn offline_registry_hint_never_delays_announce_or_membership_refresh_and_r
         assert_eq!(mesh.paired_peers[PEER].addresses[0].ip, "192.0.2.9");
         assert!(mesh.traffic_open(PEER));
     }
-    release.notify_one();
-    finished.notified().await;
-    let retry = announce_with_registry_hint(state.clone(), headers, announce, |_, _, _| async {
-        panic!("a repeated nonce must skip the hint")
-    })
+    let mut replay = announce.clone();
+    replay.addresses = vec![PeerAddress::from_ip("192.0.2.10")];
+    let retry = mesh_announce_inbound(AxumState(state.clone()), headers, Json(replay))
+        .await
+        .unwrap_err();
+    assert_eq!(retry.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        state.mesh.lock().paired_peers[PEER].addresses[0].ip,
+        "192.0.2.9"
+    );
+
+    let events_before = fixture
+        .ui
+        .0
+        .lock()
+        .iter()
+        .filter(|(name, _)| name == "mesh-state-changed")
+        .count();
+    let token = codeterm_service_core::mesh::crown::sign_request(&private, PEER).unwrap();
+    let mut headers = HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+    headers.insert(
+        codeterm_service_core::mesh::version::VERSION_HEADER,
+        codeterm_service_core::mesh::version::local_version()
+            .parse()
+            .unwrap(),
+    );
+    headers.insert(
+        codeterm_service_core::mesh::account_mesh::protocol::MEMBERSHIP_HEADER,
+        "renewed-again".parse().unwrap(),
+    );
+    let announce = PeerAnnounce {
+        instance_id: PEER.into(),
+        instance_name: "Peer".into(),
+        addresses: vec![PeerAddress::from_ip("192.0.2.9")],
+        api_port: 7685,
+        online: true,
+        web_ui: None,
+        relay_protocol_version: RELAY_PROTOCOL_VERSION,
+    };
+    let response = mesh_announce_inbound(
+        AxumState(state.clone()),
+        headers.clone(),
+        Json(announce.clone()),
+    )
     .await
-    .unwrap()
-    .into_response();
-    assert_eq!(retry.status(), StatusCode::OK);
-    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    .unwrap();
+    assert_eq!(response.0["changed"], true);
+    assert_eq!(
+        state
+            .mesh
+            .lock()
+            .peer_membership_expiry("peer-installation"),
+        Some(600)
+    );
+    assert_eq!(
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "mesh-state-changed")
+            .count(),
+        events_before + 1
+    );
+    let duplicate = mesh_announce_inbound(
+        AxumState(state.clone()),
+        headers.clone(),
+        Json(announce.clone()),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(duplicate.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        fixture
+            .ui
+            .0
+            .lock()
+            .iter()
+            .filter(|(name, _)| name == "mesh-state-changed")
+            .count(),
+        events_before + 1
+    );
+    let fresh_token = codeterm_service_core::mesh::crown::sign_request(&private, PEER).unwrap();
+    headers.insert(
+        "authorization",
+        format!("Bearer {fresh_token}").parse().unwrap(),
+    );
+    let mut spoofed = announce.clone();
+    spoofed.instance_id = "other-peer".into();
+    assert_eq!(
+        mesh_announce_inbound(AxumState(state.clone()), headers.clone(), Json(spoofed))
+            .await
+            .unwrap_err()
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    let mut unsupported = announce.clone();
+    unsupported.relay_protocol_version = 1;
+    assert_eq!(
+        mesh_announce_inbound(AxumState(state.clone()), headers.clone(), Json(unsupported))
+            .await
+            .unwrap_err()
+            .0,
+        StatusCode::UPGRADE_REQUIRED
+    );
+    let mut unversioned = headers.clone();
+    unversioned.remove(codeterm_service_core::mesh::version::VERSION_HEADER);
+    assert_eq!(
+        mesh_announce_inbound(
+            AxumState(state.clone()),
+            unversioned,
+            Json(announce.clone())
+        )
+        .await
+        .unwrap_err()
+        .0,
+        StatusCode::UPGRADE_REQUIRED
+    );
+    let mut forged = headers.clone();
+    forged.insert("authorization", "Bearer forged".parse().unwrap());
+    assert_eq!(
+        mesh_announce_inbound(AxumState(state.clone()), forged, Json(announce.clone()))
+            .await
+            .unwrap_err()
+            .0,
+        StatusCode::UNAUTHORIZED
+    );
+    let admitted = state.mesh.lock().account_state().clone();
+    let mut revoked = admitted.clone();
+    revoked
+        .revoked_installations
+        .insert("peer-installation".into());
+    state.mesh.lock().apply_account_state(revoked);
+    assert_eq!(
+        mesh_announce_inbound(
+            AxumState(state.clone()),
+            headers.clone(),
+            Json(announce.clone())
+        )
+        .await
+        .unwrap_err()
+        .0,
+        StatusCode::FORBIDDEN
+    );
+    state.mesh.lock().apply_account_state(admitted);
+    let mut signed_out = state.mesh.lock().account_state().clone();
+    signed_out.presence = AccountPresence::SignedOut;
+    signed_out.membership = None;
+    state.mesh.lock().apply_account_state(signed_out);
+    assert_eq!(
+        mesh_announce_inbound(AxumState(state.clone()), headers, Json(announce))
+            .await
+            .unwrap_err()
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        state.mesh.lock().paired_peers[PEER].addresses[0].ip,
+        "192.0.2.9"
+    );
 }

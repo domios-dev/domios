@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
-import { LONG_ARTIFACT_FULL_MAX_HEIGHT, LONG_ARTIFACT_PREVIEW_MAX_HEIGHT, LongArtifact } from "./MarkdownBody";
+import { LONG_ARTIFACT_PREVIEW_MAX_HEIGHT, LongArtifact } from "./MarkdownBody";
 
 const window = new Window({ url: "http://localhost/" });
 for (const [name, value] of Object.entries({
@@ -30,7 +30,7 @@ async function run() {
   const toggle = host.querySelector('[data-testid="long-artifact-show-all"]') as HTMLButtonElement;
   assert.equal(toggle.textContent, "Show all");
   await act(async () => toggle.click());
-  assert.equal(content.style.maxHeight, `${LONG_ARTIFACT_FULL_MAX_HEIGHT}px`);
+  assert.equal(content.style.maxHeight, "none");
   assert.equal(content.style.overflowY, "auto");
   assert.equal(content.getAttribute("role"), "region");
   assert.equal(content.tabIndex, 0);

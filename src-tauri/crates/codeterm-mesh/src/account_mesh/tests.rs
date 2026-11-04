@@ -1,4 +1,7 @@
+mod connection_phases;
+mod health;
 mod refusals;
+mod registry_gossip;
 mod review;
 mod rotation;
 mod support;
@@ -58,6 +61,7 @@ fn account_mesh_known_local_revoke_blocks_immediately() {
         remote_membership: Some(membership(ACCOUNT, &b.installation_id, START + 60)),
     };
     let mut state = super::AccountMeshState {
+        registry_members: None,
         account_epoch: 1,
         presence: super::AccountPresence::SignedIn {
             account_id: ACCOUNT.into(),
@@ -184,6 +188,7 @@ async fn account_mesh_logout_during_handshake_persists_nothing() {
             initiator
                 .lock()
                 .apply_account_state(super::AccountMeshState {
+                    registry_members: None,
                     account_epoch: 2,
                     presence: super::AccountPresence::SignedOut,
                     membership: None,

@@ -1,13 +1,20 @@
 mod accessible_wait;
 mod atomic;
 mod calls;
+mod completion;
+mod diagnostics;
 mod domios_instance;
+mod drag;
 mod grab;
 mod heuristics;
 mod inbox;
 mod input;
+mod interactions;
+mod locators;
 mod metrics;
+mod mouse;
 mod output;
+mod overlay;
 mod page;
 mod redaction;
 mod resume;
@@ -15,7 +22,11 @@ mod sessions;
 mod snapshots;
 mod snip;
 mod stream;
+mod text;
+mod typing;
+mod upload;
 mod verbs;
+mod viewport;
 
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
@@ -86,6 +97,7 @@ struct GrabStore {
 /// The browser surface runtime: one `BrowserHost`, its page listener, grabs and annotation inbox.
 pub struct BrowserRuntime {
     host: BrowserHost,
+    viewport: tokio::sync::Mutex<viewport::ViewportOwner>,
     layout: ProfileLayout,
     swept: Arc<tokio::sync::OnceCell<()>>,
     shared: Arc<PageShared>,
@@ -96,6 +108,10 @@ pub struct BrowserRuntime {
     snips: Mutex<SnipStore>,
     inbox: Mutex<AnnotationInbox>,
     secrets: Mutex<Vec<String>>,
+    uploads: Mutex<Vec<upload::AdmittedFile>>,
+    upload_gate: tokio::sync::Mutex<()>,
+    action_gate: Arc<tokio::sync::Mutex<()>>,
+    overlay_session: tokio::sync::Mutex<Option<String>>,
 }
 
 fn cdp_error(error: codeterm_browser::CdpError) -> String {
@@ -123,6 +139,7 @@ impl BrowserRuntime {
         Self {
             layout: config.layout.clone(),
             host: BrowserHost::new(config),
+            viewport: tokio::sync::Mutex::new(viewport::ViewportOwner::default()),
             swept,
             shared,
             profile_request: Mutex::new(String::new()),
@@ -132,6 +149,10 @@ impl BrowserRuntime {
             snips: Mutex::new(SnipStore::default()),
             inbox: Mutex::new(AnnotationInbox::default()),
             secrets: Mutex::new(Vec::new()),
+            uploads: Mutex::new(Vec::new()),
+            upload_gate: tokio::sync::Mutex::new(()),
+            action_gate: Arc::new(tokio::sync::Mutex::new(())),
+            overlay_session: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -203,11 +224,22 @@ impl BrowserRuntime {
             self.shared.remember_profile(&opened.profile);
         }
         self.shared.bind(&page);
+        self.send(&page, "Runtime.enable", json!({})).await?;
+        self.install_overlay(&page).await?;
+        self.send(
+            &page,
+            "Network.enable",
+            json!({"maxTotalBufferSize":0,"maxResourceBufferSize":0,"maxPostDataSize":0}),
+        )
+        .await?;
         self.apply_resume_url(&page).await;
         Ok(page)
     }
 
     async fn send(&self, page: &PageChannel, method: &str, params: Value) -> Result<Value, String> {
+        if method == "Page.captureScreenshot" {
+            return self.capture_screenshot(page, params, false).await;
+        }
         page.send(method, params).await.map_err(cdp_error)
     }
 
@@ -223,44 +255,40 @@ impl BrowserRuntime {
         page: &PageChannel,
         action: NavAction,
         target: Option<&str>,
-    ) -> Result<(), String> {
-        match action {
-            NavAction::Reload => self.send(page, "Page.reload", json!({})).await.map(|_| ()),
+    ) -> Result<String, String> {
+        let _guard = self.action_gate.lock().await;
+        let (method, params) = match action {
+            NavAction::Reload => ("Page.reload", json!({})),
             NavAction::Goto => {
                 let href = input::goto_href(target.unwrap_or(""))?;
-                let result = self
-                    .send(page, "Page.navigate", json!({ "url": href }))
-                    .await?;
-                match result.get("errorText").and_then(Value::as_str) {
-                    Some(error) if !error.is_empty() => Err(format!("navigation failed: {error}")),
-                    _ => Ok(()),
-                }
+                ("Page.navigate", json!({"url":href}))
             }
             NavAction::Back | NavAction::Forward => {
                 let history = self
                     .send(page, "Page.getNavigationHistory", json!({}))
                     .await?;
                 match input::history_entry(&history, action == NavAction::Back) {
-                    Some(entry_id) => self
-                        .send(
-                            page,
-                            "Page.navigateToHistoryEntry",
-                            json!({ "entryId": entry_id }),
-                        )
-                        .await
-                        .map(|_| ()),
-                    None => Ok(()),
+                    Some(entry_id) => ("Page.navigateToHistoryEntry", json!({"entryId":entry_id})),
+                    None => return Ok("no history entry; no navigation performed".into()),
                 }
             }
-        }
+        };
+        self.complete_action(page, true, self.send(page, method, params))
+            .await
+            .map(|(_, completion)| completion)
     }
 
-    async fn screenshot_base64(&self, page: &PageChannel, full: bool) -> Result<String, String> {
+    async fn screenshot_base64(
+        &self,
+        page: &PageChannel,
+        full: bool,
+        include_overlay: bool,
+    ) -> Result<String, String> {
         let shot = self
-            .send(
+            .capture_screenshot(
                 page,
-                "Page.captureScreenshot",
                 json!({ "format": "png", "captureBeyondViewport": full }),
+                include_overlay,
             )
             .await?;
         shot.get("data")
@@ -377,7 +405,7 @@ impl BrowserRuntime {
 #[async_trait::async_trait]
 impl SurfaceRuntime for BrowserRuntime {
     fn view_only_methods(&self) -> &[&str] {
-        &["profiles.create", "profiles.delete"]
+        &["profiles.create", "profiles.delete", "viewport.claim"]
     }
 
     fn set_owner_name(&self, name: &str) {
@@ -389,8 +417,13 @@ impl SurfaceRuntime for BrowserRuntime {
         self.shared.state()
     }
 
-    async fn connect(self: Arc<Self>, viewport: Option<ViewportRequest>) -> SurfaceEvents {
-        stream::connect(self, viewport).await
+    async fn connect(
+        self: Arc<Self>,
+        viewport: Option<ViewportRequest>,
+        viewer: Option<String>,
+        viewer_target: Option<String>,
+    ) -> SurfaceEvents {
+        stream::connect(self, viewport, viewer, viewer_target).await
     }
 
     async fn call(
@@ -423,7 +456,16 @@ impl SurfaceRuntime for BrowserRuntime {
         self.run_verb(ctx, verb, args)
             .await
             .map(|result| self.redact_text(&result))
-            .map_err(|error| self.redact_text(&error))
+            .map_err(|error| {
+                let error = if (error.starts_with("stale:") || error.contains("re-snapshot"))
+                    && !error.contains("domios plugin browser snapshot")
+                {
+                    format!("{error}; run `domios plugin browser snapshot` for fresh refs")
+                } else {
+                    error
+                };
+                self.redact_text(&error)
+            })
     }
 
     async fn annotate(

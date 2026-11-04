@@ -60,6 +60,8 @@ async fn fixture() -> (ServiceFixture, Arc<codeterm_account::Account>, Calls) {
         .set(account.clone())
         .is_ok());
     let session = account.session().await.unwrap();
+    crate::service::neighbors::paid_fixture::bind(&fixture.service, &session, fixture.temp.path())
+        .await;
     let calls = Calls {
         service: fixture.service.clone(),
         uid: session.identity.uid,
@@ -219,4 +221,57 @@ async fn selected_native_transport_uses_only_its_own_current_account_token() {
             expected.login_generation
         );
     }
+}
+
+#[tokio::test]
+async fn signed_expiry_during_refresh_failure_refuses_paid_calls_and_regrant_resumes() {
+    let (fixture, account, calls) = fixture().await;
+    let user = account.session().await.unwrap();
+    let paid = fixture
+        .service
+        .ext::<crate::service::neighbors::paid_fixture::Paid>();
+    let port = Transport::new(vec![Ok(json!({"result":true})), Ok(json!({"result":true}))]);
+    assert!(calls
+        .invoke_with_transport(&port, "friendsSend", json!({}))
+        .await
+        .is_ok());
+    paid.now
+        .store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);
+    *paid.provider.0.lock() = Err("offline".into());
+    paid.billing
+        .refresh(
+            Some(&user),
+            codeterm_billing::RefreshEvent::Explicit,
+            std::time::Instant::now() + Duration::from_secs(1),
+        )
+        .await;
+    for _ in 0..3 {
+        assert_eq!(
+            calls
+                .invoke_with_transport(&port, "friendsSend", json!({}))
+                .await,
+            Err(Error::Locked)
+        );
+        assert_eq!(calls.require_paid(), Err(Error::Locked));
+    }
+    assert_eq!(port.tokens.lock().len(), 1);
+    paid.now.fetch_add(60, std::sync::atomic::Ordering::SeqCst);
+    *paid.provider.0.lock() = Ok(crate::service::neighbors::paid_fixture::reading(
+        &user.identity.uid,
+        "valid-paid",
+        12,
+        86_400,
+    ));
+    paid.billing
+        .refresh(
+            Some(&user),
+            codeterm_billing::RefreshEvent::Explicit,
+            std::time::Instant::now() + Duration::from_secs(2),
+        )
+        .await;
+    assert!(calls
+        .invoke_with_transport(&port, "friendsSend", json!({}))
+        .await
+        .is_ok());
+    assert_eq!(port.tokens.lock().len(), 2);
 }

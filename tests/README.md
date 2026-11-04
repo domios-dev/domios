@@ -9,6 +9,7 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 
 | Id | Kind | Lang | Tier | Instance | Live agent | Budget (s) | Discovery | Runner | Owner doc |
 |---|---|---|---|---|---|---|---|---|---|
+| `release-promotion` | unit | js | manual | no | no | 30 | glob `scripts/release-promote.test.mjs` | `node --test scripts/release-promote.test.mjs` | `.agents/skills/github-release/SKILL.md` |
 | `windows-installer-preflight` | integration | mixed | manual | no | no | 90 | glob `tests/windows/*.Tests.ps1` | `powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File tests/windows/installer-preflight.Tests.ps1` | `.agents/skills/testing/SKILL.md` |
 | `qualification-receipt` | guard | js | release | no | no | 300 | single | `node scripts/ci-qualification.mjs record "$SOURCE_SHA" qualification-rust` | `.agents/skills/github-release/SKILL.md` |
 | `eval-bubble-geometry` | eval | mixed | manual | yes | no | 60 | single | `bash evals/bubble-geometry/run.sh` | `evals/bubble-geometry/README.md` |
@@ -120,7 +121,6 @@ on a file two runners discover, on an empty test file, on an invalid field, on a
 | `evals-offline-python` | unit | python | manual | no | no | 120 | glob `evals/**/test_*.py` minus `evals/_lib/**` | `node scripts/test-catalogue.mjs run --entry evals-offline-python` | `evals/README.md` |
 | `evals-lib-guards` | guard | mixed | manual | no | no | 60 | glob `evals/_lib/test-*.sh` `evals/_lib/test_*.py` | `bash evals/_lib/test-dc-cli-resolution.sh && bash evals/_lib/test-source-purity.sh && python3 evals/_lib/test_bench_infrastructure.py` | `AGENTS.md` |
 | `playwright-helpers` | unit | ts | manual (suspended) | no | no | 120 | glob `tests/playwright/helpers/*.test.{ts,mjs}` `tests/playwright/fixtures/**/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry playwright-helpers` | `tests/playwright/README.md` |
-| `fixture-self-tests` | unit | js | manual | no | no | 60 | glob `tests/fixtures/**/*.test.mjs` | `node scripts/test-catalogue.mjs run --entry fixture-self-tests` | `.agents/skills/testing/SKILL.md` |
 | `playground-unit` | unit | ts | manual | no | no | 60 | glob `playground/src/**/*.test.ts` | `node scripts/test-catalogue.mjs run --entry playground-unit` | `playground/README.md` |
 | `prompt-evaluator-tests` | unit | python | manual | no | no | 60 | glob `.agents/skills/prompt-evaluator/tests/test_*.py` | `node scripts/test-catalogue.mjs run --entry prompt-evaluator-tests` | `.agents/skills/prompt-evaluator/SKILL.md` |
 | `eval-agent-state` | eval | mixed | manual | yes | yes | 1800 | single | `bash evals/agent-state/run.sh` | `evals/agent-state/README.md` |

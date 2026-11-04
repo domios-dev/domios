@@ -55,10 +55,26 @@ async fn snapshot_and_text_output_redact_before_persisting() {
     runtime.remember_secret("opaque-private-token").unwrap();
     for file in ["snapshot.json", "page.txt"] {
         let path = runtime
-            .output_verb(&ctx, Some(file.into()), "value opaque-private-token".into())
+            .output_verb(
+                &ctx,
+                Some(file.into()),
+                ReadOutput {
+                    text: "value opaque-private-token λ".into(),
+                    items: 2,
+                    truncated: true,
+                },
+            )
             .await
             .unwrap();
-        assert_eq!(std::fs::read_to_string(path).unwrap(), "value REDACTED");
+        let saved: serde_json::Value = serde_json::from_str(&path).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(saved["path"].as_str().unwrap()).unwrap(),
+            "value REDACTED λ"
+        );
+        assert_eq!(saved["characters"], 16);
+        assert_eq!(saved["bytes"], 17);
+        assert_eq!(saved["items"], 2);
+        assert_eq!(saved["truncated"], true);
     }
     assert_eq!(
         parse(&["--json", "--out", "snapshot.json"].map(String::from)).unwrap(),

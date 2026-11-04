@@ -1,3 +1,4 @@
+import { useMuxSelector } from "../../../store/multiplexer/hooks";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import {
   useCallback,
@@ -85,7 +86,8 @@ export function PlanParagraphAsk({ kind, plan, sections, tabs, onOpenTab, childr
   const [selection, setSelection] = useState<AskAnchor | null>(null);
   const [open, setOpen] = useState<AskAnchor | null>(null);
   const active = open ?? selection ?? hover;
-  const owner = useMemo(() => resolvePlanAskOwner(plan, tabs), [plan, tabs]);
+  const statuses = useMuxSelector(state => state.tabStatuses);
+  const owner = useMemo(() => resolvePlanAskOwner(plan, tabs, statuses), [plan, tabs, statuses]);
   const sectionIndex = useMemo(() => indexSections(sections), [sections]);
   const context = useMemo<PlanAskContext>(
     () => ({

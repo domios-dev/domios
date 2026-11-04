@@ -376,15 +376,22 @@ fn apply_pty_env(cmd: &mut CommandBuilder, env_vars: &HashMap<String, String>) {
         cmd.env(key, value);
     }
 
-    let cli_path = env_vars
-        .get("CODETERM_CLI_PATH")
-        .map(std::ffi::OsString::from)
-        .or_else(|| std::env::var_os("CODETERM_CLI_PATH"));
+    let cli_path = cmd
+        .get_env("CODETERM_CLI_PATH")
+        .map(std::ffi::OsStr::to_owned);
+    #[cfg(windows)]
+    let cli_path = cli_path.map(|path| {
+        std::ffi::OsString::from(
+            codeterm_paths::strip_verbatim_prefix(&path.to_string_lossy()).replace('\\', "/"),
+        )
+    });
+    if let Some(path) = &cli_path {
+        cmd.env("CODETERM_CLI_PATH", path);
+    }
     if let Some(cli_dir) = cli_path.as_deref().and_then(cli_dir_of) {
-        let inherited_path = env_vars
-            .get("PATH")
-            .map(std::ffi::OsString::from)
-            .or_else(|| std::env::var_os("PATH"))
+        let inherited_path = cmd
+            .get_env("PATH")
+            .map(std::ffi::OsStr::to_owned)
             .unwrap_or_default();
         if let Some(path) = path_with_cli_dir_first(&inherited_path, &cli_dir) {
             cmd.env("PATH", path);

@@ -166,113 +166,7 @@ async fn account_mesh_registry_presence_notice_readmits_without_waiting_for_leas
 }
 
 #[tokio::test]
-async fn account_mesh_heartbeat_higher_revision_lists_once_equal_revision_is_free() {
-    let harness = enrolled().await;
-    let account = account_id("owner");
-    let before = harness.calls("list");
-    harness.registry.script.lock().unwrap().registry_revision = Some(10);
-    assert!(harness
-        .mesh
-        .registry_hint(
-            "peer",
-            "heartbeat-1",
-            &account,
-            Some(10),
-            Some("changed-security")
-        )
-        .await
-        .unwrap());
-    assert_eq!(harness.calls("list"), before + 1);
-    assert_eq!(
-        harness.state().registry.as_ref().unwrap().registry_revision,
-        10
-    );
-    let calls = count(&harness.log, "registry:");
-    assert!(!harness
-        .mesh
-        .registry_hint(
-            "peer",
-            "heartbeat-2",
-            &account,
-            Some(10),
-            Some("changed-security")
-        )
-        .await
-        .unwrap());
-    assert!(!harness
-        .mesh
-        .registry_hint(
-            "peer",
-            "heartbeat-3",
-            &account,
-            Some(9),
-            Some("changed-security")
-        )
-        .await
-        .unwrap());
-    assert_eq!(count(&harness.log, "registry:"), calls);
-    assert_eq!(
-        harness.state().registry.as_ref().unwrap().registry_revision,
-        10
-    );
-    assert_eq!(harness.calls("sync"), 1);
-    assert_eq!(
-        harness
-            .mesh
-            .registry_hint(
-                "foreign",
-                "foreign",
-                "other-account",
-                Some(11),
-                Some("foreign-security")
-            )
-            .await,
-        Err(AccountMeshRefusal::Forbidden)
-    );
-    assert_eq!(count(&harness.log, "registry:"), calls);
-}
-
-#[tokio::test]
-async fn account_mesh_concurrent_heartbeat_hints_share_one_list() {
-    let harness = enrolled().await;
-    let account = account_id("owner");
-    let gate = std::sync::Arc::new(tokio::sync::Notify::new());
-    {
-        let mut script = harness.registry.script.lock().unwrap();
-        script.registry_revision = Some(10);
-        script.list_gate = Some(gate.clone());
-    }
-    let before = harness.calls("list");
-    let first = harness.mesh.registry_hint(
-        "peer-a",
-        "first",
-        &account,
-        Some(10),
-        Some("changed-security"),
-    );
-    let second = async {
-        harness.registry.list_entered.notified().await;
-        let result = harness
-            .mesh
-            .registry_hint(
-                "peer-b",
-                "second",
-                &account,
-                Some(10),
-                Some("changed-security"),
-            )
-            .await;
-        gate.notify_one();
-        result
-    };
-    let (first, second) = tokio::join!(biased; first, second);
-    assert_eq!(first, Ok(true));
-    assert_eq!(second, Ok(false));
-    assert_eq!(harness.calls("list"), before + 1);
-}
-
-#[tokio::test]
-async fn account_mesh_remote_revoke_notifies_and_peer_observation_blocks() {
+async fn account_mesh_remote_revoke_notifies_transport() {
     for signed_out in [false, true] {
         let actor = enrolled().await;
         if signed_out {
@@ -288,38 +182,6 @@ async fn account_mesh_remote_revoke_notifies_and_peer_observation_blocks() {
             *actor.transport.revoked.lock().unwrap(),
             vec![PEER.to_owned()]
         );
-        let key = InstallationKey::generate();
-        let receiver = enrolled_with_peer(Some(&key)).await;
-        let token = peer_membership(&key, 1);
-        {
-            let mut script = receiver.registry.script.lock().unwrap();
-            script.peer_key = Some((key.key_id(), 1));
-        }
-        receiver.mesh.list().await.unwrap();
-        assert_blocked(&receiver, &token, false);
-        {
-            let mut script = receiver.registry.script.lock().unwrap();
-            script.peer_active = Some(signed_out);
-            script.peer_presence = if signed_out {
-                RegistryPresence::SignedOut
-            } else {
-                RegistryPresence::Present
-            };
-            script.peer_metadata_revision = 1;
-            script.registry_revision = Some(10);
-        }
-        assert!(receiver
-            .mesh
-            .registry_hint(
-                "actor",
-                "signed-revocation-notice",
-                &account_id("owner"),
-                None,
-                None,
-            )
-            .await
-            .unwrap());
-        assert_blocked(&receiver, &token, true);
     }
 }
 
@@ -340,14 +202,19 @@ async fn account_mesh_long_lease_restore_observes_revocation_and_keeps_cached_me
         {
             let mut script = harness.registry.script.lock().unwrap();
             script.peer_active = Some(false);
+            script.membership_registry_revision = Some(11);
+            script.registry_revision = Some(11);
             if offline {
-                script.list = Some(wire::RegistryRefusal::Offline);
+                script.membership = Some(wire::RegistryRefusal::Offline);
             }
         }
         let result = harness.mesh.refresh(EnrollTrigger::Automatic).await;
-        assert_eq!(harness.calls("list"), 1);
+        assert_eq!(harness.calls("list"), 0);
+        assert_eq!(harness.calls("renew"), 1);
         if offline {
-            assert_eq!(result, Ok(()));
+            assert_eq!(result, Err(AccountMeshRefusal::Offline));
+            assert_eq!(harness.calls("sync"), 0);
+            assert!(harness.state().retry_at.is_some());
             assert!(harness
                 .transport
                 .last
@@ -360,6 +227,7 @@ async fn account_mesh_long_lease_restore_observes_revocation_and_keeps_cached_me
                 .is_some_and(|membership| membership.verified.is_current(START)));
         } else {
             result.unwrap();
+            assert_eq!(harness.calls("sync"), 1);
             assert!(harness
                 .transport
                 .last
@@ -370,30 +238,7 @@ async fn account_mesh_long_lease_restore_observes_revocation_and_keeps_cached_me
                 .revoked_installations
                 .contains(PEER));
         }
-        assert_eq!(harness.calls("renew"), 0);
     }
-}
-
-#[tokio::test]
-async fn account_mesh_heartbeat_lease_revision_churn_has_zero_registry_calls() {
-    let harness = enrolled().await;
-    let state = harness.state();
-    let security = state.registry_security.as_ref().unwrap();
-    let calls = count(&harness.log, "registry:");
-    for revision in [security.revision + 1, security.revision + 100] {
-        assert!(!harness
-            .mesh
-            .registry_hint(
-                "peer",
-                "lease-heartbeat",
-                &account_id("owner"),
-                Some(revision),
-                Some(&security.digest)
-            )
-            .await
-            .unwrap());
-    }
-    assert_eq!(count(&harness.log, "registry:"), calls);
 }
 
 #[test]

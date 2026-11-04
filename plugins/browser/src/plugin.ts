@@ -1,6 +1,8 @@
 import type { AgentCommandCtx, PluginModule } from "@codeterm/plugin-sdk";
 import { readPage } from "./readPage";
 import { redactCredentials } from "./redaction";
+import { runBatch } from "./batch";
+import { version } from "../plugin.json";
 
 export type AgentCommandReply = { result: string } | { error: string };
 
@@ -40,13 +42,15 @@ export function parseOf(raw: readonly unknown[]): ParsedArgs {
 // The core browser runtime does the work; the plugin forwards the agent's verb to its own surface or `--of` another's.
 export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = hostSurfaceCall()): AgentCommandReply {
   if (!call) return { error: "host.surface is unavailable in this Domios build" };
+  if (ctx.verb === "batch") return runBatch(ctx, (step) => forward(step, call));
   if (ctx.verb === "connect-secret") return { error: "connect accepts its token only through --stdin" };
   const secret = ctx.verb === "connect" ? ctx.body?.trim() : ctx.body;
-  const verb = secret !== undefined && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb || "help";
+  const verb = secret !== undefined && ctx.verb === "type" ? "type-secret" : ctx.verb === "connect" ? "connect-secret" : ctx.verb === "attach" ? "open" : ctx.verb === "--help" ? "help" : ctx.verb || "help";
   if (secret !== undefined && !["type", "connect"].includes(ctx.verb)) return { error: "Browser body input is supported only by type and connect" };
   if (ctx.verb === "connect" && !secret?.trim()) return { error: "connect requires --stdin with a nonempty token" };
   const parsed = parseOf(Array.isArray(ctx.args) ? ctx.args : []);
   if ("error" in parsed) return { error: parsed.error };
+  if (parsed.args.includes("--help")) return { error: "Use `domios plugin browser help` for browser verbs and syntax" };
   const redact = (text: string) => redactCredentials(secret ? text.split(secret).join("REDACTED") : text);
   if (ctx.verb === "connect") {
     try {
@@ -65,8 +69,9 @@ export function forward(ctx: AgentCommandCtx, call: SurfaceCall | undefined = ho
   }
   if (reply && typeof reply === "object") {
     const { result, error } = reply as { result?: unknown; error?: unknown };
-    if (typeof error === "string") return { error: redact(error) };
-    if (typeof result === "string") return { result: redact(result) };
+    const recovery = parsed.of === undefined ? "domios plugin browser snapshot" : `domios plugin browser snapshot --of ${JSON.stringify(parsed.of)}`;
+    if (typeof error === "string") return { error: redact(error.replaceAll("domios plugin browser snapshot", recovery)) };
+    if (typeof result === "string") return { result: redact(verb === "help" ? `Browser plugin ${version}\n${result}` : result) };
   }
   return { error: `the browser runtime returned no answer for ${verb}` };
 }

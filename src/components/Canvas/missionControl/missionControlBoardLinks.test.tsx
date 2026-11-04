@@ -61,7 +61,7 @@ function missionState(openGates: OpenDecisionGate[] = []): MissionControlState {
 }
 
 function boardState(openGates: OpenDecisionGate[] = []): PlanBoardState {
-  return { plan_id: ACTIVE.id, task_counts: COUNTS, mission_control: missionState(openGates) };
+  return { plan_id: ACTIVE.id, revision: "1", task_counts: COUNTS, mission_control: missionState(openGates) };
 }
 
 async function mount(ui: ReactElement) {
@@ -98,7 +98,10 @@ function respond(body: unknown) {
 describe("mission control previous plans", () => {
   it("mission_control_previous_plans_open_the_archived_plan_through_the_navigation_owner_by_click_and_keyboard", async () => {
     const fetchMock = vi.fn(async (url: string) => {
-      if (url.includes(`/api/plans/${ACTIVE.id}/state`)) return respond(boardState());
+      if (url.includes(`/api/plans/${ACTIVE.id}/projection?view=board`)) {
+        return respond({ ...ACTIVE, tasks: [], revision: "1" });
+      }
+      if (url.includes(`/api/plans/${ACTIVE.id}/board-state`)) return respond(boardState());
       if (url.includes("/mission-control/state")) {
         return respond({
           team_id: "team-1",

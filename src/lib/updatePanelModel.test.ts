@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createUpdateIntent, restoredAppIntentInterrupted, groupUpdates, nextUpdateStep, readUpdateIntent, type UpdateItem } from "./updatePanelModel";
+import { appIntentSatisfied, createUpdateIntent, restoredAppIntentInterrupted, groupUpdates, nextUpdateStep, readUpdateIntent, type UpdateItem } from "./updatePanelModel";
 
 const items: UpdateItem[] = [
   { id: "plugin", group: "Plugins", name: "Plugin", currentVersion: "1.0.0", targetVersion: "2.0.0" },
@@ -127,6 +127,34 @@ for (const phase of ["checking", "downloading", "applying", "success", "error"])
 assert.equal(restoredAppIntentInterrupted({ ...intent, stage: "plugins" }, "1.0.0", { observed: true, phase: "idle", installing: false }), false);
 assert.equal(restoredAppIntentInterrupted({ ...intent, appTarget: null }, "1.0.0", { observed: true, phase: "idle", installing: false }), false);
 console.log("Restored app intent reconciliation: 11 decisions passed; initial idle/current request/active native work/installed target never interrupt.");
+
+{
+  const idle = { observed: true, phase: "idle", installing: false };
+  const cases = [
+    ["1.18.2", "1.18.2", true, false],
+    ["1.18.3", "1.18.2", true, false],
+    ["1.18.10", "1.18.9", true, false],
+    ["1.19.0", "1.18.10", true, false],
+    ["2.0.0", "1.99.0", true, false],
+    ["1.18.1", "1.18.2", false, true],
+    ["1.18.2-rc.2", "1.18.2-rc.10", false, true],
+    ["1.18.2", "1.18.2-rc.10", true, false],
+    ["1.18.2-rc.1", "1.18.2", false, true],
+    ["1.18.2+new", "1.18.2+old", true, false],
+    ["unknown", "1.18.2", false, false],
+    ["1.18.3", "invalid", false, false],
+    ["", "1.18.2", false, false],
+    ["1.18.2-01", "1.18.2", false, false],
+  ] as const;
+  for (const [hostVersion, appTarget, satisfied, interrupted] of cases) {
+    const saved = { ...intent, appTarget };
+    assert.equal(appIntentSatisfied(saved, hostVersion), satisfied, `${hostVersion} satisfies ${appTarget}`);
+    assert.equal(restoredAppIntentInterrupted(saved, hostVersion, idle), interrupted, `${hostVersion} interrupted ${appTarget}`);
+    assert.deepEqual(nextUpdateStep(saved, hostVersion, []), { kind: satisfied ? "complete" : "waitForApp" });
+  }
+  assert.deepEqual(nextUpdateStep(intent, "3.0.0", items), { kind: "plugin", id: "plugin" });
+}
+console.log("Semantic app target reconciliation: 43 assertions passed");
 
 import { appendUpdateFailure } from "./updatePanelModel";
 {

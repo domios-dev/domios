@@ -15,8 +15,9 @@ import { PlanListView } from "./planView/PlanListView";
 import { PlanPlanView, PlanSpecView } from "./planView/PlanDocumentView";
 import { TaskSegmentPanel } from "./planView/TaskSegmentPanel";
 import { findTaskByReference, taskSegmentLabel } from "./taskDisplayKey";
-import { useFullPlansOptional } from "./PlansProvider";
+import { usePlanSummariesOptional } from "./PlansProvider";
 import { usePlanTaskDetail } from "./usePlans";
+import { taskDetailMatchesReference } from "./usePlanTaskDetail";
 
 const BoardSurface = memo(MissionControlPlanSurface);
 const ListSurface = memo(PlanListView);
@@ -68,15 +69,16 @@ function useTaskSegment(
   useLayoutEffect(() => {
     const planId = target?.planId;
     const jump = target?.jump;
-    if (!planId || !jump) return;
+    if (!jump) return;
     if (jump.view === "task") {
+      if (!planId) return;
       setSegment((current) => current?.planId === planId && current.taskRef === jump.taskId
         ? current
         : { planId, taskRef: jump.taskId });
       return;
     }
     setSegment((current) => current === null ? current : null);
-    setViewMode("plan");
+    setViewMode(jump.view);
   }, [target, setViewMode]);
   return [segment, setSegment];
 }
@@ -96,7 +98,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   const viewMode: PlanViewMode = storedMode;
   const selected = segment ? TASK_SEGMENT_VALUE : viewMode;
   const openingTask = props.workspaceTarget?.jump?.view === "task";
-  const fullQuery = useFullPlansOptional(Boolean(props.planIndex) && !openingTask && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
+  const fullQuery = usePlanSummariesOptional(Boolean(props.planIndex) && !openingTask && selected !== "tasks" && selected !== TASK_SEGMENT_VALUE);
   const fullPlans = fullQuery?.plans ?? props.plans;
   const fullProps: PlanViewSurfaceProps = {
     ...props,
@@ -149,7 +151,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
   );
   const detail = useMemo(() => {
     const selectedDetail = taskDetail.detail;
-    if (!segment || !selectedDetail || selectedDetail.plan_id !== segment.planId || selectedDetail.task_id !== segment.taskRef) return null;
+    if (!segment || !selectedDetail || !taskDetailMatchesReference(selectedDetail, segment.planId, segment.taskRef)) return null;
     return selectedDetail;
   }, [segment, taskDetail.detail]);
   const cachedTask = useMemo(() => {
@@ -161,7 +163,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
 
   const temporaryTab = useMemo<TemporaryModeTab | null>(() => {
     if (!segment) return null;
-    const label = taskSegmentLabel({ id: segment.taskRef, key: detail?.task.key ?? cachedTask?.task.key });
+    const label = taskSegmentLabel(detail?.task ?? cachedTask?.task ?? { id: segment.taskRef });
     return {
       value: TASK_SEGMENT_VALUE,
       label,
@@ -251,7 +253,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
           hidden={selected !== "list"}
           aria-hidden={selected !== "list"}
         >
-          <ListSurface {...listProps} onClose={undefined} />
+          <ListSurface {...listProps} isActive={selected === "list"} onClose={undefined} />
         </div>
         <div
           className="absolute inset-0"
@@ -274,6 +276,7 @@ export function PlanViewShell(props: PlanViewSurfaceProps) {
                 tabId={segmentTabId}
                 panelRef={panelRef}
                 detail={detail}
+                historyController={taskDetail}
                 fallbackPlan={cachedTask?.plan ?? null}
                 taskRef={segment.taskRef}
                 loading={taskDetail.loading}

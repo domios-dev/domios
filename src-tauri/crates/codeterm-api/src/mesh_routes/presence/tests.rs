@@ -76,6 +76,9 @@ fn presence_notice_cannot_carry_state_or_traffic_instructions() {
         serde_json::json!({"metadata_revision":1,"presence":"signed_out"}),
         serde_json::json!({"metadata_revision":1,"endpoint":"untrusted"}),
         serde_json::json!({"metadata_revision":-1}),
+        serde_json::json!({"account_id":"account","registry_revision":10}),
+        serde_json::json!({"account_id":"account","registry_revision":null,"security_digest":null}),
+        serde_json::json!({"metadata_revision":1,"account_id":"account","registry_revision":10}),
     ] {
         assert!(serde_json::from_value::<PresenceNotice>(value).is_err());
     }

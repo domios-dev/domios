@@ -8,7 +8,7 @@ use futures_util::{Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::browser::viewport::ViewportRequest;
 use codeterm_service_core::service::surface::runtime_sse_payload as sse_payload;
 use codeterm_service_core::service::surface::{
@@ -53,10 +53,6 @@ fn internal() -> Refusal {
     )
 }
 
-fn authorize(state: &AppState, headers: &HeaderMap) -> Result<(), Refusal> {
-    check_auth(state, headers).map_err(|(status, message)| refusal(status, "unauthorized", message))
-}
-
 async fn on_blocking_pool<T: Serialize + Send + 'static>(
     svc: ServiceState,
     work: impl FnOnce(&ServiceContext) -> Result<T, SurfaceError> + Send + 'static,
@@ -70,17 +66,18 @@ async fn on_blocking_pool<T: Serialize + Send + 'static>(
         .map_err(|_| internal())
 }
 
-pub(crate) async fn list(AxumState(state): AxumState<AppState>, headers: HeaderMap) -> RouteResult {
-    authorize(&state, &headers)?;
+pub(crate) async fn list(
+    AxumState(state): AxumState<AppState>,
+    _headers: HeaderMap,
+) -> RouteResult {
     on_blocking_pool(state.svc.clone(), |svc| Ok(svc.list_surfaces())).await
 }
 
 pub(crate) async fn open(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Json(request): Json<SurfaceOpenRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     on_blocking_pool(state.svc.clone(), move |svc| svc.open_surface(request)).await
 }
 
@@ -96,7 +93,6 @@ pub(crate) async fn close(
     headers: HeaderMap,
     Json(request): Json<SurfaceCloseRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
     let caller = crate::auth::caller_claim(&state, &headers, request.caller_tab_id.as_deref())
         .map_err(|(status, message)| refusal(status, "forbidden", &message))?;
     on_blocking_pool(state.svc.clone(), move |svc| {
@@ -107,6 +103,10 @@ pub(crate) async fn close(
 
 #[derive(Debug, Default, Deserialize)]
 pub(crate) struct StreamQuery {
+    #[serde(default)]
+    viewer: Option<String>,
+    #[serde(default)]
+    viewer_target: Option<String>,
     #[serde(default)]
     w: Option<f64>,
     #[serde(default)]
@@ -127,14 +127,19 @@ fn stream_viewport(query: &StreamQuery) -> Option<ViewportRequest> {
 /// SSE `state` / `frame` / `notice`; the stream is the viewer, so disconnecting leaves the screencast.
 pub(crate) async fn stream(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab_id): Path<String>,
     Query(query): Query<StreamQuery>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, std::convert::Infallible>>>, Refusal> {
-    authorize(&state, &headers)?;
-    let events = open_surface_stream(&state.svc, &tab_id, stream_viewport(&query))
-        .await
-        .map_err(surface_refusal)?;
+    let events = open_surface_stream(
+        &state.svc,
+        &tab_id,
+        stream_viewport(&query),
+        query.viewer,
+        query.viewer_target,
+    )
+    .await
+    .map_err(surface_refusal)?;
     let events = events.map(|event| {
         let (name, data) = sse_payload(&event);
         Ok(Event::default().event(name).data(data))
@@ -158,11 +163,12 @@ pub(crate) async fn call(
     Path(tab_id): Path<String>,
     Json(request): Json<SurfaceCallRequest>,
 ) -> RouteResult {
-    authorize(&state, &headers)?;
-    let origin = if crate::tab_routes::caller_tab_header(&headers).is_some() {
-        CallOrigin::Agent
-    } else {
+    let origin = if crate::auth::authenticated_origin(&state, &headers)
+        .is_ok_and(|origin| origin.owner_trusted())
+    {
         CallOrigin::View
+    } else {
+        CallOrigin::Agent
     };
     match call_surface(&state.svc, &tab_id, &request.method, request.args, origin).await {
         Ok(result) => Ok(Json(json!({ "result": result }))),
@@ -172,33 +178,4 @@ pub(crate) async fn call(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn surface_stream_viewport_needs_width_and_height() {
-        let query = StreamQuery {
-            w: Some(1280.0),
-            h: Some(720.0),
-            dpr: None,
-        };
-        assert_eq!(
-            stream_viewport(&query),
-            Some(ViewportRequest {
-                width: 1280.0,
-                height: 720.0,
-                dpr: 1.0
-            })
-        );
-        assert_eq!(stream_viewport(&StreamQuery::default()), None);
-    }
-
-    #[test]
-    fn surface_stream_refusals_are_conflicts_for_non_stream_tabs() {
-        let (status, body) = surface_refusal(SurfaceError::NotAStreamSurface("t".into()));
-        assert_eq!(status, StatusCode::CONFLICT);
-        assert_eq!(body.0["error"]["code"], "not_a_stream_surface");
-        let (status, _) = surface_refusal(SurfaceError::TabNotFound("t".into()));
-        assert_eq!(status, StatusCode::NOT_FOUND);
-    }
-}
+mod tests;

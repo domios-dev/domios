@@ -76,6 +76,7 @@ impl PlanStore {
             attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
             attempt.authorized_gates = draft.authorized_gates.clone();
             attempt.placement = draft.source_attempt.placement;
+            attempt.execution_intent = draft.source_attempt.execution_intent.clone();
             attempt.checkout_path = draft.source_attempt.checkout_path.clone();
             attempt.shared_start_sha = draft.source_attempt.shared_start_sha.clone();
             record_noncompetitive_replacement_attempt(

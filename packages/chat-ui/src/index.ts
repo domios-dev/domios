@@ -1,3 +1,4 @@
+export { DsText } from "./blocks/DsText";
 export { formatAgentWorkingLine, AGENT_WORKING_LINE_SEP } from "./formatAgentWorkingLine";
 export { MessageBubble } from "./MessageBubble";
 export { CodeBlock } from "./CodeBlock";
@@ -53,7 +54,7 @@ export { ChatBlockFrame } from "./blocks/ChatBlockFrame";
 export type { ChatBlockAction, ChatBlockFrameProps, ChatBlockStatus, ChatBlockTone } from "./blocks/ChatBlockFrame";
 export { ChatBlockHostProvider, useChatBlockHost } from "./blocks/ChatBlockHost";
 export type { ChatCardMenuItem, ChatCardMenuSpec } from "./blocks/ChatBlockHost";
-export type { AgentBlockHost, ChatBlockHost, ChecklistBlockHost, ChoiceBlockHost, ConnectBlockHost, JobBlockHost, PluginBlockHost, SettingBlockHost, TasksBlockHost } from "./blocks/ChatBlockHost";
+export type { AgentBlockHost, ChatBlockHost, ChatMentionValue, ChecklistBlockHost, ChoiceBlockHost, ConnectBlockHost, JobBlockHost, PluginBlockHost, SettingBlockHost, TasksBlockHost } from "./blocks/ChatBlockHost";
 export { ChatBlockMessageProvider, useChatBlockMessageId } from "./blocks/ChatBlockHost";
 export { useLiveBinding } from "./blocks/liveBinding";
 export type { LiveBindingSource } from "./blocks/liveBinding";
@@ -96,3 +97,5 @@ export { CanvasToolbar, type CanvasToolbarProps } from "./CanvasToolbar";
 export { Button, type ButtonProps, type ButtonSize, type ButtonVariant } from "./Button";
 
 export { DsRenderContext, type DsRenderScope } from "./blocks/DsRenderContext";
+export { CompactToolRowsProvider } from "./useCompactToolRow";
+export { ChatBlockActivityProvider } from "./blocks/liveBinding";

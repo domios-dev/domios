@@ -551,7 +551,8 @@ mod model_refresh_tests {
             .insert("session-known".into(), "claude-opus-5".into());
         assert!(fixture
             .service
-            .schedule_session_model_refresh_after_stop(&tab_id));
+            .schedule_session_model_refresh_after_stop(&tab_id)
+            .unwrap());
         let attempt_model = || {
             fixture
                 .service

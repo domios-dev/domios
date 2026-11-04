@@ -32,6 +32,13 @@ export async function cleanup(ctx) {
       return "deleted";
     });
   }
+  if (ctx.state.j3?.fixture_spec) {
+    const listed = await dcJson(["spec", "list"]);
+    if (listed.specs.some(spec => spec.spec_id === ctx.state.j3.fixture_spec)) {
+      await ctx.check("CLEAN", "fixture_spec_deleted", ctx.state.j3.fixture_spec, async () =>
+        (await ok(["spec", "delete", ctx.state.j3.fixture_spec, "--yes"]), "deleted the run's orphan spec"));
+    }
+  }
   for (const team of ctx.state.teams.filter((entry) => entry.id)) {
     await ctx.check("CLEAN", "team_closed", team.id, async () => (await ok(["team", "close", team.id, "--force"]), "closed"));
   }

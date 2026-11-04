@@ -106,8 +106,10 @@ Task writes require current caller, session and binding authority (API). Executi
 | DELETE | `/api/specs/{id}/sections/{sid}` | Remove a section. |
 | GET | `/api/efforts/{id}` | Read an effort. |
 | GET | `/api/plans` | List plans in the selected scope. |
+| GET | `/api/plans/task-reference` | Resolve `reference` to task and plan metadata, optionally scoped by `project` or `team`. |
 | GET | `/api/plans/{id}` | Read a plan. |
 | GET | `/api/plans/{id}/attachments` | Read plan attachments. |
+| GET | `/api/plans/{id}/board-state` | Read board runtime state and optional events (`event_cursor`, `events`). |
 | GET | `/api/plans/{id}/control-loop` | Read the control-loop configuration. |
 | GET | `/api/plans/{id}/coverage` | Read section coverage. |
 | GET | `/api/plans/{id}/decision` | List decisions. |
@@ -116,6 +118,7 @@ Task writes require current caller, session and binding authority (API). Executi
 | GET | `/api/plans/{id}/loops/{lid}` | Read loop status. |
 | GET | `/api/plans/{id}/next` | Read the next planned work. |
 | GET | `/api/plans/{id}/pause/preview` | Preview pause effects. |
+| GET | `/api/plans/{id}/projection` | Read a selected `view` projection; list and task-metadata windows accept filters and a cursor. |
 | GET | `/api/plans/{id}/reconcile` | Read reconciliation findings. |
 | GET | `/api/plans/{id}/resume/preview` | Preview resume effects. |
 | GET | `/api/plans/{id}/skills` | List announced plan skills. |
@@ -123,6 +126,7 @@ Task writes require current caller, session and binding authority (API). Executi
 | GET | `/api/plans/{id}/state` | Read plan state. |
 | GET | `/api/plans/{id}/tasks` | Read one cursor page of task summaries. |
 | GET | `/api/plans/{id}/tasks/{tid}` | Read one task's full detail. |
+| GET | `/api/plans/{id}/tasks/{tid}/history` | Read a page of task history (`kind`, optional `before` and `limit`). |
 | GET | `/api/specs` | List specifications. |
 | GET | `/api/specs/{id}` | Read a specification. |
 | GET | `/api/specs/{id}/links` | List specification links. |
@@ -180,4 +184,4 @@ Task writes require current caller, session and binding authority (API). Executi
 | POST | `/api/tasks/{id}/drop` | Drop task ownership. |
 | POST | `/api/tasks/{id}/take` | Take task ownership. |
 
-<!-- revision: 42 -->
+<!-- revision: 43 -->

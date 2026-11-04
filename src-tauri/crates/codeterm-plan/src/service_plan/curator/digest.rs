@@ -39,6 +39,13 @@ pub struct Digest {
     pub section_sizes: BTreeMap<String, usize>,
 }
 
+pub struct PreparedSection {
+    pub rows: Vec<Row>,
+    pub total: usize,
+}
+
+pub type PreparedRows = BTreeMap<String, PreparedSection>;
+
 fn clean(text: &str, cap: usize) -> String {
     text.chars()
         .map(|c| if c.is_control() || c == '|' { ' ' } else { c })
@@ -59,6 +66,28 @@ pub fn bounded_text(text: &str, limit: usize) -> String {
 }
 
 pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usize) -> Digest {
+    let prepared = rows
+        .iter()
+        .map(|(name, rows)| {
+            let mut rows = rows.clone();
+            rows.sort();
+            rows.dedup();
+            if name == "time in state" {
+                rows.sort_by(|a, b| b.summary.cmp(&a.summary).then_with(|| a.id.cmp(&b.id)));
+            }
+            (
+                name.clone(),
+                PreparedSection {
+                    total: rows.len(),
+                    rows,
+                },
+            )
+        })
+        .collect();
+    build_prepared(header, &prepared, limit)
+}
+
+pub fn build_prepared(header: &str, rows: &PreparedRows, limit: usize) -> Digest {
     let limit = limit.clamp(1, MAX_DIGEST_BYTES);
     let mut body = format!("{}\n", bounded_text(header, limit.saturating_sub(1)));
     let mut sizes = BTreeMap::new();
@@ -72,18 +101,12 @@ pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usi
                 | "time in state"
                 | "agent capacity"
                 | "queues"
-        ) && rows.get(*name).is_some_and(|rows| !rows.is_empty())
+        ) && rows.get(*name).is_some_and(|section| section.total > 0)
     });
     for (name, cap) in SECTIONS {
-        let Some(rows) = rows.get(name).filter(|r| !r.is_empty()) else {
+        let Some(section) = rows.get(name).filter(|section| section.total > 0) else {
             continue;
         };
-        let mut rows = rows.clone();
-        rows.sort();
-        rows.dedup();
-        if name == "time in state" {
-            rows.sort_by(|a, b| b.summary.cmp(&a.summary).then_with(|| a.id.cmp(&b.id)));
-        }
         let start = body.len();
         let title = format!("\n{name}:\n");
         if body.len() + title.len() + 16 > limit {
@@ -91,7 +114,7 @@ pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usi
         }
         body.push_str(&title);
         let mut emitted = 0;
-        for row in rows.iter().take(cap) {
+        for row in section.rows.iter().take(cap) {
             let line = format!(
                 "{} | {} | {} | {}\n",
                 clean(&row.id, 64),
@@ -105,8 +128,8 @@ pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usi
             body.push_str(&line);
             emitted += 1;
         }
-        if rows.len() > emitted {
-            body.push_str(&format!("+{} more\n", rows.len() - emitted));
+        if section.total > emitted {
+            body.push_str(&format!("+{} more\n", section.total - emitted));
         }
         sizes.insert(name.into(), body.len() - start);
     }
@@ -117,7 +140,7 @@ pub fn build_bounded(header: &str, rows: &BTreeMap<String, Vec<Row>>, limit: usi
     }
 }
 
-pub fn plan_rows(plan: &Plan, since: u64) -> BTreeMap<String, Vec<Row>> {
+pub fn metadata_rows(plan: &Plan, since: u64) -> BTreeMap<String, Vec<Row>> {
     let mut sections = BTreeMap::<String, Vec<Row>>::new();
     for id in super::super::state::orchestrator_actionable_task_ids(plan) {
         sections.entry("actionable".into()).or_default().push(Row {
@@ -144,6 +167,13 @@ pub fn plan_rows(plan: &Plan, since: u64) -> BTreeMap<String, Vec<Row>> {
                 summary: task.name.clone(),
             });
         }
+    }
+    sections
+}
+
+pub fn plan_rows(plan: &Plan, since: u64) -> BTreeMap<String, Vec<Row>> {
+    let mut sections = metadata_rows(plan, since);
+    for task in &plan.tasks {
         for verdict in task.review_evidence.iter().filter(|r| r.at > since) {
             sections
                 .entry("review verdicts".into())

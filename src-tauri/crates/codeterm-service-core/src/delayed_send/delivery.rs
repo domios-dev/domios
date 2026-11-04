@@ -33,14 +33,19 @@ pub(super) async fn deliver(svc: &ServiceState, msg: &DelayedMessage) -> Result<
     let tab_id = msg.tab_id.clone();
     let body = svc
         .plan_store
-        .prepend_heartbeat_for_orchestrator_tab(&tab_id, &msg.text);
+        .prepend_heartbeat_for_orchestrator_tab(&tab_id, &msg.text)
+        .map_err(|error| error.to_string())?;
     let body = svc
         .plan_store
         .prepend_worker_charter_for_tab(&tab_id, &body);
     let deliver_tab_id = tab_id.clone();
     let message_id = msg.id.clone();
     tokio::task::spawn_blocking(move || {
-        if crate::service::agent_runtime::capacity_retry::skip_retry(&deliver_tab_id, &message_id) {
+        if crate::service::agent_runtime::capacity_retry::skip_retry(
+            &svc_for_deliver,
+            &deliver_tab_id,
+            &message_id,
+        ) {
             return Ok(());
         }
         // A turn starting after this check may harmlessly receive an extra continue like user input.

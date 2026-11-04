@@ -101,12 +101,15 @@ fn listing_from_a_linked_worktree_returns_the_main_worktree_plan_tasks() {
     let fixture = worktree_fixture();
     let (plan_id, task_id) = plan_owned_by_main(&fixture, "open");
 
-    let listed = fixture.store.list_tasks_with_reason(TaskListFilter {
-        project_path: Some(fixture.linked.display().to_string()),
-        plan_id: Some(plan_id),
-        active_only: true,
-        ..Default::default()
-    });
+    let listed = fixture
+        .store
+        .list_tasks_with_reason(TaskListFilter {
+            project_path: Some(fixture.linked.display().to_string()),
+            plan_id: Some(plan_id),
+            active_only: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(listed.tasks.len(), 1);
     assert_eq!(listed.tasks[0].task.id, task_id);
@@ -124,11 +127,14 @@ fn a_filter_miss_from_a_linked_worktree_is_not_a_project_mismatch() {
         ..Default::default()
     };
 
-    let unfiltered = fixture.store.list_tasks_with_reason(TaskListFilter {
-        status: None,
-        ..filter.clone()
-    });
-    let listed = fixture.store.list_tasks_with_reason(filter);
+    let unfiltered = fixture
+        .store
+        .list_tasks_with_reason(TaskListFilter {
+            status: None,
+            ..filter.clone()
+        })
+        .unwrap();
+    let listed = fixture.store.list_tasks_with_reason(filter).unwrap();
 
     assert_eq!(
         unfiltered.tasks.len(),
@@ -154,14 +160,20 @@ fn a_plan_in_another_project_reports_the_mismatch_reason() {
         ..Default::default()
     };
 
-    let from_own_project = fixture.store.list_tasks_with_reason(TaskListFilter {
-        project_path: Some(fixture.main.display().to_string()),
-        ..filter.clone()
-    });
-    let listed = fixture.store.list_tasks_with_reason(TaskListFilter {
-        project_path: Some(other.display().to_string()),
-        ..filter
-    });
+    let from_own_project = fixture
+        .store
+        .list_tasks_with_reason(TaskListFilter {
+            project_path: Some(fixture.main.display().to_string()),
+            ..filter.clone()
+        })
+        .unwrap();
+    let listed = fixture
+        .store
+        .list_tasks_with_reason(TaskListFilter {
+            project_path: Some(other.display().to_string()),
+            ..filter
+        })
+        .unwrap();
 
     assert_eq!(
         from_own_project.tasks.len(),
@@ -199,11 +211,13 @@ fn a_plan_whose_tasks_are_all_inactive_reports_the_all_flag_reason() {
         ..Default::default()
     };
 
-    let relaxed = store.list_tasks_with_reason(TaskListFilter {
-        active_only: false,
-        ..filter.clone()
-    });
-    let listed = store.list_tasks_with_reason(filter);
+    let relaxed = store
+        .list_tasks_with_reason(TaskListFilter {
+            active_only: false,
+            ..filter.clone()
+        })
+        .unwrap();
+    let listed = store.list_tasks_with_reason(filter).unwrap();
 
     assert_eq!(relaxed.tasks.len(), 1, "--all still reveals the task");
     assert_eq!(
@@ -217,11 +231,13 @@ fn an_archived_plan_reports_archived_not_a_missing_project() {
     let (store, plan_id, _) = store_with_task(&["status_update"]);
     store.archive(&plan_id, 99).unwrap();
 
-    let listed = store.list_tasks_with_reason(TaskListFilter {
-        plan_id: Some(plan_id.clone()),
-        active_only: false,
-        ..Default::default()
-    });
+    let listed = store
+        .list_tasks_with_reason(TaskListFilter {
+            plan_id: Some(plan_id.clone()),
+            active_only: false,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(
         listed.empty_reason,
@@ -243,11 +259,13 @@ fn a_plan_without_tasks_reports_an_empty_plan_not_a_filter_miss() {
         )
         .unwrap();
 
-    let listed = store.list_tasks_with_reason(TaskListFilter {
-        plan_id: Some(empty.id.clone()),
-        active_only: true,
-        ..Default::default()
-    });
+    let listed = store
+        .list_tasks_with_reason(TaskListFilter {
+            plan_id: Some(empty.id.clone()),
+            active_only: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(
         listed.empty_reason,
@@ -273,11 +291,13 @@ fn a_project_holding_no_plans_reports_no_plans_in_scope() {
         )
         .unwrap();
 
-    let listed = store.list_tasks_with_reason(TaskListFilter {
-        project_path: Some(elsewhere.display().to_string()),
-        active_only: true,
-        ..Default::default()
-    });
+    let listed = store
+        .list_tasks_with_reason(TaskListFilter {
+            project_path: Some(elsewhere.display().to_string()),
+            active_only: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(
         listed.empty_reason,
@@ -291,11 +311,13 @@ fn a_project_holding_no_plans_reports_no_plans_in_scope() {
 fn an_unknown_plan_id_reports_plan_not_found() {
     let (store, _, _) = store_with_task(&["status_update"]);
 
-    let listed = store.list_tasks_with_reason(TaskListFilter {
-        plan_id: Some("pl_absent".into()),
-        active_only: true,
-        ..Default::default()
-    });
+    let listed = store
+        .list_tasks_with_reason(TaskListFilter {
+            plan_id: Some("pl_absent".into()),
+            active_only: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(
         listed.empty_reason,

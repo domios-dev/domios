@@ -1,4 +1,6 @@
+import { ExpandableReader, useReaderHost } from "../ExpandableReader";
 import React from "react";
+import { useFullscreenViewer } from "../FullscreenOverlay";
 import { useParentMessageBounds } from "../BoundedMessageContent";
 import { userMessageAttachments } from "@codeterm/chat-core";
 import type { MessageSegment } from "@codeterm/chat-core";
@@ -29,14 +31,16 @@ export function CompactMessageContent({ text, markdown = false, segments, fontSc
   const parts = React.useMemo(() => segments ? { text, files: [], inline: null, reply: null } : userMessageAttachments(text), [text, segments]);
   const normalized = normalizeMessageText(parts.text);
   const lines = normalized.split("\n");
+  const readerHost = useReaderHost();
+  const outerFullscreen = useFullscreenViewer();
   const parentOwnsBounds = useParentMessageBounds();
   const collapsible = !parentOwnsBounds && lines.length > collapseAfter;
   const [expanded, setExpanded] = React.useState(false);
   const textSize = pickUiFontScaleValue(fontScale, ["text-xs", "text-sm", "text-base", "text-lg"]);
-  const renderText = (content: string) => {
+  const renderText = (content: string, fullscreen = false) => {
     const part = segments ? { text: content, files: [], inline: null } : userMessageAttachments(content);
     const normalized = normalizeMessageText(part.text);
-    const shown = expanded || !collapsible ? normalized : normalized.split("\n").slice(0, collapseAfter).join("\n");
+    const shown = fullscreen || outerFullscreen || expanded || !collapsible ? normalized : normalized.split("\n").slice(0, collapseAfter).join("\n");
     const body = part.inline ? <InlineAttachmentText segments={part.inline} />
       : !markdown && hasPlanRefs(shown) ? <LinkedText text={shown} onOpenPlan={onOpenPlan} resolvePlanRef={resolvePlanRef} />
       : <RichMarkdown text={shown} fontScale={fontScale} planLinks={{ onOpenPlan, resolvePlanRef }} />;
@@ -44,10 +48,12 @@ export function CompactMessageContent({ text, markdown = false, segments, fontSc
   };
 
   return (
+    <ExpandableReader label={"Message content"} enabled={!readerHost && collapsible}>{(fullscreen) => (
+
     <div data-testid="codeterm-message-content" className={`min-w-0 ${textSize}`}>
       {parts.reply && <ReplyQuote label={parts.reply.label ?? "Quote"} excerpt={parts.reply.excerpt ?? ""} />}
-      {segments ? <EnvelopeContent segments={segments} renderText={renderText} renderInlineText={renderText} /> : <OrderedAttachmentContent content={text} renderText={renderText} renderInlineText={renderText} />}
-      {collapsible && !parts.inline && (
+      {segments ? <EnvelopeContent segments={segments} renderText={(text) => renderText(text, fullscreen)} renderInlineText={(text) => renderText(text, fullscreen)} /> : <OrderedAttachmentContent content={text} renderText={(text) => renderText(text, fullscreen)} renderInlineText={(text) => renderText(text, fullscreen)} />}
+      {collapsible && !fullscreen && !outerFullscreen && !parts.inline && (
         <button
           type="button"
           data-testid={expandTestId}
@@ -59,5 +65,6 @@ export function CompactMessageContent({ text, markdown = false, segments, fontSc
         </button>
       )}
     </div>
+    )}</ExpandableReader>
   );
 }

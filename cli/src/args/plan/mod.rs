@@ -238,10 +238,6 @@ pub enum PlanAction {
         plan_id: String,
         #[arg(long, allow_hyphen_values = true)]
         title: Option<String>,
-        #[arg(long, allow_hyphen_values = true)]
-        spec: Option<String>,
-        #[arg(long, value_name = "PATH")]
-        spec_file: Option<String>,
         #[arg(long)]
         status: Option<String>,
         #[arg(long)]
@@ -444,14 +440,6 @@ pub enum PlanControlLoopAction {
     Run { plan_id: String },
     /// Show the plan's control-loop mode and heartbeat interval.
     Show { plan_id: String },
-    /// Switch the plan between Curator rounds and the plain heartbeat.
-    Set {
-        plan_id: String,
-        #[arg(value_parser = ["curator", "heartbeat"])]
-        mode: String,
-        #[arg(long)]
-        interval: Option<String>,
-    },
 }
 
 #[derive(Subcommand)]

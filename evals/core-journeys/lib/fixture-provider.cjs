@@ -5,7 +5,8 @@ function command(id) {
   return settings.command + " --session '" + id + "'";
 }
 module.exports.default = {
-  buildLaunchCommand: params => command(params.sessionId),
+  // The host's readiness probe calls this without a session id; the real launch injects a fresh one.
+  buildLaunchCommand: params => params.sessionId == null ? settings.command : command(params.sessionId),
   buildResumeCommand: id => command(id),
   buildResumeCommandWithContext: params => command(params.sessionId),
   sessionResume: () => ({ exact: true }),

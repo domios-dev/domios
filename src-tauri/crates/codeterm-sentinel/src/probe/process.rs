@@ -153,6 +153,8 @@ impl std::error::Error for ProbeFailure {}
 #[derive(Clone, Copy)]
 pub struct Deadlines {
     #[cfg(any(test, feature = "test-support"))]
+    completion_driven: bool,
+    #[cfg(any(test, feature = "test-support"))]
     pub admitted: Instant,
     pub operation: Instant,
     pub hard: Instant,
@@ -186,6 +188,8 @@ impl Deadlines {
             .checked_add(reserve)
             .ok_or_else(|| ProbeFailure::new("probe_deadline_unavailable"))?;
         let mut deadlines = Self {
+            #[cfg(any(test, feature = "test-support"))]
+            completion_driven: false,
             #[cfg(any(test, feature = "test-support"))]
             admitted,
             operation: runtime_end,
@@ -230,6 +234,28 @@ impl Deadlines {
         self.remaining_operation_at(Instant::now())
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn with_completion_driven(mut self) -> Self {
+        self.completion_driven = true;
+        self
+    }
+
+    pub fn operation_wait(&self) -> Option<Duration> {
+        #[cfg(any(test, feature = "test-support"))]
+        if self.completion_driven {
+            return None;
+        }
+        Some(self.remaining_operation())
+    }
+
+    pub fn expired_hard(&self) -> bool {
+        #[cfg(any(test, feature = "test-support"))]
+        if self.completion_driven {
+            return false;
+        }
+        Instant::now() > self.hard
+    }
+
     #[cfg(windows)]
     pub fn remaining_hard(&self) -> Duration {
         self.remaining_hard_at(Instant::now())
@@ -249,6 +275,10 @@ impl Deadlines {
     }
 
     pub fn expired_operation_at(&self, now: Instant) -> bool {
+        #[cfg(any(test, feature = "test-support"))]
+        if self.completion_driven {
+            return false;
+        }
         now >= self.operation
     }
 

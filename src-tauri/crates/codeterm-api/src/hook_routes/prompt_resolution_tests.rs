@@ -5,7 +5,9 @@ use codeterm_service_core::service::prompt_resolution_tests::{
     assert_previous_prompt_resolved_and_cleared, pending_prompt_fixture,
 };
 
-fn app_state(fixture: &codeterm_service_core::service::test_fixture::ServiceFixture) -> AppState {
+pub(super) fn app_state(
+    fixture: &codeterm_service_core::service::test_fixture::ServiceFixture,
+) -> AppState {
     let config = codeterm_service_core::config::schema::AppConfig::default();
     AppState {
         frontend_dev_url: None,

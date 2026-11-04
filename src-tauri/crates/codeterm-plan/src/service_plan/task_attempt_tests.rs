@@ -717,7 +717,7 @@ fn terminal_status_update_leaves_history_but_no_active_presence() {
     assert_eq!(task.execution_attempts[0].executor_tab_id, "tab_live");
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
     assert!(store.task_binding_for_tab("tab_live").is_none());
-    assert!(store.task_bindings_for_tab("tab_live").is_empty());
+    assert!(store.task_bindings_for_tab("tab_live").unwrap().is_empty());
 }
 
 #[test]
@@ -775,11 +775,15 @@ fn recent_worker_attempt_titles_filters_workspace_session_and_limit() {
         .unwrap();
 
     assert_eq!(
-        store.recent_worker_attempt_titles("ws_target", Some("sess-1"), 10),
+        store
+            .recent_worker_attempt_titles("ws_target", Some("sess-1"), 10)
+            .unwrap(),
         vec!["Ada".to_string()]
     );
     assert_eq!(
-        store.recent_worker_attempt_titles("ws_target", None, 1),
+        store
+            .recent_worker_attempt_titles("ws_target", None, 1)
+            .unwrap(),
         vec!["Bea".to_string()]
     );
 }

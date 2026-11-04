@@ -237,7 +237,7 @@ function ChatComposerImpl({
   const isActiveRef = useRef(isActive);
   isActiveRef.current = isActive;
 
-  const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`);
+  const [input, setInput] = usePersistentDraft(`tab-session-chat:${tabId}`, showComposerError);
   const [expandedEditor, setExpandedEditor] = useState(false);
   const recall = useComposerRecall(tabId);
   const workspaceId = useMuxSelector(useLatestCallback((state) => state.workspaces.find((workspace) => workspace.tabs.includes(tabId))?.id ?? state.tabs[tabId]?.workspace_id ?? null, [tabId]));
@@ -576,6 +576,7 @@ function ChatComposerImpl({
       <ComposerMentions ref={mentionPicker} tabId={tabId} input={input} setInput={setInput}
         onPicked={refocusComposer} textareaRef={textareaRef} anchorRef={shellRef} />
       {plansSink}
+      {!startupSend.bound && <span role="status">Connecting to chat — sending is unavailable</span>}
       <ComposerCapsuleField
         tabId={tabId}
         value={input}
@@ -717,6 +718,7 @@ function ChatComposerImpl({
     <ComposerDock mode={composerLayout.mode} ref={shellRef}>
       {contextSlot && createPortal(
         <ComposerContextHeader
+          isActive={isActive}
           pluginError={pluginError}
           sessionIntent={sessionIntent}
           tabId={tabId}

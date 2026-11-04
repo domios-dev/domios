@@ -102,15 +102,24 @@ fn fixture() -> (RuntimeDispatchFixture, String, String) {
 
 #[test]
 fn socket_plan_task_dispatch_runtime_preserves_binding_and_reaches_worker_ack() {
-    assert_runtime_task_dispatch(Some("Ada"), "Ada");
+    assert_runtime_task_dispatch(Some("Ada"), "Ada", false);
 }
 
 #[test]
 fn socket_task_added_without_personality_dispatches_with_first_word_title() {
-    assert_runtime_task_dispatch(None, "Prism");
+    assert_runtime_task_dispatch(None, "Prism", false);
 }
 
-fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str) {
+#[test]
+fn readonly_nonrepo_cwd_dispatch_ack_and_in_review_persist_coherent_attempt() {
+    assert_runtime_task_dispatch(Some("Probe"), "Probe", true);
+}
+
+fn assert_runtime_task_dispatch(
+    personality: Option<&str>,
+    expected_title: &str,
+    repository_task: bool,
+) {
     let (harness, owner, workspace) = fixture();
     let svc = &harness.fixture.service;
     let team = svc
@@ -146,6 +155,11 @@ fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str)
         "execution_intent": "non_repository", "caller_tab_id": owner,
         "session_id": "owner-session", "session_binding_nonce": "owner-nonce",
     });
+    add["acceptance_criteria"] = json!(["opaque-result"]);
+    add["test_plan"] = json!("opaque-verification");
+    if repository_task {
+        add["execution_intent"] = json!("repository_mutation");
+    }
     if let Some(personality) = personality {
         add["personality"] = json!(personality);
     }
@@ -188,6 +202,8 @@ fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str)
     harness.fixture.ui.listen("plan-changed", move |_| {
         let _ = changed_tx.send(());
     });
+    let working_dir = harness.fixture.temp.path().join("nonrepo-cwd");
+    std::fs::create_dir(&working_dir).unwrap();
     let before = svc.mux.read().snapshot().tabs.len();
     let response = super::super::dispatch(
         &Some(json!({
@@ -195,6 +211,7 @@ fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str)
             "caller_tab_id":owner,"parent_tab_id":owner,"workspace_id":workspace,
             "session_id":"owner-session","session_binding_nonce":"owner-nonce",
             "execution_intent":"read_only","authorized_gates":["opaque-gate"],
+            "cwd": working_dir,
             "provider_reserve_pct":17.25,
         })),
         &Arc::new(svc.clone()),
@@ -203,6 +220,7 @@ fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str)
     .unwrap();
     let worker = response["tab_id"].as_str().unwrap();
     let attempt_id = response["attempt_id"].as_str().unwrap();
+    assert_eq!(response["placement"], "read_only");
     assert_eq!(svc.mux.read().snapshot().tabs.len(), before + 1);
     // Dispatch returns before the Worker runtime is ready; its startup commits the attempt binding.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
@@ -221,6 +239,10 @@ fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str)
             .expect("dispatch startup did not commit the Worker binding");
     }
     let tab = svc.mux.read().get_tab(worker).unwrap().clone();
+    assert!(codeterm_paths::paths_equal(
+        tab.cwd.as_deref().unwrap(),
+        &working_dir.to_string_lossy()
+    ));
     assert_eq!(tab.title, expected_title);
     assert_ne!(tab.title, "Worker");
     assert_eq!(tab.description.as_deref(), Some(task_name));
@@ -289,6 +311,52 @@ fn assert_runtime_task_dispatch(personality: Option<&str>, expected_title: &str)
         .unwrap()
         .acknowledged_at
         .is_some());
+    let attempt = acknowledged.execution_attempts.last().unwrap();
+    assert_eq!(
+        attempt.placement,
+        codeterm_service_core::plan::WorkerPlacement::ReadOnly
+    );
+    assert_eq!(
+        attempt.execution_intent,
+        Some(codeterm_service_core::plan::ExecutionIntent::ReadOnly)
+    );
+    assert_eq!(attempt.checkout_path, None);
+    assert_eq!(attempt.worktree_path, None);
+    assert_eq!(acknowledged.lane.worktree_path, None);
+    let accepted = svc
+        .plan_store
+        .ingest_bound_worker_report(
+            &plan.id,
+            &task,
+            &codeterm_service_core::plan::AgentRef::from_tab(worker),
+            codeterm_service_core::service::plan::task_attempts::BoundWorkerReport {
+                message: "opaque-result".into(),
+                status: Some(codeterm_types::agent::ReportStatus::InReview),
+                authority: Some(
+                    codeterm_service_core::service::plan::interruption::TaskMutationAuthority {
+                        tab_id: worker.into(),
+                        session_id: attempt.session_id.clone().unwrap(),
+                        session_binding_nonce: attempt.session_binding_nonce.clone().unwrap(),
+                        owner_epoch: attempt.interruption.owner_epoch,
+                    },
+                ),
+                ..Default::default()
+            },
+            12,
+        )
+        .unwrap();
+    assert!(accepted);
+    let persisted = svc.plan_store.show_task(&task).unwrap().task;
+    assert_eq!(persisted.status, TaskStatus::InReview);
+    let report = persisted
+        .execution_attempts
+        .last()
+        .unwrap()
+        .report
+        .as_ref()
+        .unwrap();
+    assert_eq!(report.status.as_deref(), Some("in_review"));
+    assert_eq!(report.sha, None);
 }
 
 #[test]

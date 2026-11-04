@@ -22,7 +22,7 @@ async function main() {
   }
   const { __setListenForTest } = await import("../../lib/bridge");
   const { setRelayTarget, clearRelayTarget, invalidateWebRequestContext } = await import("../../lib/webApi");
-  const { PlansProvider, usePlanIndex, useFullPlans } = await import("./PlansProvider");
+  const { PlansProvider, usePlanIndex, usePlanSummaries } = await import("./PlansProvider");
   const API: ApiConfig = { enabled: true, host: "gateway", port: 7685, token: "token", cors: true };
   type Handler = (event: { payload: unknown }) => void;
   const handlers = new Map<string, Set<Handler>>();
@@ -46,7 +46,7 @@ async function main() {
     const machine = envelope?.target_peer_id ?? "self";
     const path = envelope?.path ?? `${url.pathname}${url.search}`;
     reads.push(`${machine}:${path}`);
-    const plan = { ...FIXTURE_PLAN, id: `pl_${machine}`, title: `${machine}-${revision}` };
+    const plan = { ...FIXTURE_PLAN, id: `pl_${machine}`, title: `${machine}-${revision}`, revision: String(revision + 1) };
     const data = path === "/api/plans"
       ? { plans: [{ plan_id: plan.id, title: plan.title }] }
       : path.startsWith("/api/plans?") ? { plans: [plan] } : plan;
@@ -58,7 +58,7 @@ async function main() {
   let snapshot = { index: [] as string[], full: [] as string[], titles: [] as string[] };
   function Probe() {
     const { index } = usePlanIndex();
-    const { plans } = useFullPlans();
+    const { plans } = usePlanSummaries();
     snapshot = { index: index.map((entry) => entry.plan_id), full: plans.map((plan) => plan.id), titles: plans.map((plan) => plan.title) };
     return null;
   }
@@ -89,13 +89,14 @@ async function main() {
     assert.deepEqual(snapshot.index, ["pl_ubunta"]);
     revision = 1;
     await renderAct(async () => {
-      for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta" } });
+      for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta", revision: String(revision + 1), previous_revision: String(revision), task_ids: [], reset: true, deleted: false } });
     });
     assert.deepEqual(snapshot.titles, ["ubunta-1"]);
 
+    revision = 2;
     holdReads = true;
     await renderAct(async () => {
-      for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta" } });
+      for (const handler of handlers.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_ubunta", revision: String(revision + 1), previous_revision: String(revision), task_ids: [], reset: true, deleted: false } });
     });
     assert(heldReads.length > 0);
     holdReads = false;
@@ -107,8 +108,8 @@ async function main() {
     await switchPeer(null, 3);
     assert.deepEqual(snapshot.full, ["pl_self"]);
     assert.deepEqual(snapshot.index, ["pl_self"]);
-    assert(reads.includes("ubunta:/api/plans?full=1"));
-    assert(reads.includes("eight:/api/plans?full=1"));
+    assert(reads.includes("ubunta:/api/plans?view=summary"));
+    assert(reads.includes("eight:/api/plans?view=summary"));
   } finally {
     await renderAct(async () => {
       root.unmount();

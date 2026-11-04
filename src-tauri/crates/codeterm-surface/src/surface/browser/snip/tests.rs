@@ -97,13 +97,10 @@ fn decode(base64: &str) -> DynamicImage {
 }
 
 #[test]
-fn browser_snip_capture_shoots_the_viewport_without_clip_or_scale() {
+fn browser_snip_capture_delegates_css_bounds_to_the_shared_capture_path() {
     let params = viewport_shot_params();
     assert_eq!(params, json!({ "format": "png" }));
-    assert!(
-        params.get("clip").is_none(),
-        "a clip re-renders the cast page"
-    );
+    assert!(params.get("clip").is_none());
     assert!(params.get("captureBeyondViewport").is_none());
 }
 

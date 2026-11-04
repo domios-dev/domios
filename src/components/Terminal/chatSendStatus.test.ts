@@ -299,3 +299,14 @@ test("an uncertain admission can be dismissed by its client token without replay
   assert.equal(readChatSends(tabId)[0].dismissed, true);
   __setInvokeForTest(null);
 });
+
+test("unbound tab never reaches send transport", async () => {
+  let calls = 0;
+  __setInvokeForTest(async <T>() => { calls++; return {} as T; });
+  try {
+    for (const tabId of [null, undefined, "", " ", "null", "undefined"]) {
+      await assert.rejects(sendTrackedChatMessage(tabId as string, "token", "opaque"), /not bound/);
+    }
+    assert.equal(calls, 0);
+  } finally { __setInvokeForTest(null); }
+});

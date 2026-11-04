@@ -117,7 +117,12 @@ async fn aria_only_accessible_name_wait_rechecks_on_binding_evidence_without_tex
         )
         .await
         .unwrap();
-    assert_eq!(result, "accessible state confirmed");
+    let evidence: Value =
+        serde_json::from_str(result.strip_prefix("accessible state confirmed: ").unwrap()).unwrap();
+    assert_eq!(evidence["role"], "button");
+    assert_eq!(evidence["name"], "Aria-only label");
+    assert_eq!(evidence["backendNodeId"], 7);
+    assert_eq!(evidence["state"], "Enabled");
     assert_eq!(connection.captures.load(Ordering::SeqCst), 2);
 }
 

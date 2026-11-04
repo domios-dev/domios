@@ -89,6 +89,18 @@ parse_dev_build_mode() {
   fi
 }
 parse_dev_build_mode "$CMD" "${@:2}" || exit 2
+require_canonical_dev_build() {
+  case "$1" in dev|dev-server|dev-link-measure|dev-update-installer) ;; *) return 0 ;; esac
+  local current canonical
+  current="$(git rev-parse --show-toplevel)" || return 2
+  canonical="$(git worktree list --porcelain | sed -n 's/^worktree //p' | head -n 1)" || return 2
+  if [ -z "$canonical" ] || [ "$current" != "$canonical" ]; then
+    echo "ERROR: DEV compilation requires the canonical checkout: $canonical" >&2
+    echo 'Ask the Orchestrator for a canonical DEV build; run dev-prebuilt from canonical to reuse it.' >&2
+    return 2
+  fi
+}
+require_canonical_dev_build "$CMD" || exit 2
 source scripts/lane-rust-guard.sh
 require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
 if ct_uses_local_build_env; then ct_load_local_build_env || exit 2; fi
@@ -669,7 +681,7 @@ run_release_rust_tests() {
   prepare_exceptional_worktree_target
   while IFS=$'\t' read -r -u 3 scope ids budget no_tests filterset; do
     total=$((total + 1))
-    echo "== release-rust: $ids (./build.sh nextest $scope${filterset:+ '$filterset'}, cap ${TEST_CAP_SECS:-$budget}s, no-tests=$no_tests)"
+    echo "== release-rust: $ids (./build.sh nextest $scope${filterset:+ '$filterset'}, advisory ${TEST_CAP_SECS:-$budget}s, no-tests=$no_tests)"
     if TEST_CAP_SECS="${TEST_CAP_SECS:-$budget}" NEXTEST_NO_TESTS_MODE="$no_tests" run_nextest_scope "$scope" ${filterset:+"$filterset"}; then
       echo "release-rust: GREEN $ids"
     else
@@ -836,6 +848,7 @@ case "$CMD" in
 esac
 
 prepare_named_dev_target() {
+  require_canonical_dev_build dev || exit 2
   adopt_named_dev_target || exit 2
   refuse_named_dev_rebuild_while_running || exit 2
   export CARGO_TARGET_DIR="$(named_dev_target_dir)"
@@ -3109,34 +3122,46 @@ EOF
     node scripts/release-arm64-handoff.mjs pack "$CARGO_BUILD_TARGET" "${2:?tag required}" "${3:?source SHA required}" "${4:?archive required}"
     ;;
   release-preflight)
-    node scripts/release-stage.mjs check-server-features
-    prepare_dev_frontend_dist "$(pwd -P)"
-    prepare_bundle_stubs
-    ensure_deps
-    bash scripts/check-rustfmt.sh
-    bash scripts/check-file-sizes.sh --fail
-    node scripts/check-provider-boundary.mjs
-    bash scripts/check-tauri-reach.sh
-    bash scripts/check-crate-layering.sh
-    bash scripts/check-empty-array-expansion.sh
+    preflight_step() {
+      local label="$1" started=$SECONDS status=0
+      shift
+      echo "== release-preflight: $label"
+      set +e
+      (set -e; "$@")
+      status=$?
+      set -e
+      echo "release-preflight: step=$label seconds=$((SECONDS - started)) exit=$status"
+      return "$status"
+    }
+    preflight_real() { (cd "${CT_REAL_WORKTREE:-.}" && "$@"); }
+    preflight_step server-features node scripts/release-stage.mjs check-server-features
+    preflight_step resources-frontend prepare_dev_frontend_dist "$(pwd -P)"
+    preflight_step resources-bundles prepare_bundle_stubs
+    preflight_step dependencies preflight_real env CI=true pnpm install --frozen-lockfile
+    preflight_step rustfmt bash scripts/check-rustfmt.sh
+    preflight_step file-sizes bash scripts/check-file-sizes.sh --fail
+    preflight_step provider-boundary node scripts/check-provider-boundary.mjs
+    preflight_step tauri-reach bash scripts/check-tauri-reach.sh
+    preflight_step crate-layering bash scripts/check-crate-layering.sh
+    preflight_step array-expansion bash scripts/check-empty-array-expansion.sh
     # esbuild cannot relativize a linked workspace package across the gateway's subst drive,
     # so the bundle diff runs from the real worktree where the committed bundles were built.
-    (cd "${CT_REAL_WORKTREE:-.}" && node scripts/check-plugin-bundles.mjs)
-    node scripts/sync-plugin-versions.mjs --check
-    cargo check --manifest-path src-tauri/Cargo.toml
-    cargo check --manifest-path cli/Cargo.toml
-    node scripts/check-release-locks.mjs
+    preflight_step plugin-bundles preflight_real node scripts/check-plugin-bundles.mjs
+    preflight_step plugin-versions node scripts/sync-plugin-versions.mjs --check
+    preflight_step cargo-app cargo check --manifest-path src-tauri/Cargo.toml
+    preflight_step cargo-cli cargo check --manifest-path cli/Cargo.toml
+    preflight_step release-locks node scripts/check-release-locks.mjs
     # Under the gateway's subst drive the catalogue reads every Cargo.toml as an unmatched test; run from the real worktree.
-    (cd "${CT_REAL_WORKTREE:-.}" && bash ./build.sh script-guards)
-    bash scripts/clippy-gate.sh
-    run_release_rust_tests
-    node node_modules/typescript/bin/tsc --noEmit
-    node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
-    node scripts/check-api-effect-dependencies.mjs
-    node scripts/run-ts-unit-tests.mjs
-    node node_modules/vitest/vitest.mjs run
-    node scripts/run-plugin-tests.mjs
-    node node_modules/@biomejs/biome/bin/biome check .
+    preflight_step script-guards preflight_real bash ./build.sh script-guards
+    preflight_step clippy bash scripts/clippy-gate.sh
+    preflight_step rust run_release_rust_tests
+    preflight_step typescript node node_modules/typescript/bin/tsc --noEmit
+    preflight_step exports node node_modules/knip/bin/knip.js --workspace @codeterm/chat-core --exports
+    preflight_step api-effects node scripts/check-api-effect-dependencies.mjs
+    preflight_step ts-unit node scripts/run-ts-unit-tests.mjs
+    preflight_step vitest node node_modules/vitest/vitest.mjs run
+    preflight_step plugins node scripts/run-plugin-tests.mjs
+    preflight_step biome node node_modules/@biomejs/biome/bin/biome check .
     ;;
   release-rust)
     prepare_dev_frontend_dist "$(pwd -P)"

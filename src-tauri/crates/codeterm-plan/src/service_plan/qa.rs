@@ -212,25 +212,8 @@ fn require_current_claimed_attempt(task: &Task, claimed_index: usize) -> Result<
 
 impl PlanStore {
     pub fn qa_queue(&self, plan_id: &str, now_ms: u64) -> Result<QaQueue, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let mut queued = Vec::new();
-        let mut running = Vec::new();
-        for task in plan.tasks.iter().filter(|task| {
-            task.status == TaskStatus::InReview && task.review_stage == ReviewStage::Qa
-        }) {
-            match task.qa_state {
-                Some(QaState::Running) => running.push(qa_entry(task, None, now_ms)),
-                Some(QaState::Queued) | None => {
-                    queued.push(qa_entry(task, Some(queued.len() + 1), now_ms));
-                }
-            }
-        }
-        Ok(QaQueue {
-            plan_id: plan.id,
-            queued,
-            running,
-            max_running: max_running_qa_per_plan(),
-        })
+        let tasks = self.database.qa_queue_tasks(plan_id)?;
+        Ok(qa_queue_for(plan_id, &tasks, now_ms))
     }
 
     pub fn enqueue_qa(
@@ -452,6 +435,28 @@ impl PlanStore {
             Ok(())
         })?;
         result.ok_or(PlanError::TaskNotFound)
+    }
+}
+
+pub(super) fn qa_queue_for(plan_id: &str, tasks: &[Task], now_ms: u64) -> QaQueue {
+    let mut queued = Vec::new();
+    let mut running = Vec::new();
+    for task in tasks
+        .iter()
+        .filter(|task| task.status == TaskStatus::InReview && task.review_stage == ReviewStage::Qa)
+    {
+        match task.qa_state {
+            Some(QaState::Running) => running.push(qa_entry(task, None, now_ms)),
+            Some(QaState::Queued) | None => {
+                queued.push(qa_entry(task, Some(queued.len() + 1), now_ms));
+            }
+        }
+    }
+    QaQueue {
+        plan_id: plan_id.to_string(),
+        queued,
+        running,
+        max_running: max_running_qa_per_plan(),
     }
 }
 

@@ -119,8 +119,8 @@ impl Billing {
         });
         Ok(self)
     }
-    #[cfg(test)]
-    pub(crate) fn with_test_grants(
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_test_grants(
         mut self,
         activation: codeterm_entitlements::Activation,
         installation_id: &str,
@@ -347,15 +347,11 @@ impl Billing {
     }
     pub fn neighbors_locked(&self, uid: &str) -> bool {
         let cache = self.cache.lock();
-        cache.uid.as_deref() == Some(uid)
-            && cache.observed
-            && cache.neighbors_free
-            && !cache.snapshot.stale
-            && !self.checking(&cache)
-            && self
-                .recompute(&cache)
-                .access
-                .is_some_and(|access| access.authority == Authority::Free)
+        cache.uid.as_deref() != Some(uid)
+            || !cache.verified.as_ref().is_some_and(|grant| {
+                grant.verdict(self.now()).effective().authority
+                    != codeterm_entitlements::Authority::Free
+            })
     }
 
     pub fn entitlement_allows(

@@ -46,6 +46,9 @@ struct DisclosureConnection {
     actions: AtomicUsize,
     uncertain: bool,
     closed: tokio::sync::watch::Sender<Option<String>>,
+    subscribers: parking_lot::Mutex<
+        Vec<tokio::sync::mpsc::Sender<Arc<codeterm_browser::cdp_wire::CdpEvent>>>,
+    >,
 }
 #[async_trait::async_trait]
 impl CdpConnection for DisclosureConnection {
@@ -57,22 +60,40 @@ impl CdpConnection for DisclosureConnection {
     }
     fn close(&self, _: &str) {}
     fn subscribe(&self, _: EventFilter) -> EventStream {
-        EventStream::from_receiver(tokio::sync::mpsc::channel(1).1)
+        let (sender, receiver) = tokio::sync::mpsc::channel(1);
+        self.subscribers.lock().push(sender);
+        EventStream::from_receiver(receiver)
     }
     async fn send_to(
         &self,
         _: Option<&str>,
         method: &str,
-        _: Value,
+        params: Value,
         _: Duration,
     ) -> Result<Value, CdpError> {
         Ok(match method {
             "Target.attachToTarget" => json!({"sessionId":"s"}),
+            "Page.getFrameTree" => json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}}),
             "Runtime.evaluate" => json!({"result":{"value":0}}),
             "Accessibility.getFullAXTree" => {
                 json!({"nodes":[{"nodeId":"d","role":{"value":"DisclosureTriangle"},"name":{"value":"Details"},"backendDOMNodeId":7,"properties":[{"name":"expanded","value":{"value":self.expanded.load(Ordering::SeqCst)}}]}]})
             }
             "DOM.resolveNode" => json!({"object":{"objectId":"summary"}}),
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("function domiosVisible")) =>
+            {
+                json!({"result":{"value":true}})
+            }
+            // The agent cursor presentation is not a page action.
+            "Runtime.callFunctionOn"
+                if params["functionDeclaration"]
+                    .as_str()
+                    .is_some_and(|source| source.contains("?.present(")) =>
+            {
+                json!({"result":{"value":true}})
+            }
             "Runtime.callFunctionOn" => {
                 self.actions.fetch_add(1, Ordering::SeqCst);
                 self.expanded.fetch_xor(true, Ordering::SeqCst);
@@ -93,6 +114,7 @@ async fn disclosure_actions_read_back_state_and_never_replay_uncertain_clicks() 
             actions: AtomicUsize::new(0),
             uncertain,
             closed: tokio::sync::watch::channel(None).0,
+            subscribers: Default::default(),
         });
         let page = CdpClient::from_connection(connection.clone())
             .attach_page("target")

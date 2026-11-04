@@ -459,7 +459,6 @@ fn upgraded_peer_announce_refreshes_a_stored_v1_record_then_other_routes_pass() 
         mesh.paired_peers["air"].relay_protocol_version
     };
     let announce = |relay_protocol_version| PeerAnnounce {
-        registry: None,
         instance_id: "air".into(),
         instance_name: "air".into(),
         addresses: vec![PeerAddress::from_ip("100.64.0.7")],
@@ -739,6 +738,7 @@ fn plan_limit_locked_peer_is_named_instead_of_an_unknown_signature() {
         mesh.account_state().clone()
     };
     let sign_in = |locked| AccountMeshState {
+        registry_members: None,
         account_epoch: 1 + u64::from(locked),
         plan_limit_locked: locked,
         membership: if locked {

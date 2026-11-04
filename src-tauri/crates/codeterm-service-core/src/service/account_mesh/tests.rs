@@ -161,6 +161,7 @@ fn account_mesh_snapshot_and_outcomes_match_the_desktop_client() {
     let mut state = signed_in(2);
     state.cleanup = Cleanup::Pending;
     let snapshot = AccountMeshSnapshot {
+        connections: Vec::new(),
         local_installation_id: "installation-a".into(),
         view: state.view(),
         pairs: Vec::new(),
@@ -266,6 +267,60 @@ fn account_manager() -> codeterm_mesh::MeshManager {
     );
     manager.insert_account_peer_for_test(account_peer());
     manager
+}
+
+#[test]
+fn account_mesh_view_supplements_stale_leases_without_rewriting_registry_authority() {
+    let mut state = signed_in(1);
+    let mut manager = account_manager();
+    manager.set_clock(Arc::new(|| 100));
+    manager.apply_account_state(mesh_state(&state));
+    manager.insert_account_peer_for_test(account_peer());
+    state.registry = Some(
+        serde_json::from_value(json!({
+            "observed_at": 90, "registry_revision": 7, "cursor": null,
+            "rows": [{
+                "installation_id": "peer-a", "key_id": "test-key", "key_generation": 1,
+                "slot_revision": 1, "active": true, "presence": "present",
+                "admitted_at": 1, "authenticated_at": 1, "display_name": "Peer A",
+                "metadata_revision": 1, "publication": "complete", "membership_expires_at": 99,
+                "eligibility": "eligible", "endpoint": null
+            }]
+        }))
+        .unwrap(),
+    );
+    let row = |view: AccountMeshView| view.registry.unwrap().rows.remove(0);
+    let projected = row(view_with_peer_memberships(&state, &manager));
+    assert_eq!(projected.membership_expires_at, Some(3700));
+    assert_eq!(projected.slot_revision, 1);
+    assert_eq!(projected.metadata_revision, 1);
+    assert!(projected.endpoint.is_none());
+    assert_eq!(
+        state.registry.as_ref().unwrap().rows[0].membership_expires_at,
+        Some(99)
+    );
+
+    state.registry.as_mut().unwrap().rows[0].presence =
+        codeterm_account::account_mesh::wire::RegistryPresence::SignedOut;
+    assert_eq!(
+        row(view_with_peer_memberships(&state, &manager)).membership_expires_at,
+        Some(99)
+    );
+    state.registry.as_mut().unwrap().rows[0].presence =
+        codeterm_account::account_mesh::wire::RegistryPresence::Present;
+    state.account_epoch += 1;
+    assert_eq!(
+        row(view_with_peer_memberships(&state, &manager)).membership_expires_at,
+        Some(99)
+    );
+    state.account_epoch -= 1;
+    let mut gate = manager.account_state().clone();
+    gate.revoked_installations.insert("peer-a".into());
+    manager.apply_account_state(gate);
+    assert_eq!(
+        row(view_with_peer_memberships(&state, &manager)).membership_expires_at,
+        Some(99)
+    );
 }
 
 fn account_peer() -> PairedPeer {

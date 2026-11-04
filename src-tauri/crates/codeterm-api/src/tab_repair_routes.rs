@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State as AxumState},
-    http::{HeaderMap, StatusCode},
+    http::StatusCode,
     Json,
 };
 use codeterm_service_core::service::MuxEmitCause;
@@ -145,7 +145,7 @@ type RepairResult = Result<Json<TabRepairResponse>, (StatusCode, Json<serde_json
 pub(crate) async fn repair_tab(
     AxumState(state): AxumState<AppState>,
     Path(raw_tab_id): Path<String>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Json(request): Json<TabRepairRequest>,
 ) -> RepairResult {
     let result = repair_tab_inner(state, raw_tab_id, headers, request).await;
@@ -155,7 +155,7 @@ pub(crate) async fn repair_tab(
 async fn repair_tab_inner(
     state: AppState,
     raw_tab_id: String,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     request: TabRepairRequest,
 ) -> Result<TabRepairResponse, ApiRepairError> {
     let tab_id = crate::routes::resolve_tab_async(&state, &raw_tab_id)

@@ -63,17 +63,22 @@ async fn require_plan_role_for_unowned_task(
 
 pub(super) async fn verify_task_mutation_owner(
     svc: &ServiceState,
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     plan_id: &str,
     task_id: &str,
     recovery: TaskMutationKind,
     requested_status_label: Option<&str>,
 ) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
-    let detail = svc
-        .plan_store
-        .show_task(task_id)
-        .filter(|detail| detail.plan_id == plan_id)
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?;
+    let store = svc.plan_store.clone();
+    let task = task_id.to_owned();
+    let plan = plan_id.to_owned();
+    let detail = crate::plan_routes::run_blocking(move || {
+        store
+            .show_task(&task)
+            .filter(|detail| detail.plan_id == plan)
+            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))
+    })
+    .await?;
     let caller = crate::tab_routes::authenticated_plan_caller(headers);
     if recovery == TaskMutationKind::BlockDecision {
         let owner = match svc
@@ -105,18 +110,14 @@ pub(super) async fn verify_task_mutation_owner(
         );
         if planner {
             if owner_gone && detail.task.interruption.owner_epoch > 0 {
-                svc.plan_store
-                    .retire_stale_task_owner_with_label(
-                        plan_id,
-                        task_id,
-                        Some(codeterm_service_core::plan::TaskStatus::Blocked),
-                        requested_status_label,
-                        |_| false,
-                        epoch_ms(),
-                    )
-                    .map_err(|error| {
-                        text_err(axum::http::StatusCode::CONFLICT, error.to_string())
-                    })?;
+                retire_stale_owner(
+                    svc,
+                    plan_id,
+                    task_id,
+                    Some(codeterm_service_core::plan::TaskStatus::Blocked),
+                    requested_status_label,
+                )
+                .await?;
             }
             return Ok(());
         }
@@ -145,23 +146,17 @@ pub(super) async fn verify_task_mutation_owner(
             .await
         {
             Ok(()) => {
-                return svc
-                    .plan_store
-                    .retire_stale_task_owner_with_label(
-                        plan_id,
-                        task_id,
-                        (recovery == TaskMutationKind::BlockDecision)
-                            .then_some(codeterm_service_core::plan::TaskStatus::Blocked),
-                        (recovery == TaskMutationKind::BlockDecision)
-                            .then_some(requested_status_label)
-                            .flatten(),
-                        |_| false,
-                        epoch_ms(),
-                    )
-                    .map(|_| ())
-                    .map_err(|error| {
-                        text_err(axum::http::StatusCode::CONFLICT, error.to_string())
-                    });
+                return retire_stale_owner(
+                    svc,
+                    plan_id,
+                    task_id,
+                    (recovery == TaskMutationKind::BlockDecision)
+                        .then_some(codeterm_service_core::plan::TaskStatus::Blocked),
+                    (recovery == TaskMutationKind::BlockDecision)
+                        .then_some(requested_status_label)
+                        .flatten(),
+                )
+                .await;
             }
             Err(codeterm_service_core::service::PlanAuthorityError::SessionBindingPending) => {
                 return Err(plan_authority_err(
@@ -272,4 +267,31 @@ pub(super) async fn verify_task_mutation_owner(
             "blocking task failed",
         )
     })?
+}
+
+async fn retire_stale_owner(
+    svc: &ServiceState,
+    plan_id: &str,
+    task_id: &str,
+    status: Option<codeterm_service_core::plan::TaskStatus>,
+    label: Option<&str>,
+) -> Result<(), (axum::http::StatusCode, Json<Value>)> {
+    let store = svc.plan_store.clone();
+    let plan = plan_id.to_owned();
+    let task = task_id.to_owned();
+    let label = label.map(str::to_owned);
+    crate::plan_routes::run_blocking(move || {
+        store
+            .retire_stale_task_owner_with_label(
+                &plan,
+                &task,
+                status,
+                label.as_deref(),
+                |_| false,
+                epoch_ms(),
+            )
+            .map(|_| ())
+            .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))
+    })
+    .await
 }

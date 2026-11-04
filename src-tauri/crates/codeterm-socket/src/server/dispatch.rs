@@ -15,6 +15,7 @@ pub(super) fn dispatch(
     let method = canonical_method.as_deref().unwrap_or(method);
     // System methods are tiny — handle inline.
     match method {
+        "diagnostics.memory" => return Ok(svc.memory_diagnostics()),
         "plugin.refresh_installed" => {
             let ids: Vec<String> = params
                 .as_ref()
@@ -72,6 +73,7 @@ pub(super) fn dispatch(
         "system.capabilities" => {
             let methods = vec![
                 "system.identify",
+                "diagnostics.memory",
                 "plugin.refresh_installed",
                 "system.capabilities",
                 "rest_api.status",
@@ -154,7 +156,6 @@ pub(super) fn dispatch(
                 "orchestrator.refresh",
                 "plan.create",
                 "plan.control_loop.show",
-                "plan.control_loop.set",
                 "plan.control_loop.run",
                 "plan.curator.grant",
                 "plan.curator.finish",
@@ -494,6 +495,13 @@ pub(crate) fn dispatch_mesh_rpc(
         return Err(JsonRpcError {
             code: -32003,
             message: "Local API forwarding is unavailable to mesh callers".into(),
+            data: None,
+        });
+    }
+    if method.starts_with("diagnostics.") {
+        return Err(JsonRpcError {
+            code: -32003,
+            message: "Memory diagnostics require the local owner credential".into(),
             data: None,
         });
     }

@@ -205,25 +205,27 @@ pub(super) async fn run(
     account: Arc<AccountMeshService>,
     mesh: crate::MeshStateHandle,
 ) {
+    let ui = service.ui.clone();
+    mesh.lock().bind_connection_phases(Arc::new(move |phase| {
+        ui.emit("mesh-state-changed", serde_json::json!(phase));
+    }));
     let mut changes = account.mesh.subscribe();
     let mut connections = mesh.lock().gate_watch();
     let mut network = service.events.subscribe();
     let mut publication = Publication::default();
     let mut reconciliation = Reconciliation::default();
-    let mut membership = None;
     let mut refresh = false;
     loop {
         connections.borrow_and_update();
         let enabled = service.configuration().mesh.enabled;
         let state = changes.borrow_and_update().clone();
+        mesh.lock().expire_pending_connections();
         let now = mesh.lock().now();
         reconciliation.enter_epoch(state.account_epoch);
-        let current = state
-            .current_membership(now)
-            .filter(|_| enabled)
-            .map(|membership| membership.token.clone());
-        if current.is_some() && (refresh || current != membership) {
-            membership = current;
+        if enabled
+            && (refresh || reconciliation.registry_retry.is_none())
+            && registry_read_needed(&state, now, refresh)
+        {
             refresh = false;
             match account.mesh.list_fresh().await {
                 Ok(_) => {
@@ -238,8 +240,6 @@ pub(super) async fn run(
                     log::debug!("[mesh/account] Registry reconciliation deferred: {refusal:?}");
                 }
             }
-        } else {
-            membership = current;
         }
         let state = account.mesh.state();
         if state.registry_failure.is_none() {
@@ -264,6 +264,8 @@ pub(super) async fn run(
                     .filter(|row| row.active && row.eligibility == Eligibility::Eligible)
                     .map(|row| row.installation_id.as_str())
                     .collect();
+                mesh.lock()
+                    .retain_connection_phases(|id| active.contains(id));
                 let removed: Vec<_> = mesh
                     .lock()
                     .account_mesh_pairs()
@@ -289,16 +291,15 @@ pub(super) async fn run(
                         reconciliation.clear_peer(&row.installation_id);
                         continue;
                     };
-                    let connected = {
-                        let manager = mesh.lock();
-                        manager.account_mesh_pairs().iter().any(|peer| {
-                            peer.installation_id.as_deref() == Some(row.installation_id.as_str())
-                                && peer.online
-                                && manager.traffic_open(&peer.instance_id)
-                        })
-                    };
+                    let connected = mesh.lock().has_healthy_connection(&row.installation_id);
                     if connected {
                         reconciliation.clear_peer(&row.installation_id);
+                        continue;
+                    }
+                    if !mesh
+                        .lock()
+                        .installation_request_allowed(&row.installation_id)
+                    {
                         continue;
                     }
                     if !reconciliation.dial_due(
@@ -318,6 +319,15 @@ pub(super) async fn run(
                                 .entry(row.installation_id.clone())
                                 .or_default()
                                 .failed(now, &refusal);
+                            if reconciliation.retries[&row.installation_id]
+                                .retry_at
+                                .is_some()
+                            {
+                                mesh.lock().set_connection_phase(
+                                    &row.installation_id,
+                                    codeterm_mesh::manager::ConnectionPhase::Retrying,
+                                );
+                            }
                             log::debug!(
                                 "[mesh/account] Connection to {} deferred: {}",
                                 row.installation_id,
@@ -336,6 +346,7 @@ pub(super) async fn run(
                 }
             }
         } else if !enabled || state.current_membership(now).is_none() {
+            mesh.lock().clear_connection_phases();
             reconciliation = Reconciliation::default();
         }
         let pairs = mesh.lock().account_mesh_pairs();
@@ -344,6 +355,8 @@ pub(super) async fn run(
             service.ui.emit(event, serde_json::Value::Null);
         });
         let deadline = reconciliation.deadline(mesh.lock().now(), peers_ready);
+        let lifecycle_deadline = mesh.lock().connection_deadline();
+        let deadline = deadline.into_iter().chain(lifecycle_deadline).min();
         tokio::select! {
             changed = changes.changed() => { if changed.is_err() { return; } },
             changed = connections.changed() => { if changed.is_err() { return; } },
@@ -362,6 +375,25 @@ pub(super) async fn run(
             } => { refresh = reconciliation.registry_refresh_due(mesh.lock().now()); }
         }
     }
+}
+
+fn registry_read_needed(
+    state: &codeterm_account::account_mesh::LifecycleState,
+    now: u64,
+    retry_due: bool,
+) -> bool {
+    let Some(membership) = state.current_membership(now) else {
+        return false;
+    };
+    retry_due
+        || (state.enrollment != codeterm_account::account_mesh::Enrollment::Enrolling
+            && state.registry.as_ref().is_none_or(|registry| {
+                registry.cursor.is_some()
+                    || !registry
+                        .rows
+                        .iter()
+                        .any(|row| row.installation_id == membership.verified.installation_id)
+            }))
 }
 
 async fn connectivity_changed(

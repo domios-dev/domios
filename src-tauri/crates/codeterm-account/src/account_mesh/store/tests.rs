@@ -1,4 +1,5 @@
 use super::*;
+use crate::account_mesh::AccountMeshRefusal;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 static NEXT: AtomicU64 = AtomicU64::new(0);
@@ -164,6 +165,25 @@ async fn terminal_signin_gate_roundtrips_in_current_record_without_rollback_side
         record.reauth_required_accounts
     );
     assert!(!directory.join("state/account/mesh-reauth.json").exists());
+    for refusal in [
+        AccountMeshRefusal::MachineLimit {
+            limit: 2,
+            active_count: 2,
+        },
+        AccountMeshRefusal::Forbidden,
+        AccountMeshRefusal::Revoked,
+        AccountMeshRefusal::ReauthRequired,
+    ] {
+        record
+            .terminal_refusals
+            .insert("opaque-account".into(), refusal);
+        store.save(&record).await.unwrap();
+        assert_eq!(
+            store.load().await.unwrap().terminal_refusals,
+            record.terminal_refusals
+        );
+    }
+    record.terminal_refusals.clear();
     record.reauth_required_accounts.clear();
     store.save(&record).await.unwrap();
     assert!(store
@@ -172,5 +192,6 @@ async fn terminal_signin_gate_roundtrips_in_current_record_without_rollback_side
         .unwrap()
         .reauth_required_accounts
         .is_empty());
+    assert!(store.load().await.unwrap().terminal_refusals.is_empty());
     fs::remove_dir_all(directory).unwrap();
 }

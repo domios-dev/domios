@@ -52,7 +52,7 @@ fn with(mut payload: Value, field: &str, value: Value) -> Value {
 fn account_mesh_membership_accepts_only_its_exact_window() {
     let verified = verify(&valid_payload(), START).unwrap();
     assert_eq!(verified.account_id, account_id(UID));
-    assert_eq!(verified.refresh_after(), START + 3000);
+    assert!((START + 3000..=START + 3450).contains(&verified.refresh_after()));
     assert!(verify(&valid_payload(), START + 3599).is_ok());
     assert_eq!(
         verify(&valid_payload(), START + 3600),
@@ -316,6 +316,7 @@ fn account_mesh_wire_matches_the_server_packet() {
         schema_version: 1,
         installation_id: "desk-7f3a".into(),
         request_id: request_id.into(),
+        signed_registry: None,
         requested_membership_seconds: None,
         operation,
     };
@@ -458,11 +459,36 @@ fn account_mesh_refusal_details_map_exactly_and_only_mesh_machines_is_a_plan_lim
 
 #[test]
 fn account_mesh_short_membership_renewal_is_strictly_after_issuance() {
-    for (seconds, refresh) in [(1, 1), (119, 60), (120, 60), (121, 61), (3600, 3000)] {
+    for (seconds, refresh) in [(1, 1), (119, 60), (120, 60), (121, 61)] {
         let payload = with(valid_payload(), "expires_at", json!(START + seconds));
         let membership = verify(&payload, START).unwrap();
         assert_eq!(membership.refresh_after(), START + refresh);
         assert!(membership.is_current(START));
         assert!(!membership.is_current(START + seconds));
+    }
+}
+
+#[test]
+fn account_mesh_renewal_jitter_is_stable_and_spreads_installations() {
+    for seconds in [3600, 86400] {
+        let payload = with(valid_payload(), "expires_at", json!(START + seconds));
+        let original = verify(&payload, START).unwrap();
+        let mut deadlines = std::collections::BTreeSet::new();
+        for index in 0..100 {
+            let mut membership = original.clone();
+            membership.installation_id = format!("installation-{index}");
+            let due = membership.refresh_after();
+            assert_eq!(due, membership.clone().refresh_after());
+            assert!((START + seconds - 600.max(seconds / 12)
+                ..=START + seconds - 120.max(seconds / 24))
+                .contains(&due));
+            assert!(!membership.is_current(membership.expires_at));
+            membership.issued_at += seconds;
+            membership.expires_at += seconds;
+            assert_eq!(membership.refresh_after(), due + seconds);
+            deadlines.insert(due);
+        }
+        assert!(deadlines.len() > 80, "{}", deadlines.len());
+        assert!(deadlines.last().unwrap() - deadlines.first().unwrap() > seconds / 48);
     }
 }

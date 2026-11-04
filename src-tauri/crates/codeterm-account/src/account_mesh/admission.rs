@@ -161,6 +161,7 @@ impl AccountMesh {
             schema_version: MESH_SCHEMA_VERSION,
             installation_id: self.installation(),
             request_id: request_id(),
+            signed_registry: Some(true),
             requested_membership_seconds: matches!(
                 operation,
                 MeshOperation::Enroll { .. }
@@ -255,6 +256,12 @@ impl AccountMesh {
                     }
                 }
             });
+        }
+        if let Ok(result) = &result {
+            if let Some(snapshot) = result.signed_registry() {
+                self.accept_server_registry(snapshot, &signed.account, signed.epoch)
+                    .await?;
+            }
         }
         result
     }

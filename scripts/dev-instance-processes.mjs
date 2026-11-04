@@ -37,7 +37,8 @@ export function instanceTreePlan({ root, processes, listeners, port, windows = p
   const allowed = images && new Set(images.map(value => normalize(value, windows)));
   const selected = processes.filter(row => allowed ? allowed.has(normalize(row.executable, windows))
     : normalize(row.executable, windows).startsWith(`${tree}/`));
-  if (selected.some(row => !Number.isInteger(row.pid) || row.pid < 1 || !row.created)) throw Error('DEV instance process creation identity unavailable');
+  const unavailable = selected.find(row => !Number.isInteger(row.pid) || row.pid < 1 || !row.created || row.identityError);
+  if (unavailable) throw Error(`DEV instance process creation identity unavailable: pid=${unavailable.pid} ${unavailable.identityError || ''}`);
   const ids = new Set(selected.map(row => row.pid));
   if (listeners.some(row => row.port === 7685 && ids.has(row.pid))) throw Error('DEV image owns production port 7685; refusing cleanup');
   return selected;

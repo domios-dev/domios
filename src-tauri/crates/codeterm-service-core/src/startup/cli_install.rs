@@ -294,26 +294,28 @@ fn install_cli_alias(binary: &std::path::Path, alias: &std::path::Path) -> std::
 }
 
 /// Install bundled CLI binary to the active data-dir bin/ on startup (runs in background).
-pub fn install_bundled_cli(shell: &dyn crate::ports::host::Shell) {
+pub fn install_bundled_cli(
+    shell: &dyn crate::ports::host::Shell,
+) -> Option<std::thread::JoinHandle<()>> {
     if !should_install_bundled_cli(std::env::var("CODETERM_DEV").as_deref() == Ok("1")) {
         log::debug!("[cli-install] Dev CLI is owned by build.sh, skipping bundled refresh");
-        return;
+        return None;
     }
     let Some(src) = resolve_bundled_cli_src(shell) else {
         log::debug!("[cli-install] No bundled CLI found (dev mode?), skipping");
-        return;
+        return None;
     };
     let Some(home) = dirs::home_dir() else {
         log::error!("[cli-install] Cannot determine home directory");
-        return;
+        return None;
     };
     let data_dir = crate::paths::data_dir();
     // Run in background to not block app startup.
-    std::thread::spawn(move || {
+    Some(std::thread::spawn(move || {
         if let Err(e) = refresh_installed_cli(&src, &home, &data_dir) {
             log::error!("[cli-install] Failed to copy CLI: {}", e);
         }
-    });
+    }))
 }
 
 /// Refresh the installed CLI right after an in-app update applies the new

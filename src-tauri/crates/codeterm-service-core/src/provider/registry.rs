@@ -41,7 +41,27 @@ impl ProviderRegistry {
     /// Chat backend descriptors are lifecycle snapshots; this path never calls
     /// into a plugin VM.
     pub fn describe_all(&self) -> Vec<ProviderDescriptor> {
-        let mut out = self.agents.list_descriptors();
+        self.describe(false)
+    }
+
+    pub fn describe_metadata(&self) -> Vec<ProviderDescriptor> {
+        self.describe(true)
+    }
+
+    fn describe(&self, metadata_only: bool) -> Vec<ProviderDescriptor> {
+        let mut out = if metadata_only {
+            self.agents
+                .all_provider_arcs()
+                .iter()
+                .map(|provider| {
+                    let mut descriptor = provider.describe();
+                    descriptor.availability = crate::agent::provider::ProviderAvailability::Unknown;
+                    descriptor
+                })
+                .collect()
+        } else {
+            self.agents.list_descriptors()
+        };
         for descriptor in &mut out {
             if descriptor.remote_task.is_some() {
                 if let Some(remote) = self.chat_backends.descriptor(&descriptor.id) {
@@ -61,8 +81,11 @@ impl ProviderRegistry {
                 continue;
             }
             if let Some(mut descriptor) = self.chat_backends.descriptor(&id) {
-                descriptor.availability =
-                    observe_launch_binary(descriptor.cli_binary.as_deref()).availability;
+                descriptor.availability = if metadata_only {
+                    crate::agent::provider::ProviderAvailability::Unknown
+                } else {
+                    observe_launch_binary(descriptor.cli_binary.as_deref()).availability
+                };
                 if !out.iter().any(|agent| agent.id == descriptor.id) {
                     out.push(descriptor);
                 }

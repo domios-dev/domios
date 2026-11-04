@@ -1,10 +1,11 @@
+import {bashInterpreter} from './bash-interpreter.mjs';
 import { spawnSync } from "node:child_process";
 import { relatedSelection } from "./affected-tests.mjs";
 import { gateCommand } from "./rust-gate-authorization.mjs";
 import { pathToFileURL } from "node:url";
 
 export function executeRelatedSelection(commands, { run = spawnSync, write = console.log,
-  shell = process.env.CT_TEST_RELATED_SHELL || "bash" } = {}) {
+  shell = process.env.CT_TEST_RELATED_SHELL || bashInterpreter() } = {}) {
   for (const command of commands) write(command[0] === "./build.sh"
     ? gateCommand(command.slice(1)) : command.map(arg => `'${arg.replaceAll("'", "'\\''")}'`).join(" "));
   for (const command of commands) {

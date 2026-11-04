@@ -310,7 +310,7 @@ describe("file diff cards", () => {
     expect(all(plainHost, "chat-tool-call")).toHaveLength(1);
 
     const legacyHost = await mount(<ToolCallBubble event={eventFor("claude", "toolu_edit_bad")} expanded onToggle={() => undefined} />);
-    expect(legacyHost.firstElementChild?.getAttribute("data-testid")).toBe("chat-tool-call");
+    expect(all(legacyHost, "chat-tool-call")).toHaveLength(1);
     expect(all(legacyHost, "toolcard-edit-summary")).toHaveLength(1);
     expect(all(legacyHost, "file-diff-card")).toHaveLength(0);
 

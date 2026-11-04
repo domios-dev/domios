@@ -28,32 +28,40 @@ fn schema_comparison_allows_layout_whitespace_but_preserves_quoted_text() {
 }
 
 #[test]
-fn schema_admission_allows_the_missing_managed_board_cursor_index() {
+fn schema_admission_allows_missing_managed_indexes() {
     let expected = Connection::open_in_memory().unwrap();
     super::super::create_schema(&expected).unwrap();
     let actual = Connection::open_in_memory().unwrap();
     super::super::create_schema(&actual).unwrap();
-    actual
-        .execute_batch("DROP INDEX plan_tasks_board_cursor")
-        .unwrap();
-
-    validate(&actual, &expected).unwrap();
+    for name in MANAGED_ADDITIVE_INDEXES {
+        actual.execute_batch(&format!("DROP INDEX {name}")).unwrap();
+        validate(&actual, &expected).unwrap();
+    }
 }
 
 #[test]
 fn schema_admission_rejects_a_wrong_definition_for_the_managed_index_name() {
     let expected = Connection::open_in_memory().unwrap();
     super::super::create_schema(&expected).unwrap();
-    let actual = Connection::open_in_memory().unwrap();
-    super::super::create_schema(&actual).unwrap();
-    actual
-        .execute_batch(
-            "DROP INDEX plan_tasks_board_cursor;
-             CREATE INDEX plan_tasks_board_cursor ON plan_tasks(plan_id)",
-        )
-        .unwrap();
-
-    assert!(validate(&actual, &expected).is_err());
+    for name in MANAGED_ADDITIVE_INDEXES {
+        let actual = Connection::open_in_memory().unwrap();
+        super::super::create_schema(&actual).unwrap();
+        let table = if name.starts_with("plan_tasks") {
+            "plan_tasks"
+        } else if name.starts_with("plan_milestones") {
+            "plan_task_milestones"
+        } else if name.starts_with("plan_strides") {
+            "plan_strides"
+        } else {
+            "plan_task_attempts"
+        };
+        actual
+            .execute_batch(&format!(
+                "DROP INDEX {name}; CREATE INDEX {name} ON {table}(plan_id)"
+            ))
+            .unwrap();
+        assert!(validate(&actual, &expected).is_err(), "{name}");
+    }
 }
 
 #[test]

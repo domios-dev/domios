@@ -7,7 +7,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::mem::graph_layout::snapshot::MAX_IDS;
 
 #[derive(Deserialize)]
@@ -20,10 +20,9 @@ pub struct SnapshotParams {
 
 pub async fn mem_graph_snapshot(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<SnapshotParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let mem = &state.svc.mem;
 
     // Delta path: client knows the version and its last-seen seq.
@@ -61,10 +60,9 @@ fn parse_ids(raw: &str) -> Vec<String> {
 
 pub async fn mem_graph_labels(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<IdsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let ids = parse_ids(&p.ids);
     let labels = state
         .svc
@@ -80,10 +78,9 @@ pub async fn mem_graph_labels(
 
 pub async fn mem_graph_edges(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<IdsParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let ids = parse_ids(&p.ids);
     let edges = state
         .svc
@@ -95,9 +92,8 @@ pub async fn mem_graph_edges(
 
 pub async fn mem_graph_layout_rebuild(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if state.svc.mem.layout_is_rebuilding() {
         return Err((
             StatusCode::CONFLICT,

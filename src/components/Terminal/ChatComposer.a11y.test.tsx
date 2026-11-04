@@ -7,6 +7,7 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 
 type TestFn = () => void | Promise<void>;
 const tests: Array<[string, TestFn]> = [];
@@ -65,7 +66,7 @@ async function renderComposer(tabId: string): Promise<Harness> {
   const store = createMuxStateStore(() => state);
   await act(async () => {
     root.render(
-      <MuxStateStoreContext.Provider value={store}>
+      <DraftStorageFixture><MuxStateStoreContext.Provider value={store}>
         <ChatComposer
           tabId={tabId}
           tabProvider={null}
@@ -82,7 +83,7 @@ async function renderComposer(tabId: string): Promise<Harness> {
           observeChatSendStatus={() => {}}
           showComposerError={() => {}}
         />
-      </MuxStateStoreContext.Provider>,
+      </MuxStateStoreContext.Provider></DraftStorageFixture>,
     );
   });
   await flush();

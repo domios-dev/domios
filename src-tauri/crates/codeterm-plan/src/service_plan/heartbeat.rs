@@ -391,15 +391,40 @@ fn prepend_heartbeat(
     }
 }
 
-pub(super) fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
+pub fn prepend_plan_heartbeat(plan: &Plan, text: &str) -> String {
     prepend_plan_heartbeat_with_digests(plan, text, &[])
 }
 
-pub(super) fn prepend_plan_heartbeat_with_digests(
+pub fn prepend_plan_heartbeat_with_digests(
     plan: &Plan,
     text: &str,
     digest_lines: &[String],
 ) -> String {
+    prepend_plan_heartbeat_with_selection(plan, text, digest_lines, None)
+}
+
+pub fn prepend_plan_heartbeat_with_selection(
+    plan: &Plan,
+    text: &str,
+    digest_lines: &[String],
+    learning_ids: Option<&[String]>,
+) -> String {
+    let mut heartbeat = plan.heartbeat.clone();
+    if let Some(ids) = learning_ids {
+        let allowed: Vec<_> = ids
+            .iter()
+            .filter(|id| {
+                heartbeat
+                    .learnings
+                    .iter()
+                    .any(|learning| &learning.id == *id && !is_owner_rule(learning))
+            })
+            .take(MAX_SITUATIONAL_LEARNINGS)
+            .collect();
+        heartbeat
+            .learnings
+            .retain(|learning| is_owner_rule(learning) || allowed.contains(&&learning.id));
+    }
     if matches!(plan.mode, PlanMode::Paused | PlanMode::Complete) || is_plan_complete(plan) {
         return text.to_string();
     }
@@ -414,7 +439,7 @@ pub(super) fn prepend_plan_heartbeat_with_digests(
             .map(|r| format!(", fallback: heartbeat ({r})"))
             .unwrap_or_default()
     ));
-    let block = render_heartbeat(plan, &plan.heartbeat, &plan.loops, &lines);
+    let block = render_heartbeat(plan, &heartbeat, &plan.loops, &lines);
     if text.trim().is_empty() {
         block
     } else {
@@ -473,7 +498,10 @@ impl PlanStore {
     ) -> Result<String, PlanError> {
         if let Some(plan_id) = plan_id.filter(|id| !id.trim().is_empty()) {
             return self
-                .get(plan_id)
+                .database
+                .heartbeat_owner_candidates(&super::PlanMatch::Ids(vec![plan_id.into()]))?
+                .into_iter()
+                .next()
                 .map(|plan| plan.id)
                 .ok_or(PlanError::NotFound);
         }
@@ -486,7 +514,7 @@ impl PlanStore {
             owners.push(super::PlanMatch::OwnerSession(session.to_string()));
         }
         let candidates = super::PlanMatch::active().and(super::PlanMatch::Any(owners));
-        for plan in self.plans_matching(&candidates) {
+        for plan in self.database.heartbeat_owner_candidates(&candidates)? {
             if plan.status != PlanStatus::Active {
                 continue;
             }
@@ -567,7 +595,8 @@ impl PlanStore {
         session_id: Option<&str>,
     ) -> Result<HeartbeatShowResult, PlanError> {
         let plan_id = self.resolve_active_plan_for_orchestrator(plan_id, tab_id, session_id)?;
-        let plan = self.get(&plan_id).ok_or(PlanError::NotFound)?;
+        let read = self.status_projection(&plan_id, now_ms())?;
+        let plan = read.plan();
         let mut heartbeat = plan.heartbeat.clone();
         heartbeat.current_focus = None;
         heartbeat.active_lanes.clear();
@@ -586,33 +615,30 @@ impl PlanStore {
         text: &str,
         digests: &[String],
         learning_ids: Option<&[String]>,
-    ) -> String {
-        let Some(mut plan) = self.get(plan_id) else {
-            return text.to_string();
+    ) -> Result<String, PlanError> {
+        let read = match self.database.status_projection(
+            plan_id,
+            now_ms(),
+            learning_ids.unwrap_or_default(),
+        ) {
+            Ok(read) => read,
+            Err(PlanError::NotFound) => return Ok(text.to_string()),
+            Err(error) => return Err(error),
         };
-        if let Some(ids) = learning_ids {
-            let allowed: Vec<_> = ids
-                .iter()
-                .filter(|id| {
-                    plan.heartbeat
-                        .learnings
-                        .iter()
-                        .any(|learning| &learning.id == *id && !is_owner_rule(learning))
-                })
-                .take(MAX_SITUATIONAL_LEARNINGS)
-                .collect();
-            plan.heartbeat
-                .learnings
-                .retain(|learning| is_owner_rule(learning) || allowed.contains(&&learning.id));
-        }
-        prepend_plan_heartbeat_with_digests(&plan, text, digests)
+        Ok(prepend_plan_heartbeat_with_selection(
+            read.plan(),
+            text,
+            digests,
+            learning_ids,
+        ))
     }
 
-    pub fn prepend_heartbeat_for_plan(&self, plan_id: &str, text: &str) -> String {
-        let Some(plan) = self.get(plan_id) else {
-            return text.to_string();
-        };
-        prepend_plan_heartbeat(&plan, text)
+    pub fn prepend_heartbeat_for_plan(
+        &self,
+        plan_id: &str,
+        text: &str,
+    ) -> Result<String, PlanError> {
+        self.prepend_heartbeat_with_selected_learnings(plan_id, text, &[], None)
     }
 
     pub fn prepend_heartbeat_for_plan_with_digests(
@@ -620,17 +646,19 @@ impl PlanStore {
         plan_id: &str,
         text: &str,
         digest_lines: &[String],
-    ) -> String {
-        let Some(plan) = self.get(plan_id) else {
-            return text.to_string();
-        };
-        prepend_plan_heartbeat_with_digests(&plan, text, digest_lines)
+    ) -> Result<String, PlanError> {
+        self.prepend_heartbeat_with_selected_learnings(plan_id, text, digest_lines, None)
     }
 
-    pub fn prepend_heartbeat_for_orchestrator_tab(&self, tab_id: &str, text: &str) -> String {
-        let Ok(plan_id) = self.resolve_active_plan_for_orchestrator(None, Some(tab_id), None)
-        else {
-            return text.to_string();
+    pub fn prepend_heartbeat_for_orchestrator_tab(
+        &self,
+        tab_id: &str,
+        text: &str,
+    ) -> Result<String, PlanError> {
+        let plan_id = match self.resolve_active_plan_for_orchestrator(None, Some(tab_id), None) {
+            Ok(id) => id,
+            Err(PlanError::NotFound) => return Ok(text.to_string()),
+            Err(error) => return Err(error),
         };
         self.prepend_heartbeat_for_plan(&plan_id, text)
     }

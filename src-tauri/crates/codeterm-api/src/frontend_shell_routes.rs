@@ -20,10 +20,67 @@ use std::{
 
 type ApiError = (StatusCode, String);
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum ClientHealthEvent {
+    ConnectionLost,
+    ConnectionRestored,
+    ChatConnectSlow,
+    PreviewSlow,
+    PreviewFailed,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ClientHealth {
+    event: ClientHealthEvent,
+    tab_id: Option<String>,
+    elapsed_ms: u32,
+    listener_ms: Option<u32>,
+    response_ms: Option<u32>,
+    adoption_ms: Option<u32>,
+    paint_ms: Option<u32>,
+}
+
+async fn client_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ClientHealth>,
+) -> Result<Json<Value>, ApiError> {
+    owner(&state, &headers)?;
+    if body
+        .tab_id
+        .as_deref()
+        .is_some_and(|id| !diagnostic_label(id, 128))
+    {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "Invalid diagnostic tab identity".into(),
+        ));
+    }
+    codeterm_service_core::logs::record(
+        codeterm_service_core::logs::LogLevel::Warn,
+        "frontend.client",
+        format!("{:?} ({} ms)", body.event, body.elapsed_ms),
+        Some(
+            json!({ "client_id": diagnostic_client(&headers), "tab_id": body.tab_id, "elapsed_ms": body.elapsed_ms,
+            "listener_ms": body.listener_ms, "response_ms": body.response_ms, "adoption_ms": body.adoption_ms, "paint_ms": body.paint_ms }),
+        ),
+    );
+    Ok(Json(json!({ "ok": true })))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/api/frontend/bootstrap", get(bootstrap))
         .route("/api/frontend/ready", post(ready))
+        .route(
+            "/api/frontend/client-health",
+            bounded_diagnostic(
+                post(client_health),
+                Arc::new(DiagnosticAdmission::new(Arc::new(Instant::now))),
+            ),
+        )
         .route(
             "/api/frontend/diagnostic",
             bounded_diagnostic(
@@ -111,9 +168,6 @@ async fn diagnostic_admission(
     request: Request,
     next: Next,
 ) -> Response {
-    if !cfg!(debug_assertions) {
-        return StatusCode::CONFLICT.into_response();
-    }
     let remote = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
@@ -311,6 +365,32 @@ enum RequestFailureKind {
     Aborted,
 }
 
+fn redacted_chat_diagnostic(value: &Value) -> Value {
+    match value {
+        Value::Object(fields) => Value::Object(
+            fields
+                .iter()
+                .map(|(key, value)| {
+                    let normalized = key.to_ascii_lowercase().replace(['_', '-'], "");
+                    if normalized.contains("nonce")
+                        || normalized.contains("credential")
+                        || normalized.contains("token")
+                    {
+                        (
+                            format!("{key}Present"),
+                            Value::Bool(!value.is_null() && value.as_str() != Some("")),
+                        )
+                    } else {
+                        (key.clone(), redacted_chat_diagnostic(value))
+                    }
+                })
+                .collect(),
+        ),
+        Value::Array(values) => Value::Array(values.iter().map(redacted_chat_diagnostic).collect()),
+        _ => value.clone(),
+    }
+}
+
 async fn diagnostic(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -328,7 +408,7 @@ async fn diagnostic(
         log::debug!("[frontend-device] client={} build_sha={:?} entry={:?} version={:?} ua={} viewport={}x{} visual={}x{} dpr={} touch={} display={} scroll_end={} overflow_anchor={}", diagnostic_client(&headers), body.build_sha, device.entry_asset, device.app_version, device.user_agent_family, device.width, device.height, device.visual_width, device.visual_height, device.pixel_ratio, device.touch, device.display_mode, device.scroll_end, device.overflow_anchor);
     }
     if let Some(chat) = &body.chat {
-        let encoded = chat.to_string();
+        let encoded = redacted_chat_diagnostic(chat).to_string();
         if encoded.len() > 4096 {
             return Err((
                 StatusCode::BAD_REQUEST,

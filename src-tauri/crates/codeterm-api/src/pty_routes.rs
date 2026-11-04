@@ -10,7 +10,7 @@ use axum::{
 use serde::Deserialize;
 use std::time::Duration;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct PtySpawnBody {
@@ -30,8 +30,6 @@ pub async fn pty_spawn(
     headers: HeaderMap,
     Json(mut body): Json<PtySpawnBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    check_auth(&state, &headers)
-        .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?;
     if let Some(caller) = crate::auth::tab_caller(&state, &headers)
         .map_err(|(status, error)| crate::plan_quota_status::route_error(status, error))?
     {
@@ -66,11 +64,10 @@ pub struct PtyTailQuery {
 /// web clients cannot steal terminal output from the desktop webview.
 pub async fn pty_read(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(pty_id): Path<String>,
     Query(query): Query<PtyTailQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let owner = state.svc.clone();
     let target = pty_id.clone();
     let requested_offset = tokio::task::spawn_blocking(move || {
@@ -134,11 +131,10 @@ fn default_true() -> bool {
 
 pub async fn pty_write(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(pty_id): Path<String>,
     Json(body): Json<PtyWriteBody>,
 ) -> Result<Json<serde_json::Value>, axum::response::Response> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()).into_response())?;
     tokio::task::spawn_blocking(move || {
         pty_write_lock_refusal(&state, &pty_id)?;
         state
@@ -244,11 +240,10 @@ pub struct PtyResizeBody {
 
 pub async fn pty_resize(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(pty_id): Path<String>,
     Json(body): Json<PtyResizeBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     tokio::task::spawn_blocking(move || {
         if let Some(client_id) = body.client_id.as_deref() {
             if !state.resize_owner.lock().is_owner(&pty_id, client_id) {
@@ -293,11 +288,10 @@ pub struct PtyLaunchCommandBody {
 /// no-verify launch writer (poll_shell_prompt blocks, so spawn_blocking).
 pub async fn pty_launch_command(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(pty_id): Path<String>,
     Json(body): Json<PtyLaunchCommandBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let command = body.command;
     tokio::task::spawn_blocking(move || {
@@ -316,12 +310,11 @@ pub async fn pty_launch_command(
 
 pub async fn claim_resize_owner(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ResizeOwnerBody>,
 ) -> Result<Json<codeterm_service_core::resize_owner::ResizeOwnerClaim>, (StatusCode, String)> {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
         let owner = state.resize_owner.lock().claim(
             tab_id,
             body.pty_id,

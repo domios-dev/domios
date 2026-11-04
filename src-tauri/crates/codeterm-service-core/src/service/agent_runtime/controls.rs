@@ -77,28 +77,29 @@ pub(crate) fn switch(
     mode: Option<&str>,
     service_tier: Option<codeterm_plugin::agent_runtime::RuntimeServiceTierSelection>,
 ) -> Result<ModelSwitchOutcome, ModelSwitchError> {
-    super::capacity_retry::cancel(svc, tab).map_err(ModelSwitchError::RuntimeControlRefused)?;
     let provider = svc
         .mux
         .read()
         .get_tab(tab)
         .and_then(|target| target.agent_type.clone())
         .ok_or_else(|| ModelSwitchError::NotFound(tab.into()))?;
-    if !model.trim().is_empty() {
-        crate::service::spawn::validate_agent_model(
-            &svc.agent_registry,
-            &provider,
-            Some(model.trim()),
-        )
-        .map_err(ModelSwitchError::InvalidModel)?;
-    }
+    let model_selection = crate::service::spawn::resolve_agent_model_selection(
+        &svc.agent_registry,
+        Some(&provider),
+        Some(model),
+        &provider,
+    )
+    .map_err(ModelSwitchError::InvalidModel)?;
+    let model = model_selection.model.as_deref().unwrap_or_default();
+    super::capacity_retry::cancel(svc, tab).map_err(ModelSwitchError::RuntimeControlRefused)?;
     let effective_model = svc
         .mux
         .read()
         .get_tab(tab)
         .and_then(|target| {
-            (!model.trim().is_empty())
-                .then(|| model.trim().to_owned())
+            model_selection
+                .model
+                .clone()
                 .or_else(|| {
                     target
                         .agent_runtime_config

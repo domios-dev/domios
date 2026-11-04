@@ -297,6 +297,17 @@ pub struct ChatRegistry {
 }
 
 impl ChatRegistry {
+    pub fn memory_stats(&self) -> serde_json::Value {
+        let tailers = self.inner.try_lock().map(|entries| entries.len());
+        let sources = self.sources.try_lock().map(|entries| entries.len());
+        serde_json::json!({
+            "tailers": tailers,
+            "sources": sources,
+            "row_cache": self.row_cache.memory_stats(),
+            "tail_cache": self.tail_cache.memory_stats(),
+        })
+    }
+
     pub fn new() -> Arc<Self> {
         Arc::new(Self::default())
     }

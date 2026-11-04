@@ -19,6 +19,7 @@ import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import { prepareBrowserUpload } from "./browserImageUpload";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -70,7 +71,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
   __setListenForTest(async () => () => {});
   configureLocalPreviews();
   const state: ExtendedState = {
-    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    workspaces: [], tabs: { picker: { id: "picker", pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } }, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
   };
   const store = createMuxStateStore(() => state);
@@ -80,7 +81,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     const [attachments, setAttachments] = useState<string[]>([]);
     const [bubble, setBubble] = useState("");
     const sends = useChatSends("picker");
-    return <MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
+    return <DraftStorageFixture><MuxStateStoreContext.Provider value={store}><LocalArtifactScope tabId="picker">
       {bubble && <div role="region" aria-label="Sent message"><MessageBubble message={{ id: "sent", type: "user", content: bubble }} userFooter={<><ChatDeliveryState state="sending" /><DroppedUploadNotice tabId="picker" id="sent" names={sends.find(send => send.id === "sent")?.droppedUploads} /></>} /></div>}
       <ComposerIssuesProvider><AgentRuntimeBanner state={null} onRetry={() => {}} /><ChatComposer tabId="picker" tabProvider={null} currentPtyId={null} pendingPrompt={null}
         attachments={attachments} addAttachments={(paths) => setAttachments((current) => [...current, ...paths])}
@@ -88,7 +89,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
         clearAttachments={() => setAttachments([])} handlePasteEvent={() => {}} onWillSendMessage={() => {}}
         addOptimistic={(content) => { addChatSend("picker", { id: "sent", content, sentAtMs: Date.now() }); setBubble(content); return "sent"; }} updateOptimistic={(_id, content) => setBubble(content)}
         observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} /></ComposerIssuesProvider>
-    </LocalArtifactScope></MuxStateStoreContext.Provider>;
+    </LocalArtifactScope></MuxStateStoreContext.Provider></DraftStorageFixture>;
   }
   try {
     await act(async () => root.render(<Harness />));
@@ -145,8 +146,11 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
       return;
     }
     const row = host.querySelector('[data-testid="user-bubble-row"]')!;
-    expect(row.querySelector('[aria-label="User message"]')?.parentElement).toBe(row);
-    expect(row.querySelector('[role="status"]')?.parentElement).toBe(row);
+    const message = row.querySelector('[aria-label="User message"]');
+    const delivery = row.querySelector('[role="status"]');
+    expect(message).not.toBeNull();
+    expect(delivery).not.toBeNull();
+    expect(message!.contains(delivery)).toBe(false);
     expect(host.querySelector('[role="dialog"]')).toBeNull();
     if (failure !== "success" && failure !== "HEIC" && failure !== "pending") {
       expect(parseAttachmentMarkers(sent[0]).attachments).toEqual([]);

@@ -1,4 +1,5 @@
 // Caller: scripts build-gateway-mutex.test.mjs, build-gateway.sh
+import {bashInterpreter} from './bash-interpreter.mjs';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -20,7 +21,7 @@ const fingerprint = () => [mutex, guard].map((name) => {
   try { const s = fs.statSync(name); return `${s.ino}:${s.mtimeMs}:${s.size}`; }
   catch (error) { if (['ENOENT', 'EACCES', 'EPERM'].includes(error.code)) return ''; throw error; }
 }).join('|') + `|${read('pid')}|${read('start_token')}`;
-const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+const bash = bashInterpreter();
 const alive = (owner, token) => spawnSync(bash, [
   '-c', 'source "$1"; ct_gateway_identity_alive "$2" "$3"', 'gateway', script, owner, token,
 ], { stdio: 'ignore' }).status === 0;

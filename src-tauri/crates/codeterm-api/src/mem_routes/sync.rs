@@ -4,15 +4,14 @@ use axum::{
     Json,
 };
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::mem_ops::sync::*;
 
 pub async fn mem_sync(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Query(p): Query<SyncParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         if let Some(path) = p.path {
@@ -29,9 +28,8 @@ pub async fn mem_sync(
 
 pub async fn mem_sync_status(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let status = state
         .svc
         .mem

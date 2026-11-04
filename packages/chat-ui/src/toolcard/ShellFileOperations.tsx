@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { shellFileOperations, toolCommand, type ToolEvent } from "@codeterm/chat-core";
 import { ChevronRight, FileDiff } from "lucide-react";
 import { useId, useState } from "react";
@@ -16,29 +17,35 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
   const count = replacement?.fragments.length ?? 0;
   const previewKind = replacement ? "replacement" : operation.action;
   const filename = operation.path?.split(/[\\/]/).pop() || operation.path;
-  return <>
-    <FloatingTooltip content={operation.path} focusable={false} className="block min-w-0">
+  const toggle = () => {
+    const next = !open;
+    if (identity.length <= 2_048) {
+      if (OPEN_PREVIEWS.size >= 64) OPEN_PREVIEWS.delete(OPEN_PREVIEWS.keys().next().value as string);
+      OPEN_PREVIEWS.set(identity, next);
+    }
+    setOpen(next);
+  };
+  return <ExpandableReader label={filename || "File preview"} openerPlacement="header">{(fullscreen, opener) => <div className="ct-reader-surface min-w-0">
+    <div className="ct-reader-row flex min-w-0 items-center gap-1.5">
+    <FloatingTooltip content={operation.path} focusable={false} className="block min-w-0 flex-1">
       <button type="button" aria-expanded={open} aria-controls={regionId}
         aria-label={`${open ? "Hide" : "Show"} ${previewKind} preview for ${filename}`}
         className="flex w-full min-w-0 items-center gap-1.5 text-left"
-        onClick={() => {
-          const next = !open;
-          if (identity.length <= 2_048) {
-            if (OPEN_PREVIEWS.size >= 64) OPEN_PREVIEWS.delete(OPEN_PREVIEWS.keys().next().value as string);
-            OPEN_PREVIEWS.set(identity, next);
-          }
-          setOpen(next);
-        }}>
+        onClick={toggle}>
         <FileDiff size={14} aria-hidden className="shrink-0" />
         <span className="min-w-0 truncate" style={{ color: "var(--ct-fg)" }}>{filename}</span>
         {replacement && <span className="shrink-0">{count} {count === 1 ? "replacement" : "replacements"}</span>}
         <span className="min-w-0 flex-1 truncate text-[10.5px]">{replacement ? "Replacement preview" : operation.action === "append" ? "Append preview" : "Write preview"}{replacement?.unsupported ? " · partial" : ""}</span>
-        <ChevronRight size={12} aria-hidden className={`shrink-0 ${open ? "rotate-90" : ""}`} />
       </button>
     </FloatingTooltip>
-    <div id={regionId} hidden={!open}>
-      {open && <BoundedMessageContent unbounded collapsedHeight="160px" data-testid="shell-replacement-fragments"
-        className="mt-1" style={{ maxHeight: "400px", overflow: "auto" }}>
+    {opener}
+    <button type="button" aria-label={`${open ? "Hide" : "Show"} file preview`} aria-expanded={open} aria-controls={regionId} onClick={toggle} className="flex shrink-0 items-center">
+        <ChevronRight size={12} aria-hidden className={`shrink-0 ${open ? "rotate-90" : ""}`} />
+    </button>
+    </div>
+    <div id={regionId} hidden={!open && !fullscreen}>
+      {(open || fullscreen) && <BoundedMessageContent unbounded collapsedHeight="160px" data-testid="shell-replacement-fragments"
+        className="mt-1" style={{ maxHeight: fullscreen ? "none" : "400px", overflow: "auto" }}>
         <div className="mb-1 text-[10.5px]">{replacement ? "Requested replacements" : operation.action === "append" ? "Content to append" : "Content to write"}</div>
         {operation.content !== undefined && <pre className="m-0 whitespace-pre-wrap break-words px-2 py-0.5" style={{ background: "var(--ct-diff-add-bg)", color: "var(--ct-fg)" }}>{operation.content}</pre>}
         {replacement?.fragments.map((fragment, index) => <div key={index} className="mb-1">
@@ -50,7 +57,7 @@ function ReplacementPreview({ operation, identity }: { operation: Operation; ide
         {replacement?.unsupported && <div role="note" aria-label="Partial replacement preview">Some replacements cannot be previewed. See command details.</div>}
       </BoundedMessageContent>}
     </div>
-  </>;
+  </div>}</ExpandableReader>;
 }
 
 export function shellFileOperationPreview(event: ToolEvent) {

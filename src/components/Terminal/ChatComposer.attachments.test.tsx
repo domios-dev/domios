@@ -11,6 +11,10 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { ChatComposer } from "./ChatComposer";
 
+vi.mock("../../lib/frontendUpdate/draftStorage", () => ({
+  createDraftStorage: () => ({ read: async () => new Map<string, string>(), write: async () => {} }),
+}));
+
 beforeEach(() => configureDaemonFixture());
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -36,7 +40,7 @@ it.each([
     return { items: [], receiverTargets: {} } as T;
   });
   __setListenForTest(async () => () => {});
-  const state = { workspaces: [], tabs: {}, teams: [], notifications: [], tabStatuses: {}, toasts: [],
+  const state = { workspaces: [], tabs: { capability: { id: "capability", pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } }, teams: [], notifications: [], tabStatuses: {}, toasts: [],
     activeTabIds: {}, generation: 1, pendingCloses: [], active_workspace_id: null, focused_tab_id: null } as ExtendedState;
   const store = createMuxStateStore(() => state);
   const clear = vi.fn();

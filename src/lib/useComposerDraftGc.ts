@@ -1,12 +1,8 @@
-import { useEffect, useRef } from "react";
-import { createComposerDraftPruner } from "./composerDraftGc";
+import { useEffect } from "react";
+import { composerDraftPersistence } from "./frontendUpdate/draftPersistence";
 
 export function useComposerDraftGc(tabs: Readonly<Record<string, unknown>>): void {
-  const prune = useRef<ReturnType<typeof createComposerDraftPruner> | null>(null);
   useEffect(() => {
-    try {
-      prune.current ??= createComposerDraftPruner(window.localStorage);
-      prune.current(new Set(Object.keys(tabs)));
-    } catch {}
+    void composerDraftPersistence.prune(new Set(Object.keys(tabs)));
   }, [tabs]);
 }

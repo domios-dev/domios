@@ -777,6 +777,13 @@ impl ServiceContext {
         if agent.provider.is_empty() {
             return Err("AgentSpawnSpec.provider is required for hidden spawns".into());
         }
+        let model_selection = resolve_agent_model_selection(
+            &self.agent_registry,
+            Some(&agent.provider),
+            agent.model.as_deref(),
+            &agent.provider,
+        )
+        .map_err(|error| error.to_string())?;
         self.require_agent_provider_ready(&agent.provider)?;
         let permission_bypass_authorization =
             super::permission_policy::spawn_permission_bypass_for_launch(
@@ -798,17 +805,11 @@ impl ServiceContext {
         if let Some(ref warning) = cli_warning {
             log::warn!("[spawn.hidden] {}", warning);
         }
-        validate_agent_model(
-            &self.agent_registry,
-            &agent.provider,
-            agent.model.as_deref(),
-        )
-        .map_err(|error| error.to_string())?;
         let mut model_resolution = resolve_fresh_agent_model_with_notice(
             &self.configuration(),
             &self.agent_registry,
             &agent.provider,
-            agent.model.clone(),
+            model_selection.model,
             agent.resume_session_id.as_deref(),
         );
         attach_planned_model(&mut model_resolution, agent.planned_model.as_deref());

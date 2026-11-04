@@ -36,12 +36,12 @@ import type { MeshPresence } from "./meshPresenceHeader";
 import { flattenSidebarTabs, isGeneralSectionTab, isSidebarTabVisible, tabsInWorkspace } from "./workspaceTabs";
 import { aggregateTabStatuses } from "./tabStatuses";
 import { usePlanIndexOptional, useSidebarPlansOptional } from "../Canvas/PlansProvider";
+import { readTeamClosePlanMetadata } from "./teamClosePlanRead";
 import { renamePlan } from "../Canvas/plansApi";
 import { isWorkspaceTabActive } from "./sidebarSelection";
 import { SidebarWorkspaceDetail, type SidebarWorkspaceDetailActions, type SidebarWorkspaceDetailData } from "./SidebarWorkspaceDetail";
 import { SidebarGeneralSection } from "./SidebarGeneralSection";
 import { SidebarSkeleton } from "./SidebarSkeleton";
-import { useSidebarScrollAnchor } from "./useSidebarScrollAnchor";
 import type { JobsTarget } from "../Jobs/JobsView";
 import type { JobsOpenScope } from "../Jobs/jobsLayout";
 import { WorkspaceCardGrid } from "./WorkspaceCardGrid";
@@ -261,9 +261,11 @@ export const Sidebar = memo(function Sidebar({
         detail: error instanceof Error ? error.message : String(error),
         severity: "Error" });
     }
+    let inventoryPlans = fullPlans.plans;
     let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
     try {
       blueprintSnapshots = await readWorkspaceBlueprints(workspaceId);
+      if (planApi) inventoryPlans = await readTeamClosePlanMetadata(planApi,fullPlans.plans);
     } catch (error) {
       createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
         workspaceId: workspaceId,
@@ -277,7 +279,7 @@ export const Sidebar = memo(function Sidebar({
       state.tabs,
       state.teams ?? [],
       crons,
-      fullPlans.plans,
+      inventoryPlans,
       blueprintSnapshots,
     );
     const teamMemberIds = new Set(teams.flatMap((team) => team.members.map((member) => member.tabId)));
@@ -288,7 +290,7 @@ export const Sidebar = memo(function Sidebar({
     const workspaceTabIds = new Set(workspaceTabs.map((tab) => tab.id));
     const blueprints = blueprintSnapshots.filter((blueprint) => blueprint.state === "running" && blueprint.owner?.kind === "tab" && blueprint.owner.tab_id !== null && workspaceTabIds.has(blueprint.owner.tab_id) && !teamMemberIds.has(blueprint.owner.tab_id)).map((blueprint) => blueprint.name);
     setPendingWorkspaceClose({ id: workspaceId, name: workspace.name, agentTitles, blueprints, teams });
-  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
+  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces, planApi?.host, planApi?.port, planApi?.token]);
 
   useEffect(() => {
     const openRequestedSession = (event: Event) => {
@@ -579,9 +581,11 @@ export const Sidebar = memo(function Sidebar({
         detail: error instanceof Error ? error.message : String(error),
         severity: "Error" });
     }
+    let inventoryPlans = fullPlans.plans;
     let blueprintSnapshots: Awaited<ReturnType<typeof readWorkspaceBlueprints>>;
     try {
       blueprintSnapshots = await readWorkspaceBlueprints(wsId);
+      if (planApi) inventoryPlans = await readTeamClosePlanMetadata(planApi,fullPlans.plans);
     } catch (error) {
       createNoticePublisher({ upsertToast })({ kind: "toast", tabId: null,
         workspaceId: wsId,
@@ -591,7 +595,7 @@ export const Sidebar = memo(function Sidebar({
       return;
     }
     const resources = teamCloseResourcesForId(
-      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, fullPlans.plans, blueprintSnapshots),
+      teamCloseResourcesForWorkspace(ws, state.tabs, state.teams ?? [], crons, inventoryPlans, blueprintSnapshots),
       teamId,
     );
     const teamTabs = flattenSidebarTabs(ws.tabs, state.tabs).filter((tab) => tab.team_id === teamId);
@@ -612,7 +616,7 @@ export const Sidebar = memo(function Sidebar({
       blueprints: resources?.blueprints ?? runningBlueprintNamesForOwner(blueprintSnapshots, "team", teamId),
       lanes: resources?.lanes ?? [],
     });
-  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces]);
+  }, [upsertToast, fullPlans.plans, state.tabs, state.teams, state.workspaces, planApi?.host, planApi?.port, planApi?.token]);
 
   const { closingTeamIds, closeTeam: finishTeamClose } = useTeamClose(teamActions?.onCloseTeam, createNoticePublisher({ upsertToast }));
   const confirmTeamClose = useCallback(() => {
@@ -724,8 +728,6 @@ export const Sidebar = memo(function Sidebar({
     return groups;
   }, [generalWorkspace, isCompact, isWorkspaceMode, ordinaryWorkspaces, selectedWorkspaceId, state.activeTabIds, state.active_workspace_id, state.tabs, workspaceCanvasActive]);
 
-  const scrollAnchor = useSidebarScrollAnchor(!isSidebarCollapsed || isPeeking);
-
   return (
     <FirstRunControls locked={firstRunActive}>
       <div
@@ -750,8 +752,7 @@ export const Sidebar = memo(function Sidebar({
         >
           {(!isSidebarCollapsed || isPeeking) && (
             <>
-            <div ref={scrollAnchor.viewportRef} className="ct-sidebar-content flex-1 min-w-0 overflow-y-auto overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
-              <div ref={scrollAnchor.bodyRef}>
+            <div className="ct-sidebar-content flex-1 min-w-0 overflow-y-scroll overflow-x-hidden" onMouseDown={keepPressFocusInPlace}>
               {restoring && <SidebarSkeleton compact={isCompact} />}
               {isCompact && !restoring && (
                 <SidebarCompactRail
@@ -809,8 +810,6 @@ export const Sidebar = memo(function Sidebar({
                 )}
               </SidebarStructuralSection>}
               </SidebarDnd>
-              </div>
-              <div ref={scrollAnchor.spaceRef} aria-hidden="true" />
             </div>
             {remotePickerWorkspaceId && (
               <RemoteTabPicker

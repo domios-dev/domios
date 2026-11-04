@@ -1,6 +1,139 @@
 use super::*;
 
 #[test]
+fn binding_deadline_owner_send_writes_once_and_own_append_retires_launch() {
+    let (fixture, tab) = queue_fixture(true, None);
+    attach_fixture_pty(&fixture, &tab);
+    append_turn(&fixture, "opaque-owner-turn");
+    let authority = fixture.service.user_send_authority(&tab).unwrap();
+    assert!(fixture.service.note_user_launch_dispatched(&authority));
+    let attempt = crate::service::launch_readiness::LaunchAttempt {
+        tab_id: tab.clone(),
+        pty_id: authority.pty_id.clone().unwrap(),
+        binding_nonce: authority.binding_nonce.clone(),
+    };
+    fixture.service.record_provisional_launch(
+        &attempt,
+        codeterm_types::pty::BootStage::LaunchBindingUnconfirmed,
+        "launch binding deadline elapsed",
+    );
+    fixture
+        .service
+        .override_user_startup(&tab, &authority.binding_nonce)
+        .unwrap();
+    let writes = Arc::new(AtomicUsize::new(0));
+    let count = writes.clone();
+    let _boundary = UserSubmitBoundary::install(
+        &tab,
+        Arc::new(move |record, _| {
+            count.fetch_add(1, Ordering::SeqCst);
+            Err(DeliveryError::SubmitUnconfirmed {
+                tab: record.authority.tab_id.clone(),
+                detail: "own-session evidence pending".into(),
+            })
+        }),
+    );
+    let sent = fixture
+        .service
+        .start_human_chat_send(
+            &tab,
+            crate::service::messenger::HumanInput::composer("opaque-owner-turn"),
+            None,
+            Some("owner-once".into()),
+        )
+        .unwrap();
+    await_owner_idle(&fixture, &tab);
+    fixture.service.drain_user_owner(&tab).unwrap();
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+    fixture.service.reconcile_chat_send_evidence(&tab);
+    assert_eq!(
+        fixture.service.mux.read().get_tab(&tab).unwrap().boot_stage,
+        Some(codeterm_types::pty::BootStage::LaunchBindingUnconfirmed)
+    );
+    let foreign_path = fixture
+        .temp
+        .path()
+        .join("transcripts/foreign-session.jsonl");
+    std::fs::write(foreign_path, "{\"content\":\"opaque-owner-turn\"}\n").unwrap();
+    fixture.service.reconcile_chat_send_evidence(&tab);
+    assert!(!fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .launch_session_authenticated());
+    append_turn(&fixture, "opaque-owner-turn");
+    let turn = observed_turn(&fixture, &tab, "own-row", "opaque-owner-turn");
+    assert!(deliver_turn(
+        &fixture,
+        &tab,
+        "foreign-session",
+        &authority.binding_nonce,
+        &turn
+    )
+    .is_empty());
+    assert!(deliver_turn(&fixture, &tab, "opaque-session", "foreign-nonce", &turn).is_empty());
+    assert!(!fixture
+        .service
+        .mux
+        .read()
+        .get_tab(&tab)
+        .unwrap()
+        .launch_session_authenticated());
+    let original = fixture.service.mux.read().get_tab(&tab).unwrap().clone();
+    for changed in ["pty", "nonce", "provider", "cwd", "session"] {
+        {
+            let mut mux = fixture.service.mux.write();
+            let current = mux.get_tab_mut(&tab).unwrap();
+            match changed {
+                "pty" => current.pty_id = Some("foreign-pty".into()),
+                "nonce" => current.session_binding_nonce = Some("foreign-nonce".into()),
+                "provider" => current.agent_type = Some("foreign-provider".into()),
+                "cwd" => current.cwd = Some("foreign-cwd".into()),
+                "session" => current.agent_session_id = Some("foreign-session".into()),
+                _ => unreachable!(),
+            }
+        }
+        fixture
+            .service
+            .chat_send_ledger
+            .reconcile_provisional_launch(&tab, None);
+        assert!(!fixture
+            .service
+            .mux
+            .read()
+            .get_tab(&tab)
+            .unwrap()
+            .launch_session_authenticated());
+        *fixture.service.mux.write().get_tab_mut(&tab).unwrap() = original.clone();
+    }
+    fixture.service.reconcile_chat_send_evidence(&tab);
+    {
+        let mux = fixture.service.mux.read();
+        let tab = mux.get_tab(&tab).unwrap();
+        assert!(tab.launch_session_authenticated());
+        assert_eq!(
+            tab.boot_stage,
+            Some(codeterm_types::pty::BootStage::AgentReady)
+        );
+        assert!(tab.provisional_launch.is_none());
+    }
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&sent.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Sent
+    );
+    fixture.service.drain_user_owner(&tab).unwrap();
+    fixture.service.reconcile_chat_send_evidence(&tab);
+    assert_eq!(writes.load(Ordering::SeqCst), 1);
+}
+
+#[test]
 fn explicit_override_flushes_held_sends_once_in_order_and_binding_retires_startup() {
     let (fixture, tab) = queue_fixture(true, None);
     let first = admit_current_ledger(&fixture.service, &tab, FIRST_PAYLOAD, "first-held");

@@ -9,7 +9,7 @@ use super::protocol::{
 use super::transcript::{
     self, possession_digest, Party, Purpose, COMMIT_ROLE, INITIATOR_ROLE, RESPONDER_ROLE,
 };
-use crate::manager::AdmissionContext;
+use crate::manager::{AdmissionContext, ConnectionPhase};
 use crate::types::PeerAddress;
 use crate::MeshState;
 
@@ -58,17 +58,18 @@ impl LinkTransport for HttpLinkTransport {
                 .await
                 .map_err(|_| AdmissionRefusal::PeerUnreachable)?;
             let status = response.status();
+            if matches!(status.as_u16(), 404 | 426) {
+                return Err(AdmissionRefusal::PeerNeedsUpdate);
+            }
+            if status.as_u16() == 401 {
+                return Err(AdmissionRefusal::AuthRefused);
+            }
             let value: serde_json::Value = response
                 .json()
                 .await
                 .map_err(|_| AdmissionRefusal::handshake("peer reply unreadable"))?;
             if status.is_success() {
                 return Ok(value);
-            }
-            if status.as_u16() == 404 {
-                return Err(AdmissionRefusal::handshake(
-                    "peer does not support account links",
-                ));
             }
             Err(serde_json::from_value(value)
                 .unwrap_or_else(|_| AdmissionRefusal::handshake(format!("peer refused: {status}"))))
@@ -102,11 +103,74 @@ pub async fn link_installation_with(
     installation_id: &str,
 ) -> Result<AccountMeshPair, AdmissionRefusal> {
     let authority = mesh.lock().admission_context()?.authority;
+    let progress = ConnectionProgress::new(mesh, installation_id, ConnectionPhase::Discovering);
     let target = authority.resolve_link_target(installation_id).await?;
-    connect_target_with(mesh, transport, target).await
+    let result = connect_target_with(mesh, transport, target).await;
+    progress.finish(&result);
+    result
 }
 
 pub async fn connect_target_with(
+    mesh: &MeshState,
+    transport: &dyn LinkTransport,
+    target: super::ports::LinkTarget,
+) -> Result<AccountMeshPair, AdmissionRefusal> {
+    let progress =
+        ConnectionProgress::new(mesh, &target.installation_id, ConnectionPhase::Connecting);
+    let result = connect_target_inner(mesh, transport, target).await;
+    progress.finish(&result);
+    result
+}
+
+struct ConnectionProgress<'a> {
+    mesh: &'a MeshState,
+    installation_id: String,
+    epoch: u64,
+    finished: bool,
+}
+
+impl<'a> ConnectionProgress<'a> {
+    fn new(mesh: &'a MeshState, installation_id: &str, phase: ConnectionPhase) -> Self {
+        let mut manager = mesh.lock();
+        let epoch = manager.account_state().account_epoch;
+        manager.set_connection_phase(installation_id, phase);
+        Self {
+            mesh,
+            installation_id: installation_id.to_owned(),
+            epoch,
+            finished: false,
+        }
+    }
+
+    fn finish(mut self, result: &Result<AccountMeshPair, AdmissionRefusal>) {
+        let mut manager = self.mesh.lock();
+        if manager.account_state().account_epoch == self.epoch {
+            manager.set_connection_phase(
+                &self.installation_id,
+                match result {
+                    Ok(_) => ConnectionPhase::Ready,
+                    Err(AdmissionRefusal::AuthRefused) => ConnectionPhase::AuthRefused,
+                    Err(AdmissionRefusal::PeerNeedsUpdate) => ConnectionPhase::PeerNeedsUpdate,
+                    Err(_) => ConnectionPhase::Failed,
+                },
+            );
+        }
+        self.finished = true;
+    }
+}
+
+impl Drop for ConnectionProgress<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            let mut manager = self.mesh.lock();
+            if manager.account_state().account_epoch == self.epoch {
+                manager.set_connection_phase(&self.installation_id, ConnectionPhase::Failed);
+            }
+        }
+    }
+}
+
+async fn connect_target_inner(
     mesh: &MeshState,
     transport: &dyn LinkTransport,
     target: super::ports::LinkTarget,
@@ -152,6 +216,8 @@ pub async fn connect_target_with(
             "peer answered for another link",
         ));
     }
+    mesh.lock()
+        .set_connection_phase(installation_id, ConnectionPhase::Verifying);
     let responder = reply.responder.party.clone();
     let remote = {
         let manager = mesh.lock();
@@ -225,7 +291,10 @@ pub async fn connect_target_with(
             manager.now(),
         )?;
     }
+    mesh.lock()
+        .set_connection_phase(installation_id, ConnectionPhase::Committing);
     let commit = LinkCommit {
+        signed_registry: mesh.lock().signed_registry.clone(),
         link_id: link_id.clone(),
         mesh_signature: transcript::sign_mesh(&context.private_key, &digest, COMMIT_ROLE)
             .map_err(AdmissionRefusal::handshake)?,
@@ -244,25 +313,37 @@ pub async fn connect_target_with(
         return Err(AdmissionRefusal::handshake("peer did not commit the link"));
     }
 
-    let mut manager = mesh.lock();
-    manager.fence_admission(&context)?;
-    let endpoint = [PeerAddress::from_ip(&target.ip)];
-    let descriptor = PartyDescriptor {
-        api_port: target.api_port,
-        ..reply.responder
+    let pair = {
+        let mut manager = mesh.lock();
+        manager.fence_admission(&context)?;
+        let endpoint = [PeerAddress::from_ip(&target.ip)];
+        let descriptor = PartyDescriptor {
+            api_port: target.api_port,
+            ..reply.responder
+        };
+        manager.admit_new_link(
+            &descriptor,
+            &endpoint,
+            remote,
+            &context.account_id,
+            &link_id,
+        )?;
+        manager
+            .account_mesh_pairs()
+            .into_iter()
+            .find(|pair| pair.instance_id == responder.instance_id)
+            .ok_or_else(|| AdmissionRefusal::handshake("link not recorded"))?
     };
-    manager.admit_new_link(
-        &descriptor,
-        &endpoint,
-        remote,
-        &context.account_id,
-        &link_id,
-    )?;
-    manager
-        .account_mesh_pairs()
-        .into_iter()
-        .find(|pair| pair.instance_id == responder.instance_id)
-        .ok_or_else(|| AdmissionRefusal::handshake("link not recorded"))
+    if let Some(snapshot) = committed.signed_registry.as_ref() {
+        context
+            .authority
+            .receive_registry_snapshot(snapshot)
+            .await?;
+    }
+    if !mesh.lock().traffic_open(&pair.instance_id) {
+        return Err(AdmissionRefusal::Revoked);
+    }
+    Ok(pair)
 }
 
 fn verify_membership(

@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import React from "react";
 import { ChevronRight } from "lucide-react";
@@ -16,6 +17,7 @@ export function RawCommandDisclosure({ raw, children, details, initiallyExpanded
   const detailsId = React.useId();
 
   return (
+    <ExpandableReader label={label}>{(fullscreen) => (
     <div data-testid="raw-command-disclosure" className="grid gap-0.5">
       <button
         type="button"
@@ -28,8 +30,8 @@ export function RawCommandDisclosure({ raw, children, details, initiallyExpanded
         <ChevronRight aria-hidden="true" size={12} strokeWidth={1.8} className={open ? "rotate-90" : ""} />
         {label}
       </button>
-      <div id={detailsId} hidden={!open}>
-        {open && (
+      <div id={detailsId} hidden={!open && !fullscreen}>
+        {(open || fullscreen) && (
           <BoundedMessageContent collapsedHeight={"12rem"} as="pre"
             data-testid="message-raw-content"
             className="m-0 whitespace-pre-wrap break-words font-mono text-xs"
@@ -38,9 +40,10 @@ export function RawCommandDisclosure({ raw, children, details, initiallyExpanded
             {raw}
           </BoundedMessageContent>
         )}
-        {open && details}
+        {(open || fullscreen) && details}
       </div>
       {children}
     </div>
+    )}</ExpandableReader>
   );
 }

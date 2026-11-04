@@ -7,7 +7,50 @@ struct FakeChrome {
     outbound: mpsc::UnboundedSender<Message>,
 }
 
+#[tokio::test]
+async fn browser_cdp_completion_observation_overflow_reports_lost_authority() {
+    let (connection, _receiver) = batch_connection();
+    let stream = connection.subscribe(EventFilter::any());
+    for _ in 0..=SUBSCRIBER_CAPACITY {
+        connection.0.fan_out(Arc::new(CdpEvent {
+            method: "Page.lifecycleEvent".into(),
+            params: json!({}),
+            session_id: None,
+        }));
+    }
+    assert!(stream.has_lost_events());
+    assert!(!stream.is_closed());
+}
+
+#[tokio::test]
+async fn browser_cdp_completion_cancellation_releases_pending_command_receipts() {
+    let (connection, _receiver) = batch_connection();
+    {
+        let action = connection.send_to(
+            Some("session"),
+            "Page.navigate",
+            json!({"url":"https://page/"}),
+            COMMAND_DEADLINE,
+        );
+        tokio::pin!(action);
+        assert!(futures_util::poll!(&mut action).is_pending());
+        assert_eq!(connection.0.state.lock().pending.len(), 1);
+    }
+    assert!(connection.0.state.lock().pending.is_empty());
+}
+
 impl FakeChrome {
+    fn protocol_event(&self, method: &str, params: Value, session_id: &str) {
+        self.outbound
+            .send(Message::text(
+                json!({
+                    "method":method, "params":params, "sessionId":session_id,
+                })
+                .to_string(),
+            ))
+            .unwrap();
+    }
+
     fn reply(&self, request: &Value, body: Value) {
         let mut message = body;
         message["id"] = request["id"].clone();
@@ -25,6 +68,87 @@ impl FakeChrome {
             .send(Message::text(message.to_string()))
             .unwrap();
     }
+}
+
+#[tokio::test]
+async fn browser_cdp_completion_correlates_withheld_navigation_response_and_load() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    let page = PageChannel {
+        client,
+        session_id: "session".into(),
+        target_id: "target".into(),
+    };
+    let observing = tokio::spawn({
+        let page = page.clone();
+        async move { crate::completion::ActionCompletion::observe(&page).await }
+    });
+    for method in [
+        "Page.enable",
+        "Page.setLifecycleEventsEnabled",
+        "Page.getFrameTree",
+    ] {
+        let request = chrome.inbound.recv().await.unwrap();
+        assert_eq!(request["method"], method);
+        let result = if method == "Page.getFrameTree" {
+            json!({"frameTree":{"frame":{"id":"main","loaderId":"before"}}})
+        } else {
+            json!({})
+        };
+        chrome.reply(&request, json!({"result":result}));
+    }
+    let observing = observing.await.unwrap().unwrap();
+    let mut barrier = page.subscribe_session(&["Fixture.barrier"]);
+    let action = observing.finish(
+        async {
+            page.send("Page.navigate", json!({"url":"https://delayed/"}))
+                .await
+                .map_err(|error| error.to_string())
+        },
+        true,
+        Duration::from_secs(15),
+    );
+    tokio::pin!(action);
+    let request = tokio::select! {
+        result = &mut action => panic!("completed before navigation request: {result:?}"),
+        request = chrome.inbound.recv() => request.unwrap(),
+    };
+    assert_eq!(request["method"], "Page.navigate");
+    assert_eq!(request["sessionId"], "session");
+    chrome.protocol_event(
+        "Page.frameRequestedNavigation",
+        json!({"frameId":"main"}),
+        "session",
+    );
+    chrome.protocol_event("Fixture.barrier", json!({}), "session");
+    barrier.recv().await.unwrap();
+    assert!(futures_util::poll!(&mut action).is_pending());
+    chrome.reply(
+        &request,
+        json!({"result":{"frameId":"main","loaderId":"own"}}),
+    );
+    chrome.protocol_event(
+        "Page.frameNavigated",
+        json!({"frame":{"id":"main","loaderId":"own","url":"https://delayed/"}}),
+        "session",
+    );
+    chrome.protocol_event(
+        "Page.lifecycleEvent",
+        json!({"frameId":"child","loaderId":"own","name":"load"}),
+        "session",
+    );
+    chrome.protocol_event("Fixture.barrier", json!({}), "session");
+    barrier.recv().await.unwrap();
+    assert!(futures_util::poll!(&mut action).is_pending());
+    chrome.protocol_event(
+        "Page.lifecycleEvent",
+        json!({"frameId":"main","loaderId":"own","name":"load"}),
+        "session",
+    );
+    assert_eq!(
+        action.await.unwrap().1,
+        "navigation loaded: https://delayed/"
+    );
 }
 
 async fn fake_chrome() -> FakeChrome {
@@ -318,4 +442,112 @@ async fn browser_cdp_batch_dropped_phase_replies_keep_close_reason() {
         Err(CdpError::Closed("CDP reader stopped".into()))
     );
     assert!(connection.0.state.lock().pending.is_empty());
+}
+
+#[tokio::test]
+async fn browser_cdp_deep_reply_fails_its_request_without_waiting_for_deadline() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    let deep = client.send("Fixture.deep", json!({}));
+    let ordinary = client.send("Fixture.ordinary", json!({}));
+    tokio::pin!(deep, ordinary);
+    let mut requests = Vec::new();
+    while requests.len() != 2 {
+        tokio::select! {
+            result = &mut deep => panic!("deep request completed before reply: {result:?}"),
+            result = &mut ordinary => panic!("ordinary request completed before reply: {result:?}"),
+            request = chrome.inbound.recv() => requests.push(request.unwrap()),
+        }
+    }
+    let deep_id = requests
+        .iter()
+        .find(|request| request["method"] == "Fixture.deep")
+        .unwrap()["id"]
+        .as_u64()
+        .unwrap();
+    chrome
+        .outbound
+        .send(Message::text(format!(
+            "{{\"result\":{}0{},\"id\":{deep_id}}}",
+            "[".repeat(180),
+            "]".repeat(180)
+        )))
+        .unwrap();
+    let ordinary_request = requests
+        .iter()
+        .find(|request| request["method"] == "Fixture.ordinary")
+        .unwrap();
+    chrome.reply(ordinary_request, json!({"result":{"ok":true}}));
+    let (deep_result, ordinary_result) = tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::join!(deep, ordinary)
+    })
+    .await
+    .expect("decoded replies must complete before the command deadline");
+    assert!(
+        matches!(deep_result, Err(CdpError::Malformed(detail)) if detail.contains("recursion limit"))
+    );
+    assert_eq!(ordinary_result.unwrap(), json!({"ok":true}));
+    assert!(client.close_reason().is_none());
+    client.close("fixture complete");
+}
+
+#[tokio::test]
+async fn browser_cdp_document_decodes_deep_replies_and_bounds_failures_per_request() {
+    let mut chrome = fake_chrome().await;
+    let client = CdpClient::connect(&chrome.endpoint).await.unwrap();
+    for depth in [400, 4097, 0] {
+        let document = client.send("DOM.getDocument", json!({"depth":-1,"pierce":true}));
+        let ordinary = client.send("Fixture.ordinary", json!({}));
+        tokio::pin!(document, ordinary);
+        let mut requests = Vec::new();
+        while requests.len() < 2 {
+            tokio::select! {
+                result = &mut document => panic!("document completed before reply: {result:?}"),
+                result = &mut ordinary => panic!("ordinary completed before reply: {result:?}"),
+                request = chrome.inbound.recv() => requests.push(request.unwrap()),
+            }
+        }
+        let id = requests
+            .iter()
+            .find(|request| request["method"] == "DOM.getDocument")
+            .unwrap()["id"]
+            .as_u64()
+            .unwrap();
+        let payload = if depth == 0 {
+            format!("{{\"id\":{id},\"result\":broken}}")
+        } else {
+            format!(
+                "{{\"result\":{}0{},\"id\":{id}}}",
+                "[".repeat(depth),
+                "]".repeat(depth)
+            )
+        };
+        chrome.outbound.send(Message::text(payload)).unwrap();
+        let request = requests
+            .iter()
+            .find(|request| request["method"] == "Fixture.ordinary")
+            .unwrap();
+        chrome.reply(request, json!({"result":{"ok":true}}));
+        let (document, ordinary) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(document, ordinary)
+        })
+        .await
+        .expect("document failures must not wait for the command deadline");
+        if depth == 400 {
+            let mut value = document.unwrap();
+            for _ in 0..depth {
+                value = value.as_array_mut().unwrap().pop().unwrap();
+            }
+            assert_eq!(value, json!(0));
+        } else if depth == 4097 {
+            assert!(
+                matches!(document, Err(CdpError::Malformed(detail)) if detail.contains("maximum JSON depth 4096"))
+            );
+        } else {
+            assert!(matches!(document, Err(CdpError::Malformed(_))));
+        }
+        assert_eq!(ordinary.unwrap(), json!({"ok":true}));
+        assert!(client.close_reason().is_none());
+    }
+    client.close("fixture complete");
 }

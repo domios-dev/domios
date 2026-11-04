@@ -71,12 +71,15 @@ impl VerifiedMembership {
     }
     pub fn refresh_after(&self) -> u64 {
         let duration = self.expires_at.saturating_sub(self.issued_at);
-        let proportional = if duration <= 3600 {
-            (duration / 4).min(600)
-        } else {
-            duration / 4
-        };
-        let margin = 120.max(proportional).min(duration / 2);
+        let latest_margin = 120.max(duration / 24).min(duration / 2);
+        let earliest_margin = 600.max(duration / 12).min(duration / 2);
+        let seed = sha256_hex(self.installation_id.as_bytes())
+            .bytes()
+            .take(16)
+            .fold(0u64, |hash, byte| {
+                hash.wrapping_mul(31).wrapping_add(u64::from(byte))
+            });
+        let margin = latest_margin + seed % (earliest_margin - latest_margin + 1);
         self.expires_at.saturating_sub(margin)
     }
 }
@@ -167,19 +170,28 @@ fn signed_payload(
     grant: &DetachedGrant,
     trust: &MembershipTrust,
 ) -> Result<serde_json::Value, MembershipRefusal> {
+    signed_payload_limit(grant, trust, MAX_PAYLOAD_BYTES)
+}
+
+pub(super) fn signed_payload_limit(
+    grant: &DetachedGrant,
+    trust: &MembershipTrust,
+    max_bytes: usize,
+) -> Result<serde_json::Value, MembershipRefusal> {
     use MembershipRefusal as R;
     if grant.alg != codeterm_entitlements::verify::ED25519 {
         return Err(R::Algorithm);
     }
-    let bytes = trust
-        .authority
-        .authenticate(grant, MAX_PAYLOAD_BYTES)
-        .map_err(|refusal| match refusal {
-            Refusal::Algorithm => R::Algorithm,
-            Refusal::UnknownKey => R::UnknownKey,
-            Refusal::Signature => R::Signature,
-            _ => R::Encoding,
-        })?;
+    let bytes =
+        trust
+            .authority
+            .authenticate(grant, max_bytes)
+            .map_err(|refusal| match refusal {
+                Refusal::Algorithm => R::Algorithm,
+                Refusal::UnknownKey => R::UnknownKey,
+                Refusal::Signature => R::Signature,
+                _ => R::Encoding,
+            })?;
     let value: serde_json::Value = serde_json::from_slice(&bytes).map_err(|_| R::Malformed)?;
     let canonical = codeterm_entitlements::jcs::encode(&value).map_err(|_| R::NonCanonical)?;
     if canonical.as_bytes() != bytes.as_slice() {

@@ -1,5 +1,6 @@
 import { catalogueSelection, modelIdentity, selectedModel } from "./model-policy.mjs";
 import { REQUIRED_PROVIDERS } from "./oracle.mjs";
+import { fixtureProviderId } from "./fixture-control.mjs";
 
 export function modelEvidenceErrors(state, { verify = true } = {}) {
   const errors = [];
@@ -15,6 +16,32 @@ export function modelEvidenceErrors(state, { verify = true } = {}) {
     require(Object.keys(policy.selections).length === policy.roster.length, "selections differ from roster");
   });
   if (!Array.isArray(policy.roster) || !policy.selections || typeof policy.selections !== "object") return errors;
+  let controlId = null;
+  check(() => {
+    const provider = fixtureProviderId(state.run);
+    const fixture = state.j3;
+    const controls = state.tabs?.filter(tab => tab.control_fixture) ?? [];
+    require(controls.length === 1, "control fixture row absent or ambiguous");
+    const tab = controls[0];
+    require(fixture?.fixture_provider === provider && fixture.orchestrator_provider === provider,
+      "control fixture provider differs from this run");
+    require(tab.id === fixture.orchestrator && tab.journey === "J3" && tab.role === "fixture_orchestrator"
+      && (tab.provider == null || tab.provider === provider), "control fixture tab identity differs");
+    require(!policy.roster.includes(provider) && !Object.hasOwn(policy.selections, provider), "control fixture entered the paid roster");
+    const runner = fixture.runner;
+    require(runner?.tab_id === tab.id && runner.session_id === fixture.orchestrator_session
+      && typeof runner.session_id === "string" && runner.session_id.length > 0
+      && typeof runner.binding_nonce === "string" && runner.binding_nonce.length > 0
+      && Number.isSafeInteger(runner.pid) && runner.pid > 0, "control fixture runner binding absent or changed");
+    require(typeof runner.queue === "string" && runner.queue.replaceAll("\\", "/").endsWith(`/runtime/agent-pads/${tab.id}/cj-runner/${runner.binding_nonce}`),
+      "control fixture queue is outside its recorded launch pad");
+    if (verify) {
+      const before = state.before_restart?.tabs?.find(before => before.id === tab.id);
+      require(before?.owned === true && before.agent_type === provider && before.backing === "pty"
+        && before.session === runner.session_id, "control fixture restart session or provider changed");
+    }
+    controlId = tab.id;
+  });
   const catalogue = (entry, provider, selected) => {
     require(entry?.provider === provider && entry.selected === selected, `${provider} catalogue selection absent or changed`);
     catalogueSelection({ id: provider, availability: "available", model_catalogue: entry.capability,
@@ -46,12 +73,12 @@ export function modelEvidenceErrors(state, { verify = true } = {}) {
       agent_provider_resolved_model: entry.resolved, agent_session_model: entry.actual,
       agent_session_id: entry.session }, tab.provider ?? tab.agent_type, selected);
   };
-  for (const tab of state.tabs?.filter((tab) => !tab.shell) ?? []) check(() => {
+  for (const tab of state.tabs?.filter((tab) => tab.id !== controlId) ?? []) check(() => {
     identity(policy.identities?.[tab.id], tab);
     if (verify) require(state.before_restart?.tabs?.some((before) => before.id === tab.id), `tab ${tab.id} restart snapshot absent`);
   });
   if (verify) for (const tab of state.before_restart?.tabs ?? []) {
-    if (state.tabs?.some((fixture) => fixture.id === tab.id && fixture.shell)) continue;
+    if (tab.id === controlId) continue;
     check(() => {
       identity(tab.model_identity, tab);
       identity(policy.restored_identities?.[tab.id], tab);

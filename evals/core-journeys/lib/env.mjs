@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../../scripts/bash-interpreter.mjs';
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -56,7 +57,7 @@ export function client(dev = target()) {
 export function dc(args, { asTab, stdin, timeoutMs = 120_000, env = {} } = {}) {
   const argv = [runner, "--dc", ...(asTab ? ["--as-tab", asTab] : []), ...args];
   return new Promise((accept, reject) => {
-    const child = spawn("bash", argv, {
+    const child = spawn(bashInterpreter(), argv, {
       cwd: root, stdio: [stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
       signal: AbortSignal.timeout(timeoutMs), env: { ...process.env, ...env },
     });

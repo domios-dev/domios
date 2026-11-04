@@ -3,6 +3,9 @@ import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
 import { act, useCallback, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MuxStateStoreContext } from "../../store/multiplexer/context";
+import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
+import type { ExtendedState } from "../../store/multiplexer/tree";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { LinkedText } from "../../../packages/chat-ui/src/codeterm/LinkedText";
 import type { ApiConfig, Tab, Team, Workspace } from "../../lib/types";
@@ -65,7 +68,12 @@ async function render(ui: ReactElement) {
   document.body.append(host);
   const root = createRoot(host);
   mounted.push({ root, host });
-  await act(async () => root.render(ui));
+  const state: ExtendedState = {
+    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
+  };
+  const store = createMuxStateStore(() => state);
+  await act(async () => root.render(<MuxStateStoreContext.Provider value={store}>{ui}</MuxStateStoreContext.Provider>));
   return host;
 }
 
@@ -520,6 +528,7 @@ function missionState(): MissionControlState {
 }
 
 const BOARD_STATE: PlanBoardState = {
+  revision: "1",
   plan_id: TEAM_PLAN.id,
   task_counts: { pending: 2, in_progress: 0, in_review: 0, blocked: 0, paused: 0, done: 0, cancelled: 0, total: 2 },
   mission_control: missionState(),
@@ -535,8 +544,10 @@ async function settle() {
 
 describe("Board jumps through the single navigation", () => {
   it("opens What happened tasks by key through onOpenPlanTarget with no surface overlay", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/state`)
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
+      : url.includes(`/api/plans/${TEAM_PLAN.id}/projection?view=board`)
+        ? { ok: true, status: 200, json: async () => ({ ...TEAM_PLAN, revision: "1" }), text: async () => "" }
       : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
     const onOpenPlanTarget = vi.fn();
     const plan = { ...TEAM_PLAN, owner: FIXTURE_PLAN.owner };
@@ -565,8 +576,10 @@ describe("Board jumps through the single navigation", () => {
   });
 
   it("a What happened task on the Board opens the shared side panel over Board", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/state`)
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
+      : url.includes(`/api/plans/${TEAM_PLAN.id}/projection?view=board`)
+        ? { ok: true, status: 200, json: async () => ({ ...TEAM_PLAN, revision: "1" }), text: async () => "" }
       : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
     const plan = { ...TEAM_PLAN, owner: FIXTURE_PLAN.owner };
     const host = await render(<TeamView plans={[plan]} api={API} />);

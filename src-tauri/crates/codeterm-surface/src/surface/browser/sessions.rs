@@ -13,6 +13,12 @@ pub(super) struct SessionArgs {
     pub ephemeral: bool,
 }
 
+impl SessionArgs {
+    fn ui_url(&self) -> String {
+        format!("{}/", self.origin)
+    }
+}
+
 pub(super) fn parse(args: &[String]) -> Result<SessionArgs, String> {
     let mut profile = None;
     let mut origin = None;
@@ -87,7 +93,7 @@ impl BrowserRuntime {
             .remember_profile(if args.ephemeral { "" } else { &opened.profile });
         self.refresh_profiles().await;
         let page = self.ensure_page().await?;
-        self.goto(&page, &format!("{}/web/", args.origin)).await?;
+        self.goto(&page, &args.ui_url()).await?;
         Ok("opened origin-bound session; snapshot to inspect readiness".into())
     }
 

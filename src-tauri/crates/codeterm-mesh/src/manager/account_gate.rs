@@ -22,6 +22,7 @@ impl MeshManager {
     pub fn apply_account_state(&mut self, state: AccountMeshState) {
         if state.account_epoch != self.account.account_epoch {
             self.pending_links.clear();
+            self.clear_connection_phases();
         }
         if self.account_ready && self.account == state {
             return;
@@ -40,7 +41,7 @@ impl MeshManager {
             self.remote_access_epoch = self.remote_access_epoch.wrapping_add(1);
         }
         if state.signed_in_account() != self.account.signed_in_account() {
-            self.registry_revision = None;
+            self.signed_registry = None;
         }
         self.account = state;
         self.account_ready = true;
@@ -75,6 +76,24 @@ impl MeshManager {
 
     pub fn link_record(&self, peer_id: &str) -> Option<&LinkRecord> {
         self.links.get(peer_id)
+    }
+
+    /// Current authenticated leases supplement registry metadata without changing its authority.
+    pub fn peer_membership_expiry(&self, installation_id: &str) -> Option<u64> {
+        self.links
+            .links
+            .iter()
+            .filter_map(|(peer_id, record)| {
+                (record.installation_id() == Some(installation_id) && self.traffic_open(peer_id))
+                    .then(|| {
+                        record
+                            .remote_membership
+                            .as_ref()
+                            .map(|membership| membership.verified.expires_at)
+                    })
+                    .flatten()
+            })
+            .max()
     }
 
     /// Closes every edge until the account owner publishes its first state, so a persisted
@@ -168,6 +187,9 @@ impl MeshManager {
 
     /// Outbound signing for one peer; refuses while that edge is blocked.
     pub fn sign_request_for(&self, peer_id: &str) -> Result<String, String> {
+        if !self.peer_requests_allowed(peer_id) {
+            return Err("Peer authentication refused — retry deferred".into());
+        }
         match self.traffic_decision(peer_id) {
             TrafficDecision::Open => self.sign_request(),
             TrafficDecision::Blocked(reason) => Err(blocked_message(reason)),
@@ -237,6 +259,7 @@ impl MeshManager {
                     installation_id: record.installation_id().map(str::to_string),
                     admission: record.admission.label().to_string(),
                     online: peer.online
+                        && !self.peer_auth_refused(&peer.instance_id)
                         && self.traffic_open(&peer.instance_id)
                         && !record.installation_id().is_some_and(|installation| {
                             self.account

@@ -17,11 +17,11 @@ async function main() {
 
   type Request = { method: string; path: string; body: unknown; target_peer_id?: string };
   const requests: Request[] = [];
-  const remotePlan = { ...FIXTURE_PLAN, id: "pl_peer", project_path: "/home/peer/project" };
+  const remotePlan = { ...FIXTURE_PLAN, revision: "1", id: "pl_peer", project_path: "/home/peer/project" };
   const index = { plan_id: remotePlan.id, title: remotePlan.title };
   const skill = { slug: "check", title: "Check", body: "opaque", ledger: [] };
   const taskBoardPage = {
-    plan_id: remotePlan.id,
+    plan_id: remotePlan.id, revision: "1",
     column: {
       status: "done",
       items: [{ id: "task-1", position: 4, created_at: 7, name: "Task", status: "done" }],
@@ -29,7 +29,7 @@ async function main() {
     },
   };
   const taskDetail = {
-    plan_id: remotePlan.id,
+    plan_id: remotePlan.id, revision: "1",
     task_id: "task-exact",
     task: { id: "task-exact", name: "Peer detail" },
     context: { plan_id: remotePlan.id, title: remotePlan.title, status: "active", owner: remotePlan.owner, sections: [] },
@@ -43,7 +43,7 @@ async function main() {
     const request = JSON.parse(String(init?.body)) as Request;
     requests.push(request);
     let data: unknown = remotePlan;
-    if (request.path.startsWith("/api/plans?")) data = { plans: request.path.includes("full=1") ? [remotePlan] : [index] };
+    if (request.path.startsWith("/api/plans?")) data = { plans: request.path.includes("view=summary") ? [remotePlan] : [index] };
     if (request.path === "/api/plans") data = { plans: [index] };
     if (request.path === `/api/plans/${remotePlan.id}/tasks/task-exact`) data = taskDetail;
     if (request.path.startsWith(`/api/plans/${remotePlan.id}/tasks?`)) data = taskBoardPage;
@@ -58,7 +58,7 @@ async function main() {
   setRelayTarget("ubunta", "ubunta");
   assert.deepEqual((await plansApi.fetchPlans(API)).map((plan) => plan.id), [remotePlan.id]);
   assert.deepEqual((await plansApi.fetchPlanIndex(API)).map((plan) => plan.plan_id), [remotePlan.id]);
-  assert.equal((await plansApi.fetchPlan(API, remotePlan.id)).id, remotePlan.id);
+  assert.equal((await plansApi.fetchPlanProjection(API, remotePlan.id, "document")).id, remotePlan.id);
   const taskPage = await plansApi.fetchPlanTaskBoardPage(API, remotePlan.id, {
     status: "done",
     cursor: { created_at: 3, position: 2, task_id: "cursor-task" },
@@ -82,7 +82,7 @@ async function main() {
   await plansApi.renamePlan(API, remotePlan.id, "Peer title");
   assert.equal(requests[requests.length - 1]?.method, "PATCH");
   assert.deepEqual(requests[requests.length - 1]?.body, { title: "Peer title" });
-  assert(requests.some((request) => request.path === "/api/plans?full=1&project=%2Fhome%2Fpeer%2Fproject"));
+  assert(requests.some((request) => request.path === "/api/plans?view=summary&project=%2Fhome%2Fpeer%2Fproject"));
   assert(requests.some((request) => request.path === "/api/specs/spec%2Fpeer"));
   assert(requests.every((request) => request.target_peer_id === "ubunta"));
   assert(requests.some((request) => request.path === "/api/teams/team-peer/mission-control/state"));
@@ -118,10 +118,10 @@ async function main() {
   globalThis.fetch = async () => new Response("proxy failure", { status: 502 });
   await assert.rejects(plansApi.runPlanControlLoop(API, "pl_peer"), { message: "The Curator round could not start (HTTP 502)." });
   globalThis.fetch = async (input) => {
-    assert.equal(String(input), "http://gateway:7685/api/plans?full=1");
-    return Response.json({ plans: [FIXTURE_PLAN] });
+    assert.equal(String(input), "http://gateway:7685/api/plans?view=summary");
+    return Response.json({ plans: [{ ...FIXTURE_PLAN, revision: "1" }] });
   };
-  assert.deepEqual(await plansApi.fetchPlans(API), [FIXTURE_PLAN]);
+  assert.deepEqual(await plansApi.fetchPlans(API), [{ ...FIXTURE_PLAN, revision: "1" }]);
   globalThis.fetch = async (input) => {
     const url = new URL(String(input));
     assert.equal(url.pathname, "/api/plans");
@@ -132,6 +132,20 @@ async function main() {
     return Response.json({ plans: [] });
   };
   await plansApi.fetchPlans(API, undefined, { chat: true, query: "COD-12", project: "/repo", team: "team-a" });
+  const windowRequests: URL[] = [];
+  let changeRevision = false;
+  globalThis.fetch = async (input) => {
+    const url = new URL(String(input)); windowRequests.push(url);
+    const second = url.searchParams.has("after_position");
+    return Response.json({ ...remotePlan, revision: second && changeRevision ? "2" : "1",
+      tasks: [{ id: second ? "second" : "first" }],
+      task_window: { next_cursor: second ? null : { position: 1, task_id: "first" }, total: 2, cancelled: 0 } });
+  };
+  const requested = await plansApi.fetchRequestedPlanTaskMetadata(API, remotePlan.id,"blocked");
+  assert.deepEqual(requested.tasks.map((task) => task.id),["first","second"]);
+  assert(windowRequests.every((url) => url.searchParams.get("view") === "task_metadata" && url.searchParams.get("page_size") === "25" && url.searchParams.get("status") === "blocked" && !url.searchParams.has("full")));
+  changeRevision = true;
+  await assert.rejects(plansApi.fetchRequestedPlanTaskMetadata(API,remotePlan.id),/Tasks changed/);
   console.log("plansApi peer routing passed");
 }
 

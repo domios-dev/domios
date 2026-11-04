@@ -119,6 +119,10 @@ struct SelectedCalls {
 
 #[async_trait::async_trait]
 impl AuthenticatedCall for SelectedCalls {
+    fn require_paid(&self) -> Result<()> {
+        self.selection.validate((self.current)())?;
+        self.calls.require_paid()
+    }
     fn firestore_target(&self, project: &str) -> Result<FirestoreTarget> {
         self.selection.validate((self.current)())?;
         if project != self.selection.firestore.project() {

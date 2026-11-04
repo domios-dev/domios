@@ -13,13 +13,13 @@ Every script run in a utility shell streams its output into the terminal while i
 
 Open build shells with `--purpose build` and foreground servers with `--purpose dev`. Purpose is retained when restarting the shell. The sidebar command state reports shell marks only; use the readiness and QA receipts below to establish the operation outcome.
 
-Set `--timeout 60m` for tests, QA and builds; leave dev servers unset. Each command-start mark starts a fresh deadline, and a finish mark cancels it. Change the bound for current and future commands with `domios tab timeout --tab <ID> --timeout 60m`; `none` disables both. The current command keeps its original start. On expiry the owned process tree stops through shell restart, the tab stays open, and one owner status names the command, command elapsed and deadline. Idle shells have no deadline; existing owner/Team cleanup still applies.
+Set `--timeout 60m` for focused tests, QA and builds; leave dev servers unset. The broad `release-preflight` uses `--timeout none` under its qualification owner and finishes on actual process exit plus its final report. Preserve explicit cancellation and protocol/cleanup deadlines; elapsed time never proves readiness. Each command-start mark starts a fresh deadline, and a finish mark cancels it. Change the bound for current and future commands with `domios tab timeout --tab <ID> --timeout 60m`; `none` disables both. The current command keeps its original start. On expiry the owned process tree stops through shell restart, the tab stays open, and one owner status names the command, command elapsed and deadline. Idle shells have no deadline; existing owner/Team cleanup still applies.
 
 Shell restart retains the bound. Pass `domios tab restart --tab <ID> --timeout 60m` to override it, or `--timeout none` to disable it. `domios tab inspect --tab <ID>` shows `utility_deadline.duration_ms` and nullable `started_ms`, `deadline_ms` (epoch milliseconds). Only shell command marks establish command start.
 
 With `QA_NOTIFY_TAB`, QA streams each step to its log and sends one early
 failure receipt on the first Cargo compile error, nextest/Vitest failure,
-Node `not ok`, or non-zero exit (including gateway refusal 75 and cap 124).
+Node `not ok`, or non-zero exit (including gateway refusal 75 and actual child exit 124).
 The receipt names the label, step, first failure and log path. The command
 continues, and the final summary still arrives. Every Domios `dev` and
 `dev-prebuilt` startup uses the same stream detector across setup and
@@ -185,7 +185,7 @@ line. It uses one bounded deadline and cleans up its stream reader when ready,
 failed, or stopped. Use this event wait instead of adding sleep or polling
 loops.
 
-<!-- revision: 14 -->
+<!-- revision: 15 -->
 
 DEV app stdout/stderr use .NET Framework synchronous pipes on Windows and regular
 files on Unix, through `scripts/dev-app-process.mjs`. The reader forwards log chunks

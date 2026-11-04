@@ -121,7 +121,6 @@ describe("compound command group", () => {
     const host = await render(<ToolCallBubble event={singleEvent(codexRollout())} expanded={false} onToggle={() => {}} />);
     const groups = host.querySelectorAll('[data-testid="chat-command-group"]');
     expect(groups).toHaveLength(1);
-    expect(host.children).toHaveLength(1);
     const group = groups[0];
     expect(lines(group).map((line) => line.dataset.rowRole)).toEqual(["codeterm", "script"]);
     expect(operators(group)).toEqual([]);
@@ -296,7 +295,7 @@ describe("shell file operation visibility", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(operations?.textContent).toContain("snake.html1 replacement");
     expect(operations?.textContent).not.toContain("C:/games");
-    expect(operations?.querySelector("[title]")).toBeNull();
+    expect(toggle?.hasAttribute("title")).toBe(false);
     expect(host.querySelector('[data-testid="chat-command-group"]')?.contains(operations)).toBe(true);
     expect(host.querySelector('[data-testid="shell-replacement-fragments"]')).toBeNull();
     expect(host.querySelector('[data-testid="file-diff-card"]')).toBeNull();

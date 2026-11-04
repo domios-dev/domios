@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePlanProjection } from "../usePlanProjection";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
 import type { Plan, Section } from "../types";
@@ -29,6 +30,9 @@ export interface PlanDocumentData {
   selectPlan: (id: string) => void;
   handleAction: ReturnType<typeof usePlanSwitcherActions>["handleAction"];
   showsData: boolean;
+  projectionLoading: boolean;
+  projectionError: string | null;
+  retryProjection: () => Promise<void>;
 }
 
 export function usePlanDocumentData({
@@ -89,10 +93,12 @@ export function usePlanDocumentData({
       : defaultPlanId,
     [manualPlanId, orderedPlans, defaultPlanId],
   );
-  const selectedPlan = useMemo(
+  const listedPlan = useMemo(
     () => orderedPlans.find((plan) => plan.id === selectedPlanId) ?? null,
     [orderedPlans, selectedPlanId],
   );
+  const projection = usePlanProjection(api, listedPlan?.id ?? null, "document");
+  const selectedPlan = api ? projection.plan : listedPlan;
   const selectPlan = useCallback((id: string) => {
     setManualPlanId(id);
     try {
@@ -144,6 +150,9 @@ export function usePlanDocumentData({
     switcherOptions: switcherWithInflight,
     selectPlan,
     handleAction,
-    showsData: plans.length > 0 || (!loading && !error),
+    showsData: Boolean(selectedPlan) || (!loading && !error && !projection.loading && !projection.error),
+    projectionLoading: projection.loading,
+    projectionError: projection.error,
+    retryProjection: projection.retry,
   };
 }

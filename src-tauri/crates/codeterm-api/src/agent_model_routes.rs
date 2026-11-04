@@ -7,19 +7,16 @@ use axum::{
 use serde::Deserialize;
 use serde_json::Value;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::agent_restart::{
     ModelSwitchConfirmation, ModelSwitchError, ModelSwitchEvidence, ModelSwitchOutcome,
 };
 
 pub async fn agent_service_tiers(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
 ) -> Response {
-    if let Err((status, message)) = check_auth(&state, &headers) {
-        return (status, message.to_string()).into_response();
-    }
     let tab_id = match crate::routes::resolve_tab_async(&state, &raw_tab_id).await {
         Ok(tab_id) => tab_id,
         Err((status, message)) => {
@@ -162,13 +159,10 @@ pub struct AgentModelBody {
 
 pub async fn agent_model_handler(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(raw_tab_id): Path<String>,
     Json(body): Json<AgentModelBody>,
 ) -> Response {
-    if let Err((status, message)) = check_auth(&state, &headers) {
-        return (status, message.to_string()).into_response();
-    }
     let tab_id = match crate::routes::resolve_tab_async(&state, &raw_tab_id).await {
         Ok(tab_id) => tab_id,
         Err((status, message)) => {

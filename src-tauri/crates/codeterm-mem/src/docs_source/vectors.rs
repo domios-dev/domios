@@ -52,6 +52,7 @@ pub(super) fn ready_vectors() -> Option<StampedDocs> {
 pub(super) fn start_background_build(data_dir: &Path) {
     static STARTED: Once = Once::new();
     STARTED.call_once(|| {
+        super::vector_readiness().send_replace(super::VectorReadiness::Starting);
         let data_dir = data_dir.to_path_buf();
         if let Err(error) = std::thread::Builder::new()
             .name("docs-vector-build".into())

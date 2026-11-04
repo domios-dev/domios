@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // Caller: build.sh check|check-tests|test-one|release-preflight|install-local|build|test|verify|fmt-check; scripts check-slow-unit-tests.test.mjs
+import {bashInterpreter} from './bash-interpreter.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, appendFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -18,7 +19,7 @@ export function confirmCandidates(entries, options, run = spawnSync) {
   let exitCode = 0;
   for (const entry of entries) {
     const reuse = options.archive ? ['--archive-file', options.archive, '--workspace-remap', resolve('src-tauri')] : ['--binaries-metadata', options.binaries, '--cargo-metadata', options.cargo];
-    const measure = filter => run('bash', ['scripts/test-capped.sh', ...reuse,
+    const measure = filter => run(bashInterpreter(), ['scripts/test-capped.sh', ...reuse,
       '--filter-expr', filter, '--test-threads', '1', '--status-level', 'pass',
       '--no-fail-fast', '--no-tests=fail'], {
       encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,

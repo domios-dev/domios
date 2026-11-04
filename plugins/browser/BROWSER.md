@@ -1,32 +1,27 @@
 # BROWSER: how agents use the Domios browser
 
-Every verb is `domios plugin browser <verb> [args]`. This guide is what `domios docs BROWSER` and `domios plugin browser help` print.
+Commands: `domios plugin browser <verb> [args]`. `help`/`--help` works before open and lists plugin version, host build and verbs. Guide: `domios docs BROWSER`.
 
 ## When to use it
 
-- Verify a web UI you changed in the real running app, instead of claiming it works.
-- Reproduce a bug a user reported on a web page, and collect evidence.
-- Do a web task the user asked for, such as reading a page or filling a form, while the user can watch.
+Use this browser for web tasks and UI verification while the user watches. Use HTTP/APIs for plain data.
 
-This is the browser for any web page task in Domios. Use it instead of Chrome extensions, global browser skills or other browser tools.
-
-Do not use it to fetch plain data an HTTP request or an API returns. Use `curl` or the API for that.
+Delegate multi-step flows over 10,000 output characters to a Worker for a short result/evidence/blocker report to its parent. Set command/time bounds; stop at bot/auth walls. Scope direct checks with grep and `--out`.
 
 ## Your browser
 
-- **Ownership.** `open` gives you your own browser. It is named `<YourName>'s Browser`, the user sees it live as a tab nested under yours, and other agents in your workspace may use it too. It closes when you close it with `close`, when your Tab closes, or when your Team closes.
+- **Ownership.** `open` creates `<YourName>'s Browser`, visible beneath your tab and available to workspace agents. `close`, closing your tab or closing your Team ends it.
 - **Profiles.**
-  - Default: a **temporary session**. Opening an agent browser does not create a named persistent profile.
-  - An explicit `open --profile clean` uses a throwaway profile.
-  - A **named profile** keeps logins and cookies across restarts. The user creates general profiles through the Browser profile menu. Agents may select existing profiles with `open --profile NAME`; an unknown name fails. For DEV QA, agents create origin-bound profiles with the named session commands below, list them with `profile list` and remove inactive profiles with `profile remove NAME`. Never publish, buy, delete or send messages without the user's explicit instruction.
-- **One profile across tabs.** Tabs using the same named profile share cookies and logins, with independent pages and controls. Closing one browser leaves the others open.
-- **Another agent's browser.** Add `--of <agent>` (its Tab title or tab id) to any verb to act in that agent's browser instead of yours, for example `snapshot --of Snake` then `click button "Continue" --of Snake`. Its owner sees your name on the activity. It must already be open, you cannot `close` it, and refs come from the latest `snapshot` of that browser.
-- **Pointing an owner at something.** `annotate <ref> "comment" --of <agent>` (or `annotate button "Sign in" "comment" --of <agent>`, optional `--intent question|change|bug`) sends that agent the same element card the user's point-and-ask sends, signed with your name. It only targets another agent's browser.
-- **Shared view.** The user may press *Take control* and click or type alongside you. You are not blocked and not told. Always re-read the page before acting.
+  - Default: a **temporary session**; `open --profile clean` also uses a throwaway profile.
+  - A **named profile** retains logins and cookies. Users create general profiles in the Browser profile menu. Agents select existing profiles with `open --profile NAME`; unknown names fail. For DEV QA, use the origin-bound session commands below, `profile list` and `profile remove NAME` for inactive profiles. Publishing, buying, deleting and sending messages require explicit user instruction.
+- **Shared profiles.** Named-profile tabs share cookies/logins; pages and controls stay independent. Closing one leaves the others open.
+- **Another agent's browser.** Add `--of <title|tab-id>` to act there. Its owner sees your activity. It must already be open; you cannot close it. Use refs from its latest snapshot.
+- **Annotations.** `annotate <ref> "comment" --of <agent>` (or role/name; optional `--intent question|change|bug`) sends a signed element card to another browser's owner.
+- **Shared view.** *Take control* lets users act alongside you without notice. Re-read the page before acting.
 
-## The loop: snapshot, act, re-snapshot
+## Snapshot, act, re-snapshot
 
-The user can press **Take control** to drag-select page text, interact with forms and scroll. Ctrl/Cmd+C copies the remote selection and Ctrl/Cmd+V inserts local clipboard text. The toolbar also has Copy selected text and Paste text actions. User input invalidates agent refs, so take a fresh snapshot before continuing after the user interacts.
+With **Take control**, users select text, interact and scroll. Ctrl/Cmd+C/V and the toolbar copy remote selection/paste local text. User input invalidates refs; re-snapshot afterward.
 
 1. `snapshot`: read the page as an accessibility tree with roles, names, control states and element refs. Copy the exact ref shown, including its capture prefix; never construct one from an element's position. **This is the default way to understand a page.**
 2. Act on what the snapshot shows, by ref or by role and name:
@@ -34,110 +29,97 @@ The user can press **Take control** to drag-select page text, interact with form
    - `type textbox "Email" "me@example.com"` or `type <exact-ref-from-snapshot> "me@example.com"`
    - `press Enter`, `press a ctrl`
    - `goto <url>`, `back`, `forward`, `reload`, `scroll 800`
-3. Run `snapshot` again after every navigation or visible change. Elements you saw before may be gone or changed.
+3. Re-snapshot after navigation or visible change; prior elements may be gone or changed.
 
 Rules:
-- Start with `status`. If no browser is open, run `open` before concluding the browser is unavailable.
-- Re-snapshot after navigation, clicks that change the page, and any stale-reference error. Every new snapshot issues new refs; full/SPA navigation and viewer input invalidate the previous capture. Navigation, viewer input or a newer capture during a snapshot make the earlier capture fail rather than publishing its refs.
-- Role/name locators prefer an exact name, then a substring. If multiple elements match, the command refuses to choose and lists candidate refs; use the intended element's exact ref.
-- Control states include `checked`, `selected`, `expanded`, `disabled`, `required`, `readonly`, `focused` and `invalid` when the page exposes them. Use these as evidence when checking a form or toggle.
-- `snapshot [limit]` defaults to 200 lines and is capped at 2000. A truncation notice means more content remains; refs are only issued for included elements.
-- Prefer refs and role + name from the snapshot over coordinates or CSS selectors.
-- After async page changes, wait on evidence (`wait --text T`, `wait --url U`, `wait --selector S`), never on a bare timeout. A wait fails after 15 seconds.
-- For secrets, pipe the exact text to `domios plugin browser type <target> --stdin`. Browser masks the input before insertion and redacts the value from output, snapshots, events and annotations. This requires an HTML input that supports password masking. Never put secrets in arguments or print them.
-- `type` focuses the element, clears it, then inserts the text. If a custom input still ignores it, click it first and retry.
-- Use `text [limit]` to read long content; use `screenshot [file] [--full]` **only for visual claims** (layout, colour, clipping, alignment). Screenshots go to your pad; show one to the user with `<ds-image src="ABSOLUTE_PATH" />`.
-- **Never report an action as done unless the page proves it.** Re-snapshot and quote the evidence: a new heading, a success message, the changed value. If an action could have sent, submitted, bought or deleted something and you could not read back the result, say the effect is unproven.
-- If a command fails, read its error and retry with corrected arguments when the error is actionable. Don't switch to another browser tool (global browser skills, standalone Playwright, a REPL) just because the first call failed.
-- Report flaky behaviour as flaky, not as a pass.
+- Start with `status`; if closed, `open` before declaring the browser unavailable.
+- New snapshots replace all refs. Navigation, SPA navigation and viewer input invalidate them. Capture races refuse. Re-snapshot after visible changes or stale errors.
+- Role/name matches prefer exact names, then substrings. Name-only `type "Search" "query"` and `fill "Search" "query"` prefer input roles; `click "Search"` prefers clickable roles. An explicit role stays binding. Hidden matches are excluded; exactly one visible match wins. Multiple visible matches refuse with candidate refs.
+- Snapshots show control states. Use `snapshot [limit]`, not `--limit`: default 200, maximum 2000; only included elements receive refs.
+- Prefer refs or role/name over coordinates/CSS. Wait on evidence with `wait --text T`, `--url U` or `--selector S`, never elapsed time; default deadline 15s.
+- Secrets: pipe exact text to `type <target> --stdin`. It requires a maskable HTML input, masks before insertion and redacts output, snapshots, events and annotations. Never put secrets in arguments or print them.
+- `type` focuses, clears and inserts, refusing hidden, disabled, readonly or unfocusable fields. `type --submit textbox "Search" "query"` holds the action through typing and Enter. Without navigation or submit evidence, it calls `requestSubmit()` on the focused field's form. Completion requires observed navigation or a submit event; inspect the page for application success. An unconfirmed result never replays typing. `press Enter` sends to the currently focused element.
+- `text [limit] [--selector CSS] [--grep TEXT]` reads content. `--grep` keeps lines containing a literal case-insensitive substring before applying the character limit (default 4000, maximum 200000). `--selector` reads the first matching subtree and refuses a missing match. Sensitive subtrees are redacted. Screenshots are for visual claims only; show saved files with `<ds-image src="ABSOLUTE_PATH" />`.
+- Prove actions with a fresh snapshot or state wait: changed value, new heading or success message. Unread results remain unproven, especially sends, submissions, purchases or deletions.
+- Correct actionable argument errors. Never replay uncertain actions or switch browser tools to bypass a refusal. Report flaky behavior honestly.
 
 ## When the page needs the user
 
-`status` shows `needs human` other than `none`, and you should stop and tell the user, when:
-- the page shows a bot check or captcha;
-- a login is required that you were not given;
-- a cookie or consent dialog you may not decide on;
-- a native file picker or permission prompt;
-- a JavaScript dialog.
+Stop when `status` reports `needs human` other than `none`: captcha, missing login, consent you cannot decide, native file picker, permission prompt or JavaScript dialog. Name the blocker; the user can use *Take control*. Re-snapshot before continuing.
 
-Say exactly what is blocking. The user can solve it with *Take control*; then re-snapshot and continue.
+## User annotations
 
-## The user can point at things
-
-The user can pick an element in the live view and send a question, change request or bug about it. It arrives in your chat as a Domios notice. If you missed it, `inbox` lists the ones not delivered or read yet (`inbox all` lists every kept one). Each annotation gives you:
-- the page;
-- the element's role and name, its selector, and its React component (and source file on dev builds);
-- its text, attributes, computed styles and box;
-- nearby text;
-- a cropped screenshot;
-- the user's words and intent.
-
-Treat it as a precise pointer: find the code behind the element, answer or change it, then verify in the browser.
-
-## Testing your own web app
-
-1. Start the app's dev server in a `--purpose dev` utility shell, or reuse a running one.
-2. `goto http://localhost:<port>`.
-3. Walk the user journey you changed, snapshotting after each step.
-4. Prove the end state, not just the click. For example, the item appears in the list after reload.
-5. Save screenshots for the visual parts and cite them in your report.
-6. For each check that passed by hand, propose an automated test (file, framework, assertion).
-
-## Other verbs
-
-- `profiles`: the current profile and the named ones available.
-- `endpoint`: the browser's local CDP endpoint, for tools that need it.
-- `close`: close your browser.
+`inbox` lists unread annotations; `inbox all` lists retained ones. Notices carry page/element/React pointers, text, attributes, styles, box, context, screenshot and intent. Find the code, act and verify.
 
 ## Device viewport and capture metrics
 
+Actions show a cursor and typing ring; secrets stay masked. Viewer input hides them without waiting on the page. Evidence omits them unless `--include-overlay` is requested.
+
 `viewport set 390 844 --mobile --dpr 2` applies mobile device metrics to your owned target. Attached application targets refuse device emulation. Viewer resizing preserves the mobile mode.
 
-`screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` captures at the requested size and reports the saved path, layout width, content width and CDP layout metrics as JSON. `--restore` restores the previous device metrics even when capture fails; restoration failure is reported explicitly. Without `--restore`, requested metrics stay active.
+Owned mobile viewports enable touch emulation; use viewport commands to change modes, as external CDP emulation changes are outside the browser's state contract.
+
+Screenshot replies report CSS viewport width/height and DPR; recheck coordinates after resizing. `screenshot phone.png --viewport 390x844 --mobile --dpr 2 --restore --metrics-json` adds layout/content/CDP metrics. `--restore` restores prior metrics even after failure; otherwise they stay active.
 
 ## Scoped atomic actions
 
-`click --within 'dialog:Settings' --role button --name Save` and `fill --within 'form:Composer' --role textbox --name Message --text 'hello'` resolve exact role/name matches from a fresh accessibility snapshot at action time. Missing, ambiguous, stale, hidden and disabled targets refuse with a reason code. The page performs the action in one JavaScript turn only if its document and mutation/input epoch still match the capture. An `action_unconfirmed` result means the action may have happened: inspect the page, never replay it.
+Clicks report synchronous action acknowledgement, same-document navigation or a matching main-frame loader loaded/restored. An acknowledgement includes synchronous handlers; later effects need state waits. Navigation completion never uses network silence. Goto/history require navigation evidence; absent history reports no action. `action_unconfirmed` means completion was lost or authority changed: inspect, never replay.
+
+`click --within 'dialog:Settings' --role button --name Save` and `fill --within 'form:Composer' --role textbox --name Message --text 'hello'` resolve exact role/name matches from a fresh accessibility snapshot at action time. Missing, ambiguous, stale, hidden and disabled targets refuse with a reason code. The page performs the action in one JavaScript turn only if its document and mutation/input epoch still match the capture.
 
 ## Bounded structured snapshots
 
 `snapshot --json --scope dialog --actions-only --max-items 30` returns a JSON object with `page`, `scope`, `items`, `truncated` and `maxItems`. Items contain role, bounded name/text, depth and an optional reference. Only included actions receive references. The maximum is 2000 items; `truncated: true` explicitly marks omitted content.
 
-Scopes select one subtree: `dialog`, `sidebar` (complementary landmark), `composer` (form named Composer), or an exact `role:name`. Ambiguous scopes refuse. Password/token inputs and `data-sensitive` subtrees have their values and names redacted in text and JSON snapshots. A failed DOM redaction capture refuses the snapshot.
+Scopes select `dialog`, `sidebar` (complementary), `composer` (form named Composer), or exact `role:name`; use `--scope 'main:'` for an unnamed main. Ambiguity refuses. Password/token inputs and `data-sensitive` subtrees are redacted; failed redaction capture refuses.
 
-## Named DEV instance sessions and cleanup
+## Named DEV sessions and cleanup
 
-`open --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA` creates or reuses a profile bound to that exact origin, opens its `/web/` UI, and refuses a different origin or an unexpected `/api/health` build SHA. `attach` takes the same options and reuses the owned named session. Origins must be bare HTTP(S) origins without credentials, paths, queries or fragments. Existing unbound user profiles cannot be adopted as per-instance profiles.
+`open --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA` creates or reuses a profile bound to that exact origin, opens its root `/` UI, and refuses a different origin or an unexpected `/api/health` build SHA. `attach` takes the same options and reuses the owned named session. Origins must be bare HTTP(S) origins without credentials, paths, queries or fragments. Existing unbound user profiles cannot be adopted as per-instance profiles.
 
 `connect --profile dev-qa --origin http://localhost:7686 --expect-build FULL_SHA --stdin` opens the session and accepts the instance API token through piped stdin. Never place the token in argv, a URL or a log. The helper stores and reads back the origin-specific token, then reloads; use snapshot evidence to verify authentication. It never reads an inherited host endpoint or token.
 
 `--ephemeral` on open/attach/connect creates a session profile deleted when its last browser closes. An existing persistent profile cannot become ephemeral. `profile list` lists named profiles; `profile remove dev-qa` refuses while a browser still uses it.
 
-At the end of a QA run, close ephemeral sessions. For a persistent per-instance session, run `open --profile clean`, then `profile remove dev-qa`, then `close`. Remove each per-instance profile used by the run.
+After QA, close ephemeral sessions. For persistent per-instance sessions, run `open --profile clean`, then `profile remove dev-qa`, then `close`. Remove each per-instance profile used by the run.
 
-Native file picker driving returns `unsupported` on all platforms, including Windows: the current host has no lifecycle-owned native dialog handle or file chooser interception. Use Take control to choose files in a dialog the page opened.
+`upload <ref|"button text"> <path>...` selects files on Windows without opening an OS dialog. Use an exact file-input ref or the upload button's text from the latest snapshot. Relative paths resolve inside the calling agent's pad, including with `--of`; absolute paths must stay inside that pad or an upload folder the owner granted to the active named profile. The upload activity names the granting folder. The owner manages grants in Settings > General > Browser upload folders or with an owner-authenticated config CLI/API call. Agent credentials cannot add or remove grants. Symlinks, reparse points, device names, parent traversal, directories and alternate data streams refuse. Other platforms report `unsupported` until secure file admission is available.
+
+From an owner-authenticated shell, set the complete per-profile folder map (an empty map removes all grants):
+
+```bash
+domios config set browser_upload_folders '{"work":["C:/Developer/domios-promo"]}'
+```
+
+The equivalent owner-authenticated request is `PATCH /api/config` with `{"key":"browser_upload_folders","value":{"work":["C:/Developer/domios-promo"]}}`. Changes apply to subsequent uploads without restarting the browser.
+
+The view shows filenames, sizes and target origin. Selection reads back the file list; verify server completion on the page. `upload_unconfirmed` never authorizes replay. At most 64 files per browser lifetime; closing releases their read locks.
+
+Native `file-picker` driving remains unsupported. Use `upload` before opening a chooser; an already open native dialog requires Take control.
 
 ## Accessible state waits
 
-`wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses Chromium's accessibility tree and its computed accessible names, including aria-only labels. States are `visible`, `hidden`, `enabled` and `expanded`. Hidden also succeeds when no matching accessible element remains; ambiguous matches refuse. Durations use `ms`, `s` or `m`, default to 15s, and are capped at 2m. DOM mutation and input events wake the check; elapsed time only bounds failure. Navigation during a pending wait returns `stale`.
+`wait --role button --name 'Aria-only label' --state enabled --timeout 15s` uses computed AX names. States: `visible`, `hidden`, `enabled`, `expanded`. Hidden also accepts no remaining match; ambiguity refuses. Durations: `ms`/`s`/`m`, default 15s, maximum 2m. Mutation/input events wake checks; navigation returns `stale`.
+
+Wait replies identify the matching node/text excerpt and page. Check it: text may match your own chat instruction.
 
 ## Disclosure controls
 
-Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`summary` is a role alias). `expand summary 'Details'` and `collapse summary 'Details'` capture the current control, click only when its expanded state differs, then re-read the accessibility tree to confirm the requested state. Already matching state succeeds without a click. Ambiguous or stale controls refuse; `action_unconfirmed` or `state_unconfirmed` never triggers a replay.
+`summary` aliases Chromium `DisclosureTriangle`. `expand summary 'Details'` / `collapse summary 'Details'` click only if needed, then confirm AX expanded state. Already matching state succeeds without a click. Ambiguity/staleness refuse; unconfirmed actions never replay.
 
 ## QA convenience commands
 
-`open --domios-instance qa --api-port 7790 [--ephemeral]` checks the loopback daemon's exact instance name, API port and DEV application identifier, reads that named DEV instance's protected local credential internally, and connects using an automatically named origin-bound profile. The caller supplies no token. It refuses production port 7685, missing credentials and identity mismatches. Names are lowercase slugs. This convenience path uses the standard named DEV data directory and ignores inherited data-directory/host/token overrides; custom data roots can use the explicit named-session and stdin helper above.
+`open --domios-instance qa --api-port 7790 [--ephemeral]` verifies the exact DEV name/port/app identifier, reads its protected credential internally and opens `/` in an origin-bound profile. Names are lowercase slugs. Production 7685, missing credentials and identity mismatches refuse. It uses the standard named DEV directory, ignoring inherited directory/host/token overrides; custom roots use explicit sessions and stdin above.
 
 `snapshot --with-text --max-items 80` adds bounded static accessibility leaf text, such as description values and list-item text. It can accompany `--json`, `--scope` and `--actions-only`; static text gets no action refs and sensitive subtrees stay redacted.
 
 `wait --role switch --name Ligatures --state checked` and `--state unchecked` wait for explicit AX checked state. `pressed`, `unpressed`, `selected` and `unselected` use their corresponding AX properties. Missing or mixed values satisfy neither positive nor negative predicates.
 
-`snapshot --json --with-text --out evidence/page.json` and `text 12000 --out evidence/page.txt` save redacted output directly into the calling agent's pad and return its path. Relative paths resolve against the caller's pad, including with `--of`. Absolute paths must remain inside that pad. Parent traversal, symlinks/reparse points and Windows device names refuse.
+`snapshot --json --with-text --out evidence/page.json` and `text 12000 --out evidence/page.txt` save redacted output in the caller's pad. Replies give path, Unicode characters, UTF-8 bytes, items (snapshot entries or text lines) and truncation. Relative/absolute paths stay inside that pad, including with `--of`; traversal, links and device names refuse.
 
 ## Blueprint node
 
-`uses: browser.read_page` reads one page inside a Blueprint run. The run owner (the Tab that created the Blueprint) gets its own browser for the run, so the user can watch it live. The node closes that browser before it finishes, on success and on failure. Every call uses the exact surface identity granted by the host to this step. Existing owner browsers are left untouched; this step always gets a separate surface.
+`uses: browser.read_page` reads one page in a Blueprint run, using a separate browser visible under the owning Tab. The node closes it on success or failure. Calls use the exact host-granted surface identity; existing owner browsers stay untouched.
 
 - `with:` takes `url` (http or https, at most 2048 characters), an optional `wait_text`, and `limit`, the number of text lines to keep (default 200, at most 2000). A bound `url` input from an earlier node wins over `with.url`.
 - Outputs: `text` (the page text, with credentials redacted) and `final_url`. Bind them downstream as `read.out.text` and `read.out.final_url`.
@@ -150,4 +132,25 @@ Snapshots issue actionable refs for Chromium `DisclosureTriangle` controls (`sum
 
 On every outcome other than `read`, `text` holds the reason.
 
-<!-- revision: 10 -->
+## Batch and interactions
+
+`batch --from-pad steps.json` (or piped `--stdin`) runs 1–32 steps in one command. Input (maximum 64K characters) is an array:
+
+```json
+[{"name":"snapshot","input":{"args":["--json"]}},{"name":"click","input":{"args":["button","Continue"]}},{"name":"screenshot","input":{"args":["result.png"]}}]
+```
+
+Each step uses standalone validation, authority and redaction; put `--of` in its args. Ordered JSON `results` retain saved screenshot paths. `completed: false` and zero-based `stoppedAt` identify the first error or unconfirmed action. Earlier effects remain. Never replay `action_unconfirmed`. No nesting, secret verbs or per-step bodies; use standalone stdin for secrets. Interactions invalidate refs; insert snapshots or use current role/name targets between actions.
+
+- `hover @ref` or `hover button Name`.
+- `double-click`, `triple-click`, `right-click`: same target forms.
+- `drag @from @to` or `drag x1 y1 x2 y2`: viewport CSS pixels; ref targets must be visible. Native drops require an observed drop; pointer drags require a release.
+- `scroll-to @ref`: bring an element into view.
+- `key Enter --repeat 3 [shift|ctrl|alt|meta]`: 1–100 repetitions.
+- `form-value @ref true|false`: set a checkbox. For a select, pass option value or exact visible text; ambiguous options refuse. Re-snapshot to prove the value.
+- `screenshot zoom.png --region x,y,width,height --scale 2`: page CSS coordinates, scale 0.1–4, maximum 16 megapixels. Scale also works without region. Region/full are exclusive; region/scale cannot combine with device viewport options.
+- `console [--pattern TEXT] [--limit N]`: literal substring filter, primitive values only; object previews omitted.
+- `network [--limit N]`: request/response URL, method and status. Credentials, queries, fragments, headers and bodies are omitted. Both histories retain at most 200 bounded entries per browser session, starting at page open; output defaults to 100, maximum 200.
+- `snapshot --ref @ref [--depth N]`: current-ref subtree; cannot combine with `--scope`. Depth 0–64 also applies to full/scoped trees; zero includes only roots. Omitted descendants set truncation and receive no refs.
+
+<!-- revision: 22 -->

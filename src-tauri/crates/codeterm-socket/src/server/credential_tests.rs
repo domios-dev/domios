@@ -28,6 +28,49 @@ fn request(svc: &ServiceState, credential: &str, method: &str, params: Value) ->
 }
 
 #[test]
+fn memory_diagnostics_requires_local_owner_and_exposes_sizes_without_payloads() {
+    let (mux, tab) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let svc = Arc::new(fixture.service.clone());
+    svc.ext::<codeterm_service_core::config::ConfigState>()
+        .lock()
+        .api
+        .token = Some("owner-memory-fixture".into());
+    let credential = svc
+        .frontend_pty_env(Some(&tab))
+        .remove("CODETERM_API_TOKEN")
+        .unwrap();
+    assert_eq!(
+        request(&svc, &credential, "diagnostics.memory", json!({}))
+            .error
+            .unwrap()
+            .code,
+        -32003
+    );
+    assert!(dispatch_mesh_rpc("diagnostics.memory", Some(json!({})), &svc, "peer").is_err());
+    svc.output_buf
+        .lock()
+        .append("memory-fixture-pty", b"private-fixture-payload");
+    let result = request(
+        &svc,
+        "owner-memory-fixture",
+        "diagnostics.memory",
+        json!({}),
+    )
+    .result
+    .unwrap();
+    assert_eq!(result["subsystems"]["pty_output"]["count"], 1);
+    assert!(
+        result["subsystems"]["pty_output"]["approx_bytes"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+    assert_eq!(result["subsystems"]["plan_cache"]["count"], 0);
+    assert!(!result.to_string().contains("private-fixture-payload"));
+}
+
+#[test]
 fn external_socket_refuses_missing_and_retired_launch_credentials() {
     let (mut mux, tab) = MultiplexerState::new();
     let workspace = mux.find_workspace_for_tab(&tab).unwrap();

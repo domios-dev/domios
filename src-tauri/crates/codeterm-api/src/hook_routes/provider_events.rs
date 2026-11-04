@@ -36,6 +36,13 @@ pub(crate) async fn hook_provider_event(
         StatusCode::UNAUTHORIZED,
         "binding nonce missing".to_string(),
     ))?;
+    super::hook_authority::recover_launch(
+        &state.svc,
+        &tab_id,
+        &headers,
+        &serde_json::json!({"session_id": &body.session_id}),
+    )
+    .await?;
     let owner = state.clone();
     let target = tab_id.clone();
     let (tab_provider, session_id, expected_nonce, acknowledged_nonce, pty_id) =
@@ -157,7 +164,10 @@ pub(crate) async fn hook_provider_event(
                 .svc
                 .run_watcher
                 .observe_provider_turn_end(&state.svc, &tab_id, nonce, !has_error);
-            state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+            state
+                .svc
+                .schedule_session_model_refresh_after_stop(&tab_id)
+                .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
             state
                 .svc
                 .staged_model_turn_completed(&tab_id, &body.session_id, nonce);

@@ -20,6 +20,7 @@ pub mod loops;
 pub mod milestones;
 pub mod plans;
 pub mod project;
+pub mod projections;
 pub mod router;
 pub mod sections;
 pub mod skills;
@@ -140,10 +141,7 @@ fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
 }
 
 fn emit_plan_changed(state: &AppState, plan_id: &str) {
-    state
-        .svc
-        .ui
-        .emit("plan-changed", serde_json::json!({ "plan_id": plan_id }));
+    state.svc.emit_committed_plan_changed(&plan_id);
 }
 
 fn optional_string_field<'a>(body: &'a Value, key: &str) -> Option<Option<&'a str>> {
@@ -181,4 +179,12 @@ fn tag_facets_from_body(
     value: &Value,
 ) -> Result<Vec<codeterm_service_core::plan::TagFacet>, String> {
     tag_facets_from_value(value)
+}
+
+async fn run_blocking<T: Send + 'static>(
+    operation: impl FnOnce() -> Result<T, (StatusCode, Json<Value>)> + Send + 'static,
+) -> Result<T, (StatusCode, Json<Value>)> {
+    tokio::task::spawn_blocking(operation)
+        .await
+        .map_err(|_| text_err(StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed"))?
 }

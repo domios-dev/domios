@@ -6,7 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use axum::http::StatusCode;
 use axum::Json;
 
+mod late_hook;
 mod run_session;
+pub use late_hook::recover_verified_hook_binding;
 mod session_ack;
 mod session_claim;
 mod session_start_payload;
@@ -157,15 +159,17 @@ pub async fn finish_session_binding(
     };
     log::info!(
         "[delivery-timeline] event=session-binding tab={} provider={} session={} source={} binding_source={} \
-         report_nonce={} current_nonce={} reported_nonce={} nonce_verified={} changed={}",
+         report_nonce_present={} current_nonce_present={} reported_nonce_present={} report_matches_current={} reported_matches_current={} nonce_verified={} changed={}",
         tab_id,
         provider_id,
         sid,
         source,
         crate::service::integration_silence::binding_source_label(binding_source),
-        report_nonce.unwrap_or("-"),
-        current_nonce.as_deref().unwrap_or("-"),
-        reported_nonce.as_deref().unwrap_or("-"),
+        report_nonce.is_some(),
+        current_nonce.is_some(),
+        reported_nonce.is_some(),
+        report_nonce.is_some() && report_nonce == current_nonce.as_deref(),
+        current_nonce.is_some() && current_nonce == reported_nonce,
         claim.nonce_verified,
         claim.changed,
     );
@@ -327,11 +331,7 @@ pub async fn finish_session_binding(
         let _ = svc
             .plan_store
             .ack_handoff_resume(&resume.plan_id, &resume.handoff_id, epoch_ms());
-        svc.ui.emit(
-            "plan-changed",
-            serde_json::to_value(serde_json::json!({ "plan_id": resume.plan_id }))
-                .unwrap_or_default(),
-        );
+        svc.emit_committed_plan_changed(&resume.plan_id);
     }
     if let Some(previous_session_id) = claim.prev.as_deref() {
         // Binding is already visible; Chat may have subscribed to the new session.

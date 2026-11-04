@@ -85,6 +85,8 @@ pub struct MeshAdmissionBody {
     pub request_id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requested_membership_seconds: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<bool>,
     #[serde(flatten)]
     pub operation: MeshOperation,
 }
@@ -220,6 +222,8 @@ pub enum MembershipOperation {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MembershipResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub operation: MembershipOperation,
     pub installation_id: String,
     pub slot_revision: u64,
@@ -236,6 +240,8 @@ pub struct SessionTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SessionRevokedResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub target_installation_id: String,
     pub revoked_at: u64,
 }
@@ -250,6 +256,8 @@ pub struct PriorSessionsTarget {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PriorSessionsRevokedResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub schema_version: u32,
     pub revoked_count: u32,
     pub receiver_disabled: bool,
@@ -258,6 +266,8 @@ pub struct PriorSessionsRevokedResult {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RevokedResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub target_installation_id: String,
     pub target_key_id: String,
     pub target_key_generation: u64,
@@ -269,6 +279,8 @@ pub struct RevokedResult {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RecoveredResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub installation_id: String,
     pub key_id: String,
     pub key_generation: u64,
@@ -280,6 +292,8 @@ pub struct RecoveredResult {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UpdatedResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub installation_id: String,
     pub display_name: String,
     pub previous_metadata_revision: u64,
@@ -291,6 +305,8 @@ pub struct UpdatedResult {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PublishedResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub installation_id: String,
     pub endpoint: MeshEndpointObservation,
     pub previous_metadata_revision: u64,
@@ -302,6 +318,8 @@ pub struct PublishedResult {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SyncResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub installation_id: String,
     pub display_name: Option<String>,
     pub presence: RegistryPresence,
@@ -317,6 +335,8 @@ pub struct SyncResult {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct WithdrawnResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub installation_id: String,
     pub previous_metadata_revision: u64,
     pub metadata_revision: u64,
@@ -327,6 +347,8 @@ pub struct WithdrawnResult {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PresenceResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub installation_id: String,
     pub presence: RegistryPresence,
     pub previous_metadata_revision: u64,
@@ -346,6 +368,8 @@ pub enum RegistryPresence {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PermitResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub installation_id: String,
     pub peer_installation_id: String,
     pub slot_revision: u64,
@@ -404,6 +428,8 @@ impl MeshManagementRow {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PageResult {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub signed_registry: Option<DetachedGrant>,
     pub registry_revision: u64,
     pub rows: Vec<MeshManagementRow>,
     pub cursor: Option<MeshCursor>,
@@ -555,6 +581,24 @@ impl RegistryRefusal {
                 retry_after_seconds: 0,
             }) => Self::Unavailable,
             Ok(refusal) => refusal,
+        }
+    }
+}
+
+impl MeshResult {
+    pub fn signed_registry(&self) -> Option<&DetachedGrant> {
+        match self {
+            Self::Membership(result) => result.signed_registry.as_ref(),
+            Self::SessionRevoked(result) => result.signed_registry.as_ref(),
+            Self::Revoked(result) => result.signed_registry.as_ref(),
+            Self::Recovered(result) => result.signed_registry.as_ref(),
+            Self::Updated(result) => result.signed_registry.as_ref(),
+            Self::Published(result) => result.signed_registry.as_ref(),
+            Self::Sync(result) => result.signed_registry.as_ref(),
+            Self::Withdrawn(result) => result.signed_registry.as_ref(),
+            Self::Presence(result) => result.signed_registry.as_ref(),
+            Self::Permit(result) => result.signed_registry.as_ref(),
+            Self::Page(result) => result.signed_registry.as_ref(),
         }
     }
 }

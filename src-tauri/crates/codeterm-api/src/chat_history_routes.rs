@@ -5,7 +5,7 @@ use axum::{
 };
 use serde::Deserialize;
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 #[derive(Deserialize)]
 pub struct ChatHistoryBody {
@@ -17,11 +17,10 @@ pub struct ChatHistoryBody {
 /// One older page behind a history gap row; the session must belong to the tab.
 pub async fn chat_raw_history(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(tab_id): Path<String>,
     Json(body): Json<ChatHistoryBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     let svc = state.svc.clone();
     let messages = tokio::task::spawn_blocking(move || {
         codeterm_service_core::service::tab_chat::history_gap::page(

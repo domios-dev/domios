@@ -9,7 +9,12 @@ pub(super) async fn notify(service: &Weak<ServiceContext>, revision: u64) {
         return;
     }
     if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
-        codeterm_mesh::presence_notice::broadcast_presence_notice(&mesh, revision).await;
+        let snapshot = mesh.lock().signed_registry.clone();
+        if let Some(snapshot) = snapshot {
+            codeterm_mesh::presence_notice::broadcast_registry_snapshot(&mesh, &snapshot).await;
+        } else {
+            codeterm_mesh::presence_notice::broadcast_presence_notice(&mesh, revision).await;
+        }
     }
 }
 
@@ -39,24 +44,25 @@ pub(super) async fn notify_registry(service: &Weak<ServiceContext>) {
         return;
     }
     if let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() {
-        codeterm_mesh::presence_notice::broadcast_registry_notice(&mesh).await;
+        let snapshot = mesh.lock().signed_registry.clone();
+        if let Some(snapshot) = snapshot {
+            codeterm_mesh::presence_notice::broadcast_registry_snapshot(&mesh, &snapshot).await;
+        }
     }
 }
 
 impl ServiceContext {
-    pub async fn account_mesh_registry_hint(
+    pub async fn account_mesh_registry_snapshot(
         &self,
-        sender: &str,
-        nonce: &str,
-        account: &str,
-        revision: Option<u64>,
-        security_digest: Option<&str>,
+        snapshot: &codeterm_entitlements::DetachedGrant,
     ) -> Result<bool, String> {
-        self.account_mesh()
-            .await?
-            .mesh
-            .registry_hint(sender, nonce, account, revision, security_digest)
-            .await
-            .map_err(|refusal| format!("Account registry refresh refused: {refusal:?}"))
+        let service = self.account_mesh().await?;
+        match service.mesh.receive_registry_snapshot(snapshot).await {
+            Ok(applied) => Ok(applied),
+            Err(error) => {
+                let _ = service.mesh.list_fresh().await;
+                Err(format!("Signed registry rejected: {error:?}"))
+            }
+        }
     }
 }

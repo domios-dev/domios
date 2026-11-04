@@ -1,3 +1,17 @@
+pub fn list_agent_provider_metadata(
+    registry: &crate::provider::ProviderRegistry,
+) -> Result<Vec<serde_json::Value>, String> {
+    registry
+        .describe_metadata()
+        .into_iter()
+        .map(|descriptor| {
+            let mut value = serde_json::to_value(descriptor).map_err(|error| error.to_string())?;
+            value["availability_checking"] = true.into();
+            Ok(value)
+        })
+        .collect()
+}
+
 pub fn list_agent_provider_values(
     registry: &crate::provider::ProviderRegistry,
 ) -> Vec<serde_json::Value> {

@@ -4,6 +4,9 @@
 use super::MeshSpawnFailure;
 use codeterm_mesh::contract::delivery;
 
+#[cfg(test)]
+mod tests;
+
 /// Whether repeating the identical request can ever succeed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RefusalClass {
@@ -234,6 +237,18 @@ pub(crate) fn classify_relay_answer(
 
     // A local relay refusal can itself be JSON without being a RelayResponse.
     if !status.is_success() && val.get("ok").is_none() {
+        if val.get("code").and_then(serde_json::Value::as_str)
+            == Some(delivery::PEER_RELAY_PROTOCOL_MISMATCH)
+        {
+            return Err(MeshSpawnFailure::refused_before_send(
+                peer_name,
+                delivery::PEER_RELAY_PROTOCOL_MISMATCH,
+                val.get("message")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("Peer runs an incompatible Domios; update it through the updater"),
+                "Update the peer through the updater, then retry.",
+            ));
+        }
         let preview = String::from_utf8_lossy(&bytes[..bytes.len().min(512)]);
         let refusal_reason = val.get("reason").and_then(serde_json::Value::as_str);
         let peer_offline = refusal_reason == Some("peer_name_no_online_record");

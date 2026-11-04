@@ -1,6 +1,39 @@
 use crate::Cli;
 use clap::CommandFactory;
 
+#[test]
+fn task_update_accepts_repeated_tag_removals_with_additions() {
+    use clap::Parser;
+    let parsed = Cli::try_parse_from([
+        "domios",
+        "plan",
+        "task",
+        "update",
+        "task",
+        "--tag",
+        "work:backend",
+        "--untag",
+        "build-breaking",
+        "--untag",
+        "stale",
+    ])
+    .unwrap();
+    let crate::Commands::Plan {
+        action:
+            crate::PlanAction::Task {
+                action:
+                    super::PlanTaskAction::Update {
+                        tags, remove_tags, ..
+                    },
+            },
+    } = parsed.command
+    else {
+        panic!("task update expected")
+    };
+    assert_eq!(tags, ["work:backend"]);
+    assert_eq!(remove_tags, ["build-breaking", "stale"]);
+}
+
 fn depends_on_help(subcommand: &str) -> String {
     Cli::command()
         .find_subcommand_mut("plan")

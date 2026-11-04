@@ -4,14 +4,14 @@ import { composeAttachmentDraft } from "./meshAttachmentHandoff";
 import { failChatSendRequest, setChatSendDraft, updateChatSendContent } from "./chatSendStore";
 import type { DsTasksExpansion } from "./dsTasks/dsTasksModel";
 
-export async function prepareChatDelivery(tabId: string, send: DeliverySend, expand: (text: string) => DsTasksExpansion): Promise<string> {
+export async function prepareChatDelivery(tabId: string, send: DeliverySend, expand: (text: string) => DsTasksExpansion | Promise<DsTasksExpansion>): Promise<string> {
   const draft = send.draft;
   if (!draft) return send.content;
   try {
     const result = await composeAttachmentDraft(tabId, draft.text, draft.attachments,
       draft.recordedVoiceAttachments, composerAttachmentHandoff, draft.capsules, draft.reply);
     if (result.transcribeFailed) throw new Error("Voice transcription failed");
-    const expansion = expand(result.composed);
+    const expansion = await expand(result.composed);
     if (expansion.kind === "error") throw new Error(expansion.message);
     const composed = expansion.kind === "expanded" ? expansion.text : result.composed;
     updateChatSendContent(tabId, send.id, composed);

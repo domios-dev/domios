@@ -1,5 +1,30 @@
 use axum::Json;
 
+pub(super) async fn recover_launch(
+    svc: &codeterm_service_core::service::ServiceContext,
+    tab: &str,
+    headers: &axum::http::HeaderMap,
+    body: &serde_json::Value,
+) -> Result<(), (axum::http::StatusCode, String)> {
+    let nonce = body
+        .get("binding_nonce")
+        .and_then(|value| value.as_str())
+        .or_else(|| super::header_str(headers, "x-codeterm-binding-nonce"));
+    let provider = body
+        .get("provider_id")
+        .or_else(|| body.get("provider"))
+        .and_then(|value| value.as_str())
+        .or_else(|| super::header_str(headers, "x-codeterm-agent-provider"));
+    codeterm_service_core::service::hook_session_binding::recover_verified_hook_binding(
+        svc,
+        tab,
+        provider,
+        super::session_start_session_id(body).as_deref(),
+        nonce,
+    )
+    .await
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum HookAuthority {
     Telemetry,

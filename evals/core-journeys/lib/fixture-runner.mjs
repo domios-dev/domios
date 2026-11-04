@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../../scripts/bash-interpreter.mjs';
 import { execFile } from "node:child_process";
 import { appendFileSync, mkdirSync, readFileSync, readdirSync, renameSync, statSync, unlinkSync, watch, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -25,8 +26,11 @@ const atomicJson = (path, value) => {
 process.env.CODETERM_SESSION_ID = session;
 process.env.CODETERM_INSTANCE = options.instance;
 process.env.CODETERM_API_PORT = options.port;
+process.env.CORE_JOURNEY_BUILD_CHECKOUT = options.checkout;
 
 const prefixes = [["agent", "set-orchestrator"], ["plan", "create"], ["plan", "task", "add"],
+  ["plan", "approve"],
+  ["spec", "create"], ["spec", "section", "add"], ["plan", "goal", "set"], ["plan", "update"],
   ["plan", "task", "dispatch"], ["plan", "review", "bounce"], ["plan", "review", "accept"],
   ["plan", "rebind"], ["plan", "delete"]];
 function allowed(args) {
@@ -37,7 +41,7 @@ function execute(args) {
   const env = { ...process.env };
   for (const key of ["BASH_ENV", "SHELLOPTS", "BASHOPTS"]) delete env[key];
   return new Promise(resolve => {
-    execFile("bash", ["--noprofile", "--norc", options.bench, "--dc", "--as-tab", tab, ...args],
+    execFile(bashInterpreter(), ["--noprofile", "--norc", options.bench, "--dc", "--as-tab", tab, ...args],
       { env, timeout: 120_000, maxBuffer: 1024 * 1024, windowsHide: true },
       (error, stdout, stderr) => resolve({ code: error ? (Number.isInteger(error.code) ? error.code : 1) : 0,
         uncertain: Boolean(error && !Number.isInteger(error.code)), stdout: redact(stdout), stderr: redact(stderr) }));

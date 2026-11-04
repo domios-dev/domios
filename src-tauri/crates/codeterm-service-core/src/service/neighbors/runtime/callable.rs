@@ -57,6 +57,9 @@ impl Calls {
 
 #[async_trait]
 impl AuthenticatedCall for Calls {
+    fn require_paid(&self) -> Result<()> {
+        self.service.require_neighbor_paid(&self.uid)
+    }
     fn firestore_failure(
         &self,
         operation: &'static str,
@@ -140,14 +143,20 @@ impl Calls {
             .0
             .get()
             .ok_or(Error::Revoked)?;
-        let session = account
-            .recover_session(expected)
-            .await
-            .map_err(|error| match error {
-                codeterm_account::Error::Cancelled => Error::Revoked,
-                _ => Error::Transport,
-            })?
-            .ok_or(Error::Revoked)?;
+        let session = match account.recover_session(expected).await {
+            Ok(session) => session.ok_or(Error::Revoked)?,
+            Err(error) => {
+                return Err(
+                    if error == codeterm_account::Error::Cancelled
+                        || account.session().await.is_none()
+                    {
+                        Error::Revoked
+                    } else {
+                        Error::Transport
+                    },
+                )
+            }
+        };
         self.validate_session(&session).await?;
         Ok(session)
     }
@@ -158,6 +167,9 @@ impl Calls {
         route: &str,
         data: Value,
     ) -> Result<Value> {
+        if paid_route(route) {
+            self.require_paid()?;
+        }
         let mut session = self.session().await?;
         let mut response = transport
             .call_for_account(
@@ -165,10 +177,10 @@ impl Calls {
                 route,
                 session.id_token.expose(),
                 data.clone(),
-                &crate::service::account::callable_admission::SessionGuard {
-                    service: &self.service,
+                &PaidCallGuard {
+                    calls: self,
                     expected: &session,
-                    neighbors: true,
+                    paid: paid_route(route),
                 },
             )
             .await;
@@ -185,10 +197,10 @@ impl Calls {
                         route,
                         session.id_token.expose(),
                         data,
-                        &crate::service::account::callable_admission::SessionGuard {
-                            service: &self.service,
+                        &PaidCallGuard {
+                            calls: self,
                             expected: &session,
-                            neighbors: true,
+                            paid: paid_route(route),
                         },
                     )
                     .await;
@@ -248,6 +260,12 @@ fn callable_error(status: u16, body: Option<&Value>) -> Error {
 
 fn classify_callable_error(status: u16, body: Option<&Value>, retry_after: Option<u64>) -> Error {
     let structured = body.map(refusal).unwrap_or(Error::Refused);
+    if matches!(
+        structured,
+        Error::Locked | Error::Revoked | Error::SessionRevoked
+    ) {
+        return structured;
+    }
     let seconds = body
         .and_then(|body| body.pointer("/error/details/retry_after_seconds"))
         .and_then(Value::as_u64)
@@ -355,3 +373,42 @@ fn refusal(body: &Value) -> Error {
 
 #[cfg(test)]
 mod tests;
+
+fn paid_route(route: &str) -> bool {
+    !matches!(
+        route,
+        "friendsList" | "friendsOwnKeys" | "friendsReceiverStatus"
+    )
+}
+
+struct PaidCallGuard<'a> {
+    calls: &'a Calls,
+    expected: &'a codeterm_account::Session,
+    paid: bool,
+}
+
+#[async_trait]
+impl codeterm_account::account_mesh::callable::CallableGuard for PaidCallGuard<'_> {
+    async fn current(&self) -> bool {
+        if self.calls.service.require_neighbors_enabled().is_err()
+            || self.paid && self.calls.require_paid().is_err()
+        {
+            return false;
+        }
+        crate::service::account::callable_admission::SessionGuard {
+            service: &self.calls.service,
+            expected: self.expected,
+            neighbors: false,
+        }
+        .current()
+        .await
+    }
+    async fn retired(&self) {
+        let mut changes = self.calls.service.callable_admission_changes().subscribe();
+        loop {
+            if !self.current().await || changes.changed().await.is_err() {
+                return;
+            }
+        }
+    }
+}

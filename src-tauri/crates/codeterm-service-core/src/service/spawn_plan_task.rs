@@ -556,15 +556,7 @@ impl ServiceContext {
                 .map_err(|error| error.to_string())?;
         }
         self.persist_current_attempt_session_model(tab_id);
-        self.ui.emit(
-            "plan-changed",
-            serde_json::to_value(serde_json::json!({
-                "plan_id": binding.plan_id,
-                "task_id": binding.task_id,
-                "attempt_id": binding.attempt_id,
-            }))
-            .unwrap_or_default(),
-        );
+        self.emit_committed_plan_changed(&binding.plan_id);
         Ok(())
     }
 
@@ -606,7 +598,8 @@ impl ServiceContext {
                         .iter()
                         .any(|attempt| attempt.id == authority.attempt_id)
                 });
-        let checkout_path = if existing_attempt {
+        let checkout_path = if existing_attempt || intent == crate::plan::ExecutionIntent::ReadOnly
+        {
             None
         } else {
             let cwd = self

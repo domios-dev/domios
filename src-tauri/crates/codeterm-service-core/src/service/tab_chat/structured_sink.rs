@@ -251,24 +251,12 @@ pub fn make_sink(
     })
 }
 
-/// Durable wrapper for chatBackend (shell) tabs: forwards every emitted delta
-/// to the wrapped UI sink AND UPSERTs it into the session's JSONL so the
-/// transcript survives a refresh / VM reload / daemon restart. chatBackend tabs
-/// have no provider-side store, so this host-side JSONL IS the durable truth
-/// (see [`super::chatbackend_history`]).
 pub struct ChatBackendStructuredSink {
     inner: Arc<dyn StructuredSink>,
     history: super::chatbackend_history::SharedHistory,
 }
 
 impl ChatBackendStructuredSink {
-    /// `meta` is the openSession config persisted as the JSONL `_meta` header so
-    /// a restored tab can lazily re-open and continue.
-    ///
-    /// The history is the SHARED per-session mirror (see
-    /// [`super::chatbackend_history::ChatBackendHistory::shared`]) — the same
-    /// instance the gateway upserts host inbound rows into, so a poll flush here
-    /// merges with (never clobbers) those rows.
     pub fn new(
         inner: Arc<dyn StructuredSink>,
         plugin_id: &str,
@@ -289,8 +277,10 @@ impl StructuredSink for ChatBackendStructuredSink {
         if messages.is_empty() {
             return;
         }
-        // Persist first (cheap, deduped), then forward to the UI sink.
-        self.history.lock().upsert(&messages);
+        if let Err(error) = self.history.lock().try_upsert(&messages) {
+            log::warn!("[chatbackend] transcript not published: {error}");
+            return;
+        }
         self.inner.emit(tab_id, messages, cursor);
     }
 }
@@ -561,6 +551,9 @@ pub(crate) fn current_binding_turn_confirmations(
     let (Some(ledger), Some(source_session_id)) = (ledger, source_session_id) else {
         return Vec::new();
     };
+    if let Some(nonce) = source_binding_nonce {
+        ledger.reconcile_provisional_launch(tab_id, Some((source_session_id, nonce)));
+    }
     if !source_is_current_binding(mux, tab_id, source_session_id, source_binding_nonce) {
         return Vec::new();
     }

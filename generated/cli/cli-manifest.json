@@ -4055,6 +4055,21 @@
       ]
     },
     {
+      "name": "diagnostics",
+      "about": "Read-only local owner diagnostics",
+      "aliases": [],
+      "args": [],
+      "subcommands": [
+        {
+          "name": "memory",
+          "about": "Approximate retained subsystem sizes; busy subsystems are skipped",
+          "aliases": [],
+          "args": [],
+          "subcommands": []
+        }
+      ]
+    },
+    {
       "name": "docs",
       "about": "Read embedded Domios documentation in full. Omit NAME to list documents",
       "aliases": [],
@@ -8923,47 +8938,6 @@
               "about": "Request one Curator round now, subject to the plan and human-wait gates",
               "aliases": [],
               "args": [
-                {
-                  "name": "plan_id",
-                  "positional": true,
-                  "required": true,
-                  "value_name": "PLAN_ID",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                }
-              ],
-              "subcommands": []
-            },
-            {
-              "name": "set",
-              "about": "Switch the plan between Curator rounds and the plain heartbeat",
-              "aliases": [],
-              "args": [
-                {
-                  "name": "interval",
-                  "positional": false,
-                  "required": false,
-                  "value_name": "INTERVAL",
-                  "possible_values": [],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
-                {
-                  "name": "mode",
-                  "positional": true,
-                  "required": true,
-                  "value_name": "MODE",
-                  "possible_values": [
-                    "curator",
-                    "heartbeat"
-                  ],
-                  "default": null,
-                  "help": null,
-                  "aliases": []
-                },
                 {
                   "name": "plan_id",
                   "positional": true,
@@ -14786,6 +14760,16 @@
                   "aliases": []
                 },
                 {
+                  "name": "untag",
+                  "positional": false,
+                  "required": false,
+                  "value_name": "TAG",
+                  "possible_values": [],
+                  "default": null,
+                  "help": "Remove an exact tag after additions; repeatable",
+                  "aliases": []
+                },
+                {
                   "name": "why",
                   "positional": false,
                   "required": false,
@@ -14985,26 +14969,6 @@
               "possible_values": [],
               "default": null,
               "help": "Set attached Planner: <tab_id> to bind, or \"none\" to waive (requires --note)",
-              "aliases": []
-            },
-            {
-              "name": "spec",
-              "positional": false,
-              "required": false,
-              "value_name": "SPEC",
-              "possible_values": [],
-              "default": null,
-              "help": null,
-              "aliases": []
-            },
-            {
-              "name": "spec-file",
-              "positional": false,
-              "required": false,
-              "value_name": "PATH",
-              "possible_values": [],
-              "default": null,
-              "help": null,
               "aliases": []
             },
             {
@@ -19100,7 +19064,7 @@
               "value_name": "PATH",
               "possible_values": [],
               "default": null,
-              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content",
+              "help": "JSON array of {content,status,activeForm?,id?,link?,reason?}; omit id for new items; id addresses existing items only. activeForm defaults to content",
               "aliases": []
             }
           ],

@@ -1,3 +1,4 @@
+import { useMeshConnections } from "./useMeshConnections";
 import { nativeBridge } from "../../lib/nativeBridge";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { RefreshCw } from "lucide-react";
@@ -60,6 +61,7 @@ function normalizeTab(t: unknown): MeshTab {
 
 export function MeshPanel({ config, onClose }: Props) {
   const touchUi = useTouchOptimizedUi();
+  const connecting = useMeshConnections(config.mesh.enabled);
   const goOnline = useCallback(async () => {
     await invoke("mesh_set_enabled", { enabled: true });
   }, []);
@@ -233,6 +235,7 @@ export function MeshPanel({ config, onClose }: Props) {
               : header.kind === "loading"
                 ? <DeferredLoader state="present" aria-busy="true"><BusyState inline label="Loading peers" phase="work" /></DeferredLoader>
                 : `${header.count} peer${header.count === 1 ? "" : "s"}`}
+            {connecting > 0 && <span role="status" className="ml-2"><BusyState inline label={`${connecting} peer${connecting === 1 ? "" : "s"} connecting`} phase="work" /></span>}
           </div>
           {activeTab !== "inventory" && <button
             onClick={refreshAll}

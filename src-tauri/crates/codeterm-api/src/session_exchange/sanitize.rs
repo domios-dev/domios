@@ -128,29 +128,42 @@ fn opaque(key: &str) -> bool {
 
 fn private_key(field: &str, result: &Map<String, Value>) -> Result<String, String> {
     let mut characters: Vec<char> = filler(field).chars().collect();
-    let Some(index) = characters
+    let positions: Vec<_> = characters
         .iter()
-        .rposition(|c| *c != '\\' && !c.is_control())
-    else {
-        let key = characters.into_iter().collect::<String>();
-        return (!result.contains_key(&key))
-            .then_some(key)
-            .ok_or_else(|| "Cannot distinguish opaque keys at their original size".into());
-    };
-    let (start, count) = match characters[index].len_utf8() {
-        1 => (u32::from(b'a'), 26),
-        2 => (0x100, 256),
-        3 => (0x2500, 1024),
-        _ => (0x1f400, 1024),
-    };
-    for offset in 0..count {
-        characters[index] = char::from_u32(start + offset).expect("Filler scalar range");
+        .enumerate()
+        .filter(|(_, c)| **c != '\\' && !c.is_control())
+        .map(|(index, c)| {
+            let (start, count) = match c.len_utf8() {
+                1 => (u32::from(b'a'), 26),
+                2 => (0x100, 256),
+                3 => (0x2500, 1024),
+                _ => (0x1f400, 1024),
+            };
+            (index, start, count)
+        })
+        .collect();
+    for &(index, start, count) in &positions {
+        characters[index] = char::from_u32(start + count - 1).expect("Filler scalar range");
+    }
+    loop {
         let key = characters.iter().collect::<String>();
         if !result.contains_key(&key) {
             return Ok(key);
         }
+        let mut advanced = false;
+        for &(index, start, count) in positions.iter().rev() {
+            let current = u32::from(characters[index]);
+            if current > start {
+                characters[index] = char::from_u32(current - 1).expect("Filler scalar range");
+                advanced = true;
+                break;
+            }
+            characters[index] = char::from_u32(start + count - 1).expect("Filler scalar range");
+        }
+        if !advanced {
+            return Err("Opaque key inventory exceeds same-size filler capacity".into());
+        }
     }
-    Err("Opaque key inventory exceeds same-size filler capacity".into())
 }
 
 #[derive(Clone, Copy)]
@@ -213,13 +226,20 @@ fn walk(value: &Value, key: &str, private: bool, schema: SchemaLocation) -> Resu
         ),
         Value::Object(object) => {
             let mut result = Map::new();
-            for (field, value) in object {
-                let known = !private
+            let is_known = |field: &str| {
+                !private
                     && (!matches!(schema, SchemaLocation::None)
                         || KEYS
                             .split_whitespace()
                             .chain([LEAF_SESSION_ID_KEY])
-                            .any(|key| key == field));
+                            .any(|key| key == field))
+            };
+            let fields = object
+                .iter()
+                .filter(|(field, _)| is_known(field))
+                .chain(object.iter().filter(|(field, _)| !is_known(field)));
+            for (field, value) in fields {
+                let known = is_known(field);
                 let safe_field = if known {
                     field.clone()
                 } else {

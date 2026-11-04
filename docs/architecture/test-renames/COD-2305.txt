@@ -1,0 +1,5 @@
+# Owner chat no longer resolves notification questions; the service oracle covers the new contract.
+service::curator::notification_tests::curator_question_resolution_schedules_next_round_and_emits_ui_changes -> service::curator::notification_tests::owner_chat_keeps_questions_open_until_explicit_resolution_resumes_curator
+store::questions::tests::notify_chat_or_resolve_cannot_grant_host_decisions -> store::questions::tests::notify_resolve_cannot_grant_host_decisions
+# Deleted obsolete API oracles: notify_chat_answer_resolves_only_prior_questions_in_the_asking_tab,
+# notify_tapped_choice_is_preserved_when_chat_follows. Retained proof is documented in the task report.

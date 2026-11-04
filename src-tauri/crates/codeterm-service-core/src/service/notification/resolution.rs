@@ -19,18 +19,12 @@ impl ServiceContext {
         Ok(())
     }
 
-    pub(crate) fn answer_notification_questions_in_chat(&self, tab: &str, sent_at: u64) {
-        let ids = self.notif.lock().answer_questions_in_chat(tab, sent_at);
-        self.announce_resolved(&ids);
-        if !ids.is_empty() {
-            self.reconcile_notification_questions();
-        }
-    }
-
     pub(in crate::service) fn reconcile_notification_questions(&self) {
         let Ok(now) = self.curator_now() else { return };
         for id in crate::service::curator::curator_bootstrap_ids(&self.plan_store) {
-            self.reconcile_curator_id(&id, now);
+            if let Err(error) = self.reconcile_curator_id(&id, now) {
+                log::error!("[curator] notification reconciliation {id}: {error}");
+            }
         }
     }
 }

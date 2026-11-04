@@ -10,6 +10,7 @@ import { persistProviderIcons } from "../lib/providerIconCache";
 import { createProviderCatalogueResource } from "../lib/providerCatalogueResource";
 import { WEB_BOOT_CHANGED_EVENT, type BootChangedDetail } from "../lib/buildDriftReload";
 import { PROVIDER_AVAILABILITY_CHANGED } from "../lib/providerAvailability";
+import { clearProviderProbes, probeProvider } from "../lib/providerAvailabilityProbe";
 
 export function shouldRefreshAgentProviders(eventType: string): boolean {
   return eventType === "contributions-changed" || eventType === "model-catalogue-changed";
@@ -29,8 +30,9 @@ export function agentProvidersFromResponse(result: unknown): ProviderDescriptor[
 }
 
 export async function fetchAgentProviders(): Promise<ProviderDescriptor[]> {
-  const result = await invoke<unknown>("list_agent_providers");
+  const result = await invoke<unknown>("list_agent_providers", { metadataOnly: true });
   const providers = agentProvidersFromResponse(result);
+  clearProviderProbes();
   recordProviderCatalogueResponse(providers.length);
   return providers;
 }
@@ -110,6 +112,17 @@ export function useAgentProviders(): {
         hasLoaded.current = true;
         setItems(next);
         setError(null);
+        for (const provider of next.filter(provider => provider.availability_checking)) {
+          void probeProvider(provider.id).then(status => {
+            if (!active.current || generation.current !== current) return;
+            setItems(items => items.map(item => item.id === provider.id ? {
+              ...item,
+              availability_checking: false,
+              availability: status?.availability ?? "unknown",
+              cli_status: status ?? undefined,
+            } : item));
+          });
+        }
       }).catch((reason: unknown) => {
         if (!active.current || generation.current !== current) return;
         if (DEV_BUILD) console.debug("Background agent provider catalogue refresh failed", reason);
@@ -132,6 +145,7 @@ export function useAgentProviders(): {
       invalidateAgentProviders();
       generation.current++;
       resetAgentCatalogueVersions();
+      clearProviderProbes();
       serverIdentity = undefined;
       hasLoaded.current = false;
       setItems([]);

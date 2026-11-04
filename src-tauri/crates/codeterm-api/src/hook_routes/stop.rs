@@ -9,12 +9,16 @@ pub async fn hook_stop(
     headers: HeaderMap,
     OptionalJson(body): OptionalJson<serde_json::Value>,
 ) -> Result<axum::response::Response, (StatusCode, String)> {
-    tokio::task::spawn_blocking(move || {
-    let started = std::time::Instant::now();
-    let tab_id = resolve_hook_tab(&state, &raw_tab_id, "stop")?;
+    let tab_id = resolve_hook_tab_async(&state, &raw_tab_id, "stop").await?;
     if let Some(response) = hook_authority::telemetry_response(&state.svc, &tab_id, "stop") {
         return Ok(axum::response::IntoResponse::into_response(response));
     }
+    let recovery_service = state.svc.clone();
+    let recovery_tab = tab_id.clone();
+    let recovery_headers = headers.clone();
+    let recovery_body = body.clone();
+    let response = tokio::task::spawn_blocking(move || {
+    let started = std::time::Instant::now();
     log::debug!("[hook_stop] fired for Tab {}", tab_id);
     let body = body.unwrap_or(serde_json::Value::Null);
     record_hook_post(&state, &tab_id, "stop", Some(&body));
@@ -87,7 +91,8 @@ pub async fn hook_stop(
         &tab_id,
         codeterm_service_core::service::WorkerTurnSignal::ProviderStop,
     );
-    state.svc.schedule_session_model_refresh_after_stop(&tab_id);
+    state.svc.schedule_session_model_refresh_after_stop(&tab_id)
+        .map_err(|error|(StatusCode::INTERNAL_SERVER_ERROR,error.to_string()))?;
     if verdict == StopReportVerdict::Verified {
         state.svc.mark_agent_turn_complete(&tab_id);
         if let (Some(session_id), Some(nonce)) =
@@ -98,12 +103,7 @@ pub async fn hook_stop(
                 .staged_model_turn_completed(&tab_id, &session_id, nonce);
         }
     }
-    let response = super::reconciliation::after_response(
-        Json(serde_json::json!({"ok": true})),
-        state.svc,
-        tab_id.clone(),
-        "stop",
-    );
+    let response = Json(serde_json::json!({"ok": true}));
     log::info!(
         "[hook/timing] tab={tab_id} route=stop phase=response_ready elapsed_ms={}",
         started.elapsed().as_millis()
@@ -111,5 +111,18 @@ pub async fn hook_stop(
     Ok(response)
     })
     .await
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed".to_string()))?
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "blocking task failed".to_string()))??;
+    hook_authority::recover_launch(
+        &recovery_service,
+        &recovery_tab,
+        &recovery_headers,
+        recovery_body.as_ref().unwrap_or(&serde_json::Value::Null),
+    )
+    .await?;
+    Ok(super::reconciliation::after_response(
+        response,
+        recovery_service,
+        recovery_tab,
+        "stop",
+    ))
 }

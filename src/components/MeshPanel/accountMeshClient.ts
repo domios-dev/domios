@@ -51,7 +51,7 @@ export type AccountMeshFailure =
   | { reason: "invalid" | "unauthenticated" | "app-check" | "forbidden" | "conflict" | "authority-unavailable" | "unavailable" }
   | { reason: "rate-limited"; retry_after_seconds: number }
   | { reason: "mesh.machines"; limit: number; active_count: number }
-  | { reason: "offline" | "peer-unreachable" | "handshake-failed" | "signed-out" }
+  | { reason: "offline" | "peer-unreachable" | "auth-refused" | "peer-needs-update" | "handshake-failed" | "signed-out" }
   | { reason: "revoked" | "cancelled" | "verification-unavailable" | "plan_limit_locked" | "reauth_required" };
 
 export type AccountMeshOutcome = { ok: true; result?: { display_name: string; metadata_revision: number } } | { ok: false; failure: AccountMeshFailure; local_signed_out?: boolean };
@@ -78,6 +78,7 @@ export interface AccountMeshSnapshot {
   publication_failure?: AccountMeshFailure | null;
   retry_at?: number | null;
   pairs: LocalPairFact[];
+  connections?: import("./connectionPhase").PeerConnection[];
   limit_notice?: AccountMeshLimitNotice | null;
 }
 

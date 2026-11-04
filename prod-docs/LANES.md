@@ -52,8 +52,16 @@ SHA against that checkout HEAD and require a clean tree, even with an explicit
 base or `--acknowledge-dirty`. They never use the canonical checkout as a fallback.
 A failed task lookup or unusable checkout root refuses readiness reporting instead
 of falling back to the caller's directory; repair the binding or report partial progress.
-Attempts with neither a lane nor a recorded checkout still receive the worktree
-refusal; ask the Orchestrator to dispatch with a worktree and report partial progress.
+A forced close of an unfinished Worker confirms executor termination and saves
+the evidence on its attempt. The recommended respawn accepts that evidence
+after a daemon restart; a missing tab alone never proves termination.
+
+Read-only dispatch persists `placement: read_only` and the attempt execution intent.
+It honors an explicit working directory, including one outside a repository.
+Read-only attempts and non-repository tasks can report `in_review` without a
+checkout or commit SHA. Mutating repository attempts with neither a lane nor a
+recorded checkout receive the worktree refusal; ask the Orchestrator to
+re-dispatch with a worktree and report partial progress.
 For this canonical dispatch, add `--kind qa` or `--kind release_manager` to
 select the built-in prompt profile without changing `task.executor_role`; the
 kind does not grant canonical placement.
@@ -132,4 +140,4 @@ Only hierarchy and report placement move. Shell parent/Team environment values
 remain launch provenance, never current membership proof; resolve reports from
 live hierarchy and plan ownership. `CODETERM_TAB_ID` stays unchanged.
 
-<!-- revision: 26 -->
+<!-- revision: 27 -->

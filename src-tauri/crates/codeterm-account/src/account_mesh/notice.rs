@@ -125,6 +125,9 @@ impl AccountMesh {
         notice: &str,
         revision: u64,
     ) -> Result<bool, AccountMeshRefusal> {
+        if self.state().signed_registry.is_some() {
+            return Ok(false);
+        }
         let epoch = self.with(|inner| {
             inner
                 .state

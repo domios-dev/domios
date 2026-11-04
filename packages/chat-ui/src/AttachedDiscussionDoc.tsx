@@ -1,3 +1,4 @@
+import { ExpandableReader } from "./ExpandableReader";
 import { BoundedMessageContent } from "./BoundedMessageContent";
 import React from "react";
 import { FileText } from "lucide-react";
@@ -16,6 +17,7 @@ export function AttachedDiscussionDocView({ doc, variant = "chat" }: AttachedDis
   const dense = variant === "canvas";
 
   return (
+    <ExpandableReader label={label}>{(fullscreen) => (
     <div
       data-testid="attached-discussion-doc"
       data-doc-path={doc.path}
@@ -61,7 +63,7 @@ export function AttachedDiscussionDocView({ doc, variant = "chat" }: AttachedDis
           </span>
           <ChevronIcon expanded={expanded} className="shrink-0 opacity-50" />
         </button>
-        {expanded && (
+        {(expanded || fullscreen) && (
           <BoundedMessageContent collapsedHeight={dense ? "16rem" : "28rem"}
             data-testid="attached-discussion-body"
             className={`border-t ${dense ? "px-2 py-1.5 text-[11px]" : "px-3 py-2 text-xs"}`}
@@ -75,12 +77,13 @@ export function AttachedDiscussionDocView({ doc, variant = "chat" }: AttachedDis
             </div>
           </BoundedMessageContent>
         )}
-        {!expanded && doc.summary.length === 0 && (
+        {!expanded && !fullscreen && doc.summary.length === 0 && (
           <div className={`border-t px-2.5 py-1 ${PRE_WRAP_CLASS} opacity-60 ${dense ? "text-[10px]" : "text-[11px]"}`}>
             Discussion doc attached. Expand to read.
           </div>
         )}
       </div>
     </div>
+    )}</ExpandableReader>
   );
 }

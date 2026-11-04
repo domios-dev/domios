@@ -28,7 +28,6 @@ const ROW_TAB_FIELDS = [
   "remote_peer_id",
   "remote_peer_name",
   "chat_view",
-  "permission_auto_confirm",
   "pending_prompt",
   "parent_tab_id",
   "depth",

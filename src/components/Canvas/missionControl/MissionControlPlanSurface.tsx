@@ -18,6 +18,7 @@ import { orderPlansByActivity, selectDefaultPlanId } from "../planView/boardMode
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
 import type { Plan } from "../types";
+import { usePlanProjection } from "../usePlanProjection";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import { MissionControlControls } from "./MissionControlControls";
@@ -74,12 +75,6 @@ export function MissionControlPlanSurface({
   );
   const { effectivePlans, switcherOptions, handleAction } = usePlanSwitcherActions(plans, api);
 
-  const activeWork = useMemo(() => selectActiveWork(effectivePlans, tabs), [effectivePlans, tabs]);
-  const switcherWithInflight = useMemo(
-    () => enrichSwitcherOptions(switcherOptions, activeWork),
-    [switcherOptions, activeWork],
-  );
-
   const filteredPlans = useMemo(
     () => filterPlansForCanvas(effectivePlans, mode, { planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams }),
     [effectivePlans, mode, planId, teamId, orchestratorTabId, tabs, workspaceId, workspaces, teams],
@@ -111,20 +106,23 @@ export function MissionControlPlanSurface({
 
   const [actionError, setActionError] = useState<string | null>(null);
   const [teamError, setTeamError] = useState<string | null>(null);
-  const [boardEvents, setBoardEvents] = useState(0);
+  const [boardEvents, setBoardEvents] = useState("0");
   const boardTeamId = teamId ?? listedPlan?.team_id ?? null;
   const plansRevision = useMemo(
-    () => effectivePlans.reduce((latest, plan) => Math.max(latest, plan.updated_at), 0),
+    () => effectivePlans.map((plan) => `${plan.id}:${"revision" in plan ? plan.revision : plan.updated_at}`).sort().join(","),
     [effectivePlans],
   );
   const teamRevision = `${plansRevision}:${boardEvents}`;
   const team = useTeamMissionControl(api, boardTeamId, teamRevision, setTeamError);
   // The daemon's team projection owns the active slot, so a draft absent from the plan feed still fills it.
-  const selectedPlan = useMemo(() => {
+  const selectedSummary = useMemo(() => {
     if (listedPlan || !teamId) return listedPlan;
     const projected = team?.activePlan ?? null;
     return projected && isTeamActivePlan(projected, teamId) ? projected : null;
   }, [listedPlan, teamId, team]);
+
+  const projection = usePlanProjection(api, selectedSummary?.id ?? null, "board");
+  const selectedPlan = api ? projection.plan ?? (projection.loading ? selectedSummary : null) : selectedSummary;
 
   const previousPlans = useMemo(() => {
     const teamOfPlan = selectedPlan?.team_id;
@@ -134,21 +132,31 @@ export function MissionControlPlanSurface({
       .sort((a, b) => b.updated_at - a.updated_at);
   }, [effectivePlans, selectedPlan]);
 
-  const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0);
+  const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, !boardTeamId || Boolean(teamError));
   const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
-  useEffect(() => setBoardEvents(recordedEvents), [recordedEvents]);
+  useEffect(() => setBoardEvents(boardState.state?.revision ?? String(recordedEvents)), [boardState.state?.revision, recordedEvents]);
   const spendRead = useTeamSpendRead(api, boardTeamId, teamRevision);
   const teamSpend = spendRead.spend;
   const boardPreviousPlans = team?.archivedPlans ?? previousPlans;
-  const refPlans = effectivePlans;
+  const refPlans = useMemo(() => {
+    if (!projection.plan) return effectivePlans;
+    return [...effectivePlans.filter((plan) => plan.id !== projection.plan!.id), projection.plan];
+  }, [effectivePlans, projection.plan]);
+  const activeWork = useMemo(() => selectActiveWork(refPlans, tabs), [refPlans, tabs]);
+  const switcherWithInflight = useMemo(
+    () => enrichSwitcherOptions(switcherOptions, activeWork),
+    [switcherOptions, activeWork],
+  );
+
+
 
   const openTask = useCallback(
-    (taskId: string) => {
-      const plan = refPlans.find((candidate) => candidate.tasks.some((task) => task.id === taskId));
-      if (!plan) return;
-      onOpenPlanTarget?.({ planId: plan.id, taskId, teamId: plan.team_id });
+    (taskId: string, sourcePlanId?: string) => {
+      const plan = refPlans.find((candidate) => candidate.id === sourcePlanId || candidate.tasks.some((task) => task.id === taskId));
+      const id = sourcePlanId ?? plan?.id ?? selectedPlan?.id;
+      if (id) onOpenPlanTarget?.({ planId: id, taskId, teamId: plan?.team_id ?? boardTeamId });
     },
-    [refPlans, onOpenPlanTarget],
+    [refPlans, selectedPlan, boardTeamId, onOpenPlanTarget],
   );
 
   const openPlanDetail = useCallback(
@@ -270,6 +278,7 @@ export function MissionControlPlanSurface({
             spendError={spendRead.error}
             deepLinks={deepLinks}
             onOpenPlan={openPlanDetail}
+            onOpenTask={openTask}
           />
         )}
         {showsData && !selectedPlan && !team && !boardTeamId && (
@@ -288,14 +297,14 @@ export function MissionControlPlanSurface({
             plan={selectedPlan}
             state={boardState.state}
             loading={boardState.loading}
-            error={boardState.error}
+            error={boardState.error ?? projection.error}
             plans={refPlans}
             previousPlans={boardPreviousPlans}
             onOpenView={onOpenView}
             onOpenTask={openTask}
             onOpenPlan={openPlanDetail}
             deepLinks={deepLinks}
-            eventPager={team?.events}
+            eventPager={team?.events ?? boardState.events}
             teamSpend={teamSpend}
             spendLoading={spendRead.loading}
             spendError={spendRead.error}

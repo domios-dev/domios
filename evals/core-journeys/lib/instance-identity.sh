@@ -23,7 +23,7 @@ core_journey_product_env_for() {
 
 core_journey_product_env() { core_journey_product_env_for "$CORE_JOURNEY_CLI_INSTANCE_ENV" "$1"; }
 if [ -z "${CORE_JOURNEY_CLI_PATH:-}" ]; then
-  core_journey_select_build_identity "$ROOT" || return 7
+  core_journey_select_build_identity "${CORE_JOURNEY_BUILD_CHECKOUT:-$ROOT}" || return 7
 fi
 
 dev_bootstrap_cli() { printf '%s\n' "$CORE_JOURNEY_CLI_PATH"; }
@@ -66,7 +66,7 @@ print("\t".join([connection["data_dir"], connection["host"], str(connection["por
   EVAL_LIB_RESOLVED_DATA_DIR="$(dev_shell_path "$data_dir")"
   EVAL_LIB_DEV_HOST="$host"
   EVAL_LIB_DEV_API_PORT="$port"
-  EVAL_LIB_RESOLVED_SOCKET_PATH="$(dev_shell_path "$socket")"
+  EVAL_LIB_RESOLVED_SOCKET_PATH="$socket"
   EVAL_LIB_RESOLVED_INSTANCE="$instance"
   EVAL_LIB_DEV_VITE_PORT="$(dev_vite_port_from_instance "$instance")"
   EVAL_LIB_DEV_CDP_PORT="$(dev_cdp_port_from_instance "$instance")"
@@ -80,6 +80,16 @@ print("\t".join([connection["data_dir"], connection["host"], str(connection["por
 }
 
 dev_api_url() { printf 'http://%s:%s' "$EVAL_LIB_DEV_HOST" "$EVAL_LIB_DEV_API_PORT"; }
+
+core_journey_socket_matches() {
+  local name display
+  name="$(dev_expected_socket_name)"
+  if is_windows; then display="\\\\.\\pipe\\$name"
+  elif is_linux; then display="@$name"
+  else display="/tmp/$name"; fi
+  { [ "$1" = "$name" ] || [ "$1" = "$display" ]; } &&
+    { [ "$2" = "$name" ] || [ "$2" = "$display" ]; }
+}
 
 dev_assert_target() {
   local health
@@ -114,7 +124,7 @@ dev_run() {
        [ -z "$EVAL_LIB_CALLER_API_TOKEN" ] ||
        [ "$EVAL_LIB_CALLER_API_TOKEN" = "$EVAL_LIB_RESOLVED_API_TOKEN" ] ||
        [ "$EVAL_LIB_CALLER_API_PORT" != "$EVAL_LIB_DEV_API_PORT" ] ||
-       [ "$(dev_shell_path "$EVAL_LIB_CALLER_SOCKET_PATH")" != "$EVAL_LIB_RESOLVED_SOCKET_PATH" ] ||
+       ! core_journey_socket_matches "$EVAL_LIB_CALLER_SOCKET_PATH" "$EVAL_LIB_RESOLVED_SOCKET_PATH" ||
        { [ "$EVAL_LIB_CALLER_API_URL" != "$(dev_api_url)" ] &&
          [ "$EVAL_LIB_CALLER_API_URL" != "http://localhost:$EVAL_LIB_DEV_API_PORT" ]; }; then
       echo "ERROR [dev-tab]: --as-tab requires that DEV tab's own scoped launch environment." >&2

@@ -14,7 +14,7 @@ backlog or debt reaches the threshold. Dispatch, compete, and respawn do not nee
 capacity grants. Prioritize review closures; all ownership, dependency, evidence,
 and review-verdict requirements remain unchanged.
 
-Tab checklists are bounded service records, independent of tab snapshots. Any agent tab, Orchestrator included, creates and keeps its own; task dispatch seeds locked items from acceptance criteria. `domios todo list` reads the current agent tab; `domios todo write --from-pad todos.json` declares the whole list as a JSON array of `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`. The first write creates the checklist; later writes keep items whose content matches a title, append new content as unlocked items and remove omitted unlocked items. An existing item's link must match its current label/URL/task id; a new item's link is an http(s) URL or task reference. At most one item, omitted locked items included, is `in_progress`, and the refusal names the offending items. `blocked` and `skipped` require a `reason`. Omitted locked items stay in place and the reply reports their count and the remaining open items, as does `tab todo complete`. Writing a completed item back to `in_progress` restarts the same item: its id stays, its attempt counter increments and the reason is recorded. Every item keeps lifetime counters (started, completed, reopened, blocked, skipped) and its newest 32 events with actor, time, attempt and reason, from which attempt durations follow; older events fold into the counters. A checklist holds at most 12 items; a larger write is refused, and the remedy is a task split proposed in the report. `domios tab todo list --tab <child-id>` uses the authorized parent-list API. Parent `init` reads a JSON array of criteria strings; QA `append` reads checklist drafts and requires the current `--generation`; Orchestrator `amend` reads one draft. The Orchestrator or a QA Worker reopens one child item with `tab todo reopen <item-id> --tab <child-id> --reason "<why>"`; `plan review bounce ... --todo-item <item-id>` reopens that item with the bounce note before recording the bounce. A respawned or re-dispatched Worker on the same task inherits its predecessor's list with attempts and history. Drafts use `{ "title", "description?", "link?" }`, with link `{ "kind": "url", "url", "label" }` or `{ "kind": "domios_task", "task_ref", "plan_ref?", "label?" }`. User `reset --from-file` starts a generation from a draft array and `clear <item-id>` / `clear --all` remove unlocked items; locked items (dispatch criteria and QA checks) are never deleted, so a generation holding them refuses clear and reset and its items are marked `skipped` with a reason instead.
+Tab checklists are bounded service records, independent of tab snapshots. Any agent tab, Orchestrator included, creates and keeps its own; task dispatch seeds locked items from acceptance criteria. `domios todo list` reads the current agent tab; `domios todo write --from-pad todos.json` declares the whole list as a JSON array of `{ "content", "status": "pending|in_progress|completed|blocked|skipped", "activeForm", "link?", "reason?" }`. New items omit `id`; `id` addresses existing items only. The first write creates the checklist; later writes keep items whose content matches a title, append new content as unlocked items and remove omitted unlocked items. An existing item's link must match its current label/URL/task id; a new item's link is an http(s) URL or task reference. At most one item, omitted locked items included, is `in_progress`, and the refusal names the offending items. `blocked` and `skipped` require a `reason`. Omitted locked items stay in place and the reply reports their count and the remaining open items, as does `tab todo complete`. Writing a completed item back to `in_progress` restarts the same item: its id stays, its attempt counter increments and the reason is recorded. Every item keeps lifetime counters (started, completed, reopened, blocked, skipped) and its newest 32 events with actor, time, attempt and reason, from which attempt durations follow; older events fold into the counters. A checklist holds at most 12 items; a larger write is refused, and the remedy is a task split proposed in the report. `domios tab todo list --tab <child-id>` uses the authorized parent-list API. Parent `init` reads a JSON array of criteria strings; QA `append` reads checklist drafts and requires the current `--generation`; Orchestrator `amend` reads one draft. The Orchestrator or a QA Worker reopens one child item with `tab todo reopen <item-id> --tab <child-id> --reason "<why>"`; `plan review bounce ... --todo-item <item-id>` reopens that item with the bounce note before recording the bounce. A respawned or re-dispatched Worker on the same task inherits its predecessor's list with attempts and history. Drafts use `{ "title", "description?", "link?" }`, with link `{ "kind": "url", "url", "label" }` or `{ "kind": "domios_task", "task_ref", "plan_ref?", "label?" }`. User `reset --from-file` starts a generation from a draft array and `clear <item-id>` / `clear --all` remove unlocked items; locked items (dispatch criteria and QA checks) are never deleted, so a generation holding them refuses clear and reset and its items are marked `skipped` with a reason instead.
 
 `workspace current` prints a bare id for shell use. Its point-query `--json`
 form identifies `explicit`, `caller-tab`, `workspace-env`, or `focus-fallback`
@@ -32,7 +32,7 @@ A Team whose Orchestrator is gone is not stranded. Removing its final Orchestrat
 
 A Worker spawn without a task binding is permitted when it declares `--execution-intent read_only`: that is the canonical verification Worker `domios docs ORCHESTRATION-OPERATIONS` prescribes for post-merge QA. It is spawned under the plan it verifies (`--plan <plan_id>`), reports to `--parent-tab` / `--report-to`, and carries its command scope as repeated `--authorized-gate <command>` tokens, which are rendered into its brief. Holding no task, it can report against none and transition none — a report naming a task it does not hold is refused and writes nothing. The safeguard for source-changing work is unchanged: `--execution-intent mutating` without `--plan-task` (or `--plan` + `--task-id`) is refused, and so is `--role Worker --plan <id>` with neither a task binding nor read-only intent. Declare gates on the dispatch (`plan task dispatch --authorized-gate`) for a task-bound Worker; `agent spawn --authorized-gate` is rejected alongside `--plan-task`.
 
-`domios plan task dispatch` defaults local mutating tasks to shared canonical with declared disjoint edit files. Automatic overlap or a `build-breaking` tag selects a lane; `--placement shared` refuses conflicts and names the owner, while `--placement lane` requests isolation. `domios plan task extend-files --edit-file <path>` atomically extends a shared Worker's set. The report-time guard refuses commits containing foreign or undeclared paths. Exclusive `--canonical-writer`, mesh lanes and recorded lane safety remain explicit; see `domios docs LANES`.
+`domios plan task dispatch` defaults local mutating tasks to shared canonical with declared disjoint edit files. Automatic overlap or a `build-breaking` tag selects a lane; `--placement shared` refuses conflicts and names the owner, while `--placement lane` requests isolation. `domios plan task extend-files --edit-file <path>` atomically extends a shared Worker's set. The report-time guard refuses commits containing foreign or undeclared paths. After lane integration, a readiness report may name a canonical task commit when the lane tip is its ancestor and its diff touches only declared task paths. `domios plan task update <task> --untag <tag>` removes an exact tag after additions; repeat `--untag` for more tags. `plan task show --json` returns the task with its plan id and title. Exclusive `--canonical-writer`, mesh lanes and recorded lane safety remain explicit; see `domios docs LANES`.
 
 `domios plan task update --status pending|cancelled`, `plan task assign`, `plan task dispatch`, `plan task close`, and `plan task respawn` are available to the live Plan owner even when the former Worker's owner epoch is stale, which is the normal state once that tab is gone. A deliberate `--status blocked` update also requires a fresh nonblank `--status-label` with its reason and owner trigger, and is limited to the live Plan owner or Planner. A Worker `agent report --status blocked` is a proposal that preserves task state, assignment, lane, and report evidence until that owner decision. Stale-owner recovery retires the stale attempt in the same transition that clears the dead owner, so a late `dispatch_ready` cannot resurrect it. A non-owner caller is still refused. The live Plan owner is recognised from its own live tab binding, not from the owner record's session field, so an Orchestrator whose session moved without an `agent restart` is not locked out of its own plan. Refusals carry a stable discriminant in `data.type` — `task_owner_epoch_stale`, `task_mutation_binding_stale`, `task_owner_gone_verb_not_recoverable`, `caller_is_not_task_owner_or_plan_owner`, `task_block_authority_required` — so a tab-gone task never reports a stale epoch for a verb-eligibility problem. `domios plan archive` **succeeds** without a retrospective and emits the advisory `plan.retrospective_unrecorded` plus durable incident evidence; write the retrospective before normal closure, but it is a nudge, never a gate.
 
@@ -929,6 +929,14 @@ List delayed messages for a tab
 Send a delayed message immediately
 
 - `<id>` — Delayed message ID
+
+#### `domios diagnostics`
+
+Read-only local owner diagnostics
+
+#### `domios diagnostics memory`
+
+Approximate retained subsystem sizes; busy subsystems are skipped
 
 #### `domios docs`
 
@@ -2088,14 +2096,6 @@ Request one Curator round now, subject to the plan and human-wait gates
 
 - `<plan_id>`
 
-#### `domios plan control-loop set`
-
-Switch the plan between Curator rounds and the plain heartbeat
-
-- `--interval`
-- `<mode>`
-- `<plan_id>`
-
 #### `domios plan control-loop show`
 
 Show the plan's control-loop mode and heartbeat interval
@@ -3196,6 +3196,7 @@ Update task metadata, status, quality fields, or lane assignment
 - `--test-plan`
 - `--test-plan-file`
 - `--type`
+- `--untag` — Remove an exact tag after additions; repeatable
 - `--why` — Routing rationale; stored as model_rationale in task JSON.
 - `--why-file` — Routing rationale; stored as model_rationale in task JSON.
 - `--workspace-id`
@@ -3237,8 +3238,6 @@ Update plan metadata
 - `--note` — Waiver note (required when --planner none)
 - `<plan_id>`
 - `--planner` — Set attached Planner: <tab_id> to bind, or "none" to waive (requires --note)
-- `--spec`
-- `--spec-file`
 - `--status`
 - `--title`
 
@@ -4195,7 +4194,7 @@ Share this tab's checklist with its parent; work may continue immediately
 
 Declare this tab's whole checklist: created on first write, then reconciled; locked items stay
 
-- `--from-pad` — JSON array of {content,status,activeForm?,id?,link?,reason?}; activeForm defaults to content
+- `--from-pad` — JSON array of {content,status,activeForm?,id?,link?,reason?}; omit id for new items; id addresses existing items only. activeForm defaults to content
 
 #### `domios trace`
 

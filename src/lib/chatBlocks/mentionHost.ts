@@ -7,12 +7,14 @@ import type { MuxStateStore } from "../../store/multiplexer/selectorStore";
 import { mentionScopeForTab, planInMentionScope } from "../mentionSources/scope";
 import { blueprintInMentionScope } from "../mentionSources/blueprints";
 import type { MentionScope } from "../composerMentions";
+import type { ScopedPlanBlockRead } from "./scopedPlanBlockRead";
 import type { ValueFeed } from "./valueFeed";
 import { watchMentionState } from "../mentionSources/live";
 
 export function createMentionHost(ports: {
   mux: Pick<MuxStateStore, "getState" | "subscribe">;
   plans: ValueFeed<readonly Plan[]>;
+  taskReferences?: ScopedPlanBlockRead<ChatMentionValue | null>;
   readGraph(scope: MentionScope, signal: AbortSignal): Promise<AutomationGraph>;
   watchGraph?(scope: MentionScope, changed: () => void): Promise<() => void>;
   openPlan(target: PlanTarget): void;
@@ -39,6 +41,11 @@ export function createMentionHost(ports: {
     if (scope.workspaceId && kind === "tab") {
       const tab = state.tabs[id];
       if (tab) value = { title: tab.title, kind, id };
+    } else if (kind === "task" && ports.taskReferences) {
+      const requested=ports.taskReferences.read(key);
+      const found=requested.data;
+      const sameScope=!found || found.targetId?.toLowerCase()===id.toLowerCase() || ("scopeKey" in found && found.scopeKey===JSON.stringify([scope.projectPath,scope.teamId]));
+      value=requested.loaded && sameScope ? found : {title:id,kind,id,state:"loading"};
     } else if (kind === "plan" || kind === "task") {
       const plans = ports.plans.get();
       if (plans !== planSnapshot) { planSnapshot = plans; indexes.clear(); }
@@ -74,12 +81,17 @@ export function createMentionHost(ports: {
   const host: ChatMentionHost = {
     binding: {
       read,
+      retain(key){
+        try{const [,kind]=JSON.parse(key);if(kind==="task")return ports.taskReferences?.retain(key) ?? (()=>{});}catch{}
+        return ()=>{};
+      },
       subscribe(listener) {
         listeners.add(listener);
         if (!stopSources) {
+          const offReferences=ports.taskReferences?.subscribe(notify);
           const offMux = watchMentionState(ports.mux, notify);
           const offPlans = ports.plans.subscribe(() => { indexes.clear(); planSnapshot = ports.plans.get(); notify(); });
-          stopSources = () => { offMux(); offPlans(); };
+          stopSources = () => { offMux(); offPlans(); offReferences?.(); };
         }
         return () => {
           listeners.delete(listener);
@@ -93,6 +105,7 @@ export function createMentionHost(ports: {
       },
       refresh(key) {
         const [tabId, kind] = JSON.parse(key) as [string, CanonicalMentionKind, string];
+        if (kind === "task" && ports.taskReferences) { ports.taskReferences.refresh(key); return; }
         if (kind !== "blueprint") return;
         const scope = mentionScopeForTab(ports.mux.getState(), tabId);
         const cacheKey = graphKey(scope);

@@ -172,6 +172,7 @@ pub struct Script {
     pub recovery_prepared: Vec<SignedEnvelope<MeshAdmissionBody>>,
     pub endpoint_seconds: Option<u64>,
     pub membership_registry_revision: Option<u64>,
+    pub membership_signed_registry: Option<DetachedGrant>,
     pub registry_revision: Option<u64>,
     pub enrollment_gate: Option<Arc<Notify>>,
     pub membership: Option<RegistryRefusal>,
@@ -448,6 +449,7 @@ impl MeshRegistry for FakeRegistry {
             MeshOperation::Link { .. } => "link",
         };
         self.admit(session, label);
+        assert_eq!(envelope.request.signed_registry, Some(true));
         if matches!(envelope.request.operation, MeshOperation::Link { .. }) {
             self.script
                 .lock()
@@ -599,7 +601,14 @@ impl MeshRegistry for FakeRegistry {
                 if let Some(seconds) = self.script.lock().unwrap().membership_seconds {
                     payload["expires_at"] = json!(now + seconds);
                 }
+                let signed_registry = self
+                    .script
+                    .lock()
+                    .unwrap()
+                    .membership_signed_registry
+                    .clone();
                 let result = MeshResult::Membership(MembershipResult {
+                    signed_registry,
                     operation: match &envelope.request.operation {
                         MeshOperation::Enroll { .. } => MembershipOperation::Enroll,
                         MeshOperation::Renew { .. } => MembershipOperation::Renew,
@@ -640,6 +649,7 @@ impl MeshRegistry for FakeRegistry {
                 ) = (&envelope.request.operation, &result)
                 {
                     return Ok(MeshResult::Recovered(RecoveredResult {
+                        signed_registry: None,
                         installation_id: membership.installation_id.clone(),
                         key_id: proof.key_id.clone(),
                         key_generation: proof.generation,
@@ -702,6 +712,7 @@ impl MeshRegistry for FakeRegistry {
                     )
                 };
                 let mut result = SyncResult {
+                    signed_registry: None,
                     installation_id: INSTALLATION.into(),
                     display_name: account.display_name.clone(),
                     presence: account.presence,
@@ -716,6 +727,7 @@ impl MeshRegistry for FakeRegistry {
                     slot_revision: account.slot.unwrap(),
                     registry_revision,
                     registry: PageResult {
+                        signed_registry: None,
                         registry_revision,
                         rows: Vec::new(),
                         cursor,
@@ -744,6 +756,7 @@ impl MeshRegistry for FakeRegistry {
                 account.metadata_revision += 1;
                 account.endpoint = Some(observation.clone());
                 Ok(MeshResult::Published(PublishedResult {
+                    signed_registry: None,
                     installation_id: INSTALLATION.into(),
                     endpoint: observation,
                     previous_metadata_revision: *expected_metadata_revision,
@@ -767,6 +780,7 @@ impl MeshRegistry for FakeRegistry {
                     account.presence = *presence;
                 }
                 Ok(MeshResult::Presence(PresenceResult {
+                    signed_registry: None,
                     installation_id: INSTALLATION.into(),
                     presence: *presence,
                     previous_metadata_revision: *expected_metadata_revision,
@@ -787,6 +801,7 @@ impl MeshRegistry for FakeRegistry {
                 account.metadata_revision += 1;
                 account.endpoint = None;
                 Ok(MeshResult::Withdrawn(WithdrawnResult {
+                    signed_registry: None,
                     installation_id: INSTALLATION.into(),
                     previous_metadata_revision: *expected_metadata_revision,
                     metadata_revision: account.metadata_revision,
@@ -809,6 +824,7 @@ impl MeshRegistry for FakeRegistry {
                 let registry_revision = self.script.lock().unwrap().registry_revision.unwrap_or(7);
                 let rows = self.rows(&uid, &proof.key_id);
                 Ok(MeshResult::Page(PageResult {
+                    signed_registry: None,
                     registry_revision,
                     rows,
                     cursor: None,
@@ -840,6 +856,7 @@ impl MeshRegistry for FakeRegistry {
                 account.metadata_revision += 1;
                 account.display_name = Some(display_name.clone());
                 Ok(MeshResult::Updated(UpdatedResult {
+                    signed_registry: None,
                     installation_id: INSTALLATION.into(),
                     display_name: display_name.clone(),
                     previous_metadata_revision: *expected_metadata_revision,
@@ -850,11 +867,13 @@ impl MeshRegistry for FakeRegistry {
             }
             MeshOperation::SessionRevoke { target } => {
                 Ok(MeshResult::SessionRevoked(SessionRevokedResult {
+                    signed_registry: None,
                     target_installation_id: target.installation_id.clone(),
                     revoked_at: self.clock.now(),
                 }))
             }
             MeshOperation::Revoke { target } => Ok(MeshResult::Revoked(RevokedResult {
+                signed_registry: None,
                 target_installation_id: target.installation_id.clone(),
                 target_key_id: target.key_id.clone(),
                 target_key_generation: target.key_generation,
@@ -881,6 +900,7 @@ impl MeshRegistry for FakeRegistry {
                 };
                 let payload = Issuer::permit_payload(&uid, &holder, peer, transcript_sha256, now);
                 Ok(MeshResult::Permit(PermitResult {
+                    signed_registry: None,
                     installation_id: INSTALLATION.into(),
                     peer_installation_id: peer.installation_id.clone(),
                     slot_revision: *expected_slot_revision,
@@ -960,12 +980,16 @@ impl EndpointSource for FakeEndpoint {
 }
 
 pub struct FakeTransport {
+    pub snapshots: Mutex<Vec<DetachedGrant>>,
     log: Log,
     pub revoked: Mutex<Vec<String>>,
     pub last: Mutex<Option<LifecycleState>>,
 }
 #[async_trait]
 impl MeshTransport for FakeTransport {
+    async fn registry_changed(&self, snapshot: &DetachedGrant) {
+        self.snapshots.lock().unwrap().push(snapshot.clone());
+    }
     async fn presence_changed(&self, metadata_revision: u64) {
         note(&self.log, format!("transport:presence:{metadata_revision}"));
     }
@@ -1040,6 +1064,7 @@ impl Harness {
             log: log.clone(),
         });
         let transport = Arc::new(FakeTransport {
+            snapshots: Mutex::default(),
             log: log.clone(),
             revoked: Mutex::default(),
             last: Mutex::default(),

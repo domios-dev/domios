@@ -148,7 +148,14 @@ impl ServiceContext {
             }
         }
 
-        restored.task_bindings = self.plan_store.task_bindings_for_tab(tab_id);
+        restored.task_bindings =
+            self.plan_store
+                .task_bindings_for_tab(tab_id)
+                .map_err(|error| {
+                    RestoreBindingError::RebindFailed(format!(
+                        "task binding lookup failed: {error}"
+                    ))
+                })?;
         restored.owned_plan_ids.sort();
         restored.planner_plan_ids.sort();
         restored.task_bindings.sort();

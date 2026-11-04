@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { BoundedMessageContent } from "../BoundedMessageContent";
 import type { ShellScript, ToolEvent } from "@codeterm/chat-core";
 import { ChatCardMenu } from "../ChatCardMenu";
@@ -80,18 +81,20 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
   const countLabel = `${rows.length} commands`;
 
   return (
+    <ExpandableReader label={title} openerPlacement="header">{(fullscreen, opener) => (
     <section
+
       data-testid="chat-command-group"
       data-tool-status={event.status}
-      data-expanded={expanded}
+      data-expanded={expanded || fullscreen}
       aria-label={`Command, ${countLabel}`}
       className="ct-card ct-command-inline mx-auto mb-1.5 w-full max-w-4xl min-w-0 overflow-hidden rounded-md"
     >
-      <div className="ct-command-inline__head flex w-full min-w-0 items-center gap-2 text-xs">
+      <div className="ct-reader-row ct-command-inline__head flex w-full min-w-0 items-center gap-2 text-xs">
       <button
         type="button"
         data-testid="chat-command-group-toggle"
-        aria-expanded={expanded}
+        aria-expanded={expanded || fullscreen}
         aria-controls={regionId}
         aria-label={`${expanded ? "Hide" : "Show"} commands in ${title}`}
         onClick={() => onToggle(!expanded)}
@@ -104,6 +107,7 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
         <ToolOutcomeFacts event={event} />
         <span className="shrink-0 font-mono text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>{countLabel}</span>
       </button>
+      {opener}
       <span className="ct-tool-status-slot">
       <span data-testid="chat-command-group-status" role="status" aria-label={statusName(event.status)} className="ct-tool-status-icon flex items-center justify-center">
         <StatusGlyph status={event.status} />
@@ -119,12 +123,13 @@ export function CommandGroupCard({ event, rows, expanded, onToggle, ...navigatio
       </div>
       {shellFileOperationPreview(event)}
       <div className="pb-1 pr-2">
-        <CommandGroupDetail event={event} rows={rows} expanded={expanded} onExpand={() => onToggle(true)} {...navigation} />
+        <CommandGroupDetail event={event} rows={rows} expanded={expanded || fullscreen} onExpand={() => onToggle(true)} {...navigation} />
       </div>
       <div id={regionId} role="region" aria-label="Command output" hidden={!technicalOpen} className="px-3 pb-2">
         {technicalOpen && event.result && <><div className="mb-1 text-[10.5px]" style={{ color: "var(--ct-muted-fg)" }}>Output</div><ToolOutputContent text={event.result} maxHeight="12rem" /></>}
       </div>
     </section>
+    )}</ExpandableReader>
   );
 }
 

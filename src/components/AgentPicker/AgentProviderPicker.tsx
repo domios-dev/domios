@@ -31,6 +31,7 @@ interface AgentProviderPickerProps {
   navigation?: PickerNavigation;
   /** The tab hosting this picker, where a successful install returns the user. */
   home?: TabRef;
+  signingInProviderId?: string;
 }
 
 export function AgentProviderPicker({
@@ -48,6 +49,7 @@ export function AgentProviderPicker({
   belowConfirm,
   navigation,
   home,
+  signingInProviderId,
 }: AgentProviderPickerProps) {
   const headlineId = useId();
   const { observed, state, refresh, silentRefresh } = useProviderAvailability(providers);
@@ -116,7 +118,7 @@ export function AgentProviderPicker({
       {/* The boot cover's dot field carries on here: the mark opens, then each beat sends a ring of dots out; starting the agent turns them up. */}
       <DotMatrixCanvas ref={matrix} mode="loading" reducedMotion={reducedMotion} intensity={working ? 3.5 : 2.5} restIntensity={5} />
       {/* One centred column: the header, the cards and the confirm share an axis however many providers are shown. */}
-      <div className="my-auto flex w-fit max-w-full flex-col items-center gap-7" data-testid="agent-picker-group">
+      <div className="my-auto flex w-full max-w-[75rem] flex-col items-center gap-7" data-testid="agent-picker-group">
         {installError && <InlineErrorNotice error={installError} operation="installing this provider" blocking />}
         <div className="flex max-w-full flex-col items-center gap-4 text-center">
           <BrandMark motion="load" size={72} onRelease={emitWave} beatEvery={2} />
@@ -138,10 +140,10 @@ export function AgentProviderPicker({
           role="group"
           aria-label="Agent providers"
           aria-busy={providersLoading || undefined}
-          className="flex max-w-full flex-wrap justify-center gap-4"
+          className="flex w-full flex-wrap justify-center gap-4"
           data-testid="agent-picker-cards"
         >
-          {providersLoading ? <Skeleton className="flex max-w-full flex-wrap justify-center gap-4">
+          {providersLoading && observed.length === 0 ? <Skeleton className="flex w-full flex-wrap justify-center gap-4">
             {[0, 1, 2].map(index => <div key={index} className={`ct-panel-card ${PROVIDER_CARD_LAYOUT}`}>
               <SkeletonBlock shape="circle" width="2rem" height="2rem" />
               <SkeletonBlock width="4.5rem" height="1rem" />
@@ -152,6 +154,7 @@ export function AgentProviderPicker({
               provider={provider}
               selected={selectedId === provider.id}
               onSelect={() => { if (!busy && !installBusy) setSelectedId(provider.id); }}
+              signInNeeded={signingInProviderId === provider.id}
             />
           ))}
         </div>
@@ -164,7 +167,7 @@ export function AgentProviderPicker({
               variant="primary"
               size="lg"
               data-testid="agent-picker-confirm"
-              disabled={providersLoading || !selected || state === "checking" || (needsInstall && !selected.install_command)}
+              disabled={!selected || selected.availability_checking || (needsInstall && !selected.install_command)}
               loading={busy || installBusy}
               onClick={() => {
                 if (!selected) return;

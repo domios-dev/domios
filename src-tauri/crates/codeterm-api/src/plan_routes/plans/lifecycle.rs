@@ -2,10 +2,9 @@ use super::*;
 
 pub async fn archive(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     tokio::task::spawn_blocking(move || {
         state
@@ -39,10 +38,9 @@ pub async fn archive(
 
 pub async fn unarchive(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     tokio::task::spawn_blocking(move || {
         codeterm_orchestration::unarchive_team_plan(&state.svc, &id, epoch_ms())
@@ -67,11 +65,10 @@ pub struct PauseBody {
 
 pub async fn pause(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<PauseBody>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     let from = crate::auth::actor_ref(&state, &headers, Some(body.from))
         .map_err(|(status, message)| text_err(status, message))?;
@@ -96,10 +93,9 @@ pub async fn pause(
 
 pub async fn resume(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
     authorize_plan_mutation_http(&state.svc, &headers, &id).await?;
     tokio::task::spawn_blocking(move || {
         let outcome = state
@@ -121,7 +117,7 @@ pub async fn resume(
 
 pub(super) async fn authorize_plan_mutation_http(
     svc: &codeterm_service_core::service::ServiceState,
-    headers: &HeaderMap,
+    headers: &crate::auth::ActorHeaders,
     plan_id: &str,
 ) -> Result<(), (StatusCode, Json<Value>)> {
     let caller = crate::tab_routes::authenticated_plan_caller(headers);
@@ -152,11 +148,10 @@ pub(super) async fn authorize_plan_mutation_http(
 
 pub async fn pause_preview(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         let preview = state.svc.plan_pause_preview(&id).map_err(team_plan_err)?;
         Ok(Json(serde_json::to_value(preview).unwrap_or_default()))
     })
@@ -171,11 +166,10 @@ pub async fn pause_preview(
 
 pub async fn resume_preview(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         let preview = state.svc.plan_resume_preview(&id).map_err(team_plan_err)?;
         Ok(Json(serde_json::to_value(preview).unwrap_or_default()))
     })
@@ -195,7 +189,9 @@ pub struct TransferBody {
     reason: String,
 }
 
-pub(super) fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode, Json<Value>)> {
+pub(super) fn transfer_caller(
+    headers: &crate::auth::ActorHeaders,
+) -> Result<String, (StatusCode, Json<Value>)> {
     crate::tab_routes::caller_tab_header(headers)
         .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| {
@@ -208,12 +204,11 @@ pub(super) fn transfer_caller(headers: &HeaderMap) -> Result<String, (StatusCode
 
 pub async fn transfer(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    headers: crate::auth::ActorHeaders,
     Path(id): Path<String>,
     Json(body): Json<TransferBody>,
 ) -> PlanRouteResult {
     tokio::task::spawn_blocking(move || {
-        check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
         let caller = transfer_caller(&headers)?;
         codeterm_orchestration::transfer_team_plan(
             &state.svc,
@@ -235,7 +230,7 @@ pub async fn transfer(
     })?
 }
 
-pub(super) fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
+pub(in crate::plan_routes) fn team_plan_err(error: TeamPlanError) -> (StatusCode, Json<Value>) {
     match error {
         TeamPlanError::Plan(error) => plan_err(error),
         TeamPlanError::Team(message)

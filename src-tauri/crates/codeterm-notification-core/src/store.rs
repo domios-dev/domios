@@ -205,6 +205,18 @@ pub struct NotificationStore {
 }
 
 impl NotificationStore {
+    pub fn memory_stats(&self) -> serde_json::Value {
+        serde_json::json!({
+            "count": self.notifications.len(),
+            "max_entries": self.max_notifications,
+            "approx_bytes": codeterm_util::memory_size::estimate(&self.notifications),
+            "push_slots": self.push_slots.len(),
+            "push_scopes": self.push_counts.len(),
+            "question_slots": self.question_slots.len(),
+            "answer_claims": self.answer_claims.len(),
+        })
+    }
+
     pub fn new(max: usize) -> Self {
         Self {
             notifications: Vec::new(),

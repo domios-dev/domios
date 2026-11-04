@@ -3,7 +3,7 @@ import { isFirstRunGeneralTab } from "../AgentPicker/constants";
 import { ShellPurposeIcon } from "../shared/ShellStatus";
 import { isUtilityShell, shellPurposeLabel } from "../../lib/shellCommandState";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Globe, Network, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Globe, Network, TriangleAlert } from "lucide-react";
 import { surfaceBacking, tabRowLabel } from "../../lib/surfaceTab";
 import { SurfaceIcon } from "../Surface/surfaceIcon";
 import { usePluginTabMenu } from "../../lib/pluginTabMenu";
@@ -494,18 +494,6 @@ function TabItemInner({
               className="shrink-0 text-[var(--ct-muted-fg)]/50"
             >
               <TelegramIcon />
-            </span>
-          )}
-          {tab?.permission_auto_confirm && (
-            <span
-              role="img"
-              aria-label={`${accessibleTitle} auto-confirms recognized permission prompts`}
-              title="Auto-confirms recognized permission prompts"
-              data-testid="tab-auto-confirm-indicator"
-              className="shrink-0"
-              style={{ color: "var(--ct-green)" }}
-            >
-              <ShieldCheck size={12} aria-hidden />
             </span>
           )}
           {reportCount > 0 && (

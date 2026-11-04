@@ -31,7 +31,7 @@ export function GeneralAgentProviderChoice({ current, enabled, onSwitch, onOpenG
     <div className="flex items-center gap-1 text-sm font-medium text-[var(--ct-fg)]">General Agent
       {onOpenGuide && <GuideInfoButton label="General Agent" section="agents" onOpen={onOpenGuide} />}
     </div>
-    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+    <div className="flex flex-wrap gap-2">
       {generalAgentProviders(providers).map((provider) => <ProviderCard key={provider.id} provider={provider} selected={provider.id === current}
         onSelect={() => { if (!busy && provider.id !== current) { setError(null); setPending(provider.id); } }} />)}
     </div>

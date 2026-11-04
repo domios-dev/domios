@@ -21,26 +21,16 @@ pub async fn account_presence(
     let nonce = crown::nonce_from_token(token)
         .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid peer notice".into()))?;
     let refreshed = match notice {
+        PresenceNotice::Snapshot { signed_registry } => {
+            state
+                .svc
+                .account_mesh_registry_snapshot(&signed_registry)
+                .await
+        }
         PresenceNotice::Presence { metadata_revision } => {
             state
                 .svc
                 .account_mesh_presence_notice(&sender, &nonce, metadata_revision)
-                .await
-        }
-        PresenceNotice::Registry {
-            account_id,
-            registry_revision,
-            security_digest,
-        } => {
-            state
-                .svc
-                .account_mesh_registry_hint(
-                    &sender,
-                    &nonce,
-                    &account_id,
-                    registry_revision,
-                    security_digest.as_deref(),
-                )
                 .await
         }
     }

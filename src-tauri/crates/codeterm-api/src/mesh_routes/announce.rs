@@ -6,19 +6,17 @@ use axum::{
     Json,
 };
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 
 /// Re-detect this instance's local addresses (Tailscale + LAN), then push
 /// the new address list to all paired peers via /api/mesh/announce.
 ///
-/// Local origin: standard auth.
-/// Remote origin (relayed via /api/mesh/relay): gated to access_level=Full
-/// inside `mesh_relay`.
+/// Requires owner-trusted origin, including on Full-peer relays.
 pub async fn mesh_refresh(
     AxumState(state): AxumState<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    super::require_administrator(&state, &headers)?;
 
     codeterm_service_core::mesh::refresh_local_addresses(&state.mesh).await;
     let report = codeterm_service_core::mesh::broadcast_announce(&state.mesh, None).await;
@@ -50,7 +48,7 @@ pub async fn mesh_announce_all(
     headers: HeaderMap,
     axum::extract::Query(q): axum::extract::Query<AnnounceQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    check_auth(&state, &headers)?;
+    super::require_administrator(&state, &headers)?;
     let report =
         codeterm_service_core::mesh::broadcast_announce(&state.mesh, q.to.as_deref()).await;
     Ok(Json(serde_json::json!({ "ok": true, "report": report })))
@@ -64,38 +62,6 @@ pub async fn mesh_announce_inbound(
     headers: HeaderMap,
     Json(ann): Json<codeterm_service_core::mesh::types::PeerAnnounce>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let service = state.svc.clone();
-    announce_with_registry_hint(
-        state,
-        headers,
-        ann,
-        move |sender, nonce, registry| async move {
-            service
-                .account_mesh_registry_hint(
-                    &sender,
-                    &nonce,
-                    &registry.account_id,
-                    Some(registry.revision),
-                    Some(&registry.security_digest),
-                )
-                .await
-        },
-    )
-    .await
-}
-
-async fn announce_with_registry_hint<F, Fut>(
-    state: AppState,
-    headers: HeaderMap,
-    ann: codeterm_service_core::mesh::types::PeerAnnounce,
-    hint: F,
-) -> Result<Json<serde_json::Value>, (StatusCode, String)>
-where
-    F: FnOnce(String, String, codeterm_service_core::mesh::types::RegistryRevision) -> Fut
-        + Send
-        + 'static,
-    Fut: std::future::Future<Output = Result<bool, String>> + Send + 'static,
-{
     let auth = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -122,44 +88,21 @@ where
     if sender_id != ann.instance_id {
         return Err((StatusCode::FORBIDDEN, "Announce sender mismatch".into()));
     }
-    if let Some(registry) = ann.registry.as_ref().filter(|registry| {
-        state.mesh.lock().account_state().signed_in_account() == Some(registry.account_id.as_str())
-    }) {
-        let new_hint = {
-            let mut mesh = state.mesh.lock();
-            if mesh.account_peer_revoked(&sender_id) {
-                return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
-            }
-            mesh.check_and_record_nonce(token).is_ok()
-        };
-        if new_hint {
-            let nonce = codeterm_service_core::mesh::crown::nonce_from_token(token)
-                .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
-            let sender = sender_id.clone();
-            let registry = registry.clone();
-            codeterm_service_core::async_runtime::spawn(async move {
-                if let Err(error) = hint(sender, nonce, registry).await {
-                    log::debug!("[mesh/announce] registry refresh deferred: {}", error);
-                }
-            });
-        }
-    }
     let mut mesh = state.mesh.lock();
-    if let Some(membership) = membership.as_deref() {
-        mesh.refresh_peer_membership(&sender_id, membership);
+    if mesh.account_peer_revoked(&sender_id) {
+        return Err((StatusCode::FORBIDDEN, "Peer is removed".into()));
     }
+    mesh.check_and_record_nonce(token)
+        .map_err(|error| (StatusCode::UNAUTHORIZED, error))?;
+    let membership_changed = membership
+        .as_deref()
+        .is_some_and(|membership| mesh.refresh_peer_membership(&sender_id, membership));
     if !mesh.traffic_open(&sender_id) {
         let reason = format!("{:?}", mesh.traffic_decision(&sender_id));
         return Err((StatusCode::FORBIDDEN, reason));
     }
     match mesh.apply_announce(&sender_id, &ann) {
-        Ok(change) if change.changed() => {
-            log::info!(
-                "[mesh/announce] sender={} address counts changed from {} to {}",
-                sender_id,
-                change.previous_addresses.len(),
-                ann.addresses.len()
-            );
+        Ok(change) if change.changed() || membership_changed => {
             drop(mesh);
             state
                 .svc
@@ -187,7 +130,7 @@ pub async fn mesh_set_peer_addr(
     Path(peer_id): Path<String>,
     Json(body): Json<SetAddrBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    check_auth(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
+    super::require_administrator(&state, &headers).map_err(|(s, e)| (s, e.to_string()))?;
     if body.ip.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, "ip is required".to_string()));
     }

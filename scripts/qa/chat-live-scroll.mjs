@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../bash-interpreter.mjs';
 import { webkit, devices } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -106,7 +107,7 @@ async function arrivals(page, viewport) {
       }, detached);
       await page.evaluate(() => { window.chatScrollQA.samples.length = 0; window.chatScrollQA.sample('before-arrival'); });
       try {
-        await runArrival('bash', ['scripts/qa/chat-arrival.sh', tabId, label, kind]);
+        await runArrival(bashInterpreter(), ['scripts/qa/chat-arrival.sh', tabId, label, kind]);
         if (detached) {
           await page.getByRole('button', { name: /Show \d+ new messages/ }).waitFor({ timeout: 60000 });
           result.anchorAfter = await page.evaluate((anchor) => {

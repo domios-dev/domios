@@ -3,6 +3,17 @@ use crate::service::{agent_pad::AgentPad, ServiceContext};
 use std::path::PathBuf;
 
 impl SurfaceHost for ServiceContext {
+    fn browser_upload_folders(&self, profile: &str) -> Vec<PathBuf> {
+        if crate::service::browser::profile::validate_named_profile(profile).is_err() {
+            return Vec::new();
+        }
+        self.ext::<crate::config::ConfigState>()
+            .lock()
+            .browser_upload_folders
+            .get(profile)
+            .map(|folders| folders.iter().map(PathBuf::from).collect())
+            .unwrap_or_default()
+    }
     fn tab_exists(&self, tab: &str) -> bool {
         self.mux.read().get_tab(tab).is_some()
     }

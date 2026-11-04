@@ -9,14 +9,21 @@ pub struct StageLease(File);
 
 impl StageLease {
     pub fn acquire(directory: &Path) -> Result<Self, String> {
-        if !owned(directory) {
+        Self::lock(directory, true)
+    }
+
+    fn lock(directory: &Path, private: bool) -> Result<Self, String> {
+        if !directory_owned(directory, private) {
             return Err("staged directory is not owned by this user".into());
         }
-        let file = File::options()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
+        let mut options = File::options();
+        options.read(true).write(true).create(true).truncate(false);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            options.custom_flags(libc::O_NOFOLLOW);
+        }
+        let file = options
             .open(directory.join("in-use"))
             .map_err(|e| e.to_string())?;
         file.try_lock().map_err(|e| e.to_string())?;
@@ -52,6 +59,10 @@ pub(super) fn digest(path: &Path) -> Result<String, String> {
 }
 
 fn owned(path: &Path) -> bool {
+    directory_owned(path, true)
+}
+
+fn directory_owned(path: &Path, private: bool) -> bool {
     let Ok(meta) = std::fs::symlink_metadata(path) else {
         return false;
     };
@@ -62,10 +73,13 @@ fn owned(path: &Path) -> bool {
     #[cfg(unix)]
     let correct_owner = {
         use std::os::unix::fs::MetadataExt;
-        meta.uid() == unsafe { libc::geteuid() } && meta.mode() & 0o077 == 0
+        meta.uid() == unsafe { libc::geteuid() } && (!private || meta.mode() & 0o077 == 0)
     };
     #[cfg(not(unix))]
-    let correct_owner = true;
+    let correct_owner = {
+        let _ = private;
+        true
+    };
     correct_name && meta.is_dir() && correct_owner
 }
 
@@ -75,14 +89,7 @@ pub(super) fn store(
     signature: &str,
     root: &Path,
 ) -> Result<StagedDebianPackage, String> {
-    let mut directory = tempfile::Builder::new();
-    directory.prefix(PREFIX);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        directory.permissions(std::fs::Permissions::from_mode(0o700));
-    }
-    let dir = directory.tempdir_in(root).map_err(|e| e.to_string())?;
+    let dir = private_directory(root)?;
     let lease = StageLease::acquire(dir.path())?;
     let path = dir.path().join("domios-update.deb");
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
@@ -108,6 +115,24 @@ pub(super) fn store(
     })
 }
 
+pub(super) fn private_directory(root: &Path) -> Result<tempfile::TempDir, String> {
+    let mut directory = tempfile::Builder::new();
+    directory.prefix(PREFIX);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        directory.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let dir = directory.tempdir_in(root).map_err(|e| e.to_string())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(dir)
+}
+
 pub(super) fn reuse(
     root: &Path,
     version: &str,
@@ -128,7 +153,10 @@ pub(super) fn reuse(
         else {
             continue;
         };
-        if metadata.version != version || metadata.signature != signature {
+        if directory.join("handoff-failure.txt").exists()
+            || metadata.version != version
+            || metadata.signature != signature
+        {
             continue;
         }
         let lease = StageLease::acquire(&directory).map_err(|_| "already_in_flight".to_string())?;
@@ -162,7 +190,7 @@ pub fn cleanup(root: &Path) {
     };
     for entry in entries.flatten() {
         let path = entry.path();
-        if !owned(&path) {
+        if !directory_owned(&path, false) {
             continue;
         }
         let age = entry
@@ -171,8 +199,10 @@ pub fn cleanup(root: &Path) {
             .ok()
             .and_then(|time| time.elapsed().ok())
             .unwrap_or_default();
-        let lease = StageLease::acquire(&path);
-        if cleanup_selected(true, lease.is_err(), age) {
+        let lease = StageLease::lock(&path, false);
+        if lease.is_ok()
+            && (path.join("handoff-failure.txt").is_file() || cleanup_selected(true, false, age))
+        {
             if let Err(error) = std::fs::remove_dir_all(&path) {
                 log::debug!("[updater] stale package cleanup failed: {error}");
             }

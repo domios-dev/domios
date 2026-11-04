@@ -86,6 +86,19 @@ pub fn decide(
             let Some(remote) = record.remote_membership.as_ref() else {
                 return Blocked(PeerMembershipMissing);
             };
+            if let Some(members) = &state.registry_members {
+                let current =
+                    members
+                        .get(installation_id)
+                        .is_some_and(|(key, generation, slot)| {
+                            key == &remote.verified.key_id
+                                && *generation == remote.verified.key_generation
+                                && *slot == remote.verified.slot_revision
+                        });
+                if !current {
+                    return Blocked(Revoked);
+                }
+            }
             let matches = &remote.verified.account_id == account_id
                 && &remote.verified.installation_id == installation_id;
             if !matches || !remote.verified.is_current(now) {

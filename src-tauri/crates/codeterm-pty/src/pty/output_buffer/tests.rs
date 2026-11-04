@@ -1,5 +1,21 @@
 use super::*;
 
+#[test]
+fn quiet_sessions_allocate_only_observed_output_and_release_on_remove() {
+    let mut buffer = OutputBuffer::new(64 * 1024);
+    buffer.append("p", b"hello");
+    assert_eq!(buffer.memory_stats()["approx_bytes"], 10);
+    buffer.append("p", &vec![b'x'; 3 * 1024 * 1024]);
+    assert_eq!(buffer.full_len("p"), 2 * 1024 * 1024);
+    assert_eq!(buffer.len("p"), 64 * 1024);
+    assert_eq!(
+        buffer.memory_stats()["approx_bytes"],
+        2 * 1024 * 1024 + 64 * 1024
+    );
+    buffer.remove("p");
+    assert_eq!(buffer.memory_stats()["approx_bytes"], 0);
+}
+
 fn retain_tail(bytes: &mut Vec<u8>, cap: usize) {
     let excess = bytes.len().saturating_sub(cap);
     bytes.drain(..excess);

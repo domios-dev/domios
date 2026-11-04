@@ -70,7 +70,7 @@ pub enum Enrollment {
 }
 
 /// Server refusal reasons plus desktop ones; only `mesh.machines` opens the plans modal.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "reason")]
 pub enum AccountMeshRefusal {
     #[serde(rename = "installation_unverified")]
@@ -166,6 +166,15 @@ impl From<RegistryRefusal> for AccountMeshRefusal {
     }
 }
 
+impl AccountMeshRefusal {
+    pub(super) fn retires_membership(self) -> bool {
+        matches!(
+            self,
+            Self::MachineLimit { .. } | Self::Forbidden | Self::Revoked | Self::ReauthRequired
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EnrollTrigger {
@@ -211,6 +220,22 @@ pub struct RegistrySecurity {
 }
 
 impl RegistryObservation {
+    pub(super) fn has_freed_slot_since(&self, known: &Self) -> bool {
+        let active: BTreeSet<_> = self
+            .rows
+            .iter()
+            .filter(|row| row.active)
+            .map(|row| row.installation_id.as_str())
+            .collect();
+        self.cursor.is_none()
+            && known.cursor.is_none()
+            && self.registry_revision >= known.registry_revision
+            && known
+                .rows
+                .iter()
+                .any(|old| old.active && !active.contains(old.installation_id.as_str()))
+    }
+
     pub fn security_view(&self) -> Option<RegistrySecurity> {
         if self.cursor.is_some() {
             return None;
@@ -257,6 +282,8 @@ pub struct LifecycleState {
     pub registry: Option<RegistryObservation>,
     #[serde(skip)]
     pub registry_security: Option<RegistrySecurity>,
+    #[serde(skip)]
+    pub signed_registry: Option<super::registry_snapshot::VerifiedRegistry>,
     pub registry_failure: Option<AccountMeshRefusal>,
 }
 
@@ -300,6 +327,18 @@ impl LifecycleState {
         self.membership
             .as_ref()
             .filter(|m| m.verified.account_id == account && m.verified.is_current(now))
+            .filter(|m| {
+                self.signed_registry.as_ref().is_none_or(|registry| {
+                    registry.rows.iter().any(|row| {
+                        row.installation_id == m.verified.installation_id
+                            && row.active
+                            && row.presence == super::wire::RegistryPresence::Present
+                            && row.key_id == m.verified.key_id
+                            && row.key_generation == m.verified.key_generation
+                            && row.slot_revision == m.verified.slot_revision
+                    })
+                })
+            })
     }
 
     pub fn view(&self) -> AccountMeshView {
@@ -357,10 +396,14 @@ pub struct RegistryPresenceBinding {
     pub presence: super::wire::RegistryPresence,
 }
 
-/// Durable lifecycle facts keyed by opaque account id; holds no token, uid or endpoint.
+/// Durable lifecycle facts and server-signed registry observations keyed by opaque account id.
 #[derive(Clone, Debug, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct AccountMeshRecord {
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub signed_registries: BTreeMap<String, codeterm_entitlements::DetachedGrant>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub terminal_refusals: BTreeMap<String, AccountMeshRefusal>,
     #[serde(skip_serializing_if = "BTreeSet::is_empty")]
     pub reauth_required_accounts: BTreeSet<String>,
     /// First account association; an account switch never rebinds saved pairs.

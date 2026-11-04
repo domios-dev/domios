@@ -1,3 +1,4 @@
+import {bashInterpreter} from '../../scripts/bash-interpreter.mjs';
 import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -108,8 +109,7 @@ async function restartC() {
   await qualifyAll();
   const before = await qualifyPeer(peers.C, manifest);
   peers.C.close();
-  const windowsBash = "C:/Program Files/Git/bin/bash.exe";
-  const bash = process.platform === "win32" ? windowsBash : "bash";
+  const bash = bashInterpreter();
   result.actions.push({ kind: "cold_restart", peer: "C", before_boot: before.boot_id, at: new Date().toISOString() }); save();
   const code = await new Promise((accept, reject) => {
     const child = spawn(bash, [join(directory, "restart.sh"), resolve(manifestPath), before.boot_id], {

@@ -852,6 +852,8 @@ impl ServiceContext {
     }
 
     pub(super) fn pause_neighbor_reception(&self) {
+        self.neighbor_paid_changed();
+        self.retire_callable_waiters();
         if self.require_neighbors_enabled().is_err() {
             self.neighbor_reconciliation().close();
         }

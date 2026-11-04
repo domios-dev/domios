@@ -8,6 +8,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { parseAttachmentMarkers } from "@codeterm/chat-core";
 import { capsuleSpans } from "./composerCapsules";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import { useAttachments } from "./useAttachments";
 import { nativeBridge } from "../../lib/nativeBridge";
 
@@ -39,7 +40,7 @@ it.each([[true, true, true], [true, true, false], [true, false, true], [false, t
   });
   __setListenForTest(async () => () => {});
   const state: ExtendedState = {
-    workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
+    workspaces: [], tabs: { paste: { id: "paste", pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null } }, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 1, pendingCloses: [],
   };
   const host = document.createElement("div"); document.body.append(host);
@@ -47,13 +48,13 @@ it.each([[true, true, true], [true, true, false], [true, false, true], [false, t
   function Harness() {
     const chatRootRef = useRef<HTMLDivElement>(null);
     const paste = useAttachments({ chatRootRef, enabled: true, onError: (error) => { throw new Error(error); } });
-    return <div ref={chatRootRef}><MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
+    return <div ref={chatRootRef}><DraftStorageFixture><MuxStateStoreContext.Provider value={createMuxStateStore(() => state)}>
       <ChatComposer tabId="paste" tabProvider={null} currentPtyId={null} pendingPrompt={null}
         attachments={paste.attachments} addAttachments={paste.addAttachments} removeAttachment={paste.removeAttachment}
         clearAttachments={paste.clearAttachments} handlePasteEvent={paste.handlePasteEvent} inlineAttachmentSink={paste.inlineSinkRef}
         onWillSendMessage={() => {}} addOptimistic={() => "sent"} updateOptimistic={() => {}}
         observeChatSendStatus={() => {}} showComposerError={(error) => { throw new Error(error); }} />
-    </MuxStateStoreContext.Provider></div>;
+    </MuxStateStoreContext.Provider></DraftStorageFixture></div>;
   }
   try {
     await act(async () => root.render(<Harness />));

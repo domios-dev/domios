@@ -49,8 +49,43 @@ export type UpdateStep =
   | { kind: "interface" }
   | { kind: "complete" };
 
+function parseAppVersion(value: string) {
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*))?(?:\+[\da-zA-Z-]+(?:\.[\da-zA-Z-]+)*)?$/.exec(value);
+  if (!match) return null;
+  const prerelease = match[4]?.split(".") ?? [];
+  if (prerelease.some(part => /^0\d+$/.test(part))) return null;
+  return { core: match.slice(1, 4).map(BigInt), prerelease };
+}
+
+function compareAppVersions(installed: string, target: string | null): number | null {
+  const left = parseAppVersion(installed);
+  const right = target === null ? null : parseAppVersion(target);
+  if (!left || !right) return null;
+  for (let i = 0; i < 3; i++) {
+    if (left.core[i] !== right.core[i]) return left.core[i] > right.core[i] ? 1 : -1;
+  }
+  if (!left.prerelease.length || !right.prerelease.length) {
+    return Number(!left.prerelease.length) - Number(!right.prerelease.length);
+  }
+  for (let i = 0; i < Math.max(left.prerelease.length, right.prerelease.length); i++) {
+    const a = left.prerelease[i], b = right.prerelease[i];
+    if (a === b) continue;
+    if (a === undefined || b === undefined) return a === undefined ? -1 : 1;
+    const numericA = /^\d+$/.test(a), numericB = /^\d+$/.test(b);
+    if (numericA && numericB) return BigInt(a) > BigInt(b) ? 1 : -1;
+    if (numericA !== numericB) return numericA ? -1 : 1;
+    return a > b ? 1 : -1;
+  }
+  return 0;
+}
+
+export function appIntentSatisfied(intent: UpdateIntent, hostVersion: string): boolean {
+  const comparison = compareAppVersions(hostVersion, intent.appTarget);
+  return comparison !== null && comparison >= 0;
+}
+
 export function nextUpdateStep(intent: UpdateIntent, hostVersion: string, items: readonly UpdateItem[]): UpdateStep {
-  if (intent.stage === "app" && hostVersion !== intent.appTarget) return { kind: "waitForApp" };
+  if (intent.stage === "app" && !appIntentSatisfied(intent, hostVersion)) return { kind: "waitForApp" };
   const plugin = items.find(item => item.group === "Plugins" && intent.pluginIds.includes(item.id));
   if (plugin) return { kind: "plugin", id: plugin.id };
   if (intent.interfaceRequested && items.some(item => item.group === "Interface")) return { kind: "interface" };
@@ -59,7 +94,7 @@ export function nextUpdateStep(intent: UpdateIntent, hostVersion: string, items:
 
 export function restoredAppIntentInterrupted(intent: UpdateIntent, hostVersion: string,
   native: { observed: boolean; phase: string; installing: boolean }): boolean {
-  return intent.stage === "app" && intent.appTarget !== null && hostVersion !== intent.appTarget
+  return intent.stage === "app" && compareAppVersions(hostVersion, intent.appTarget) === -1
     && native.observed && native.phase === "idle" && !native.installing;
 }
 

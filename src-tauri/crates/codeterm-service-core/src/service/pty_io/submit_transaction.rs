@@ -989,14 +989,6 @@ pub(crate) fn submit_text_with_key_claimed_revalidated(
     result
 }
 
-pub(crate) fn write_terminal_reply(
-    svc: &ServiceContext,
-    pty_id: &str,
-    reply: &[u8],
-) -> Result<(), String> {
-    svc.pty.lock().write(pty_id, reply)
-}
-
 #[cfg(test)]
 mod classification_tests;
 #[cfg(test)]

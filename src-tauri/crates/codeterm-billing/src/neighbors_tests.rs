@@ -1,7 +1,7 @@
 use super::*;
 
 #[tokio::test]
-async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_upgrade() {
+async fn neighbors_require_verified_paid_authority_and_resume_after_upgrade() {
     let mut free = paid_grant();
     free.grant = None;
     free.entitlements = Some(Entitlements::default());
@@ -15,15 +15,15 @@ async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_up
         clock,
     );
     let user = session("fixture-user");
-    assert!(!billing.neighbors_locked("fixture-user"));
+    assert!(billing.neighbors_locked("fixture-user"));
     billing.snapshot(Some(&user));
-    assert!(!billing.neighbors_locked("fixture-user"));
+    assert!(billing.neighbors_locked("fixture-user"));
     let now = Instant::now();
     billing
         .refresh(Some(&user), RefreshEvent::SignIn, now)
         .await;
     assert!(billing.neighbors_locked("fixture-user"));
-    assert!(!billing.neighbors_locked("other-account"));
+    assert!(billing.neighbors_locked("other-account"));
     time.store(1_700_000_120, std::sync::atomic::Ordering::SeqCst);
     billing
         .refresh(
@@ -32,7 +32,7 @@ async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_up
             now + Duration::from_secs(1),
         )
         .await;
-    assert!(!billing.neighbors_locked("fixture-user"));
+    assert!(billing.neighbors_locked("fixture-user"));
     time.store(1_700_000_180, std::sync::atomic::Ordering::SeqCst);
     billing
         .refresh(
@@ -46,7 +46,7 @@ async fn neighbors_require_a_fresh_observed_free_entitlement_and_resume_after_up
 }
 
 #[tokio::test]
-async fn paid_expiry_missing_proof_and_not_yet_valid_proof_are_not_free_observations() {
+async fn neighbors_park_at_expiry_or_without_current_verified_proof() {
     for (now, missing) in [
         (1_700_000_060, false),
         (1_699_000_000, false),
@@ -67,13 +67,16 @@ async fn paid_expiry_missing_proof_and_not_yet_valid_proof_are_not_free_observat
         billing
             .refresh(Some(&user), RefreshEvent::SignIn, Instant::now())
             .await;
-        assert!(!billing.neighbors_locked("fixture-user"));
+        assert_eq!(
+            billing.neighbors_locked("fixture-user"),
+            missing || now < 1_700_000_000
+        );
         time.store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(
             billing.snapshot(Some(&user)).access.unwrap().authority,
             Authority::Free
         );
-        assert!(!billing.neighbors_locked("fixture-user"));
+        assert!(billing.neighbors_locked("fixture-user"));
     }
 }
 
@@ -100,7 +103,7 @@ impl BillingProvider for PendingPaid {
 }
 
 #[tokio::test]
-async fn paid_expiry_while_refresh_is_pending_does_not_stop_neighbors() {
+async fn neighbors_stop_at_paid_expiry_while_refresh_is_pending() {
     let provider = Arc::new(PendingPaid {
         calls: 0.into(),
         started: tokio::sync::Notify::new(),
@@ -126,7 +129,7 @@ async fn paid_expiry_while_refresh_is_pending_does_not_stop_neighbors() {
     let control = async {
         provider.started.notified().await;
         time.store(1_700_086_400, std::sync::atomic::Ordering::SeqCst);
-        assert!(!billing.neighbors_locked("fixture-user"));
+        assert!(billing.neighbors_locked("fixture-user"));
         provider.release.add_permits(1);
     };
     tokio::join!(refresh, control);

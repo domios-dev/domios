@@ -1,72 +1,122 @@
-//! Online/offline decision for paired peers.
-//!
-//! Single polling writer: the background mesh health loop (multi-address
-//! `try_peer` ping). The old single-address `ping_scheduler` was deleted —
-//! two pollers disagreeing about `online` made the flag flap whenever the
-//! best-tier address was dead but another one worked (#127). The only other
-//! writer is `apply_announce`, which applies a peer's own explicit
-//! self-reported liveness (#130) — an authoritative event, not a poll.
+use std::future::Future;
 
-const MISS_THRESHOLD: u8 = 2;
+use crate::transport::{PeerClient, SyncFailure, TryNext};
+use crate::types::{MeshSyncPayload, PeerAddress};
+use crate::{MeshManager, MeshState};
 
-pub struct PingOutcome {
-    pub online: bool,
-    pub misses: u8,
+pub(crate) struct PeerEndpoint {
+    pub addresses: Vec<PeerAddress>,
+    pub port: u16,
+    pub token: String,
 }
 
-/// Apply one multi-address ping round. A reachable peer comes back online
-/// immediately; an online peer needs `MISS_THRESHOLD` consecutive failed
-/// rounds before flipping offline, so one transient glitch doesn't drop it.
-pub fn apply_ping_result(prev_online: bool, prev_misses: u8, ping_ok: bool) -> PingOutcome {
-    if ping_ok {
-        return PingOutcome {
-            online: true,
-            misses: 0,
+struct HealthProbe {
+    endpoint: PeerEndpoint,
+    payload: MeshSyncPayload,
+    account_id: String,
+    account_epoch: u64,
+    link_nonce: Option<String>,
+    online: bool,
+    now: u64,
+}
+
+impl HealthProbe {
+    fn capture(manager: &mut MeshManager, peer_id: &str) -> Option<Self> {
+        if !manager.traffic_open(peer_id) || !manager.peer_requests_allowed(peer_id) {
+            return None;
+        }
+        let peer = manager.paired_peers.get(peer_id)?;
+        let endpoint = PeerEndpoint {
+            addresses: peer.addresses.clone(),
+            port: peer.api_port,
+            token: manager.sign_request_for(peer_id).ok()?,
         };
-    }
-    let misses = prev_misses.saturating_add(1);
-    PingOutcome {
-        online: prev_online && misses < MISS_THRESHOLD,
-        misses,
+        let online = peer.online;
+        let account_id = manager.account_state().signed_in_account()?.to_owned();
+        let account_epoch = manager.account_state().account_epoch;
+        let link_nonce = manager.link_record(peer_id)?.link_nonce.clone();
+        Some(Self {
+            endpoint,
+            payload: manager.build_sync_payload(),
+            account_id,
+            account_epoch,
+            link_nonce,
+            online,
+            now: manager.now(),
+        })
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub async fn check_peer(mesh: &MeshState, peer_id: &str, last_sync: Option<u64>) -> Option<bool> {
+    check_peer_with(
+        mesh,
+        peer_id,
+        last_sync,
+        ping,
+        |client, payload| async move { client.send_sync(&payload).await },
+    )
+    .await
+}
 
-    #[test]
-    fn one_miss_does_not_flip_online_peer_offline() {
-        let out = apply_ping_result(true, 0, false);
-        assert!(out.online);
-        assert_eq!(out.misses, 1);
-    }
+async fn ping(endpoint: PeerEndpoint) -> Result<PeerClient, ()> {
+    crate::transport::try_peer(&endpoint.addresses, |address| {
+        let client = PeerClient::new_signed(&address.ip, endpoint.port, &endpoint.token);
+        async move {
+            if client.ping_reply().await.is_ok() {
+                TryNext::Success(client)
+            } else {
+                TryNext::Retry("ping failed".into())
+            }
+        }
+    })
+    .await
+    .map_err(|_| ())
+}
 
-    #[test]
-    fn two_misses_flips_online_peer_offline() {
-        let out = apply_ping_result(true, 1, false);
-        assert!(!out.online);
-        assert_eq!(out.misses, 2);
+pub(crate) async fn check_peer_with<C, P, PF, S, SF>(
+    mesh: &MeshState,
+    peer_id: &str,
+    last_sync: Option<u64>,
+    ping: P,
+    sync: S,
+) -> Option<bool>
+where
+    P: FnOnce(PeerEndpoint) -> PF,
+    PF: Future<Output = Result<C, ()>>,
+    S: FnOnce(C, MeshSyncPayload) -> SF,
+    SF: Future<Output = Result<MeshSyncPayload, SyncFailure>>,
+{
+    let probe = HealthProbe::capture(&mut mesh.lock(), peer_id)?;
+    let result = match ping(probe.endpoint).await {
+        Ok(client) => {
+            if !crate::types::should_proactive_sync(
+                true,
+                probe.online,
+                probe.now,
+                last_sync,
+                crate::discovery::PROACTIVE_SYNC_INTERVAL_SECS,
+            ) {
+                return None;
+            }
+            sync(client, probe.payload).await
+        }
+        Err(()) => Err(SyncFailure::Request),
+    };
+    let mut manager = mesh.lock();
+    if manager.account_state().account_epoch != probe.account_epoch
+        || manager.account_state().signed_in_account() != Some(probe.account_id.as_str())
+        || manager
+            .link_record(peer_id)
+            .is_none_or(|record| record.link_nonce != probe.link_nonce)
+        || !manager.traffic_open(peer_id)
+    {
+        return None;
     }
-
-    #[test]
-    fn offline_peer_stays_offline_on_miss() {
-        let out = apply_ping_result(false, 5, false);
-        assert!(!out.online);
-        assert_eq!(out.misses, 6);
-    }
-
-    #[test]
-    fn successful_ping_resets_misses_and_revives() {
-        let out = apply_ping_result(false, 200, true);
-        assert!(out.online);
-        assert_eq!(out.misses, 0);
-    }
-
-    #[test]
-    fn miss_counter_saturates() {
-        let out = apply_ping_result(false, u8::MAX, false);
-        assert_eq!(out.misses, u8::MAX);
-        assert!(!out.online);
-    }
+    let status = match result {
+        Ok(_) => 200,
+        Err(SyncFailure::Refused(status)) => status,
+        Err(_) => 0,
+    };
+    manager.record_peer_http_status(peer_id, probe.link_nonce.as_deref(), status);
+    Some((200..=299).contains(&status))
 }

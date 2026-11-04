@@ -31,11 +31,11 @@ test("tabs without a PTY or runtime cannot interrupt", () => {
 for (const [name, agentState, expected] of states) {
   test(`Stop for a ${name} agent follows its state on PTY and runtime tabs alike`, () => {
     for (const tab of [runtimeTab, ptyTab]) {
-      assert.equal(showStopControl(tabActivity({ ...tab, agent_state: agentState }), tab), expected, `${name} ${tab.id}`);
+      assert.equal(showStopControl(tabActivity({ ...tab, agent_state: agentState }, agentState.state === "working" ? "Working" : agentState.state === "question" ? "Waiting" : "Idle"), tab), expected, `${name} ${tab.id}`);
     }
   });
 }
 
 test("Stop stays hidden without an interrupt route even while working", () => {
-  assert.equal(showStopControl(tabActivity({ ...unroutedTab, agent_state: { state: "working" } }), unroutedTab), false);
+  assert.equal(showStopControl(tabActivity({ ...unroutedTab, agent_state: { state: "working" } }, "Working"), unroutedTab), false);
 });

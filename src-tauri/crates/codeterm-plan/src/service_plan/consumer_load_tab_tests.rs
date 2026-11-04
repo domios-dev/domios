@@ -83,9 +83,12 @@ fn open_attempt_task_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.open_attempt_task_for_tab("tab-a", "session-m", "nonce-m"),
+        store
+            .open_attempt_task_for_tab("tab-a", "session-m", "nonce-m")
+            .unwrap(),
         Some((matched, "task_m".into(), "att_m".into()))
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -179,9 +182,10 @@ fn task_bindings_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_bindings_for_tab("tab-a"),
+        store.task_bindings_for_tab("tab-a").unwrap(),
         vec![(matched, "task_m".into())]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -192,9 +196,10 @@ fn task_bindings_with_name_for_tab_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.task_bindings_with_name_for_tab("tab-a"),
+        store.task_bindings_with_name_for_tab("tab-a").unwrap(),
         vec![(matched, "task_m".into(), "task_m".into())]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -288,9 +293,10 @@ fn recent_worker_attempt_titles_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.recent_worker_attempt_titles("ws-a", None, 5),
+        store.recent_worker_attempt_titles("ws-a", None, 5).unwrap(),
         vec!["Bolt".to_string()]
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&unmatched]);
 }
 
@@ -361,10 +367,14 @@ fn planner_replay_candidates_never_loads_unmatched_plans() {
     start(&store);
 
     assert!(
-        store.planner_replay_candidates("planner-a").is_empty(),
+        store
+            .planner_replay_candidates("planner-a")
+            .unwrap()
+            .is_empty(),
         "a planner with no open request has nothing to replay"
     );
-    assert_eq!(store.plan_loads_for_test(), vec![planned]);
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(&store, &[&planned]);
     assert_never_loaded(&store, &[&other]);
 }
 

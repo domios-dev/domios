@@ -267,8 +267,9 @@ fn reindex_project_index_never_loads_unmatched_plans() {
     start(&store);
 
     store.reindex_project_index(project.as_ref()).unwrap();
-    assert_eq!(store.plan_loads_for_test(), vec![here]);
-    assert_never_loaded(&store, &[&elsewhere]);
+    // Reindex reads search snapshots from SQL; no plan is loaded whole.
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(&store, &[&here, &elsewhere]);
 }
 
 #[test]
@@ -326,12 +327,13 @@ fn related_units_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let groups = store.related_units("task_related");
+    let groups = store.related_units("task_related").unwrap();
     let lineage = groups
         .iter()
         .find(|group| group.edge_type == "lineage")
         .unwrap();
     assert_eq!(lineage.units[0].id, ancestor);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 

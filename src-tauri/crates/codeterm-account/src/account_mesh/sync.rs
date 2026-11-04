@@ -36,7 +36,7 @@ impl AccountMesh {
                 .map(str::to_owned),
         };
         let result = self.admission(signed, operation).await;
-        let result = match result {
+        let mut result = match result {
             Ok(MeshResult::Sync(result))
                 if result.installation_id == self.installation()
                     && result.presence == RegistryPresence::Present =>
@@ -55,6 +55,11 @@ impl AccountMesh {
                 return Err(refusal);
             }
         };
+        if let Some(snapshot) = self.state().signed_registry.as_ref() {
+            result.registry.rows = snapshot.rows.clone();
+            result.registry.registry_revision = snapshot.revision;
+            result.registry.cursor = None;
+        }
         let endpoint = result.endpoint.as_ref().and_then(|endpoint| {
             super::wire::MeshEndpoint::parse(&endpoint.tailnet_ip, endpoint.api_port)
                 .map(|parsed| parsed.with_transport(endpoint.transport.clone()))

@@ -20,6 +20,8 @@ type ReadinessHook = Arc<dyn Fn() -> Result<super::process::Deadlines, String> +
 struct State {
     cancelled: bool,
     #[cfg(any(test, feature = "test-support"))]
+    completion_driven: bool,
+    #[cfg(any(test, feature = "test-support"))]
     readiness: Option<ReadinessHook>,
     wake: Option<Weak<dyn Wake>>,
     #[cfg(any(test, feature = "test-support"))]
@@ -155,6 +157,16 @@ pub enum WaitPhase {
 
 #[cfg(any(test, feature = "test-support"))]
 impl Cancellation {
+    pub fn completion_driven() -> Self {
+        Self {
+            state: Arc::new(Mutex::new(State {
+                completion_driven: true,
+                ..State::default()
+            })),
+            conversion: ConversionCancellation::default(),
+        }
+    }
+
     pub fn record_deadlines(&self, deadlines: super::process::Deadlines) {
         self.state.lock().deadline_receipt = Some(deadlines.receipt());
     }
@@ -182,7 +194,10 @@ impl Cancellation {
         &self,
         deadlines: super::process::Deadlines,
     ) -> super::process::Deadlines {
-        if self.state.lock().readiness.is_some() {
+        let state = self.state.lock();
+        if state.completion_driven {
+            deadlines.with_completion_driven()
+        } else if state.readiness.is_some() {
             super::process::Deadlines::start(
                 super::test_readiness::SETUP_DEADLINE,
                 super::test_readiness::SETUP_DEADLINE,

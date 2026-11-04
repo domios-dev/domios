@@ -12,7 +12,7 @@ import type { ExtendedState } from "../../store/multiplexer/tree";
 import { revealAssignedAgentTab } from "./planRevealAgentTab";
 import { selectDrawerContextKey, selectSelectionSeeds, usePlanSidePanelContextBinding } from "./planSidePanelContext";
 import { planSidePanelStore, usePlanSidePanelEntry, type PlanSidePanelTarget } from "./planSidePanelStore";
-import { fetchPlan } from "./plansApi";
+import { usePlanProjection } from "./usePlanProjection";
 import { PlanSidePanel } from "./planView/PlanSidePanel";
 import { usePlanTargetNavigation, type PlanTarget } from "./teamViewNavigation";
 import type { Plan } from "./types";
@@ -34,19 +34,7 @@ export interface PlanSidePanelLayerProps {
 
 /** A plan outside the loaded list, such as an archived one, is read on demand. */
 function useUnlistedPlan(api: ApiConfig | undefined, planId: string | null) {
-  const [result, setResult] = useState<{ planId: string; plan: Plan | null } | null>(null);
-  useEffect(() => {
-    if (!api || !planId) return;
-    const controller = new AbortController();
-    void fetchPlan(api, planId, controller.signal)
-      .then((plan): Plan | null => plan, () => null)
-      .then((plan) => {
-        if (!controller.signal.aborted) setResult({ planId, plan });
-      });
-    return () => controller.abort();
-  }, [api?.host, api?.port, api?.token, planId]);
-  const settled = result !== null && result.planId === planId;
-  return { plan: settled ? result.plan : null, loading: Boolean(api && planId && !settled) };
+  return usePlanProjection(api, planId, "document");
 }
 
 export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTab, onOpenPlanTarget, onExited, onReturnTo }: PlanSidePanelLayerProps) {
@@ -79,19 +67,20 @@ export function PlanSidePanelLayer({ plans, loading = false, api, tabs, onOpenTa
     target?.taskId ? target.planId : null,
     target?.taskId ?? null,
   );
-  const unlisted = useUnlistedPlan(api, target && !target.taskId && !listed && !target.documentsTabId ? target.planId : null);
+  const unlisted = useUnlistedPlan(api, target && !target.taskId && (Boolean(api) || !listed) && !target.documentsTabId ? target.planId : null);
   if (!target || !presence.state) return null;
   return (
     <div className="plan-side-panel-layer" data-testid="plan-side-panel-layer">
       {target.documentsTabId
         ? <TabSidePanel key={target.documentsTabId} tabId={target.documentsTabId} view={target.tabView ?? "documents"} cwd={tabs?.[target.documentsTabId]?.cwd} state={presence.state} panelRef={presence.ref} onClose={dismiss} /> : <PlanSidePanel
         target={target}
-        plan={target.taskId ? (!api ? listed : null) : listed ?? unlisted.plan}
+        plan={target.taskId ? (!api ? listed : null) : api ? unlisted.plan : listed ?? unlisted.plan}
         taskDetail={taskDetail.detail}
+        historyController={taskDetail}
         taskLoading={taskDetail.loading}
         taskError={taskDetail.error}
         onRetryTask={taskDetail.retry}
-        loading={!target.taskId && !listed && (loading || unlisted.loading)}
+        loading={!target.taskId && (loading || unlisted.loading)}
         api={api}
         tabs={tabs}
         onOpenTab={onOpenTab}

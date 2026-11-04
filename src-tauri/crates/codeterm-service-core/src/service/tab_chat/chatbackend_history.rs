@@ -5,12 +5,38 @@
 //! first line lets a restored tab lazily re-open its session.
 
 use std::collections::HashMap;
-use std::hash::{Hash, Hasher};
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 
 use parking_lot::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+pub fn memory_stats() -> serde_json::Value {
+    let Some(entries) = SHARED.try_lock() else {
+        return serde_json::json!({"busy": true});
+    };
+    let mut bytes = 0;
+    let mut live = 0;
+    let mut busy = 0;
+    let mut indexed_messages = 0;
+    for entry in entries.values() {
+        if let Some(writer) = entry.writer.upgrade() {
+            live += 1;
+            if let Some(writer) = writer.try_lock() {
+                bytes += writer.bytes.load(Ordering::Relaxed);
+                indexed_messages += writer.indexed_messages.load(Ordering::Relaxed);
+            } else {
+                busy += 1;
+            }
+        }
+    }
+    serde_json::json!({
+        "registry_entries": entries.len(), "live_writers": live,
+        "busy_writers": busy, "approx_bytes": bytes, "indexed_messages": indexed_messages,
+        "estimate": "index slots with 64 bytes per message id, plus last encoded message",
+    })
+}
 
 use crate::agent::chat_types::ChatMsg;
 
@@ -97,12 +123,14 @@ pub fn read_tail(path: &Path) -> std::io::Result<HistoryWindow> {
 
 /// One complete-record window ending at or below `until`.
 pub fn read_window(path: &Path, until: u64, budget: u64) -> std::io::Result<HistoryWindow> {
-    let page = codeterm_plugin::jsonl_window::page_before(path, until, budget)?;
     let mut file = std::fs::File::open(path)?;
+    let page = codeterm_plugin::jsonl_window::page_before_file(&mut file, until, budget)?;
     file.seek(SeekFrom::Start(page.start))?;
     let mut bytes = Vec::with_capacity((page.end - page.start) as usize);
-    file.take(page.end - page.start).read_to_end(&mut bytes)?;
-    let (messages, record_starts) = fold(&bytes, page.start);
+    (&mut file)
+        .take(page.end - page.start)
+        .read_to_end(&mut bytes)?;
+    let (messages, record_starts) = versions::fold(&mut file, &bytes, page.start)?;
     Ok(HistoryWindow {
         messages,
         record_starts,
@@ -120,43 +148,6 @@ pub fn read_messages(path: &Path) -> Vec<ChatMsg> {
 /// degrade silently can tell "no transcript yet" from "transcript unreadable".
 pub fn try_read_messages(path: &Path) -> std::io::Result<Vec<ChatMsg>> {
     read_tail(path).map(|window| window.messages)
-}
-
-/// Latest version of each record in first-seen order, with each message's
-/// first-record offset; retired ids drop out.
-fn fold(bytes: &[u8], base: u64) -> (Vec<ChatMsg>, Vec<u64>) {
-    let mut order: Vec<(String, u64)> = Vec::new();
-    let mut by_id: HashMap<String, ChatMsg> = HashMap::new();
-    let mut offset = base;
-    for raw in bytes.split_inclusive(|byte| *byte == b'\n') {
-        let start = offset;
-        offset += raw.len() as u64;
-        let Ok(line) = std::str::from_utf8(raw) else {
-            continue;
-        };
-        let line = line.trim();
-        if line.is_empty() || line.starts_with(META_PREFIX) {
-            continue;
-        }
-        if line.starts_with(REMOVED_PREFIX) {
-            if let Some(id) = removed_id(line) {
-                by_id.remove(&id);
-                order.retain(|(kept, _)| *kept != id);
-            }
-            continue;
-        }
-        let Ok(message) = serde_json::from_str::<ChatMsg>(line) else {
-            continue;
-        };
-        if !by_id.contains_key(&message.id) {
-            order.push((message.id.clone(), start));
-        }
-        by_id.insert(message.id.clone(), message);
-    }
-    order
-        .into_iter()
-        .filter_map(|(id, start)| Some((by_id.remove(&id)?.with_segments(), start)))
-        .unzip()
 }
 
 fn removed_id(line: &str) -> Option<String> {
@@ -203,32 +194,35 @@ pub fn migrate(plugin_id: &str, from_session: &str, to_session: &str) {
 /// A process-shared, lock-guarded history writer. See [`ChatBackendHistory::shared`].
 pub type SharedHistory = Arc<Mutex<ChatBackendHistory>>;
 
-/// Registry of the single shared writer per `(plugin_id, session_id)`. Lives for
-/// the daemon's lifetime; the per-session footprint is one digest per message id.
-static SHARED: LazyLock<Mutex<HashMap<(String, String), SharedHistory>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-struct Live {
-    digest: u64,
+struct RegisteredHistory {
+    writer: Weak<Mutex<ChatBackendHistory>>,
+    live: Option<SharedHistory>,
 }
 
-/// Single writer of one session log. Holds only id digests, so an unchanged
-/// upsert is a no-op and a changed one appends one record (or rewrites the
-/// final record in place when it is the same message, as streaming does).
+type HistoryRegistry = HashMap<(String, String), RegisteredHistory>;
+
+static SHARED: LazyLock<Mutex<HistoryRegistry>> = LazyLock::new(|| Mutex::new(HashMap::new()));
+
+mod storage;
+mod versions;
+
 pub struct ChatBackendHistory {
     path: PathBuf,
-    meta: bool,
-    live: HashMap<String, Live>,
-    /// Id and start of the final record when it is a message record.
-    last: Option<(String, u64)>,
-    /// End of the last complete record; bytes past it are a torn write.
-    length: u64,
+    owner: Option<std::sync::mpsc::SyncSender<Request>>,
+    bytes: Arc<AtomicUsize>,
+    indexed_messages: Arc<AtomicUsize>,
 }
 
-fn digest(line: &str) -> u64 {
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    line.hash(&mut hasher);
-    hasher.finish()
+enum Operation {
+    Meta(serde_json::Value),
+    Upsert(Vec<ChatMsg>),
+    Remove(String),
+    Compact,
+}
+
+struct Request {
+    operation: Operation,
+    reply: std::sync::mpsc::SyncSender<std::io::Result<bool>>,
 }
 
 impl ChatBackendHistory {
@@ -237,224 +231,129 @@ impl ChatBackendHistory {
     }
 
     pub fn open_at(path: PathBuf) -> Self {
-        let mut history = Self {
+        Self::unindexed(path)
+    }
+
+    fn unindexed(path: PathBuf) -> Self {
+        Self {
             path,
-            meta: false,
-            live: HashMap::new(),
-            last: None,
-            length: 0,
-        };
-        if let Err(error) = history.index() {
-            if error.kind() != std::io::ErrorKind::NotFound {
-                log::warn!("[chatbackend] transcript index failed: {error}");
-            }
-        }
-        history
-    }
-
-    fn index(&mut self) -> std::io::Result<()> {
-        let file = std::fs::File::open(&self.path)?;
-        let total = file.metadata()?.len();
-        let mut reader = BufReader::new(file);
-        let mut line = Vec::new();
-        let mut offset = 0;
-        loop {
-            line.clear();
-            let count = reader.read_until(b'\n', &mut line)?;
-            if count == 0 || line.last() != Some(&b'\n') {
-                break;
-            }
-            self.observe(
-                std::str::from_utf8(&line).unwrap_or_default().trim(),
-                offset,
-            );
-            offset += count as u64;
-        }
-        self.length = offset;
-        if total > offset {
-            self.preserve_torn_tail(offset);
-        }
-        Ok(())
-    }
-
-    fn observe(&mut self, line: &str, offset: u64) {
-        self.last = None;
-        if line.starts_with(META_PREFIX) {
-            self.meta = true;
-        } else if line.starts_with(REMOVED_PREFIX) {
-            if let Some(id) = removed_id(line) {
-                self.live.remove(&id);
-            }
-        } else if let Ok(head) = serde_json::from_str::<RecordId>(line) {
-            self.live.insert(
-                head.id.clone(),
-                Live {
-                    digest: digest(line),
-                },
-            );
-            self.last = Some((head.id, offset));
+            owner: None,
+            bytes: Arc::new(AtomicUsize::new(0)),
+            indexed_messages: Arc::new(AtomicUsize::new(0)),
         }
     }
 
-    fn preserve_torn_tail(&self, complete: u64) {
-        let copy = || -> std::io::Result<()> {
-            let mut file = std::fs::File::open(&self.path)?;
-            file.seek(SeekFrom::Start(complete))?;
-            let mut torn = Vec::new();
-            file.read_to_end(&mut torn)?;
-            let name = self.path.file_name().unwrap_or_default().to_string_lossy();
-            let millis = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_or(0, |elapsed| elapsed.as_millis());
-            std::fs::write(
-                self.path
-                    .with_file_name(format!("{name}.corrupt-{millis:013}")),
-                torn,
-            )
-        };
-        if let Err(error) = copy() {
-            log::warn!("[chatbackend] torn transcript tail not preserved: {error}");
-        }
-    }
-
-    /// The single shared writer for `(plugin_id, session_id)`. Both the poll-loop
-    /// sink and the host-side gateway upsert through this instance, so a write
-    /// can't clobber a row it didn't author (single-writer invariant).
     pub fn shared(plugin_id: &str, session_id: &str) -> SharedHistory {
-        let key = (plugin_id.to_string(), session_id.to_string());
-        if let Some(h) = SHARED.lock().get(&key) {
-            return h.clone();
-        }
-        // Build outside the registry lock (never hold it across disk IO); insert is idempotent, first writer wins.
-        let built: SharedHistory = Arc::new(Mutex::new(Self::open(plugin_id, session_id)));
-        SHARED.lock().entry(key).or_insert(built).clone()
+        shared_in(
+            &SHARED,
+            (plugin_id.into(), session_id.into()),
+            session_path(plugin_id, session_id),
+        )
     }
 
-    /// Seed the openSession config as the `_meta` first line if not already present.
+    pub fn release(plugin_id: &str, session_id: &str) {
+        release_in(&mut SHARED.lock(), &(plugin_id.into(), session_id.into()));
+    }
+
+    fn request(&mut self, operation: Operation) -> std::io::Result<bool> {
+        if self.owner.is_none() {
+            let (sender, receiver) = std::sync::mpsc::sync_channel::<Request>(1);
+            let path = self.path.clone();
+            let bytes = self.bytes.clone();
+            let indexed_messages = self.indexed_messages.clone();
+            std::thread::Builder::new()
+                .name("chat-history".into())
+                .spawn(move || {
+                    let mut log = storage::HistoryLog::new(path);
+                    while let Ok(request) = receiver.recv() {
+                        let result = log.apply(request.operation);
+                        let (count, size) = log.memory_stats();
+                        bytes.store(size, Ordering::Relaxed);
+                        indexed_messages.store(count, Ordering::Relaxed);
+                        let _ = request.reply.send(result);
+                    }
+                })?;
+            self.owner = Some(sender);
+        }
+        let (reply, result) = std::sync::mpsc::sync_channel(1);
+        self.owner
+            .as_ref()
+            .ok_or_else(|| std::io::Error::other("history owner unavailable"))?
+            .send(Request { operation, reply })
+            .map_err(|_| std::io::Error::other("history owner stopped"))?;
+        result
+            .recv()
+            .map_err(|_| std::io::Error::other("history owner stopped"))?
+    }
+
     pub fn ensure_meta(&mut self, config: &serde_json::Value) {
-        if self.meta || config.is_null() {
-            return;
-        }
-        let Ok(line) = serde_json::to_string(&serde_json::json!({ META_KEY: config })) else {
-            return;
-        };
-        let result = if self.length == 0 {
-            self.write_at(0, &line)
-        } else {
-            self.prepend(&line)
-        };
-        match result {
-            Ok(()) => self.meta = true,
-            Err(error) => log::warn!("[chatbackend] transcript meta not saved: {error}"),
+        if let Err(error) = self.request(Operation::Meta(config.clone())) {
+            log::warn!("[chatbackend] transcript meta not saved: {error}");
         }
     }
 
-    /// UPSERT messages by id. Returns whether anything changed (and was written).
+    pub fn try_upsert(&mut self, messages: &[ChatMsg]) -> std::io::Result<bool> {
+        self.request(Operation::Upsert(messages.to_vec()))
+    }
+
     pub fn upsert(&mut self, messages: &[ChatMsg]) -> bool {
-        let mut changed = false;
-        for message in messages {
-            let Ok(line) = serde_json::to_string(message) else {
-                continue;
-            };
-            let digest = digest(&line);
-            if self
-                .live
-                .get(&message.id)
-                .is_some_and(|live| live.digest == digest)
-            {
-                continue;
-            }
-            let at = match &self.last {
-                Some((id, start)) if *id == message.id => *start,
-                _ => self.length,
-            };
-            if let Err(error) = self.write_at(at, &line) {
+        match self.try_upsert(messages) {
+            Ok(changed) => changed,
+            Err(error) => {
                 log::warn!("[chatbackend] transcript not saved: {error}");
-                continue;
+                false
             }
-            self.live.insert(message.id.clone(), Live { digest });
-            self.last = Some((message.id.clone(), at));
-            changed = true;
         }
-        changed
     }
 
-    pub fn remove(&mut self, message_id: &str) -> bool {
-        if self.live.remove(message_id).is_none() {
-            return false;
+    pub fn remove(&mut self, id: &str) -> bool {
+        match self.request(Operation::Remove(id.into())) {
+            Ok(changed) => changed,
+            Err(error) => {
+                log::warn!("[chatbackend] transcript removal not saved: {error}");
+                false
+            }
         }
-        let result = match self.last.take() {
-            Some((id, start)) if id == message_id => self.truncate(start),
-            _ => serde_json::to_string(&serde_json::json!({ REMOVED_KEY: message_id }))
-                .map_err(std::io::Error::other)
-                .and_then(|line| {
-                    let end = self.length;
-                    self.write_at(end, &line)
-                }),
-        };
-        if let Err(error) = result {
-            log::warn!("[chatbackend] transcript removal not saved: {error}");
-        }
-        true
     }
 
-    fn open_for_write(&self) -> std::io::Result<std::fs::File> {
-        if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        std::fs::OpenOptions::new()
-            .create(true)
-            .truncate(false)
-            .write(true)
-            .open(&self.path)
-    }
-
-    fn write_at(&mut self, start: u64, line: &str) -> std::io::Result<()> {
-        let mut file = self.open_for_write()?;
-        file.seek(SeekFrom::Start(start))?;
-        let mut record = Vec::with_capacity(line.len() + 1);
-        record.extend_from_slice(line.as_bytes());
-        record.push(b'\n');
-        file.write_all(&record)?;
-        let end = start + record.len() as u64;
-        if file.metadata()?.len() != end {
-            file.set_len(end)?;
-        }
-        self.length = end;
-        Ok(())
-    }
-
-    fn truncate(&mut self, start: u64) -> std::io::Result<()> {
-        self.open_for_write()?.set_len(start)?;
-        self.length = start;
-        Ok(())
-    }
-
-    /// One-time rewrite that puts `line` first when the log already has records.
-    fn prepend(&mut self, line: &str) -> std::io::Result<()> {
-        let staged = self.path.with_extension("jsonl.meta-staging");
-        {
-            let mut out = std::io::BufWriter::new(std::fs::File::create(&staged)?);
-            out.write_all(line.as_bytes())?;
-            out.write_all(b"\n")?;
-            let source = std::fs::File::open(&self.path)?;
-            std::io::copy(&mut source.take(self.length), &mut out)?;
-            out.flush()?;
-        }
-        std::fs::rename(&staged, &self.path)?;
-        let shift = line.len() as u64 + 1;
-        self.length += shift;
-        if let Some((_, start)) = self.last.as_mut() {
-            *start += shift;
-        }
-        Ok(())
+    pub fn compact(&mut self) -> std::io::Result<()> {
+        self.request(Operation::Compact).map(|_| ())
     }
 }
 
-#[derive(serde::Deserialize)]
-struct RecordId {
-    id: String,
+fn shared_in(
+    registry: &Mutex<HistoryRegistry>,
+    key: (String, String),
+    path: PathBuf,
+) -> SharedHistory {
+    let mut entries = registry.lock();
+    entries.retain(|_, entry| entry.writer.strong_count() > 0);
+    if let Some(writer) = entries.get(&key).and_then(|entry| entry.writer.upgrade()) {
+        return writer;
+    }
+    let built = Arc::new(Mutex::new(ChatBackendHistory::unindexed(path)));
+    entries.insert(
+        key,
+        RegisteredHistory {
+            writer: Arc::downgrade(&built),
+            live: Some(built.clone()),
+        },
+    );
+    built
+}
+
+fn release_in(registry: &mut HistoryRegistry, key: &(String, String)) {
+    // In-flight sinks must remain discoverable until their last handle is dropped.
+    if let Some(entry) = registry.get_mut(key) {
+        entry.live = None;
+        if entry.writer.strong_count() == 0 {
+            registry.remove(key);
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod version_tests;

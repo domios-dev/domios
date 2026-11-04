@@ -7,6 +7,7 @@ import { createMuxStateStore } from "../../store/multiplexer/selectorStore";
 import { MuxStateStoreContext } from "../../store/multiplexer/context";
 import type { ExtendedState } from "../../store/multiplexer/tree";
 import { ChatComposer } from "./ChatComposer";
+import { DraftStorageFixture } from "../../test/draftStorage.testdata";
 import type { ChatSendStatus } from "./chatSendStatus";
 import { test, vi } from "vitest";
 import type { Tab } from "../../lib/types";
@@ -114,7 +115,7 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
   document.body.appendChild(host);
   const root = createRoot(host);
   const state = emptyMuxState();
-  if (options.tab) state.tabs[tabId] = options.tab;
+  state.tabs[tabId] = options.tab ?? { id: tabId, pty_id: null, tab_type: "Terminal", title: "Composer", cwd: null };
   const store = createMuxStateStore(() => state);
   function ComposerHarness() {
     const [attachments, setAttachments] = useState(options.attachments ?? []);
@@ -141,9 +142,9 @@ async function renderComposer(tabId: string, options: HarnessOptions = {}): Prom
   }
   await act(async () => {
     root.render(
-      <MuxStateStoreContext.Provider value={store}>
+      <DraftStorageFixture><MuxStateStoreContext.Provider value={store}>
         <ComposerHarness />
-      </MuxStateStoreContext.Provider>,
+      </MuxStateStoreContext.Provider></DraftStorageFixture>,
     );
   });
   await flush();

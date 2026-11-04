@@ -119,6 +119,7 @@ export interface TeamPlanCanvasTarget {
   teamId: string;
   managerTabId: string | null;
   planId?: string;
+  jump?: CanvasWorkspaceTarget["jump"];
 }
 
 export function openTeamPlanCanvas(target: TeamPlanCanvasTarget): void {
@@ -127,6 +128,7 @@ export function openTeamPlanCanvas(target: TeamPlanCanvasTarget): void {
     managerTabId: target.managerTabId,
     focusTabId: target.managerTabId ?? undefined,
     planId: target.planId,
+    jump: target.jump,
   });
 }
 

@@ -1,13 +1,15 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from bash_interpreter import bash_interpreter
 import json
 import os
 import subprocess
-from pathlib import Path
 
 
 def dev_environment() -> dict[str, str]:
     lib = Path(__file__).with_name("lib.sh")
-    git_bash = Path("C:/Program Files/Git/bin/bash.exe")
-    bash = str(git_bash) if os.name == "nt" and git_bash.exists() else "bash"
+    bash = bash_interpreter()
     env = dict(os.environ)
     env["CODETERM_INSTANCE"] = env.get("CODETERM_DEV_INSTANCE", "")
     env["CODETERM_API_PORT"] = env.get("CODETERM_DEV_API_PORT", "7686")

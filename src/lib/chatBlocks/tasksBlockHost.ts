@@ -4,6 +4,8 @@ import type { PlanTarget } from "../../components/Canvas/teamViewNavigation";
 import type { Plan, TaskStatus } from "../../components/Canvas/types";
 import { dsTaskProgressLabel, dsTaskRowsForSpec, groupDsTaskRows } from "../../components/Terminal/dsTasks/dsTasksModel";
 import { formatModelBadge } from "../formatModelBadge";
+import type { PlanProjection } from "../../components/Canvas/planProjection";
+import type { ScopedPlanBlockRead } from "./scopedPlanBlockRead";
 import type { ValueFeed } from "./valueFeed";
 
 export interface PlansSnapshot {
@@ -35,14 +37,25 @@ export function tasksBlockState(snapshot: PlansSnapshot, spec: TasksBlockSpec): 
   return { kind: "ready", title: plan.title, total: rows.length, groups };
 }
 
-export function createTasksBlockHost(plans: ValueFeed<PlansSnapshot>, navigate: (target: PlanTarget) => void): TasksBlockHost {
+export function createTasksBlockHost(plans: ValueFeed<PlansSnapshot>, navigate: (target: PlanTarget) => void, scoped?: ScopedPlanBlockRead<PlanProjection>): TasksBlockHost {
   let cachedFor: PlansSnapshot | null = null;
   const states = new Map<string, TasksBlockState>();
+  const scopedStates=new WeakMap<object,TasksBlockState>();
+  const loading:TasksBlockState={kind:"loading"};
+  const missing:TasksBlockState={kind:"missing"};
   const teamOf = (planId: string) => plans.get().plans.find((plan) => plan.id === planId)?.team_id ?? undefined;
   return {
     binding: {
-      subscribe: plans.subscribe,
+      subscribe: scoped?.subscribe ?? plans.subscribe,
+      retain: scoped?.retain,
       read(key) {
+        if(scoped){
+          const current=scoped.read(key);
+          const cached=scopedStates.get(current);if(cached)return cached;
+          const spec=decodeTasksBlockKey(key);
+          const state=current.data && spec ? tasksBlockState({plans:[current.data],loaded:true},spec) : current.error ? missing : loading;
+          scopedStates.set(current,state);return state;
+        }
         const snapshot = plans.get();
         if (snapshot !== cachedFor) {
           cachedFor = snapshot;
@@ -56,7 +69,7 @@ export function createTasksBlockHost(plans: ValueFeed<PlansSnapshot>, navigate: 
         }
         return state;
       },
-      refresh: () => {},
+      refresh: (key) => scoped?.refresh(key),
     },
     openPlan: (planId) => navigate({ planId, teamId: teamOf(planId) }),
     openTask: (planId, taskId) => navigate({ planId, taskId, teamId: teamOf(planId) }),

@@ -5,31 +5,35 @@ use axum::{
 };
 use serde_json::{json, Value};
 
-use crate::routes::{check_auth, AppState};
+use crate::routes::AppState;
 use codeterm_service_core::service::plan::plan_skills::{list_plan_skills, show_plan_skill};
 
 use super::{emit_plan_changed, epoch_ms, plan_err, text_err, PlanRouteResult};
 
 pub async fn skills_list(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path(plan_id): Path<String>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let store = state.svc.plan_store.clone();
-    let skills = list_plan_skills(&store, &plan_id).map_err(plan_err)?;
-    Ok(Json(json!({ "plan_id": plan_id, "skills": skills })))
+    crate::plan_routes::run_blocking(move || {
+        let store = state.svc.plan_store.clone();
+        let skills = list_plan_skills(&store, &plan_id).map_err(plan_err)?;
+        Ok(Json(json!({ "plan_id": plan_id, "skills": skills })))
+    })
+    .await
 }
 
 pub async fn skills_show(
     AxumState(state): AxumState<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
     Path((plan_id, slug)): Path<(String, String)>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let store = state.svc.plan_store.clone();
-    let skill = show_plan_skill(&store, &plan_id, &slug).map_err(plan_err)?;
-    Ok(Json(json!({ "plan_id": plan_id, "skill": skill })))
+    crate::plan_routes::run_blocking(move || {
+        let store = state.svc.plan_store.clone();
+        let skill = show_plan_skill(&store, &plan_id, &slug).map_err(plan_err)?;
+        Ok(Json(json!({ "plan_id": plan_id, "skill": skill })))
+    })
+    .await
 }
 
 pub async fn retrospective_write(
@@ -38,28 +42,30 @@ pub async fn retrospective_write(
     Path(plan_id): Path<String>,
     Json(body): Json<Value>,
 ) -> PlanRouteResult {
-    check_auth(&state, &headers).map_err(|(s, m)| text_err(s, m))?;
-    let text = body
-        .get("body")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if text.is_empty() {
-        return Err(text_err(StatusCode::BAD_REQUEST, "body is required"));
-    }
-    let now = epoch_ms();
-    let from = crate::auth::actor_ref(
-        &state,
-        &headers,
-        body.get("from")
-            .and_then(|value| serde_json::from_value(value.clone()).ok()),
-    )
-    .map_err(|(status, message)| text_err(status, message))?;
-    let store = state.svc.plan_store.clone();
-    let stride_id = store
-        .add_retrospective(&plan_id, &text, from, now)
-        .map_err(plan_err)?;
-    emit_plan_changed(&state, &plan_id);
-    Ok(Json(json!({ "plan_id": plan_id, "stride_id": stride_id })))
+    crate::plan_routes::run_blocking(move || {
+        let text = body
+            .get("body")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
+        if text.is_empty() {
+            return Err(text_err(StatusCode::BAD_REQUEST, "body is required"));
+        }
+        let now = epoch_ms();
+        let from = crate::auth::actor_ref(
+            &state,
+            &headers,
+            body.get("from")
+                .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        )
+        .map_err(|(status, message)| text_err(status, message))?;
+        let store = state.svc.plan_store.clone();
+        let stride_id = store
+            .add_retrospective(&plan_id, &text, from, now)
+            .map_err(plan_err)?;
+        emit_plan_changed(&state, &plan_id);
+        Ok(Json(json!({ "plan_id": plan_id, "stride_id": stride_id })))
+    })
+    .await
 }

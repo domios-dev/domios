@@ -1,3 +1,4 @@
+import { ExpandableReader } from "../ExpandableReader";
 import { useId, useState } from "react";
 import { Users } from "lucide-react";
 import type { ChatOrigin } from "@codeterm/chat-core";
@@ -23,6 +24,7 @@ export function NeighborOriginHeader({ origin }: { origin: NeighborOrigin }) {
   const openReplied = () => document.querySelector(`[data-neighbor-message="${CSS.escape(origin.inReplyTo ?? "")}"]`)
     ?.scrollIntoView({ block: "center", behavior: "smooth" });
   return (
+    <ExpandableReader label={"Message origin"}>{(fullscreen) => (
     <div className="mb-1 min-w-0" data-testid="chat-neighbor-origin" data-neighbor-message={origin.message}>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-[11.5px]">
         <button
@@ -60,7 +62,7 @@ export function NeighborOriginHeader({ origin }: { origin: NeighborOrigin }) {
           </button>
         )}
       </div>
-      {open && (
+      {(open || fullscreen) && (
         <dl id={details} className="mt-1 grid min-w-0 grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-[11px]" style={{ color: "var(--ct-muted-fg)" }}>
           {rows.map(([label, value]) => (
             <div key={label} className="contents">
@@ -71,5 +73,6 @@ export function NeighborOriginHeader({ origin }: { origin: NeighborOrigin }) {
         </dl>
       )}
     </div>
+    )}</ExpandableReader>
   );
 }

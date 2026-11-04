@@ -26,8 +26,57 @@ import { defaultConfig, useConfigLoader } from "../../hooks/useConfig";
 import { firstRunLocked } from "../../lib/firstRunGate";
 import { FirstRunControls } from "./FirstRunControls";
 import { invalidateAgentProviders, useAgentProviders } from "../../hooks/useAgentProviders";
+import type { ProviderCliStatus } from "../../lib/providerCli";
 
 const events = new Map<string, (event: { payload: unknown }) => void>();
+
+it("offers named cards while independent installation checks run and keeps the selected ready card usable", async () => {
+  invalidateAgentProviders();
+  const finish = new Map<string, (status: ProviderCliStatus) => void>();
+  vi.mocked(invoke).mockImplementation(async (command, args) => {
+    if (command === "list_agent_providers") return ["first", "second", "optional"].map(id => ({
+      ...provider(id, "pty"), availability: "unknown", availability_checking: true,
+      general_agent_offer_when_absent: id !== "optional", install_command: "opaque installer",
+    }));
+    if (command === "provider_cli_status") return new Promise<ProviderCliStatus>(resolve => finish.set(String(args?.providerId), resolve));
+    return undefined;
+  });
+  function Welcome() {
+    const { providers, loading } = useAgentProviders();
+    return <FirstRunGeneralPicker providers={providers} providersLoading={loading} />;
+  }
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(<Welcome />));
+    const card = (label: string) => host.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
+    const confirm = host.querySelector<HTMLButtonElement>('[data-testid="agent-picker-confirm"]')!;
+    expect([...finish.keys()].sort()).toEqual(["first", "optional", "second"]);
+    const second = card("second: Checking installation…")!;
+    expect(second.getAttribute("aria-busy")).toBe("true");
+    expect(card("first: Checking installation…")).not.toBeNull();
+    expect(card("optional: Checking installation…")).toBeNull();
+    await act(async () => second.click());
+    expect(confirm.disabled).toBe(true);
+    await act(async () => finish.get("second")!({ availability: "available" } as ProviderCliStatus));
+    expect(card("second: Installed")).toBe(second);
+    expect(second.getAttribute("aria-pressed")).toBe("true");
+    expect(confirm.disabled).toBe(false);
+    expect(card("first: Checking installation…")).not.toBeNull();
+    await act(async () => {
+      finish.get("first")!({ availability: "unavailable" } as ProviderCliStatus);
+      finish.get("optional")!({ availability: "available" } as ProviderCliStatus);
+    });
+    expect(card("optional: Installed")).not.toBeNull();
+    await act(async () => card("first: Not installed")!.click());
+    expect(confirm.disabled).toBe(false);
+    expect(confirm.textContent).toBe("Install first");
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+    invalidateAgentProviders();
+  }
+});
 it("models installation, sign-in, startup, readiness and failure recovery", () => {
   let phase: FirstRunPhase = "choosing";
   const phases = [];

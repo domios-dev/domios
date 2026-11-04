@@ -11,7 +11,11 @@ impl ServiceContext {
         self.extensions
             .try_get::<super::CuratorTabs>()
             .ok_or("Curator runtime is unavailable")?;
-        let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
+        let read = self
+            .plan_store
+            .curator_schedule_projection(plan_id)
+            .map_err(|error| error.to_string())?;
+        let plan = read.plan();
         let owner = plan.owner.tab_id.as_deref().ok_or("Orchestrator absent")?;
         let tab = self
             .mux
@@ -31,8 +35,9 @@ impl ServiceContext {
                     .map_err(crate::service::plan::PlanError::Validation)
             })
             .map_err(|error| error.to_string())?;
-        self.reconcile_curator_id(plan_id, now);
-        self.ui.emit("plan-changed", json!({"plan_id":plan_id}));
+        self.reconcile_curator_id(plan_id, now)
+            .map_err(|error| error.to_string())?;
+        self.emit_committed_plan_changed(&plan_id);
         self.control_loop_show(plan_id)
     }
 }
