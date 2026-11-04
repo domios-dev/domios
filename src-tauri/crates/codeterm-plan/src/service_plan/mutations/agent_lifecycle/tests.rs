@@ -124,3 +124,47 @@ fn forward_restore_failure_refreshes_every_warm_plan_and_index() {
 fn forward_restore_failure_refreshes_every_evicted_plan_and_index() {
     forward_restore_failure(false);
 }
+
+#[test]
+fn prepared_lifecycle_cas_refuses_concurrent_plan_edit_without_restoring_stale_data() {
+    let (_directory, store) = fixture();
+    let prepared = store
+        .prepare_agent_lifecycle_changes(vec![change()], 2)
+        .unwrap();
+    let mut newer = store.get("pl_a").unwrap();
+    newer.title = "concurrent edit".into();
+    store.save(&mut newer, 3).unwrap();
+    assert!(store
+        .commit_prepared_agent_lifecycle_changes(prepared)
+        .unwrap_err()
+        .to_string()
+        .contains("lifecycle conflict"));
+    assert_eq!(store.get("pl_a").unwrap(), newer);
+    assert_eq!(
+        store.get("pl_b").unwrap().owner.tab_id.as_deref(),
+        Some("owner")
+    );
+    assert_matches_sql(&store);
+}
+
+#[test]
+fn prepared_lifecycle_cas_commits_once_and_rejects_a_second_stale_candidate() {
+    let (_directory, store) = fixture();
+    let first = store
+        .prepare_agent_lifecycle_changes(vec![change()], 2)
+        .unwrap();
+    let stale = store
+        .prepare_agent_lifecycle_changes(vec![change()], 2)
+        .unwrap();
+    assert_eq!(
+        store
+            .commit_prepared_agent_lifecycle_changes(first)
+            .unwrap(),
+        ["pl_a", "pl_b"]
+    );
+    assert!(store
+        .commit_prepared_agent_lifecycle_changes(stale)
+        .is_err());
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
+    assert_matches_sql(&store);
+}

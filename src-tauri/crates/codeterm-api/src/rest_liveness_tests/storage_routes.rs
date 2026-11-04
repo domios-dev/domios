@@ -198,3 +198,122 @@ async fn rest_health_answers_while_notification_reads_and_writes_wait_on_store()
     assert!(list.await.unwrap().0.as_array().unwrap().is_empty());
     assert_eq!(mark.await.unwrap_err().0, StatusCode::NOT_FOUND);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn team_adopt_and_transfer_keep_health_list_and_send_responsive_with_plan_sql_held() {
+    for transfer in [false, true] {
+        codeterm_orchestration::register_orchestration();
+        let (mut mux, source) = MultiplexerState::new();
+        mux.set_orchestrator_role(&source).unwrap();
+        let source_team = mux
+            .resolve_or_mint_team_for_parent(&source)
+            .unwrap()
+            .team_id;
+        let workspace = mux.find_workspace_for_tab(&source).unwrap();
+        let destination = mux.create_tab(&workspace).unwrap();
+        mux.set_orchestrator_role(&destination).unwrap();
+        let destination_team = mux
+            .resolve_or_mint_team_for_parent(&destination)
+            .unwrap()
+            .team_id;
+        let fixture = ServiceFixture::new(mux);
+        let state = app_state(&fixture);
+        let plan = state
+            .svc
+            .plan_store
+            .create_plan_for_team(
+                "Held SQL".into(),
+                fixture.temp.path().display().to_string(),
+                codeterm_service_core::plan::OrchestratorRef::from_tab(&source),
+                source_team,
+                vec![],
+                1,
+            )
+            .unwrap();
+        let plans = state.svc.plan_store.clone();
+        let held = HeldDependency::new(move |locked, release| {
+            plans.with_database_held_for_test(|| {
+                locked.send(()).unwrap();
+                release.recv_timeout(Duration::from_secs(10)).unwrap();
+            });
+        })
+        .await;
+        let service = state.svc.clone();
+        let plan_id = plan.id.clone();
+        let expected_team = destination_team.clone();
+        let operation = tokio::task::spawn_blocking(move || {
+            if transfer {
+                codeterm_orchestration::team::transfer_team_plan(
+                    &service,
+                    &plan_id,
+                    codeterm_service_core::plan::OrchestratorRef::from_tab(&destination),
+                    "held SQL transfer",
+                    source,
+                    2,
+                )
+            } else {
+                codeterm_orchestration::team::adopt_plan_for_team(
+                    &service,
+                    &destination_team,
+                    &plan_id,
+                    codeterm_service_core::service::team_core::TeamMutationCaller::AgentTab(
+                        destination,
+                    ),
+                    2,
+                )
+            }
+        });
+        let observer = state.svc.plan_store.clone();
+        assert!(
+            tokio::task::spawn_blocking(
+                move || observer.wait_for_active_mutation_for_test(Duration::from_secs(2))
+            )
+            .await
+            .unwrap(),
+            "operation must enter the held SQL dependency"
+        );
+        assert!(!operation.is_finished());
+        health_responds(crate::routes::create_router(state.clone())).await;
+        let list = tokio::time::timeout(
+            Duration::from_secs(1),
+            crate::tab_routes::list_tabs(
+                State(state.clone()),
+                Default::default(),
+                Query(crate::tab_routes::TabListQuery {
+                    local_only: true,
+                    ..Default::default()
+                }),
+            ),
+        )
+        .await
+        .expect("tab list must not wait for plan SQL")
+        .unwrap();
+        assert_eq!(list.0.as_array().unwrap().len(), 2);
+        let send = tokio::time::timeout(
+            Duration::from_secs(1),
+            crate::tab_routes::send_text(
+                State(state.clone()),
+                Default::default(),
+                Path("missing-held-dependency-target".into()),
+                axum::Json(serde_json::from_value(serde_json::json!({"text":"opaque"})).unwrap()),
+            ),
+        )
+        .await
+        .expect("send preflight must not wait for plan SQL")
+        .unwrap_err();
+        let response = axum::response::IntoResponse::into_response(send);
+        let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024)
+            .await
+            .unwrap();
+        let rejection: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(rejection["error"]["code"], "tab_not_reachable_on_peer");
+        assert!(!operation.is_finished());
+        drop(held);
+        let adopted = operation.await.unwrap().unwrap();
+        assert_eq!(adopted.team_id.as_deref(), Some(expected_team.as_str()));
+        assert_eq!(
+            state.svc.plan_store.get(&plan.id).unwrap().team_id,
+            adopted.team_id
+        );
+    }
+}

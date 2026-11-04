@@ -600,10 +600,19 @@ pub fn adopt_plan_for_team(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
-    let mut mux = svc.mux.write();
-    let plan =
-        adopt_plan_for_team_core(&mut mux, &svc.plan_store, team_id, plan_id, caller, now_ms)?;
-    drop(mux);
+    svc.transition_agent_prepared_at(
+        now_ms,
+        |mux, store| {
+            adopt_plan_request(mux, store, team_id, plan_id, caller)
+                .map_err(|error| format!("{error:?}"))
+        },
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+    )
+    .map_err(TeamPlanError::Team)?;
+    let plan = svc
+        .plan_store
+        .get(plan_id)
+        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
     svc.emit_committed_plan_changed(&plan_id);
     svc.emit_state_changed(MuxEmitCause::Team);
     Ok(plan)
@@ -641,17 +650,26 @@ pub fn transfer_team_plan(
     caller_tab_id: String,
     now_ms: u64,
 ) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
-    let mut mux = svc.mux.write();
-    let plan = transfer_team_plan_core(
-        &mut mux,
-        &svc.plan_store,
-        plan_id,
-        to,
-        reason,
-        TeamMutationCaller::AgentTab(caller_tab_id),
+    svc.transition_agent_prepared_at(
         now_ms,
-    )?;
-    drop(mux);
+        |mux, store| {
+            transfer_plan_request(
+                mux,
+                store,
+                plan_id,
+                to,
+                reason,
+                TeamMutationCaller::AgentTab(caller_tab_id),
+            )
+            .map_err(|error| format!("{error:?}"))
+        },
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+    )
+    .map_err(TeamPlanError::Team)?;
+    let plan = svc
+        .plan_store
+        .get(plan_id)
+        .ok_or(TeamPlanError::Plan(PlanError::NotFound))?;
     svc.emit_state_changed(MuxEmitCause::Team);
     svc.emit_plan_changed(plan_id);
     Ok(plan)
@@ -740,6 +758,28 @@ pub fn adopt_plan_for_team_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
+    let request = adopt_plan_request(mux, plan_store, team_id, plan_id, caller)?;
+    codeterm_service_core::service::agent_transition::execute_transition_at(
+        mux,
+        plan_store,
+        request,
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)?;
+    plan_store
+        .get(plan_id)
+        .ok_or(TeamPlanError::Plan(PlanError::NotFound))
+}
+
+fn adopt_plan_request(
+    mux: &MultiplexerState,
+    plan_store: &codeterm_service_core::service::plan::PlanStore,
+    team_id: &str,
+    plan_id: &str,
+    caller: TeamMutationCaller,
+) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
+{
     authorize_team_mutation(mux, team_id, &caller).map_err(|error| {
         TeamPlanError::Team(format!(
             "Plan adoption requires manager authority in destination Team {team_id}: {error}. \
@@ -748,16 +788,14 @@ Safe recovery: old-team member transfers ownership, then new owner adopts."
     })?;
     let owner_tab_id = team_plan_owner(mux, plan_store, team_id, plan_id, &caller)?;
     let planner = live_team_planner_ref(mux, team_id);
-    codeterm_service_core::service::agent_transition::transition_plan_to_orchestrator_core(
-        mux,
-        plan_store,
-        plan_id,
+    codeterm_service_core::service::agent_transition::plan_owner_request(
         codeterm_service_core::plan::OrchestratorRef::from_tab(&owner_tab_id),
+        plan_id,
         team_id,
         &format!("adopted by Team {team_id}"),
         true,
-        planner,
-        now_ms,
+        Some((plan_id.to_string(), planner)),
+        true,
     )
     .map_err(TeamPlanError::Team)
 }
@@ -784,6 +822,7 @@ pub fn live_team_planner_ref(
     })
 }
 
+#[cfg(test)]
 fn transfer_team_plan_core(
     mux: &mut MultiplexerState,
     plan_store: &codeterm_service_core::service::plan::PlanStore,
@@ -793,6 +832,29 @@ fn transfer_team_plan_core(
     caller: TeamMutationCaller,
     now_ms: u64,
 ) -> Result<codeterm_service_core::plan::Plan, TeamPlanError> {
+    let request = transfer_plan_request(mux, plan_store, plan_id, to, reason, caller)?;
+    codeterm_service_core::service::agent_transition::execute_transition_at(
+        mux,
+        plan_store,
+        request,
+        codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
+        now_ms,
+    )
+    .map_err(TeamPlanError::Team)?;
+    plan_store
+        .get(plan_id)
+        .ok_or(TeamPlanError::Plan(PlanError::NotFound))
+}
+
+fn transfer_plan_request(
+    mux: &MultiplexerState,
+    plan_store: &codeterm_service_core::service::plan::PlanStore,
+    plan_id: &str,
+    to: codeterm_service_core::plan::OrchestratorRef,
+    reason: &str,
+    caller: TeamMutationCaller,
+) -> Result<codeterm_service_core::service::agent_transition::AgentTransitionRequest, TeamPlanError>
+{
     let source_plan = plan_store
         .plan_identity_projection(plan_id)
         .map_err(TeamPlanError::Plan)?;
@@ -833,16 +895,14 @@ fn transfer_team_plan_core(
         .to_string();
     authorize_plan_transfer(mux, source_team_id, &destination_team_id, &tab_id, caller)
         .map_err(TeamPlanError::Team)?;
-    codeterm_service_core::service::agent_transition::transition_plan_to_orchestrator_core(
-        mux,
-        plan_store,
-        plan_id,
+    codeterm_service_core::service::agent_transition::plan_owner_request(
         to,
+        plan_id,
         &destination_team_id,
         reason,
         false,
-        None,
-        now_ms,
+        Some((plan_id.to_string(), None)),
+        true,
     )
     .map_err(TeamPlanError::Team)
 }

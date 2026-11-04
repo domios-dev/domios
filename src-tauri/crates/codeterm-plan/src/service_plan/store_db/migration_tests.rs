@@ -44,6 +44,7 @@ fn every_supported_version_and_fresh_creation_converge_through_real_open() {
         include_str!("../../../tests/fixtures/releases/forward-v2.sql"),
         include_str!("../../../tests/fixtures/releases/forward-v3.sql"),
         include_str!("../../../tests/fixtures/releases/forward-v4.sql"),
+        include_str!("../../../tests/fixtures/releases/forward-v5.sql"),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("plans.db");
@@ -72,6 +73,7 @@ fn a_step_failure_rolls_back_ddl_data_and_version_for_every_source() {
         include_str!("../../../tests/fixtures/releases/v1.18.7.sql"),
         include_str!("../../../tests/fixtures/releases/forward-v2.sql"),
         include_str!("../../../tests/fixtures/releases/forward-v3.sql"),
+        include_str!("../../../tests/fixtures/releases/forward-v4.sql"),
     ] {
         let mut connection = Connection::open_in_memory().unwrap();
         connection.execute_batch(fixture).unwrap();

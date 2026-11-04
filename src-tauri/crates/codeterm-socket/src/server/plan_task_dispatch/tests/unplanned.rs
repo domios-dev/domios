@@ -523,7 +523,7 @@ fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
         .fixture
         .service
         .plan_store
-        .show_task(response["task_id"].as_str().unwrap())
+        .inspect_task_for_test(response["task_id"].as_str().unwrap())
         .unwrap()
         .task;
     let lane = task.lane.worktree_path.as_deref().unwrap();
