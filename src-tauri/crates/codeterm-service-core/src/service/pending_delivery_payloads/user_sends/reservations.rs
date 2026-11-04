@@ -25,6 +25,11 @@ impl UserSendStore {
             return Err("user correlation token exceeds metadata bound".into());
         }
         let tab = self.tab(&authority.tab_id);
+        {
+            // Validate retained state before even replay-token admission; do not nest data/admissions locks.
+            let mut data = tab.data.lock();
+            self.load(&tab, &mut data)?;
+        }
         let mut admissions = tab.admissions.lock();
         if let Some(entry) = client_token
             .as_ref()
