@@ -53,6 +53,24 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
         })
         .map_err(db_error)?;
     connection
+        .create_scalar_function("domios_notice_learning", 3, flags, |context| {
+            let id = text(context, 0)?.unwrap_or("");
+            let value = text(context, 1)?.ok_or_else(|| {
+                rusqlite::Error::UserFunctionError("missing learning text".into())
+            })?;
+            let owner: bool = context.get(2)?;
+            let mut line = String::new();
+            if owner {
+                crate::service_plan::heartbeat::render_learning_text(value, &mut line);
+            } else {
+                crate::service_plan::heartbeat::render_situational_learning_fields(
+                    id, value, &mut line,
+                );
+            }
+            Ok(line)
+        })
+        .map_err(db_error)?;
+    connection
         .create_scalar_function("domios_notice_loop_due", 3, flags, |context| {
             let status = enumeration(text(context, 0)?.unwrap_or(""))?;
             let count = context.get(1)?;
@@ -117,7 +135,7 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
                 NextActionKind::Dispatch=>Some(501),_=>None,
             }).unwrap_or(if projection.presentation==TaskPresentation::HandoffRequired {601} else {0})
         };
-        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff)))
+        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held)))
     }).map_err(db_error)
 }
 
@@ -172,15 +190,24 @@ const TASK_FACTS:&str="WITH declared AS (
                 ON target.plan_id=t.plan_id AND target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
             EXISTS(SELECT 1 FROM json_each(CASE WHEN json_type(t.row_json,'$.depends_on') IS NULL THEN '[]' WHEN json_type(t.row_json,'$.depends_on')='array' THEN t.row_json->'$.depends_on' ELSE json('invalid task dependencies') END) dep WHERE NOT EXISTS(
                 SELECT 1 FROM plan_tasks target WHERE target.plan_id=t.plan_id AND target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END)),
-            coalesce(json_extract(t.row_json,'$.interruption.handoff_required'),0),
+            CASE WHEN json_type(t.row_json,'$.interruption') IS NULL THEN 0
+                WHEN json_type(t.row_json,'$.interruption')<>'object' THEN json('invalid task interruption')
+                WHEN json_type(t.row_json,'$.interruption.handoff_required') IS NULL THEN 0
+                WHEN json_type(t.row_json,'$.interruption.handoff_required') IN ('true','false') THEN json_extract(t.row_json,'$.interruption.handoff_required')
+                ELSE json('invalid handoff-required flag') END,
             parent.parent_id IS NOT NULL,
             t.status='pending' AND coalesce((SELECT min(d.position) FROM declared d WHERE d.group_key=json_extract(t.row_json,'$.group'))>(SELECT position FROM active),0),
-            CASE WHEN t.status='in_review' AND json_extract(t.row_json,'$.review_evidence[#-1].verdict')='hold'
+            CASE WHEN t.status='in_review' THEN CASE
+                WHEN json_type(t.row_json,'$.review_evidence') IS NULL THEN 0
+                WHEN json_type(t.row_json,'$.review_evidence')<>'array' THEN json('invalid task review evidence')
+                WHEN json_array_length(t.row_json,'$.review_evidence')=0 THEN 0
+                WHEN coalesce(json_extract(t.row_json,'$.review_evidence[#-1].verdict') IN ('accept','bounce','hold'),0)=0 THEN json('invalid review verdict')
+                WHEN json_extract(t.row_json,'$.review_evidence[#-1].verdict')='hold'
                 THEN printf('%20s',NOTICE_REVIEW_AT)>=printf('%20s',NOTICE_CHANGED_AT)
                     AND length(trim(CASE WHEN json_type(t.row_json,'$.review_evidence[#-1].note') IS NULL THEN ''
                         WHEN json_type(t.row_json,'$.review_evidence[#-1].note')='text' THEN json_extract(t.row_json,'$.review_evidence[#-1].note')
                         ELSE json('invalid review hold note') END,?2))>0
-                ELSE 0 END
+                ELSE 0 END ELSE 0 END
         ) AS decision
     FROM plan_tasks t LEFT JOIN open_parents parent ON parent.parent_id=t.task_id WHERE t.plan_id=?1
 )";

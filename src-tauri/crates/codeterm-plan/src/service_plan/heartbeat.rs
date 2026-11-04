@@ -199,14 +199,17 @@ fn is_owner_rule(learning: &HeartbeatLearning) -> bool {
 }
 
 pub(in crate::service_plan) fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
+    render_learning_text(&learning.text, out);
+}
+
+pub(in crate::service_plan) fn render_learning_text(text: &str, out: &mut String) {
     out.push_str("- ");
-    out.push_str(
-        &learning
-            .text
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" "),
-    );
+    for (index, word) in text.split_whitespace().enumerate() {
+        if index > 0 {
+            out.push(' ');
+        }
+        out.push_str(word);
+    }
     out.push('\n');
 }
 
@@ -216,22 +219,35 @@ pub(in crate::service_plan) fn render_situational_learning(
     learning: &HeartbeatLearning,
     out: &mut String,
 ) {
-    let text = learning
-        .text
+    render_situational_learning_fields(&learning.id, &learning.text, out);
+}
+
+pub(in crate::service_plan) fn render_situational_learning_fields(
+    id: &str,
+    text: &str,
+    out: &mut String,
+) {
+    let normalized = text
         .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ");
-    let excerpt = if text.chars().count() > SITUATIONAL_LEARNING_CHARS {
-        let prefix = text
+        .enumerate()
+        .flat_map(|(index, word)| {
+            std::iter::once(' ')
+                .filter(move |_| index > 0)
+                .chain(word.chars())
+        })
+        .take(SITUATIONAL_LEARNING_CHARS + 1)
+        .collect::<String>();
+    let excerpt = if normalized.chars().count() > SITUATIONAL_LEARNING_CHARS {
+        let prefix = normalized
             .chars()
             .take(SITUATIONAL_LEARNING_CHARS)
             .collect::<String>();
         let boundary = prefix.rfind(' ').unwrap_or(prefix.len());
         format!("{}…", &prefix[..boundary])
     } else {
-        text
+        normalized
     };
-    out.push_str(&format!("- {}: {excerpt}\n", learning.id));
+    out.push_str(&format!("- {id}: {excerpt}\n"));
 }
 
 fn reminder_snapshot(plan: &Plan) -> super::state::PlanStateSnapshot {
@@ -528,21 +544,15 @@ impl PlanStore {
         digests: &[String],
         learning_ids: Option<&[String]>,
     ) -> Result<String, PlanError> {
-        let read = match self.database.status_projection(
-            plan_id,
-            now_ms(),
-            learning_ids.unwrap_or_default(),
-        ) {
+        let read = match self
+            .database
+            .heartbeat_projection(plan_id, now_ms(), learning_ids)
+        {
             Ok(read) => read,
-            Err(PlanError::NotFound) => return Ok(text.to_string()),
+            Err(PlanError::NotFound) => return Ok(text.into()),
             Err(error) => return Err(error),
         };
-        Ok(prepend_plan_heartbeat_with_selection(
-            read.plan(),
-            text,
-            digests,
-            learning_ids,
-        ))
+        Ok(read.prepend(text, digests))
     }
 
     pub fn prepend_heartbeat_for_plan(

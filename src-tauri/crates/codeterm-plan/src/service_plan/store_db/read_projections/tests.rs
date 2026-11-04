@@ -17,6 +17,7 @@ mod document_reader_tests;
 mod export_tests;
 mod header_tests;
 mod heartbeat_owner_tests;
+mod heartbeat_projection_tests;
 mod index_filter_tests;
 mod notice_tests;
 mod qa_tests;
