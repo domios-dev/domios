@@ -205,7 +205,7 @@ export function SwitchTile({
       <span className="flex min-w-0 flex-col gap-0.5">
         <span className="text-xs text-[var(--ct-fg)]">{label}</span>
         {hint && (
-          <span className="text-[10px] leading-[1.4] text-[var(--ct-muted)]">{hint}</span>
+          <span className="text-[11px] leading-[1.4] text-[var(--ct-muted-fg)]">{hint}</span>
         )}
       </span>
     </button>

@@ -1,5 +1,4 @@
-//! Body locators: file + 1-based line range of an entity's markdown body
-//! inside its yaml, so agents can edit bodies in place with standard tools.
+//! Selected body snapshots with exact 1-based line ranges. Writes use typed mutations.
 
 use super::{PlanError, PlanStore};
 use serde::Serialize;
@@ -13,6 +12,7 @@ pub struct BodyLocation {
     pub start_line: usize,
     pub end_line: usize,
     pub editable: bool,
+    pub write_hint: &'static str,
 }
 
 pub enum LocateTarget<'a> {
@@ -27,54 +27,30 @@ impl PlanStore {
         plan_id: &str,
         target: LocateTarget<'_>,
     ) -> Result<BodyLocation, PlanError> {
-        #[cfg(test)]
-        {
-            let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-            let root = super::paths::test_project_root(super::paths::plan_sidecar_root(&plan))
-                .ok_or(PlanError::NotFound)?;
-            let dir = super::store_v2::plan_state_dir(&plan)
-                .map_err(|error| PlanError::Io(error.to_string()))?;
-            let (file, range) = match target {
-                LocateTarget::Task(id) => {
-                    let task = plan
-                        .tasks
-                        .iter()
-                        .find(|task| task.id == id)
-                        .ok_or(PlanError::NotFound)?;
-                    let file = super::store_v2::task_yaml_path(&dir, task);
-                    let text = std::fs::read_to_string(&file)
-                        .map_err(|error| PlanError::Io(error.to_string()))?;
-                    (file, top_level_body_range(&text))
-                }
-                LocateTarget::PlanSection(id) => {
-                    let file = super::store_v2::plan_yaml_path(&dir);
-                    let text = std::fs::read_to_string(&file)
-                        .map_err(|error| PlanError::Io(error.to_string()))?;
-                    (file, section_body_range(&text, id))
-                }
-                LocateTarget::SpecSection(id) => {
-                    let file = dir.join("spec.yaml");
-                    let text = std::fs::read_to_string(&file)
-                        .map_err(|error| PlanError::Io(error.to_string()))?;
-                    (file, section_body_range(&text, id))
-                }
-            };
-            let (start_line, end_line, editable) = range.ok_or(PlanError::NotFound)?;
-            let _ = root;
-            Ok(BodyLocation {
-                file,
-                start_line,
-                end_line,
-                editable,
-            })
+        use sha2::{Digest, Sha256};
+        let body = self.database.locate_body_projection(plan_id, target)?;
+        #[derive(Serialize)]
+        struct Snapshot<'a> {
+            body: &'a str,
         }
-        #[cfg(not(test))]
-        {
-            let _ = (plan_id, target);
-            Err(PlanError::Io(
-                "plan bodies are database-backed; use plan mutation commands".into(),
-            ))
-        }
+        let text = serde_yaml::to_string(&Snapshot { body: &body })
+            .map_err(|error| PlanError::Io(error.to_string()))?;
+        let hash = format!("{:x}", Sha256::digest(text.as_bytes()));
+        let file = self
+            .plan_data_dir(plan_id)
+            .join("body-snapshots")
+            .join(format!("{hash}.yaml"));
+        super::atomic_write::write_atomic(&file, &text)
+            .map_err(|error| PlanError::Io(error.to_string()))?;
+        let (start_line, end_line, _) = top_level_body_range(&text).ok_or(PlanError::NotFound)?;
+        Ok(BodyLocation {
+            file,
+            start_line,
+            end_line,
+            editable: false,
+            write_hint:
+                "Read-only snapshot; write through typed mutation commands (--body/--body-file).",
+        })
     }
 }
 

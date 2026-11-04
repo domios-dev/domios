@@ -1,3 +1,4 @@
+import { muxMockFetch, settleDaemon } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Canvas/PlanViewShell.test.tsx
 
 import { act, type ReactElement } from "react";
@@ -119,12 +120,12 @@ test("opening Board keeps the parked List reader detached", async () => {
   const previousFetch=globalThis.fetch;
   const requests: URL[]=[];
   const api: ApiConfig={enabled:true,host:"127.0.0.1",port:7686,token:"test-token",cors:true};
-  globalThis.fetch=async(input)=>{
+  globalThis.fetch=muxMockFetch(async(input)=>{
     const url=new URL(String(input));requests.push(url);
     if(url.pathname.endsWith("/board-state"))return Response.json({error:"Fixture has no board snapshot"},{status:503});
     if(url.pathname.endsWith("/projection"))return Response.json({...FIXTURE_PLAN,tasks:[],team_id:null,revision:"1"});
     return Response.json({plans:[]});
-  };
+  });
   const state: ExtendedState = {
     workspaces: [], tabs: {}, teams: [], active_workspace_id: null, focused_tab_id: null,
     notifications: [], tabStatuses: {}, toasts: [], activeTabIds: {}, generation: 0, pendingCloses: [],
@@ -234,7 +235,7 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
   let fullCalls = 0;
   let pageCalls = 0;
   const requestPaths: string[] = [];
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     const url = new URL(String(input));
     requestPaths.push(`${url.pathname}${url.search}`);
     if (url.searchParams.get("view") === "summary") {
@@ -253,7 +254,7 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
       });
     }
     return Response.json({ plans: [] });
-  };
+  });
   const ui = (
     <PlansProvider api={api}>
       <PlanViewShell
@@ -270,11 +271,7 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => root.render(ui));
-  await act(async () => {
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
-  });
+  await act(async () => { await settleDaemon(); });
   const selectedMode = host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode");
   assert(selectedMode === "tasks", `Tasks mode selected (got ${selectedMode ?? "none"})`);
   assert(pageCalls === 1, `one bounded task page requested (got ${pageCalls}; requests: ${requestPaths.join(", ")}; board=${Boolean(host.querySelector('[data-testid="plan-board-view"]'))}, single=${Boolean(host.querySelector('[data-testid="plan-board-single"]'))}, empty=${Boolean(host.querySelector('[data-testid="plan-board-empty"]'))}, loader=${Boolean(host.querySelector('[data-testid="plan-board-loading"]'))}, error=${Boolean(host.querySelector('[data-testid="plan-board-error"]'))})`);
@@ -327,7 +324,7 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
   let fullPlanCalls = 0;
   let fullCollectionCalls = 0;
   const paths: string[] = [];
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     const url = new URL(String(input));
     paths.push(url.pathname);
     if (url.pathname === "/api/plans" && url.searchParams.get("view") === "summary") fullCollectionCalls++;
@@ -342,7 +339,7 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
     if (url.pathname.endsWith("/projection")) return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     if (url.pathname === "/api/plans") return Response.json({ plans: [] });
     return Response.json({ plans: [] });
-  };
+  });
 
   const { host, unmount } = await render(
     <PlanViewShell
@@ -362,7 +359,7 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
       workspaceTarget={{ planId: FIXTURE_PLAN.id, jump: { view: "task", taskId } }}
     />,
   );
-  await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  await act(async () => { await settleDaemon(); });
   assert(detailCalls === 1, `one exact detail request (got ${detailCalls}; ${paths.join(", ")})`);
   assert(fullPlanCalls === 0, `no full plan by id for a task segment (got ${fullPlanCalls})`);
   assert(fullCollectionCalls === 0, `no full plan collection read (got ${fullCollectionCalls})`);
@@ -396,7 +393,7 @@ test("task side panel requests scoped detail even when a plan summary is already
   };
   let detailCalls = 0;
   let fullPlanCalls = 0;
-  globalThis.fetch = async (input) => {
+  globalThis.fetch = muxMockFetch(async (input) => {
     const url = new URL(String(input));
     if (url.pathname === `/api/plans/${FIXTURE_PLAN.id}/tasks/${taskId}`) {
       detailCalls++;
@@ -407,7 +404,7 @@ test("task side panel requests scoped detail even when a plan summary is already
       return Response.json({ ...FIXTURE_PLAN, revision: "1" });
     }
     return Response.json({ plans: [] });
-  };
+  });
   act(() => planSidePanelStore.open({ planId: FIXTURE_PLAN.id, taskId }));
   const host = document.createElement("div");
   document.body.appendChild(host);

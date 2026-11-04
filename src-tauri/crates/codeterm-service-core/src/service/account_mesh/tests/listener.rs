@@ -2,13 +2,20 @@ use super::*;
 use crate::startup::rest_api::{self, RestApiControl, RestApiPhase};
 use std::net::{Ipv4Addr, SocketAddr};
 
-struct LoopbackAlias(watch::Receiver<()>);
+/// Stand-in tailnet address: 127.0.0.1 on its own port, since macOS lo0 carries no 127.0.0.2.
+fn tailnet_stand_in() -> SocketAddr {
+    std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .and_then(|listener| listener.local_addr())
+        .expect("reserve a loopback port")
+}
+
+struct LoopbackAlias(watch::Receiver<()>, SocketAddr);
 
 #[async_trait]
 impl tailnet::AddressChanges for LoopbackAlias {
     async fn selected(&self, enabled: bool, port: u16) -> Vec<SocketAddr> {
         if enabled && port != 0 {
-            vec![(Ipv4Addr::new(127, 0, 0, 2), port).into()]
+            vec![self.1]
         } else {
             Vec::new()
         }
@@ -17,6 +24,100 @@ impl tailnet::AddressChanges for LoopbackAlias {
     async fn changed(&mut self) -> Result<(), ()> {
         self.0.changed().await.map_err(|_| ())
     }
+}
+
+/// Detection that can fail transiently and never emits a native address notification.
+struct FlakyDetection(Arc<std::sync::atomic::AtomicBool>, SocketAddr);
+
+#[async_trait]
+impl tailnet::AddressChanges for FlakyDetection {
+    async fn selected(&self, enabled: bool, port: u16) -> Vec<SocketAddr> {
+        if enabled && port != 0 && self.0.load(std::sync::atomic::Ordering::SeqCst) {
+            vec![self.1]
+        } else {
+            Vec::new()
+        }
+    }
+
+    async fn changed(&mut self) -> Result<(), ()> {
+        std::future::pending().await
+    }
+}
+
+fn connected_transport() -> codeterm_mesh::network_transport::TransportStatus {
+    codeterm_mesh::network_transport::TransportStatus {
+        display_name: "Test network".into(),
+        state: codeterm_mesh::network_transport::TransportState::Connected,
+        identity: None,
+        network_name: None,
+        user: None,
+        addresses: vec![Ipv4Addr::new(100, 64, 1, 2).into()],
+        peer_listener: true,
+        encrypted: true,
+        setup_actions: Vec::new(),
+    }
+}
+
+#[tokio::test]
+async fn tailnet_listener_recovers_when_another_observer_records_the_transport() {
+    tokio::time::timeout(Duration::from_secs(30), transport_recovery())
+        .await
+        .expect("tailnet transport recovery deadline");
+}
+
+async fn transport_recovery() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let service = Arc::new(fixture.service.clone());
+    let mesh = service.ext::<crate::MeshStateHandle>().clone();
+    {
+        let mut config = service.ext::<crate::config::ConfigState>().lock();
+        config.mesh.enabled = true;
+        config.api.enabled = true;
+    }
+    let router = axum::Router::new().route("/api/health", axum::routing::get(|| async { "ok" }));
+    let control = Arc::new(RestApiControl::new());
+    service
+        .set_ext(control.clone())
+        .unwrap_or_else(|_| panic!("install listener controller"));
+    service
+        .set_ext(crate::ports::rest::LocalApiRouter(router.clone()))
+        .unwrap_or_else(|_| panic!("install production router"));
+    let (published, mut ready) = watch::channel(Vec::new());
+    control.listeners.configure(
+        None,
+        Arc::new(move |addresses| {
+            published.send_replace(addresses);
+        }),
+    );
+    let mut status = control.subscribe_status();
+    let server = rest_api::spawn(control.clone(), "127.0.0.1:0".into(), router);
+    while status.borrow_and_update().phase != RestApiPhase::Listening {
+        status.changed().await.unwrap();
+    }
+    let remote = tailnet_stand_in();
+    let detected = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let transport = mesh.lock().transport_watch();
+    let task = tokio::spawn(tailnet::run_with_network(
+        service.clone(),
+        FlakyDetection(detected.clone(), remote),
+        transport,
+    ));
+    wait_for_ready(&mut ready, remote, true).await;
+    detected.store(false, std::sync::atomic::Ordering::SeqCst);
+    service
+        .events
+        .publish_generic("config-changed", serde_json::Value::Null);
+    wait_for_ready(&mut ready, remote, false).await;
+    detected.store(true, std::sync::atomic::Ordering::SeqCst);
+    assert!(mesh.lock().set_network_transport(connected_transport()));
+    wait_for_ready(&mut ready, remote, true).await;
+    task.abort();
+    let _ = task.await;
+    control.shutdown_and_wait().await.unwrap();
+    tokio::task::spawn_blocking(move || server.join().unwrap())
+        .await
+        .unwrap();
 }
 
 async fn wait_for_ready(
@@ -103,15 +204,13 @@ async fn lifecycle() {
         }
         status.changed().await.unwrap();
     }
-    let remote = SocketAddr::new(
-        Ipv4Addr::new(127, 0, 0, 2).into(),
-        control.bound_addr().unwrap().port(),
-    );
+    let remote = tailnet_stand_in();
     let (network_change, notifications) = watch::channel(());
     let mut network_events = service.events.subscribe();
     let task = tokio::spawn(tailnet::run_with_network(
         service.clone(),
-        LoopbackAlias(notifications),
+        LoopbackAlias(notifications, remote),
+        mesh.lock().transport_watch(),
     ));
     wait_for_ready(&mut ready, remote, true).await;
     wait_for_connectivity(&mut network_events).await;

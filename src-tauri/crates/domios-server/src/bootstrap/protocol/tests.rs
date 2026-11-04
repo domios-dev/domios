@@ -108,7 +108,7 @@ fn process_split_contract_only_absent_initial_inspect_authorizes_launch() {
 fn ready() -> ServerReady {
     ServerReady {
         protocol: BOOTSTRAP_PROTOCOL,
-        api_version: 3,
+        api_version: codeterm_types::server_bootstrap::API_VERSION,
         build: "test-build".into(),
         instance_id: "test-installation".into(),
         identity: ServerIdentity {

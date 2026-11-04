@@ -1,7 +1,7 @@
 use std::io::{Read, Write};
 use std::path::Path;
 
-use super::{LatestRelease, ResolvedManifest, UPDATE_REPOSITORIES};
+use super::{LatestRelease, ResolvedManifest, UPDATE_REPOSITORY};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 struct StoredManifest {
@@ -51,12 +51,12 @@ fn read(path: &Path) -> Option<ResolvedManifest> {
     }
     let stored: StoredManifest = serde_json::from_slice(&bytes).ok()?;
     semver::Version::parse(&stored.manifest.version).ok()?;
-    let repository = UPDATE_REPOSITORIES
-        .into_iter()
-        .find(|repository| *repository == stored.repository)?;
+    if stored.repository != UPDATE_REPOSITORY {
+        return None;
+    }
     Some(ResolvedManifest {
         release: LatestRelease {
-            repository,
+            repository: UPDATE_REPOSITORY,
             tag: format!("v{}", stored.manifest.version),
         },
         manifest: stored.manifest,

@@ -393,17 +393,10 @@ impl ServiceContext {
             return Ok(());
         };
         preflight_worker_plan_task_wip_gate(&self.plan_store, params.plan_id.as_deref(), task_ref)?;
-        let intent = params.execution_intent.as_ref().ok_or_else(|| {
+        params.execution_intent.as_ref().ok_or_else(|| {
             "plan-task spawn requires explicit execution_intent read_only or mutating".to_string()
         })?;
-        let now_ms = epoch_ms();
-        let allowance = self.provider_allowance_for_spawn(params, now_ms)?;
-        crate::service::plan::interruption::provider_allowance_preflight(
-            intent,
-            allowance.as_ref(),
-            now_ms,
-        )
-        .map_err(|error| error.to_string())
+        Ok(())
     }
 
     pub(crate) fn prepare_worker_plan_task_spawn(

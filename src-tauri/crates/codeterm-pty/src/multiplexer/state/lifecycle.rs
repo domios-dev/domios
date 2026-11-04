@@ -1,6 +1,9 @@
 use super::super::types::Tab;
 use super::{MultiplexerState, TeamCloseTransaction};
 
+pub const LIFECYCLE_CONTEXT_CONFLICT: &str =
+    "lifecycle conflict: tab identity, placement or Team changed; retry by intent";
+
 pub struct LifecyclePatch {
     before: TeamCloseTransaction,
     after: TeamCloseTransaction,
@@ -81,9 +84,7 @@ fn apply(
                     .is_none_or(|current| !matches(tab, current))
             }))
     {
-        return Err(
-            "lifecycle conflict: tab identity, placement or Team changed; retry by intent".into(),
-        );
+        return Err(LIFECYCLE_CONTEXT_CONFLICT.into());
     }
     for (id, staged) in &after.tabs {
         let expected = &before.tabs[id];

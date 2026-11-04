@@ -26,6 +26,7 @@ mod report_ingest;
 pub use report_ingest::BoundWorkerReportReceipt;
 mod respawn_guard;
 mod restore_binding;
+mod runtime_interruption;
 mod runtime_restart;
 mod runtime_restore;
 pub use runtime_restart::{RuntimeRestartBinding, RuntimeRestartMode};

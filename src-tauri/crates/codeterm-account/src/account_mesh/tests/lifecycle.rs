@@ -474,6 +474,103 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
 }
 
 #[tokio::test]
+async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() {
+    let harness = Harness::new().await;
+    let set_peer = |key: Option<(String, u64)>, metadata_revision: u64| {
+        let mut script = harness.registry.script.lock().unwrap();
+        script.peer_key = key;
+        script.peer_metadata_revision = metadata_revision;
+    };
+    set_peer(Some(("d".repeat(64), 2)), 5);
+    harness.registry.script.lock().unwrap().peer_active = Some(false);
+    harness.sign_in(UID).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert!(harness.state().current_membership(START).is_some());
+    assert!(harness.state().revoked_installations.contains(PEER));
+    let taught = harness.state().signed_registry.clone().unwrap();
+    let account_registry = |key_id: String, generation: u64, metadata_revision: u64| {
+        let mut rows = taught.rows.clone();
+        let peer = rows
+            .iter_mut()
+            .find(|row| row.installation_id == PEER)
+            .unwrap();
+        peer.key_id = key_id;
+        peer.key_generation = generation;
+        peer.metadata_revision = metadata_revision;
+        Issuer::new().sign(&serde_json::json!({
+            "schema_version": 1, "iss": "domios-mesh-registry",
+            "aud": {"project": PROJECT, "env": "test"}, "policy_epoch": EPOCH,
+            "account_id": account_id(UID), "revision": taught.revision + 10, "issued_at": START,
+            "members": rows, "revoked_installations": [],
+        }))
+    };
+
+    harness.logout().await;
+    set_peer(None, 0);
+    harness.registry.script.lock().unwrap().peer_active = None;
+    harness.sign_in("user-2").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let other = harness.state();
+    assert_eq!(other.binding(), Binding::Other);
+    assert_eq!(other.owner, Some(account_id(UID)));
+    assert_eq!(other.last_refusal, None);
+    assert!(other.self_installation.is_some());
+    assert_eq!(
+        other.current_membership(START).unwrap().verified.account_id,
+        account_id("user-2"),
+        "a lower generation in another account's registry is not a rollback"
+    );
+    assert!(
+        !other.revoked_installations.contains(PEER),
+        "a revocation in A does not block the same installation in B"
+    );
+
+    harness.logout().await;
+    // Peer gossip may deliver A's registry before A's retained registry is replayed.
+    harness.mesh.with(|inner| {
+        inner.record.signed_registries.remove(&account_id(UID));
+    });
+    harness.sign_in(UID).await;
+    for (key_id, generation, metadata_revision) in [("c".repeat(64), 1, 5), ("d".repeat(64), 2, 0)]
+    {
+        assert_eq!(
+            harness
+                .mesh
+                .receive_registry_snapshot(&account_registry(key_id, generation, metadata_revision))
+                .await,
+            Err(AccountMeshRefusal::Invalid),
+            "A's own fences still refuse a regressed A registry after visiting B"
+        );
+    }
+    set_peer(Some(("d".repeat(64), 2)), 5);
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let back = harness.state();
+    assert_eq!(back.binding(), Binding::Current);
+    assert_eq!(back.last_refusal, None);
+    assert_eq!(back.traffic(), Traffic::Open);
+    assert_eq!(
+        back.current_membership(START).unwrap().verified.account_id,
+        account_id(UID)
+    );
+    assert!(
+        back.revoked_installations.contains(PEER),
+        "A's revoked generation still blocks the installation after A to B to A"
+    );
+}
+
+#[tokio::test]
 async fn account_mesh_same_account_resumes_and_another_account_cannot() {
     let harness = enrolled().await;
     let signed_out_epoch = {
@@ -493,6 +590,22 @@ async fn account_mesh_same_account_resumes_and_another_account_cannot() {
     assert_eq!(resumed.traffic(), Traffic::Open);
     assert_eq!(resumed.binding(), Binding::Current);
     assert!(resumed.current_membership(START).is_some());
+    assert!(resumed.self_installation.is_some());
+    assert_eq!(resumed.last_refusal, None);
+    assert_eq!(resumed.cleanup, Cleanup::Confirmed);
+    let own = resumed
+        .signed_registry
+        .as_ref()
+        .unwrap()
+        .rows
+        .iter()
+        .find(|row| row.installation_id == INSTALLATION)
+        .unwrap();
+    assert_eq!(
+        own.presence,
+        wire::RegistryPresence::Present,
+        "peers admit only a present holder; a renew alone leaves the row signed out"
+    );
     assert_eq!(
         harness.calls("enroll"),
         1,

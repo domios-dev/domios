@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { RECONNECT_FIRST_MS, RECONNECT_HIDDEN_FIRST_MS } from "./webReconnectModel";
 import assert from "node:assert/strict";
 
@@ -30,13 +31,14 @@ async function main(): Promise<void> {
     deadlines.set(id, { callback, delay });
     return id;
   }) as unknown as typeof setTimeout;
-  globalThis.clearTimeout = ((id: number) => deadlines.delete(id)) as unknown as typeof clearTimeout;
+  let deadlineCleared: (() => void) | undefined;
+  globalThis.clearTimeout = ((id: number) => { const removed = deadlines.delete(id); deadlineCleared?.(); return removed; }) as unknown as typeof clearTimeout;
   const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
   let requestArrived: (() => void) | undefined;
   const requested = () => new Promise<void>((resolve) => { requestArrived = resolve; });
   browser.addEventListener("codeterm-event-stream-disconnected", () => pendingWait?.());
   let refusal = false;
-  globalThis.fetch = async (_input, options) => {
+  globalThis.fetch = muxMockFetch(async (_input, options) => {
     assert.notEqual(options?.method, "HEAD");
     assert.equal(new Headers(options?.headers).get("Authorization"), "Bearer fixture-token");
     if (refusal) { requestArrived?.(); return new Response(null, { status: 503 }); }
@@ -45,7 +47,7 @@ async function main(): Promise<void> {
     });
     requestArrived?.();
     return new Response(stream, { status: 200 });
-  };
+  });
   const api = await import("./webApi");
   api.setTokenFor(api.apiHost(), "fixture-token");
   const events = await import("./webEvents");
@@ -109,6 +111,8 @@ async function main(): Promise<void> {
     const finalFailure = waiting();
     streams[2].error(new Error("offline again"));
     await finalFailure;
+    // The carrier releases the failed channel with a bounded DELETE; wait until it clears that bound.
+    while (deadlines.size > 1) await new Promise<void>((resolve) => { deadlineCleared = resolve; });
     assert.equal(deadlines.size, 1, "a disconnected stream owns one failure deadline");
     const retry = [...deadlines.values()][0];
     assert.ok(retry.delay >= RECONNECT_FIRST_MS / 2 && retry.delay <= RECONNECT_FIRST_MS);

@@ -444,7 +444,6 @@ impl AccountMesh {
                 row.installation_id == installation
                     && row.active
                     && row.eligibility == Eligibility::Eligible
-                    && row.presence == RegistryPresence::Present
                     && row.key_id == verified.key_id
                     && row.key_generation == verified.key_generation
                     && row.slot_revision == verified.slot_revision
@@ -516,6 +515,11 @@ impl AccountMesh {
                 .await;
         }
         self.push().await;
+        // A renew keeps a signed-out row signed out; peers refuse such a holder until it is present.
+        if own_row.presence == RegistryPresence::SignedOut {
+            self.set_registry_presence(&signed, RegistryPresence::Present)
+                .await?;
+        }
         self.reconcile_publication(&signed).await
     }
 
