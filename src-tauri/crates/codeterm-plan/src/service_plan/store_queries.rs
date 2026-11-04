@@ -69,37 +69,25 @@ impl PlanStore {
         self.specs.read().get(id).map(|s| s.lock().clone())
     }
 
-    pub fn coverage_report(&self, id: &str) -> Option<crate::plan::coverage::CoverageReport> {
-        self.get(id).and_then(|plan| {
-            (plan.status != PlanStatus::Archived)
-                .then(|| crate::plan::coverage::compute_coverage_report(&plan))
-        })
-    }
-
-    pub fn spec_coverage_report(
-        &self,
-        id: &str,
-    ) -> Option<crate::plan::coverage::SpecCoverageReport> {
-        let spec = self.get_spec(id)?;
-        let plans = self.plans_matching(&PlanMatch::SpecLink(id.to_string()));
-        Some(crate::plan::coverage::compute_spec_coverage_report(
-            &spec, &plans,
-        ))
-    }
-
-    pub fn spec_full(&self, id: &str) -> Option<serde_json::Value> {
-        let spec = self.get_spec(id)?;
-        let coverage = self.spec_coverage_report(id)?;
-        let links = self.list_spec_links(id);
-        Some(serde_json::json!({
+    pub fn spec_full(&self, id: &str) -> Result<Option<serde_json::Value>, PlanError> {
+        let Some(spec) = self.get_spec(id) else {
+            return Ok(None);
+        };
+        let Some(coverage) = self.spec_coverage_report(id)? else {
+            return Ok(None);
+        };
+        let links = self.list_spec_links(id)?;
+        Ok(Some(serde_json::json!({
             "spec": spec,
             "coverage": coverage,
             "links": links,
-        }))
+        })))
     }
 
-    pub fn effort_bundle(&self, plan_id: &str) -> Option<serde_json::Value> {
-        let plan = self.get(plan_id)?;
+    pub fn effort_bundle(&self, plan_id: &str) -> Result<Option<serde_json::Value>, PlanError> {
+        let Some(plan) = self.get(plan_id) else {
+            return Ok(None);
+        };
         let specs = plan
             .spec_refs
             .iter()
@@ -108,17 +96,18 @@ impl PlanStore {
         let spec_coverage = specs
             .iter()
             .map(|spec| {
-                serde_json::json!({
+                let coverage = self.spec_coverage_report(&spec.id)?;
+                Ok(serde_json::json!({
                     "spec_id": spec.id,
-                    "coverage": self.spec_coverage_report(&spec.id),
-                })
+                    "coverage": coverage,
+                }))
             })
-            .collect::<Vec<_>>();
-        Some(serde_json::json!({
+            .collect::<Result<Vec<_>, PlanError>>()?;
+        Ok(Some(serde_json::json!({
             "plan": plan,
             "specs": specs,
             "spec_coverage": spec_coverage,
-        }))
+        })))
     }
 
     pub fn file_manifest(&self, id: &str) -> Result<body_files::PlanFileManifest, PlanError> {
