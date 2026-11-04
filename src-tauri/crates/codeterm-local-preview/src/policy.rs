@@ -29,12 +29,12 @@ pub struct PreviewRoots {
 
 impl PreviewPolicy {
     pub fn for_context(references: HashSet<String>, roots: PreviewRoots) -> Result<Self, String> {
+        let private = roots.private.clone();
         let mut denied = roots.configured.clone();
         denied.extend(roots.private);
         denied.extend(roots.ssh.clone());
         let mut evidence_denied = roots.configured.clone();
         evidence_denied.extend(roots.ssh);
-        let private = roots.private.clone();
         let mut policy = Self::new(references, &denied)?;
         for uploads in roots.uploads {
             policy = policy.with_uploads(&uploads, &roots.configured)?;
