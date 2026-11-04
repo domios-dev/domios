@@ -6,9 +6,10 @@ import { foldRow } from "./runtimeRows";
 import { sessionSettings } from "../src/runtimeControls";
 import { runtimePlan as sourcePlan, runtimeResponse as sourceResponse, runtimeReduce as sourceReduce } from "../src/runtime";
 import { runtimeJson } from "./runtimeJson";
+import { assertRuntimePlan } from "./runtimeAuthority";
 import { reduceTool } from "../src/runtimeReduceTools";
-const runtimePlan=(...args:Parameters<typeof sourcePlan>)=>runtimeJson(sourcePlan(...args),"runtimePlan");
-const runtimeResponse=(...args:Parameters<typeof sourceResponse>)=>runtimeJson(sourceResponse(...args),"runtimeResponse");
+const runtimePlan=(...args:Parameters<typeof sourcePlan>)=>{const plan=runtimeJson(sourcePlan(...args),"runtimePlan");assertRuntimePlan(args[0],args[1],plan);return plan;};
+const runtimeResponse=(...args:Parameters<typeof sourceResponse>)=>{const step=runtimeJson(sourceResponse(...args),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(args[0],args[1],step.plan);return step;};
 const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>runtimeJson(sourceReduce(...args),"runtimeReduce");
 
 interface Fixture {

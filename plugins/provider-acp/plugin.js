@@ -682,8 +682,8 @@ function runtimePlan(ctx, op) {
     const sessionId = ownSession(ctx, state);
     const value = object4(op.value);
     const option = modelOption(state.settings);
-    if (value.model === void 0 || value.model === option?.currentValue)
-      return { action: { kind: "local" }, state: { method: "unchangedSettings" } };
+    if (value.model === void 0) return refusePlan("Settings control requires a model change");
+    if (value.model === option?.currentValue) return refusePlan("Settings already match the reported session model");
     if (!option) return refusePlan("This agent declared no model option");
     if (!option.options.some((entry) => entry.value === value.model)) return refusePlan("Model was not declared by this agent");
     return request("session/set_config_option", { sessionId, configId: option.id, value: value.model });
@@ -859,8 +859,6 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };
     return loadedThread(op, state, sessionId, true);
   }
-  if (op.kind === "control" && op.action === "settings" && method === "unchangedSettings")
-    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: ownSession(ctx, state), settings: state.settings ?? {} }] };
   if (op.kind === "control" && ["config", "mode", "settings"].includes(op.action)) {
     const sessionId = ownSession(ctx, state);
     const settings = ["config", "settings"].includes(op.action) && method === "session/set_config_option" && Array.isArray(value.configOptions) ? sessionSettings(value) : op.action === "mode" && method === "session/set_mode" && typeof op.value === "string" ? { mode: op.value } : null;

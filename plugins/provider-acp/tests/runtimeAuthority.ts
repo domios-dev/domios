@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { isAbsolute } from "node:path";
-import type { Operation, RuntimeContext } from "@codeterm/plugin-sdk";
+import type { Operation, RuntimeContext, RuntimePlan } from "@codeterm/plugin-sdk";
 
 const identifier=(value:string):boolean=>value.length > 0 && Buffer.byteLength(value) <= 4096 && !value.includes("\0");
 function ownsThread(ctx:RuntimeContext, thread:string):boolean {
@@ -80,4 +80,13 @@ export function assertRuntimeOperation(ctx:RuntimeContext, op:Operation):void {
       ids.add(answer.questionId);
     }
   }
+}
+
+export function assertRuntimePlan(ctx:RuntimeContext, op:Operation, plan:RuntimePlan):void {
+  if (plan.action.kind === "refused") return;
+  if (op.kind === "answerQuestion") assert.equal(plan.action.kind,"questionAnswer","question answer must be local formatting");
+  if (plan.action.kind === "local")
+    assert.ok(op.kind === "resumeThread" && ctx.threadId !== undefined && op.threadId === ctx.threadId,"local action requires the bound resume thread");
+  if (plan.action.kind === "questionAnswer")
+    assert.equal(op.kind,"answerQuestion","question answer action outside answerQuestion");
 }
