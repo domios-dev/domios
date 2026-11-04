@@ -17,7 +17,11 @@ pub(crate) struct Scheduler(Arc<Shared>);
 
 impl Scheduler {
     pub fn new() -> Self {
-        Self(Arc::new(Shared { model: Mutex::new(model::Model::default()), ready: Notify::new(), space: Notify::new() }))
+        Self(Arc::new(Shared {
+            model: Mutex::new(model::Model::default()),
+            ready: Notify::new(),
+            space: Notify::new(),
+        }))
     }
 
     pub fn register(&self, id: String, traffic: Traffic, stream: bool) -> bool {
@@ -32,8 +36,14 @@ impl Scheduler {
             space.as_mut().enable();
             let result = { self.0.model.lock().push(id, frame) };
             match result {
-                Ok(()) => { self.0.ready.notify_one(); return Ok(()); }
-                Err((Push::Wait, returned)) => { frame = returned; space.await; }
+                Ok(()) => {
+                    self.0.ready.notify_one();
+                    return Ok(());
+                }
+                Err((Push::Wait, returned)) => {
+                    frame = returned;
+                    space.await;
+                }
                 Err((reason, _)) => return Err(reason),
             }
         }
@@ -42,9 +52,17 @@ impl Scheduler {
     pub async fn recv(&self) -> Option<Bytes> {
         loop {
             let ready = self.0.ready.notified();
-            let (frame, closed) = { let mut model = self.0.model.lock(); (model.pop(), model.closed()) };
-            if frame.is_some() { self.0.space.notify_waiters(); return frame; }
-            if closed { return None; }
+            let (frame, closed) = {
+                let mut model = self.0.model.lock();
+                (model.pop(), model.closed())
+            };
+            if frame.is_some() {
+                self.0.space.notify_waiters();
+                return frame;
+            }
+            if closed {
+                return None;
+            }
             ready.await;
         }
     }
