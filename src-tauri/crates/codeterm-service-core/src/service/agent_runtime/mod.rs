@@ -18,6 +18,7 @@ pub mod goals;
 mod initialize;
 mod launch_options;
 pub mod launch_profile;
+pub mod launch_profile_install;
 #[cfg(unix)]
 pub(crate) mod lease;
 pub mod login;

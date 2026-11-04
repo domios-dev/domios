@@ -25,6 +25,10 @@ pub struct RuntimeLaunchProfile {
     pub env: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub install: Option<RuntimeProfileInstall>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub secret_env: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub owner_configured: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detection: Option<RuntimeProfileDetection>,
 }
@@ -168,3 +172,5 @@ pub struct RuntimeModeDescriptor {
     pub id: String,
     pub display_name: String,
 }
+
+fn is_false(value: &bool) -> bool { !value }

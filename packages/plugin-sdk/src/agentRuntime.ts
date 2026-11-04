@@ -135,6 +135,8 @@ export interface RuntimeLaunchProfile {
   env?:Readonly<Record<string,string>>;
   install?:{package:string; registry?:string};
   detection?:{args:readonly string[]};
+  secretEnv?:Readonly<Record<string,string>>;
+  ownerConfigured?:boolean;
 }
 export interface StdioAgentRuntimeCapability {
   launchProfiles?:Readonly<Record<string,RuntimeLaunchProfile>>;
