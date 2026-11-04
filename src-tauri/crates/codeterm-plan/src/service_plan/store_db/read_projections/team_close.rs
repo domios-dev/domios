@@ -79,24 +79,32 @@ impl PlanDatabase {
         for plan in &mut plans {
             record_query();
             let mut statement = tx.prepare_cached(
-                "SELECT json_object('id',t.task_id,'name',json_extract(t.row_json,'$.name'),
+                "WITH task_facts AS MATERIALIZED (
+                    SELECT plan_id,task_id,position,status,assigned_tab_id,json_extract(row_json,'$.name') AS name,
+                        json_extract(row_json,'$.lane.tab_id') AS lane_tab,
+                        json_extract(row_json,'$.lane.worktree_path') AS worktree_path,
+                        json_extract(row_json,'$.lane.branch') AS branch,
+                        json_extract(row_json,'$.lane.base') AS base,
+                        json_extract(row_json,'$.lane.destination') AS destination
+                    FROM plan_tasks WHERE plan_id=?1
+                 ), remote_state AS MATERIALIZED (
+                    SELECT task_id,max(json_type(row_json,'$.remote_worktree_path') NOT IN ('null','text')) AS invalid,
+                        max(json_extract(row_json,'$.remote_worktree_path') IS NOT NULL) AS present
+                    FROM plan_task_attempts WHERE plan_id=?1 GROUP BY task_id
+                 ) SELECT json_object('id',t.task_id,'name',t.name,
                     'status',t.status,'assigned_tab_id',t.assigned_tab_id,
-                    'lane',json_object('tab_id',json_extract(t.row_json,'$.lane.tab_id'),
-                        'worktree_path',json_extract(t.row_json,'$.lane.worktree_path'),
-                        'branch',json_extract(t.row_json,'$.lane.branch'),
-                        'base',json_extract(t.row_json,'$.lane.base'),
-                        'destination',json_extract(t.row_json,'$.lane.destination')),
-                    'has_remote_attempt',json(CASE WHEN EXISTS(SELECT 1 FROM plan_task_attempts r
-                        WHERE r.plan_id=t.plan_id AND r.task_id=t.task_id
-                        AND json_type(r.row_json,'$.remote_worktree_path') NOT IN ('null','text')) THEN 'null'
-                        WHEN EXISTS(SELECT 1 FROM plan_task_attempts r
-                        WHERE r.plan_id=t.plan_id AND r.task_id=t.task_id
-                        AND json_extract(r.row_json,'$.remote_worktree_path') IS NOT NULL)
+                    'lane',json_object('tab_id',t.lane_tab,
+                        'worktree_path',t.worktree_path,
+                        'branch',t.branch,
+                        'base',t.base,
+                        'destination',t.destination),
+                    'has_remote_attempt',json(CASE WHEN (coalesce((SELECT invalid FROM remote_state WHERE task_id=t.task_id),0)>0) THEN 'null'
+                        WHEN (coalesce((SELECT present FROM remote_state WHERE task_id=t.task_id),0)>0)
                         THEN 'true' ELSE 'false' END),
                     'member_executor',CASE
                         WHEN t.assigned_tab_id IN (SELECT value FROM json_each(?3)) THEN t.assigned_tab_id
-                        WHEN json_extract(t.row_json,'$.lane.tab_id') IN (SELECT value FROM json_each(?3))
-                            THEN json_extract(t.row_json,'$.lane.tab_id')
+                        WHEN t.lane_tab IN (SELECT value FROM json_each(?3))
+                            THEN t.lane_tab
                         ELSE (SELECT a.executor_tab_id FROM plan_task_attempts a
                             WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                             AND json_extract(a.row_json,'$.closed_at') IS NULL
@@ -106,30 +114,27 @@ impl PlanDatabase {
                         SELECT json_object('worktree_path',worktree_path,'branch',branch,
                             'base',base,'destination',destination) AS document,min(position) AS first_position
                         FROM (SELECT a.position,
-                            coalesce(json_extract(a.row_json,'$.worktree_path'),json_extract(t.row_json,'$.lane.worktree_path')) AS worktree_path,
-                            coalesce(json_extract(a.row_json,'$.branch'),json_extract(t.row_json,'$.lane.branch')) AS branch,
-                            coalesce(json_extract(a.row_json,'$.base'),json_extract(t.row_json,'$.lane.base')) AS base,
-                            coalesce(json_extract(a.row_json,'$.destination'),json_extract(t.row_json,'$.lane.destination')) AS destination
+                            coalesce(json_extract(a.row_json,'$.worktree_path'),t.worktree_path) AS worktree_path,
+                            coalesce(json_extract(a.row_json,'$.branch'),t.branch) AS branch,
+                            coalesce(json_extract(a.row_json,'$.base'),t.base) AS base,
+                            coalesce(json_extract(a.row_json,'$.destination'),t.destination) AS destination
                         FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                         AND (?2 OR a.executor_tab_id IN (SELECT value FROM json_each(?3)))
-                        AND NOT EXISTS(SELECT 1 FROM plan_task_attempts r WHERE r.plan_id=t.plan_id AND r.task_id=t.task_id
-                            AND json_extract(r.row_json,'$.remote_worktree_path') IS NOT NULL))
+                        AND NOT (coalesce((SELECT present FROM remote_state WHERE task_id=t.task_id),0)>0))
                         WHERE nullif(trim(worktree_path,?4),'') IS NOT NULL OR nullif(trim(branch,?4),'') IS NOT NULL
                         GROUP BY nullif(trim(worktree_path,?4),''),nullif(trim(branch,?4),''),
                             CASE WHEN destination IS NULL OR (destination<>'' AND destination=trim(destination,?4)) THEN destination ELSE position END
                         ORDER BY first_position))))
-                 FROM plan_tasks t WHERE t.plan_id=?1 AND (?2
+                 FROM task_facts t WHERE (?2
                     OR t.assigned_tab_id IN (SELECT value FROM json_each(?3))
-                    OR json_extract(t.row_json,'$.lane.tab_id') IN (SELECT value FROM json_each(?3))
+                    OR t.lane_tab IN (SELECT value FROM json_each(?3))
                     OR EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=t.plan_id
                         AND a.task_id=t.task_id AND a.executor_tab_id IN (SELECT value FROM json_each(?3))))
                  AND ((?5 AND t.status='in_progress')
-                    OR EXISTS(SELECT 1 FROM plan_task_attempts r WHERE r.plan_id=t.plan_id AND r.task_id=t.task_id
-                        AND json_type(r.row_json,'$.remote_worktree_path') NOT IN ('null','text')) OR (
-                    NOT EXISTS(SELECT 1 FROM plan_task_attempts r WHERE r.plan_id=t.plan_id AND r.task_id=t.task_id
-                        AND json_extract(r.row_json,'$.remote_worktree_path') IS NOT NULL)
-                    AND (nullif(trim(json_extract(t.row_json,'$.lane.worktree_path'),?4),'') IS NOT NULL
-                        OR nullif(trim(json_extract(t.row_json,'$.lane.branch'),?4),'') IS NOT NULL
+                    OR (coalesce((SELECT invalid FROM remote_state WHERE task_id=t.task_id),0)>0) OR (
+                    NOT (coalesce((SELECT present FROM remote_state WHERE task_id=t.task_id),0)>0)
+                    AND (nullif(trim(t.worktree_path,?4),'') IS NOT NULL
+                        OR nullif(trim(t.branch,?4),'') IS NOT NULL
                         OR EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                             AND (?2 OR a.executor_tab_id IN (SELECT value FROM json_each(?3)))
                             AND (nullif(trim(json_extract(a.row_json,'$.worktree_path'),?4),'') IS NOT NULL

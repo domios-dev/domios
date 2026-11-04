@@ -1,11 +1,17 @@
-pub(super) const TASK_EVIDENCE: &str = "SELECT t.task_id,
+pub(super) const TASK_EVIDENCE: &str = "WITH needed_dependencies AS MATERIALIZED (
+            SELECT DISTINCT dep.value AS task_id FROM plan_tasks selected,json_each(coalesce(selected.row_json->'$.depends_on','[]')) dep
+            WHERE selected.plan_id=?1 AND (?3 IS NULL OR selected.task_id=?3)
+        ), hash_targets AS MATERIALIZED (
+            SELECT task_id,status,CASE WHEN status NOT IN ('done','cancelled') THEN json_extract(row_json,'$.name') END AS name FROM plan_tasks
+            WHERE plan_id=?1 AND task_id IN(SELECT task_id FROM needed_dependencies)
+        ) SELECT t.task_id,
             domios_reminder_hash('task',json_object('status',t.status,'status_label',json_extract(t.row_json,'$.status_label'),
                 'pause_reason',json_extract(t.row_json,'$.pause_reason'),'interruption',json(coalesce(t.row_json->'$.interruption',domios_reminder_default('task'))),
                 'review_stage',coalesce(json_extract(t.row_json,'$.review_stage'),'review'),'qa_state',json_extract(t.row_json,'$.qa_state'),
                 'assigned_tab_id',t.assigned_tab_id,
-                'dependency_waits',json((SELECT json_group_array(json_object('task_id',dep.value,'name',coalesce(json_extract(target.row_json,'$.name'),'missing dependency '||dep.value),
+                'dependency_waits',json((SELECT json_group_array(json_object('task_id',dep.value,'name',coalesce(target.name,'missing dependency '||dep.value),
                     'status',target.status,'missing',json(CASE WHEN target.task_id IS NULL THEN 'true' ELSE 'false' END)))
-                    FROM json_each(coalesce(t.row_json->'$.depends_on','[]')) dep LEFT JOIN plan_tasks target ON target.plan_id=t.plan_id AND target.task_id=dep.value
+                    FROM json_each(coalesce(t.row_json->'$.depends_on','[]')) dep LEFT JOIN hash_targets target ON target.task_id=dep.value
                     WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled'))))),
             domios_reminder_hash('review',coalesce(t.row_json->'$.review_evidence','[]')),
             json_object('status_changed_at',json(coalesce(t.row_json->'$.status_changed_at','0')),

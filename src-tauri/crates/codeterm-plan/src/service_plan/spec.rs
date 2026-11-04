@@ -46,6 +46,7 @@ impl PlanStore {
             now_ms,
         )?;
         self.publish_hot_receipt(&turn, receipt);
+        super::search_index::enqueue_plan_import(&turn, &plan);
         self.publish_product_created();
         Ok(plan)
     }
