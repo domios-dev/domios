@@ -44,7 +44,7 @@ pub(super) fn validate_agent_path(search: &str) -> Result<(), String> {
             continue;
         }
         let directory = fs::disk_path(&directory)?;
-        let _pins = fs::pinned(&directory)?;
+        let _pins = fs::pinned_if_exists(&directory)?;
     }
     Ok(())
 }

@@ -10,7 +10,7 @@ use std::{
     path::{Component, PathBuf},
 };
 use windows_sys::Win32::{
-    Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE},
+    Foundation::{ERROR_INVALID_DRIVE, GENERIC_READ, GENERIC_WRITE, HANDLE},
     Storage::FileSystem::{
         GetFileInformationByHandle, GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION,
         FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
@@ -277,18 +277,31 @@ fn native_open(
 }
 
 pub(in super::super) fn pinned(path: &Path) -> Result<Vec<File>, String> {
+    pinned_if_exists(path)?.ok_or("Host directory does not exist".into())
+}
+
+pub(in super::super) fn pinned_if_exists(path: &Path) -> Result<Option<Vec<File>>, String> {
     let path = host_disk_path(path)?;
     let mut parts = path.components();
     let prefix = parts.next().ok_or("Missing drive")?;
     let mut drive = PathBuf::from(prefix.as_os_str());
     drive.push("\\");
     let _ = parts.next();
-    let root = std::fs::OpenOptions::new()
+    let root = match std::fs::OpenOptions::new()
         .read(true)
         .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
         .open(drive)
-        .map_err(|error| error.to_string())?;
+    {
+        Ok(root) => root,
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                || error.raw_os_error() == Some(ERROR_INVALID_DRIVE as i32) =>
+        {
+            return Ok(None)
+        }
+        Err(error) => return Err(error.to_string()),
+    };
     validate(&root, true)?;
     let mut handles = vec![root];
     for part in parts {
@@ -296,19 +309,20 @@ pub(in super::super) fn pinned(path: &Path) -> Result<Vec<File>, String> {
             return Err("Invalid path component".into());
         };
         let parent = handles.last().ok_or("Missing parent")?;
-        handles.push(
-            native_open(
-                parent,
-                name,
-                true,
-                false,
-                false,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
-            )?
-            .ok_or("Host directory does not exist")?,
-        );
+        let Some(opened) = native_open(
+            parent,
+            name,
+            true,
+            false,
+            false,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+        )?
+        else {
+            return Ok(None);
+        };
+        handles.push(opened);
     }
-    Ok(handles)
+    Ok(Some(handles))
 }
 
 pub(in super::super) fn open_root(path: &Path) -> Result<File, String> {

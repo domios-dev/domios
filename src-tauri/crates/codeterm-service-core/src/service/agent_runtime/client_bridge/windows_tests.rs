@@ -589,6 +589,25 @@ fn windows_agent_path_cannot_use_host_aliases_or_reparse_entries() {
         value: linked.to_string_lossy().into_owned(),
     }];
     assert!(terminal::environment(HashMap::new(), &changes, &[]).is_err());
+    for refused in [linked.join("not-yet-created"), root.join("missing~1")] {
+        let changes = [terminal::Env {
+            name: "PATH".into(),
+            value: refused.to_string_lossy().into_owned(),
+        }];
+        assert!(terminal::environment(HashMap::new(), &changes, &[]).is_err());
+    }
+    let missing = root.join("node_modules/.bin");
+    let changes = [terminal::Env {
+        name: "PATH".into(),
+        value: format!("{};{}", missing.display(), tools.display()),
+    }];
+    let with_missing = terminal::environment(HashMap::new(), &changes, &[]).unwrap();
+    let resolved = terminal::windows::program("utility", &with_missing, true).unwrap();
+    assert_eq!(
+        resolved.path.canonicalize().unwrap(),
+        tools.join("utility.exe").canonicalize().unwrap()
+    );
+    assert!(!missing.exists());
     assert!(terminal::windows::program("utility", &inherited, false).is_ok());
     let changes = [terminal::Env {
         name: "pAtH".into(),
