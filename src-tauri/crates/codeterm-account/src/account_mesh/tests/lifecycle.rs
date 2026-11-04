@@ -304,10 +304,18 @@ async fn account_mesh_publishes_only_a_ready_listener_and_withdraws_when_it_goes
 
     *harness.endpoint.0.lock().unwrap() = None;
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(harness.calls("withdraw"), 1);
+    assert_eq!(harness.calls("withdraw"), 0);
     assert_eq!(harness.calls("list"), 0);
-    assert!(harness.registry.endpoint(UID).is_none());
-    assert!(!harness.store.record.lock().unwrap().published);
+    assert!(harness
+        .transport
+        .endpoints
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .0
+        .is_none());
+    assert!(harness.store.record.lock().unwrap().published);
 }
 
 #[tokio::test]
@@ -325,7 +333,7 @@ async fn account_mesh_concurrent_triggers_share_one_flight() {
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
     harness.registry.script.lock().unwrap().gate = None;
     gate.notify_one();
-    assert_eq!(first.await.unwrap(), Ok(()));
+    assert_eq!(wait_for_event(first).await.unwrap(), Ok(()));
     assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(
         harness.calls("renew"),
@@ -416,15 +424,6 @@ async fn account_mesh_resumed_publication_or_withdrawal_clears_pending_cleanup_d
             *harness.endpoint.0.lock().unwrap() = None;
         }
         assert_eq!(harness.state().cleanup, Cleanup::Pending);
-        harness
-            .mesh
-            .refresh(EnrollTrigger::Explicit)
-            .await
-            .unwrap_err();
-        assert_eq!(harness.state().cleanup, Cleanup::Pending);
-        assert!(harness.store.record.lock().unwrap().cleanup_pending);
-        harness.registry.script.lock().unwrap().publication = None;
-        harness.clock.set(START + 60);
         harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
         assert_eq!(harness.state().cleanup, Cleanup::Confirmed);
         assert!(!harness.store.record.lock().unwrap().cleanup_pending);
@@ -460,7 +459,10 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
         Cleanup::Confirmed
     );
     gate.notify_one();
-    assert_eq!(flight.await.unwrap(), Err(AccountMeshRefusal::Cancelled));
+    assert_eq!(
+        wait_for_event(flight).await.unwrap(),
+        Err(AccountMeshRefusal::Cancelled)
+    );
     let state = harness.state();
     assert_eq!(
         state.presence,
@@ -779,7 +781,7 @@ async fn account_mesh_explicit_enroll_answers_with_the_run_it_joins() {
         active_count: 2,
     };
     assert_eq!(explicit.await, Err(refusal));
-    assert_eq!(first.await.unwrap(), Err(refusal));
+    assert_eq!(wait_for_event(first).await.unwrap(), Err(refusal));
     assert_eq!(
         harness.calls("enroll"),
         2,
@@ -858,10 +860,8 @@ async fn account_mesh_publication_retry_preserves_reason_and_success() {
     assert_eq!(harness.calls("publish"), 2);
     harness.registry.script.lock().unwrap().publication = Some(RegistryRefusal::Unavailable);
     *harness.endpoint.0.lock().unwrap() = None;
-    assert_eq!(
-        harness.mesh.refresh(EnrollTrigger::Network).await,
-        Err(AccountMeshRefusal::Unavailable)
-    );
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("withdraw"), 0);
     harness.logout().await;
     assert_eq!(harness.state().retry_at, None);
     assert_eq!(harness.state().publication_failure, None);
@@ -877,7 +877,7 @@ async fn account_mesh_refused_read_keeps_successful_publication() {
         retry_after_seconds: 60,
     });
     assert_eq!(
-        harness.mesh.list().await.unwrap_err(),
+        harness.mesh.list_fresh().await.unwrap_err(),
         AccountMeshRefusal::RateLimited {
             retry_after_seconds: 60
         }

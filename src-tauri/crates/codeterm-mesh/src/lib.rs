@@ -30,8 +30,8 @@ use std::sync::Arc;
 use parking_lot::Mutex;
 
 pub use broadcast::{
-    broadcast_announce, refresh_local_addresses, refresh_local_addresses_blocking,
-    refresh_local_addresses_blocking_force, AnnounceReport,
+    broadcast_address_change, broadcast_announce, refresh_local_addresses,
+    refresh_local_addresses_blocking, refresh_local_addresses_blocking_force, AnnounceReport,
 };
 pub use manager::MeshManager;
 pub use ports::{LastActivityProvider, MeshEventSink};

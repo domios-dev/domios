@@ -6,7 +6,7 @@ use super::membership::{
 };
 use super::ports::RegistryResult;
 use super::state::{
-    AccountMeshRefusal, EnrollTrigger, Enrollment, KeyBinding, Presence, Publication,
+    AccountMeshRefusal, Cleanup, EnrollTrigger, Enrollment, KeyBinding, Presence, Publication,
     SelfInstallation, SignedMembership,
 };
 use super::wire::*;
@@ -478,6 +478,8 @@ impl AccountMesh {
             inner.published_until = published_until;
             inner.publication_refresh_after = published_until;
             inner.record.published = endpoint.is_some();
+            let cleanup_confirmed = inner.record.cleanup_pending;
+            inner.record.cleanup_pending = false;
             inner.update(&self.watch, |state| {
                 state.publication = if endpoint.is_some() && published_until > self.now() {
                     Publication::Published
@@ -485,6 +487,9 @@ impl AccountMesh {
                     Publication::NotReady
                 };
                 state.publication_failure = None;
+                if cleanup_confirmed {
+                    state.cleanup = Cleanup::Confirmed;
+                }
                 state.membership_epoch += 1;
                 state.self_installation = Some(SelfInstallation {
                     installation_id: verified.installation_id.clone(),
@@ -505,12 +510,10 @@ impl AccountMesh {
         if result.operation == MembershipOperation::Recover
             && self.with(|inner| inner.rotation_attempt == Some(epoch))
         {
-            let observed = self.read_registry(&signed).await;
             self.ports
                 .transport
                 .installation_revoked(&installation)
                 .await;
-            observed?;
         }
         self.push().await;
         self.reconcile_publication(&signed).await
@@ -821,10 +824,6 @@ impl AccountMesh {
         if self.state().signed_registry.is_none() {
             let _ = self.read_registry(&signed).await;
         }
-        self.ports
-            .transport
-            .installation_revoked(&revoked.target_installation_id)
-            .await;
         Ok(revoked)
     }
 
@@ -894,6 +893,10 @@ impl AccountMesh {
         )?;
         let accepted = self.with(|inner| {
             inner.state.signed_in_account() == Some(verified.account_id.as_str())
+                && !inner
+                    .state
+                    .unavailable_installations
+                    .contains(&verified.installation_id)
                 && inner
                     .state
                     .signed_registry

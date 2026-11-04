@@ -166,14 +166,14 @@ async fn account_mesh_fresh_sign_in_replaces_cached_admission_once() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(harness.calls("list"), lists + 1);
+    assert_eq!(harness.calls("list"), lists);
     assert_eq!(count(&harness.log, "registry:"), calls + 2);
     let observed = count(&harness.log, "registry:");
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
     assert_eq!(count(&harness.log, "registry:"), observed);
-    assert_eq!(harness.state().membership.as_ref().unwrap().token, token);
+    assert_ne!(harness.state().membership.as_ref().unwrap().token, token);
     assert_eq!(harness.calls("recover_key"), 0);
-    assert_eq!(harness.calls("renew"), 0);
+    assert_eq!(harness.calls("renew"), 1);
     assert_eq!(harness.state().enrollment, Enrollment::Enrolled);
 }
 
@@ -331,7 +331,7 @@ async fn account_mesh_rejoin_window_expiry_requires_sign_in_without_network() {
 }
 
 #[tokio::test]
-async fn account_mesh_budget_cached_registry_is_for_display_only() {
+async fn account_mesh_budget_preserves_signed_cached_link_authority() {
     let harness = Harness::new().await;
     harness.sign_in("owner").await;
     harness
@@ -357,11 +357,8 @@ async fn account_mesh_budget_cached_registry_is_for_display_only() {
         .endpoint
         .is_some());
     assert_eq!(harness.calls("list"), 0);
-    assert_eq!(
-        harness.mesh.resolve_link_target(PEER).await.err(),
-        Some(AccountMeshRefusal::Unavailable)
-    );
-    assert_eq!(harness.calls("list"), 1);
+    assert!(harness.mesh.resolve_link_target(PEER).await.is_ok());
+    assert_eq!(harness.calls("list"), 0);
 }
 
 #[tokio::test(start_paused = true)]

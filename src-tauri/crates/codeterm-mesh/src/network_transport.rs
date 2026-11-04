@@ -53,6 +53,23 @@ pub fn active_provider() -> &'static dyn NetworkTransportProvider {
     &tailscale::Tailscale
 }
 
+pub(crate) fn normalize_addresses(status: &mut TransportStatus) {
+    status
+        .addresses
+        .retain(|ip| crate::reachability::eligible(*ip));
+    status.addresses.sort_unstable();
+    status.addresses.dedup();
+}
+
+pub(crate) fn preferred_ip(status: &TransportStatus, port: u16) -> Option<IpAddr> {
+    let addresses = listener_addresses(status, true, port);
+    addresses
+        .iter()
+        .find(|address| address.is_ipv4())
+        .or_else(|| addresses.first())
+        .map(|address| address.ip())
+}
+
 pub fn listener_addresses(status: &TransportStatus, enabled: bool, port: u16) -> Vec<SocketAddr> {
     if !enabled || port == 0 || !status.peer_listener || status.state != TransportState::Connected {
         return Vec::new();

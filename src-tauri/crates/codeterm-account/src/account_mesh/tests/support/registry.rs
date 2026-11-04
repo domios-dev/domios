@@ -385,8 +385,18 @@ impl FakeRegistry {
                 account.slot = Some(slot);
                 account.slot_key = Some((proof.key_id.clone(), proof.generation));
                 account.inactive = false;
+                if let Some(name) = self.script.lock().unwrap().rename_race.take() {
+                    account.display_name = Some(name);
+                    account.metadata_revision += 1;
+                }
+                let mut changed = account.presence != RegistryPresence::Present;
                 account.presence = RegistryPresence::Present;
-                account.metadata_revision += 1;
+                if account.display_name.is_none() {
+                    if let Some(name) = &envelope.request.default_display_name {
+                        account.display_name = Some(name.clone());
+                        changed = true;
+                    }
+                }
                 let expires_at = now
                     + self
                         .script
@@ -394,7 +404,7 @@ impl FakeRegistry {
                         .unwrap()
                         .membership_seconds
                         .unwrap_or(3600);
-                account.endpoint =
+                let endpoint =
                     envelope
                         .request
                         .endpoint
@@ -405,6 +415,11 @@ impl FakeRegistry {
                             api_port: endpoint.api_port,
                             expires_at,
                         });
+                changed |= account.endpoint != endpoint;
+                account.endpoint = endpoint;
+                if changed {
+                    account.metadata_revision += 1;
+                }
                 let mut payload =
                     Issuer::membership_payload(&uid, &proof.key_id, proof.generation, slot, now);
                 if let Some(seconds) = self.script.lock().unwrap().membership_seconds {

@@ -312,7 +312,7 @@ impl LifecycleState {
             .as_ref()
             .filter(|m| m.verified.account_id == account && m.verified.is_current(now))
             .filter(|m| {
-                self.signed_registry.as_ref().is_none_or(|registry| {
+                self.signed_registry.as_ref().is_some_and(|registry| {
                     registry.rows.iter().any(|row| {
                         row.installation_id == m.verified.installation_id
                             && row.active

@@ -614,6 +614,7 @@ impl AccountMesh {
                 )
             });
             inner.begin_epoch();
+            inner.launch_renewal_pending = true;
             if let Some((metadata, presence, endpoint, until, refresh_after, sync_pending)) =
                 retained
             {

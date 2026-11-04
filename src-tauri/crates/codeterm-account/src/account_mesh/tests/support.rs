@@ -584,3 +584,25 @@ pub async fn wait_for_event<T>(event: impl std::future::Future<Output = T>) -> T
         .await
         .expect("mesh test event did not arrive within its deadline")
 }
+
+/// Build a complete server-signed successor without using a registry read port.
+pub fn registry_successor(
+    harness: &Harness,
+    change: impl FnOnce(&mut Vec<MeshManagementRow>),
+) -> DetachedGrant {
+    let state = harness.state();
+    let mut rows = state.registry.as_ref().unwrap().rows.clone();
+    change(&mut rows);
+    let revoked: Vec<_> = rows
+        .iter()
+        .filter(|row| !row.active)
+        .map(|row| row.installation_id.clone())
+        .collect();
+    Issuer::new().sign(&json!({
+        "schema_version": 1, "iss": "domios-mesh-registry",
+        "aud": {"project": PROJECT, "env": "test"}, "policy_epoch": EPOCH,
+        "account_id": state.signed_in_account().unwrap(),
+        "revision": state.signed_registry.as_ref().unwrap().revision + 1,
+        "issued_at": harness.clock.now(), "members": rows, "revoked_installations": revoked
+    }))
+}

@@ -67,7 +67,7 @@ The command is local-only and permits the local user/General Agent, the tab itse
 
 ## Web UI discovery and relay
 
-Every live announce carries `relay_protocol_version` and an optional typed `web_ui` capability. Endpoints are limited to verified Tailscale HTTPS, Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes `/api/health` and matches the running build before advertising an origin; the receiver validates and reorders the typed endpoints before storing them.
+Every live announce carries `relay_protocol_version` and an optional typed `web_ui` capability. Endpoints are limited to verified Tailscale HTTPS, Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes `/api/health` and matches the running build before advertising an origin. It reuses that proof only while the configured route, build, ready listeners and local health remain unchanged. Address and endpoint sets are sorted and deduplicated; enumeration order alone never triggers an announce. Address-change broadcasts coalesce to the latest snapshot, and peer sends have independent deadlines outside the manager lock. The receiver validates and reorders the typed endpoints before storing them.
 
 The default **Open** action never sends a remote daemon token to the browser. It opens the local Web UI entry origin with the local token in a URL fragment and a connected peer ID. The browser removes that fragment from history, resolves the peer name from the authenticated local peer list, and sends API traffic through the signed Mesh relay. Relay authorization uses the same policy as a direct signed peer request. REST config responses redact `api.token`, and `/api/secrets/*` cannot be relayed even with Full access.
 
