@@ -63,18 +63,26 @@ fn document_markdown_and_loop_reads_preserve_output_and_selection_order() {
 #[test]
 fn document_and_loop_reads_ignore_task_bodies_attempts_strides_and_unselected_loops() {
     let mut prior = None;
-    for (strides, attempts, extra, history) in [
-        (0, 1, 0, 0),
-        (2048, 1, 0, 0),
-        (0, 2048, 0, 0),
-        (0, 1, 32768, 0),
-        (0, 1, 0, 2048),
+    for (strides, attempts, extra, history, rounds) in [
+        (0, 1, 0, 0, 0),
+        (2048, 1, 0, 0, 0),
+        (0, 2048, 0, 0, 0),
+        (0, 1, 32768, 0, 0),
+        (0, 1, 0, 2048, 0),
+        (0, 1, 0, 0, 2048),
     ] {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         decorate(&mut plan);
         plan.tasks[0].body.push_str(&"x".repeat(extra));
         plan.loops[1].deviation = Some("x".repeat(extra));
+        plan.control_loop.rounds = (0..rounds)
+            .map(|number| crate::plan::CuratorRound {
+                number,
+                ended_at: number,
+                ..Default::default()
+            })
+            .collect();
         for index in 0..history {
             let mut attempt =
                 crate::service_plan::load_audit::attempt(&format!("closed-{index}"), "other");
@@ -112,7 +120,7 @@ fn document_and_loop_reads_ignore_task_bodies_attempts_strides_and_unselected_lo
         assert!(decoded < 8192);
         assert_eq!(serialized, 0);
         assert!(fixtures::audit_counts(&database).is_empty());
-        println!("fixture={} consumer=document_loop tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra} unselected_target_history={history} baseline_decoded_json_bytes={baseline} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        println!("fixture={} consumer=document_loop tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra} unselected_target_history={history} rounds={rounds} baseline_decoded_json_bytes={baseline} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded, response_bytes);
         if let Some(prior) = &prior {
             assert_eq!(&measured, prior);
@@ -322,4 +330,215 @@ fn spec_coverage_reads_section_metadata_and_task_status_in_one_commit() {
         barrier.wait();
     }
     writer.join().unwrap();
+}
+
+fn gate_goal_plan(plan: &mut Plan) {
+    plan.planner = Some(crate::plan::PlannerRef::Tab {
+        tab_id: "planner".into(),
+        session_id: Some("planner-session".into()),
+        title: Some("Planner".into()),
+    });
+    plan.goal = Some(crate::plan::Goal {
+        vector: "Ship selected readers".into(),
+        vision: "Requested goal prose".into(),
+        constraints: vec!["Keep authority".into()],
+        postulates: vec!["SQL is authoritative".into()],
+    });
+    plan.tasks[0].kind = "planning".into();
+    plan.tasks[0].handle = Some(String::new());
+    plan.tasks[0].assigned_tab_id = Some("worker".into());
+    plan.tasks[1].kind = "planning".into();
+    plan.tasks[1].assigned_tab_id = Some("other".into());
+    plan.planner_requests = serde_json::from_value(json!([
+        {"request_id":"chosen","payload":"selected request","state":"queued","created_at":1},
+        {"request_id":"old","payload":"unselected request","state":"completed","created_at":1}
+    ]))
+    .unwrap();
+    plan.planner_inbox = serde_json::from_value(json!([
+        {"request_id":"chosen","phase":"delivery_uncertain","tab_id":"planner","session_id":"planner-session","binding_nonce":"exact-nonce","transport":"pty_agent","updated_at":1},
+        {"request_id":"old","phase":"planner_acked","updated_at":1}
+    ])).unwrap();
+}
+
+#[test]
+fn gate_goal_and_planner_nudge_select_requested_fields_and_keep_routing_decisions() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = fixtures::fixture(directory.path(), 0, 1);
+    gate_goal_plan(&mut plan);
+    let database = fixtures::database(directory.path(), &plan);
+    let store = PlanStore::open(database.path()).unwrap();
+    let mut read = store
+        .planner_gate_context(&plan.id, Some("chosen"))
+        .unwrap()
+        .unwrap();
+    assert_eq!(read.owner, plan.owner);
+    assert_eq!(read.planner, plan.planner);
+    assert_eq!(read.request.as_ref(), plan.planner_requests.first());
+    assert_eq!(read.delivery.as_ref(), plan.planner_inbox.first());
+    assert_eq!(read.owner_for_gate(Some("planner")), Some("owner"));
+    assert_eq!(read.owner_for_gate(Some("worker")), None);
+    assert_eq!(read.owner_for_gate(None), None);
+    read.owner.tab_id = None;
+    assert_eq!(read.owner_for_gate(Some("planner")), None);
+    assert!(store
+        .planner_gate_context("missing", None)
+        .unwrap()
+        .is_none());
+    assert!(store
+        .planner_gate_context(&plan.id, Some("missing"))
+        .unwrap()
+        .unwrap()
+        .request
+        .is_none());
+    assert_eq!(store.goal_document(&plan.id).unwrap(), plan.goal);
+    assert!(matches!(
+        store.goal_document("missing"),
+        Err(PlanError::NotFound)
+    ));
+    for caller in [None, Some("worker"), Some("other")] {
+        assert_eq!(
+            store.planner_nudge_projection(&plan.id, caller).unwrap(),
+            crate::service_plan::hints::planner_ownership_nudge(&plan, caller)
+        );
+    }
+    database.connection.lock().execute("UPDATE plans SET header_json=json_set(header_json,'$.planner_requests[1].payload',42,'$.goal',NULL) WHERE id=?1",[&plan.id]).unwrap();
+    assert!(store
+        .planner_gate_context(&plan.id, Some("chosen"))
+        .unwrap()
+        .is_some());
+    assert!(store.goal_document(&plan.id).unwrap().is_none());
+    assert!(matches!(
+        store.planner_gate_context(&plan.id, Some("old")),
+        Err(PlanError::Quarantined { .. })
+    ));
+    assert!(store.plan_loads_for_test().is_empty());
+}
+
+#[test]
+fn gate_goal_and_nudge_reads_ignore_unselected_payloads_task_bodies_and_history() {
+    let mut prior = None;
+    for (strides, attempts, extra, history, rounds) in [
+        (0, 1, 0, 0, 0),
+        (2048, 1, 0, 0, 0),
+        (0, 2048, 0, 0, 0),
+        (0, 1, 32768, 0, 0),
+        (0, 1, 0, 2048, 0),
+        (0, 1, 0, 0, 2048),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        gate_goal_plan(&mut plan);
+        plan.tasks[0].body.push_str(&"x".repeat(extra));
+        plan.tasks[42].name.push_str(&"x".repeat(extra));
+        plan.planner_requests[1]
+            .payload
+            .push_str(&"x".repeat(extra));
+        for number in 0..history {
+            let mut request = plan.planner_requests[1].clone();
+            request.request_id = format!("unselected-{number}");
+            plan.planner_requests.push(request);
+            let mut delivery = plan.planner_inbox[1].clone();
+            delivery.request_id = format!("unselected-{number}");
+            plan.planner_inbox.push(delivery);
+        }
+        plan.control_loop.rounds = (0..rounds)
+            .map(|number| crate::plan::CuratorRound {
+                number,
+                ended_at: number,
+                ..Default::default()
+            })
+            .collect();
+        let database = fixtures::database(directory.path(), &plan);
+        let store = PlanStore::open(database.path()).unwrap();
+        fixtures::audit(&database);
+        crate::service_plan::store_sync::take_decoded_row_bytes();
+        database.load_plan(&plan.id).unwrap().unwrap();
+        let baseline = crate::service_plan::store_sync::take_decoded_row_bytes();
+        take_metrics();
+        crate::service_plan::store_rows::take_serialized_row_bytes();
+        let initial = store.planner_gate_context(&plan.id, None).unwrap().unwrap();
+        let selected = store
+            .planner_gate_context(&plan.id, Some("chosen"))
+            .unwrap()
+            .unwrap();
+        let goal = store.goal_document(&plan.id).unwrap();
+        let nudge = store
+            .planner_nudge_projection(&plan.id, Some("worker"))
+            .unwrap();
+        assert!(initial.request.is_none());
+        assert!(initial.delivery.is_none());
+        assert_eq!(selected.request.as_ref(), plan.planner_requests.first());
+        assert_eq!(selected.delivery.as_ref(), plan.planner_inbox.first());
+        assert_eq!(goal, plan.goal);
+        assert_eq!(
+            nudge,
+            crate::service_plan::hints::planner_ownership_nudge(&plan, Some("worker"))
+        );
+        assert!(store.plan_loads_for_test().is_empty());
+        let response_bytes = serde_json::to_vec(&json!([
+            initial.owner,
+            initial.planner,
+            selected.request,
+            selected.delivery,
+            goal,
+            nudge
+        ]))
+        .unwrap()
+        .len();
+        let metrics = take_metrics();
+        let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
+        let serialized = crate::service_plan::store_rows::take_serialized_row_bytes();
+        assert_eq!(metrics.queries, 4);
+        assert!(metrics.materialized_bytes < 16384);
+        assert!(decoded < 16384);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=gate_goal_nudge tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra} unselected_target_history={history} rounds={rounds} baseline_decoded_json_bytes={baseline} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, decoded, response_bytes);
+        if let Some(prior) = &prior {
+            assert_eq!(&measured, prior);
+        }
+        prior = Some(measured);
+    }
+}
+
+#[test]
+fn index_fixture_capture() {
+    use sha2::{Digest, Sha256};
+    let directory = tempfile::tempdir().unwrap();
+    crate::service_plan::paths::mark_test_project_root(directory.path());
+    let mut plan = fixtures::fixture(directory.path(), 0, 1);
+    decorate(&mut plan);
+    plan.goal = Some(crate::plan::Goal {
+        vector: "Capture index".into(),
+        vision: "Goal prose".into(),
+        constraints: Vec::new(),
+        postulates: Vec::new(),
+    });
+    plan.tasks.truncate(3);
+    for task in &mut plan.tasks {
+        task.body.clear();
+    }
+    plan.tasks[0].milestones=serde_json::from_value(json!([
+        {"id":"capture-milestone","from":{},"kind":"decision","text":"long notes ".repeat(30),"ts":1}
+    ])).unwrap();
+    plan.elements = serde_json::from_value(json!([
+        {"id":"capture-note","kind":"note","content":"note prose ".repeat(30)},
+        {"id":"capture-handoff","kind":"handoff","content":{"seq":7}}
+    ]))
+    .unwrap();
+    crate::service_plan::body_files::persist_bodies(&plan).unwrap();
+    let bytes = std::fs::read(crate::service_plan::body_files::index_path(&plan).unwrap()).unwrap();
+    let hash = format!("{:x}", Sha256::digest(&bytes));
+    let content = String::from_utf8(bytes.clone()).unwrap();
+    assert!(content.contains("capture-note"));
+    assert!(content.contains("capture-handoff"));
+    assert!(content.contains("capture-milestone"));
+    println!(
+        "fixture={} artifact=INDEX.md bytes={} sha256={} content={}",
+        fixtures::SEED,
+        bytes.len(),
+        hash,
+        serde_json::to_string(&content).unwrap()
+    );
 }

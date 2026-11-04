@@ -58,6 +58,7 @@ fn spec_coverage_report_never_loads_unmatched_plans() {
 
     assert!(store.spec_coverage_report(&spec.id).unwrap().is_some());
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -76,6 +77,7 @@ fn list_spec_links_never_loads_unmatched_plans() {
     assert_eq!(links.len(), 1);
     assert_eq!(links[0].0, linked);
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
@@ -374,6 +376,7 @@ fn loop_status_never_loads_unmatched_plans() {
 
     assert_eq!(store.loop_status("loop_status").unwrap().id, "loop_status");
     assert_never_loaded(&store, &[&other]);
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]

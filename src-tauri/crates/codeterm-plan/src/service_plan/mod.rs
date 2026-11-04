@@ -23,6 +23,7 @@ mod header_projection;
 pub use header_projection::PlanIdentityRead;
 pub mod heartbeat;
 pub mod hints;
+mod index_projection;
 pub mod ingest;
 pub mod interruption;
 pub mod lane_cleanup;
@@ -105,7 +106,7 @@ pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
-pub use document_projection::PlanDocumentMetadata;
+pub use document_projection::{PlanDocumentMetadata, PlannerGateRead};
 
 #[cfg(test)]
 mod work_facet_tests;

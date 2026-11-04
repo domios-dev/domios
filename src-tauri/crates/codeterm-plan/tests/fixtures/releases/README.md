@@ -1,24 +1,37 @@
-# Published plan database fixtures
+# Plan database release and migration contracts
 
-SQL before `PRAGMA user_version` is copied verbatim from the published source
-constants named in `manifest.json`. Remaining statements insert synthetic
-records described independently in `records.json`. No fixture uses the current
-schema creator. Supported v0 uses the legacy DDL shipped in the v1.18.6 converter.
-v1.18.5 and v1.18.6 have identical persisted DDL and share a fixture. v1.18.7
-represents the incident release after its index/FTS upgrade has already run.
+The published v1.18.5/6, v1.18.7 and supported v0 SQL inputs come from the
+literal released sources recorded in `manifest.json`. Synthetic records have
+an independent oracle in `records.json`. Never regenerate historical inputs
+from the current schema. Equivalent published releases share one fixture.
 
-Fingerprints are SHA-256 of compact UTF-8 JSON tuples `(type, name, table, SQL)`
-from `sqlite_schema`, ordered by type/name, excluding SQLite internal names.
-SQL tokens are joined by NUL, preserving quoted text and token boundaries.
-Dump and record digests cover LF UTF-8 bytes; SQL checkouts are pinned to LF.
+Numbered SQL steps live in `src/service_plan/store_db/migrations/`, registered
+in `migrations.rs`. The first step is the frozen published v1.18.6 row schema.
+The v1 bridge admits that shape or the published v1.18.7 shape, retires FTS,
+adds the known later indexes and establishes the plan application identity.
+Later steps add individual persisted schema changes. Fresh storage runs the
+same steps. The v0 converter uses the baseline within the migration owner's
+transaction; its backup is taken from a separate reader while that owner
+holds the write reservation. It retains malformed-record quarantine semantics.
 
-Published fixture entries, records and the initial migration entry are sealed
-by `scripts/check-plan-schema.py`. Append future fixtures and migration entries;
-never refresh historical inputs. Schema changes require a new target fixture,
-version and migration entry, and an implemented open path that passes every
-supported fixture through upgrade and reopen. The 1.18.8 entry records existing
-v0 conversion and v1 additive repair without introducing a migration framework.
+Every future persisted schema change needs a new step and contiguous version,
+an independent schema assertion, a populated forward fixture, and entries in
+`manifest.json` and `contract.json`. Constraint steps declare SQL preconditions
+whose true result refuses migration before DDL. Published steps, schema
+assertions, fixtures and contract entries are immutable. Append entries; never
+refresh them. The initial hotfix contract remains sealed as historical evidence.
+The target version derives from the last registered step. Schema assertions
+are only comparison inputs; production creation executes the numbered chain.
 
-The Rust contract fingerprints real `create_schema` output. Release tests
-exercise real open. The Python guard checks DDL and creation wiring and runs
-in release-preflight and both CI check workflows.
+Fingerprints hash compact UTF-8 JSON `(type, name, table, SQL)` tuples from
+`sqlite_schema`, sorted by type/name and excluding SQLite internal names.
+SQL tokens are NUL-separated, preserving quoted text and token boundaries.
+Dump and record digests cover LF UTF-8 bytes. Forward fixtures also pin the
+application identity separately from the schema fingerprint.
+
+`python scripts/check-plan-schema.py` checks immutable inputs, the executable
+registry, each step's exact schema and application identity, and the independent
+current-schema assertion. A fixture update cannot replace a migration step.
+The guard runs in existing release-preflight and CI check workflows. Rust
+`release_upgrade_tests` and `migrations::tests` exercise real open, exact records,
+reopen, supported-source convergence, refusal and transaction rollback.
