@@ -287,7 +287,10 @@ fn ease_unplanned_worker_keeps_explicit_work_tags_and_infers_missing_tags() {
         if explicit {
             request["tags"] = json!(["work:qa"]);
         }
+        let startups = super::startup_tasks::StartupTasks::install(&harness.fixture.service);
         let response = dispatch(&harness, &Some(request)).unwrap();
+        // Startup verifies the lane with Git after dispatch has returned.
+        startups.finish();
         let task = harness
             .fixture
             .service
