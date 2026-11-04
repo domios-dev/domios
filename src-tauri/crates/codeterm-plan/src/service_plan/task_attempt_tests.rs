@@ -482,7 +482,9 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
     assert_eq!(reported.status, TaskStatus::Pending);
     let old_attempt_id = reported.execution_attempts[0].id.clone();
     let old_reported_at = reported.execution_attempts[0].reported_at;
-    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .unwrap();
     assert!(observed_owner.is_none());
     let replacement_id = store
         .begin_task_dispatch_with_observation(
@@ -962,7 +964,9 @@ fn a_live_dispatch_refuses_a_second_start_without_superseding() {
     let live_attempt = store
         .begin_task_dispatch(&plan_id, &task_id, "winner-tab", "Worker", lane.clone(), 3)
         .unwrap();
-    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .unwrap();
     let refusal = store
         .begin_task_dispatch_with_observation(
             &plan_id,
@@ -1011,7 +1015,9 @@ fn a_live_dispatch_refuses_a_second_start_without_superseding() {
 #[test]
 fn assign_then_dispatch_keeps_the_existing_supersede_semantics() {
     let (_dir, store, plan_id, task_id) = bound_report_store();
-    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .unwrap();
     assert!(observed_owner.is_none());
 
     let replacement_id = store
@@ -1044,7 +1050,9 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
         let plan_id = plan_id.clone();
         let task_id = task_id.clone();
         std::thread::spawn(move || {
-            let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+            let observed_owner = store
+                .dispatch_startup_owner_candidate(&plan_id, &task_id)
+                .unwrap();
             barrier.wait();
             let result = store.begin_task_dispatch_with_observation(
                 &plan_id,

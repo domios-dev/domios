@@ -22,6 +22,15 @@ const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                 ORDER BY updated_at DESC,plan_id,position LIMIT 1
              )";
 
+const SELECTED_TASK_IN_PLAN: &str = "WITH candidates AS (
+    SELECT t.plan_id,t.task_id,t.row_json,t.assigned_tab_id,t.position,t.task_id=?2 AS exact,
+        sum(t.task_id=?2) OVER () AS exact_count,count(*) OVER () AS matches
+    FROM plan_tasks t WHERE t.plan_id=?1 AND (t.task_id=?2 OR (?2<>'' AND (
+        json_extract(t.row_json,'$.handle') COLLATE NOCASE=?2 OR
+        coalesce(json_extract(t.row_json,'$.key'),CASE WHEN substr(t.task_id,1,5)='task_' THEN substr(t.task_id,6) ELSE t.task_id END) COLLATE NOCASE=?2)))),
+    selected_task AS (SELECT plan_id,task_id,row_json,assigned_tab_id FROM candidates
+        WHERE exact OR (exact_count=0 AND matches=1) ORDER BY position LIMIT 1)";
+
 impl PlanDatabase {
     pub(in crate::service_plan) fn task_name_projection(
         &self,
@@ -272,3 +281,5 @@ impl PlanDatabase {
 }
 
 mod worker_transfer;
+
+mod startup;
