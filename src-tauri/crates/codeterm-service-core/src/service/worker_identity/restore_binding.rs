@@ -85,10 +85,8 @@ pub fn restore_attempt_binding_for_mux(
         .as_deref()
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| Refusal::ProviderMissing.refusal())?;
-    let detail = store
-        .show_task(target.task_id)
-        .ok_or(PlanError::TaskNotFound)?;
-    if detail.plan_id != target.plan_id || detail.task.id != target.task_id {
+    let detail = store.task_binding_restore_projection(target.task_id, target.attempt_id)?;
+    if detail.plan_id != target.plan_id || detail.task_id != target.task_id {
         return Err(Refusal::TargetMismatch.refusal());
     }
     let team_id = tab
@@ -99,21 +97,14 @@ pub fn restore_attempt_binding_for_mux(
     if mux.get_team(team_id).is_none() {
         return Err(Refusal::TeamMissing.refusal());
     }
-    let plan = store.get(target.plan_id).ok_or(PlanError::NotFound)?;
-    if plan.team_id.as_deref() != Some(team_id) {
+    if detail.team_id.as_deref() != Some(team_id) {
         return Err(Refusal::TeamMismatch.refusal());
     }
-    let attempts = detail
-        .task
-        .execution_attempts
-        .iter()
-        .filter(|attempt| attempt.id == target.attempt_id)
-        .collect::<Vec<_>>();
-    let [attempt] = attempts.as_slice() else {
+    if detail.attempt_count != 1 {
         return Err(Refusal::AttemptNotUnique.refusal());
-    };
-    let old_nonce = attempt
-        .session_binding_nonce
+    }
+    let old_nonce = detail
+        .attempt_nonce
         .as_deref()
         .filter(|value| !value.is_empty())
         .ok_or_else(|| Refusal::AttemptNonceMissing.refusal())?;

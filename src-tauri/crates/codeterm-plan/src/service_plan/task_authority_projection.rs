@@ -99,7 +99,9 @@ mod continuity;
 pub use continuity::{TaskContinuityDigest, TaskContinuityRead};
 
 mod restart;
+mod restoration;
 pub use restart::{
     CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
     TaskRestartQuery,
 };
+pub use restoration::{ReviewBindingRestoreRead, ReviewRestoreAttemptRead, TaskBindingRestoreRead};
