@@ -652,3 +652,25 @@ fn frontend_discovery_failure_is_shared_without_refetching() {
         .is_err());
     assert!(app.availability().is_err());
 }
+
+#[test]
+fn held_frontend_storage_keeps_status_and_assets_available() {
+    let root = tempfile::tempdir().unwrap();
+    let bundles = std::sync::Arc::new(open_app(root.path(), "0.9.0"));
+    let _storage = bundles.store.lock();
+    let (reply, result) = std::sync::mpsc::channel();
+    let reader = {
+        let bundles = bundles.clone();
+        std::thread::spawn(move || {
+            let status = bundles.status();
+            let asset = bundles.asset("missing-release", "index.html");
+            reply.send((status, asset)).unwrap();
+        })
+    };
+    let observed = result.recv_timeout(std::time::Duration::from_secs(1));
+    drop(_storage);
+    reader.join().unwrap();
+    let (status, asset) = observed.expect("storage must not hold the update-state or asset path");
+    assert_eq!(status["apiVersion"], 2);
+    assert!(asset.is_err());
+}

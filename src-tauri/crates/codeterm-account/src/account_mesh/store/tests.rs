@@ -15,7 +15,7 @@ async fn unreadable_mesh_file_is_preserved_and_cannot_be_overwritten() {
     let path = directory.join("mesh.json");
     let corrupt = b"{not-json";
     fs::write(&path, corrupt).unwrap();
-    let store = FileAccountMeshStore { path: path.clone() };
+    let store = FileAccountMeshStore::at_path(path.clone());
 
     assert!(store.load().await.is_err());
     assert!(store.save(&AccountMeshRecord::default()).await.is_err());

@@ -33,7 +33,14 @@ fn confirmed_runtime_close_waits_for_the_pinned_process_exit() {
     let (fixture, id, _live) = runtime_fixture();
     let session = engine::for_tab(&id).unwrap();
     let process = session.process.lock().clone().unwrap();
+    fixture
+        .service
+        .runtime_turn_starts(&id, "nonce", 1)
+        .observe("turn");
     let receipt = fixture.service.chatbackend_close_confirmed(&id).unwrap();
+    let guards = fixture.service.ext::<Arc<TabReopenGuards>>();
+    assert!(!guards.turn_starts.lock().contains_key(&id));
+    assert!(!guards.locks.lock().contains_key(&id));
     assert_eq!(receipt.tab_id, id);
     assert_eq!(receipt.session_id, "thread");
     assert_eq!(receipt.evidence, ChatBackendCloseEvidence::Witnessed);
