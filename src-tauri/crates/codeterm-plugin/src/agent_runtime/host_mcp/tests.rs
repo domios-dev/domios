@@ -8,6 +8,10 @@ fn capability() -> AgentRuntimeCapability {
 fn context() -> RuntimeContext {
     RuntimeContext {
         host_mcp: Some(RuntimeHostMcp {
+            env: std::collections::BTreeMap::from([(
+                "CODETERM_API_TOKEN".into(),
+                "<credential-placeholder>".into(),
+            )]),
             name: "domios".into(),
             command: "/bin/domios".into(),
             args: vec![
@@ -87,7 +91,7 @@ fn host_mcp_accepts_only_empty_or_exact_context_descriptor() {
         )
         .is_ok());
     }
-    assert!(validate(&capability(), &ctx, "session/new", &json!({})).is_err());
+    assert!(validate(&capability(), &ctx, "session/new", &json!({})).is_ok());
 }
 
 #[test]

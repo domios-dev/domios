@@ -6,7 +6,14 @@ use tools::{tool_args, tools};
 
 const MAX_FRAME: u64 = 1024 * 1024;
 const STARTUP_REFUSED: &str =
-    "mcp_serve_authority_required: inherited tab credential and matching binding required";
+    "mcp_serve_authority_required: tab credential and matching binding required";
+
+fn negotiated_version(offered: Option<&str>) -> &str {
+    match offered {
+        Some(version @ ("2025-06-18" | "2025-03-26" | "2024-11-05")) => version,
+        _ => "2025-06-18",
+    }
+}
 
 pub(super) fn validate_launch(
     tab: &str,
@@ -142,7 +149,7 @@ pub(super) fn protocol(
         } else {
             match request["method"].as_str() {
                 Some("initialize") => Ok(
-                    json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"domios","version":env!("CARGO_PKG_VERSION")}}),
+                    json!({"protocolVersion":negotiated_version(request["params"]["protocolVersion"].as_str()),"capabilities":{"tools":{}},"serverInfo":{"name":"domios","version":env!("CARGO_PKG_VERSION")}}),
                 ),
                 Some("tools/list") => Ok(json!({"tools":tools()})),
                 Some("tools/call") => {

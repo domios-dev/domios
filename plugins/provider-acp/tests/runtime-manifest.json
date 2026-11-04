@@ -122,6 +122,16 @@
     "agent-info-identity.json",
     "model-option-load-refused.json",
     "mcp-not-declared.json",
-    "mcp-advertised.json"
+    "mcp-advertised.json",
+    "mcp-fallback-load-failure.json",
+    "mcp-fallback-load-success.json",
+    "mcp-fallback-new-failure.json",
+    "mcp-fallback-new-success.json",
+    "mcp-fallback-resume-failure.json",
+    "mcp-fallback-resume-success.json",
+    "mcp-fallback-generic-error.json",
+    "mcp-no-fallback-auth.json",
+    "mcp-no-fallback-session-missing.json",
+    "mcp-no-fallback-method-not-found.json"
   ]
 }

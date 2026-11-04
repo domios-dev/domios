@@ -46,7 +46,7 @@ export type RuntimeFailureCode =
   | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeClientBridges {fsRead:boolean; fsWrite:boolean; terminal:boolean}
-export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]}
+export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]; env?:Readonly<Record<string,string>>}
 export interface RuntimeStreamWindow {
   frameSequences?:readonly number[];
   turnRequests?:readonly {sendId:string;turnId:string;afterSequence?:number;written?:boolean}[];

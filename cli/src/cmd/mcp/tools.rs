@@ -1,8 +1,9 @@
 use serde_json::{json, Value};
 
+const DESCRIPTIONS: &str = include_str!("../../../../src-tauri/prompts/mcp_tools.json");
+
 struct Tool {
     name: &'static str,
-    description: &'static str,
     command: &'static [&'static str],
     required: &'static [&'static str],
     optional: &'static [&'static str],
@@ -11,7 +12,6 @@ struct Tool {
 const TOOLS: &[Tool] = &[
     Tool {
         name: "send",
-        description: "Send a pad payload as this tab to an authorized target tab",
         command: &["send"],
         required: &["target_tab", "from_pad"],
         optional: &[],
@@ -19,7 +19,6 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "agent_report",
-        description: "Report as this tab using a Markdown file in its pad",
         command: &["agent", "report"],
         required: &["from_pad"],
         optional: &["status", "sha"],
@@ -27,7 +26,6 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "agent_startup_ack",
-        description: "Acknowledge this tab's own launch",
         command: &["agent", "startup-ack"],
         required: &[],
         optional: &[],
@@ -35,7 +33,6 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "mem_search",
-        description: "Search Domios memory",
         command: &["mem", "search"],
         required: &["query"],
         optional: &["area", "kind"],
@@ -43,7 +40,6 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "mem_get",
-        description: "Read one Domios memory record",
         command: &["mem", "get"],
         required: &["id"],
         optional: &[],
@@ -51,7 +47,6 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "task_show",
-        description: "Read one Domios task",
         command: &["task", "show"],
         required: &["id"],
         optional: &[],
@@ -59,7 +54,6 @@ const TOOLS: &[Tool] = &[
     },
     Tool {
         name: "notify_send",
-        description: "Notify the owner from this tab using a pad payload",
         command: &["notify", "send"],
         required: &["title", "from_pad", "level"],
         optional: &["severity"],
@@ -68,9 +62,11 @@ const TOOLS: &[Tool] = &[
 ];
 
 pub(super) fn tools() -> Vec<Value> {
+    let descriptions: Value =
+        serde_json::from_str(DESCRIPTIONS).expect("embedded MCP descriptions must be JSON");
     TOOLS.iter().map(|tool| {
-        let properties: serde_json::Map<String,Value> = tool.required.iter().chain(tool.optional).map(|key| ((*key).into(), json!({"type":"string","minLength":1,"maxLength":4096}))).collect();
-        json!({"name":tool.name,"description":tool.description,"inputSchema":{"type":"object","properties":properties,"required":tool.required,"additionalProperties":false}})
+        let properties: serde_json::Map<String,Value> = tool.required.iter().chain(tool.optional).map(|key| ((*key).into(), json!({"type":"string","minLength":1,"maxLength":4096,"description":descriptions["arguments"][*key]}))).collect();
+        json!({"name":tool.name,"description":descriptions["tools"][tool.name],"inputSchema":{"type":"object","properties":properties,"required":tool.required,"additionalProperties":false}})
     }).collect()
 }
 

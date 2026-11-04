@@ -648,6 +648,7 @@ fn open_thread_notice_must_name_the_exact_loaded_thread() {
 async fn host_mcp_context_absent_for_undeclared_plugin_across_all_hooks() {
     let mut ctx = context();
     ctx.host_mcp = Some(RuntimeHostMcp {
+        env: std::collections::BTreeMap::from([("CODETERM_TAB_ID".into(), "own".into())]),
         name: "domios".into(),
         command: "/trusted/domios".into(),
         args: vec!["mcp".into(), "serve".into()],

@@ -699,6 +699,7 @@ async fn ensure_locked(
                 &target,
                 &nonce,
                 crate::service::instance_env::instance_cli_binary_path(),
+                &env,
             );
             super::process::spawn(&launch.binary, &launch.capability, &cwd, env, &target)
                 .map(|process| (Arc::new(process), host_mcp))

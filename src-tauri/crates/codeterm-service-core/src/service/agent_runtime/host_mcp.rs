@@ -24,12 +24,23 @@ pub(super) fn descriptor(
     tab: &str,
     nonce: &str,
     executable: Option<PathBuf>,
+    environment: &HashMap<String, String>,
 ) -> Option<RuntimeHostMcp> {
     if !declared || !minted_local_credential || tab.is_empty() || nonce.is_empty() {
         return None;
     }
     let command = executable?.to_str()?.to_owned();
+    let env = [
+        "CODETERM_API_TOKEN",
+        "CODETERM_API_URL",
+        "CODETERM_TAB_ID",
+        "CODETERM_SESSION_BINDING_NONCE",
+    ]
+    .into_iter()
+    .map(|key| Some((key.to_owned(), environment.get(key)?.clone())))
+    .collect::<Option<_>>()?;
     Some(RuntimeHostMcp {
+        env,
         name: "domios".into(),
         command,
         args: vec![

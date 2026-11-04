@@ -528,6 +528,13 @@ function unappliedModelNotice(requested, settings, threadId) {
   const reason = !option ? "This agent declared no model option" : option.options.some((value) => value.value === requested) ? "Model was not applied by this agent" : "Model was not declared by this agent";
   return { events: [{ kind: "notice", threadId, message: `Requested model was not applied: ${reason}` }] };
 }
+function threadNotices(state, threadId, events) {
+  if (state.mcpUnavailable) {
+    events.push({ kind: "notice", threadId, message: state.mcpUnavailable });
+    delete state.mcpUnavailable;
+  }
+  return events.length ? { events } : {};
+}
 function loadedThread(op, state, sessionId, selectModel, refusal) {
   const option = modelOption(state.settings);
   const requested = op.settings.model;
@@ -536,15 +543,21 @@ function loadedThread(op, state, sessionId, selectModel, refusal) {
   return {
     kind: "complete",
     result: { kind: "threadLoaded", threadId: sessionId, settings: state.settings ?? {} },
-    ...refusal === void 0 ? unappliedModelNotice(requested, state.settings, sessionId) : { events: [{ kind: "notice", threadId: sessionId, message: `Requested model was not applied: ${Array.from(refusal).slice(0, 1e3).join("")}` }] }
+    ...threadNotices(state, sessionId, refusal === void 0 ? unappliedModelNotice(requested, state.settings, sessionId).events ?? [] : [{ kind: "notice", threadId: sessionId, message: `Requested model was not applied: ${Array.from(refusal).slice(0, 1e3).join("")}` }])
   };
 }
 function clientCapabilities(ctx) {
   return { fs: { readTextFile: ctx.clientBridges?.fsRead === true, writeTextFile: ctx.clientBridges?.fsWrite === true }, terminal: ctx.clientBridges?.terminal === true };
 }
+function sessionRequest(ctx, method, sessionId) {
+  const mcpServers = hostMcpServers(ctx);
+  const plan = request(method, { ...sessionId ? { sessionId } : {}, cwd: ctx.cwd, mcpServers });
+  plan.state = { method, mcpOffered: mcpServers.length > 0 };
+  return plan;
+}
 function hostMcpServers(ctx) {
   const descriptor = ctx.hostMcp;
-  return descriptor ? [{ name: descriptor.name, command: descriptor.command, args: [...descriptor.args], env: [] }] : [];
+  return descriptor ? [{ name: descriptor.name, command: descriptor.command, args: [...descriptor.args], env: Object.entries(descriptor.env ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0).map(([name, value]) => ({ name, value })) }] : [];
 }
 function runtimePlan(ctx, op) {
   binding(ctx, op);
@@ -600,7 +613,7 @@ function runtimePlan(ctx, op) {
     }
     case "openThread":
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
-      return request(methods.newSession, { cwd: ctx.cwd, mcpServers: hostMcpServers(ctx) });
+      return sessionRequest(ctx, methods.newSession);
     case "resumeThread": {
       if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
       if (state.sessionActive && state.sessionId === op.threadId)
@@ -612,7 +625,7 @@ function runtimePlan(ctx, op) {
       state.sessionActive = false;
       state.sessionId = op.threadId;
       state.cursor = { replay: state.cursor.replay + 1, prompt: 0, loading: true };
-      return request(method, { sessionId: op.threadId, cwd: ctx.cwd, mcpServers: hostMcpServers(ctx) });
+      return sessionRequest(ctx, method, op.threadId);
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
@@ -648,17 +661,25 @@ function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
   const method = object4(raw).method;
   if (reply.kind === "error") {
+    const sessionOperation = op.kind === "openThread" && method === methods.newSession || op.kind === "resumeThread" && (method === methods.load || method === methods.resume);
+    const state2 = negotiated(ctx);
+    if (sessionOperation && ![-32e3, -32002, -32601].includes(reply.error.code) && state2 && !state2.sessionActive && object4(raw).mcpOffered === true && ctx.hostMcp) {
+      state2.mcpUnavailable = `Domios tools are unavailable for this agent: ${Array.from(reply.error.message).slice(0, 1e3).join("")}`;
+      const plan = request(method, { ...op.kind === "resumeThread" ? { sessionId: op.threadId } : {}, cwd: ctx.cwd, mcpServers: [] });
+      plan.state = { method, mcpOffered: false };
+      return { kind: "continue", plan };
+    }
     if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
-      const state2 = negotiated(ctx);
-      if (!state2?.sessionActive || !state2.sessionId || op.kind === "resumeThread" && state2.sessionId !== op.threadId)
+      const state3 = negotiated(ctx);
+      if (!state3?.sessionActive || !state3.sessionId || op.kind === "resumeThread" && state3.sessionId !== op.threadId)
         return refused("binding_mismatch", "ACP session is not active in this runtime");
-      return loadedThread(op, state2, state2.sessionId, false, reply.error.message);
+      return loadedThread(op, state3, state3.sessionId, false, reply.error.message);
     }
     if (reply.error.code === -32e3) {
-      const state2 = negotiated(ctx);
-      if (state2) {
-        state2.authenticated = false;
-        state2.required = true;
+      const state3 = negotiated(ctx);
+      if (state3) {
+        state3.authenticated = false;
+        state3.required = true;
       }
       return refused("authentication_required", reply.error.message);
     }

@@ -504,3 +504,24 @@ async fn first_ingress_during_write_keeps_the_prewrite_sequence_boundary() {
     let (result, _peer) = tokio::join!(request, server);
     assert!(result.is_ok());
 }
+
+#[test]
+fn host_mcp_credential_echo_is_redacted_before_reply_or_event_publication() {
+    let placeholder = "<credential-placeholder>";
+    for value in [
+        json!({"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":placeholder,"data":{"env":[{"name":"CODETERM_API_TOKEN","value":placeholder}]}}}),
+        json!({"jsonrpc":"2.0","method":"session/update","params":{"text":placeholder}}),
+        json!({"jsonrpc":"2.0","id":null,"error":{"code":-32603,"message":placeholder}}),
+    ] {
+        let result = decode_redacted(&value.to_string(), placeholder);
+        let text = match result {
+            Ok(WireFrame::Response { result, .. }) => match result {
+                Ok(value) => value.to_string(),
+                Err(error) => serde_json::to_string(&error).unwrap(),
+            },
+            Ok(WireFrame::Event(frame)) => serde_json::to_string(&frame).unwrap(),
+            Err(error) => error.to_string(),
+        };
+        assert!(!text.contains(placeholder));
+    }
+}

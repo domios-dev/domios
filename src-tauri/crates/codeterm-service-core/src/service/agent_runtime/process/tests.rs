@@ -73,7 +73,7 @@ fn capability() -> AgentRuntimeCapability {
 #[test]
 fn stderr_tail_stays_bounded() {
     let mut output = vec![b'a'; 8192];
-    append_stderr(&mut output, b"last");
+    append_stderr(&mut output, b"last", b"", &mut Vec::new());
     assert_eq!(output.len(), 8192);
     assert!(output.ends_with(b"last"));
 }
@@ -433,4 +433,27 @@ async fn pipe_drop_from_a_live_peer_is_not_success() {
         Err(RuntimeFailure::PipeEof)
     );
     process.finish().await.unwrap();
+}
+
+#[test]
+fn stderr_redacts_credentials_across_reads_and_tail_cuts_before_utf8_conversion() {
+    for token in ["<credential-placeholder>", "<雪🔑credential-placeholder>漂"] {
+        let credential = token.as_bytes();
+        for split in 1..credential.len() {
+            let mut output = Vec::new();
+            let mut pending = Vec::new();
+            append_stderr(&mut output, &vec![b'x'; 8192], credential, &mut pending);
+            append_stderr(&mut output, &credential[..split], credential, &mut pending);
+            let mut tail = credential[split..].to_vec();
+            tail.extend_from_slice(&vec![b'y'; 8192 - credential.len() + 1]);
+            append_stderr(&mut output, &tail, credential, &mut pending);
+            assert!(output.len() <= 8192);
+            assert!(pending.len() < credential.len());
+            assert!(!String::from_utf8_lossy(&output).contains(token));
+            for suffix in 1..credential.len() {
+                assert!(!output.starts_with(&credential[suffix..]));
+            }
+            assert!(pending.is_empty());
+        }
+    }
 }
