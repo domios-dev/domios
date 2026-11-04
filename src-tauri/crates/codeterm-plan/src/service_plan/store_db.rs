@@ -97,6 +97,7 @@ impl PlanDatabase {
         migrations::initialize(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
         heartbeat_queries::register_functions(&connection)?;
+        reference_resolver_queries::register_functions(&connection)?;
         curator_notice_queries::register_functions(&connection)?;
         auxiliary_queries::register_functions(&connection)?;
         worker_read_queries::register_functions(&connection)?;
@@ -596,6 +597,7 @@ mod heartbeat_queries;
 mod index_queries;
 mod notice_queries;
 mod qa_queries;
+mod reference_resolver_queries;
 mod related_queries;
 mod search_queries;
 mod section_link_queries;

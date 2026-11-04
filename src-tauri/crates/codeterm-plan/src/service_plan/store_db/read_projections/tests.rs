@@ -28,6 +28,7 @@ mod lane_team_state_tests;
 mod launch_restore_tests;
 mod notice_tests;
 mod qa_tests;
+mod reference_resolver_tests;
 mod related_tests;
 mod reminder_tests;
 mod role_binding_tests;

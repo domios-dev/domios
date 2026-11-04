@@ -124,29 +124,6 @@ impl PlanDatabase {
         rows.collect::<Result<_, _>>().map_err(db_error)
     }
 
-    pub(in crate::service_plan) fn task_ref_rows(&self) -> Result<Vec<TaskRefRow>, PlanError> {
-        let connection = self.connection.lock();
-        let mut statement = connection
-            .prepare_cached(
-                "SELECT plan_id, task_id, json_extract(row_json, '$.key'),
-                    json_extract(row_json, '$.handle'), coalesce(json_extract(row_json, '$.name'), '')
-                 FROM plan_tasks ORDER BY plan_id, position",
-            )
-            .map_err(db_error)?;
-        let rows = statement
-            .query_map([], |row| {
-                Ok(TaskRefRow {
-                    plan_id: row.get(0)?,
-                    task_id: row.get(1)?,
-                    key: row.get(2)?,
-                    handle: row.get(3)?,
-                    name: row.get(4)?,
-                })
-            })
-            .map_err(db_error)?;
-        rows.collect::<Result<_, _>>().map_err(db_error)
-    }
-
     /// Sections and their nested subsections, read from the section rows.
     pub(in crate::service_plan) fn section_ref_rows(
         &self,

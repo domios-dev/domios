@@ -324,25 +324,12 @@ impl PlanStore {
             })
     }
 
-    pub(super) fn task_ref_rows(&self) -> Vec<TaskRefRow> {
-        self.database.task_ref_rows().unwrap_or_else(|error| {
-            log::warn!("[plan.store] task reference query failed: {error}");
-            Vec::new()
-        })
+    pub(super) fn section_ref_rows(&self) -> Result<Vec<SectionRefRow>, PlanError> {
+        self.database.section_ref_rows()
     }
 
-    pub(super) fn section_ref_rows(&self) -> Vec<SectionRefRow> {
-        self.database.section_ref_rows().unwrap_or_else(|error| {
-            log::warn!("[plan.store] section reference query failed: {error}");
-            Vec::new()
-        })
-    }
-
-    pub(super) fn loop_rows(&self) -> Vec<(String, String, String)> {
-        self.database.loop_rows().unwrap_or_else(|error| {
-            log::warn!("[plan.store] loop query failed: {error}");
-            Vec::new()
-        })
+    pub(super) fn loop_rows(&self) -> Result<Vec<(String, String, String)>, PlanError> {
+        self.database.loop_rows()
     }
 
     /// Active execution plans with unfinished work: the only plans reminder ticks act on.
