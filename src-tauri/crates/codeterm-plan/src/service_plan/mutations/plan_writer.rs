@@ -214,19 +214,6 @@ impl PlanStore {
             .expect("unconditional plan mutation returns a value"))
     }
 
-    pub(in crate::service_plan) fn with_plan_if_changed<T, F>(
-        &self,
-        id: &str,
-        now_ms: u64,
-        f: F,
-    ) -> Result<Option<T>, PlanError>
-    where
-        F: FnOnce(&mut Plan) -> Result<Option<T>, PlanError>,
-    {
-        let writer_turn = self.mutation_writer.enter();
-        self.with_plan_if_changed_in_writer(&writer_turn, id, now_ms, f)
-    }
-
     fn with_plan_if_changed_in_writer<T, F>(
         &self,
         turn: &MutationWriterTurn<'_>,

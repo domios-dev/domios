@@ -238,6 +238,7 @@ pub(super) enum InProgressExecutor<'a> {
     /// A lane tab assignment written in the same transaction.
     LaneAssignment(&'a super::TaskLaneUpdate),
     /// One exact competitive attempt already persisted on the task.
+    #[cfg(test)]
     CompetitiveAttempt(&'a str),
 }
 
@@ -271,6 +272,7 @@ pub(super) fn validate_task_status_transition_with_lane(
 
 /// Entry for competitive startup, where progression is authorized by the exact
 /// live attempt itself rather than by a task-level tab assignment.
+#[cfg(test)]
 pub(super) fn validate_competitive_attempt_status_transition(
     plan: &Plan,
     task_id: &str,
@@ -309,6 +311,7 @@ fn validate_task_status_transition_for(
             Some(tab) => tab.as_deref().is_some_and(|tab| !tab.trim().is_empty()),
             None => task_level_tab,
         },
+        #[cfg(test)]
         Some(InProgressExecutor::CompetitiveAttempt(attempt_id)) => {
             task.is_some_and(|task| live_competitive_executor(task, attempt_id))
         }
