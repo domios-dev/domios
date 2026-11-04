@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import { assertRuntimeOperation } from "./runtimeAuthority";
 import type {AgentRuntime, AgentEvent, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
 
 interface Fixture {
@@ -16,7 +17,11 @@ function loadHooks():AgentRuntime {
   const sandbox = vm.createContext({module:{exports:{}}, exports:{}, host:new Proxy({}, {get:()=>{throw new Error("Runtime accessed host");}})});
   sandbox.exports = sandbox.module.exports;
   vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), sandbox);
-  return sandbox.module.exports.default as AgentRuntime;
+  const hooks=sandbox.module.exports.default as AgentRuntime;
+  return {...hooks,
+    runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);return hooks.runtimePlan(ctx,op); },
+    runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);return hooks.runtimeResponse(ctx,op,state,reply); },
+  };
 }
 const hooks = loadHooks();
 function assertPlanRefusal(plan:RuntimePlan):void {
@@ -37,6 +42,7 @@ assert.deepEqual(names,[...descriptor.scenarios].sort());
 for (const name of names) {
   const fixture:Fixture = JSON.parse(fs.readFileSync(new URL(name,root),"utf8"));
   assert.equal(fixture.schemaVersion,1);
+  for (const entry of fixture.operations) assertRuntimeOperation(entry.context ?? fixture.context,entry.operation);
   const plans = new Map<number,RuntimePlan>();
   const results:{operation:number; step:RuntimeStep}[] = [];
   const events:AgentEvent[] = [];
@@ -93,7 +99,7 @@ const submit:Operation={kind:"submitTurn",threadId:"own",sendId:"send",input:{te
 assert.deepEqual(plain(hooks.runtimePlan(bound,submit).action),{kind:"request",call:{method:"session/prompt",params:{sessionId:"own",prompt:[{type:"text",text:"Startup instructions"},{type:"text",text:"hello"}]}}});
 for (const changed of [{...bound,epoch:ctx.epoch+1},{...bound,bindingNonce:"foreign"},{...bound,tabId:"foreign"}]) assertPlanRefusal(hooks.runtimePlan(changed,submit));
 assert.throws(()=>hooks.runtimePlan(bound,{...submit,threadId:"foreign"}));
-assertPlanRefusal(hooks.runtimePlan(bound,{kind:"forkThread",sourceThreadId:"own",turnId:"turn"}));
+assert.throws(()=>hooks.runtimePlan(bound,{kind:"forkThread",sourceThreadId:"own",turnId:"turn"}),/fork requires an unbound runtime/);
 assert.deepEqual(plain(hooks.runtimeReduce(bound,{marker:"unchanged"},[{kind:"notification",method:"session/update",params:{sessionId:"foreign",update:{sessionUpdate:"agent_message_chunk"}}}])),{state:{marker:"unchanged"},events:[]});
 for (const resume of [false, true, null, "unsupported"]) {
   const context = {...ctx,tabId:`invalid-resume-${String(resume)}`,threadId:"saved"};
@@ -103,9 +109,30 @@ for (const resume of [false, true, null, "unsupported"]) {
 }
 assertPlanRefusal(hooks.runtimePlan(bound,{...submit,input:{text:"hello",attachments:[{id:"image",mimeType:"image/png",path:"/work/image.png"}]}}));
 const cancel:Operation = {kind:"interrupt",threadId:"own",activeTurnId:"turn"};
-assertPlanRefusal(hooks.runtimePlan({...bound,activeTurnId:"turn",activeTurns:[{threadId:"foreign",turnId:"turn"}]},cancel));
-assertPlanRefusal(hooks.runtimePlan(bound,cancel));
+assert.throws(()=>hooks.runtimePlan({...bound,activeTurnId:"turn",activeTurns:[{threadId:"foreign",turnId:"turn"}]},cancel),/active descendant has no known ancestry/);
+assert.throws(()=>hooks.runtimePlan(bound,cancel),/interrupt retargets turn/);
 assert.equal(hooks.runtimePlan(bound,submit).action.kind,"request","ordinary refusals preserve another operation's negotiated session");
+assert.throws(()=>hooks.runtimePlan({...bound,activeTurnId:"turn"},submit),/submit retargets turn/,"the original native replay mismatch must fail before invoking the JS VM");
+const authorityCases:{context:RuntimeContext;operation:Operation;error:RegExp}[]=[
+  {context:bound,operation:open,error:/open replaces bound thread/},
+  {context:bound,operation:{kind:"resumeThread",threadId:"foreign",instructions:"",settings:{}},error:/resume retargets thread/},
+  {context:bound,operation:{kind:"readHistory",threadId:"foreign"},error:/operation retargets thread/},
+  {context:bound,operation:{kind:"control",threadId:"foreign",action:"opaque",value:null},error:/operation retargets thread/},
+  {context:bound,operation:{kind:"backgroundProcesses",threadId:"foreign",action:{kind:"clean"}},error:/unowned thread/},
+  {context:bound,operation:{kind:"answer",requestId:"unknown",answer:{kind:"cancel"}},error:/answer targets unknown request/},
+  {context:bound,operation:{kind:"answerQuestion",threadId:"foreign",itemId:"item",answers:[{questionId:"q",values:[]}]},error:/operation retargets thread/},
+  {context:bound,operation:{kind:"answerQuestion",threadId:"own",itemId:"item",answers:[]},error:/invalid question answer/},
+  {context:bound,operation:{kind:"answerQuestion",threadId:"own",itemId:"item",answers:[{questionId:"q",values:[]},{questionId:"q",values:[]}]},error:/invalid question answer values/},
+];
+for (const entry of authorityCases) assert.throws(()=>hooks.runtimePlan(entry.context,entry.operation),entry.error);
+assertRuntimeOperation({...bound,activeTurnId:"turn"},{...submit,activeTurnId:"turn"});
+assertRuntimeOperation({...bound,activeTurnId:"turn",activeTurns:[{threadId:"own",turnId:"turn"}]},cancel);
+assertRuntimeOperation({...bound,pendingRequest:{requestId:"pending",method:"permission",params:null}},{kind:"answer",requestId:"pending",answer:{kind:"cancel"}});
+assertRuntimeOperation(bound,{kind:"answerQuestion",threadId:"own",itemId:"item",answers:[{questionId:"q",values:["yes"]}]});
+assertRuntimeOperation({...bound,threadParents:[{threadId:"child",parentThreadId:"own"}]},{kind:"readHistory",threadId:"child"});
+assertRuntimeOperation({...bound,threadParents:[{threadId:"child",parentThreadId:"own"}]},{kind:"backgroundProcesses",threadId:"child",action:{kind:"list",cursor:null}});
+assertRuntimeOperation(ctx,{kind:"forkThread",sourceThreadId:"own",turnId:"turn"});
+console.log("✓ ACP VM operation authority matches native submit, interrupt, thread, request and question boundaries");
 const cache = loadHooks();
 const cachedContexts:RuntimeContext[] = [];
 function initializeCached(context:RuntimeContext):void {
