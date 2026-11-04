@@ -75,7 +75,7 @@ impl ChatSendLedger {
         &self,
         record: &UserSendRecord,
         text: &str,
-        evidence: super::chat_send_evidence::CapturedSendEvidence,
+        evidence: crate::service::chat_send_evidence::CapturedSendEvidence,
     ) -> bool {
         let absence_witness = evidence.absence_witness.clone();
         let sessionless_first_turn = evidence.session_starts_on_first_user_turn
