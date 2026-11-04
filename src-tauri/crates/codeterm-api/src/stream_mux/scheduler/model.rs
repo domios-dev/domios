@@ -7,6 +7,10 @@ const INTERACTIVE_RESERVE: usize = 512 * 1024;
 const TERMINAL_RESERVE: usize = 256 * 1024;
 const CHANNEL_DEPTH: usize = 8;
 const INTERACTIVE_BURST: usize = 8;
+/// Bulk RPC payload bytes the writer may hand to the socket before the client credits them: large enough
+/// for a remote bandwidth-delay product, small enough that kernel buffers never hold megabytes of bulk
+/// ahead of interactive frames.
+pub(crate) const BULK_WINDOW: u64 = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Traffic {
@@ -24,9 +28,11 @@ pub(crate) enum Kind {
 pub(crate) struct Frame {
     pub bytes: Bytes,
     pub kind: Kind,
+    /// Payload bytes this frame costs against the bulk window; the encoded frame carries the same value.
+    pub credit: u64,
 }
 
-struct Channel {
+pub(crate) struct Channel {
     traffic: Traffic,
     stream: bool,
     frames: VecDeque<Frame>,
@@ -47,6 +53,8 @@ pub(crate) struct Model {
     bulk: VecDeque<String>,
     burst: usize,
     pub buffered: usize,
+    bulk_sent: u64,
+    bulk_credit: u64,
     closed: bool,
 }
 
@@ -117,18 +125,38 @@ impl Model {
         Ok(())
     }
 
+    fn bulk_open(&self) -> bool {
+        self.bulk_sent.saturating_sub(self.bulk_credit) < BULK_WINDOW
+    }
+
+    /// Cumulative credited bytes the client has received; stale or repeated credits are no-ops.
+    pub fn credit(&mut self, received: u64) {
+        self.bulk_credit = self.bulk_credit.max(received.min(self.bulk_sent));
+    }
+
     pub fn pop(&mut self) -> Option<Bytes> {
+        // A closed window holds only credited RPC data; bulk streams keep their round-robin turn.
+        let open = self.bulk_open();
+        let bulk_pick = self
+            .bulk
+            .iter()
+            .position(|id| open || self.channels.get(id).is_some_and(|channel| channel.stream));
         let id = if !self.interactive.is_empty()
-            && (self.burst < INTERACTIVE_BURST || self.bulk.is_empty())
+            && (self.burst < INTERACTIVE_BURST || bulk_pick.is_none())
         {
             self.burst = self.burst.saturating_add(1).min(INTERACTIVE_BURST);
             self.interactive.pop_front()?
-        } else {
+        } else if let Some(position) = bulk_pick {
             self.burst = 0;
-            self.bulk.pop_front()?
+            self.bulk.remove(position)?
+        } else {
+            return None;
         };
         let channel = self.channels.get_mut(&id)?;
         let frame = channel.frames.pop_front()?;
+        if Self::credited(channel, &frame) {
+            self.bulk_sent += frame.credit;
+        }
         self.buffered -= frame.bytes.len();
         if frame.kind == Kind::End {
             self.remove(&id);
@@ -136,6 +164,14 @@ impl Model {
             self.ready(&id);
         }
         Some(frame.bytes)
+    }
+
+    /// Frames that count against the bulk window; the writer tags exactly these with `credit`.
+    pub(crate) fn credited(channel: &Channel, frame: &Frame) -> bool {
+        frame.credit > 0
+            && frame.kind == Kind::Data
+            && channel.traffic == Traffic::Bulk
+            && !channel.stream
     }
 
     pub fn finish_overflow(&mut self, id: &str, end: Bytes) {

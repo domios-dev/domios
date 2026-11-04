@@ -156,13 +156,18 @@ async fn spawn(
     Ok(())
 }
 
-async fn send(reservation: &Reservation, bytes: axum::body::Bytes, kind: Kind) -> bool {
+async fn send(
+    reservation: &Reservation,
+    bytes: axum::body::Bytes,
+    kind: Kind,
+    credit: u64,
+) -> bool {
     if reservation.entry.detached.load(Ordering::Acquire) {
         return false;
     }
     match reservation
         .scheduler
-        .send(&reservation.id, bytes, kind)
+        .send(&reservation.id, bytes, kind, credit)
         .await
     {
         Ok(()) => {
@@ -199,6 +204,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
         reservation,
         frames::encode_head(&reservation.id, response.status(), response.headers()),
         Kind::Head,
+        0,
     )
     .await
     {
@@ -217,6 +223,8 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
     let mut upstream = response.into_body().into_data_stream();
     let mut tail = Vec::new();
     let cap = if text { 8 * 1024 } else { spool::IO_CHUNK };
+    let credited = reservation.entry.traffic == Traffic::Bulk && !reservation.entry.stream;
+    let cost = |len: usize| if credited { len as u64 } else { 0 };
     while let Some(chunk) = upstream.next().await {
         let chunk = match chunk {
             Ok(chunk) => chunk,
@@ -226,6 +234,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
                     reservation,
                     frames::encode_end(&reservation.id, &ChannelEnd::Error { message }),
                     Kind::End,
+                    0,
                 )
                 .await;
             }
@@ -243,8 +252,8 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
             if size == 0 {
                 continue;
             }
-            let frame = frames::encode_chunk(&reservation.id, &tail[..size], text);
-            if !send(reservation, frame, Kind::Data).await {
+            let frame = frames::encode_chunk(&reservation.id, &tail[..size], text, cost(size));
+            if !send(reservation, frame, Kind::Data, cost(size)).await {
                 return false;
             }
             tail.drain(..size);
@@ -253,8 +262,9 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
     if !tail.is_empty()
         && !send(
             reservation,
-            frames::encode_chunk(&reservation.id, &tail, false),
+            frames::encode_chunk(&reservation.id, &tail, false, cost(tail.len())),
             Kind::Data,
+            cost(tail.len()),
         )
         .await
     {
@@ -264,6 +274,7 @@ async fn pump(reservation: &Reservation, response: Response) -> bool {
         reservation,
         frames::encode_end(&reservation.id, &ChannelEnd::Eof),
         Kind::End,
+        0,
     )
     .await
 }

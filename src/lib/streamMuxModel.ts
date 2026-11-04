@@ -8,6 +8,18 @@ export function isMuxStreamPath(path: string): boolean {
     || /^\/api\/surfaces\/[^/]+\/stream$/.test(pathname);
 }
 
+/** Cumulative credited bytes are posted every 256 KiB, a quarter of the daemon's 1 MiB bulk window. */
+export const BULK_CREDIT_STEP = 256 * 1024;
+
+export function bulkCreditDue(received: number, posted: number): number | null {
+  return received - posted >= BULK_CREDIT_STEP ? received : null;
+}
+
+/** A refused mux session is an authentication answer, not a lost connection: never retry it. */
+export function muxSessionRefused(status: number | undefined): boolean {
+  return status === 401 || status === 403;
+}
+
 export type MuxChannelEnd =
   | { reason: "eof" }
   | { reason: "error"; message: string }
@@ -15,7 +27,7 @@ export type MuxChannelEnd =
 
 export type MuxFrame =
   | { channel: string; kind: "open"; status: number; headers: [string, string][] }
-  | { channel: string; kind: "chunk"; chunk: string; enc: "utf8" | "base64" }
+  | { channel: string; kind: "chunk"; chunk: string; enc: "utf8" | "base64"; credit: number }
   | { channel: string; kind: "end"; end: MuxChannelEnd };
 
 function channelEnd(value: unknown): MuxChannelEnd | null {
@@ -43,7 +55,7 @@ export function decodeMuxFrame(value: unknown): MuxFrame | null {
     return { channel, kind: "open", status: Number(frame.status), headers: frame.headers as [string, string][] };
   }
   if (typeof frame.chunk === "string" && (frame.enc === "utf8" || frame.enc === "base64")) {
-    return { channel, kind: "chunk", chunk: frame.chunk, enc: frame.enc };
+    return { channel, kind: "chunk", chunk: frame.chunk, enc: frame.enc, credit: Number.isSafeInteger(frame.credit) && Number(frame.credit) > 0 ? Number(frame.credit) : 0 };
   }
   return null;
 }

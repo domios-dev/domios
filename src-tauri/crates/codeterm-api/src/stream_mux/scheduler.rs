@@ -76,8 +76,12 @@ impl Scheduler {
         super::locks::lock(&self.0.model, "scheduler").register(id, traffic, stream)
     }
 
-    pub async fn send(&self, id: &str, bytes: Bytes, kind: Kind) -> Result<(), Push> {
-        let mut frame = Frame { bytes, kind };
+    pub async fn send(&self, id: &str, bytes: Bytes, kind: Kind, credit: u64) -> Result<(), Push> {
+        let mut frame = Frame {
+            bytes,
+            kind,
+            credit,
+        };
         loop {
             let space = self.0.space.notified();
             tokio::pin!(space);
@@ -127,6 +131,10 @@ impl Scheduler {
                     .ok()?;
             }
         }
+    }
+
+    pub fn credit(&self, received: u64) {
+        self.cleanup(move |model| model.credit(received));
     }
 
     pub async fn overflow(&self, id: &str, end: Bytes) {
