@@ -168,10 +168,25 @@
           "kind": "complete",
           "result": {
             "kind": "done"
-          }
+          },
+          "events": [
+            {
+              "kind": "turnState",
+              "threadId": "session-fixture",
+              "state": "idle",
+              "detail": "interrupted"
+            }
+          ]
         }
       }
     ],
-    "events": []
+    "events": [
+      {
+        "kind": "turnState",
+        "threadId": "session-fixture",
+        "state": "idle",
+        "detail": "interrupted"
+      }
+    ]
   }
 }

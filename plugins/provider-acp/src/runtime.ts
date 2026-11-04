@@ -1,8 +1,10 @@
 import type {
-  AgentEvent, JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
+  JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
   RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep,
 } from "@codeterm/plugin-sdk";
 import { clientCapabilities, methods, protocolVersion } from "./runtimeProtocol";
+import { reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
+import { usage } from "./runtimeReducePlan";
 
 interface Negotiation {
   epoch:number;
@@ -11,6 +13,9 @@ interface Negotiation {
   authMethods:JsonValue[];
   sessionId?:string;
   instructions?:string;
+  cursor:StreamCursor;
+  projection?:JsonValue;
+  settledProjection?:JsonValue;
 }
 const epochs = new Map<string, Negotiation>();
 const object = (value:unknown):Record<string,JsonValue> =>
@@ -75,6 +80,8 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const session = object(capabilities.sessionCapabilities);
       const method = record(session.resume) ? methods.resume : capabilities.loadSession === true ? methods.load : null;
       if (!method) return refusePlan("ACP agent did not advertise session/load or session/resume");
+      state.sessionId=op.threadId;
+      state.cursor={replay:state.cursor.replay+1,prompt:0,loading:true};
       return request(method, {sessionId:op.threadId, cwd:ctx.cwd, mcpServers:[]});
     }
     case "submitTurn": {
@@ -83,6 +90,8 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
+      state.cursor.prompt=Math.max(state.cursor.prompt,Number(object(state.projection).turn) || 0)+1;
+      state.cursor.loading=false;
       return request(methods.prompt, {sessionId, prompt});
     }
     case "interrupt": {
@@ -110,7 +119,8 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       || value.authMethods !== undefined && !Array.isArray(value.authMethods))
       return refused("protocol_error", "Invalid ACP initialization response");
     remember(ctx, {epoch:ctx.epoch, nonce:ctx.bindingNonce,
-      capabilities:object(value.agentCapabilities), authMethods:Array.isArray(value.authMethods) ? value.authMethods : []});
+      capabilities:object(value.agentCapabilities), authMethods:Array.isArray(value.authMethods) ? value.authMethods : [],
+      cursor:{replay:0,prompt:0,loading:false}});
     return {kind:"complete", result:{kind:"initialized"}};
   }
   const state = negotiated(ctx);
@@ -127,31 +137,35 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       return refused("binding_mismatch", "ACP session identity is invalid");
     state.sessionId = sessionId;
     state.instructions = op.instructions;
+    state.cursor.loading=false;
     return {kind:"complete", result:{kind:"threadLoaded", threadId:sessionId, settings:op.settings}};
   }
-  if (op.kind === "interrupt" && method === methods.cancel) return {kind:"complete", result:{kind:"done"}};
+  if (op.kind === "interrupt" && method === methods.cancel) {
+    const settled=settleStream(ctx,state.projection ?? null,"cancelled");
+    state.projection=settled.state;state.settledProjection=settled.state;
+    return {kind:"complete",result:{kind:"done"},events:settled.events};
+  }
   if (op.kind === "submitTurn" && method === methods.prompt) {
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
     state.instructions = undefined;
+    const settled=settleStream(ctx,state.projection ?? null,value.stopReason);
+    state.projection=settled.state;state.settledProjection=settled.state;
+    const mapped=usage(value.usage);
     return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId},
-      events:[{kind:"turnState", threadId:sessionId, state:"idle"}]};
+      events:[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events]};
   }
   return refused("unsupported", "ACP response is unavailable");
 }
 
 export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[]):RuntimeReduction {
   binding(ctx);
-  const events:AgentEvent[] = [];
-  const state = epochs.get(ctx.tabId);
-  for (const frame of frames) {
-    if (frame.kind !== "notification" || frame.method !== methods.update) continue;
-    const params = object(frame.params);
-    if (!ctx.threadId || params.sessionId !== ctx.threadId || !state
-      || state.epoch !== ctx.epoch || state.nonce !== ctx.bindingNonce || state.sessionId !== ctx.threadId) continue;
-    touch(ctx.tabId, state);
-    const update = object(params.update);
-    if (update.sessionUpdate === "agent_message_chunk") events.push({kind:"turnState", threadId:ctx.threadId, state:"working"});
-  }
-  return {state:raw, events};
+  const state=negotiated(ctx);
+  if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return {state:raw,events:[]};
+  const own=frames.filter(frame=>frame.kind === "notification" && frame.method === methods.update && object(frame.params).sessionId === ctx.threadId);
+  if (!own.length) return {state:raw,events:[]};
+  const reduction=reduceStream(ctx,state.settledProjection ?? raw,own,state.cursor);
+  delete state.settledProjection;
+  state.projection=reduction.state;
+  return reduction;
 }

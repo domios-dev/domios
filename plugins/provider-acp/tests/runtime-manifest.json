@@ -36,12 +36,20 @@
     "agentTasks": true
   },
   "scenarios": [
+    "cancel-mid-tool.json",
     "cancel.json",
+    "commands-modes-config-usage.json",
     "foreign-session-frame.json",
     "initialize-new-prompt.json",
+    "load-replay-no-duplicates.json",
     "load-when-advertised.json",
+    "lost-stream.json",
+    "plan-updates.json",
     "resume-not-advertised.json",
     "resume-when-advertised.json",
+    "stream-message-thought-chunks.json",
+    "tool-call-lifecycle.json",
+    "unknown-update-kind.json",
     "unsupported-version.json"
   ]
 }

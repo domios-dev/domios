@@ -174,9 +174,20 @@
     ],
     "events": [
       {
+        "kind": "chatItem",
+        "threadId": "session-fixture",
+        "item": {
+          "id": "session-fixture:turn:1:item:1",
+          "seq": 1,
+          "type": "assistant",
+          "content": "Hello"
+        }
+      },
+      {
         "kind": "turnState",
         "threadId": "session-fixture",
-        "state": "working"
+        "state": "working",
+        "turnId": "session-fixture:turn:1"
       }
     ]
   }
