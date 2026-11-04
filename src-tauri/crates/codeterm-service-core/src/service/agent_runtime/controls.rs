@@ -438,6 +438,7 @@ pub(crate) async fn refresh_service_tiers(
 mod tests;
 
 mod interrupt;
+pub(crate) use interrupt::before_first_turn_pending;
 
 pub fn interrupt(svc: &ServiceContext, tab: &str) -> Result<bool, String> {
     interrupt::interrupt(svc, tab)

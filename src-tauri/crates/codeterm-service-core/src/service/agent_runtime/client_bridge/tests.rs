@@ -681,3 +681,75 @@ fn unavailable_platform_installs_no_bridge_or_host_powers() {
     assert_eq!(install(&context, Some(capabilities())).unwrap(), None);
     assert!(bridge(&context).is_err());
 }
+
+#[cfg(unix)]
+#[tokio::test(flavor = "current_thread")]
+async fn owner_approval_async_preserves_scope_without_entering_a_nested_runtime() {
+    use crate::service::tab::RespondPromptOutcome;
+    let (_temp, root) = root();
+    let (fixture, tab, peer, _cleanup) = engine::test_support::runtime_fixture();
+    let session = engine::for_tab(&tab).unwrap();
+    {
+        let mut context = session.context.lock();
+        context.cwd = root.to_string_lossy().into_owned();
+        context.active_turn_id = Some("owner-turn".into());
+    }
+    let context = session.context.lock().clone();
+    install(&context, Some(capabilities())).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let id = RpcId::Number(51);
+    let params = json!({"sessionId":context.thread_id,"path":root.join("approved"),"content":"owner-approved"});
+    handle(
+        &fixture.service,
+        &session,
+        &process,
+        &id,
+        "fs/write_text_file",
+        &params,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .respond_prompt_async(&tab, "foreign", None)
+            .await
+            .unwrap(),
+        RespondPromptOutcome::InvalidOption
+    );
+    assert_eq!(
+        fixture.service.respond_prompt(&tab, "foreign").unwrap(),
+        RespondPromptOutcome::InvalidOption
+    );
+    assert!(!root.join("approved").exists());
+    assert_eq!(
+        fixture
+            .service
+            .respond_prompt_async(&tab, "allow_once", None)
+            .await
+            .unwrap(),
+        RespondPromptOutcome::Structured
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("approved")).unwrap(),
+        "owner-approved"
+    );
+    assert_eq!(
+        fixture
+            .service
+            .respond_prompt_async(&tab, "allow_once", None)
+            .await
+            .unwrap(),
+        RespondPromptOutcome::StalePrompt
+    );
+    let mut reader = BufReader::new(peer);
+    let mut line = String::new();
+    reader.read_line(&mut line).await.unwrap();
+    assert_eq!(
+        serde_json::from_str::<Value>(&line).unwrap()["result"],
+        json!({})
+    );
+    cancel(&fixture.service, &session, &process, true)
+        .await
+        .unwrap();
+}

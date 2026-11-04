@@ -334,3 +334,14 @@ fn before_first_turn(
                     })
         })
 }
+
+pub(crate) fn before_first_turn_pending(svc: &ServiceContext, tab: &str) -> bool {
+    let Some(session) = engine::for_tab(tab) else {
+        return false;
+    };
+    if engine::validate_binding(svc, &session).is_err() {
+        return false;
+    }
+    let context = session.context.lock().clone();
+    before_first_turn(svc, &session, &context)
+}
