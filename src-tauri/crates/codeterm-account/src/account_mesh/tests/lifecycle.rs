@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
 use std::sync::Arc;
@@ -303,10 +304,18 @@ async fn account_mesh_publishes_only_a_ready_listener_and_withdraws_when_it_goes
 
     *harness.endpoint.0.lock().unwrap() = None;
     harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
-    assert_eq!(harness.calls("withdraw"), 1);
+    assert_eq!(harness.calls("withdraw"), 0);
     assert_eq!(harness.calls("list"), 0);
-    assert!(harness.registry.endpoint(UID).is_none());
-    assert!(!harness.store.record.lock().unwrap().published);
+    assert!(harness
+        .transport
+        .endpoints
+        .lock()
+        .unwrap()
+        .last()
+        .unwrap()
+        .0
+        .is_none());
+    assert!(harness.store.record.lock().unwrap().published);
 }
 
 #[tokio::test]
@@ -319,12 +328,12 @@ async fn account_mesh_concurrent_triggers_share_one_flight() {
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Lease).await, Ok(()));
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
     harness.registry.script.lock().unwrap().gate = None;
     gate.notify_one();
-    assert_eq!(first.await.unwrap(), Ok(()));
+    assert_eq!(wait_for_event(first).await.unwrap(), Ok(()));
     assert_eq!(harness.calls("enroll"), 1);
     assert_eq!(
         harness.calls("renew"),
@@ -415,15 +424,6 @@ async fn account_mesh_resumed_publication_or_withdrawal_clears_pending_cleanup_d
             *harness.endpoint.0.lock().unwrap() = None;
         }
         assert_eq!(harness.state().cleanup, Cleanup::Pending);
-        harness
-            .mesh
-            .refresh(EnrollTrigger::Explicit)
-            .await
-            .unwrap_err();
-        assert_eq!(harness.state().cleanup, Cleanup::Pending);
-        assert!(harness.store.record.lock().unwrap().cleanup_pending);
-        harness.registry.script.lock().unwrap().publication = None;
-        harness.clock.set(START + 60);
         harness.mesh.refresh(EnrollTrigger::Explicit).await.unwrap();
         assert_eq!(harness.state().cleanup, Cleanup::Confirmed);
         assert!(!harness.store.record.lock().unwrap().cleanup_pending);
@@ -450,7 +450,7 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
 
     let racing_identity = identity(UID);
     let racing_refresh = harness.mesh.identity_changed(Some(&racing_identity));
@@ -459,7 +459,10 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
         Cleanup::Confirmed
     );
     gate.notify_one();
-    assert_eq!(flight.await.unwrap(), Err(AccountMeshRefusal::Cancelled));
+    assert_eq!(
+        wait_for_event(flight).await.unwrap(),
+        Err(AccountMeshRefusal::Cancelled)
+    );
     let state = harness.state();
     assert_eq!(
         state.presence,
@@ -687,13 +690,14 @@ async fn next_renewal(harness: &Harness) -> Duration {
         .retry_at
         .unwrap_or_else(|| state.membership.as_ref().unwrap().verified.refresh_after());
     let previous = harness.mesh.now();
+    let mut settled = harness.mesh.subscribe();
     harness.clock.set(due);
-    tokio::time::timeout(
-        Duration::from_secs(3600),
-        harness.registry.entered.notified(),
-    )
-    .await
-    .expect("a renewal is scheduled");
+    tokio::time::timeout(Duration::from_secs(61), harness.registry.entered.notified())
+        .await
+        .expect("a renewal is scheduled");
+    wait_for_event(settled.wait_for(|state| state.enrollment != Enrollment::Enrolling))
+        .await
+        .unwrap();
     Duration::from_secs(due - previous)
 }
 
@@ -706,7 +710,7 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::Unavailable);
 
     let cadence = Duration::from_secs(
@@ -721,19 +725,13 @@ async fn account_mesh_failed_lease_renewal_retries_with_bounded_backoff() {
     );
     assert_eq!(next_renewal(&harness).await, cadence);
     assert_eq!(harness.state().enrollment, Enrollment::Refused);
-    assert_eq!(
-        next_renewal(&harness).await,
-        Duration::from_secs(30),
-        "a failed renewal re-arms before expiry"
-    );
+    let first_retry = next_renewal(&harness).await;
+    assert!((Duration::from_secs(22)..=Duration::from_secs(30)).contains(&first_retry));
     harness.registry.script.lock().unwrap().membership = Some(RegistryRefusal::RateLimited {
         retry_after_seconds: 900,
     });
-    assert_eq!(
-        next_renewal(&harness).await,
-        Duration::from_secs(60),
-        "backoff grows"
-    );
+    let second_retry = next_renewal(&harness).await;
+    assert!((Duration::from_secs(45)..=Duration::from_secs(60)).contains(&second_retry));
     harness.registry.script.lock().unwrap().membership = None;
     assert_eq!(
         next_renewal(&harness).await,
@@ -766,7 +764,7 @@ async fn account_mesh_explicit_enroll_answers_with_the_run_it_joins() {
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     let explicit = harness.mesh.refresh(EnrollTrigger::Explicit);
     tokio::pin!(explicit);
     assert!(
@@ -783,7 +781,7 @@ async fn account_mesh_explicit_enroll_answers_with_the_run_it_joins() {
         active_count: 2,
     };
     assert_eq!(explicit.await, Err(refusal));
-    assert_eq!(first.await.unwrap(), Err(refusal));
+    assert_eq!(wait_for_event(first).await.unwrap(), Err(refusal));
     assert_eq!(
         harness.calls("enroll"),
         2,
@@ -806,8 +804,7 @@ async fn account_mesh_abandoned_logout_stays_blocked_until_the_next_sign_in() {
         let mesh = harness.mesh.clone();
         async move { mesh.sign_out(std::future::pending::<()>()).await }
     });
-    states
-        .wait_for(|state| state.presence == Presence::SignedOut)
+    wait_for_event(states.wait_for(|state| state.presence == Presence::SignedOut))
         .await
         .unwrap();
     logout.abort();
@@ -863,10 +860,8 @@ async fn account_mesh_publication_retry_preserves_reason_and_success() {
     assert_eq!(harness.calls("publish"), 2);
     harness.registry.script.lock().unwrap().publication = Some(RegistryRefusal::Unavailable);
     *harness.endpoint.0.lock().unwrap() = None;
-    assert_eq!(
-        harness.mesh.refresh(EnrollTrigger::Network).await,
-        Err(AccountMeshRefusal::Unavailable)
-    );
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("withdraw"), 0);
     harness.logout().await;
     assert_eq!(harness.state().retry_at, None);
     assert_eq!(harness.state().publication_failure, None);
@@ -882,7 +877,7 @@ async fn account_mesh_refused_read_keeps_successful_publication() {
         retry_after_seconds: 60,
     });
     assert_eq!(
-        harness.mesh.list().await.unwrap_err(),
+        harness.mesh.list_fresh().await.unwrap_err(),
         AccountMeshRefusal::RateLimited {
             retry_after_seconds: 60
         }
@@ -901,7 +896,7 @@ async fn account_mesh_initial_outage_schedules_one_retry_without_trigger_bursts(
         harness.mesh.refresh(EnrollTrigger::Automatic).await,
         Err(AccountMeshRefusal::Unavailable)
     );
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     for trigger in [
         EnrollTrigger::Network,
         EnrollTrigger::Explicit,

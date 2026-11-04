@@ -140,12 +140,8 @@ fn worker_is_task_bound_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(crate::service::agent_transition::worker_is_task_bound(
-        store, "worker-a"
-    ));
-    assert!(!crate::service::agent_transition::worker_is_task_bound(
-        store, "worker-c"
-    ));
+    assert!(crate::service::agent_transition::worker_is_task_bound(store, "worker-a").unwrap());
+    assert!(!crate::service::agent_transition::worker_is_task_bound(store, "worker-c").unwrap());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -174,7 +170,7 @@ fn worker_task_bindings_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::agent_transition::worker_task_bindings(store, "worker-a"),
+        crate::service::agent_transition::worker_task_bindings(store, "worker-a").unwrap(),
         vec![(mine, "task_m".to_string())]
     );
     assert_never_loaded(store, &[&finished]);
@@ -301,7 +297,7 @@ fn bind_planner_session_never_loads_unmatched_plans() {
     let other = seed(store, other);
     start(store);
 
-    fx.service.bind_planner_session(&planner_tab);
+    fx.service.bind_planner_session(&planner_tab).unwrap();
     assert!(store.plan_loads_for_test().contains(&planned));
     assert_never_loaded(store, &[&other]);
 }
@@ -434,7 +430,8 @@ fn clear_planner_bindings_for_lifecycle_exit_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit(store, "planner-a", 5),
+        crate::service::hierarchy::clear_planner_bindings_for_lifecycle_exit(store, "planner-a", 5)
+            .unwrap(),
         1
     );
     assert_never_loaded(store, &[&other]);
@@ -584,7 +581,8 @@ fn is_self_close_protected_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(fx.service.is_self_close_protected("owner-tab"));
+    assert!(fx.service.is_self_close_protected("owner-tab").unwrap());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -602,7 +600,7 @@ fn bound_plan_id_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::orchestrator::bound_plan_id(store, "member-tab", Some("team-a")),
+        crate::service::orchestrator::bound_plan_id(store, "member-tab", Some("team-a")).unwrap(),
         Some(team_plan)
     );
     assert_never_loaded(store, &[&other]);

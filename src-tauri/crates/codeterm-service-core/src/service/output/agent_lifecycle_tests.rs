@@ -289,12 +289,12 @@ fn explicit_lifecycle_exit_clears_planner_identity_once() {
 
     assert!(clear_agent_identity_for_lifecycle_exit(tab));
     assert_eq!(
-        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 3),
+        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 3).unwrap(),
         1
     );
     assert!(!clear_agent_identity_for_lifecycle_exit(tab));
     assert_eq!(
-        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 4),
+        clear_planner_bindings_for_lifecycle_exit(&plan_store, &tab_id, 4).unwrap(),
         0
     );
     assert!(tab.agent_type.is_none());

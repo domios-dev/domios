@@ -520,19 +520,22 @@ impl ServiceContext {
                     .plan_store
                     .resolve_task_ref(plan_ref.as_deref(), &task_ref)
                     .map_err(|error| format!("unable to resolve linked task: {error}"))?;
-                let plan = self
+                let name = self
                     .plan_store
-                    .get(&resolved.plan_id)
-                    .ok_or_else(|| "resolved plan was not found".to_string())?;
-                let task = plan
-                    .tasks
-                    .iter()
-                    .find(|task| task.id == resolved.task_id)
-                    .ok_or_else(|| "resolved task was not found".to_string())?;
+                    .linked_tab_task_name_projection(&resolved.plan_id, &resolved.task_id)
+                    .map_err(|error| match error {
+                        crate::service::plan::PlanError::NotFound => {
+                            "resolved plan was not found".to_string()
+                        }
+                        crate::service::plan::PlanError::TaskNotFound => {
+                            "resolved task was not found".to_string()
+                        }
+                        error => error.to_string(),
+                    })?;
                 Some(TabTodoLink::DomiosTask {
                     plan_id: resolved.plan_id,
                     task_id: resolved.task_id,
-                    label: label.unwrap_or_else(|| bounded_title(&task.name).0),
+                    label: label.unwrap_or_else(|| bounded_title(&name).0),
                 })
             }
         };

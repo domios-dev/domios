@@ -374,6 +374,8 @@ impl EndpointSource for FakeEndpoint {
 }
 
 pub struct FakeTransport {
+    pub peers_reachable: std::sync::atomic::AtomicBool,
+    pub endpoints: Mutex<Vec<(Option<MeshEndpoint>, u64, String)>>,
     pub snapshots: Mutex<Vec<DetachedGrant>>,
     log: Log,
     pub revoked: Mutex<Vec<String>>,
@@ -381,6 +383,22 @@ pub struct FakeTransport {
 }
 #[async_trait]
 impl MeshTransport for FakeTransport {
+    fn peers_reachable(&self) -> bool {
+        self.peers_reachable
+            .load(std::sync::atomic::Ordering::SeqCst)
+    }
+    async fn endpoint_changed(
+        &self,
+        endpoint: Option<MeshEndpoint>,
+        sequence: u64,
+        membership: &str,
+    ) -> bool {
+        self.endpoints
+            .lock()
+            .unwrap()
+            .push((endpoint, sequence, membership.to_owned()));
+        true
+    }
     async fn registry_changed(&self, snapshot: &DetachedGrant) {
         self.snapshots.lock().unwrap().push(snapshot.clone());
     }
@@ -458,6 +476,8 @@ impl Harness {
             log: log.clone(),
         });
         let transport = Arc::new(FakeTransport {
+            peers_reachable: Default::default(),
+            endpoints: Default::default(),
             snapshots: Mutex::default(),
             log: log.clone(),
             revoked: Mutex::default(),
@@ -557,4 +577,32 @@ fn ports(
         transport: transport.clone(),
         clock: clock.clone(),
     }
+}
+
+pub async fn wait_for_event<T>(event: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(5), event)
+        .await
+        .expect("mesh test event did not arrive within its deadline")
+}
+
+/// Build a complete server-signed successor without using a registry read port.
+pub fn registry_successor(
+    harness: &Harness,
+    change: impl FnOnce(&mut Vec<MeshManagementRow>),
+) -> DetachedGrant {
+    let state = harness.state();
+    let mut rows = state.registry.as_ref().unwrap().rows.clone();
+    change(&mut rows);
+    let revoked: Vec<_> = rows
+        .iter()
+        .filter(|row| !row.active)
+        .map(|row| row.installation_id.clone())
+        .collect();
+    Issuer::new().sign(&json!({
+        "schema_version": 1, "iss": "domios-mesh-registry",
+        "aud": {"project": PROJECT, "env": "test"}, "policy_epoch": EPOCH,
+        "account_id": state.signed_in_account().unwrap(),
+        "revision": state.signed_registry.as_ref().unwrap().revision + 1,
+        "issued_at": harness.clock.now(), "members": rows, "revoked_installations": revoked
+    }))
 }

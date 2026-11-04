@@ -60,7 +60,7 @@ export function assertWebRequestContext(generation: number): void {
 /** Cancel every request bound to the current peer before changing relay target. */
 export function invalidateWebRequestContext(): number {
   requestContextGeneration += 1;
-  for (const controller of requestControllers) controller.abort();
+  for (const controller of requestControllers) controller.abort(new DOMException("Peer context changed", "AbortError"));
   requestControllers.clear();
   return requestContextGeneration;
 }

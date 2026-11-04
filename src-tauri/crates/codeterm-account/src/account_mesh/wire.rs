@@ -95,6 +95,8 @@ pub struct MeshAdmissionBody {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub own_row: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_display_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signed_registry: Option<bool>,
     #[serde(flatten)]
     pub operation: MeshOperation,

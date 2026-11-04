@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DEV_BUILD } from "../../lib/devBuild";
 import type { ApiConfig } from "../../lib/types";
-import { daemonAuthToken, daemonHttpBase } from "../../lib/webApi";
+import { localFetch } from "../../lib/webApi";
+import { baseDaemonTransport } from "../../lib/daemonBootstrap";
+import { subscribeAgentRunOutput } from "./agentRunOutput";
 import {
   ClaudeStreamParser,
   mergeAssistantMessages,
@@ -28,8 +30,6 @@ export interface UseAgentRunStreamResult {
   reload: () => void;
 }
 
-// Use fetch+ReadableStream so bearer token headers are sent.
-// `from=0` replays existing PTY history, then switches to live stream.
 export function useAgentRunStream({
   api,
   tabId,
@@ -54,6 +54,7 @@ export function useAgentRunStream({
     setEvents([]);
     setRawLines([]);
     setError(null);
+    setConnected(false);
 
     let cancelled = false;
 
@@ -87,18 +88,11 @@ export function useAgentRunStream({
       scheduleFlush();
     };
 
-    const url = `${daemonHttpBase(api)}/api/tabs/${encodeURIComponent(tabId)}/output/stream?from=0`;
-    const token = daemonAuthToken(api);
-    const headers: HeadersInit = token
-      ? { Authorization: `Bearer ${token}` }
-      : {};
-
     const fallbackToHistorical = async () => {
     // If daemon restarts, live streaming stops but on-disk logs remain.
     // Fetch once and parse historical log content.
       try {
-        const histUrl = `${daemonHttpBase(api)}/api/agent-runs/${encodeURIComponent(tabId)}/log`;
-        const r = await fetch(histUrl, { headers, signal: ctrl.signal });
+        const r = await localFetch(`/api/agent-runs/${encodeURIComponent(tabId)}/log`, { signal: ctrl.signal });
         if (cancelled) return;
         if (!r.ok) {
           setError("(no historical log available)");
@@ -110,70 +104,30 @@ export function useAgentRunStream({
         pushParseResult(result.events, result.rawLines);
         setError(null);
       } catch (error) {
+        if (cancelled || ctrl.signal.aborted) return;
         if (DEV_BUILD) console.debug("Background agent run history refresh failed", error);
         setError("(failed to load historical log)");
       }
     };
 
-    (async () => {
-      try {
-        const res = await fetch(url, { headers, signal: ctrl.signal });
-        if (!res.ok || !res.body) {
-          if (res.status === 404) {
-            await fallbackToHistorical();
-            return;
-          }
-          throw new Error(`stream open failed: ${res.status}`);
+    const stop = subscribeAgentRunOutput(baseDaemonTransport(), tabId, ctrl.signal, {
+      output(text) {
+        const result = parser.feed(text);
+        pushParseResult(result.events, result.rawLines);
+      },
+      connected: setConnected,
+      ended(end, offset) {
+        if (end.reason === "http" && end.status === 404 && offset === 0) {
+          void fallbackToHistorical();
+          return;
         }
-        setConnected(true);
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder("utf-8", { fatal: false });
-        let sseTail = "";
-
-        while (!cancelled) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          if (!value) continue;
-
-          sseTail += decoder.decode(value, { stream: true });
-
-          const frames = sseTail.split("\n\n");
-          sseTail = frames.pop() ?? "";
-
-          let chunkText = "";
-          for (const frame of frames) {
-            for (const line of frame.split("\n")) {
-              if (line.startsWith("data:")) {
-                const data = line.slice(5).trim();
-                if (!data) continue;
-                try {
-                  const parsed = JSON.parse(data) as { output?: string };
-                  if (typeof parsed.output === "string") {
-                    chunkText += parsed.output;
-                  }
-                } catch {
-                  chunkText += data;
-                }
-              }
-            }
-          }
-
-          if (chunkText) {
-            const result = parser.feed(chunkText);
-            pushParseResult(result.events, result.rawLines);
-          }
-        }
-      } catch (e) {
-        if (cancelled || (e as Error).name === "AbortError") return;
-        if (DEV_BUILD) console.debug("Background agent run stream failed", e);
-        setError(e instanceof Error ? e.message : String(e));
-      } finally {
-        setConnected(false);
-      }
-    })();
+        setError(end.error instanceof Error ? end.error.message : `stream ended: ${end.reason}`);
+      },
+    });
 
     return () => {
       cancelled = true;
+      stop();
       if (flushTimer !== null) {
         clearTimeout(flushTimer);
         flushTimer = null;

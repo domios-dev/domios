@@ -55,7 +55,7 @@ impl AccountMeshService {
 
 struct AccountSessions(
     Weak<OnceCell<Arc<codeterm_account::Account>>>,
-    watch::WeakSender<u64>,
+    Weak<watch::Sender<u64>>,
 );
 fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
     match error {
@@ -132,6 +132,51 @@ struct TransportBridge {
 }
 #[async_trait]
 impl MeshTransport for TransportBridge {
+    fn peers_reachable(&self) -> bool {
+        self.service
+            .upgrade()
+            .and_then(|service| {
+                service.try_ext::<crate::MeshStateHandle>().map(|mesh| {
+                    let manager = mesh.lock();
+                    manager
+                        .account_mesh_pairs()
+                        .iter()
+                        .filter_map(|peer| peer.installation_id.as_deref())
+                        .any(|id| manager.has_healthy_connection(id))
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    async fn endpoint_changed(
+        &self,
+        endpoint: Option<MeshEndpoint>,
+        sequence: u64,
+        membership: &str,
+    ) -> bool {
+        let Some(service) = self.service.upgrade() else {
+            return false;
+        };
+        if !service.configuration().mesh.enabled {
+            return false;
+        }
+        let Some(mesh) = service.try_ext::<crate::MeshStateHandle>().cloned() else {
+            return false;
+        };
+        let endpoint = endpoint.map(|endpoint| codeterm_mesh::endpoint_gossip::EndpointAddress {
+            tailnet_ip: endpoint.ip().to_string(),
+            api_port: endpoint.port(),
+        });
+        let record = mesh
+            .lock()
+            .sign_endpoint_record(endpoint, sequence, membership);
+        let Ok(record) = record else {
+            return false;
+        };
+        codeterm_mesh::presence_notice::broadcast_endpoint_record(&mesh, record).await;
+        true
+    }
+
     async fn registry_changed(&self, snapshot: &codeterm_entitlements::DetachedGrant) {
         if let Some(service) = self.service.upgrade() {
             if service.configuration().mesh.enabled {
@@ -269,7 +314,7 @@ impl ServiceContext {
                 CallableRegistry::new(transport)
                     .with_validator(Arc::new(AccountSessions(
                         Arc::downgrade(&self.ext::<AccountCell>().0),
-                        self.callable_admission_changes().downgrade(),
+                        Arc::downgrade(&self.callable_admission_changes()),
                     )))
                     .with_revocations(self.session_revocations()),
             ),
@@ -300,7 +345,7 @@ impl ServiceContext {
                         registry: self.registry(),
                         sessions: Arc::new(AccountSessions(
                             Arc::downgrade(&self.ext::<AccountCell>().0),
-                            self.callable_admission_changes().downgrade(),
+                            Arc::downgrade(&self.callable_admission_changes()),
                         )),
                         keys: self.account_credentials().await?,
                         store: Arc::new(FileAccountMeshStore::new(self.account_data_root()?)),

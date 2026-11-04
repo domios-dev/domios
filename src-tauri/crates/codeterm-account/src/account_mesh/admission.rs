@@ -162,6 +162,24 @@ impl AccountMesh {
             installation_id: self.installation(),
             request_id: request_id(),
             signed_registry: Some(true),
+            default_display_name: matches!(
+                &operation,
+                MeshOperation::Enroll { .. }
+                    | MeshOperation::Renew { .. }
+                    | MeshOperation::Recover {
+                        target_policy: Some(OwnTargetPolicy::Own),
+                        ..
+                    }
+            )
+            .then(|| {
+                self.config
+                    .default_display_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|name| !name.is_empty())
+                    .map(str::to_owned)
+            })
+            .flatten(),
             own_row: matches!(
                 operation,
                 MeshOperation::Enroll { .. }

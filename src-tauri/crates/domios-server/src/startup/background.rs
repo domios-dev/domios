@@ -136,7 +136,11 @@ pub(crate) fn start_background_tasks(
                     if !changed && !heartbeat_due && !became_ready {
                         continue;
                     }
-                    let report = mesh::broadcast_announce(&mesh, None).await;
+                    let report = if changed && !became_ready && !heartbeat_due {
+                        mesh::broadcast_address_change(&mesh).await
+                    } else {
+                        mesh::broadcast_announce(&mesh, None).await
+                    };
                     last_heartbeat = std::time::Instant::now();
                     let kind = if became_ready {
                         "readiness"

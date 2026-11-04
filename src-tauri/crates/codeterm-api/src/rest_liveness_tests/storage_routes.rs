@@ -31,11 +31,11 @@ impl Drop for HeldDependency {
     }
 }
 
-async fn health_responds(state: crate::routes::AppState) {
+async fn health_responds(router: Router) {
     assert_eq!(tokio::spawn(async { 42 }).await.unwrap(), 42);
     let response = tokio::time::timeout(
         Duration::from_millis(250),
-        crate::routes::create_router(state).oneshot(request("/api/health")),
+        router.oneshot(request("/api/health")),
     )
     .await
     .expect("health must answer while the dependency is held")
@@ -52,6 +52,7 @@ async fn health_responds(state: crate::routes::AppState) {
 async fn rest_health_answers_while_services_and_activity_wait_on_sql() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = app_state(&fixture);
+    let router = crate::routes::create_router(state.clone());
     let connection = state.svc.services_store.conn();
     let held = HeldDependency::new(move |locked, release| {
         let _guard = connection.lock();
@@ -86,7 +87,7 @@ async fn rest_health_answers_while_services_and_activity_wait_on_sql() {
     assert!(activity.as_mut().now_or_never().is_none());
     assert!(services.as_mut().now_or_never().is_none());
     assert!(inventory.as_mut().now_or_never().is_none());
-    health_responds(state.clone()).await;
+    health_responds(router).await;
     let cron = state.cron.clone();
     tokio::time::timeout(
         Duration::from_millis(250),
@@ -106,6 +107,7 @@ async fn rest_health_answers_while_services_and_activity_wait_on_sql() {
 async fn rest_health_answers_while_task_list_and_show_wait_on_plan_sql() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = app_state(&fixture);
+    let router = crate::routes::create_router(state.clone());
     let plans = state.svc.plan_store.clone();
     let held = HeldDependency::new(move |locked, release| {
         plans.with_database_held_for_test(|| {
@@ -133,7 +135,7 @@ async fn rest_health_answers_while_task_list_and_show_wait_on_plan_sql() {
     ));
     assert!(list.as_mut().now_or_never().is_none());
     assert!(show.as_mut().now_or_never().is_none());
-    health_responds(state).await;
+    health_responds(router).await;
     assert!(list.as_mut().now_or_never().is_none());
     assert!(show.as_mut().now_or_never().is_none());
     drop(held);
@@ -145,6 +147,7 @@ async fn rest_health_answers_while_task_list_and_show_wait_on_plan_sql() {
 async fn rest_health_answers_while_theme_preparation_waits_on_config() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = app_state(&fixture);
+    let router = crate::routes::create_router(state.clone());
     let config = state.config.clone();
     let held = HeldDependency::new(move |locked, release| {
         let _guard = config.lock();
@@ -158,8 +161,9 @@ async fn rest_health_answers_while_theme_preparation_waits_on_config() {
         |_, _| Err("fixture persistence refusal".into()),
     ));
     assert!(apply.as_mut().now_or_never().is_none());
-    health_responds(state.clone()).await;
+    health_responds(router).await;
     assert!(state.config.try_lock().is_none());
+    assert!(apply.as_mut().now_or_never().is_none());
     drop(held);
     assert_eq!(apply.await.unwrap_err().1, "fixture persistence refusal");
 }
@@ -168,6 +172,7 @@ async fn rest_health_answers_while_theme_preparation_waits_on_config() {
 async fn rest_health_answers_while_notification_reads_and_writes_wait_on_store() {
     let fixture = ServiceFixture::new(MultiplexerState::empty());
     let state = app_state(&fixture);
+    let router = crate::routes::create_router(state.clone());
     let notifications = state.svc.notif.clone();
     let held = HeldDependency::new(move |locked, release| {
         let _guard = notifications.lock();
@@ -187,7 +192,7 @@ async fn rest_health_answers_while_notification_reads_and_writes_wait_on_store()
     ));
     assert!(list.as_mut().now_or_never().is_none());
     assert!(mark.as_mut().now_or_never().is_none());
-    health_responds(state.clone()).await;
+    health_responds(router).await;
     assert!(state.svc.notif.try_lock().is_none());
     drop(held);
     assert!(list.await.unwrap().0.as_array().unwrap().is_empty());

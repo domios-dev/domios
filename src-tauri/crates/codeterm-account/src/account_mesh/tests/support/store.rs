@@ -1,4 +1,5 @@
 use super::{async_trait, io, note, AccountMeshRecord, AccountMeshStore, Arc, Log, Mutex, Notify};
+use crate::account_mesh::tests::support::wait_for_event;
 
 pub struct MemoryStore {
     pub record: Mutex<AccountMeshRecord>,
@@ -23,7 +24,7 @@ impl AccountMeshStore for MemoryStore {
         let gate = self.save_gate.lock().unwrap().take();
         if let Some(gate) = gate {
             self.save_entered.notify_one();
-            gate.notified().await;
+            wait_for_event(gate.notified()).await;
         }
         note(&self.log, format!("save:signed_out={}", record.signed_out));
         *self.record.lock().unwrap() = record.clone();

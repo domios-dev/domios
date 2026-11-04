@@ -127,6 +127,7 @@ impl ApiRepairError {
 impl From<TabRepairError> for ApiRepairError {
     fn from(error: TabRepairError) -> Self {
         let status = match error.kind {
+            TabRepairErrorKind::Storage => StatusCode::INTERNAL_SERVER_ERROR,
             TabRepairErrorKind::NotFound => StatusCode::NOT_FOUND,
             TabRepairErrorKind::NotAuthorized => StatusCode::FORBIDDEN,
             TabRepairErrorKind::SessionBindingPending => StatusCode::SERVICE_UNAVAILABLE,

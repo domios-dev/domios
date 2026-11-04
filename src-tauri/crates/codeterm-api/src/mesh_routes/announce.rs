@@ -18,8 +18,12 @@ pub async fn mesh_refresh(
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     super::require_administrator(&state, &headers)?;
 
-    codeterm_service_core::mesh::refresh_local_addresses(&state.mesh).await;
-    let report = codeterm_service_core::mesh::broadcast_announce(&state.mesh, None).await;
+    let changed = codeterm_service_core::mesh::refresh_local_addresses(&state.mesh).await;
+    let report = if changed {
+        codeterm_service_core::mesh::broadcast_address_change(&state.mesh).await
+    } else {
+        codeterm_service_core::mesh::AnnounceReport::default()
+    };
 
     state
         .svc

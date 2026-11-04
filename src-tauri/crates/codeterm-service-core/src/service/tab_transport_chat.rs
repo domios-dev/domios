@@ -446,7 +446,7 @@ impl ServiceContext {
             crate::session::lifecycle::AgentTypeWriteOrigin::Spawn,
             None,
         );
-        self.bind_planner_session(tab_id);
+        self.bind_planner_session(tab_id)?;
         Ok(nonce)
     }
 

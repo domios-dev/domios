@@ -4,6 +4,7 @@ mod callable;
 mod credential_rearm;
 mod dropout;
 mod dropout_review;
+mod endpoint_gossip;
 mod enrollment_refusals;
 mod entitlements;
 mod lifecycle;

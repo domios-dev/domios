@@ -370,7 +370,7 @@ async fn account_mesh_terminal_renewal_denials_retire_authority_and_park() {
         let error = harness.mesh.refresh(EnrollTrigger::Lease).await;
         assert!(error.is_err(), "{refusal:?}");
         if refusal == RegistryRefusal::Revoked {
-            assert_eq!(error, Err(AccountMeshRefusal::Revoked));
+            assert_eq!(error, Err(AccountMeshRefusal::ReauthRequired));
         }
         assert!(harness.state().membership.is_none(), "{refusal:?}");
         assert_eq!(harness.state().self_installation, display);
@@ -477,7 +477,7 @@ async fn account_mesh_terminal_limit_rearms_only_when_registry_observes_a_freed_
         .unwrap_err();
     harness.registry.script.lock().unwrap().membership = None;
     harness.registry.script.lock().unwrap().peer_presence = RegistryPresence::SignedOut;
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     let calls = harness.calls("renew");
     assert_eq!(
         harness.mesh.refresh(EnrollTrigger::Network).await,
@@ -485,7 +485,7 @@ async fn account_mesh_terminal_limit_rearms_only_when_registry_observes_a_freed_
     );
     assert_eq!(harness.calls("renew"), calls);
     harness.registry.script.lock().unwrap().peer_active = Some(false);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert!(harness.state().plan_limit_locked());
     harness
         .mesh
@@ -500,6 +500,14 @@ async fn account_mesh_terminal_limit_rearms_only_when_registry_observes_a_freed_
 async fn account_mesh_terminal_launch_denial_stays_parked_across_restart_until_rearmed() {
     for recovery in ["explicit", "plan", "signin"] {
         let mut harness = leased(86400).await;
+        let due = harness
+            .state()
+            .membership
+            .as_ref()
+            .unwrap()
+            .verified
+            .refresh_after();
+        harness.clock.set(due);
         let stale_cache = harness.store.record.lock().unwrap().admission_cache.clone();
         harness.restart().await;
         harness.sign_in("owner").await;
@@ -564,7 +572,7 @@ async fn account_mesh_terminal_launch_denial_stays_parked_across_restart_until_r
         };
         harness.mesh.refresh(trigger).await.unwrap();
         assert_eq!(harness.calls("renew"), 1);
-        assert!(harness.state().current_membership(START).is_some());
+        assert!(harness.state().current_membership(due).is_some());
         assert!(harness
             .store
             .record

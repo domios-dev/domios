@@ -6,6 +6,8 @@ use super::pending_delivery_payloads::agent_deliveries::{
 use super::ServiceContext;
 use std::sync::Arc;
 
+mod held;
+
 enum AgentWriteResult {
     Continue,
     Refused,
@@ -51,6 +53,7 @@ impl ServiceContext {
                     );
                 }
                 self.schedule_agent_delivery_flush(target);
+                self.detect_unbound_launch_session(target);
                 return Ok(Delivery::Pending { delivery_id: id });
             }
         }
@@ -81,6 +84,7 @@ impl ServiceContext {
             }
             drop(pty_claim);
             self.schedule_agent_delivery_flush(target);
+            self.detect_unbound_launch_session(target);
             return Ok(Delivery::Pending { delivery_id: id });
         }
         let generation = owner.state_generation(target);
@@ -98,6 +102,9 @@ impl ServiceContext {
                     && self.agent_delivery_binding_matches(target, &payload) =>
             {
                 let id = owner.enqueue(target, &encoded, idempotency_key)?;
+                if let Err(storage_error) = owner.set_pending_reason(target, &id, &error) {
+                    log::error!("[agent-delivery] pending reason persistence failed tab={target}: {storage_error}");
+                }
                 self.schedule_durable_expiry(target, &id, &payload);
                 if let Some(flow) = payload.trace_id.as_deref() {
                     crate::flow_trace::record(
@@ -119,6 +126,7 @@ impl ServiceContext {
                 if !blocked {
                     self.wake_agent_deliveries_on_state_change(target);
                 }
+                self.detect_unbound_launch_session(target);
                 Ok(Delivery::Pending { delivery_id: id })
             }
             Err(error) => {
@@ -473,6 +481,11 @@ impl ServiceContext {
         payload: &AgentDeliveryPayload,
         generation: u64,
     ) -> AgentWriteResult {
+        if payload.durable_delivery.is_none()
+            && (record.terminal_failure.is_some() || self.agent_delivery_readiness_expired(record))
+        {
+            return self.refuse_expired_held_agent_delivery(tab_id, record, generation);
+        }
         let mut prepared = payload.clone();
         match self.prepare_saved_delivery(tab_id, record, &mut prepared) {
             Ok(super::durable_delivery::PreparedDelivery::Ready) => {}
@@ -518,6 +531,10 @@ impl ServiceContext {
             return AgentWriteResult::Continue;
         }
         let pty_claim = self.pty_ownership.acquire(tab_id);
+        if self.agent_delivery_readiness_expired(record) {
+            drop(pty_claim);
+            return self.refuse_expired_held_agent_delivery(tab_id, record, generation);
+        }
         if self.durable_delivery_expired(payload) {
             drop(pty_claim);
             return self.settle_durable_record(
@@ -549,8 +566,7 @@ impl ServiceContext {
         };
         if !claim {
             drop(pty_claim);
-            owner.block_after_refusal(tab_id, generation);
-            return AgentWriteResult::Refused;
+            return AgentWriteResult::Continue;
         }
         if self.durable_delivery_expired(payload) {
             if let Err(error) = owner.release_zero_write(tab_id, &record.id) {
@@ -626,6 +642,9 @@ impl ServiceContext {
                             storage_error
                         );
                     }
+                    if let Err(error) = owner.set_pending_reason(tab_id, &record.id, &error) {
+                        log::error!("[agent-delivery] pending reason persistence failed tab={tab_id}: {error}");
+                    }
                     log::warn!(
                         "[agent-delivery] tab={} delivery={} outcome=refused_pending reason={}",
                         tab_id,
@@ -648,6 +667,7 @@ impl ServiceContext {
         delivery_id: &str,
         payload: &AgentDeliveryPayload,
     ) {
+        self.cancel_durable_expiry(tab_id, delivery_id);
         if let Some(DeliveryWriteObserver::Report { report_id, .. }) = payload.observer.as_ref() {
             self.report_store.lock().release_delivery(report_id);
         }

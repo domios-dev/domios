@@ -157,6 +157,7 @@ export function readBaseline(root, revision) {
 
 export function baselineRevision(root, forkPoint, anchor = migratedBaseline) {
   try {
+    git(root, ['rev-parse', '--verify', '--quiet', `${anchor}^{commit}`]);
     git(root, ['merge-base', '--is-ancestor', anchor, 'HEAD']);
     git(root, ['merge-base', '--is-ancestor', forkPoint, anchor]);
     return anchor;

@@ -52,14 +52,14 @@ function refBody(title: string, state = "resolved"): ResolvedBody {
 interface Harness {
   fetchCalls: string[];
   snapshots: Array<{ title?: string; state?: string }>;
-  dispatchPlanChanged: () => Promise<void>;
+  dispatchPlanChanged: (planId?: string) => Promise<void>;
   chipStates: () => string[];
   teardown: () => Promise<void>;
 }
 
 /** Mounts one chip-shaped probe over the hook; a missing map entry is exactly
  *  what TabSessionChat renders as the "loading" chip state. */
-async function mountResolver(responses: ResolvedBody[]): Promise<Harness> {
+async function mountResolver(responses: ResolvedBody[], additionalRefs: PlanRefDescriptor[] = []): Promise<Harness> {
   setupDom();
   const listeners = new Map<string, Array<(e: { payload: unknown }) => void>>();
   __setListenForTest(async (event, handler) => {
@@ -84,7 +84,7 @@ async function mountResolver(responses: ResolvedBody[]): Promise<Harness> {
   });
 
   const api = { enabled: true, host: "127.0.0.1", port: 7686, token: null, cors: false };
-  const refs: PlanRefDescriptor[] = [{ planId: "pl_test", targetId: "task_test", targetKind: "task" }];
+  const refs: PlanRefDescriptor[] = [{ planId: "pl_test", targetId: "task_test", targetKind: "task" }, ...additionalRefs];
   const snapshots: Array<{ title?: string; state?: string }> = [];
 
   function Probe() {
@@ -107,9 +107,9 @@ async function mountResolver(responses: ResolvedBody[]): Promise<Harness> {
   return {
     fetchCalls,
     snapshots,
-    dispatchPlanChanged: async () => {
+    dispatchPlanChanged: async (planId = "pl_test") => {
       await act(async () => {
-        for (const handler of listeners.get("plan-changed") ?? []) handler({ payload: { plan_id: "pl_test" } });
+        for (const handler of listeners.get("plan-changed") ?? []) handler({ payload: { plan_id: planId } });
         await Promise.resolve();
       });
       await act(async () => {
@@ -167,6 +167,18 @@ test("plan-changed with a renamed task updates the chip without an intermediate 
     !states.slice(1).includes("loading"),
     "a resolved chip passed back through loading during revalidation",
   );
+  await harness.teardown();
+});
+
+test("a plan change revalidates only that plan and ignores unrelated changes", async () => {
+  const other = { ...refBody("Other").refs[0], plan_id: "pl_other", target_id: "task_other" };
+  const harness = await mountResolver([{ refs: [...refBody("First").refs, other] }, refBody("Renamed")],
+    [{ planId: "pl_other", targetId: "task_other", targetKind: "task" }]);
+  await harness.dispatchPlanChanged("pl_unrelated");
+  assert(harness.fetchCalls.length === 1, "unrelated plans do not refetch visible refs");
+  await harness.dispatchPlanChanged();
+  const sent = JSON.parse(harness.fetchCalls[1]).refs;
+  assert(sent.length === 1 && sent[0].plan_id === "pl_test", "only the changed plan is revalidated");
   await harness.teardown();
 });
 

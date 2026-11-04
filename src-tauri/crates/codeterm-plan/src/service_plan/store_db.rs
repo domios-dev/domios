@@ -96,6 +96,7 @@ impl PlanDatabase {
         .map_err(db_error)?;
         migrations::initialize(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
+        heartbeat_queries::register_functions(&connection)?;
         curator_notice_queries::register_functions(&connection)?;
         auxiliary_queries::register_functions(&connection)?;
         worker_read_queries::register_functions(&connection)?;
@@ -591,6 +592,7 @@ mod curator_queries;
 mod curator_snapshot;
 mod export_queries;
 mod header_queries;
+mod heartbeat_queries;
 mod index_queries;
 mod notice_queries;
 mod qa_queries;

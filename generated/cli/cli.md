@@ -3942,6 +3942,12 @@ Fuzzy search tabs by id-prefix, tab title, friendly session name, agent type, or
 
 - `<pattern>` — Substring or short pattern to match
 
+#### `domios tab send-cancel`
+
+Cancel a held agent send before its payload is claimed for writing
+
+- `<send_id>`
+
 #### `domios tab send-status`
 
 Inspect one retained send without resending its payload

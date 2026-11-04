@@ -66,6 +66,15 @@ impl FakeAuthority {
 }
 
 impl AccountMeshAuthority for FakeAuthority {
+    fn accept_endpoint_sequence<'a>(
+        &'a self,
+        _membership: &'a VerifiedMembership,
+        _sequence: u64,
+        _digest: [u8; 32],
+    ) -> BoxFuture<'a, Result<bool, AdmissionRefusal>> {
+        Box::pin(async { Ok(true) })
+    }
+
     fn receive_registry_snapshot<'a>(
         &'a self,
         snapshot: &'a codeterm_entitlements::DetachedGrant,
