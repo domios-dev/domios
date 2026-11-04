@@ -489,6 +489,23 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
         .await
         .unwrap();
     assert!(harness.state().current_membership(START).is_some());
+    let taught = harness.state().signed_registry.clone().unwrap();
+    let account_registry = |key_id: String, generation: u64, metadata_revision: u64| {
+        let mut rows = taught.rows.clone();
+        let peer = rows
+            .iter_mut()
+            .find(|row| row.installation_id == PEER)
+            .unwrap();
+        peer.key_id = key_id;
+        peer.key_generation = generation;
+        peer.metadata_revision = metadata_revision;
+        Issuer::new().sign(&serde_json::json!({
+            "schema_version": 1, "iss": "domios-mesh-registry",
+            "aud": {"project": PROJECT, "env": "test"}, "policy_epoch": EPOCH,
+            "account_id": account_id(UID), "revision": taught.revision + 10, "issued_at": START,
+            "members": rows, "revoked_installations": [],
+        }))
+    };
 
     harness.logout().await;
     set_peer(None, 0);
@@ -510,8 +527,23 @@ async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() 
     );
 
     harness.logout().await;
-    set_peer(Some(("d".repeat(64), 2)), 5);
+    // Peer gossip may deliver A's registry before A's retained registry is replayed.
+    harness.mesh.with(|inner| {
+        inner.record.signed_registries.remove(&account_id(UID));
+    });
     harness.sign_in(UID).await;
+    for (key_id, generation, metadata_revision) in [("c".repeat(64), 1, 5), ("d".repeat(64), 2, 0)]
+    {
+        assert_eq!(
+            harness
+                .mesh
+                .receive_registry_snapshot(&account_registry(key_id, generation, metadata_revision))
+                .await,
+            Err(AccountMeshRefusal::Invalid),
+            "A's own fences still refuse a regressed A registry after visiting B"
+        );
+    }
+    set_peer(Some(("d".repeat(64), 2)), 5);
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
