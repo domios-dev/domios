@@ -166,3 +166,5 @@ pub use batch::{BatchTaskRefusalRead, TaskSelectorRead};
 
 mod shared_inspection;
 pub(super) use shared_inspection::{SharedDispatchRead, SharedReportRead};
+
+mod plan_metadata;
