@@ -67,3 +67,63 @@ fn offline_attempt_is_cached_and_keeps_the_installed_app_visible() {
     ensure_app(&mut snapshot);
     assert_eq!(snapshot.items.len(), 1);
 }
+
+#[tokio::test]
+async fn fresh_background_result_updates_cache_and_emits_local_changes_once() {
+    use codeterm_service_core::ports::host::UiEvents;
+    #[derive(Default)]
+    struct Events(parking_lot::Mutex<Vec<(String, serde_json::Value)>>);
+    impl UiEvents for Events {
+        fn emit(&self, event: &str, payload: serde_json::Value) {
+            self.0.lock().push((event.into(), payload));
+        }
+        fn emit_to(&self, _: &str, event: &str, payload: serde_json::Value) {
+            self.emit(event, payload);
+        }
+    }
+    struct RestoreCache(Option<AvailabilitySnapshot>);
+    impl Drop for RestoreCache {
+        fn drop(&mut self) {
+            *LAST.lock() = self.0.take();
+        }
+    }
+    let _restore = RestoreCache(LAST.lock().take());
+    let events = Arc::new(Events::default());
+    let ui: Arc<dyn UiEvents> = events.clone();
+    let mut previous = AvailabilitySnapshot::default();
+    previous.checked_at_ms = Some(cache::now_ms());
+    ensure_app(&mut previous);
+    publish(&ui, &previous);
+    events.0.lock().clear();
+    let mut fresh = previous;
+    let mut frontend =
+        AvailabilityItem::release("frontend", UpdateKind::Frontend, "1.0.0", "1.1.0", true);
+    frontend.state = codeterm_plugins::AvailabilityState::ReadyToApply;
+    replace_frontend(&mut fresh, frontend);
+    replace_plugins(
+        &mut fresh,
+        vec![AvailabilityItem::release(
+            "local-plugin",
+            UpdateKind::Plugin,
+            "1.0.0",
+            "1.1.0",
+            true,
+        )],
+    );
+    assert!(cache::fresh(fresh.checked_at_ms, cache::now_ms()));
+    complete_background_check(&ui, async { Ok(fresh.clone()) }).await;
+    assert_eq!(cached_snapshot(), fresh);
+    assert_eq!(
+        *events.0.lock(),
+        vec![(
+            "update-availability-changed".into(),
+            serde_json::to_value(&fresh).unwrap(),
+        )]
+    );
+    complete_background_check(&ui, async { Ok(fresh.clone()) }).await;
+    assert_eq!(
+        events.0.lock().len(),
+        1,
+        "equal network or cached results must not emit twice"
+    );
+}

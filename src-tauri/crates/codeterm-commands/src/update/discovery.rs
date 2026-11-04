@@ -21,10 +21,18 @@ pub fn refresh_in_background(
     force: bool,
 ) {
     let _ = BACKGROUND.start(async move {
-        if let Err(error) = check(&ui, &state, bundles, force).await {
-            log::debug!("[update-discovery] background check failed: {error}");
-        }
+        complete_background_check(&ui, check(&ui, &state, bundles, force)).await;
     });
+}
+
+async fn complete_background_check(
+    ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
+    check: impl std::future::Future<Output = Result<AvailabilitySnapshot, String>>,
+) {
+    match check.await {
+        Ok(snapshot) => publish(ui, &snapshot),
+        Err(error) => log::debug!("[update-discovery] background check failed: {error}"),
+    }
 }
 
 pub async fn check(
