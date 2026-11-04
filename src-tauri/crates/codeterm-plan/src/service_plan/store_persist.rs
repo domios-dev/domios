@@ -30,7 +30,10 @@ impl PlanStore {
         spec: &Spec,
     ) -> std::io::Result<PathBuf> {
         turn.assert_store(self);
-        let path = self.database.persist_spec(spec).map_err(plan_io_error)?;
+        let path = self
+            .database
+            .persist_spec(spec)
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
         super::search_index::enqueue_spec_index(turn, spec.clone());
         #[cfg(test)]
         if let Some(test_path) = self.persist_test_spec(spec)? {

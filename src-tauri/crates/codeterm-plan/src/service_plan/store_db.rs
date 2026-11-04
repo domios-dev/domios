@@ -262,7 +262,7 @@ impl PlanDatabase {
             .map(|_| self.path())
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn persist_plan_rows(
         &self,
         plan: &Plan,
