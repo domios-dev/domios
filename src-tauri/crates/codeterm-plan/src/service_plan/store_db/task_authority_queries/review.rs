@@ -26,6 +26,57 @@ struct ClosedReviewRead {
 }
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn task_review_worker_projection(
+        &self,
+        plan: &str,
+        task: &str,
+    ) -> Result<Option<String>, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let worker: Option<String> = connection
+            .query_row(
+                "SELECT CASE WHEN json_extract(a.row_json,'$.mesh_peer') IS NULL
+                THEN json_extract(a.row_json,'$.executor_tab_id') END
+             FROM plan_task_attempts a JOIN plans p ON p.id=a.plan_id AND p.status='active'
+             WHERE a.plan_id=?1 AND a.task_id=?2 ORDER BY a.position DESC LIMIT 1",
+                params![plan, task],
+                |row| column(row, 0),
+            )
+            .optional()
+            .map_err(db_error)?
+            .flatten();
+        Ok(worker)
+    }
+
+    pub(in crate::service_plan) fn task_lane_integration_projection(
+        &self,
+        plan: &str,
+        task: &str,
+    ) -> Result<Option<crate::service_plan::LaneIntegrationRead>, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let raw: Option<String> = connection.query_row(
+            "WITH holder AS (SELECT t.task_id,a.position FROM plan_tasks t JOIN plan_task_attempts a
+                ON a.plan_id=t.plan_id AND a.task_id=t.task_id WHERE t.plan_id=?1
+                    AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
+                    AND CASE WHEN json_type(a.row_json,'$.placement') IS NULL THEN 0
+                        WHEN json_type(a.row_json,'$.placement')='text' THEN json_extract(a.row_json,'$.placement')<>'isolated_lane'
+                        ELSE json('invalid worker placement') END
+                ORDER BY t.position,a.position LIMIT 1)
+             SELECT json_object('plan_id',p.id,'task_id',t.task_id,'worktree_path',json_extract(t.row_json,'$.lane.worktree_path'),
+                'canonical_path',CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?3)=''
+                    THEN json_extract(p.header_json,'$.project_path') ELSE json_extract(p.header_json,'$.canonical_project_path') END,
+                'holder',json_object('task_id',h.task_id,'attempt_id',json_extract(a.row_json,'$.id'),
+                    'placement',json_extract(a.row_json,'$.placement')))
+             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id JOIN holder h
+                JOIN plan_task_attempts a ON a.plan_id=p.id AND a.task_id=h.task_id AND a.position=h.position
+             WHERE p.id=?1 AND t.task_id=?2 AND h.task_id<>t.task_id
+                AND trim(coalesce(json_extract(t.row_json,'$.lane.worktree_path'),''),?3)<>''",
+            params![plan,task,super::super::status_queries::WHITESPACE],|row|column(row,0),
+        ).optional().map_err(db_error)?;
+        raw.map(|raw| decode(plan, &raw)).transpose()
+    }
+
     pub(in crate::service_plan) fn closed_review_continuation_projection(
         &self,
         plan_id: &str,
