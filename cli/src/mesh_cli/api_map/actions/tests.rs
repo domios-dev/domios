@@ -246,3 +246,26 @@ fn restart_without_tab_over_mesh_is_refused_even_with_local_tab_environment() {
     assert!(reason.contains("--tab"), "{reason}");
     assert!(body.is_none());
 }
+
+#[test]
+fn mesh_spawn_preserves_launch_profile() {
+    use clap::Parser;
+    let parsed = crate::Cli::try_parse_from([
+        "domios",
+        "agent",
+        "spawn",
+        "acp",
+        "--profile",
+        "selected",
+        "--cwd",
+        "/work/project",
+    ])
+    .unwrap();
+    let crate::Commands::Agent { action } = parsed.command else {
+        panic!("expected spawn")
+    };
+    let (_, _, body) = super::agent_to_api(&action);
+    let body: serde_json::Value = serde_json::from_str(&body.unwrap()).unwrap();
+    assert_eq!(body["launch_profile"], "selected");
+    assert!(body.get("model").is_none());
+}

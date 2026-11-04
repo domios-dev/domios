@@ -44,6 +44,7 @@ use dispatch_failure::{
     cleanup_succeeded, dispatch_startup_failed_event, dispatch_wait_failed,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
+use dispatch_helpers::finish_unreserved_dispatch;
 pub(super) use dispatch_helpers::{
     dispatch_reasoning_effort, owned_str, respawn_worker_params, set_local_task_name_description,
     task_tab_description,
@@ -717,6 +718,7 @@ where
         provider_reserve_pct: Some(reserve_pct),
         workspace_id: owned_str(p, "workspace_id"),
         model: selected_model.clone(),
+        launch_profile: owned_str(p, "launch_profile"),
         planned_model: detail.task.model.clone(),
         speed: owned_str(p, "speed").or_else(|| detail.task.speed.clone()),
         planned_reasoning_effort,
@@ -727,6 +729,9 @@ where
         task: None,
         ..Default::default()
     };
+    svc.validate_launch_profile(&resolved_provider, spawn_params.launch_profile.as_deref())
+        .map_err(super::model_errors::launch_profile_rpc_error)?;
+    let launch_profile = spawn_params.launch_profile.clone();
     let spawn_params_speed = spawn_params.speed.clone();
     set_dispatch_task_brief(&mut spawn_params, brief, &manifest);
 
@@ -923,6 +928,7 @@ where
                     selected_model.clone(),
                     dispatched_provider_resolved_model,
                     dispatched_reasoning_effort,
+                    launch_profile,
                     begin_owner,
                     begin_owner_is_live,
                     true,
@@ -1151,45 +1157,6 @@ where
             .map_err(plan_rpc_err)?;
     }
     Ok(result)
-}
-
-fn finish_unreserved_dispatch<C>(
-    attempt_start: Result<codeterm_service_core::service::plan::DispatchStart, PlanError>,
-    provisioned_lane: Option<ProvisionedWorkerLane>,
-    close_tab: C,
-) -> Result<
-    (
-        codeterm_service_core::service::plan::DispatchStart,
-        Option<ProvisionedWorkerLane>,
-    ),
-    JsonRpcError,
->
-where
-    C: FnOnce() -> Result<(), String>,
-{
-    let attempt_id = match attempt_start {
-        Ok(attempt_id) => return Ok((attempt_id, provisioned_lane)),
-        Err(error) => error,
-    };
-    let refused = matches!(&attempt_id, PlanError::DispatchInFlight { .. });
-    let cleanup = rollback_failed_dispatch(provisioned_lane, || Ok(()), close_tab);
-    if refused {
-        let mut refusal = plan_rpc_err(attempt_id);
-        if let Err(cleanup) = cleanup {
-            refusal.message = format!(
-                "{}; losing Worker cleanup failed: {cleanup}",
-                refusal.message
-            );
-        }
-        return Err(refusal);
-    }
-    Err(dispatch_failed(
-        "task_start",
-        match cleanup {
-            Ok(()) => attempt_id.to_string(),
-            Err(cleanup) => format!("{attempt_id}; {cleanup}"),
-        },
-    ))
 }
 
 #[cfg(test)]

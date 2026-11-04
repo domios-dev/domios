@@ -33,6 +33,8 @@ mod compete_lane_tests;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TaskRespawnRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub reasoning_effort: Option<String>,
     pub attempt_id: String,
     pub provider: Option<String>,
@@ -70,6 +72,8 @@ pub struct TaskAttemptView {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskRespawnDraft {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub launch_profile: Option<String>,
     pub plan_id: String,
     pub task_id: String,
     pub execution_intent: crate::plan::ExecutionIntent,
@@ -403,6 +407,7 @@ impl PlanStore {
         title: Option<&str>,
         session_id: Option<&str>,
         session_binding_nonce: Option<&str>,
+        launch_profile: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let title = title.map(str::trim).filter(|value| !value.is_empty());
@@ -420,6 +425,9 @@ impl PlanStore {
             now_ms,
             |attempt| {
                 let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
+                if let Some(profile) = launch_profile {
+                    attempt.launch_profile = Some(profile.to_owned());
+                }
                 attempt.executor_title = title.map(str::to_string);
                 attempt.session_id = session_id.map(str::to_string);
                 attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
@@ -782,6 +790,11 @@ impl PlanStore {
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(TaskRespawnDraft {
+            launch_profile: request.launch_profile.or_else(|| {
+                (source_provider.as_deref() == Some(provider.as_str()))
+                    .then(|| source.launch_profile.clone())
+                    .flatten()
+            }),
             plan_id: read.plan_id,
             task_id: task.id.clone(),
             execution_intent: task.execution_intent.clone(),
