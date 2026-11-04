@@ -399,14 +399,6 @@ impl PlanStore {
         ])))
     }
 
-    /// Plans the tab owns or is the bound Planner of.
-    pub fn plans_owned_or_planned_by(&self, tab_id: &str) -> Vec<Plan> {
-        self.plans_matching(&PlanMatch::Any(vec![
-            PlanMatch::owner(tab_id),
-            PlanMatch::Planner(tab_id.to_string()),
-        ]))
-    }
-
     /// Plans bound to the Team or holding work of one of its member tabs.
     pub fn team_close_plans(&self, team_id: &str, member_tab_ids: &[String]) -> Vec<Plan> {
         self.plans_matching(&team_close_candidates(team_id, member_tab_ids))

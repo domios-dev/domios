@@ -561,7 +561,8 @@ fn is_self_close_protected_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(fx.service.is_self_close_protected("owner-tab"));
+    assert!(fx.service.is_self_close_protected("owner-tab").unwrap());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(store, &[&other]);
 }
 
