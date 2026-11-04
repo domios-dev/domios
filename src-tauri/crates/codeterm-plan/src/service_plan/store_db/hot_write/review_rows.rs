@@ -17,14 +17,6 @@ pub(in crate::service_plan) struct TaskRowEdit {
 }
 
 impl PlanDatabase {
-    pub(in crate::service_plan) fn read_task_rows(
-        &self,
-        plan_id: &str,
-        selector: &str,
-    ) -> Result<Task, PlanError> {
-        self.read_task_projection(plan_id, selector, TaskHistory::Attempts)
-    }
-
     pub(in crate::service_plan) fn read_task_core(
         &self,
         plan_id: &str,

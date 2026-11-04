@@ -2,6 +2,22 @@ use crate::plan::Task;
 
 use super::{PlanError, PlanStore};
 
+pub(super) fn validate_projected_gate_claim(
+    authorized: Option<&[String]>,
+    claimed_gate: &str,
+) -> Result<(), PlanError> {
+    let Some(authorized) = authorized else {
+        return Ok(());
+    };
+    if authorized.iter().any(|gate| gate == claimed_gate) {
+        return Ok(());
+    }
+    Err(PlanError::UnauthorizedGateClaim {
+        claimed: claimed_gate.to_string(),
+        authorized: authorized.to_vec(),
+    })
+}
+
 pub(super) fn validate_authorized_gate_claim(
     task: &Task,
     reporter_tab: &str,
@@ -21,16 +37,7 @@ pub(super) fn validate_authorized_gate_claim(
     }) else {
         return Ok(());
     };
-    let Some(authorized) = attempt.authorized_gates.as_ref() else {
-        return Ok(());
-    };
-    if authorized.iter().any(|gate| gate == claimed_gate) {
-        return Ok(());
-    }
-    Err(PlanError::UnauthorizedGateClaim {
-        claimed: claimed_gate.to_string(),
-        authorized: authorized.clone(),
-    })
+    validate_projected_gate_claim(attempt.authorized_gates.as_deref(), claimed_gate)
 }
 
 impl PlanStore {
@@ -44,9 +51,9 @@ impl PlanStore {
         let Some(claimed_gate) = claimed_gate else {
             return Ok(());
         };
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        validate_authorized_gate_claim(task, reporter_tab, Some(claimed_gate))
+        let authorized =
+            self.database
+                .worker_gate_claim_projection(plan_id, task_id, reporter_tab)?;
+        validate_projected_gate_claim(authorized.as_deref(), claimed_gate)
     }
 }

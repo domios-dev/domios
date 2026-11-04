@@ -305,7 +305,28 @@ mod startup;
 mod continuity;
 pub(super) use continuity::register_functions;
 
+mod checkpoint;
 mod creation;
+mod gates;
 mod restart;
 mod restoration;
+mod review;
 mod runtime_restore;
+mod runtime_session;
+mod split;
+
+mod provider_interruption;
+
+mod remote;
+
+mod lane_admission;
+
+mod batch;
+
+mod shared_inspection;
+
+mod review_roles;
+
+mod plan_metadata;
+
+mod respawn_source;

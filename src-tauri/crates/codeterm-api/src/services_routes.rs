@@ -23,12 +23,16 @@ pub async fn list_activity(
     _headers: HeaderMap,
     Query(q): Query<ActivityQuery>,
 ) -> Result<Json<Vec<ActivityEvent>>, (StatusCode, String)> {
-    let writer = ActivityWriter::new(state.svc.services_store.conn());
-    let source = q.source.as_deref().and_then(parse_activity_source);
-    writer
-        .list(source, q.since, q.limit)
-        .map(Json)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    tokio::task::spawn_blocking(move || {
+        let writer = ActivityWriter::new(state.svc.services_store.conn());
+        let source = q.source.as_deref().and_then(parse_activity_source);
+        writer
+            .list(source, q.since, q.limit)
+            .map(Json)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 fn parse_activity_source(s: &str) -> Option<ActivitySource> {
@@ -55,23 +59,43 @@ fn parse_kind(s: &str) -> Option<ServiceKind> {
     }
 }
 
+pub(crate) fn local_services_snapshot(
+    state: &AppState,
+) -> Result<Vec<Service>, (StatusCode, String)> {
+    let crons = state
+        .cron
+        .lock()
+        .list()
+        .iter()
+        .map(store::cron_to_service)
+        .collect::<Vec<_>>();
+    let mut merged = state
+        .svc
+        .services_store
+        .list(None, None)
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    merged.extend(crons);
+    merged.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(merged)
+}
+
 pub async fn list_services(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
     Query(q): Query<ListQuery>,
 ) -> Result<Json<Vec<Service>>, (StatusCode, String)> {
-    let kind = q.kind.as_deref().and_then(parse_kind);
-    let merged = {
-        let cron = state.cron.lock();
-        store::list_local(&state.svc.services_store, &cron)
-            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-    };
-    let filtered: Vec<Service> = merged
-        .into_iter()
-        .filter(|s| kind.as_ref().map_or(true, |k| &s.kind == k))
-        .filter(|s| q.enabled.map_or(true, |e| s.enabled == e))
-        .collect();
-    Ok(Json(filtered))
+    tokio::task::spawn_blocking(move || {
+        let kind = q.kind.as_deref().and_then(parse_kind);
+        let merged = local_services_snapshot(&state)?;
+        let filtered: Vec<Service> = merged
+            .into_iter()
+            .filter(|s| kind.as_ref().map_or(true, |k| &s.kind == k))
+            .filter(|s| q.enabled.map_or(true, |e| s.enabled == e))
+            .collect();
+        Ok(Json(filtered))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn create_service(
@@ -79,6 +103,7 @@ pub async fn create_service(
     _headers: HeaderMap,
     Json(body): Json<ServiceCreate>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    tokio::task::spawn_blocking(move || {
     if body.kind != ServiceKind::Daemon {
         return Err((
             StatusCode::BAD_REQUEST,
@@ -108,6 +133,10 @@ pub async fn create_service(
     Ok(Json(
         serde_json::json!({"service": service, "token": token}),
     ))
+
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn get_service(
@@ -115,13 +144,17 @@ pub async fn get_service(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<Service>, (StatusCode, String)> {
-    state
-        .svc
-        .services_store
-        .get(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map(Json)
-        .ok_or((StatusCode::NOT_FOUND, format!("service {} not found", id)))
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .services_store
+            .get(&id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map(Json)
+            .ok_or((StatusCode::NOT_FOUND, format!("service {} not found", id)))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn update_service(
@@ -130,21 +163,25 @@ pub async fn update_service(
     Path(id): Path<String>,
     Json(body): Json<ServiceUpdate>,
 ) -> Result<Json<Service>, (StatusCode, String)> {
-    state
-        .svc
-        .services_store
-        .update(&id, body)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    state
-        .svc
-        .services_store
-        .get(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
-        .map(Json)
-        .ok_or((
-            StatusCode::NOT_FOUND,
-            format!("service {} not found after update", id),
-        ))
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .services_store
+            .update(&id, body)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        state
+            .svc
+            .services_store
+            .get(&id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+            .map(Json)
+            .ok_or((
+                StatusCode::NOT_FOUND,
+                format!("service {} not found after update", id),
+            ))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 pub async fn delete_service(
@@ -152,19 +189,23 @@ pub async fn delete_service(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    state
-        .svc
-        .services_store
-        .delete(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    if let Err(e) = state.svc.tokens.delete(&id) {
-        log::warn!(
-            "[services] deleted service {} but failed to delete push token: {}",
-            id,
-            e
-        );
-    }
-    Ok(Json(serde_json::json!({"ok": true})))
+    tokio::task::spawn_blocking(move || {
+        state
+            .svc
+            .services_store
+            .delete(&id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if let Err(e) = state.svc.tokens.delete(&id) {
+            log::warn!(
+                "[services] deleted service {} but failed to delete push token: {}",
+                id,
+                e
+            );
+        }
+        Ok(Json(serde_json::json!({"ok": true})))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 #[derive(Deserialize)]
@@ -190,25 +231,29 @@ pub async fn regenerate_token(
     _headers: HeaderMap,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let token = state
-        .svc
-        .tokens
-        .generate(&id)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
-    if let Err(e) = state.svc.services_store.update(
-        &id,
-        ServiceUpdate {
-            push_enabled: Some(true),
-            ..Default::default()
-        },
-    ) {
-        log::warn!(
-            "[services] regenerated token for {} but failed to mark push enabled: {}",
-            id,
-            e
-        );
-    }
-    Ok(Json(
-        serde_json::json!({"token": token, "push_enabled": true}),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let token = state
+            .svc
+            .tokens
+            .generate(&id)
+            .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+        if let Err(e) = state.svc.services_store.update(
+            &id,
+            ServiceUpdate {
+                push_enabled: Some(true),
+                ..Default::default()
+            },
+        ) {
+            log::warn!(
+                "[services] regenerated token for {} but failed to mark push enabled: {}",
+                id,
+                e
+            );
+        }
+        Ok(Json(
+            serde_json::json!({"token": token, "push_enabled": true}),
+        ))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }

@@ -17,7 +17,7 @@ function assert(label: string, cond: boolean) {
   }
 }
 
-type Captured = { url: string; body: Record<string, unknown> };
+type Captured = { url: string; body: Record<string, unknown>; headers: Headers };
 
 const g = globalThis as unknown as Record<string, unknown>;
 const focused: Array<{ tabId: string; workspaceId: string }> = [];
@@ -39,9 +39,9 @@ g.CustomEvent = class<T> {
 
 let captured: Captured[] = [];
 function respond(status: number, payload: unknown) {
-  g.fetch = async (url: string, init: { body?: string }) => {
-    captured.push({ url, body: JSON.parse(init.body ?? "{}") });
-    return { ok: status < 400, status, json: async () => payload };
+  g.fetch = async (url: string, init: { body?: string; headers?: HeadersInit }) => {
+    captured.push({ url, body: JSON.parse(init.body ?? "{}"), headers: new Headers(init.headers) });
+    return Response.json(payload, { status });
   };
 }
 
@@ -95,6 +95,7 @@ async function run() {
     respond(200, { id: "tab-helper-91", workspace_id: "ws-general", delivery_state: "launched" });
     await button.run();
     const request = captured[0];
+    assert("uses the transport bearer and client identity", request.headers.get("Authorization") === "Bearer fixture-token" && !!request.headers.get("X-CodeTerm-Client-Id"));
     assert("posts once to the daemon helper route", captured.length === 1 && request.url.endsWith(AI_HELPER_SPAWN_PATH));
     assert(
       "leaves provider, workspace and cwd to the daemon",

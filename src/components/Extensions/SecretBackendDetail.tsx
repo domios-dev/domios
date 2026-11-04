@@ -1,3 +1,4 @@
+import { localFetch } from "../../lib/webApi";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 /**
  * Secret-backend plugin detail (Bitwarden). The model: installing this plugin
@@ -58,7 +59,7 @@ export function SecretBackendDetail({
 
   const refresh = useCallback(async () => {
     try {
-      const r = await fetch(`${base}/api/secrets/status`, { headers });
+      const r = await localFetch(`/api/secrets/status`, { headers });
       if (r.ok) setStatus((await r.json()) as SecretStatus);
     } catch {
       /* offline — leave status null */
@@ -89,7 +90,7 @@ export function SecretBackendDetail({
     let cancelled = false;
     (async () => {
       try {
-        const oR = await fetch(`${base}/api/secrets/organizations`, { headers });
+        const oR = await localFetch(`/api/secrets/organizations`, { headers });
         if (cancelled) return;
         if (!oR.ok) throw new Error(await readApiError(oR, "couldn't load organizations"));
         setOrgs((await oR.json()).organizations ?? []);
@@ -109,7 +110,7 @@ export function SecretBackendDetail({
     (async () => {
       try {
         const q = defaultOrg ? `?organization=${encodeURIComponent(defaultOrg)}` : "";
-        const cR = await fetch(`${base}/api/secrets/collections${q}`, { headers });
+        const cR = await localFetch(`/api/secrets/collections${q}`, { headers });
         if (cancelled) return;
         if (!cR.ok) throw new Error(await readApiError(cR, "couldn't load collections"));
         setColls((await cR.json()).collections ?? []);
@@ -145,7 +146,7 @@ export function SecretBackendDetail({
       setBusy(true);
       setError(null);
       try {
-        const r = await fetch(`${base}/api/secrets/backend`, {
+        const r = await localFetch(`/api/secrets/backend`, {
           method: "POST",
           headers,
           body: JSON.stringify({ backend: on ? backendId : "local" }),

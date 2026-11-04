@@ -875,12 +875,12 @@ pub async fn task_close(
         }
         emit_plan_changed(&state, &id);
         let mut resp = serde_json::json!({ "ok": true });
-        if let Some(plan) = state.svc.plan_store.get(&id) {
-            let cleanup =
-                codeterm_service_core::service::plan::cleanup_debt::detect_plan_cleanup_debt(
-                    &plan,
-                    |tab| state.svc.tab_probe(tab).exists,
-                );
+        if let Some(cleanup) = state
+            .svc
+            .plan_store
+            .cleanup_debt_projection(&id, |tab| state.svc.tab_probe(tab).exists)
+            .map_err(plan_err)?
+        {
             let hints = codeterm_service_core::service::plan::cleanup_debt::cleanup_debt_hints(
                 &cleanup
                     .into_iter()

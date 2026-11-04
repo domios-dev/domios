@@ -11,6 +11,7 @@ mod binding_tests;
 mod bundle_tests;
 mod chat_header_tests;
 mod curator_digest_tests;
+mod curator_notice_tests;
 mod curator_schedule_tests;
 mod document_reader_tests;
 mod export_tests;
@@ -326,29 +327,55 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
         store.show_task_window("task_selected"),
         Err(PlanError::Quarantined { .. })
     ));
-    assert!(matches!(
-        store.list_tasks_with_reason(TaskListFilter {
+    let listed = store
+        .list_tasks_with_reason(TaskListFilter {
             plan_id: Some(plan.id.clone()),
             ..Default::default()
-        }),
-        Err(PlanError::Quarantined { .. })
-    ));
+        })
+        .expect("list does not read interruption authority fields");
+    assert_eq!(listed.tasks.len(), 4);
+    assert!(listed
+        .tasks
+        .iter()
+        .any(|summary| summary.task.id == "task_selected"));
+    assert!(store.plan_loads_for_test().is_empty());
 }
 
 #[test]
 fn selected_task_list_detail_and_chat_materialization_stays_bounded() {
     use crate::service_plan::task_queries::TaskListFilter;
-    let mut previous = None;
-    for (strides, attempts, extra_body) in [(0, 0, 0), (2048, 0, 0), (0, 2048, 0), (0, 0, 32768)] {
+    let mut previous = std::collections::HashMap::new();
+    for (strides, attempts, extra_body, selected_body, selected_attempts, selected_milestones) in [
+        (0, 0, 0, 0, 0, 0),
+        (2048, 0, 0, 0, 0, 0),
+        (0, 2048, 0, 0, 0, 0),
+        (0, 0, 32768, 0, 0, 0),
+        (0, 0, 0, 32768, 0, 0),
+        (0, 0, 0, 0, 2048, 0),
+        (0, 0, 0, 0, 0, 2048),
+    ] {
+        let list_only = selected_body > 0 || selected_attempts > 0 || selected_milestones > 0;
         let directory = tempfile::tempdir().unwrap();
         let mut plan = fixtures::fixture(directory.path(), strides, attempts);
         plan.tasks[0].assigned_tab_id = Some("selected".into());
         plan.tasks[1].body.push_str(&"x".repeat(extra_body));
+        plan.tasks[0].body.push_str(&"x".repeat(selected_body));
+        for index in 0..selected_attempts {
+            let mut attempt =
+                crate::service_plan::load_audit::attempt(&format!("selected-{index}"), "old");
+            attempt.closed_at = Some(1);
+            plan.tasks[0].execution_attempts.push(attempt);
+        }
+        plan.tasks[0].milestones.extend((0..selected_milestones).map(|index|
+            serde_json::from_value::<crate::plan::Milestone>(json!({"id":format!("selected-{index}"),"from":{},"kind":"note","text":"unselected milestone","ts":1})).unwrap()
+        ));
         let database = fixtures::database(directory.path(), &plan);
         let store = PlanStore::open(database.path()).unwrap();
         fixtures::audit(&database);
-        let mut measurements = Vec::new();
         for consumer in ["task_detail", "task_list", "chat"] {
+            if list_only && consumer != "task_list" {
+                continue;
+            }
             take_metrics();
             super::super::super::store_sync::take_decoded_row_bytes();
             super::super::super::store_rows::take_serialized_row_bytes();
@@ -378,14 +405,15 @@ fn selected_task_list_detail_and_chat_materialization_stays_bounded() {
             assert!(metrics.materialized_bytes < 1024 * 1024);
             assert_eq!(serialized, 0);
             assert!(fixtures::audit_counts(&database).is_empty());
-            println!("fixture={} consumer={consumer} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} extra_body={extra_body} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
-            measurements.push((consumer, metrics, decoded, response_bytes));
+            println!("fixture={} consumer={consumer} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} extra_body={extra_body} selected_body={selected_body} selected_attempts={selected_attempts} selected_milestones={selected_milestones} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+            let measured = (metrics, decoded, response_bytes);
+            if let Some(prior) = previous.get(consumer) {
+                assert_eq!(&measured, prior);
+            } else {
+                previous.insert(consumer, measured);
+            }
         }
         assert!(store.plan_loads_for_test().is_empty());
-        if let Some(previous) = &previous {
-            assert_eq!(&measurements, previous);
-        }
-        previous = Some(measurements);
     }
 }
 

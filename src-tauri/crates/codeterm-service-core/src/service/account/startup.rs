@@ -1,3 +1,6 @@
+mod identity_writer;
+pub(crate) use identity_writer::IdentityWriter;
+
 use codeterm_account::Identity;
 use codeterm_billing::{Access, Entitlements, FileGrantStore, GrantStore, Plan, Snapshot};
 use codeterm_entitlements::{LimitGate, VerifiedGrant};

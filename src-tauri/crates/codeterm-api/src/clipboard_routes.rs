@@ -18,9 +18,13 @@ pub async fn save_clipboard_image(
     _headers: HeaderMap,
     Json(body): Json<SaveClipboardImageBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let path = codeterm_commands::commands::save_clipboard_image_core(body.bytes, body.ext)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({ "path": path })))
+    tokio::task::spawn_blocking(move || {
+        let path = codeterm_commands::commands::save_clipboard_image_core(body.bytes, body.ext)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        Ok(Json(serde_json::json!({ "path": path })))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }
 
 #[derive(Deserialize)]
@@ -34,7 +38,11 @@ pub async fn save_clipboard_file(
     _headers: HeaderMap,
     Json(body): Json<SaveClipboardFileBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let path = codeterm_commands::commands::save_clipboard_file_core(body.bytes, body.filename)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-    Ok(Json(serde_json::json!({ "path": path })))
+    tokio::task::spawn_blocking(move || {
+        let path = codeterm_commands::commands::save_clipboard_file_core(body.bytes, body.filename)
+            .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
+        Ok(Json(serde_json::json!({ "path": path })))
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
 }

@@ -17,8 +17,8 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     include,
-    testTimeout: 0,
-    hookTimeout: 0,
+    testTimeout: 60_000,
+    hookTimeout: 60_000,
     slowTestThreshold: 1_000,
     fileParallelism: false,
     maxWorkers: 1,

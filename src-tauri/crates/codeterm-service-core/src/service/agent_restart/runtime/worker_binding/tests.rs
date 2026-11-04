@@ -355,7 +355,10 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset,
         crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
     ] {
-        assert!(!fixture.service.signal_worker_interruption(&tab_id, event));
+        assert!(!fixture
+            .service
+            .signal_worker_interruption(&tab_id, event)
+            .unwrap());
         let source = store.show_task(&task_id).unwrap().task;
         assert_eq!(
             source.execution_attempts[0].closed_at.is_some(),
