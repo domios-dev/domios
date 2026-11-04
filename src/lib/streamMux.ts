@@ -58,7 +58,7 @@ interface Pending {
   reject: (error: unknown) => void;
 }
 
-export interface StreamMux { fetch: FetchPort; close: () => void }
+export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void }
 
 export function createStreamMux(transport: () => TransportClient, fetcher: FetchPort): StreamMux {
   const pending = new Map<string, Pending>();
@@ -369,6 +369,12 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
         void prepare(entry);
       });
     },
+    // A wake (network back, page visible, explicit retry) skips the remaining backoff once.
+    wake() {
+      if (closed || current || !retry) return;
+      clearTimeout(retry); retry = undefined;
+      if (waiting.size) open();
+    },
     close() {
       closed = true; clearTimeout(retry);
       const owner = current, close = closeStream;
@@ -394,6 +400,10 @@ export function withStreamMux(options: TransportOptions): TransportClient {
     muxesByOrigin.set(client.origin(), created); holder = created;
   }
   return createTransportClient({ ...options, fetch: holder.mux.fetch });
+}
+
+export function wakeStreamMuxes(): void {
+  for (const holder of muxesByOrigin.values()) holder.mux.wake();
 }
 
 export function __resetStreamMuxesForTest(): void {

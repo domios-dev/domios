@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { configureDaemonTransport } from "./daemonBootstrap";
 import { AI_HELPER_CONTEXT, AI_HELPER_SPAWN_PATH, spawnAiHelper } from "./aiHelperSpawn";
 import { configureWithAI } from "./pluginConfigure";
@@ -39,10 +40,10 @@ g.CustomEvent = class<T> {
 
 let captured: Captured[] = [];
 function respond(status: number, payload: unknown) {
-  g.fetch = async (url: string, init: { body?: string; headers?: HeadersInit }) => {
+  g.fetch = muxMockFetch(async (url: string, init: { body?: string; headers?: HeadersInit }) => {
     captured.push({ url, body: JSON.parse(init.body ?? "{}"), headers: new Headers(init.headers) });
     return Response.json(payload, { status });
-  };
+  });
 }
 
 configureDaemonTransport({ origin: "http://127.0.0.1:7686", token: "fixture-token" });
