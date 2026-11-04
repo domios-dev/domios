@@ -75,8 +75,6 @@ import {
 } from "./store/multiplexer";
 import { appShellStateEqual } from "./store/multiplexer/selectors";
 import type { ExtendedState } from "./store/multiplexer/tree";
-import { defaultSpawnProviderId } from "./lib/agentDescriptorCache";
-import { openNewSessionPicker } from "./lib/newSessionChoice";
 import { zoomedFontSize } from "./lib/appShortcuts";
 import { useAppShortcuts } from "./hooks/useAppShortcuts";
 import { useFolderPicker } from "./hooks/useFolderPicker";
