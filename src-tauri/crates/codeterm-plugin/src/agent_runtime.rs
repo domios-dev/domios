@@ -10,6 +10,8 @@ mod background;
 mod capability;
 pub use authority::*;
 pub use background::*;
+mod stream_window;
+pub use stream_window::*;
 mod validation;
 mod wire;
 pub use validation::*;

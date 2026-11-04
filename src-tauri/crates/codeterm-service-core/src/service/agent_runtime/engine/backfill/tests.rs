@@ -32,6 +32,8 @@ fn session() -> (Session, u64) {
         auth: Mutex::new(RuntimeAuthState::SignedIn),
         login: Mutex::new(Default::default()),
         thread_loaded: std::sync::atomic::AtomicBool::new(false),
+        stream_progress: tokio::sync::watch::channel(0).0,
+        turn_requests: Mutex::new(HashMap::new()),
         hook_state: Mutex::new(Value::Null),
         maps: Mutex::new(Default::default()),
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),

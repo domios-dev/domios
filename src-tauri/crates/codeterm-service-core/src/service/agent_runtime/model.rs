@@ -46,6 +46,7 @@ pub enum RuntimeFailure {
     SignInRequired,
     ConversationMissing,
     PrewriteRefused(String),
+    WrittenAwaitingEvidence,
     Superseded,
 }
 
@@ -88,6 +89,7 @@ impl std::fmt::Display for RuntimeFailure {
             Self::SignInRequired => formatter.write_str("Sign-in required"),
             Self::ConversationMissing => formatter.write_str("ConversationMissing: The provider's saved conversation rollout is unavailable. Start a new conversation to continue."),
             Self::PrewriteRefused(reason) => write!(formatter, "Input was not sent: {reason}"),
+            Self::WrittenAwaitingEvidence => formatter.write_str("Input was written; awaiting own-session delivery evidence"),
             Self::Superseded => {
                 formatter.write_str("Runtime session changed; this operation was cancelled")
             }

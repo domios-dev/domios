@@ -374,7 +374,12 @@ pub(crate) async fn submit_loaded(
             }
             Err(DeliveryError::SubmitUnconfirmed {
                 tab: tab.into(),
-                detail: format!("Runtime handoff uncertain: {other:?}"),
+                detail: match other {
+                    Err(RuntimeFailure::WrittenAwaitingEvidence) => {
+                        "Input was written; waiting for the agent to confirm receipt".into()
+                    }
+                    other => format!("Runtime handoff uncertain: {other:?}"),
+                },
             })
         }
     }

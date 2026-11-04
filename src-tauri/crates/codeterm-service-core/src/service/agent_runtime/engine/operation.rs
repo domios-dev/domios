@@ -277,6 +277,22 @@ async fn run_inner(
                     );
                 }
                 handed_off.store(true, Ordering::Release);
+                if capability
+                    .turn_scoped_requests
+                    .iter()
+                    .any(|kind| kind == operation.kind())
+                {
+                    return super::super::turn_requests::run(
+                        svc,
+                        session,
+                        process,
+                        context.clone(),
+                        operation.clone(),
+                        next.clone(),
+                        Some(guard),
+                    )
+                    .await;
+                }
                 process.client.request_guarded(call, Some(guard)).await?
             }
             RuntimeAction::Notification { notification } => {
@@ -400,7 +416,8 @@ async fn run_inner(
                             ) = (&operation, &result, event)
                             {
                                 if thread_id == notice_thread {
-                                    session.state.lock().pending_load_notice = Some(message.clone());
+                                    session.state.lock().pending_load_notice =
+                                        Some(message.clone());
                                     return false;
                                 }
                             }

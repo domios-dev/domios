@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicBool, AtomicI64, Ordering},
+        atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering},
         Arc,
     },
     time::Duration,
@@ -18,7 +18,67 @@ use tokio::{
 };
 
 pub type Reply = Result<Value, RpcFailure>;
-type Pending = oneshot::Sender<Result<Reply, RuntimeFailure>>;
+type Pending = oneshot::Sender<Result<TurnReply, RuntimeFailure>>;
+type PendingResponse = oneshot::Receiver<Result<TurnReply, RuntimeFailure>>;
+
+pub(super) struct TurnReply {
+    pub result: Reply,
+    pub through: u64,
+}
+
+pub(super) struct WriteWitness {
+    boundary: AtomicU64,
+    completion: watch::Sender<Option<Result<(), RuntimeFailure>>>,
+}
+impl Default for WriteWitness {
+    fn default() -> Self {
+        Self {
+            boundary: AtomicU64::new(0),
+            completion: watch::channel(None).0,
+        }
+    }
+}
+impl WriteWitness {
+    pub(super) fn after_sequence(&self) -> Option<u64> {
+        self.boundary.load(Ordering::Acquire).checked_sub(1)
+    }
+    pub(super) fn written(&self) -> bool {
+        matches!(&*self.completion.borrow(), Some(Ok(())))
+    }
+    fn begin(&self, sequence: u64) {
+        self.boundary.store(sequence + 1, Ordering::Release);
+    }
+    fn finish(&self, result: Result<(), RuntimeFailure>) {
+        self.completion.send_if_modified(|current| {
+            if matches!(current, Some(Ok(()))) || current.is_some() && result.is_err() {
+                return false;
+            }
+            *current = Some(result);
+            true
+        });
+    }
+    pub(super) async fn wait(&self) -> Result<(), RuntimeFailure> {
+        let mut completion = self.completion.subscribe();
+        loop {
+            if let Some(result) = completion.borrow_and_update().clone() {
+                return result;
+            }
+            completion
+                .changed()
+                .await
+                .map_err(|_| RuntimeFailure::PipeEof)?;
+        }
+    }
+}
+
+struct WriteAttempt(Option<Arc<WriteWitness>>);
+impl Drop for WriteAttempt {
+    fn drop(&mut self) {
+        if let Some(witness) = &self.0 {
+            witness.finish(Err(RuntimeFailure::PipeEof));
+        }
+    }
+}
 
 pub(crate) type PrewriteGuard = Arc<dyn Fn() -> Result<(), RuntimeFailure> + Send + Sync>;
 
@@ -26,6 +86,13 @@ struct Write {
     text: String,
     guard: Option<PrewriteGuard>,
     written: oneshot::Sender<Result<(), RuntimeFailure>>,
+    turn_write: Option<Arc<WriteWitness>>,
+}
+
+#[derive(Clone)]
+pub(super) struct Ingress {
+    pub frame: RuntimeFrame,
+    pub sequence: u64,
 }
 
 enum WireFrame {
@@ -43,8 +110,9 @@ struct Inner {
     state: Mutex<State>,
     next_id: AtomicI64,
     outgoing: mpsc::Sender<Write>,
-    events: broadcast::Sender<RuntimeFrame>,
-    initial_events: Mutex<Option<broadcast::Receiver<RuntimeFrame>>>,
+    events: broadcast::Sender<Ingress>,
+    event_sequence: AtomicU64,
+    initial_events: Mutex<Option<broadcast::Receiver<Ingress>>>,
     ended: watch::Sender<Option<RuntimeFailure>>,
 }
 
@@ -82,6 +150,7 @@ impl Client {
             }),
             next_id: AtomicI64::new(1),
             outgoing,
+            event_sequence: AtomicU64::new(0),
             events,
             initial_events: Mutex::new(Some(initial_events)),
             ended,
@@ -94,11 +163,17 @@ impl Client {
                     _ = ended.changed() => break,
                     text = messages.recv() => match text {Some(text)=>text,None=>break},
                 };
+                let _attempt = WriteAttempt(text.turn_write.clone());
                 if let Some(reason) = text.guard.as_ref().and_then(|guard| guard().err()) {
-                    let _ = text
-                        .written
-                        .send(Err(RuntimeFailure::PrewriteRefused(reason.to_string())));
+                    let reason = RuntimeFailure::PrewriteRefused(reason.to_string());
+                    if let Some(witness) = &text.turn_write {
+                        witness.finish(Err(reason.clone()));
+                    }
+                    let _ = text.written.send(Err(reason));
                     continue;
+                }
+                if let Some(witness) = &text.turn_write {
+                    witness.begin(sender.0.event_sequence.load(Ordering::Acquire));
                 }
                 let sent = tokio::select! {
                     _ = ended.changed() => break,
@@ -110,16 +185,26 @@ impl Client {
                 };
                 match sent {
                     Ok(Ok(())) => {
+                        if let Some(witness) = &text.turn_write {
+                            witness.finish(Ok(()));
+                        }
                         let _ = text.written.send(Ok(()));
                     }
                     Ok(Err(error)) => {
-                        sender.close(RuntimeFailure::PipeFailure {
+                        let reason = RuntimeFailure::PipeFailure {
                             stream: "stdin".into(),
                             reason: error.to_string(),
-                        });
+                        };
+                        if let Some(witness) = &text.turn_write {
+                            witness.finish(Err(reason.clone()));
+                        }
+                        sender.close(reason);
                         break;
                     }
                     Err(_) => {
+                        if let Some(witness) = &text.turn_write {
+                            witness.finish(Err(RuntimeFailure::Deadline));
+                        }
                         sender.close(RuntimeFailure::Deadline);
                         break;
                     }
@@ -144,13 +229,19 @@ impl Client {
                 };
                 if let WireFrame::Response { id, result } = frame {
                     if let Some(reply) = receiver.0.state.lock().pending.remove(&id) {
-                        let _ = reply.send(Ok(result));
+                        let _ = reply.send(Ok(TurnReply {
+                            result,
+                            through: receiver.0.event_sequence.load(Ordering::Acquire),
+                        }));
                     }
                 } else if let WireFrame::Event(frame) = frame {
                     if receiver.0.trace_bound.load(Ordering::Relaxed) {
                         super::model::responsiveness::ingress(&frame);
                     }
-                    let _ = receiver.0.events.send(frame);
+                    let _ = receiver.0.events.send(Ingress {
+                        frame,
+                        sequence: receiver.0.event_sequence.fetch_add(1, Ordering::AcqRel) + 1,
+                    });
                 }
             }
         });
@@ -167,7 +258,7 @@ impl Client {
     pub fn ended(&self) -> watch::Receiver<Option<RuntimeFailure>> {
         self.0.ended.subscribe()
     }
-    pub fn subscribe(&self) -> broadcast::Receiver<RuntimeFrame> {
+    pub(super) fn subscribe(&self) -> broadcast::Receiver<Ingress> {
         self.0
             .initial_events
             .lock()
@@ -197,6 +288,40 @@ impl Client {
         call: &RpcCall,
         guard: Option<PrewriteGuard>,
     ) -> Result<Reply, RuntimeFailure> {
+        let (pending, received) = self.start_request(call, guard, None).await?;
+        let result = tokio::time::timeout(Duration::from_secs(30), received)
+            .await
+            .map_err(|_| RuntimeFailure::Deadline)?
+            .map_err(|_| RuntimeFailure::PipeEof)?;
+        drop(pending);
+        result.map(|reply| reply.result)
+    }
+
+    pub(super) async fn request_turn(
+        &self,
+        call: &RpcCall,
+        guard: Option<PrewriteGuard>,
+        anchor: Arc<WriteWitness>,
+    ) -> Result<TurnReply, RuntimeFailure> {
+        let (pending, received) = match self.start_request(call, guard, Some(anchor.clone())).await
+        {
+            Ok(pending) => pending,
+            Err(reason) => {
+                anchor.finish(Err(reason.clone()));
+                return Err(reason);
+            }
+        };
+        let result = received.await.map_err(|_| RuntimeFailure::PipeEof)?;
+        drop(pending);
+        result
+    }
+
+    async fn start_request(
+        &self,
+        call: &RpcCall,
+        guard: Option<PrewriteGuard>,
+        turn_write: Option<Arc<WriteWitness>>,
+    ) -> Result<(PendingRequest, PendingResponse), RuntimeFailure> {
         let id = RpcId::Number(self.0.next_id.fetch_add(1, Ordering::Relaxed));
         let (reply, received) = oneshot::channel();
         {
@@ -210,17 +335,13 @@ impl Client {
             client: self.clone(),
             id: id.clone(),
         };
-        self.queue_guarded(
+        self.queue_with_anchor(
             json!({"id":id,"method":call.method,"params":call.params}),
             guard,
+            turn_write,
         )
         .await?;
-        let result = tokio::time::timeout(Duration::from_secs(30), received)
-            .await
-            .map_err(|_| RuntimeFailure::Deadline)?
-            .map_err(|_| RuntimeFailure::PipeEof)?;
-        drop(pending);
-        result
+        Ok((pending, received))
     }
 
     pub async fn notify(&self, call: &RpcCall) -> Result<(), RuntimeFailure> {
@@ -239,8 +360,16 @@ impl Client {
     }
     async fn queue_guarded(
         &self,
+        frame: Value,
+        guard: Option<PrewriteGuard>,
+    ) -> Result<(), RuntimeFailure> {
+        self.queue_with_anchor(frame, guard, None).await
+    }
+    async fn queue_with_anchor(
+        &self,
         mut frame: Value,
         guard: Option<PrewriteGuard>,
+        turn_write: Option<Arc<WriteWitness>>,
     ) -> Result<(), RuntimeFailure> {
         if let Some(reason) = self.0.state.lock().closed.clone() {
             return Err(reason);
@@ -259,6 +388,7 @@ impl Client {
                 text,
                 guard,
                 written,
+                turn_write,
             })
             .map_err(|error| RuntimeFailure::PipeFailure {
                 stream: "stdin".into(),

@@ -104,7 +104,7 @@ async fn process_start_notification_is_retained_before_subscriber_attachment() {
     .unwrap();
     let mut events = client.subscribe();
     assert!(
-        matches!(events.try_recv().unwrap(), RuntimeFrame::Notification { method, .. } if method == "fixture/started")
+        matches!(events.try_recv().unwrap().frame, RuntimeFrame::Notification { method, .. } if method == "fixture/started")
     );
 }
 
@@ -227,7 +227,7 @@ async fn parallel_tool_output_burst_stays_inside_the_event_queue() {
     .unwrap();
     let mut seen = 0;
     while let Ok(frame) = events.try_recv() {
-        let RuntimeFrame::Notification { params, .. } = frame else {
+        let RuntimeFrame::Notification { params, .. } = frame.frame else {
             panic!("unexpected frame")
         };
         assert_eq!(params["seq"], seen);
@@ -255,7 +255,7 @@ async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
             .await
             .unwrap()
             .unwrap();
-        let RuntimeFrame::Notification { method, params } = event else {
+        let RuntimeFrame::Notification { method, params } = event.frame else {
             panic!("unexpected request");
         };
         assert_eq!(method, frame["method"].as_str().unwrap());
@@ -381,4 +381,126 @@ async fn unattributable_agent_error_closes_epoch_and_all_pending_requests() {
     assert_eq!(result, Err(failure.clone()));
     assert_eq!(*client.ended().borrow(), Some(failure));
     assert!(client.0.state.lock().pending.is_empty());
+}
+
+#[tokio::test]
+async fn undeclared_request_keeps_its_thirty_second_deadline() {
+    let (host, peer) = tokio::io::duplex(4096);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    let call = RpcCall {
+        target: None,
+        method: "opaque/submit".into(),
+        params: json!({}),
+    };
+    let request = client.request_guarded(&call, None);
+    tokio::pin!(request);
+    let ready = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        client
+            .notify(&RpcCall {
+                target: None,
+                method: "opaque/barrier".into(),
+                params: json!({}),
+            })
+            .await
+            .unwrap();
+        peer
+    };
+    let _peer = tokio::select! {
+        biased;
+        result = &mut request => panic!("request completed before its reply or deadline: {result:?}"),
+        peer = ready => peer,
+    };
+    tokio::time::pause();
+    let (reply, ()) = tokio::join!(biased;
+        &mut request,
+        async { tokio::time::advance(Duration::from_secs(31)).await; },
+    );
+    assert_eq!(reply, Err(RuntimeFailure::Deadline));
+    assert!(client.0.state.lock().pending.is_empty());
+}
+
+#[tokio::test]
+async fn first_ingress_during_write_keeps_the_prewrite_sequence_boundary() {
+    use std::{
+        io,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+    struct FlushGate<W> {
+        writer: W,
+        release: oneshot::Receiver<()>,
+    }
+    impl<W: AsyncWrite + Unpin> AsyncWrite for FlushGate<W> {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.writer).poll_write(cx, bytes)
+        }
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            match Pin::new(&mut self.release).poll(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(_) => Pin::new(&mut self.writer).poll_flush(cx),
+            }
+        }
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.writer).poll_shutdown(cx)
+        }
+    }
+    use std::future::Future;
+    let (host, peer) = tokio::io::duplex(4096);
+    let (read, write) = tokio::io::split(host);
+    let (release, flushing) = oneshot::channel();
+    let client = Client::attach(
+        read,
+        FlushGate {
+            writer: write,
+            release: flushing,
+        },
+    );
+    let mut events = client.subscribe();
+    let witness = Arc::new(WriteWitness::default());
+    let call = RpcCall {
+        target: None,
+        method: "fixture/submit".into(),
+        params: json!({}),
+    };
+    let request = client.request_turn(&call, None, witness.clone());
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        peer.get_mut()
+            .write_all(b"{\"method\":\"fixture/first\",\"params\":{\"text\":\"first chunk\"}}\n")
+            .await
+            .unwrap();
+        let first = events.recv().await.unwrap();
+        assert_eq!(first.sequence, 1);
+        assert_eq!(witness.after_sequence(), Some(0));
+        assert!(!witness.written());
+        assert!(
+            matches!(first.frame,RuntimeFrame::Notification{params,..} if params["text"]=="first chunk")
+        );
+        release.send(()).unwrap();
+        witness.wait().await.unwrap();
+        witness.finish(Err(RuntimeFailure::Deadline));
+        assert!(
+            witness.written(),
+            "a late failure cannot erase the write receipt"
+        );
+        let reply = json!({"id":request["id"],"result":{}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    };
+    let (result, _peer) = tokio::join!(request, server);
+    assert!(result.is_ok());
 }

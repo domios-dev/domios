@@ -49,6 +49,7 @@ mod restore_attempt;
 mod rpc;
 mod subscriber;
 pub mod transport;
+mod turn_requests;
 pub(crate) mod user_delivery;
 
 pub fn requested_for_tab(svc: &crate::service::ServiceContext, tab: &str) -> bool {

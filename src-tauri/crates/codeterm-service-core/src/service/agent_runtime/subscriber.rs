@@ -78,7 +78,9 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             let step = match drained {
                 batch::Drained::Closed { frames } => {
                     if !frames.is_empty() {
-                        let _ = batch::handle(&svc, &session, &process, epoch, frames, false).await;
+                        let _ =
+                            batch::handle_stamped(&svc, &session, &process, epoch, frames, false)
+                                .await;
                     }
                     process.client.close(RuntimeFailure::PipeFailure {
                         stream: "events".into(),
@@ -87,7 +89,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                     break;
                 }
                 batch::Drained::Ready { frames, lagged } => {
-                    batch::handle(&svc, &session, &process, epoch, frames, lagged).await
+                    batch::handle_stamped(&svc, &session, &process, epoch, frames, lagged).await
                 }
             };
             match step {

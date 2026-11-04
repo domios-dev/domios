@@ -118,6 +118,7 @@ impl AgentProvider for Adapter {
             },
             inherited_environment_exclusions: Vec::new(),
             login: None,
+            turn_scoped_requests: Vec::new(),
             request_methods: std::collections::BTreeMap::from([
                 ("control".into(), vec!["fixture/restore".into()]),
                 ("resumeThread".into(), vec!["thread/resume".into()]),
@@ -285,6 +286,8 @@ pub(super) fn scene() -> Scene {
         login: Mutex::new(Default::default()),
         auth: Mutex::new(RuntimeAuthState::Unknown),
         thread_loaded: std::sync::atomic::AtomicBool::new(true),
+        stream_progress: tokio::sync::watch::channel(0).0,
+        turn_requests: Mutex::new(HashMap::new()),
         hook_state: Mutex::new(Value::Null),
         maps: Mutex::new(super::super::events::RuntimeMaps::default()),
         provider_operation_failures: std::sync::atomic::AtomicU32::new(0),

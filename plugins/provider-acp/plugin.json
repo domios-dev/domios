@@ -82,6 +82,9 @@
       "interrupt": {
         "beforeFirstTurn": true
       },
+      "turnScopedRequests": [
+        "submitTurn"
+      ],
       "hostMcp": {
         "param": "mcpServers",
         "methods": [

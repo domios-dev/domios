@@ -23,6 +23,9 @@ impl JsProvider {
         if cap.host_mcp.is_none() {
             ctx.host_mcp = None;
         }
+        if cap.turn_scoped_requests.is_empty() {
+            ctx.stream_window = None;
+        }
         let op = op.clone();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
         tokio::task::spawn_blocking(move || {
@@ -53,6 +56,9 @@ impl JsProvider {
         let mut ctx = ctx.clone();
         if cap.host_mcp.is_none() {
             ctx.host_mcp = None;
+        }
+        if cap.turn_scoped_requests.is_empty() {
+            ctx.stream_window = None;
         }
         let op = op.clone();
         let state = state.clone();
@@ -97,11 +103,24 @@ impl JsProvider {
         if cap.host_mcp.is_none() {
             ctx.host_mcp = None;
         }
+        if cap.turn_scoped_requests.is_empty() {
+            ctx.stream_window = None;
+        }
         let state = state.clone();
         let frames = frames.to_vec();
         let deadline = std::time::Instant::now() + RUNTIME_HOOK_DEADLINE;
         tokio::task::spawn_blocking(move || {
             validate_runtime_context(&ctx)?;
+            if ctx
+                .stream_window
+                .as_ref()
+                .is_some_and(|window| window.frame_sequences.len() != frames.len())
+            {
+                return Err(RuntimeFailure::new(
+                    RuntimeFailureCode::InvalidSchema,
+                    "Runtime stream sequences do not match frames",
+                ));
+            }
             validate_runtime_state(&state)?;
             validate_runtime_frames(&cap, &frames)?;
             let reduction = super::super::vm::call_runtime_hook(

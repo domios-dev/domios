@@ -110,6 +110,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     {
         return Err(invalid("invalid runtime authority"));
     }
+    super::stream_window::validate(ctx.stream_window.as_ref(), identifier)?;
     validate_runtime_settings(&ctx.settings)?;
     if let Some(policy) = &ctx.restricted_cli {
         let hash = |value: &str| {
@@ -418,6 +419,20 @@ pub fn validate_runtime_call(
             .is_none_or(|target| &target.thread_id != thread_id || target.turn_id.is_some())
         {
             return Err(mismatch("background request lacks exact owned target"));
+        }
+    } else if cap
+        .turn_scoped_requests
+        .iter()
+        .any(|kind| kind == op.kind())
+    {
+        let target = call
+            .target
+            .as_ref()
+            .ok_or_else(|| mismatch("turn-scoped request lacks target"))?;
+        if ctx.thread_id.as_ref() != Some(&target.thread_id)
+            || target.turn_id.as_ref().is_none_or(|turn| !identifier(turn))
+        {
+            return Err(mismatch("turn-scoped request lacks an exact owned turn"));
         }
     } else if matches!(op, RuntimeOperation::Interrupt { .. }) {
         let target = call
@@ -1159,3 +1174,6 @@ pub fn validate_active_turns(ctx: &RuntimeContext) -> Result<(), RuntimeFailure>
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

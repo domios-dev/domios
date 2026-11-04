@@ -1,6 +1,6 @@
 import type {
   JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
-  RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep,
+  RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep, TurnInput,
 } from "@codeterm/plugin-sdk";
 import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
@@ -23,7 +23,7 @@ interface Negotiation {
   cursor:StreamCursor;
   inFlight:boolean;
   projection?:JsonValue;
-  settledProjection?:JsonValue;
+  promptSend?:{sendId:string; input:TurnInput};
 }
 const epochs = new Map<string, Negotiation>();
 const object = (value:unknown):Record<string,JsonValue> =>
@@ -178,7 +178,12 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       state.cursor.prompt=Math.max(state.cursor.prompt,Number(object(state.projection).turn) || 0)+1;
       state.cursor.loading=false;
       state.inFlight=true;
-      return request(methods.prompt, {sessionId, prompt});
+      state.promptSend={sendId:op.sendId,input:op.input};
+      const plan=request(methods.prompt, {sessionId, prompt});
+      if (plan.action.kind === "request")
+        plan.action.call.target={threadId:sessionId,turnId:`${sessionId}:turn:${state.cursor.prompt}`};
+      plan.state={method:methods.prompt,prompt:state.cursor.prompt};
+      return plan;
     }
     case "interrupt": {
       const sessionId = ownSession(ctx, state);
@@ -230,7 +235,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
-      projection:prior?.projection, settledProjection:prior?.settledProjection, settings:prior?.settings});
+      projection:prior?.projection, promptSend:prior?.promptSend, settings:prior?.settings});
     return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo)} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
@@ -283,20 +288,21 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
   if (op.kind === "answer" && method === "session/request_permission")
     return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};
   if (op.kind === "interrupt" && method === methods.cancel) {
-    state.inFlight=false;
-    const settled=settleStream(ctx,state.projection ?? null,"cancelled");
-    state.projection=settled.state;state.settledProjection=settled.state;
-    return {kind:"complete",result:{kind:"done"},events:settled.events};
+    return {kind:"complete",result:{kind:"done"},events:[]};
   }
   if (op.kind === "submitTurn" && method === methods.prompt) {
-    state.inFlight=false;
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
+    const turn=typeof object(raw).prompt === "number" ? object(raw).prompt : object(state.projection).turn;
+    if (turn !== state.cursor.prompt || !state.inFlight)
+      return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:[]};
+    state.inFlight=false;
     state.instructions = undefined;
-    const settled=settleStream(ctx,state.projection ?? null,value.stopReason);
-    state.projection=settled.state;state.settledProjection=settled.state;
+    const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
+    const settled=settleStream(ctx,projected,value.stopReason);
+    state.projection=settled.state;
     const mapped=usage(value.usage);
-    return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId},
+    return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${object(state.projection).turn}`},
       events:[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events]};
   }
   return refused("unsupported", "ACP response is unavailable");
@@ -306,17 +312,34 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
   binding(ctx);
   const state=negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return {state:raw,events:[]};
-  const own=frames.filter(frame=>object(frame.params).sessionId === ctx.threadId &&
-    (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
+  const own=frames.flatMap((frame,index)=>object(frame.params).sessionId === ctx.threadId &&
+    (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method))
+      ? [{frame,index}] : []);
   const prompts=frames.flatMap(frame=>{
     if (frame.kind !== "request") return [];
     const prompt=runtimePrompt(ctx,frame.method,frame.params);
     return prompt ? [{kind:"prompt" as const,threadId:ctx.threadId!,requestId:frame.requestId,prompt}] : [];
   });
   if (!own.length) return {state:raw,events:prompts};
-  const reduction=reduceStream(ctx,state.settledProjection ?? raw,own,state.cursor);
-  delete state.settledProjection;
-  state.projection=reduction.state;
+  let projection=state.projection ?? raw;
+  const events:import("@codeterm/plugin-sdk").AgentEvent[]=[];
+  for (const {frame,index} of own) {
+    const window=ctx.streamWindow;
+    const witness=window?.turnRequests?.find(request=>request.sendId === state.promptSend?.sendId);
+    const sequence=window?.frameSequences?.[index];
+    const attributable=!window || witness?.written === true && witness.afterSequence !== undefined
+      && sequence !== undefined && sequence > witness.afterSequence;
+    const cursor=attributable ? state.cursor : {...state.cursor,prompt:Number(object(projection).prompt) || 0};
+    if (!attributable && projection === null)
+      projection={...object(reduceStream(ctx,null,[],cursor).state),turn:0};
+    const frameContext=!window ? ctx : {...ctx,claimedSends:ctx.claimedSends.filter(claim=>
+      window.turnRequests?.some(request=>request.sendId === claim.sendId && request.written === true
+        && request.afterSequence !== undefined && sequence !== undefined && sequence > request.afterSequence))};
+    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable ? state.promptSend : undefined);
+    projection=reduced.state;events.push(...reduced.events);
+  }
+  const reduction={state:projection,events};
+  state.projection=projection;
   for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings={...state.settings,...event.settings};
     if (event.settings.configOptions) {
