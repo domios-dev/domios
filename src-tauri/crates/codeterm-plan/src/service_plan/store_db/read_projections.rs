@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 
 pub(in crate::service_plan) mod checkout;
 mod compete_preflight;
+pub(in crate::service_plan) mod competition_lane;
 mod executor_source;
 pub(in crate::service_plan) mod lane_cleanup;
 pub(in crate::service_plan) mod provider_switch;

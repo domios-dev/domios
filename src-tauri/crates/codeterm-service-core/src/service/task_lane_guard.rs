@@ -44,7 +44,7 @@ fn foreign_lane_facts<'a>(
         })
 }
 
-fn classify_lane_facts<'a>(
+pub fn classify_lane_facts<'a>(
     canonical: &str,
     resolved_worktree: &str,
     lanes: impl Iterator<Item = (&'a str, &'a str)>,
