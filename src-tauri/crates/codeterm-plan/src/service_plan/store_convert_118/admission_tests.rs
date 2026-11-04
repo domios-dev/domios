@@ -225,3 +225,53 @@ fn legacy_imports_with_unknown_table_is_refused_without_mutation() {
         .unwrap();
     refuses_without_mutation(&path);
 }
+
+#[test]
+fn version_one_database_written_by_1_18_6_opens_and_gains_the_new_indexes() {
+    const ADDED_AFTER_1_18_6: &[&str] = &[
+        "plan_attempts_id",
+        "plan_milestones_id",
+        "plan_operations_entity_id",
+        "plan_operations_finished_id",
+        "plan_strides_id",
+        "plan_tasks_bound_tabs",
+        "plan_tasks_handle_order",
+        "plan_tasks_status_summary",
+    ];
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("plans.db");
+    let connection = Connection::open(&path).unwrap();
+    store_db::create_schema(&connection).unwrap();
+    for name in ADDED_AFTER_1_18_6 {
+        connection
+            .execute_batch(&format!("DROP INDEX {name}"))
+            .unwrap();
+    }
+    connection
+        .execute_batch(schema::RETIRED_FTS_SCHEMA)
+        .unwrap();
+    connection.execute_batch("INSERT INTO plan_operations(entity_id, kind, state, submitted_at) VALUES ('retained', 'fixture', 'committed', 1)").unwrap();
+    connection
+        .pragma_update(None, "user_version", SCHEMA_VERSION)
+        .unwrap();
+    drop(connection);
+
+    drop(PlanDatabase::open(path.clone()).unwrap());
+
+    let opened = snapshot(&path);
+    for name in ADDED_AFTER_1_18_6 {
+        assert!(
+            opened
+                .schema
+                .iter()
+                .any(|entry| entry.0 == "index" && entry.1 == *name),
+            "{name}"
+        );
+    }
+    assert!(!opened
+        .schema
+        .iter()
+        .any(|entry| entry.1.starts_with("plan_fts")));
+    assert_eq!(table_count(&path, "plan_operations"), 1);
+    assert!(!backup_path(&path).exists());
+}

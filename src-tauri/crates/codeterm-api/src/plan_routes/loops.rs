@@ -6,7 +6,6 @@ use axum::{
 use serde::Deserialize;
 
 use crate::routes::AppState;
-use codeterm_service_core::service::plan::PlanError;
 
 use super::{emit_plan_changed, epoch_ms, plan_err, PlanRouteResult};
 
@@ -67,14 +66,7 @@ pub async fn loop_set(
                 epoch_ms(),
             )
             .map_err(plan_err)?;
-        if let Some(plan_id) = state.svc.plan_store.list_index().iter().find_map(|e| {
-            state
-                .svc
-                .plan_store
-                .get(&e.plan_id)
-                .filter(|p| p.loops.iter().any(|l| l.id == lid))
-                .map(|p| p.id)
-        }) {
+        if let Some(plan_id) = state.svc.plan_store.loop_plan_id(&lid).map_err(plan_err)? {
             emit_plan_changed(&state, &plan_id);
         }
         Ok(Json(serde_json::json!({ "ok": true })))
@@ -88,11 +80,7 @@ pub async fn loop_status(
     Path((_id, lid)): Path<(String, String)>,
 ) -> PlanRouteResult {
     crate::plan_routes::run_blocking(move || {
-        let spec = state
-            .svc
-            .plan_store
-            .loop_status(&lid)
-            .ok_or_else(|| plan_err(PlanError::NotFound))?;
+        let spec = state.svc.plan_store.loop_status(&lid).map_err(plan_err)?;
         Ok(Json(serde_json::to_value(spec).unwrap_or_default()))
     })
     .await
@@ -142,14 +130,7 @@ pub async fn loop_stop(
             .plan_store
             .stop_loop(&lid, epoch_ms())
             .map_err(plan_err)?;
-        if let Some(plan_id) = state.svc.plan_store.list_index().iter().find_map(|e| {
-            state
-                .svc
-                .plan_store
-                .get(&e.plan_id)
-                .filter(|p| p.loops.iter().any(|l| l.id == lid))
-                .map(|p| p.id)
-        }) {
+        if let Some(plan_id) = state.svc.plan_store.loop_plan_id(&lid).map_err(plan_err)? {
             emit_plan_changed(&state, &plan_id);
         }
         Ok(Json(serde_json::json!({ "ok": true })))

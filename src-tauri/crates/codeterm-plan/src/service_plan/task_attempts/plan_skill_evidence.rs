@@ -101,45 +101,8 @@ impl PlanStore {
                 "plan skill caller identity is incomplete".into(),
             ));
         }
-        let mut current = None;
-        for plan in self
-            .stored_plans_matching(&tab_work_candidates(tab_id))
-            .into_iter()
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-        {
-            for task in plan.tasks.iter().filter(|task| !task.status.is_terminal()) {
-                for attempt in task.execution_attempts.iter().filter(|attempt| {
-                    attempt.executor_tab_id == tab_id
-                        && attempt.closed_at.is_none()
-                        && attempt.retired_at.is_none()
-                }) {
-                    if current.is_some()
-                        || (attempt.competition_group_id.is_none()
-                            && task.assigned_tab_id.as_deref() != Some(tab_id))
-                        || attempt.session_id.as_deref() != Some(session_id)
-                        || attempt.session_binding_nonce.as_deref() != Some(nonce)
-                    {
-                        return Err(PlanError::Io(
-                            "plan skill caller does not identify exactly one current attempt"
-                                .into(),
-                        ));
-                    }
-                    current = Some((plan.id.clone(), task.id.clone(), attempt.id.clone()));
-                }
-                if task.assigned_tab_id.as_deref() == Some(tab_id)
-                    && !task.execution_attempts.iter().any(|attempt| {
-                        attempt.executor_tab_id == tab_id
-                            && attempt.closed_at.is_none()
-                            && attempt.retired_at.is_none()
-                    })
-                {
-                    return Err(PlanError::Io(
-                        "plan skill assignment has no current attempt".into(),
-                    ));
-                }
-            }
-        }
-        Ok(current)
+        self.database
+            .current_skill_attempt(tab_id, session_id, nonce)
     }
 
     #[allow(clippy::too_many_arguments)]
