@@ -342,7 +342,7 @@ pub use orchestrator::{BatchOp, SpawnAgentParams, SpawnIdentityProvenance, Spawn
 pub use plan_authority::{
     ensure_planner_task_fields_are_structural, launch_binding_is_pending,
     planner_forbidden_task_field, AuthenticatedPlanCaller, OrchestratorLearningError,
-    PlanAuthorityError,
+    PlanAuthorityError, PlanOperationError,
 };
 pub use session_binding_state::SessionBindingState;
 pub use spawn_params::starter_prompt_for_role;

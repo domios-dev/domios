@@ -305,7 +305,8 @@ mod startup;
 mod continuity;
 pub(super) fn register_functions(connection: &rusqlite::Connection) -> Result<(), PlanError> {
     continuity::register_functions(connection)?;
-    ack::register(connection)
+    ack::register(connection)?;
+    dispatch_preflight::register(connection)
 }
 
 mod checkpoint;
@@ -347,3 +348,5 @@ mod deadline;
 mod spawn_binding;
 
 mod worker_preparation;
+
+mod dispatch_preflight;

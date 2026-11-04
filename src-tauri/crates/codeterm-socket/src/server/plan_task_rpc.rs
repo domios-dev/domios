@@ -64,10 +64,11 @@ pub(super) fn authorize_execution(
     params: Option<&Value>,
 ) -> Result<(), JsonRpcError> {
     svc.authorize_execution_action(plan_id, &authenticated_caller(params))
-        .map_err(|message| JsonRpcError {
-            code: -32003,
-            message,
-            data: Some(json!({ "type": "plan_execution_authorization_required" })),
+        .map_err(|error| {
+            super::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_execution_authorization_required"),
+            )
         })
 }
 fn dependency_vec_field(p: Option<&Value>) -> Result<Option<Vec<String>>, JsonRpcError> {
@@ -276,10 +277,8 @@ pub(super) fn dispatch(
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let (plan_id, task_id) = svc
                 .authorize_task_execution_action(&task_id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
+                .map_err(|error| {
+                    super::plan_task_authority::execution_authority_error(error, None)
                 })?;
             let tab_id = get_string_param(params, "caller_tab_id")?;
             let role = tab_role(svc, &tab_id);
@@ -296,10 +295,8 @@ pub(super) fn dispatch(
             let (_pid, task_id) = plan_refs::resolve_task(store, params)?;
             let (plan_id, task_id) = svc
                 .authorize_task_execution_action(&task_id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
+                .map_err(|error| {
+                    super::plan_task_authority::execution_authority_error(error, None)
                 })?;
             store
                 .set_task_assignment(&task_id, None, None, now)

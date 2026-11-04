@@ -139,7 +139,12 @@ fn canonical_writer_placement_is_never_inferred_without_opt_in() {
         Some(json!({ "placement": "isolated_lane" })),
     ] {
         assert_eq!(
-            dispatch_worker_placement(params.as_ref(), &ExecutionIntent::Mutating, &task).unwrap(),
+            dispatch_worker_placement(
+                params.as_ref(),
+                &ExecutionIntent::Mutating,
+                &preflight_facts(&task)
+            )
+            .unwrap(),
             WorkerPlacement::IsolatedLane
         );
     }
@@ -177,12 +182,18 @@ fn canonical_writer_opt_in_is_refused_outside_a_mutating_repository_task_without
     let opt_in = json!({ "placement": "canonical_writer" });
     let repo_task = repository_task();
     assert_eq!(
-        dispatch_worker_placement(Some(&opt_in), &ExecutionIntent::Mutating, &repo_task).unwrap(),
+        dispatch_worker_placement(
+            Some(&opt_in),
+            &ExecutionIntent::Mutating,
+            &preflight_facts(&repo_task)
+        )
+        .unwrap(),
         WorkerPlacement::CanonicalWriter
     );
 
     for intent in [ExecutionIntent::ReadOnly, ExecutionIntent::Unspecified] {
-        let error = dispatch_worker_placement(Some(&opt_in), &intent, &repo_task).unwrap_err();
+        let error = dispatch_worker_placement(Some(&opt_in), &intent, &preflight_facts(&repo_task))
+            .unwrap_err();
         assert_eq!(error.code, -32602);
     }
 
@@ -201,8 +212,12 @@ fn canonical_writer_opt_in_is_refused_outside_a_mutating_repository_task_without
         "lane": { "worktree_path": "/lanes/recorded" }
     }));
     for task in [&nonrepo, &laned] {
-        let error =
-            dispatch_worker_placement(Some(&opt_in), &ExecutionIntent::Mutating, task).unwrap_err();
+        let error = dispatch_worker_placement(
+            Some(&opt_in),
+            &ExecutionIntent::Mutating,
+            &preflight_facts(&task),
+        )
+        .unwrap_err();
         assert_eq!(error.code, -32602, "{}", task.id);
     }
 
@@ -210,9 +225,12 @@ fn canonical_writer_opt_in_is_refused_outside_a_mutating_repository_task_without
         json!({ "placement": "canonical" }),
         json!({ "placement": 1 }),
     ] {
-        let error =
-            dispatch_worker_placement(Some(&malformed), &ExecutionIntent::Mutating, &repo_task)
-                .unwrap_err();
+        let error = dispatch_worker_placement(
+            Some(&malformed),
+            &ExecutionIntent::Mutating,
+            &preflight_facts(&repo_task),
+        )
+        .unwrap_err();
         assert_eq!(error.code, -32602);
     }
 }
@@ -469,19 +487,20 @@ fn canonical_worker_kind_composition_preserves_admission_and_report_identity() {
         dispatch_worker_placement(
             Some(&json!({ "placement": "canonical_writer" })),
             &ExecutionIntent::Mutating,
-            &task,
+            &preflight_facts(&task),
         )
         .unwrap(),
         WorkerPlacement::CanonicalWriter
     );
     assert_eq!(
-        dispatch_worker_placement(None, &ExecutionIntent::ReadOnly, &task).unwrap(),
+        dispatch_worker_placement(None, &ExecutionIntent::ReadOnly, &preflight_facts(&task))
+            .unwrap(),
         WorkerPlacement::ReadOnly
     );
     assert!(dispatch_worker_placement(
         Some(&json!({ "placement": "canonical_writer" })),
         &ExecutionIntent::ReadOnly,
-        &task,
+        &preflight_facts(&task),
     )
     .is_err());
     assert!(matches!(
@@ -578,13 +597,14 @@ fn nonrepository_dispatch_reports_nonrepository_placement() {
         "status": "pending", "execution_intent": "non_repository"
     }));
     assert_eq!(
-        dispatch_worker_placement(None, &ExecutionIntent::Mutating, &task).unwrap(),
+        dispatch_worker_placement(None, &ExecutionIntent::Mutating, &preflight_facts(&task))
+            .unwrap(),
         WorkerPlacement::NonRepository
     );
     assert!(dispatch_worker_placement(
         Some(&json!({"placement": "canonical_writer"})),
         &ExecutionIntent::Mutating,
-        &task
+        &preflight_facts(&task)
     )
     .is_err());
 }

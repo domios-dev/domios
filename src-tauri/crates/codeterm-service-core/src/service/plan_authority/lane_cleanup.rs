@@ -56,11 +56,11 @@ impl ServiceContext {
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
-    ) -> Result<(), String> {
+    ) -> Result<(), super::PlanAuthorityError> {
         let plan = self
             .plan_store
             .plan_identity_projection(plan_id)
-            .map_err(|error| error.to_string())?;
+            .map_err(super::authority_read_error)?;
         let utility_authorized = {
             let mux = self.mux.read();
             owned_utility_can_clean(

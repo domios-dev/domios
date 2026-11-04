@@ -188,3 +188,8 @@ pub use spawn_binding::{SpawnAttemptBindingRead, TaskSpawnBindingRead};
 
 mod worker_preparation;
 pub use worker_preparation::{TaskBriefStrideRead, WorkerTaskBriefRead, WorkerTaskPreparationRead};
+
+mod dispatch_preflight;
+pub use dispatch_preflight::{
+    DispatchCheckoutOccupantRead, RemoteLaneIntegrationRead, TaskDispatchPreflightRead,
+};
