@@ -24,7 +24,7 @@ pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
 mod header_projection;
-pub use header_projection::PlanIdentityRead;
+pub use header_projection::{NoticeDeliveryTargetRead, PlanIdentityRead};
 pub mod heartbeat;
 pub mod hints;
 mod index_projection;

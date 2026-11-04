@@ -67,6 +67,28 @@ fn deliver_notice_with_learning_selection(
     selection: HeartbeatSelection<'_>,
     observer: Option<crate::service::messenger::DeliveryWriteObserver>,
 ) -> Result<crate::service::messenger::Delivery, String> {
+    if selection.plain {
+        let target = svc
+            .plan_store
+            .notice_delivery_target_projection(plan_id)
+            .map_err(|error| error.to_string())?;
+        if target.mode == crate::plan::PlanMode::Paused && !selection.mode_transition {
+            return Err("plan_paused: plan notices are suppressed while the plan is paused".into());
+        }
+        let owner = target
+            .owner_tab_id
+            .as_deref()
+            .ok_or("plan owner has no local delivery target")?;
+        return deliver_exact_role_target(
+            "orchestrator",
+            plan_id,
+            owner,
+            requested_target,
+            |target| {
+                deliver_notice_payload(svc, plan_id, target, owner, context, text, text, observer)
+            },
+        );
+    }
     let read = svc
         .plan_store
         .notice_projection(
@@ -87,46 +109,60 @@ fn deliver_notice_with_learning_selection(
         .as_deref()
         .ok_or("plan owner has no local delivery target")?;
     deliver_exact_role_target("orchestrator", plan_id, owner, requested_target, |target| {
-        let injected =
-            if selection.plain || crate::service::plan::heartbeat::is_plan_complete(&plan) {
-                text.to_string()
-            } else {
-                let now_ms = now_epoch_ms();
-                let counters = read.digest_counters(now_ms, count_stalled_lanes(plan, now_ms));
-                let digest_lines =
-                    collect_digest_lines_with_counters(svc, plan, Some(owner), Some(counters));
-                crate::service::plan::heartbeat::prepend_plan_heartbeat_with_selection(
-                    &plan,
-                    text,
-                    &digest_lines,
-                    selection.learning_ids,
-                )
-            };
-        let mut envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
-        envelope.delivery_observer = Some(observer.unwrap_or_else(|| {
-            crate::service::messenger::DeliveryWriteObserver::PlanRole {
-                plan_id: plan_id.to_string(),
-                role: "orchestrator".into(),
-            }
-        }));
-        let result = svc.gateway_deliver(
-            target,
-            envelope,
-            &injected,
-            crate::service::message_gateway::DeliveryClass::SystemNotice,
-        );
-        if result.as_ref().is_ok_and(|delivery| delivery.is_written()) {
-            let heartbeat_bytes = injected.len().saturating_sub(text.len());
-            if heartbeat_bytes > 0 {
-                svc.record_kpi_event(
-                    owner,
-                    crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
-                    heartbeat_bytes,
-                );
-            }
-        }
-        result
+        let injected = if crate::service::plan::heartbeat::is_plan_complete(&plan) {
+            text.to_string()
+        } else {
+            let now_ms = now_epoch_ms();
+            let counters = read.digest_counters(now_ms, count_stalled_lanes(plan, now_ms));
+            let digest_lines =
+                collect_digest_lines_with_counters(svc, plan, Some(owner), Some(counters));
+            crate::service::plan::heartbeat::prepend_plan_heartbeat_with_selection(
+                &plan,
+                text,
+                &digest_lines,
+                selection.learning_ids,
+            )
+        };
+        deliver_notice_payload(
+            svc, plan_id, target, owner, context, text, &injected, observer,
+        )
     })
+}
+
+fn deliver_notice_payload(
+    svc: &ServiceContext,
+    plan_id: &str,
+    target: &str,
+    owner: &str,
+    context: &str,
+    text: &str,
+    injected: &str,
+    observer: Option<crate::service::messenger::DeliveryWriteObserver>,
+) -> Result<crate::service::messenger::Delivery, String> {
+    let mut envelope = crate::service::messenger::MessageEnvelope::codeterm_reminder(context);
+    envelope.delivery_observer = Some(observer.unwrap_or_else(|| {
+        crate::service::messenger::DeliveryWriteObserver::PlanRole {
+            plan_id: plan_id.to_string(),
+            role: "orchestrator".into(),
+        }
+    }));
+    let result = svc.gateway_deliver(
+        target,
+        envelope,
+        injected,
+        crate::service::message_gateway::DeliveryClass::SystemNotice,
+    );
+    if result.as_ref().is_ok_and(|delivery| delivery.is_written()) {
+        let heartbeat_bytes = injected.len().saturating_sub(text.len());
+        if heartbeat_bytes > 0 {
+            svc.record_kpi_event(
+                owner,
+                crate::agent::kpi_ledger::KpiEventKind::Heartbeat,
+                heartbeat_bytes,
+            );
+        }
+    }
+    result
 }
 
 pub(crate) fn collect_digest_lines(
