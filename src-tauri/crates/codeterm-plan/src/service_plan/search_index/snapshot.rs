@@ -7,7 +7,116 @@ pub(in crate::service_plan) struct PlanSearchSnapshot {
     pub(super) units: Vec<Unit>,
 }
 
+#[derive(serde::Deserialize)]
+pub(in crate::service_plan) struct SearchHeaderRead {
+    pub id: String,
+    pub title: String,
+    pub status: PlanStatus,
+    pub project_path: String,
+    pub canonical_project_path: String,
+    pub updated_at: u64,
+}
+
+#[derive(serde::Deserialize)]
+pub(in crate::service_plan) struct SearchSectionRead {
+    pub id: String,
+    pub title: String,
+    pub body: String,
+}
+
+#[derive(serde::Deserialize)]
+pub(in crate::service_plan) struct SearchMilestoneRead {
+    pub id: String,
+    pub kind: String,
+    pub text: String,
+    pub ts: u64,
+}
+
+#[derive(serde::Deserialize)]
+pub(in crate::service_plan) struct SearchTaskRead {
+    pub id: String,
+    pub name: String,
+    pub status: crate::plan::TaskStatus,
+    pub updated_at: u64,
+    pub body: String,
+    pub acceptance_criteria: Vec<String>,
+    pub external_refs: Vec<String>,
+    #[serde(skip)]
+    pub milestones: Vec<SearchMilestoneRead>,
+}
+
+pub(in crate::service_plan) struct PlanSearchInput {
+    pub header: SearchHeaderRead,
+    pub sections: Vec<(bool, SearchSectionRead)>,
+    pub tasks: Vec<SearchTaskRead>,
+}
+
 impl PlanSearchSnapshot {
+    pub(in crate::service_plan) fn from_input(input: PlanSearchInput) -> Self {
+        use super::unit_inputs::{StrideUnitInput, TaskUnitInput, UnitParent};
+        let header = input.header;
+        let root = PathBuf::from(if header.canonical_project_path.trim().is_empty() {
+            &header.project_path
+        } else {
+            &header.canonical_project_path
+        });
+        let scope = project_scope(&root);
+        let status = plan_status_text(&header.status);
+        let parent = UnitParent {
+            id: &header.id,
+            title: &header.title,
+            scope: &scope,
+            status: &status,
+        };
+        let titles = input
+            .sections
+            .iter()
+            .filter(|(root, _)| *root)
+            .map(|(_, section)| section.title.as_str())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let mut units = vec![parent.header(&titles, header.updated_at)];
+        let total = input.sections.len().max(1);
+        for (index, (_, section)) in input.sections.into_iter().enumerate() {
+            units.push(parent.section(
+                &section.id,
+                &section.title,
+                &section.body,
+                index + 1,
+                total,
+                header.updated_at,
+            ));
+        }
+        for task in input.tasks {
+            units.push(parent.task(TaskUnitInput {
+                id: &task.id,
+                name: &task.name,
+                status: &task.status,
+                updated_at: task.updated_at,
+                body: &task.body,
+                acceptance_criteria: &task.acceptance_criteria,
+                external_refs: task.external_refs.iter().map(String::as_str).collect(),
+            }));
+            for stride in task.milestones {
+                units.push(parent.stride(
+                    &task.name,
+                    task.status.key(),
+                    StrideUnitInput {
+                        id: &stride.id,
+                        kind: &stride.kind,
+                        text: &stride.text,
+                        ts: stride.ts,
+                    },
+                ));
+            }
+        }
+        Self {
+            id: header.id,
+            root,
+            units,
+        }
+    }
+
     pub(in crate::service_plan) fn from_plan(plan: &Plan) -> Self {
         let root = plan_project_root(plan).to_path_buf();
         Self {

@@ -178,14 +178,6 @@ fn append_outline(roots: &mut Vec<Value>, depth: usize, node: Value) {
     }
 }
 
-pub(super) fn append_section(roots: &mut Vec<Section>, depth: usize, node: Section) {
-    if depth == 0 {
-        roots.push(node)
-    } else if let Some(parent) = roots.last_mut() {
-        append_section(&mut parent.subsections, depth - 1, node)
-    }
-}
-
 #[cfg(test)]
 mod tests;
 

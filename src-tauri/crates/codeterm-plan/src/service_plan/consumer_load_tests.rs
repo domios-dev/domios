@@ -160,10 +160,10 @@ fn show_task_never_loads_unmatched_plans() {
     start(&store);
 
     assert_eq!(
-        store.inspect_task_for_test("task_shown").unwrap().plan_id,
+        store.show_task_window("task_shown").unwrap().plan_id,
         holder
     );
-    assert_never_loaded(&store, &[&other]);
+    assert_never_loaded(&store, &[&holder, &other]);
 }
 
 #[test]
