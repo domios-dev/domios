@@ -158,7 +158,11 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
         )
         .unwrap();
 
-    let terminal_plan = fixture.store.get(&fixture.plan.id).unwrap();
+    let terminal_plan = fixture
+        .store
+        .closed_task_lane_cleanup_projection(&fixture.plan.id, &fixture.mine)
+        .unwrap()
+        .unwrap();
     let outcome = codeterm_service_core::service::plan::lane_cleanup::try_cleanup_task_lane(
         &fixture.store,
         &terminal_plan,
@@ -201,7 +205,11 @@ fn terminal_cleanup_clears_removed_lane_before_the_next_dispatch() {
 
     let repeated = codeterm_service_core::service::plan::lane_cleanup::try_cleanup_task_lane(
         &fixture.store,
-        &fixture.store.get(&fixture.plan.id).unwrap(),
+        &fixture
+            .store
+            .closed_task_lane_cleanup_projection(&fixture.plan.id, &fixture.mine)
+            .unwrap()
+            .unwrap(),
         &fixture.mine,
         |_| false,
         8,

@@ -169,7 +169,10 @@ fn retire_and_clean(
     store
         .retire_stale_task_owner(plan_id, task_id, Some(outcome), |_| false, now_ms)
         .unwrap();
-    let plan = store.get(plan_id).unwrap();
+    let plan = store
+        .closed_task_lane_cleanup_projection(plan_id, task_id)
+        .unwrap()
+        .unwrap();
     assert!(matches!(
         codeterm_service_core::service::plan::lane_cleanup::try_cleanup_task_lane(
             store,

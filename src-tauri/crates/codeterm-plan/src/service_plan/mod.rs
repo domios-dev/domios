@@ -375,3 +375,5 @@ pub use task_authority_projection::{SpawnAttemptBindingRead, TaskSpawnBindingRea
 pub use task_authority_projection::{
     TaskBriefStrideRead, WorkerTaskBriefRead, WorkerTaskPreparationRead,
 };
+
+pub use store_db::read_projections::lane_clean::{ClosedTaskLaneCleanupRead, ClosedTaskLaneRead};
