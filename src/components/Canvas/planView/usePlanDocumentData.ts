@@ -1,8 +1,9 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { usePlanProjection } from "../usePlanProjection";
 import { fetchSpecSections } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
-import type { Plan, Section } from "../types";
+import type { Section } from "../types";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import {
   filterPlansForBoard,

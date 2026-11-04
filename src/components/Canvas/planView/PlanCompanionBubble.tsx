@@ -1,10 +1,10 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useTabActivity } from "../../../lib/useTabActivity";
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { ExternalLink, MessageCircle, X } from "lucide-react";
 import type { Tab } from "../../../lib/types";
 import { AgentCircle } from "../presence/AgentCircle";
 import { presenceColor } from "../presence/identity";
-import type { Plan } from "../types";
 import { orderPlansByActivity, selectDefaultPlanId } from "./boardModel";
 import { resolveCompanionTab, type CompanionKind } from "./companionResolver";
 import { resolvePlannerTabIdFromPlan } from "../../shared/resolvePlanPeerPair";

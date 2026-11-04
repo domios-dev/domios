@@ -1,4 +1,5 @@
-import type { Milestone, Plan, Task } from "../types";
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
+import type { Milestone } from "../types";
 
 const LATEST_NOTE_MAX = 120;
 
@@ -11,7 +12,7 @@ export function canonicalTaskStatusLabel(task: Task, plan?: Plan): string {
 }
 
 export function latestMilestoneForTask(task: Task): Milestone | null {
-  return task.milestones.reduce<Milestone | null>(
+  return (task.milestones ?? []).reduce<Milestone | null>(
     (latest, milestone) => (!latest || milestone.ts > latest.ts ? milestone : latest),
     null,
   );

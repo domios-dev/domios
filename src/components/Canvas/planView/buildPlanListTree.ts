@@ -1,9 +1,10 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
 import { resolvePlanExclusiveTabTasks } from "../tabCurrentTask";
 import { flattenSections } from "../sectionRows";
 import { buildTaskPresence } from "../taskPresence";
 import { historicalExecutorForTask } from "../taskExecutorHistory";
-import type { Milestone, Plan, Task, TaskStatus } from "../types";
+import type { Milestone, TaskStatus } from "../types";
 import { canonicalTaskStatusLabel } from "./taskStatusLabel";
 import { competitionForTask } from "./competitionForTask";
 import { loopForTask } from "./loopForTask";
@@ -57,7 +58,7 @@ export function isPlanListTaskRow(row: PlanListRow): boolean {
 }
 
 function latestMilestone(task: Task): Milestone | null {
-  return task.milestones.reduce<Milestone | null>((latest, m) => (!latest || m.ts > latest.ts ? m : latest), null);
+  return (task.milestones ?? []).reduce<Milestone | null>((latest, m) => (!latest || m.ts > latest.ts ? m : latest), null);
 }
 
 function statusText(task: Task, plan: Plan): string {

@@ -1,8 +1,10 @@
+import type { PlanSectionView as Section } from "../planProjection";
+import type { PlanView as Plan } from "../planProjection";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
 import type { ReactNode } from "react";
 import type { Tab } from "../../../lib/types";
 import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
-import type { Plan, Section, SpecLink } from "../types";
+import type { SpecLink } from "../types";
 import { flattenSections } from "../sectionRows";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "./PlanFetchErrorState";
 import { PlanParagraphAsk } from "./PlanParagraphAsk";
