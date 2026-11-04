@@ -243,47 +243,33 @@ impl PlanStore {
         source: &Path,
         now_ms: u64,
     ) -> Result<AttachmentRef, PlanError> {
-        let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task_pos = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let milestone_pos = plan.tasks[task_pos]
-                .milestones
-                .iter()
-                .position(|milestone| milestone.id == milestone_id)
-                .ok_or(PlanError::ElementNotFound)?;
-            if plan.tasks[task_pos].milestones[milestone_pos]
-                .attachments
-                .len()
-                >= MAX_ATTACHMENTS_PER_RECORD
-            {
-                return Err(PlanError::Io(format!(
-                    "milestone attachment cap is {}",
-                    MAX_ATTACHMENTS_PER_RECORD
-                )));
-            }
-            let attachment = copy_attachment(
-                &plan_root,
-                AttachmentTarget::Milestone,
-                milestone_id,
-                source,
-                now_ms,
-            )?;
-            let task = plan
-                .tasks
-                .get_mut(task_pos)
-                .ok_or(PlanError::TaskNotFound)?;
-            let milestone = task
-                .milestones
-                .get_mut(milestone_pos)
-                .ok_or(PlanError::ElementNotFound)?;
-            milestone.attachments.push(attachment.clone());
-            task.updated_at = now_ms;
-            attached = Some(attachment);
-            Ok(())
-        })?;
-        attached.ok_or_else(|| PlanError::Io("attachment was not recorded".into()))
+        let turn = self.mutation_writer.enter();
+        let (attachment, receipt) = self.database.with_milestone_rows(
+            plan_id,
+            task_id,
+            milestone_id,
+            now_ms,
+            |milestone| {
+                if milestone.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
+                    return Err(PlanError::Io(format!(
+                        "milestone attachment cap is {}",
+                        MAX_ATTACHMENTS_PER_RECORD
+                    )));
+                }
+                let attachment = copy_attachment(
+                    &plan_root,
+                    AttachmentTarget::Milestone,
+                    &milestone.id,
+                    source,
+                    now_ms,
+                )?;
+                milestone.attachments.push(attachment.clone());
+                Ok(attachment)
+            },
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(attachment)
     }
 
     pub fn remove_task_attachment_dir(

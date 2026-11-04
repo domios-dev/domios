@@ -6,6 +6,7 @@ use crate::service_plan::task_assignment::AssignmentRuntimeBinding;
 fn adoptable(root: &std::path::Path, strides: usize, attempts: usize) -> Plan {
     let mut plan = fixture(root, strides, attempts);
     let task = &mut plan.tasks[0];
+    task.milestones.push(milestone("attachment-milestone"));
     task.interruption.owner_epoch = 1;
     task.interruption.handoff_required = true;
     task.interruption.checkpoint = Some(InterruptionCheckpoint {
@@ -47,6 +48,10 @@ fn task_attachment_and_checkpoint_adoption_are_bounded_and_undo_preserves_attach
             .attach_to_task(&plan.id, "task_0000", &source, 30)
             .unwrap();
         let mut work = vec![take_work()];
+        store
+            .attach_to_milestone(&plan.id, "task_0000", "attachment-milestone", &source, 30)
+            .unwrap();
+        work.push(take_work());
         let receipt = store
             .adopt_interrupted_task_with_undo(
                 &plan.id,
@@ -64,9 +69,9 @@ fn task_attachment_and_checkpoint_adoption_are_bounded_and_undo_preserves_attach
         work.push(take_work());
         assert!(store.plan_loads_for_test().is_empty());
         for receipt in &work {
-            assert_eq!(&receipt[..2], &[1, 1]);
+            assert!(receipt[0] <= 2 && receipt[1] == 1);
             assert!(receipt[2] <= 1);
-            assert_eq!(&receipt[3..5], &[0, 0]);
+            assert!(receipt[3] <= 1 && receipt[4] == 0);
             assert!(receipt[5] < 64 * 1024 && receipt[6] < 64 * 1024);
         }
         println!("fixture={SEED} strides={strides} unrelated_attempts={attempts} adoption_attachment_receipts={work:?}");
