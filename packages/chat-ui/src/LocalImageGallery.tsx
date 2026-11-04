@@ -9,6 +9,9 @@ import { ViewerButton } from "./ViewerButton";
 import { GALLERY_PATH_LIMIT } from "./galleryLoading";
 
 // Header actions sit in a dense card header: quiet icon buttons, not standalone viewer controls.
+// Loading and unavailable share one tile box so the card never changes size when a load settles.
+const TILE = "inline-flex h-28 w-44 flex-col items-center justify-center gap-1.5 rounded-md px-3 text-center text-[11px] leading-snug";
+const TILE_STYLE = { color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-fg) 4%, transparent)" };
 const HEADER_ACTION = { minWidth: 26, minHeight: 26, padding: 0, borderColor: "transparent", background: "transparent", color: "var(--ct-muted-fg)" };
 
 export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = false, onLoaded, renderError }: {
@@ -36,11 +39,15 @@ export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = fal
     <div className="flex gap-2 overflow-x-auto p-2">
       {images.map((image, index) => <div key={index} className="shrink-0">
         <button type="button" aria-label={`Fullscreen ${image.name}`} onClick={() => setOpen(index)} className="rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" style={{ minWidth: 44, minHeight: 44 }}>
-          {image.pending ? <DeferredLoader state="present" role="status" aria-label={`Loading ${image.name}`} className="inline-flex h-32 w-40 items-center justify-center">Loading…</DeferredLoader>
-            : image.error ? <span role="status" aria-label={`${image.name} not available`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs" style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-fg) 5%, transparent)" }}><ImageOff size={13} aria-hidden />Image not available</span>
+          {image.pending ? <DeferredLoader state="present" role="status" aria-label={`Loading ${image.name}`} className={TILE} style={TILE_STYLE}><ImageIcon size={18} aria-hidden className="animate-pulse opacity-60" /></DeferredLoader>
+            : image.error ? <span role="status" aria-label={`${image.name} not available`} title={image.error} className={TILE} style={TILE_STYLE}>
+              <ImageOff size={18} aria-hidden className="opacity-70" />
+              <span>Image not available</span>
+              {!renderError && <span role="alert" className="line-clamp-2 opacity-70">{image.error}</span>}
+            </span>
               : <img src={image.src} alt={image.name} loading="lazy" style={{ maxHeight: single ? 480 : 160, maxWidth: "100%", objectFit: "contain" }} />}
         </button>
-        {image.error && (renderError ? renderError(image.error) : <p role="alert" className="mt-1 max-w-80 whitespace-pre-wrap text-[11px] leading-snug" style={{ color: "var(--ct-muted-fg)" }}>{image.error}</p>)}
+        {image.error && renderError?.(image.error)}
       </div>)}
     </div>
     {open !== null && images[open] && <ImageFullscreen image={images[open]} images={images} anchorRef={anchor} onClose={() => setOpen(null)} />}
