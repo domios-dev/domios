@@ -100,8 +100,10 @@ pub use continuity::{TaskContinuityDigest, TaskContinuityRead};
 
 mod restart;
 mod restoration;
+mod runtime_restore;
 pub use restart::{
     CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
     TaskRestartQuery,
 };
 pub use restoration::{ReviewBindingRestoreRead, ReviewRestoreAttemptRead, TaskBindingRestoreRead};
+pub use runtime_restore::{RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead};
