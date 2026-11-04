@@ -93,6 +93,9 @@ pub(super) fn artifact_policy(
                 .chain(["chat", "images", "files"].map(crate::attachments::bucket_dir))
                 .collect(),
             own_pad: tab_id.and_then(|tab| agent_pad_root(svc, tab)),
+            workspace: tab_id
+                .and_then(|tab| svc.mux.read().get_tab(tab).and_then(|tab| tab.cwd.clone()))
+                .map(PathBuf::from),
             ssh: dirs::home_dir().map(|home| home.join(".ssh")),
         },
     )
