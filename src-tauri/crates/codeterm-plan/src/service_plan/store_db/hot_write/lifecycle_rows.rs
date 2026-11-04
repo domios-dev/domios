@@ -4,7 +4,9 @@ use crate::plan::{
     PlannerRequest, TransferRecord,
 };
 use crate::service_plan::mutations::agent_lifecycle::AgentLifecyclePlanChange;
+use crate::service_plan::store_db::queue_operation;
 use crate::service_plan::PlanMatch;
+use rusqlite::TransactionBehavior;
 
 mod persist;
 
