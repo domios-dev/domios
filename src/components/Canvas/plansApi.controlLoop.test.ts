@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import assert from "node:assert/strict";
 import { Window } from "happy-dom";
 import type { ApiConfig } from "../../lib/types";
@@ -11,10 +12,10 @@ async function main() {
   setTokenFor("http://localhost:7686", "fixture");
   const calls: Array<{ url: string; init?: RequestInit }> = [];
   const stored = { mode: "heartbeat", heartbeat_interval_secs: 1800, next_at: null, last_round: null, fallback_reason: null, suspended_reason: "paused", counts_7d: { rounds: 0, quiet: 0, nudged: 0, learnings: 0, saves: 0, fallbacks: 0 } };
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     calls.push({ url: String(input), init });
     return Response.json(stored);
-  };
+  });
   assert.deepEqual(await fetchPlanControlLoop(api, "plan/one"), stored);
   assert.equal(calls[0].url, "http://localhost:7686/api/plans/plan%2Fone/control-loop");
   assert.deepEqual(await setPlanControlLoop(api, "plan/one", { mode: "heartbeat", heartbeat_interval_secs: 1800 }), stored);
@@ -23,11 +24,11 @@ async function main() {
   assert.deepEqual(JSON.parse(String(calls[1].init?.body)), { mode: "heartbeat", heartbeat_interval_secs: 1800 });
   await setPlanControlLoop(api, "plan/one", { mode: "curator" });
   assert.deepEqual(JSON.parse(String(calls[2].init?.body)), { mode: "curator" });
-  globalThis.fetch = async () => new Response("refused-fixture", { status: 403 });
+  globalThis.fetch = muxMockFetch(async () => new Response("refused-fixture", { status: 403 }));
   await assert.rejects(setPlanControlLoop(api, "plan/one", { mode: "curator" }), /403/);
   await assert.rejects(fetchPlanControlLoop(api, "plan/one"), /403/);
   await assert.rejects(runPlanControlLoop(api, "plan/one"), /403/);
-  globalThis.fetch = async (input, init) => { calls.push({ url: String(input), init }); return Response.json(stored); };
+  globalThis.fetch = muxMockFetch(async (input, init) => { calls.push({ url: String(input), init }); return Response.json(stored); });
   await runPlanControlLoop(api, "plan/one");
   const run = calls[calls.length - 1];
   assert.equal(run.url, "http://localhost:7686/api/plans/plan%2Fone/control-loop/run");
@@ -38,7 +39,7 @@ async function main() {
   assert.equal(deletion.url, "http://localhost:7686/api/plans/plan%2Fone/tasks/task%2Fone");
   assert.equal(deletion.init?.method, "DELETE");
   assert.equal(new Headers(deletion.init?.headers).get("X-CodeTerm-Plan-Confirmation"), "plan/one");
-  globalThis.fetch = async () => new Response("refused-fixture", { status: 403 });
+  globalThis.fetch = muxMockFetch(async () => new Response("refused-fixture", { status: 403 }));
   await assert.rejects(deleteTask(api, "plan/one", "task/one"), /403/);
   console.log("plansApi lifecycle confirmation cases passed");
 }

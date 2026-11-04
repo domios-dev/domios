@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import assert from "node:assert/strict";
 import { act } from "react";
 import { flushSync } from "react-dom";
@@ -38,7 +39,7 @@ async function main() {
   let holdReads = false;
   const heldReads: Array<() => void> = [];
   const reads: string[] = [];
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     const url = new URL(String(input));
     const envelope = url.pathname === "/api/mesh/relay-to"
       ? JSON.parse(String(init?.body)) as { target_peer_id: string; path: string }
@@ -53,7 +54,7 @@ async function main() {
     const response = () => Response.json(envelope ? { ok: true, status: 200, data } : data);
     if (holdReads) return new Promise<Response>((resolve) => { heldReads.push(() => resolve(response())); });
     return response();
-  };
+  });
 
   let snapshot = { index: [] as string[], full: [] as string[], titles: [] as string[] };
   function Probe() {
