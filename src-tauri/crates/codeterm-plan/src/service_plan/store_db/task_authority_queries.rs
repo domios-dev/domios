@@ -330,3 +330,5 @@ mod review_roles;
 mod plan_metadata;
 
 mod respawn_source;
+
+mod worker_loss;

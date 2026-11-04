@@ -114,10 +114,16 @@ impl ServiceContext {
     }
 
     pub fn flag_bound_tasks_for_gone_tab(&self, tab_id: &str, now_ms: u64) {
-        let losses = self.worker_losses_for_tab(
+        let losses = match self.worker_losses_for_tab(
             tab_id,
             crate::service::worker_loss::WorkerLossCause::TabGone,
-        );
+        ) {
+            Ok(losses) => losses,
+            Err(error) => {
+                log::error!("[worker-lost] assignment read failed before reconciliation: {error}");
+                return;
+            }
+        };
         if let Err(error) = self.flag_bound_tasks_without_report(tab_id, now_ms) {
             log::warn!("[plan-reconcile] task binding lookup failed for {tab_id}: {error}");
             return;
