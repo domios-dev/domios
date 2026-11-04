@@ -116,12 +116,17 @@ impl PlanStore {
         update: TaskCompetitionUpdate,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |p| {
-            let task = crate::plan::task_key::find_task_mut(&mut p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            apply_competition_update(&mut task.competition, update);
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                apply_competition_update(&mut task.competition, update);
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 }

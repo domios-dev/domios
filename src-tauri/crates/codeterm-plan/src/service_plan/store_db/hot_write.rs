@@ -17,6 +17,7 @@ mod milestones;
 mod plan_audit;
 mod plan_fields;
 mod plan_state;
+pub(in crate::service_plan) mod review_header;
 mod review_rows;
 pub(in crate::service_plan) mod runtime;
 mod section_rows;
@@ -609,4 +610,3 @@ fn append_stride(
 
 #[cfg(test)]
 pub(in crate::service_plan::store_db) mod tests;
-

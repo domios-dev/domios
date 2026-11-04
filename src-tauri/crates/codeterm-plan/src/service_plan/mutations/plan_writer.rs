@@ -2,6 +2,24 @@ use super::super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::Plan;
 
 impl PlanStore {
+    pub(in crate::service_plan) fn with_review_header<T>(
+        &self,
+        plan_id: &str,
+        task: Option<&str>,
+        evidence: Option<(&str, &str, &str)>,
+        now: u64,
+        change: impl FnOnce(
+            &mut super::super::store_db::hot_write::review_header::ReviewHeaderRows,
+        ) -> Result<T, PlanError>,
+    ) -> Result<T, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (result, receipt) = self
+            .database
+            .with_review_header(plan_id, task, evidence, now, change)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(result)
+    }
+
     pub(in crate::service_plan) fn commit_section_change(
         &self,
         plan_id: &str,

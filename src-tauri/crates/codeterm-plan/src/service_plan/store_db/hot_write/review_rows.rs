@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone)]
 pub(in crate::service_plan) enum TaskHistory {
     Core,
+    Escalation,
     Selected(Vec<String>),
     Respawn(String),
     Attempt(String),
@@ -170,8 +171,13 @@ pub(super) fn edit_task_rows<T>(
         .iter()
         .map(|(_, attempt)| attempt.clone())
         .collect();
-    if matches!(history, TaskHistory::Review) {
-        let mut statement = tx.prepare_cached("SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq").map_err(db_error)?;
+    if matches!(history, TaskHistory::Review | TaskHistory::Escalation) {
+        let sql = if matches!(history, TaskHistory::Escalation) {
+            "SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 AND json_extract(row_json,'$.kind')='review_escalation' AND json_extract(row_json,'$.ts')>=(SELECT json_extract(row_json,'$.status_changed_at') FROM plan_tasks WHERE plan_id=?1 AND task_id=?2) ORDER BY seq DESC LIMIT 1"
+        } else {
+            "SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq"
+        };
+        let mut statement = tx.prepare_cached(sql).map_err(db_error)?;
         task.milestones = statement
             .query_map(params![plan_id, task.id], |row| row.get::<_, String>(0))
             .map_err(db_error)?
@@ -340,7 +346,7 @@ pub(super) fn read_attempts(
     history: &TaskHistory,
     receipt: &mut CommittedRows,
 ) -> Result<Vec<(i64, TaskExecutionAttempt)>, PlanError> {
-    if matches!(history, TaskHistory::Core) {
+    if matches!(history, TaskHistory::Core | TaskHistory::Escalation) {
         return Ok(Vec::new());
     }
     let selected_json = match history {
