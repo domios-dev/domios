@@ -241,12 +241,11 @@ async fn release_discovery_preserves_channel_and_newest_mirror_when_offline() {
             root.path().into(),
             |endpoint| {
                 assert_eq!(Some(endpoint.clone()), endpoints.next());
-                let version = if endpoint.contains(UPDATE_REPOSITORIES[0]) {
-                    "8.0.0"
+                std::future::ready(if endpoint.contains(UPDATE_REPOSITORIES[0]) {
+                    Err("primary offline".into())
                 } else {
-                    "9.0.0"
-                };
-                std::future::ready(Ok(resolved(version).manifest))
+                    Ok(resolved("9.0.0").manifest)
+                })
             },
         )
         .await
@@ -254,12 +253,43 @@ async fn release_discovery_preserves_channel_and_newest_mirror_when_offline() {
         assert!(endpoints.next().is_none());
         assert_eq!(fresh.release.repository, UPDATE_REPOSITORIES[1]);
         assert_eq!(fresh.release.tag, "v9.0.0");
-        let cached = resolve_with(&InstallMethod::Unknown, channel, root.path().into(), |_| {
-            std::future::ready(Err("offline".into()))
-        })
+        let mut endpoints = crate::channel::default_endpoints(channel).into_iter();
+        let older = resolve_with(
+            &InstallMethod::Unknown,
+            channel,
+            root.path().into(),
+            |endpoint| {
+                assert_eq!(Some(endpoint), endpoints.next());
+                std::future::ready(Ok(resolved("8.0.0").manifest))
+            },
+        )
         .await
         .unwrap();
+        assert_eq!(
+            endpoints.next(),
+            crate::channel::default_endpoints(channel)
+                .into_iter()
+                .nth(1)
+        );
+        assert!(endpoints.next().is_none());
+        assert_eq!(older.release, fresh.release);
+        assert_eq!(older.manifest, fresh.manifest);
+        assert!(older.refresh_error.is_some());
+        let mut endpoints = crate::channel::default_endpoints(channel).into_iter();
+        let cached = resolve_with(
+            &InstallMethod::Unknown,
+            channel,
+            root.path().into(),
+            |endpoint| {
+                assert_eq!(Some(endpoint), endpoints.next());
+                std::future::ready(Err("offline".into()))
+            },
+        )
+        .await
+        .unwrap();
+        assert!(endpoints.next().is_none());
         assert_eq!(cached.release, fresh.release);
+        assert_eq!(cached.manifest, fresh.manifest);
         assert!(cached.refresh_error.is_some());
     }
 }

@@ -194,7 +194,7 @@ fn add_reported_generation(
             assigned_at,
         )
         .unwrap();
-    let assigned = store.show_task(task_id).unwrap().task;
+    let assigned = store.inspect_task_for_test(task_id).unwrap().task;
     let attempt_id = assigned.execution_attempts.last().unwrap().id.clone();
     store
         .acknowledge_task_attempt(plan_id, task_id, tab_id, &attempt_id, assigned_at + 1)
@@ -247,7 +247,7 @@ fn retire_and_clean(
         ),
         crate::service_plan::lane_cleanup::LaneCleanupOutcome::Cleaned
     ));
-    let task = store.show_task(task_id).unwrap().task;
+    let task = store.inspect_task_for_test(task_id).unwrap().task;
     assert_eq!(task.lane.cleanup_status.as_deref(), Some("done"));
     assert_eq!(task.lane.worktree_path, None);
     assert_eq!(task.lane.branch, None);
@@ -463,7 +463,7 @@ fn add_unreported_generation(
             .unwrap();
     }
     store
-        .show_task(task_id)
+        .inspect_task_for_test(task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -477,7 +477,7 @@ fn add_unreported_generation(
 fn review_bounce_cleaned_two_generations_returns_pending() {
     let (_dir, store, plan_id, task_id, attempt_ids) = two_reported_cleaned_generations();
     let before_plan = store.get(&plan_id).unwrap();
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(before.status, TaskStatus::InReview);
     assert_eq!(before.execution_attempts.len(), 2);
     assert_eq!(
@@ -499,7 +499,7 @@ fn review_bounce_cleaned_two_generations_returns_pending() {
 
     assert_eq!(bounced.continuation, None);
     assert_eq!(bounced.review_round, before.review_round + 1);
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::Pending);
     assert_eq!(after.status_label.as_deref(), Some("review bounced"));
     assert_eq!(
@@ -523,7 +523,7 @@ fn review_bounce_cleaned_two_generations_returns_pending() {
 fn review_bounce_cleaned_single_terminal_generation_returns_pending() {
     let (_dir, store, plan_id, task_id, attempt_id) = one_reported_cleaned_generation();
     let before_plan = store.get(&plan_id).unwrap();
-    let before = store.show_task(&task_id).unwrap().task;
+    let before = store.inspect_task_for_test(&task_id).unwrap().task;
     let bounced = store
         .bounce_review(
             &plan_id,
@@ -538,7 +538,7 @@ fn review_bounce_cleaned_single_terminal_generation_returns_pending() {
 
     assert_eq!(bounced.continuation, None);
     assert_eq!(bounced.review_round, before.review_round + 1);
-    let after = store.show_task(&task_id).unwrap().task;
+    let after = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(after.status, TaskStatus::Pending);
     assert_eq!(after.execution_attempts[0].id, attempt_id);
     assert_attempt_history_preserved(&before, &after, 0, &bounced);
@@ -568,7 +568,7 @@ fn review_bounce_cleaned_ordinary_assigned_live_continues() {
     assert_eq!(continuation.attempt_id, attempt_id);
     assert_eq!(continuation.session_id, "worker-session-1");
     assert_eq!(continuation.state, "awaiting_continuation");
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.status, TaskStatus::InReview);
     assert_eq!(task.status_label.as_deref(), Some("awaiting_continuation"));
 }
@@ -583,7 +583,7 @@ fn review_bounce_cleaned_original_ambiguity_refuses() {
         crate::plan::reconcile::TAB_GONE_LABEL,
         28,
     );
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(matches!(
         exact_closed_review_attempt(&task),
         ClosedReviewAttempt::Ambiguous
@@ -597,7 +597,7 @@ fn review_bounce_cleaned_refuses_open_attempt() {
     store
         .assign_task_with_role(&plan_id, &task_id, "open-worker", None, Some("Worker"), 3)
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt_id = task.execution_attempts[0].id.clone();
     store
         .acknowledge_task_attempt(&plan_id, &task_id, "open-worker", &attempt_id, 4)
@@ -669,7 +669,7 @@ fn review_bounce_cleaned_refuses_competitive_history() {
         .unwrap();
     set_status_label(&store, &plan_id, &task_id, "review", 30);
     assert!(store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -690,14 +690,19 @@ fn review_bounce_cleaned_refuses_later_failed_generation() {
     set_status(&store, &plan_id, &task_id, "in_review", 22);
     retire_and_clean(&store, &plan_id, &task_id, TaskStatus::InReview, 25);
     set_status_label(&store, &plan_id, &task_id, "review", 27);
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.execution_attempts[0].report.is_some());
     assert_eq!(task.execution_attempts[1].id, failed);
     assert_eq!(task.execution_attempts[1].report, None);
     assert_ne!(task.execution_attempts[0].id, task.execution_attempts[1].id);
     assert_review_bounce_refused_unchanged(&store, &plan_id, &task_id, 28);
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.execution_attempts[0].id,
+        store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .id,
         earlier_report
     );
 }

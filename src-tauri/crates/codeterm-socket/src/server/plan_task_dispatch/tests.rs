@@ -5,9 +5,9 @@ use super::{
     build_brief_with_personality, checkout_required, cleanup_succeeded,
     complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
-    preflight_dispatch_task_status, regression_dispatch_warning, resolve_dispatch_lane,
-    roll_back_dispatch_attempt, rollback_failed_dispatch, set_dispatch_task_brief,
-    startup_wait_is_recoverable, task_launch_authority_for_dispatch,
+    preflight_dispatch_task_status, preflight_review_capacity, regression_dispatch_warning,
+    resolve_dispatch_lane, roll_back_dispatch_attempt, rollback_failed_dispatch,
+    set_dispatch_task_brief, startup_wait_is_recoverable, task_launch_authority_for_dispatch,
     verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
@@ -104,7 +104,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             2,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert!(task.model.is_none());
     let registry = codeterm_service_core::agent::registry::AgentRegistry::new();
     registry.register_provider(Box::new(
@@ -145,7 +145,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
         .unwrap()
         .attempt_id;
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = task
         .execution_attempts
         .iter()
@@ -165,7 +165,7 @@ fn dispatched_attempt_records_routed_model_and_effort() {
             4,
         )
         .unwrap();
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let attempt = task
         .execution_attempts
         .iter()
@@ -1077,7 +1077,7 @@ fn launch_delivery_failure_restores_startup_fields_and_keeps_failed_attempt() {
             3,
         )
         .unwrap();
-    let original = store.show_task(&task_id).unwrap().task;
+    let original = store.inspect_task_for_test(&task_id).unwrap().task;
     let lane = provision_lane_for_test(project.to_str().unwrap(), "rollback").unwrap();
     let actual = lane.verify().unwrap();
     let worktree_path = actual.worktree_path.clone();
@@ -1138,7 +1138,7 @@ fn launch_delivery_failure_restores_startup_fields_and_keeps_failed_attempt() {
 
     assert_eq!(error.data.unwrap()["stage"], "agent_ready");
     assert!(closed.get());
-    let restored = store.show_task(&task_id).unwrap().task;
+    let restored = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(restored.status, original.status);
     assert_eq!(restored.assigned_tab_id, original.assigned_tab_id);
     assert_eq!(restored.lane, original.lane);

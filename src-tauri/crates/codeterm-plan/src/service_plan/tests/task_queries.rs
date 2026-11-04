@@ -461,7 +461,9 @@ fn new_task_defaults_to_actionable_pending() {
         )
         .unwrap();
 
-    let detail = store.show_task(&task_id).expect("new task detail");
+    let detail = store
+        .inspect_task_for_test(&task_id)
+        .expect("new task detail");
     assert_eq!(detail.task.status, TaskStatus::Pending);
     assert_eq!(
         detail.presentation,
@@ -509,7 +511,9 @@ fn task_pause_status_preservation_dependency_wait() {
         )
         .unwrap();
 
-    let detail = store.show_task(&task_id).expect("dependent task detail");
+    let detail = store
+        .inspect_task_for_test(&task_id)
+        .expect("dependent task detail");
     assert_eq!(detail.task.status, TaskStatus::Pending);
     assert_eq!(
         detail.presentation,

@@ -484,7 +484,7 @@ pub async fn task_add(
         emit_plan_changed(&state, &id);
         Ok(Json(serde_json::json!({
             "task_id": tid.clone(),
-            "key": state.svc.plan_store.task_display_key(&id, &tid),
+            "key": state.svc.plan_store.task_display_key(&id, &tid).map_err(plan_err)?,
             "_hints": codeterm_service_core::service::plan::hints::task_create_hints(
                 &id,
                 &tid,

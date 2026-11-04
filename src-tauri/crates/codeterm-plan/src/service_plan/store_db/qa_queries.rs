@@ -1,8 +1,9 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Plan, ReviewPolicy, Task};
+use crate::plan::ReviewPolicy;
 use crate::service_plan::review_gate::{review_gate_status_for, ReviewGateStatus};
 use crate::service_plan::PlanError;
+use crate::service_plan::{qa::QaQueueTaskRead, review_gate::QaWaveInput};
 use rusqlite::{params, OptionalExtension};
 
 #[derive(serde::Deserialize)]
@@ -33,7 +34,10 @@ impl PlanDatabase {
         ))
     }
 
-    pub(in crate::service_plan) fn qa_queue_tasks(&self, id: &str) -> Result<Vec<Task>, PlanError> {
+    pub(in crate::service_plan) fn qa_queue_tasks(
+        &self,
+        id: &str,
+    ) -> Result<Vec<QaQueueTaskRead>, PlanError> {
         let mut connection = self.connection.lock();
         let tx = connection.transaction().map_err(db_error)?;
         record_query();
@@ -49,8 +53,7 @@ impl PlanDatabase {
         }
         record_query();
         let mut statement=tx.prepare_cached(
-            "SELECT json_object('id',json_extract(row_json,'$.id'),'name',json_extract(row_json,'$.name'),'type','',
-                'status',status,'review_stage','qa','qa_state',json_extract(row_json,'$.qa_state'),
+            "SELECT json_object('id',json_extract(row_json,'$.id'),'name',json_extract(row_json,'$.name'),'qa_state',json_extract(row_json,'$.qa_state'),
                 'status_changed_at',json(CASE WHEN json_type(row_json,'$.status_changed_at') IS NULL THEN '0' ELSE row_json->'$.status_changed_at' END),
                 'assigned_tab_id',json_extract(row_json,'$.assigned_tab_id'),
                 'qa_plan',CASE WHEN json_type(row_json,'$.qa_plan') IS NULL OR json_type(row_json,'$.qa_plan')='null'
@@ -67,24 +70,25 @@ impl PlanDatabase {
         Ok(tasks)
     }
 
-    pub(in crate::service_plan) fn qa_wave_projection(&self, id: &str) -> Result<Plan, PlanError> {
+    pub(in crate::service_plan) fn qa_wave_projection(
+        &self,
+        id: &str,
+    ) -> Result<QaWaveInput, PlanError> {
         let mut connection = self.connection.lock();
         let tx = connection.transaction().map_err(db_error)?;
         record_query();
         let document: String=tx.query_row(
-            "SELECT json_object('id',id,'title','','status',status,'owner',json('{}'),'project_path','','created_at',0,'updated_at',0,
-                'task_groups',json((SELECT json_group_array(json(document)) FROM (
+            "SELECT json_object('tasks',json('[]'),'task_groups',json((SELECT json_group_array(json(document)) FROM (
                     SELECT json_object('key',json_extract(g.value,'$.key'),'label',json_extract(g.value,'$.label')) AS document
                     FROM json_each(p.header_json,'$.task_groups') g WHERE EXISTS(SELECT 1 FROM plan_tasks t WHERE t.plan_id=p.id
                         AND t.status='in_review' AND json_extract(t.row_json,'$.review_stage')='qa'
                         AND json_extract(t.row_json,'$.group')=json_extract(g.value,'$.key')) ORDER BY g.key)))) FROM plans p WHERE id=?1",
             [id],|row|column(row,0),
         ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
-        let mut plan: Plan = decode(id, &document)?;
+        let mut plan: QaWaveInput = decode(id, &document)?;
         record_query();
         let mut statement=tx.prepare_cached(
-            "SELECT json_object('id',json_extract(row_json,'$.id'),'name','','type','','status','in_review','review_stage','qa',
-                'group',json_extract(row_json,'$.group')) FROM plan_tasks
+            "SELECT json_object('id',json_extract(row_json,'$.id'),'group',json_extract(row_json,'$.group')) FROM plan_tasks
              WHERE plan_id=?1 AND status='in_review' AND json_extract(row_json,'$.review_stage')='qa'
                 AND json_extract(row_json,'$.group') IS NOT NULL ORDER BY position"
         ).map_err(db_error)?;

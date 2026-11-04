@@ -165,7 +165,7 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
         .fixture
         .service
         .plan_store
-        .show_task(task_id)
+        .inspect_task_for_test(task_id)
         .unwrap()
         .task;
     assert_eq!(task.kind, "unplanned");
@@ -217,7 +217,7 @@ fn unplanned_worker_spawn_creates_and_dispatches_an_unplanned_task() {
             .fixture
             .service
             .plan_store
-            .show_task(task_id)
+            .inspect_task_for_test(task_id)
             .unwrap()
             .task
             .status,
@@ -292,7 +292,7 @@ fn ease_unplanned_worker_keeps_explicit_work_tags_and_infers_missing_tags() {
             .fixture
             .service
             .plan_store
-            .show_task(response["task_id"].as_str().unwrap())
+            .inspect_task_for_test(response["task_id"].as_str().unwrap())
             .unwrap()
             .task;
         assert!(task
@@ -446,7 +446,12 @@ fn team_close_cleans_up_unplanned_worker() {
         .get_tab(&tab_id)
         .is_none());
     // A forced close keeps unfinished work visible: back to pending, its attempt closed.
-    if let Some(shown) = harness.fixture.service.plan_store.show_task(&task_id) {
+    if let Some(shown) = harness
+        .fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(&task_id)
+    {
         assert_eq!(shown.task.status, TaskStatus::Pending);
         assert!(shown.task.execution_attempts[0].closed_at.is_some());
     }
@@ -518,7 +523,7 @@ fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
         .fixture
         .service
         .plan_store
-        .show_task(response["task_id"].as_str().unwrap())
+        .inspect_task_for_test(response["task_id"].as_str().unwrap())
         .unwrap()
         .task;
     let lane = task.lane.worktree_path.as_deref().unwrap();

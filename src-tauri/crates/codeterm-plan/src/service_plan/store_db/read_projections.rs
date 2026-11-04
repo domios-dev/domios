@@ -4,6 +4,7 @@ pub(in crate::service_plan) mod hierarchy;
 pub(in crate::service_plan) mod hierarchy_routing;
 pub(in crate::service_plan) mod launch_restore;
 pub(in crate::service_plan) mod reminder;
+pub(in crate::service_plan::store_db) mod reminder_digests;
 pub(in crate::service_plan) mod runtime_identity;
 mod tab;
 pub(in crate::service_plan) mod transfer_authority;
@@ -68,31 +69,6 @@ impl PlanDatabase {
             params![plan_id, selector], |row| column(row, 0),
         ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
         decode(plan_id, &document)
-    }
-
-    pub(in crate::service_plan) fn scoped_task_references(
-        &self,
-        plan_id: &str,
-    ) -> Result<Vec<super::match_queries::TaskRefRow>, PlanError> {
-        let connection = self.connection.lock();
-        record_query();
-        let mut statement = connection.prepare_cached(
-            "SELECT task_id, json_extract(row_json, '$.key'), json_extract(row_json, '$.handle'),
-                    coalesce(json_extract(row_json, '$.name'), '')
-             FROM plan_tasks WHERE plan_id = ?1 ORDER BY position"
-        ).map_err(db_error)?;
-        let rows = statement
-            .query_map([plan_id], |row| {
-                Ok(super::match_queries::TaskRefRow {
-                    plan_id: plan_id.into(),
-                    task_id: column(row, 0)?,
-                    key: column(row, 1)?,
-                    handle: column(row, 2)?,
-                    name: column(row, 3)?,
-                })
-            })
-            .map_err(db_error)?;
-        rows.collect::<Result<_, _>>().map_err(db_error)
     }
 
     pub(in crate::service_plan) fn scoped_section_references(
@@ -201,14 +177,6 @@ fn append_outline(roots: &mut Vec<Value>, depth: usize, node: Value) {
         .and_then(|root| root["subsections"].as_array_mut())
     {
         append_outline(children, depth - 1, node);
-    }
-}
-
-pub(super) fn append_section(roots: &mut Vec<Section>, depth: usize, node: Section) {
-    if depth == 0 {
-        roots.push(node)
-    } else if let Some(parent) = roots.last_mut() {
-        append_section(&mut parent.subsections, depth - 1, node)
     }
 }
 

@@ -176,7 +176,7 @@ impl LateLaunch {
         self.caller
             .svc
             .plan_store
-            .show_task(&self.caller.task_id)
+            .inspect_task_for_test(&self.caller.task_id)
             .unwrap()
             .task
     }

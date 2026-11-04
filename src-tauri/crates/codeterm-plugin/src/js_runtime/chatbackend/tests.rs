@@ -19,19 +19,20 @@ fn open_and_send_children_receive_host_tab_credential_and_nonce() {
     let vm = vm_with(
         r#"
         let last = "";
-        function probe() {
+        function probe(then) {
             const opts = host.platform() === "windows"
                 ? { bin: "powershell", args: ["-NoProfile", "-Command",
                     "& powershell -NoProfile -Command '[Console]::Out.Write(($env:CODETERM_API_TOKEN, $env:CODETERM_TAB_ID, $env:CODETERM_SESSION_BINDING_NONCE -join [char]124))'"] }
                 : { bin: "sh", args: ["-c", "sh -c 'printf %s \"$CODETERM_API_TOKEN|$CODETERM_TAB_ID|$CODETERM_SESSION_BINDING_NONCE\"'"] };
             opts.env = { CODETERM_API_TOKEN: "owner-secret", CODETERM_TAB_ID: "foreign", CODETERM_SESSION_BINDING_NONCE: "stale" };
-            const out = JSON.parse(host.exec(JSON.stringify(opts)));
-            if (out.code !== 0) throw new Error(JSON.stringify(out));
-            return out.stdout;
+            return host.exec.async(opts, function (out) {
+                if (out.code !== 0) throw new Error(JSON.stringify(out));
+                return then(out.stdout);
+            });
         }
         module.exports.default = {
-            openSession() { last = probe(); return { sessionId: "s1" }; },
-            sendMessage() { last = probe(); },
+            openSession() { return probe(function (value) { last = value; return { sessionId: "s1" }; }); },
+            sendMessage() { return probe(function (value) { last = value; }); },
             poll() { return [{ id: "1", type: "assistant", content: last }]; }
         };
     "#,

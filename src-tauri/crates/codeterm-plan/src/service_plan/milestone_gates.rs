@@ -207,7 +207,7 @@ impl PlanStore {
         if note.is_empty() {
             return Err(PlanError::QaNoteRequired);
         }
-        let mid = self.mint_id("ms");
+        let mid = self.mint_id("ms")?;
         let mut gate = None;
         self.with_plan(plan_id, now_ms, |p| {
             let group = p

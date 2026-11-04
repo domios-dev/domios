@@ -8,6 +8,8 @@ use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 
+mod hashing;
+
 fn error(error: impl std::error::Error + Send + Sync + 'static) -> rusqlite::Error {
     rusqlite::Error::UserFunctionError(Box::new(error))
 }
@@ -27,8 +29,17 @@ fn enumeration<T: DeserializeOwned>(value: &str) -> Result<T> {
         .map_err(error)
 }
 
-pub(super) fn register(connection: &Connection) -> std::result::Result<(), PlanError> {
+pub(super) fn register(
+    connection: &Connection,
+    scrubber: fn(&str) -> String,
+) -> std::result::Result<(), PlanError> {
+    hashing::register(connection)?;
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+    connection
+        .create_scalar_function("domios_reminder_scrubbed", 1, flags, move |context| {
+            Ok(text(context, 0)?.map(scrubber))
+        })
+        .map_err(super::super::super::db_error)?;
     connection
         .create_scalar_function("domios_reminder_projection", 7, flags, |context| {
             let status: TaskStatus = enumeration(text(context, 0)?.unwrap_or(""))?;
@@ -45,7 +56,8 @@ pub(super) fn register(connection: &Connection) -> std::result::Result<(), PlanE
                 context.get(5)?,
                 context.get(6)?,
             );
-            serde_json::to_string(&projection).map_err(error)
+        let waits=projection.dependency_waits.iter().map(|wait|serde_json::json!({"task_id":wait.task_id,"status":wait.status,"missing":wait.missing})).collect::<Vec<_>>();
+        serde_json::to_string(&serde_json::json!({"presentation":projection.presentation,"dependency_waits":waits,"actionable":projection.needs_orchestrator_action()})).map_err(error)
         })
         .map_err(super::super::super::db_error)?;
     connection
@@ -93,7 +105,7 @@ impl Aggregate<State, String> for StateDigest {
         let presentation: crate::service_plan::state::TaskPresentation =
             enumeration(text(context, 2)?.unwrap_or(""))?;
         write!(output, "{id}:{presentation:?}:{:?}:", text(context, 3)?).map_err(error)?;
-        let waits: Vec<DependencyWait> =
+        let waits: Vec<super::ReminderDependencyRead> =
             serde_json::from_str(text(context, 4)?.unwrap_or("[]")).map_err(error)?;
         for (position, wait) in waits.iter().enumerate() {
             if position > 0 {

@@ -34,12 +34,17 @@ fn task_tag_removal_persists_exact_matches_and_preserves_other_tags() {
             3,
         )
         .unwrap();
-    let task = store.show_task(&id).unwrap().task;
+    let task = store.inspect_task_for_test(&id).unwrap().task;
     assert_eq!(task.tags, ["work:backend", "build-breaking-extra"]);
     store
         .remove_task_tags(&plan.id, &id, &task.tags, 4)
         .unwrap();
     drop(store);
     let reopened = PlanStore::new_for_test(root.path());
-    assert!(reopened.show_task(&id).unwrap().task.tags.is_empty());
+    assert!(reopened
+        .inspect_task_for_test(&id)
+        .unwrap()
+        .task
+        .tags
+        .is_empty());
 }

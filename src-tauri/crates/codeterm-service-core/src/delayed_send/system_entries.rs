@@ -71,7 +71,13 @@ pub(super) fn views_for_tab(
     tab_id: &str,
 ) -> Result<Vec<DelayedMessageView>, String> {
     let cfg = svc.configuration().orchestration;
-    let plans = svc.plan_store.reminder_candidate_plans_for_tab(tab_id);
+    let read = svc
+        .plan_store
+        .reminder_read_snapshot(crate::service::hierarchy::heartbeat_gate::scrubbed)
+        .map_err(|error| error.to_string())?;
+    let plans = read
+        .candidates(Some(tab_id))
+        .map_err(|error| error.to_string())?;
     let projected = project_for_tab(
         &plans,
         tab_id,

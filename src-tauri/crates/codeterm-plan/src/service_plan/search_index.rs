@@ -20,12 +20,16 @@ mod incremental;
 mod narrow;
 mod recovery;
 mod snapshot;
+mod unit_inputs;
 pub(super) use incremental::PlanIndexScope;
 pub(super) use narrow::{
     enqueue_milestone_index, enqueue_plan_time, enqueue_task_index, MilestoneIndexDelta,
     TaskIndexDelta,
 };
-pub(in crate::service_plan) use snapshot::PlanSearchSnapshot;
+pub(in crate::service_plan) use snapshot::{
+    PlanSearchInput, PlanSearchSnapshot, SearchHeaderRead, SearchMilestoneRead, SearchSectionRead,
+    SearchTaskRead,
+};
 
 static SEARCH_PORT: OnceLock<Arc<dyn PlanSearchPort>> = OnceLock::new();
 
@@ -774,24 +778,13 @@ fn plan_units(plan: &Plan, scope: &str) -> Vec<Unit> {
 
 fn plan_header_units(plan: &Plan, scope: &str) -> Vec<Unit> {
     let plan_status = plan_status_text(&plan.status);
-    let mut units = vec![Unit {
-        id: stable_id(&plan.id, "plan", &plan.id),
-        kind: "plan",
-        title: plan.title.clone(),
-        body: format!(
-            "Plan \"{}\"\n{}",
-            plan.title,
-            section_titles(&plan.sections)
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan.id.clone()),
-        spec_id: None,
-        unit_id: plan.id.clone(),
-        unit_title: plan.title.clone(),
-        parent_title: plan.title.clone(),
-        status: Some(plan_status.clone()),
-        updated_at: plan.updated_at,
-    }];
+    let parent = unit_inputs::UnitParent {
+        id: &plan.id,
+        title: &plan.title,
+        scope,
+        status: &plan_status,
+    };
+    let mut units = vec![parent.header(&section_titles(&plan.sections), plan.updated_at)];
     let total = count_sections(&plan.sections);
     let mut ordinal = 0usize;
     collect_plan_sections(
@@ -851,23 +844,22 @@ fn collect_plan_sections(
 ) {
     for section in sections {
         *ordinal += 1;
-        units.push(Unit {
-            id: stable_id(&plan.id, "plan_section", &section.id),
-            kind: "plan_section",
-            title: format!("{} section {}", plan.title, section.title),
-            body: format!(
-                "Plan \"{}\" · section {}/{}: {}\n{}",
-                plan.title, *ordinal, total, section.title, section.body
+        units.push(
+            unit_inputs::UnitParent {
+                id: &plan.id,
+                title: &plan.title,
+                scope,
+                status,
+            }
+            .section(
+                &section.id,
+                &section.title,
+                &section.body,
+                *ordinal,
+                total,
+                plan.updated_at,
             ),
-            scope: scope.to_string(),
-            plan_id: Some(plan.id.clone()),
-            spec_id: None,
-            unit_id: section.id.clone(),
-            unit_title: section.title.clone(),
-            parent_title: plan.title.clone(),
-            status: Some(status.to_string()),
-            updated_at: plan.updated_at,
-        });
+        );
         collect_plan_sections(
             plan,
             &section.subsections,

@@ -27,7 +27,7 @@ fn close_and_read_advised_source(busy: &BusyWorker) -> String {
         .fx
         .service
         .plan_store
-        .show_task(&busy.task_id)
+        .inspect_task_for_test(&busy.task_id)
         .unwrap()
         .task;
     let lost = task.execution_attempts.last().unwrap();
@@ -73,7 +73,7 @@ fn tab_gone_notice_advised_respawn_succeeds_once_and_refuses_replay() {
         Err(PlanError::RespawnAttemptNotCurrent { current_attempt_id, tab_id })
             if current_attempt_id == replacement && tab_id == "next"
     ));
-    let task = store.show_task(&busy.task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&busy.task_id).unwrap().task;
     assert_eq!(task.execution_attempts.len(), 2);
     assert_eq!(task.execution_attempts.last().unwrap().id, replacement);
     assert_eq!(task.assigned_tab_id.as_deref(), Some("next"));
@@ -125,7 +125,7 @@ fn tab_gone_notice_concurrent_advised_respawns_create_one_replacement() {
         .fx
         .service
         .plan_store
-        .show_task(&busy.task_id)
+        .inspect_task_for_test(&busy.task_id)
         .unwrap()
         .task;
     assert_eq!(task.execution_attempts.len(), 2);

@@ -21,7 +21,12 @@ impl ServiceContext {
             event_offset,
             include_events,
         )?;
-        let suspended = self.curator_suspended_reason_for_state(&read.plan, read.complete);
+        let suspended = self.curator_suspended_reason_for_fields(
+            &read.mode,
+            &read.status,
+            &read.team_id,
+            read.complete,
+        );
         read.value["control_loop"]["suspended_reason"] = serde_json::json!(suspended);
         if suspended.is_some() {
             read.value["control_loop"]["next_at"] = serde_json::Value::Null;

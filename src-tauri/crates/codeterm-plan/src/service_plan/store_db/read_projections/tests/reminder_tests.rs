@@ -57,7 +57,9 @@ fn reminder_candidates_keep_decisions_and_digest_with_payload_independent_reads(
         take_metrics();
         super::super::super::super::store_sync::take_decoded_row_bytes();
         super::super::super::super::store_rows::take_serialized_row_bytes();
-        let snapshot = database.reminder_read_snapshot().unwrap();
+        let snapshot = database
+            .reminder_read_snapshot(|text| text.chars().take(512).collect())
+            .unwrap();
         let candidates = snapshot.candidates(Some("owner")).unwrap();
         assert_eq!(candidates.len(), 1);
         let read = &candidates[0];
@@ -72,11 +74,24 @@ fn reminder_candidates_keep_decisions_and_digest_with_payload_independent_reads(
             crate::service_plan::state::orchestrator_actionable_task_ids(&plan)
         );
         for (task, original) in read.tasks.iter().zip(&plan.tasks) {
-            let mut expected = task_projection(&plan, original);
-            for wait in &mut expected.dependency_waits {
-                wait.name.clear();
-            }
-            assert_eq!(task.projection, expected);
+            let expected = task_projection(&plan, original);
+            assert_eq!(task.projection.presentation, expected.presentation);
+            assert_eq!(
+                task.projection.actionable,
+                expected.needs_orchestrator_action()
+            );
+            let selected = task
+                .projection
+                .dependency_waits
+                .iter()
+                .map(|wait| (&wait.task_id, &wait.status, wait.missing))
+                .collect::<Vec<_>>();
+            let original = expected
+                .dependency_waits
+                .iter()
+                .map(|wait| (&wait.task_id, &wait.status, wait.missing))
+                .collect::<Vec<_>>();
+            assert_eq!(selected, original);
         }
         let metrics = take_metrics();
         let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
@@ -100,7 +115,9 @@ fn reminder_snapshot_is_pinned_and_sql_errors_remain_errors() {
     let mut plan = fixtures::fixture(directory.path(), 0, 1);
     plan.mode = PlanMode::Execution;
     let database = fixtures::database(directory.path(), &plan);
-    let old = database.reminder_read_snapshot().unwrap();
+    let old = database
+        .reminder_read_snapshot(|text| text.chars().take(512).collect())
+        .unwrap();
     let before = old.plan(&plan.id).unwrap().unwrap();
     plan.tasks[0].status = TaskStatus::Done;
     plan.tasks[0].status_label = Some("changed".into());
@@ -109,7 +126,9 @@ fn reminder_snapshot_is_pinned_and_sql_errors_remain_errors() {
         old.plan(&plan.id).unwrap().unwrap().state_key_digest,
         before.state_key_digest
     );
-    let new = database.reminder_read_snapshot().unwrap();
+    let new = database
+        .reminder_read_snapshot(|text| text.chars().take(512).collect())
+        .unwrap();
     assert_ne!(
         new.plan(&plan.id).unwrap().unwrap().state_key_digest,
         before.state_key_digest
@@ -123,7 +142,9 @@ fn reminder_snapshot_is_pinned_and_sql_errors_remain_errors() {
         .lock()
         .execute_batch("DROP TABLE plan_tasks")
         .unwrap();
-    let broken = database.reminder_read_snapshot().unwrap();
+    let broken = database
+        .reminder_read_snapshot(|text| text.chars().take(512).collect())
+        .unwrap();
     assert!(broken.plan(&plan.id).is_err());
     assert!(broken.candidates(None).is_err());
 }

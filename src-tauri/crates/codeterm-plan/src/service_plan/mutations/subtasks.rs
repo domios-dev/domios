@@ -20,9 +20,9 @@ impl PlanStore {
                 .transpose()
                 .map_err(PlanError::InvalidExecutorName)?;
             child.parent_task_id = Some(parent_id.to_string());
-            prepared.push((self.mint_id("task"), child));
+            prepared.push((self.mint_id("task")?, child));
         }
-        let keys = self.issue_task_keys(plan_id, prepared.len());
+        let keys = self.issue_task_keys(plan_id, prepared.len())?;
         self.with_plan(plan_id, now_ms, |plan| {
             let parent = plan
                 .tasks

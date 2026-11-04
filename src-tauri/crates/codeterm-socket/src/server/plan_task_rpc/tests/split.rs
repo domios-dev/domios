@@ -248,7 +248,7 @@ fn task_update_cancel_parent_with_open_child_returns_open_subtasks() {
         fixture
             .service
             .plan_store
-            .show_task(&parent_id)
+            .inspect_task_for_test(&parent_id)
             .unwrap()
             .task
             .status,
@@ -307,7 +307,7 @@ fn draft_split_children_remain_locked_until_plan_approval() {
         fixture
             .service
             .plan_store
-            .show_task(child_id)
+            .inspect_task_for_test(child_id)
             .unwrap()
             .task
             .status,

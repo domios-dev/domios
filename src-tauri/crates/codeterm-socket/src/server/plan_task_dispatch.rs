@@ -59,9 +59,9 @@ use lane_resolution::{
 use lane_safety::preflight_checkout_occupancy;
 use lane_safety::{atomic_lane_commitment, dispatch_safety_nudges};
 #[cfg(test)]
-use preflight::preflight_dispatch_placement;
-#[cfg(test)]
 use preflight::regression_dispatch_warning;
+#[cfg(test)]
+use preflight::{preflight_dispatch_placement, preflight_review_capacity};
 use preflight::{preflight_dispatch_task_status, selected_regression_dispatch_warning};
 pub(super) use recovery::publish_action_needed_event;
 use recovery::startup_recovery_event;

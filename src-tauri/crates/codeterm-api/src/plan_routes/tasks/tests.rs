@@ -561,7 +561,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
         4,
     )
     .unwrap();
-    let task = store.show_task(&task_id).unwrap();
+    let task = store.inspect_task_for_test(&task_id).unwrap();
     let attempt = task
         .task
         .execution_attempts

@@ -4,7 +4,7 @@ fn assign_current(caller: &LiveCaller, now: u64) {
     let tab_id = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -58,7 +58,7 @@ fn current_attempt_first_nonce_proven_read_announces_before_ack_backfill() {
     let before = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     assert!(before.execution_attempts[0].acknowledged_at.is_none());
@@ -72,7 +72,7 @@ fn current_attempt_first_nonce_proven_read_announces_before_ack_backfill() {
     let after = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     let attempt = &after.execution_attempts[0];
@@ -89,7 +89,7 @@ fn current_attempt_first_nonce_proven_read_announces_before_ack_backfill() {
         caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task,
         after
@@ -120,7 +120,7 @@ fn current_attempt_stale_owner_epoch_refuses_manifest_refresh_without_mutation()
         let before = caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task;
 
@@ -132,7 +132,7 @@ fn current_attempt_stale_owner_epoch_refuses_manifest_refresh_without_mutation()
             caller
                 .svc
                 .plan_store
-                .show_task(&caller.task_id)
+                .inspect_task_for_test(&caller.task_id)
                 .unwrap()
                 .task,
             before
@@ -153,7 +153,7 @@ fn current_attempt_reassignment_ack_announces_before_exact_skill_load() {
     let closed = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task
         .execution_attempts[0]
@@ -164,7 +164,7 @@ fn current_attempt_reassignment_ack_announces_before_exact_skill_load() {
     let current = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task
         .execution_attempts[1]
@@ -193,7 +193,7 @@ fn current_attempt_reassignment_ack_announces_before_exact_skill_load() {
     let after = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     assert_eq!(after.execution_attempts[0], closed);
@@ -213,7 +213,7 @@ fn current_attempt_reassignment_ack_announces_before_exact_skill_load() {
         caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task,
         after
@@ -236,7 +236,7 @@ fn current_attempt_explicit_conflicts_and_ambiguity_refuse_without_receipts() {
     let before = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     assert!(before.execution_attempts[0].loaded_plan_skills.is_empty());
@@ -258,7 +258,7 @@ fn current_attempt_explicit_conflicts_and_ambiguity_refuse_without_receipts() {
     let ambiguous = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     assert!(caller.show(caller.production_params()).is_err());
@@ -266,7 +266,7 @@ fn current_attempt_explicit_conflicts_and_ambiguity_refuse_without_receipts() {
         caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task,
         ambiguous
@@ -436,7 +436,7 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
     let before = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     let shown = caller
@@ -450,7 +450,7 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
         caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task,
         before
@@ -480,7 +480,7 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
     let without_receipt = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     let read = json!({
@@ -495,7 +495,7 @@ fn current_attempt_other_plan_read_does_not_rebind_or_record_a_load() {
         caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task,
         without_receipt
@@ -582,7 +582,7 @@ fn current_attempt_skill_read_refreshes_manifest_after_post_dispatch_create_and_
     let after_first_read = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     let attempt = after_first_read.execution_attempts.last().unwrap();
@@ -618,7 +618,7 @@ fn current_attempt_skill_read_refreshes_manifest_after_post_dispatch_create_and_
     let after_second_read = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     let attempt = after_second_read.execution_attempts.last().unwrap();
@@ -649,7 +649,7 @@ fn current_attempt_ack_rejects_foreign_nonce_before_announcement() {
     let before = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     let result = crate::server::agent::dispatch(
@@ -662,7 +662,7 @@ fn current_attempt_ack_rejects_foreign_nonce_before_announcement() {
         caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task,
         before
@@ -704,7 +704,7 @@ fn stale_ack_nonce_refuses_before_marking_the_current_attempt() {
         let after_refusal = caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task;
         assert!(after_refusal.execution_attempts[0]
@@ -717,7 +717,7 @@ fn stale_ack_nonce_refuses_before_marking_the_current_attempt() {
     assert!(caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task
         .execution_attempts[0]
@@ -746,7 +746,7 @@ fn current_attempt_startup_ack_keeps_existing_runtime_qualification() {
     let before = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task
         .execution_attempts[0]
@@ -774,7 +774,7 @@ fn current_attempt_early_ack_late_ready_refuses_unproven_binding_without_mutatio
     let predecessor = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task
         .execution_attempts[0]
@@ -824,7 +824,7 @@ fn current_attempt_early_ack_late_ready_refuses_unproven_binding_without_mutatio
     let acknowledged = caller
         .svc
         .plan_store
-        .show_task(&caller.task_id)
+        .inspect_task_for_test(&caller.task_id)
         .unwrap()
         .task;
     assert_eq!(acknowledged.execution_attempts[0], predecessor);
@@ -865,7 +865,7 @@ fn current_attempt_early_ack_late_ready_refuses_unproven_binding_without_mutatio
         caller
             .svc
             .plan_store
-            .show_task(&caller.task_id)
+            .inspect_task_for_test(&caller.task_id)
             .unwrap()
             .task,
         acknowledged

@@ -408,10 +408,12 @@ fn plan_pause_resume_second_pause_is_noop_and_keeps_original_record() {
 fn plan_pause_resume_paused_plan_suppresses_reminders_heartbeat_and_notices_only_for_it() {
     let w = world();
     let tabs = |plans: &[Plan]| -> HashSet<String> {
-        timed_plan_reminder_targets(plans)
-            .into_iter()
-            .map(|target| target.tab_id)
-            .collect()
+        timed_plan_reminder_targets(
+            &crate::service::hierarchy::plan_reminder_nudge::tests::reads(plans),
+        )
+        .into_iter()
+        .map(|target| target.tab_id)
+        .collect()
     };
     let before = tabs(&w.store.all_plans_for_test());
     assert!(before.contains(&w.orchestrator));
