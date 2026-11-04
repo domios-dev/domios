@@ -410,20 +410,25 @@ fn plan_reminder_rule_rejects_unbound_worker_and_blocked_task() {
 #[test]
 fn composition_failure_is_prewrite_and_does_not_mark_a_reminder_delivered() {
     let f = fixture(ReminderKind::Worker);
+    assert_eq!(
+        f.admit(ReminderKind::Worker, 99),
+        ReminderOutcome::Suppressed("healthy_snapshot")
+    );
+    f.change(ReminderKind::Worker, "actionable-before-composition");
     *f.host.compose_error.lock() = Some("projection lookup failed".into());
     assert_eq!(
         f.admit(ReminderKind::Worker, 100),
         ReminderOutcome::Failed("projection lookup failed".into())
     );
     assert_eq!(f.emits(), 0);
-    assert_eq!(f.telemetry(ReminderKind::Worker), (0, 0, 0, 1));
+    assert_eq!(f.telemetry(ReminderKind::Worker), (1, 0, 0, 1));
     *f.host.compose_error.lock() = None;
     assert_eq!(
         f.admit(ReminderKind::Worker, 101),
         ReminderOutcome::Suppressed("same_snapshot")
     );
     assert_eq!(f.emits(), 0);
-    assert_eq!(f.telemetry(ReminderKind::Worker), (1, 0, 0, 1));
+    assert_eq!(f.telemetry(ReminderKind::Worker), (2, 0, 0, 1));
     f.change(ReminderKind::Worker, "changed");
     assert_eq!(
         f.admit(ReminderKind::Worker, 102),
