@@ -123,10 +123,17 @@ fn load_markers(connection: &Connection, plan: &mut Plan) -> Result<(), PlanErro
     }
     record_query();
     let mut statement=connection.prepare_cached(
-        "SELECT t.task_id,max(json_extract(s.row_json,'$.ts')) FROM plan_tasks t
-         JOIN plan_strides s ON s.plan_id=t.plan_id,json_each(s.row_json,'$.links') link
-         WHERE t.plan_id=?1 AND t.status='done' AND link.value=t.task_id AND json_extract(s.row_json,'$.kind') IN ('owner_notice','shown')
-         GROUP BY t.task_id HAVING max(json_extract(s.row_json,'$.ts'))>=coalesce(json_extract(t.row_json,'$.status_changed_at'),0)"
+        "WITH done AS MATERIALIZED (
+            SELECT task_id,coalesce(json_extract(row_json,'$.status_changed_at'),0) AS changed
+            FROM plan_tasks WHERE plan_id=?1 AND status='done'
+         ), shown AS MATERIALIZED (
+            SELECT json_extract(row_json,'$.ts') AS ts,row_json->'$.links' AS links
+            FROM plan_strides WHERE plan_id=?1 AND json_extract(row_json,'$.kind') IN ('owner_notice','shown')
+                AND EXISTS(SELECT 1 FROM done)
+         ), linked AS MATERIALIZED (
+            SELECT s.ts,link.value AS task_id FROM shown s,json_each(s.links) link
+         ) SELECT t.task_id,max(s.ts) FROM done t JOIN linked s USING(task_id)
+         GROUP BY t.task_id HAVING max(s.ts)>=t.changed"
     ).map_err(db_error)?;
     for row in statement
         .query_map([&plan.id], |row| {

@@ -7,10 +7,17 @@ use crate::service_plan::PlanError;
 use rusqlite::{params, Connection};
 
 const EVENT_SQL: &str = r#"
-WITH titles AS (
+WITH task_facts AS MATERIALIZED (
+    SELECT task_id,position,coalesce(json_extract(row_json,'$.created_at'),0) AS created_at,
+        json_extract(row_json,'$.name') AS name FROM plan_tasks WHERE plan_id=?1
+), header_facts AS MATERIALIZED (
+    SELECT json_extract(header_json,'$.planner.tab_id') AS planner_tab,
+        json_extract(header_json,'$.planner.title') AS planner_title,owner_tab_id,
+        json_extract(header_json,'$.owner.title') AS owner_title FROM plans WHERE id=?1
+), titles AS MATERIALIZED (
     SELECT a.executor_tab_id AS tab, json_extract(a.row_json,'$.executor_title') AS title,
            row_number() OVER (PARTITION BY a.executor_tab_id ORDER BY t.position DESC,a.position DESC) AS rank
-    FROM plan_task_attempts a JOIN plan_tasks t USING(plan_id,task_id)
+    FROM plan_task_attempts a JOIN task_facts t USING(task_id)
     WHERE a.plan_id=?1 AND json_extract(a.row_json,'$.executor_title') IS NOT NULL
 ),
 sources AS (
@@ -22,14 +29,12 @@ sources AS (
            json_extract(l.value,'$.from') || ' to ' || json_extract(l.value,'$.to') AS text
     FROM plans p,json_each(p.header_json,'$.planning_log') l WHERE p.id=?1
     UNION ALL
-    SELECT coalesce(json_extract(row_json,'$.created_at'),0),1,position,-1,
-           'task_created','',NULL,NULL,task_id,json_extract(row_json,'$.name'),json_extract(row_json,'$.name')
-    FROM plan_tasks WHERE plan_id=?1
+    SELECT created_at,1,position,-1,'task_created','',NULL,NULL,task_id,name,name FROM task_facts
     UNION ALL
     SELECT coalesce(json_extract(m.row_json,'$.ts'),0),1,t.position,m.seq,
            json_extract(m.row_json,'$.kind'),NULL,json_extract(m.row_json,'$.from.tab_id'),json_extract(m.row_json,'$.from.title'),
-           t.task_id,json_extract(t.row_json,'$.name'),coalesce(json_extract(m.row_json,'$.text'),'')
-    FROM plan_task_milestones m JOIN plan_tasks t USING(plan_id,task_id) WHERE m.plan_id=?1
+           t.task_id,t.name,coalesce(json_extract(m.row_json,'$.text'),'')
+    FROM plan_task_milestones m JOIN task_facts t USING(task_id) WHERE m.plan_id=?1
     UNION ALL
     SELECT coalesce(json_extract(row_json,'$.ts'),0),2,seq,0,json_extract(row_json,'$.kind'),NULL,
            json_extract(row_json,'$.from.tab_id'),json_extract(row_json,'$.from.title'),NULL,NULL,
@@ -42,8 +47,8 @@ sources AS (
 resolved AS (
     SELECT *, coalesce(explicit_author,
         (SELECT title FROM titles WHERE tab=author_tab AND rank=1),
-        (SELECT CASE WHEN json_extract(header_json,'$.planner.tab_id')=author_tab THEN json_extract(header_json,'$.planner.title') END FROM plans WHERE id=?1),
-        (SELECT CASE WHEN owner_tab_id=author_tab THEN json_extract(header_json,'$.owner.title') END FROM plans WHERE id=?1),
+        (SELECT CASE WHEN planner_tab=author_tab THEN planner_title END FROM header_facts),
+        (SELECT CASE WHEN owner_tab_id=author_tab THEN owner_title END FROM header_facts),
         author_title,author_tab,'') AS author,
         CASE WHEN kind IN ('task_created','planning') THEN text ELSE
           trim(substr(trim(text,?2),1,coalesce(nullif(instr(trim(text,?2),char(10)),0)-1,length(trim(text,?2)))),?2) END AS line

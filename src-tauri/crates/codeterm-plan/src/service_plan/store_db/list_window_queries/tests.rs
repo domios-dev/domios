@@ -7,6 +7,12 @@ fn list_windows_search_status_and_cursor_remain_scoped_read_only() {
     let mut plan = fixtures::fixture(root.path(), 0, 0);
     plan.tasks[1100].name = "Äther needle".into();
     plan.tasks[1100].status = crate::plan::TaskStatus::Blocked;
+    plan.sections = serde_json::from_value(json!([
+        {"id":"b","title":"Second","body":"Unselected section prose"},
+        {"id":"a","title":"First"}, {"id":"c","title":"Third"}
+    ]))
+    .unwrap();
+    plan.tasks[1100].section_ids = vec!["c".into(), "b".into(), "a".into()];
     let database = fixtures::database(root.path(), &plan);
     fixtures::audit(&database);
     let first = database
@@ -48,6 +54,18 @@ fn list_windows_search_status_and_cursor_remain_scoped_read_only() {
         .unwrap();
     assert_eq!(found["tasks"].as_array().unwrap().len(), 1);
     assert_eq!(found["tasks"][0]["id"], "task_1100");
+    let section_phrase = database
+        .ui_plan_list_window(
+            &plan.id,
+            &ListWindowQuery {
+                search: Some("First Second".into()),
+                status: Some("blocked".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(section_phrase["tasks"][0]["id"], "task_1100");
+    assert_eq!(section_phrase["task_window"]["total"], 1);
     let exact = database
         .ui_plan_list_window(
             &plan.id,

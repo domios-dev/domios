@@ -50,8 +50,7 @@ struct TaskDisplayContextRead {
     parked_for_later_group: bool,
 }
 
-const LABEL: &str = "json_object('id',r.task_id,'key',json_extract(r.row_json,'$.key'),
-    'name',json_extract(r.row_json,'$.name'),'status',r.status)";
+const LABEL: &str = "json_object('id',r.task_id,'key',r.key,'name',r.name,'status',r.status)";
 
 impl PlanDatabase {
     pub(in crate::service_plan) fn task_detail_projection(
@@ -61,24 +60,37 @@ impl PlanDatabase {
         let mut connection = self.connection.lock();
         let tx = connection.transaction().map_err(db_error)?;
         record_query();
-        let raw:Option<(String,String)>=tx.query_row(&format!("{} SELECT p.id,json_object(
+        let raw:Option<(String,String)>=tx.query_row(&format!("{}, target AS MATERIALIZED (
+            SELECT selected_task.*,json_extract(row_json,'$.parent_task_id') AS parent_id,
+                json_extract(row_json,'$.group') AS group_key,json_extract(row_json,'$.status') AS status
+            FROM selected_task
+         ), task_metadata AS MATERIALIZED (
+            SELECT task_id,position,status,json_extract(row_json,'$.key') AS key,
+                json_extract(row_json,'$.name') AS name,json_extract(row_json,'$.parent_task_id') AS parent_id,
+                json_extract(row_json,'$.group') AS group_key FROM plan_tasks
+            WHERE plan_id=(SELECT plan_id FROM target)
+         ), declared AS MATERIALIZED (
+            SELECT CAST(g.key AS INTEGER) AS position,json_extract(g.value,'$.key') AS group_key
+            FROM plans p,json_each(p.header_json,'$.task_groups') g WHERE p.id=(SELECT plan_id FROM target)
+         ) SELECT p.id,json_object(
             'plan_title',p.title,'plan_owner',json_extract(p.header_json,'$.owner'),'task_id',t.task_id,
-            'parent',json((SELECT {LABEL} FROM plan_tasks r WHERE r.plan_id=t.plan_id AND r.task_id=json_extract(t.row_json,'$.parent_task_id') ORDER BY r.position LIMIT 1)),
-            'siblings',json((SELECT json_group_array(json(label)) FROM (SELECT {LABEL} AS label FROM plan_tasks r
-                WHERE r.plan_id=t.plan_id AND r.task_id<>t.task_id AND json_extract(r.row_json,'$.parent_task_id') IS json_extract(t.row_json,'$.parent_task_id') ORDER BY r.position))),
-            'subtasks',json((SELECT json_group_array(json(label)) FROM (SELECT {LABEL} AS label FROM plan_tasks r
-                WHERE r.plan_id=t.plan_id AND json_extract(r.row_json,'$.parent_task_id')=t.task_id ORDER BY r.position))),
+            'parent',json((SELECT {LABEL} FROM task_metadata r WHERE r.task_id=t.parent_id ORDER BY r.position LIMIT 1)),
+            'siblings',json((SELECT json_group_array(json(label)) FROM (SELECT {LABEL} AS label FROM task_metadata r
+                WHERE r.task_id<>t.task_id AND r.parent_id IS t.parent_id ORDER BY r.position))),
+            'subtasks',json((SELECT json_group_array(json(label)) FROM (SELECT {LABEL} AS label FROM task_metadata r
+                WHERE r.parent_id=t.task_id ORDER BY r.position))),
             'dependency_waits',json((SELECT json_group_array(json(wait)) FROM (
-                SELECT json_object('task_id',d.value,'name',CASE WHEN r.task_id IS NULL THEN 'missing dependency '||d.value ELSE json_extract(r.row_json,'$.name') END,
+                SELECT json_object('task_id',d.value,'name',CASE WHEN r.task_id IS NULL THEN 'missing dependency '||d.value ELSE r.name END,
                     'status',r.status,'missing',json(CASE WHEN r.task_id IS NULL THEN 'true' ELSE 'false' END)) AS wait
-                FROM json_each(t.row_json,'$.depends_on') d LEFT JOIN plan_tasks r ON r.plan_id=t.plan_id AND r.task_id=d.value
+                FROM json_each(t.row_json,'$.depends_on') d LEFT JOIN task_metadata r ON r.task_id=d.value
                 WHERE r.task_id IS NULL OR r.status NOT IN ('done','cancelled') ORDER BY d.key))),
-            'has_open_subtasks',json(CASE WHEN EXISTS(SELECT 1 FROM plan_tasks r WHERE r.plan_id=t.plan_id AND json_extract(r.row_json,'$.parent_task_id')=t.task_id AND r.status NOT IN ('done','cancelled')) THEN 'true' ELSE 'false' END),
-            'parked_for_later_group',json(CASE WHEN json_extract(t.row_json,'$.status')='pending' AND
-                (SELECT min(CAST(g.key AS INTEGER)) FROM json_each(p.header_json,'$.task_groups') g WHERE json_extract(g.value,'$.key')=json_extract(t.row_json,'$.group')) >
-                (SELECT min(CAST(g.key AS INTEGER)) FROM json_each(p.header_json,'$.task_groups') g WHERE EXISTS(SELECT 1 FROM plan_tasks r WHERE r.plan_id=t.plan_id AND json_extract(r.row_json,'$.group')=json_extract(g.value,'$.key') AND r.status NOT IN ('done','cancelled')))
+            'has_open_subtasks',json(CASE WHEN EXISTS(SELECT 1 FROM task_metadata r WHERE r.parent_id=t.task_id AND r.status NOT IN ('done','cancelled')) THEN 'true' ELSE 'false' END),
+            'parked_for_later_group',json(CASE WHEN t.status='pending' AND
+                (SELECT min(position) FROM declared WHERE group_key=t.group_key) >
+                (SELECT min(g.position) FROM declared g WHERE EXISTS(SELECT 1 FROM task_metadata r
+                    WHERE r.group_key=g.group_key AND r.status NOT IN ('done','cancelled')))
                 THEN 'true' ELSE 'false' END))
-            FROM selected_task t JOIN plans p ON p.id=t.plan_id",super::super::task_authority_queries::SELECTED_ACTIVE_TASK),
+            FROM target t JOIN plans p ON p.id=t.plan_id",super::super::task_authority_queries::SELECTED_ACTIVE_TASK),
             [reference],|row|Ok((column(row,0)?,column(row,1)?))).optional().map_err(db_error)?;
         let Some((plan_id, raw)) = raw else {
             tx.commit().map_err(db_error)?;
