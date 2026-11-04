@@ -1,12 +1,10 @@
 use super::InstallMethod;
 use crate::update_state::UpdateInfo;
 
-// Anonymous public endpoints only; never bake updater tokens into shipped binaries.
-// The second repository is a fallback when the primary feed cannot be fetched.
-pub const UPDATE_REPOSITORIES: [&str; 2] = ["domios-dev/domios", "rollacode/codeterm-releases"];
-pub(super) const GITHUB_REPO: &str = UPDATE_REPOSITORIES[0];
+// Anonymous public endpoint only; never bake updater tokens into shipped binaries.
+pub const UPDATE_REPOSITORY: &str = "domios-dev/domios";
 
-/// The newest stable release found across the update repositories.
+/// The newest stable release published by the update repository.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LatestRelease {
     pub repository: &'static str,
@@ -68,30 +66,25 @@ where
     Fut: std::future::Future<Output = Result<super::manifest::Manifest, String>>,
 {
     let key = super::channel::manifest_filename_for_install_method(channel, method);
-    let mut found = Vec::new();
+    let endpoint = super::channel::default_endpoint_for_install_method(channel, method);
     let mut errors = Vec::new();
-    let endpoints = super::channel::default_endpoints_for_install_method(channel, method);
-    for (repository, endpoint) in UPDATE_REPOSITORIES.into_iter().zip(endpoints) {
-        match fetch(endpoint).await.and_then(|manifest| {
-            semver::Version::parse(&manifest.version).map_err(|e| e.to_string())?;
-            Ok(manifest)
-        }) {
-            Ok(manifest) => {
-                found.push(ResolvedManifest {
-                    release: LatestRelease {
-                        repository,
-                        tag: format!("v{}", manifest.version),
-                    },
-                    manifest,
-                    refresh_error: None,
-                });
-                break;
-            }
-            Err(error) => errors.push(format!("{repository}: {error}")),
+    let fresh = match fetch(endpoint).await.and_then(|manifest| {
+        semver::Version::parse(&manifest.version).map_err(|e| e.to_string())?;
+        Ok(manifest)
+    }) {
+        Ok(manifest) => Some(ResolvedManifest {
+            release: LatestRelease {
+                repository: UPDATE_REPOSITORY,
+                tag: format!("v{}", manifest.version),
+            },
+            manifest,
+            refresh_error: None,
+        }),
+        Err(error) => {
+            errors.push(format!("{UPDATE_REPOSITORY}: {error}"));
+            None
         }
-    }
-    let best = newest_release(found.iter().map(|item| item.release.clone()).collect());
-    let fresh = best.and_then(|best| found.into_iter().find(|item| item.release == best));
+    };
     tokio::task::spawn_blocking(move || cache::publish(&root, key, fresh, &errors))
         .await
         .map_err(|error| error.to_string())?
@@ -132,23 +125,6 @@ fn reuse_manifest(
         }
         (None, None) => Err(error),
     }
-}
-
-/// Highest semantic version wins; the earlier repository wins a tie, and unparsable tags never win.
-pub fn newest_release(found: Vec<LatestRelease>) -> Option<LatestRelease> {
-    let mut best: Option<(semver::Version, LatestRelease)> = None;
-    for release in found {
-        let Ok(candidate) = semver::Version::parse(release.tag.trim_start_matches('v')) else {
-            continue;
-        };
-        if best
-            .as_ref()
-            .is_none_or(|(current, _)| candidate > *current)
-        {
-            best = Some((candidate, release));
-        }
-    }
-    best.map(|(_, release)| release)
 }
 
 pub async fn check_for_update(install_method: &InstallMethod) -> Result<UpdateInfo, String> {
@@ -208,7 +184,7 @@ pub async fn check_with_diagnostic(
             ),
             download_url,
             release_url: format!(
-                "https://github.com/{GITHUB_REPO}/releases/tag/v{}",
+                "https://github.com/{UPDATE_REPOSITORY}/releases/tag/v{}",
                 manifest.version
             ),
             release_notes: manifest.notes,
@@ -230,7 +206,7 @@ fn build_update_command(
         InstallMethod::Deb => None,
         InstallMethod::Rpm => Some(format!(
             "curl -sLO https://github.com/{}/releases/download/v{}/Domios-{}-1.x86_64.rpm && sudo rpm -U Domios-{}-1.x86_64.rpm",
-            GITHUB_REPO, version, version, version
+            UPDATE_REPOSITORY, version, version, version
         )),
         _ => None,
     }

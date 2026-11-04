@@ -29,7 +29,7 @@ if (platform.startsWith('darwin-')) {
 const fragment = {
   version, notes: `Domios ${version}`, pub_date: new Date().toISOString(),
   platforms: { [platform]: {
-    url: `https://github.com/rollacode/codeterm-releases/releases/download/${tag}/${bundle}`,
+    url: `https://github.com/domios-dev/domios/releases/download/${tag}/${bundle}`,
     signature: readFileSync(path.join(directory, `${bundle}.sig`), 'utf8').trim(),
   } },
 };
@@ -46,6 +46,7 @@ if (deb) {
   execFileSync(process.execPath, ['scripts/verify-updater-manifest.mjs', '--manifest', debOutput, '--local', directory, '--require-version', version, '--require-platform', platform], { stdio: 'inherit' });
   fragments.push(debOutput);
 }
+// 1.19 transition mirror: PUBLISH_PUBLIC_MIRROR also writes rollacode/codeterm-releases; delete after 1.19 ships.
 if (process.env.RELEASE_VERIFY_ONLY !== 'true') for (const repo of [sourceRepository(), ...(process.env.PUBLISH_PUBLIC_MIRROR === 'true' ? ['rollacode/codeterm-releases'] : [])]) {
   const env = { ...process.env, GH_TOKEN: repo.endsWith('-releases') ? process.env.MIRROR_TOKEN : process.env.GH_TOKEN };
   execFileSync('gh', ['release', 'upload', tag, ...assets.map(name => path.join(directory, name)), ...(repo.endsWith('-releases') ? [] : fragments), '--clobber', '--repo', repo], { env, stdio: 'inherit', timeout: 300000 });

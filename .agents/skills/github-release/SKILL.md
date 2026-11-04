@@ -58,8 +58,10 @@ and `check-plugin.mjs <id>`, merge the checked PR, then with publication GO tag 
 commit `plugin-<id>-v<version>`. Verify the installed version through `domios plugin update-system`.
 Dispatch `plugin-release.yml` from a reviewed release branch with `tag=plugin-<id>-v<version>`; tag pushes do not publish. The dispatch's `publish_core_channel` job runs `scripts/publish-core-channel.mjs`, which uploads the whole
 `plugins/` tree as `codeterm-core.tar.gz` (+ `.sha256`, `.source-commit`) to the public
-`rollacode/codeterm-releases` release `codeterm-core-latest`, skips an older master commit, and
-verifies the anonymous download. Every install refreshes `codeterm-core` from there.
+`domios-dev/domios` release `codeterm-core-latest` with `GITHUB_TOKEN`, skips an older master
+commit, and verifies the anonymous download. Every install refreshes `codeterm-core` from there.
+For 1.19 only, a marked transition step publishes the same archive to `rollacode/codeterm-releases`
+for 1.18.x clients.
 
 ## Application train
 
@@ -109,8 +111,9 @@ verifies the anonymous download. Every install refreshes `codeterm-core` from th
    artifacts expire after three days; qualify the exact SHA again if needed. Equal trees
    or ancestor receipts never qualify another SHA. Local focused fixes do not replace CI
    evidence; do not rerun identical suites in the release graph.
-4. Verify runner availability with `bash scripts/check-release-runners.sh` and credential
-   preflight through `release-credentials.yml`. Confirm the intended version is unpublished.
+4. Verify runner availability locally with `bash scripts/check-release-runners.sh` (it needs the
+   owner's gh login: GITHUB_TOKEN cannot list runners) and credential preflight through
+   `release-credentials.yml`. Confirm the intended version is unpublished.
    Read back `domios-trusted` through the [runner policy procedure](../../../docs/release/public-repo.md#runner-isolation-is-a-publicization-prerequisite).
    Its current policy has `restricted_to_workflows=false` and `selected_workflows=[]`;
    release preparation does not edit the group or add workflow refs. If readback differs,
@@ -461,7 +464,15 @@ Every release-branch push restarts the full graph, so a fix must not introduce t
 
 ## Publication, notes and issue closure
 
-Public source and desktop downloads: `domios-dev/domios`. Retained updater/plugin mirror: `rollacode/codeterm-releases`.
+Public source, desktop downloads, updater manifests, frontend releases and the core plugin channel:
+`domios-dev/domios`, written with the workflow `GITHUB_TOKEN`; no release job needs a personal token.
+1.19 alone also writes `rollacode/codeterm-releases` through `PACKAGE_REPOS_TOKEN` so 1.18.x
+fallback clients reach it; `git grep -n "1.19 transition mirror"` lists every such site to delete
+once 1.19 ships. Public issues stay there, so automatic closure also uses `PACKAGE_REPOS_TOKEN`
+and needs its Issues write.
+`frontend-latest` and `codeterm-core-latest` stay `latest=false` so `releases/latest` is the app.
+Events created by `GITHUB_TOKEN` start no workflow: the stamped tag and the published release
+trigger nothing; every downstream job is a `workflow_call` of the same run.
 Manifest URLs must be anonymously reachable public assets. macOS updater uses arch-specific
 .app.tar.gz, Linux AppImage, Windows NSIS .exe; a DMG is not a macOS updater archive.
 Keep signatures/fragments paired to the exact bytes from their producing run.
@@ -481,7 +492,8 @@ Sign macOS updater archives with `tauri signer sign --app-version "$VER"`, like 
 Manifest verification authenticates every trusted comment and requires exactly one matching `version:`
 binding, including entries outside a selected artifact check; an unsigned or stale comment refuses release.
 
-`sync-release-notes.mjs` maintains one substantive notes body across both repositories. Historical
+`sync-release-notes.mjs` maintains one substantive notes body on the source release, and on the
+mirror when `--mirror-repo` is given (with `MIRROR_TOKEN`). Historical
 backfill mutates published notes and needs explicit authorization.
 
 Declare fixed issues as exact metadata, one per line:
@@ -497,7 +509,7 @@ and deferred issues with reasons; do not invent fixes or handwrite a second clos
 Public issues close only after this version's complete served-byte verification passes
 `check-release-closure.mjs`. The closure boundary records validator run ID/repository/URL and source
 SHA; readers confirm that run through Actions. A failed/cancelled run qualifies only when its
-exact-attempt jobs prove public-mirror verification, Debian verification and boundary minting
+exact-attempt jobs prove published-source verification, Debian verification and boundary minting
 succeeded in one job before any failure/cancellation. Missing/unverifiable boundaries are refused,
 never inferred from asset presence or release ownership.
 Set repository variable `RELEASE_CLOSE_PUBLIC_ISSUES=false` when the owner closes public issues
@@ -522,4 +534,4 @@ never sweep caches or delete worktrees merely because the release ended.
 Implementation entry points: [release stage](../../../scripts/release-stage.mjs),
 [macOS x64 helper](../../../scripts/release-macos-x86_64.sh).
 
-<!-- revision: 20 -->
+<!-- revision: 21 -->

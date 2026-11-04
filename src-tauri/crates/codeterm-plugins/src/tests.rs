@@ -159,7 +159,7 @@ mod store_index_tests {
     fn default_system_channel_is_a_public_release_asset() {
         assert_eq!(
             DEFAULT_SYSTEM_CHANNEL_URL,
-            "https://github.com/rollacode/codeterm-releases/releases/download/codeterm-core-latest/codeterm-core.tar.gz"
+            "https://github.com/domios-dev/domios/releases/download/codeterm-core-latest/codeterm-core.tar.gz"
         );
         assert!(archive_channel::is_archive_url(DEFAULT_SYSTEM_CHANNEL_URL));
         assert!(!DEFAULT_SYSTEM_CHANNEL_URL.contains("rollacode/codeterm.git"));

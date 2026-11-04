@@ -182,8 +182,10 @@ function dispatch(event: string, payload: unknown): void {
 // refetch reachable state; coverage beyond this is tracked as follow-up.
 function runFullResync(info: OverflowData): void {
   // as "last seen" means a later reconnect replays from next_seq forward.
-  saveCursor(`${info.boot}:${info.next_seq - 1}`);
-  seqGaps.adopt(info.boot, info.next_seq - 1);
+  if (Number.isSafeInteger(info.next_seq)) {
+    saveCursor(`${info.boot}:${info.next_seq - 1}`);
+    seqGaps.adopt(info.boot, info.next_seq - 1);
+  }
   window.dispatchEvent(new Event("codeterm-refresh-mux-state"));
   for (const ev of RESYNC_EVENTS) dispatch(ev, null);
   fireResync(info.reason === "boot-changed" ? "epoch_changed" : "overflow");

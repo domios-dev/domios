@@ -18,14 +18,14 @@ PRIV=$(gh release view "$TAG" --json isDraft,assets 2>/dev/null \
   || echo "missing")
 echo "private:  $PRIV"
 
-# Public mirror assets
+# 1.19 transition mirror assets
 PUB=$(gh release view "$TAG" --repo "$MIRROR" --json assets 2>/dev/null \
   | jq -r '"assets=[\(.assets | map(.name) | join(","))]"' \
   || echo "missing")
 echo "public :  $PUB"
 
 # domios-latest.json platform completeness (anon GET)
-MANIFEST_JSON=$(curl -sSL "https://github.com/$MIRROR/releases/latest/download/domios-latest.json" 2>/dev/null)
+MANIFEST_JSON=$(curl -sSL "https://github.com/domios-dev/domios/releases/latest/download/domios-latest.json" 2>/dev/null)
 if [ -n "$MANIFEST_JSON" ]; then
   PLATS=$(echo "$MANIFEST_JSON" | jq -r '
     .platforms
