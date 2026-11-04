@@ -1,0 +1,56 @@
+{
+  "id": "acp",
+  "version": "0.1.0",
+  "minCodeterm": "1.18.7",
+  "hostApi": 2,
+  "displayName": "ACP",
+  "description": "Agent Client Protocol v1 runtime with host-owned launch profiles.",
+  "entry": "plugin.js",
+  "icon": "icon.svg",
+  "capabilities": {
+    "agentProvider": true,
+    "agentRuntime": {
+      "runtime": "stdio-jsonrpc",
+      "command": {
+        "binary": "acp-agent",
+        "args": []
+      },
+      "launchProfiles": {},
+      "requestMethods": {
+        "initialize": [
+          "initialize"
+        ],
+        "openThread": [
+          "session/new"
+        ],
+        "resumeThread": [
+          "session/load",
+          "session/resume"
+        ],
+        "submitTurn": [
+          "session/prompt"
+        ],
+        "interrupt": [
+          "session/cancel"
+        ],
+        "answer": []
+      },
+      "notificationMethods": [
+        "session/update"
+      ]
+    },
+    "chatBackend": {
+      "enabled": true,
+      "spawnable": true,
+      "sessionConfig": true,
+      "agentTasks": true
+    }
+  },
+  "permissions": {
+    "subprocess": {
+      "allow": [
+        "acp-agent"
+      ]
+    }
+  }
+}

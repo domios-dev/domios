@@ -78,8 +78,9 @@ impl AgentProvider for JsProvider {
     fn authorize_agent_runtime(
         &self,
         authority: &crate::agent_runtime::LaunchAuthority,
+        profile: Option<&str>,
     ) -> Result<PathBuf, super::super::manifest::RuntimeManifestError> {
-        self.manifest.authorize_agent_runtime(authority)
+        self.manifest.authorize_agent_runtime(authority, profile)
     }
 
     async fn runtime_plan(

@@ -128,7 +128,15 @@ export type RuntimeAccountCredits = {kind:"balance"; balance:string} | {kind:"un
 export type ResetCreditOutcome = "reset"|"nothingToReset"|"noCredit"|"alreadyRedeemed";
 export interface RuntimeReduction { state:JsonValue; events:readonly AgentEvent[] }
 export type AgentRuntimeTransport = "stdio-jsonrpc" | "http-sse";
+export interface RuntimeLaunchProfile {
+  binary:string;
+  args:readonly string[];
+  env?:Readonly<Record<string,string>>;
+  install?:{package:string; registry?:string};
+  detection?:{args:readonly string[]};
+}
 export interface StdioAgentRuntimeCapability {
+  launchProfiles?:Readonly<Record<string,RuntimeLaunchProfile>>;
   restrictedCli?:{kind:"execpolicy-service-operations";metadataDirectory:string};
   runtimeModes?:readonly {id:string; displayName:string}[];
   serviceTiers?:readonly RuntimeServiceTier[];

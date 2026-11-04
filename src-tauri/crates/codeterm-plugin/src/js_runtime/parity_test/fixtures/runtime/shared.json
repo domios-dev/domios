@@ -16,7 +16,9 @@
       },
       "reply": {
         "kind": "success",
-        "value": {"binaryVersion": "7.8.9"}
+        "value": {
+          "binaryVersion": "7.8.9"
+        }
       },
       "plan": {
         "action": {
@@ -1143,5 +1145,25 @@
         ]
       }
     }
-  ]
+  ],
+  "launchProfiles": {
+    "selected": {
+      "binary": "fixture-engine",
+      "args": [
+        "serve"
+      ],
+      "env": {
+        "PROFILE": "fixed"
+      },
+      "detection": {
+        "args": [
+          "--version"
+        ]
+      },
+      "install": {
+        "package": "fixture-engine",
+        "registry": "https://example.invalid"
+      }
+    }
+  }
 }
