@@ -29,19 +29,17 @@ fn open_builds_the_index_without_parsing_any_plan_row() {
     drop(connection);
 
     let reopened = PlanStore::open(database_path).unwrap();
-    let listed: Vec<String> = reopened
-        .list_index()
-        .unwrap()
-        .into_iter()
-        .map(|entry| entry.plan_id)
-        .collect();
+    let listed: Vec<String> = reopened.index.read().keys().cloned().collect();
+    assert!(
+        matches!(reopened.list_index(),Err(PlanError::Io(message)) if message.contains("malformed JSON"))
+    );
     assert_eq!(
         sorted(listed),
         sorted(vec![good.id.clone(), "pl_corrupt".into()])
     );
     assert!(
         reopened.plan_loads_for_test().is_empty(),
-        "open and list_index must load no plan"
+        "startup isolation and public-list refusal must load no plan"
     );
 
     assert!(matches!(
