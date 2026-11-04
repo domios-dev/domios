@@ -7,6 +7,8 @@ use crate::plan::{
     TaskStatus,
 };
 
+pub(super) mod view;
+
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -293,47 +295,7 @@ fn render_heartbeat(
     _loops: &[LoopSpec],
     extra_digest_lines: &[String],
 ) -> String {
-    let snapshot = reminder_snapshot(plan);
-    let pending = snapshot
-        .open_lanes
-        .iter()
-        .filter(|lane| lane.presentation == super::state::TaskPresentation::ActionablePending)
-        .count();
-    let mut out = format!("{HEARTBEAT_BLOCK_OPEN} plan=\"{}\">\nState: in_review={} in_progress={} pending_actionable={pending} blocked={}\n",
-        plan.id, snapshot.task_counts.in_review, snapshot.task_counts.in_progress, snapshot.task_counts.blocked);
-    let actions = render_actions(plan, &snapshot, &mut out);
-    for learning in heartbeat
-        .learnings
-        .iter()
-        .filter(|learning| is_owner_rule(learning))
-    {
-        render_learning(learning, &mut out);
-    }
-    for learning in heartbeat
-        .learnings
-        .iter()
-        .rev()
-        .filter(|learning| !is_owner_rule(learning) && !learning.text.trim().is_empty())
-        .take(MAX_SITUATIONAL_LEARNINGS)
-    {
-        render_situational_learning(learning, &mut out);
-    }
-    render_regression_gates(plan, &mut out);
-    render_group_retrospectives(plan, &mut out);
-    render_competitive_attempts(plan, &mut out);
-    render_open_gates(plan, now_ms(), &mut out);
-    for line in extra_digest_lines
-        .iter()
-        .filter(|line| !line.trim().is_empty())
-    {
-        out.push_str("- ");
-        out.push_str(line.trim());
-        out.push('\n');
-    }
-    render_actionable_skills(plan, &actions, &mut out);
-    out.push_str(HEARTBEAT_MORE);
-    out.push_str("\n</codeterm-orchestrator-heartbeat>");
-    out
+    view::HeartbeatView::from_plan(plan).render_block(heartbeat, extra_digest_lines)
 }
 
 pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> String {
@@ -409,42 +371,10 @@ pub fn prepend_plan_heartbeat_with_selection(
     digest_lines: &[String],
     learning_ids: Option<&[String]>,
 ) -> String {
-    let mut heartbeat = plan.heartbeat.clone();
-    if let Some(ids) = learning_ids {
-        let allowed: Vec<_> = ids
-            .iter()
-            .filter(|id| {
-                heartbeat
-                    .learnings
-                    .iter()
-                    .any(|learning| &learning.id == *id && !is_owner_rule(learning))
-            })
-            .take(MAX_SITUATIONAL_LEARNINGS)
-            .collect();
-        heartbeat
-            .learnings
-            .retain(|learning| is_owner_rule(learning) || allowed.contains(&&learning.id));
-    }
     if matches!(plan.mode, PlanMode::Paused | PlanMode::Complete) || is_plan_complete(plan) {
         return text.to_string();
     }
-    let mut lines = digest_lines.to_vec();
-    lines.push(format!(
-        "control loop: {:?}, next {:?}{}",
-        plan.control_loop.mode,
-        plan.control_loop.next_at,
-        plan.control_loop
-            .fallback_reason
-            .as_ref()
-            .map(|r| format!(", fallback: heartbeat ({r})"))
-            .unwrap_or_default()
-    ));
-    let block = render_heartbeat(plan, &heartbeat, &plan.loops, &lines);
-    if text.trim().is_empty() {
-        block
-    } else {
-        format!("{block}\n\n{text}")
-    }
+    view::HeartbeatView::from_plan(plan).prepend(text, digest_lines, learning_ids)
 }
 
 pub(super) fn prepend_heartbeat_snapshot(
