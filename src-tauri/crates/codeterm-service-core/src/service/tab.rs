@@ -334,7 +334,7 @@ impl ServiceContext {
         validate: impl FnOnce(&crate::multiplexer::state::MultiplexerState, &str) -> Result<(), String>,
         teardown: impl FnOnce() -> Result<(), String>,
         validate_commit: impl FnOnce(
-            &crate::multiplexer::state::MultiplexerState,
+            &mut crate::multiplexer::state::MultiplexerState,
             &str,
         ) -> Result<(), String>,
     ) -> Result<(), String> {
@@ -378,7 +378,7 @@ impl ServiceContext {
         }
         let (close_result, history_batch) = {
             let mut mux = self.mux.write();
-            if let Err(error) = validate_commit(&mux, &canonical_tab_id) {
+            if let Err(error) = validate_commit(&mut mux, &canonical_tab_id) {
                 mux.abort_tab_close(&reservation);
                 return Err(error);
             }
