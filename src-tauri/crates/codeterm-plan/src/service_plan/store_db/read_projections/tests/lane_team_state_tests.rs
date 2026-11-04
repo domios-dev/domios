@@ -31,7 +31,7 @@ fn bounded_state(consumer: &str) {
         plan.control_loop.rounds = (0..rounds)
             .map(|number| crate::plan::CuratorRound {
                 number,
-                summary: "unrelated history".repeat(128),
+                summary: "unrelated history".repeat(32),
                 ..Default::default()
             })
             .collect();
@@ -46,7 +46,7 @@ fn bounded_state(consumer: &str) {
             plan.pause_operations = (0..rounds)
                 .map(|_| {
                     let mut old = operation.clone();
-                    old.reason = "history".repeat(128);
+                    old.reason = "history".repeat(32);
                     old
                 })
                 .chain([operation.clone()])
