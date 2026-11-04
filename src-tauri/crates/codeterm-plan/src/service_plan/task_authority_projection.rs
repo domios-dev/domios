@@ -45,6 +45,10 @@ pub(super) struct TabAttemptOwnerRead {
 }
 
 impl PlanStore {
+    pub fn plan_work_facet_projection(&self, plan_id: &str) -> Result<bool, PlanError> {
+        self.database.plan_work_facet_projection(plan_id)
+    }
+
     pub fn task_name_projection(&self, task_ref: &str) -> Result<String, PlanError> {
         self.database.task_name_projection(task_ref)
     }
