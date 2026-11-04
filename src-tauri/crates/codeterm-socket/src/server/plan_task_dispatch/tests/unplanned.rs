@@ -501,3 +501,41 @@ fn unplanned_worker_refuses_unbound_team() {
     .unwrap_err();
     assert!(error.message.contains("set the Team goal first"));
 }
+#[test]
+fn unplanned_foreign_repository_worktree_never_provisions_a_project_lane() {
+    let harness = fixture();
+    let (foreign_root, foreign_project) = super::git_project();
+    let foreign_worktree = foreign_root.path().join("worker");
+    super::git(
+        &foreign_project,
+        &[
+            "worktree",
+            "add",
+            "-b",
+            "foreign-work",
+            foreign_worktree.to_str().unwrap(),
+        ],
+    );
+    let mut request = params(&harness, "foreign repository probe").unwrap();
+    request["cwd"] = json!(foreign_worktree);
+    let response = dispatch(&harness, &Some(request)).unwrap();
+    let task = harness
+        .fixture
+        .service
+        .plan_store
+        .inspect_task_for_test(response["task_id"].as_str().unwrap())
+        .unwrap()
+        .task;
+    let lane = task.lane.worktree_path.as_deref().unwrap();
+    assert!(codeterm_service_core::service::same_path(
+        lane,
+        foreign_worktree.to_str().unwrap()
+    ));
+    assert_eq!(task.lane.branch.as_deref(), Some("foreign-work"));
+    assert_eq!(super::git_worktree_count(harness.project.path()), 1);
+    assert_eq!(super::git_worktree_count(&foreign_project), 2);
+    assert_eq!(
+        task.execution_attempts[0].worktree_path.as_deref(),
+        Some(lane)
+    );
+}

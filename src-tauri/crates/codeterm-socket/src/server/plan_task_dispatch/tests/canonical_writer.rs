@@ -1,3 +1,4 @@
+use super::preflight_facts;
 use serde_json::json;
 
 use super::super::canonical_writer::{

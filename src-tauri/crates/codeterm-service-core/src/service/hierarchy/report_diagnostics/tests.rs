@@ -1,4 +1,3 @@
-
 use super::*;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::AgentRole;

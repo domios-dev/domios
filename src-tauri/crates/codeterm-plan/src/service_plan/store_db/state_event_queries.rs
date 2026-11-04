@@ -83,6 +83,16 @@ pub(super) fn event_window(
     limit: usize,
     offset: usize,
 ) -> Result<EventLog, PlanError> {
+    super::state_event_window::event_window(connection, plan_id, limit, offset)
+}
+
+#[cfg(test)]
+pub(super) fn legacy_event_window(
+    connection: &Connection,
+    plan_id: &str,
+    limit: usize,
+    offset: usize,
+) -> Result<EventLog, PlanError> {
     let whitespace = event_whitespace();
     record_query();
     let mut statement = connection.prepare_cached(EVENT_SQL).map_err(db_error)?;

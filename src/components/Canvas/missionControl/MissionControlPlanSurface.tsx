@@ -22,7 +22,7 @@ import { usePlanProjection } from "../usePlanProjection";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";
 import { MissionControlControls } from "./MissionControlControls";
-import { usePlanBoardState } from "./usePlanBoardState";
+import { useDeferredPlanBoardState } from "./usePlanBoardState";
 import { useTeamMissionControl } from "./useTeamMissionControl";
 import { useTeamSpendRead } from "./teamSpend";
 import { planForDetail } from "./planDetailTarget";
@@ -132,7 +132,7 @@ export function MissionControlPlanSurface({
       .sort((a, b) => b.updated_at - a.updated_at);
   }, [effectivePlans, selectedPlan]);
 
-  const boardState = usePlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, !boardTeamId || Boolean(teamError));
+  const boardState = useDeferredPlanBoardState(api, selectedPlan?.id ?? null, selectedPlan?.updated_at ?? 0, !boardTeamId || Boolean(teamError));
   const recordedEvents = boardState.state?.mission_control?.event_log.recorded_events ?? 0;
   useEffect(() => setBoardEvents(boardState.state?.revision ?? String(recordedEvents)), [boardState.state?.revision, recordedEvents]);
   const spendRead = useTeamSpendRead(api, boardTeamId, teamRevision);

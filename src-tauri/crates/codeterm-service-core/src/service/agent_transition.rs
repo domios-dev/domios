@@ -10,7 +10,9 @@ use crate::service::plan::mutations::agent_lifecycle::{
 };
 use crate::service::ServiceContext;
 
+mod prepared;
 mod worker_transfer;
+pub use prepared::plan_owner_request;
 #[cfg(test)]
 pub(crate) use worker_transfer::worker_task_bindings;
 
@@ -159,12 +161,18 @@ impl ServiceContext {
         explicit_parent_tab_id: Option<&str>,
         require_verified_session: bool,
     ) -> Result<Vec<String>, String> {
-        let parent_tab_id = resolve_planner_parent(
-            &self.plan_store,
-            &self.mux.read(),
-            plan_id,
-            explicit_parent_tab_id,
-        )?;
+        let parent_tab_id = if let Some(explicit) = explicit_parent_tab_id
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+        {
+            explicit.to_string()
+        } else {
+            let owner = plan_owner(&self.plan_store, plan_id)?;
+            if self.mux.read().get_tab(&owner).is_none() {
+                return Err(format!("plan {plan_id}'s Orchestrator owner tab '{owner}' is not live; pass --parent-tab explicitly"));
+            }
+            owner
+        };
         self.transition_agent(AgentTransitionRequest {
             tab_id: tab_id.to_string(),
             destination: AgentPlacement::Manager {
@@ -240,17 +248,16 @@ impl ServiceContext {
         failure: TransitionFailurePoint,
         precondition: impl FnOnce(&MultiplexerState) -> Result<(), String>,
     ) -> Result<Vec<String>, String> {
-        let mut mux = self.mux.write();
-        precondition(&mux)?;
-        self.remote_teams
-            .ensure_tab_lifecycle_available(&request.tab_id)?;
-        let bindings_before = role_team_bindings(&mux);
-        let changed_plan_ids = execute_transition(&mut mux, &self.plan_store, request, failure)?;
-        let changed_bindings = role_team_bindings(&mux)
-            .into_iter()
-            .filter_map(|(id, binding)| (bindings_before.get(&id) != Some(&binding)).then_some(id))
-            .collect::<Vec<_>>();
-        drop(mux);
+        let (changed_plan_ids, changed_bindings) = self.transition_agent_prepared_at(
+            epoch_ms(),
+            |mux, _| {
+                precondition(mux)?;
+                self.remote_teams
+                    .ensure_tab_lifecycle_available(&request.tab_id)?;
+                Ok(request)
+            },
+            failure,
+        )?;
         for changed_tab_id in changed_bindings {
             self.record_role_transition(&changed_tab_id);
         }
@@ -302,7 +309,6 @@ impl ServiceContext {
                 }
             }
         }
-        let mux = self.mux.read();
         let change = AgentLifecyclePlanChange {
             tab_id: String::new(),
             preserve_owned_plans: true,
@@ -316,7 +322,6 @@ impl ServiceContext {
             .apply_agent_lifecycle_change(change, epoch_ms())
             .map_err(|error| error.to_string())?;
         let changed = transaction.changed_plan_ids().to_vec();
-        drop(mux);
         for changed_plan_id in &changed {
             self.emit_plan_changed(changed_plan_id);
         }
@@ -474,6 +479,7 @@ fn transition_plan_owner(
     verify_persisted_plan_rebind(plan_store, &rebind)
 }
 
+#[cfg(test)]
 fn execute_transition(
     mux: &mut MultiplexerState,
     plan_store: &crate::service::plan::PlanStore,

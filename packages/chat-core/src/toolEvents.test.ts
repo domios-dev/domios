@@ -349,4 +349,25 @@ console.log("ok - tool event lifecycle");
   assert(failed[0].kind === "tool" && failed[0].event.status === "error" && failed[0].event.exitCode === 2, "batch exposes failed member outcome");
 }
 
+{
+  // Counts must match the hunk's own marked lines, or the diff is rejected as malformed.
+  const diff = (path: string) => ({ path, additions: 1, deletions: 1, hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }] });
+  const edit = (id: string, path: string, patch: Partial<NormalizedChatMessage> = {}): NormalizedChatMessage =>
+    call(id, `t-${id}`, { toolKind: "edit", toolSummary: path, fileDiffs: [diff(path)], sourceSessionId: "s1", ...patch });
+  const items = reduceToolEvents([
+    edit("e1", "src/a.rs"),
+    edit("e2", "src/b.rs"),
+    edit("e3", "src/a.rs"),
+    { id: "m1", type: "assistant", content: "done" },
+    edit("e4", "src/c.rs"),
+  ]);
+  assert(items.length === 3, "a run of edits folds into one item and prose closes it");
+  const run = items[0].kind === "tool" ? items[0].event : undefined;
+  assert(run?.editRun?.length === 3 && run.id === "e1:edits", "the run keeps every edit in order");
+  assert(run.fileDiffs === undefined, "the run card is not mistaken for one file's diff");
+  assert(items[2].kind === "tool" && !items[2].event.editRun && items[2].event.fileDiffs?.length === 1, "a lone edit keeps its own card");
+  const split = reduceToolEvents([edit("f1", "x.ts"), edit("f2", "y.ts", { sourceSessionId: "s2" })]);
+  assert(split.length === 2, "edits from different sessions stay apart");
+}
+
 console.log("ok - tool activity streams");

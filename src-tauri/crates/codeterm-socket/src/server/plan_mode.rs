@@ -125,8 +125,13 @@ pub(super) fn dispatch(
                 });
             }
             let by = svc
-                .authorize_draft_structure_mutation(&id, &caller(params))
-                .map_err(authority_error)?;
+                .authorize_draft_structure_mutation_typed(&id, &caller(params))
+                .map_err(|error| {
+                    super::plan_task_authority::execution_authority_error(
+                        error,
+                        Some("plan_approval_authorization_required"),
+                    )
+                })?;
             let note = optional_string(params, "note");
             svc.plan_store
                 .set_planning_state(&id, state, by, note.as_deref(), epoch_ms())

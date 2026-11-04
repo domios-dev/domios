@@ -90,7 +90,7 @@ pub(super) fn selected_regression_dispatch_warning(
         .map_err(plan_rpc_err)?
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
     Ok(regression_dispatch_warning(regression_dispatch_decision(
-        &input,
+        input,
     )))
 }
 

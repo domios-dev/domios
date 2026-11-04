@@ -57,7 +57,7 @@ function segmentBranch(row: CommandRow, resolvePlugin?: PluginNameResolver): Bra
   };
 }
 
-const LINE_CLASS = "flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap rounded px-1 text-left leading-[18px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]";
+export const LINE_CLASS ="flex w-full min-w-0 flex-nowrap items-center gap-1.5 overflow-hidden whitespace-nowrap rounded px-1 text-left leading-[18px] hover:bg-[var(--ct-surface)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-[var(--ct-accent)]";
 const QUIET = "var(--ct-muted-fg)";
 
 /** Compact inline branches under a call, capped with "+N more"; at most one detail opens inline. */

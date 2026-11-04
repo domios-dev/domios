@@ -1,7 +1,7 @@
 import { timestampMs, type ChatOrigin, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
 
 function firstEventMessage(event: ToolEvent): NormalizedChatMessage {
-  const first = event.stream?.members[0] ?? event.commandBatch?.[0];
+  const first = event.stream?.members[0] ?? event.commandBatch?.[0] ?? event.editRun?.[0];
   return first ? firstEventMessage(first) : event.message;
 }
 

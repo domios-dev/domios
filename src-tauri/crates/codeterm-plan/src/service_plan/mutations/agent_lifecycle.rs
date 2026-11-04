@@ -1,6 +1,8 @@
 use super::*;
 
+mod prepared;
 mod worker_transfer;
+pub use prepared::PreparedLifecycleChanges;
 pub use worker_transfer::VerifiedWorkerTransferBinding;
 
 #[derive(Debug, Clone)]
@@ -70,12 +72,21 @@ impl PlanStore {
             }
         }
 
+        self.commit_lifecycle_candidates(&writer_turn, originals, staged)
+    }
+
+    fn commit_lifecycle_candidates(
+        &self,
+        writer_turn: &MutationWriterTurn<'_>,
+        originals: Vec<Plan>,
+        staged: Vec<Plan>,
+    ) -> Result<AgentLifecyclePlanTransaction, PlanError> {
         let changed_plan_ids = staged.iter().map(|plan| plan.id.clone()).collect();
         for (persisted, candidate) in staged.iter().enumerate() {
-            if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, candidate) {
+            if let Err(error) = self.persist_plan_and_spec_in_writer(writer_turn, candidate) {
                 let mut failures = vec![error.to_string()];
                 for original in originals.iter().take(persisted) {
-                    if let Err(error) = self.persist_plan_and_spec_in_writer(&writer_turn, original)
+                    if let Err(error) = self.persist_plan_and_spec_in_writer(writer_turn, original)
                     {
                         failures.push(format!("restore {}: {error}", original.id));
                     }
