@@ -53,7 +53,9 @@ pub(crate) fn planner_json_envelope(val: &Value) -> Option<Value> {
 }
 
 fn is_list_response(val: &Value) -> bool {
-    val.get("plans").is_some() || val.get("tasks").is_some()
+    ["plans", "tasks"]
+        .iter()
+        .any(|key| val.get(*key).is_some_and(Value::is_array))
 }
 
 fn plan_list_line(item: &Value) -> String {
