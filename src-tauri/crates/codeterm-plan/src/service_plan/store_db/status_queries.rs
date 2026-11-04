@@ -367,8 +367,17 @@ pub(super) fn refresh_control_counts(
     plan: &mut Plan,
     now_ms: u64,
 ) -> Result<(), PlanError> {
+    plan.control_loop.counts_7d = control_counts(connection, &plan.id, now_ms)?;
+    Ok(())
+}
+
+pub(super) fn control_counts(
+    connection: &Connection,
+    plan_id: &str,
+    now_ms: u64,
+) -> Result<crate::plan::CuratorCounts, PlanError> {
     record_query();
-    plan.control_loop.counts_7d=connection.query_row(
+    connection.query_row(
         "SELECT coalesce(sum(json_extract(r.value,'$.outcome') NOT IN ('quiet','nudged','fallback')),0),
                 coalesce(sum(json_extract(r.value,'$.outcome')='quiet'),0),
                 coalesce(sum(json_extract(r.value,'$.outcome')='nudged'),0),
@@ -377,9 +386,8 @@ pub(super) fn refresh_control_counts(
                 coalesce(sum(json_extract(r.value,'$.outcome')='fallback'),0)
          FROM plans p,json_each(p.header_json,'$.control_loop.rounds') r
          WHERE p.id=?1 AND json_extract(r.value,'$.ended_at')>=?2",
-        params![plan.id,now_ms.saturating_sub(7*24*60*60*1000)], |row| Ok(crate::plan::CuratorCounts {
+        params![plan_id,now_ms.saturating_sub(7*24*60*60*1000)], |row| Ok(crate::plan::CuratorCounts {
             rounds:row.get(0)?,quiet:row.get(1)?,nudged:row.get(2)?,learnings:row.get(3)?,saves:row.get(4)?,fallbacks:row.get(5)?,
         })
-    ).map_err(db_error)?;
-    Ok(())
+    ).map_err(db_error)
 }
