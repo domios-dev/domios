@@ -3,6 +3,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
+import { baseDaemonTransport } from "../../lib/daemonBootstrap";
 import { setAgentDescriptors } from "../../lib/agentDescriptorCache";
 import type { ApiConfig, AppConfig, GraphWorkerInfo } from "../../lib/types";
 import type { MemNode } from "./types";
@@ -80,8 +81,9 @@ async function main() {
   const requests: string[] = [];
   let failWorkers = false;
   let rows = [worker, { ...worker, worker_id: "older", spawned_at: 500 }];
-  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
-    const path = String(input);
+  // Memory requests go through the daemon transport; a raw fetch would be a bypass.
+  globalThis.fetch = (() => { throw new Error("Raw daemon fetch bypass"); }) as typeof fetch;
+  baseDaemonTransport().request = (async (path: string, init?: RequestInit) => {
     requests.push(`${init?.method || "GET"} ${path}`);
     if (path.endsWith("/api/mem/workers") && failWorkers) return Response.json({}, { status: 503 });
     if (path.endsWith("/api/mem/workers")) return Response.json(rows);
@@ -112,7 +114,7 @@ async function main() {
         ],
       });
     throw new Error(`Unexpected request ${path}`);
-  }) as typeof fetch;
+  });
   const host = document.createElement("div");
   document.body.append(host);
   const root = createRoot(host);
