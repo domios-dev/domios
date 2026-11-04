@@ -4,6 +4,8 @@ use crate::service_plan::PlanError;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
+mod executor_source;
+
 pub(super) const SECTION_ROWS: &str = "SELECT s.position, j.id AS traversal,
     json_extract(j.value, '$.id') AS id,
     json_extract(j.value, '$.handle') AS handle,
