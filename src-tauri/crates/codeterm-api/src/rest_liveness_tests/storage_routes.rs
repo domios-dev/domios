@@ -504,3 +504,5 @@ mod checkpoint_adoption;
 mod team_recovery;
 
 mod orphan_executor;
+
+mod preview_encoding;
