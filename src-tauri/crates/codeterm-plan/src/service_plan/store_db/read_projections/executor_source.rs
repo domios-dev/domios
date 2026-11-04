@@ -1,6 +1,6 @@
 use super::{column, decode, record_query};
-use crate::plan::TaskExecutionAttempt;
 use crate::service_plan::store_db::{db_error, PlanDatabase};
+use crate::service_plan::task_attempts::ExecutorSourceRead;
 use crate::service_plan::{PlanError, PlanStore};
 use rusqlite::{params, OptionalExtension};
 
@@ -18,7 +18,7 @@ impl PlanStore {
         plan: &str,
         task: &str,
         attempt: &str,
-    ) -> Result<Option<TaskExecutionAttempt>, PlanError> {
+    ) -> Result<Option<ExecutorSourceRead>, PlanError> {
         self.database
             .executor_source_projection(plan, task, attempt)
     }
@@ -26,7 +26,7 @@ impl PlanStore {
     pub fn executor_sources_for_tab_projection(
         &self,
         tab: &str,
-    ) -> Result<Vec<(String, String, TaskExecutionAttempt)>, PlanError> {
+    ) -> Result<Vec<(String, String, ExecutorSourceRead)>, PlanError> {
         self.database.executor_sources_for_tab_projection(tab)
     }
 }
@@ -37,7 +37,7 @@ impl PlanDatabase {
         plan: &str,
         task: &str,
         attempt: &str,
-    ) -> Result<Option<TaskExecutionAttempt>, PlanError> {
+    ) -> Result<Option<ExecutorSourceRead>, PlanError> {
         self.ensure_plan_exists(plan)?;
         let connection = self.connection.lock();
         record_query();
@@ -54,7 +54,7 @@ impl PlanDatabase {
     fn executor_sources_for_tab_projection(
         &self,
         tab: &str,
-    ) -> Result<Vec<(String, String, TaskExecutionAttempt)>, PlanError> {
+    ) -> Result<Vec<(String, String, ExecutorSourceRead)>, PlanError> {
         let connection = self.connection.lock();
         record_query();
         let mut statement = connection
