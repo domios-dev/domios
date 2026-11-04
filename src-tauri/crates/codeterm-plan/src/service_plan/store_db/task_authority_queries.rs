@@ -1,6 +1,5 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
-use crate::plan::TaskExecutionAttempt;
 use crate::service_plan::task_authority_projection::TabAttemptOwnerRead;
 use crate::service_plan::{
     PlanError, PlanTaskAdmissionRead, TaskBindingRead, TaskContextFilesRead, TaskOwnerEpochRead,
@@ -214,7 +213,7 @@ impl PlanDatabase {
         &self,
         plan: &str,
         task: &str,
-        source: &TaskExecutionAttempt,
+        source: crate::service_plan::task_attempts::ExecutorSourceFields<'_>,
     ) -> Result<bool, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
