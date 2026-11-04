@@ -71,6 +71,45 @@ impl PlanStore {
         })
     }
 
+    pub fn prepare_team_plan_unarchive(
+        &self,
+        plan_id: &str,
+        now_ms: u64,
+    ) -> Result<(PreparedLifecycleChanges, String), PlanError> {
+        let _writer = self.mutation_writer.enter();
+        let original = self.try_get(plan_id)?;
+        let team = original
+            .team_id
+            .clone()
+            .filter(|id| !id.trim().is_empty())
+            .ok_or_else(|| PlanError::ActivePlanRequiresTeam {
+                plan_id: plan_id.into(),
+            })?;
+        let active = self.active_plan_for_team(&team);
+        if let Some((existing_plan_id, existing_title)) = &active {
+            if existing_plan_id != plan_id {
+                return Err(PlanError::TeamAlreadyHasActivePlan {
+                    team_id: team,
+                    existing_plan_id: existing_plan_id.clone(),
+                    existing_title: existing_title.clone(),
+                });
+            }
+        }
+        let mut staged = original.clone();
+        staged.status = crate::plan::PlanStatus::Active;
+        staged.updated_at = now_ms;
+        Ok((
+            PreparedLifecycleChanges {
+                expected: vec![original.clone()],
+                team_owners: vec![(team.clone(), active)],
+                selector: PlanMatch::Ids(vec![plan_id.into()]),
+                originals: vec![original],
+                staged: vec![staged],
+            },
+            team,
+        ))
+    }
+
     pub fn commit_prepared_agent_lifecycle_changes(
         &self,
         prepared: PreparedLifecycleChanges,
