@@ -48,38 +48,12 @@ impl PlanStore {
                 return Err(refused());
             }
             let mut owners = Vec::new();
-            for active in self
-                .stored_plans_matching(&super::plan_skill_evidence::tab_work_candidates(
-                    &request.tab_id,
-                ))
-                .into_iter()
-                .filter(|plan| plan.status == PlanStatus::Active)
+            for owner in self
+                .database
+                .tab_attempt_owners_projection(&request.tab_id)?
             {
-                for task in active
-                    .tasks
-                    .iter()
-                    .filter(|task| !task.status.is_terminal())
-                {
-                    let open = task
-                        .execution_attempts
-                        .iter()
-                        .filter(|attempt| {
-                            attempt.executor_tab_id == request.tab_id
-                                && attempt.closed_at.is_none()
-                                && attempt.retired_at.is_none()
-                        })
-                        .collect::<Vec<_>>();
-                    if task.assigned_tab_id.as_deref() == Some(request.tab_id.as_str())
-                        && open.is_empty()
-                    {
-                        return Err(refused());
-                    }
-                    owners.extend(
-                        open.into_iter().map(|attempt| {
-                            (active.id.clone(), task.id.clone(), attempt.id.clone())
-                        }),
-                    );
-                }
+                let attempt_id = owner.attempt_id.ok_or_else(refused)?;
+                owners.push((owner.plan_id, owner.task_id, attempt_id));
             }
             if owners
                 != vec![(

@@ -1,5 +1,7 @@
 use super::*;
-use crate::plan::{OrchestratorRef, Plan, TaskExecutionAttempt, TaskLaneMetadata};
+use crate::plan::{
+    OrchestratorRef, Plan, PlanMode, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus,
+};
 use crate::service_plan::NewTask;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc};
@@ -387,4 +389,86 @@ fn transfer_fence_serializes_plan_writers_behind_its_mux_commit_callback() {
     transfer.join().unwrap().unwrap();
     writer.join().unwrap();
     assert_eq!(store.get(&plan_id).unwrap().title, "after transfer fence");
+}
+
+#[test]
+fn transfer_fence_preserves_every_selected_authority_and_lane_boundary() {
+    type Change = fn(&mut crate::plan::Task);
+    let cases: &[(&str, Change)] = &[
+        ("handoff", |task| task.interruption.handoff_required = true),
+        ("checkpoint", |task| {
+            task.interruption.checkpoint = Some(Default::default())
+        }),
+        ("owner tab", |task| {
+            task.interruption.owner_tab_id = Some("other".into())
+        }),
+        ("owner session", |task| {
+            task.interruption.owner_session_id = Some("other".into())
+        }),
+        ("lane workspace", |task| {
+            task.lane.workspace_id = Some("other".into())
+        }),
+        ("lane branch", |task| {
+            task.lane.branch = Some("other".into())
+        }),
+        ("lane base", |task| task.lane.base = Some("other".into())),
+        ("empty branch", |task| {
+            task.lane.branch = Some(String::new())
+        }),
+        ("task status", |task| task.status = TaskStatus::Paused),
+        ("provider", |task| {
+            task.execution_attempts[0].provider = Some("other".into())
+        }),
+        ("agent type", |task| {
+            task.execution_attempts[0].agent_type = Some("other".into())
+        }),
+        ("attempt session", |task| {
+            task.execution_attempts[0].session_id = Some("other".into())
+        }),
+        ("ack", |task| {
+            task.execution_attempts[0].acknowledged_at = None
+        }),
+        ("attempt epoch", |task| {
+            task.execution_attempts[0].interruption.owner_epoch += 1
+        }),
+        ("placement", |task| {
+            task.execution_attempts[0].placement = crate::plan::WorkerPlacement::Shared
+        }),
+        ("remote peer", |task| {
+            task.execution_attempts[0].mesh_peer = Some("remote".into())
+        }),
+        ("remote state", |task| {
+            task.execution_attempts[0].remote_dispatch_state =
+                Some(crate::plan::RemoteDispatchState::Acknowledged)
+        }),
+        ("remote path", |task| {
+            task.execution_attempts[0].remote_worktree_path = Some("remote".into())
+        }),
+        ("remote tip", |task| {
+            task.execution_attempts[0].remote_lane_tip = Some("remote".into())
+        }),
+        ("remote merge", |task| {
+            task.execution_attempts[0].remote_merge_commit = Some("remote".into())
+        }),
+        ("attempt path", |task| {
+            task.execution_attempts[0].worktree_path = Some("other".into())
+        }),
+        ("attempt branch", |task| {
+            task.execution_attempts[0].branch = Some("other".into())
+        }),
+        ("attempt base", |task| {
+            task.execution_attempts[0].base = Some("other".into())
+        }),
+    ];
+    for (name, change) in cases {
+        println!("worker transfer refusal case: {name}");
+        assert_fence_refusal_preserves_plan(|plan, binding| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == binding.task_id)
+                .unwrap();
+            change(task);
+        });
+    }
 }

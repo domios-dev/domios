@@ -742,7 +742,18 @@ where
         .map_err(|error| dispatch_failed("tab_reservation", error))?;
     let mut reservation_tab = DispatchReservationTab::new(svc, reserved_tab_id.clone());
     codeterm_service_core::startup::boot_timing::bind_request(&reserved_tab_id);
-    let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+    let observed_owner = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .map_err(|error| {
+            let mut refusal = plan_rpc_err(error);
+            if let Err(cleanup) = reservation_tab.close() {
+                refusal.message = format!(
+                    "{}; losing Worker tab cleanup failed: {cleanup}",
+                    refusal.message
+                );
+            }
+            refusal
+        })?;
     let observed_owner_is_live = observed_owner.as_ref().is_some_and(|owner| {
         dispatch_startup_owner_is_live(svc, &plan_id, &task_id, &owner.tab_id)
     });
@@ -880,41 +891,44 @@ where
         &reserved_attempt_id,
         &starting_lane,
     ));
-    let begin_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
-    let begin_owner_is_live = begin_owner.as_ref().is_some_and(|owner| {
-        dispatch_startup_owner_is_live(svc, &plan_id, &task_id, &owner.tab_id)
-    });
-    let attempt_start = if let Some(owner) = begin_owner.as_ref().filter(|_| begin_owner_is_live) {
-        Err(PlanError::DispatchInFlight {
-            attempt_id: owner.attempt_id.clone(),
-            tab_id: owner.tab_id.clone(),
-        })
-    } else {
-        store.begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
-            &plan_id,
-            &task_id,
-            &reserved_tab_id,
-            &spawn_params
-                .title
-                .clone()
-                .unwrap_or_else(|| "Worker".into()),
-            starting_lane,
-            execution_intent,
-            allowance,
-            Some(&resolved_provider),
-            &reserved_attempt_id,
-            Some(authorized_gates.clone()),
-            placement,
-            dispatched_model,
-            selected_model.clone(),
-            dispatched_provider_resolved_model,
-            dispatched_reasoning_effort,
-            begin_owner,
-            begin_owner_is_live,
-            true,
-            now,
-        )
-    };
+    let attempt_start = store
+        .dispatch_startup_owner_candidate(&plan_id, &task_id)
+        .and_then(|begin_owner| {
+            let begin_owner_is_live = begin_owner.as_ref().is_some_and(|owner| {
+                dispatch_startup_owner_is_live(svc, &plan_id, &task_id, &owner.tab_id)
+            });
+            if let Some(owner) = begin_owner.as_ref().filter(|_| begin_owner_is_live) {
+                Err(PlanError::DispatchInFlight {
+                    attempt_id: owner.attempt_id.clone(),
+                    tab_id: owner.tab_id.clone(),
+                })
+            } else {
+                store.begin_task_dispatch_with_reserved_attempt_and_gates_and_observation(
+                    &plan_id,
+                    &task_id,
+                    &reserved_tab_id,
+                    &spawn_params
+                        .title
+                        .clone()
+                        .unwrap_or_else(|| "Worker".into()),
+                    starting_lane,
+                    execution_intent,
+                    allowance,
+                    Some(&resolved_provider),
+                    &reserved_attempt_id,
+                    Some(authorized_gates.clone()),
+                    placement,
+                    dispatched_model,
+                    selected_model.clone(),
+                    dispatched_provider_resolved_model,
+                    dispatched_reasoning_effort,
+                    begin_owner,
+                    begin_owner_is_live,
+                    true,
+                    now,
+                )
+            }
+        });
     let (attempt_id, provisioned_lane) =
         match finish_unreserved_dispatch(attempt_start, provisioned_lane, || {
             reservation_tab.close()

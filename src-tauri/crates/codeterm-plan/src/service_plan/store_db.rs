@@ -99,6 +99,7 @@ impl PlanDatabase {
         auxiliary_queries::register_functions(&connection)?;
         worker_read_queries::register_functions(&connection)?;
         list_window_queries::register_functions(&connection)?;
+        task_authority_queries::register_functions(&connection)?;
         connection
             .busy_timeout(std::time::Duration::from_secs(5))
             .map_err(db_error)?;
@@ -615,6 +616,6 @@ mod document_queries;
 pub(in crate::service_plan) mod hot_write;
 mod operation_retention;
 
+mod task_authority_queries;
 #[cfg(test)]
 pub(super) mod release_upgrade_tests;
-mod task_authority_queries;

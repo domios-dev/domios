@@ -74,3 +74,19 @@ fn http_binding_pending_error_preserves_type_and_retryability() {
     assert_eq!(body["type"], "plan_binding_session_unregistered");
     assert_eq!(body["retryable"], false);
 }
+
+#[test]
+fn http_authority_storage_error_is_internal_and_distinct_from_missing_or_denied() {
+    let (status, axum::Json(body)) = plan_authority_err(PlanAuthorityError::StoreReadFailed);
+    assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(body["type"], "plan_authority_store_read_failed");
+    assert_eq!(body["retryable"], false);
+    assert_eq!(
+        plan_authority_err(PlanAuthorityError::PlanNotFound).0,
+        StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        plan_authority_err(PlanAuthorityError::BindingForeign).0,
+        StatusCode::FORBIDDEN
+    );
+}

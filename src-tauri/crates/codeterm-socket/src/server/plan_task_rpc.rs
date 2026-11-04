@@ -271,10 +271,8 @@ pub(super) fn dispatch(
             store
                 .set_task_assignment(&task_id, Some(&tab_id), role, now)
                 .map_err(plan_rpc_err)?;
-            let detail = store
-                .show_task(&task_id)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-            set_task_description(svc, p, &tab_id, &detail.task.name, false)?;
+            let name = store.task_name_projection(&task_id).map_err(plan_rpc_err)?;
+            set_task_description(svc, p, &tab_id, &name, false)?;
             emit_plan_changed(svc, &plan_id);
             Ok(json!({ "ok": true, "plan_id": plan_id, "task_id": task_id }))
         }
@@ -489,11 +487,7 @@ pub(super) fn dispatch(
             validate_task_update_params(p)?;
             let files = task_files_field(p)?;
             let (id, tid) = plan_refs::resolve_task(store, params)?;
-            let previous_name = store
-                .show_task(&tid)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?
-                .task
-                .name;
+            let previous_name = store.task_name_projection(&tid).map_err(plan_rpc_err)?;
             let author = svc
                 .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
                 .map_err(|message| JsonRpcError {
@@ -694,6 +688,7 @@ pub(super) fn dispatch(
 
         "plan.task.relink" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            authorize_draft_mutation(svc, &id, p)?;
             let apply = p.and_then(|x| x.get("apply")).and_then(|v| v.as_bool()) == Some(true);
             let report = store
                 .relink_unlinked_tasks(&id, apply, now)
@@ -708,9 +703,9 @@ pub(super) fn dispatch(
             let (id, task_id) = plan_refs::resolve_task(store, params)?;
             authorize_execution(svc, &id, p)?;
             let owner_epoch = store
-                .show_task(&task_id)
-                .map(|detail| detail.task.interruption.owner_epoch)
-                .unwrap_or(0);
+                .task_owner_epoch_projection(&task_id)
+                .map_err(plan_rpc_err)?
+                .owner_epoch;
             let id = if owner_epoch > 0 {
                 let authority = task_mutation_authority(params, svc)?;
                 let mux = svc.mux.read();
@@ -735,10 +730,8 @@ pub(super) fn dispatch(
                 assign_task_with_profile(store, svc, params, p, None, now)?
             };
             let tab_id = get_string_param(params, "tab")?;
-            let detail = store
-                .show_task(&task_id)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?;
-            set_task_description(svc, p, &tab_id, &detail.task.name, false)?;
+            let name = store.task_name_projection(&task_id).map_err(plan_rpc_err)?;
+            set_task_description(svc, p, &tab_id, &name, false)?;
             emit_plan_changed(svc, &id);
             Ok(json!({ "ok": true }))
         }

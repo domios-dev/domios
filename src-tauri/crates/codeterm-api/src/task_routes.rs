@@ -178,8 +178,8 @@ pub async fn show(State(state): State<AppState>, Path(id): Path<String>) -> Task
     let task = state
         .svc
         .plan_store
-        .show_task(&id)
-        .ok_or_else(|| plan_err(PlanError::TaskNotFound))?;
+        .show_task_window(&id)
+        .map_err(plan_err)?;
     Ok(Json(serde_json::to_value(task).unwrap_or_default()))
 }
 
@@ -210,12 +210,12 @@ pub async fn take(
             epoch_ms(),
         )
         .map_err(plan_err)?;
-    let detail = state
+    let name = state
         .svc
         .plan_store
-        .show_task(&task_id)
-        .ok_or_else(|| plan_err(PlanError::TaskNotFound))?;
-    let description = codeterm_service_core::service::task_tab_description(&detail.task.name, None);
+        .task_name_projection(&task_id)
+        .map_err(plan_err)?;
+    let description = codeterm_service_core::service::task_tab_description(&name, None);
     state
         .svc
         .assign_task_tab_description(&tab_id, &description)

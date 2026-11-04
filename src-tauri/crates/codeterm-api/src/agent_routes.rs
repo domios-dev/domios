@@ -712,7 +712,7 @@ pub async fn submit_report(
 
 #[derive(Deserialize)]
 pub struct ReportsQuery {
-    clear: Option<bool>,
+    pub(crate) clear: Option<bool>,
 }
 
 pub async fn get_reports(
@@ -721,9 +721,13 @@ pub async fn get_reports(
     Path(id): Path<String>,
     Query(query): Query<ReportsQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
-    let clear = query.clear.unwrap_or(false);
-    let reports = state.svc.report_store.lock().get(&id, clear);
-    Ok(Json(serde_json::to_value(&reports).unwrap_or_default()))
+    tokio::task::spawn_blocking(move || {
+        let clear = query.clear.unwrap_or(false);
+        let reports = state.svc.report_store.lock().get(&id, clear);
+        Json(serde_json::to_value(&reports).unwrap_or_default())
+    })
+    .await
+    .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))
 }
 
 pub async fn respond_prompt(

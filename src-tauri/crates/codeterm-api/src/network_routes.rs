@@ -9,6 +9,8 @@ use serde::Deserialize;
 use crate::routes::AppState;
 use codeterm_service_core::api_support::OptionalJson;
 
+mod reads;
+
 pub async fn web_link_token(
     AxumState(state): AxumState<AppState>,
     caller: Option<axum::Extension<crate::auth::CallerIdentity>>,
@@ -43,15 +45,19 @@ pub async fn web_link_token(
     ))
 }
 
-pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_json::Value> {
-    let mesh = state.mesh.clone();
-    let transport = tokio::task::spawn_blocking(move || {
-        let status = codeterm_service_core::mesh::network_transport::active_provider().detect();
-        mesh.lock().set_network_transport(status.clone());
-        status
-    })
-    .await
-    .ok();
+pub async fn network_info(
+    AxumState(state): AxumState<AppState>,
+) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
+    let key = reads::Key::new(&state.mesh, state.api_port, reads::Kind::Network);
+    reads::shared()
+        .read(key, move || network_snapshot(&state))
+        .await
+        .map(Json)
+}
+
+fn network_snapshot(state: &AppState) -> serde_json::Value {
+    let transport = codeterm_service_core::mesh::network_transport::active_provider().detect();
+    state.mesh.lock().set_network_transport(transport.clone());
     let local_ip = local_ip_address().unwrap_or_else(|| "127.0.0.1".to_string());
     // duplicating the probe logic (which previously lacked IP validation, the GUI-bridge fallback, and a timeout).
     let tailscale_ip = state.mesh.lock().tailscale_ip.clone();
@@ -69,7 +75,7 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
         .map(|address| address.to_string())
     };
 
-    Json(serde_json::json!({
+    serde_json::json!({
         "transport": transport,
         "web_listener": web_listener,
         "local_ip": local_ip,
@@ -79,7 +85,7 @@ pub async fn network_info(AxumState(state): AxumState<AppState>) -> Json<serde_j
         "api_url": format!("http://{}:{}", local_ip, port),
         "tailscale_url": tailscale_ip.as_ref().map(|ip| format!("http://{}:{}", ip, port)),
         "tailscale_https_url": tailscale_https_url,
-    }))
+    })
 }
 
 /// Read-only Tailscale Serve status for the web mirror's Web Access panel.
@@ -87,13 +93,18 @@ pub async fn serve_status_handler(
     AxumState(state): AxumState<AppState>,
     _headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let build = state.mesh.lock().build_hash.clone();
-    let mut status = codeterm_service_core::mesh::probe_serve_status(state.api_port);
-    status.snapshot =
-        codeterm_service_core::mesh::reconcile_web_serve(state.api_port, None, Some(build));
-    Ok(Json(
-        serde_json::to_value(status).unwrap_or(serde_json::Value::Null),
-    ))
+    let key = reads::Key::new(&state.mesh, state.api_port, reads::Kind::Serve);
+    reads::shared()
+        .read(key, move || {
+            let build = state.mesh.lock().build_hash.clone();
+            let status = codeterm_service_core::mesh::serve_setup::probe_serve_status_for_build(
+                state.api_port,
+                Some(build),
+            );
+            serde_json::to_value(status).unwrap_or(serde_json::Value::Null)
+        })
+        .await
+        .map(Json)
 }
 
 #[derive(Deserialize, Default)]

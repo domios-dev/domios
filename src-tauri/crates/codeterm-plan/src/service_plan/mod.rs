@@ -253,8 +253,8 @@ impl Drop for MutationWriterTurn<'_> {
 }
 
 impl PlanStore {
-    pub fn new() -> Self {
-        Self::open(paths::global_plan_database_path()).expect("open global PlanStore database")
+    pub fn new() -> Result<Self, PlanError> {
+        Self::open(paths::global_plan_database_path())
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -341,4 +341,8 @@ impl PlanStore {
 }
 
 mod task_authority_projection;
-pub use task_authority_projection::TaskOwnerEpochRead;
+pub use task_authority_projection::{
+    CompletedTaskRestartRead, PlanTaskAdmissionRead, RestartAttemptRead, TaskAttemptBindingRead,
+    TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead, TaskOwnerEpochRead,
+    TaskRestartAuthorityRead, TaskRestartQuery,
+};

@@ -8,7 +8,7 @@ impl PlanStore {
         _kind: &str,
         _force: bool,
     ) -> Result<(), PlanError> {
-        self.get(plan_id).ok_or(PlanError::NotFound).map(|_| ())
+        self.database.ensure_plan_exists(plan_id)
     }
 
     pub fn update_plan(

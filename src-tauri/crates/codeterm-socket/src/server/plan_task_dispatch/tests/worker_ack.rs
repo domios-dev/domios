@@ -887,7 +887,9 @@ fn worker_ack_final_deadline_finalizes_attempt_for_redispatch() {
             "tab-worker",
             "Ada",
             failed.lane.clone(),
-            store.dispatch_startup_owner_candidate(&plan.id, &task_id),
+            store
+                .dispatch_startup_owner_candidate(&plan.id, &task_id)
+                .unwrap(),
             false,
             9,
         )

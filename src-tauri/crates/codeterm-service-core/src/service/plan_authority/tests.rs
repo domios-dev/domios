@@ -957,3 +957,31 @@ fn an_unbound_authenticated_caller_is_the_owner() {
 }
 
 mod lifecycle;
+
+#[tokio::test]
+async fn authority_storage_failures_do_not_become_missing_plans_or_role_denials() {
+    let (fixture, plan_id, _planner, owner) = fixture();
+    assert_eq!(
+        fixture.service.classify_planning_caller("missing", &owner),
+        Err(PlanAuthorityError::PlanNotFound)
+    );
+    let connection =
+        rusqlite::Connection::open(fixture.temp.path().join(".domios/plans.db")).unwrap();
+    connection
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.owner',42) WHERE id=?1",
+            [&plan_id],
+        )
+        .unwrap();
+    assert_eq!(
+        fixture.service.classify_planning_caller(&plan_id, &owner),
+        Err(PlanAuthorityError::StoreReadFailed)
+    );
+    assert_eq!(
+        fixture
+            .service
+            .authorize_execution_action_async(&plan_id, &owner)
+            .await,
+        Err(PlanAuthorityError::StoreReadFailed)
+    );
+}

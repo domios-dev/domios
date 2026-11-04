@@ -14,7 +14,9 @@ fn concurrent_startup_reservations_refuse_before_worker_spawn() {
             let observed = observed.clone();
             let reserved = reserved.clone();
             std::thread::spawn(move || {
-                let owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+                let owner = store
+                    .dispatch_startup_owner_candidate(&plan_id, &task_id)
+                    .unwrap();
                 assert!(owner.is_none());
                 observed.wait();
                 let result = store.reserve_task_dispatch_startup(

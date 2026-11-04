@@ -175,6 +175,51 @@ fn daemon_api_failure_exits_nonzero_through_shared_response_handling() {
 }
 
 #[test]
+fn plan_reindex_renders_counts_and_scope_while_plan_list_renders_rows() {
+    let reindex = json!({
+        "project": "/fixture/project",
+        "scope": "project:fixture",
+        "plans": 1,
+        "specs": 1,
+        "units": 26
+    });
+    let output = run_rpc(
+        &["plan", "reindex", "--project", "/fixture/project"],
+        "plan.reindex",
+        false,
+        reindex,
+    );
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    let fields: Vec<Vec<&str>> = text
+        .lines()
+        .map(|line| line.split_whitespace().collect())
+        .collect();
+    for expected in [
+        vec!["project", "/fixture/project"],
+        vec!["scope", "project:fixture"],
+        vec!["plans", "1"],
+        vec!["specs", "1"],
+        vec!["units", "26"],
+    ] {
+        assert!(fields.contains(&expected), "{text}");
+    }
+    assert!(!text.contains("(no plans)"), "{text}");
+
+    let output = run_rpc(
+        &["plan", "list"],
+        "plan.list",
+        false,
+        json!({ "plans": [{ "plan_id": "pl_fixture", "title": "Fixture plan" }] }),
+    );
+    assert!(output.status.success(), "{output:?}");
+    let text = String::from_utf8(output.stdout).unwrap();
+    assert!(text.contains("pl_fixture"), "{text}");
+    assert!(text.contains("Fixture plan"), "{text}");
+    assert!(!text.contains("(no plans)"), "{text}");
+}
+
+#[test]
 fn rest_api_restart_failed_status_exits_nonzero_and_status_remains_readable() {
     let failed = json!({ "phase": "failed", "message": "fixture bind failure" });
     let output = run_rest_api("restart", true, failed.clone());

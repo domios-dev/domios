@@ -101,9 +101,16 @@ impl ServiceContext {
                 let receipt = self.chatbackend_close_confirmed(&tab.id)?;
                 if receipt.tab_id != tab.id
                     || tab.agent_session_id.as_deref() != Some(receipt.session_id.as_str())
+                    || tab.session_binding_nonce != receipt.binding_nonce
                 {
                     return Err("chat backend retirement receipt identity changed".into());
                 }
+                log::debug!(
+                    "[executor-retirement] tab={} session={} evidence={:?}",
+                    receipt.tab_id,
+                    receipt.session_id,
+                    receipt.evidence
+                );
             }
             if let Some(pty_id) = tab.pty_id.as_deref() {
                 self.pty_ownership.release_pty(pty_id);

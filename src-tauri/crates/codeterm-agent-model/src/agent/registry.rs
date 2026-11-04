@@ -7,6 +7,9 @@ use parking_lot::{Condvar, Mutex, RwLock};
 use super::classify_input::StatusBarRowsSource;
 use super::provider::{AgentProvider, SessionMetadata};
 
+mod timing;
+use timing::RegistryTiming;
+
 pub use super::registry_search::{
     SessionMatchMode, SessionSearchError, SessionSearchHit, SessionSearchOpts, SessionSearchResult,
     SessionSearchWarning, SessionSkipReason, SessionSnippet, DEFAULT_SESSION_FILE_BYTE_CAP,
@@ -130,7 +133,9 @@ impl AgentRegistry {
         let provider: Arc<dyn AgentProvider> = Arc::from(provider);
         let id = provider.id().to_string();
         log::info!("[agent-registry] registered provider: {}", id);
+        let timing = RegistryTiming::new("register", &id);
         let mut guard = self.providers.write();
+        let timing = timing.acquired();
         if let Some(prev) = guard.remove(&id) {
             if prev.is_native() {
                 self.native_fallbacks
@@ -141,6 +146,7 @@ impl AgentRegistry {
         }
         guard.insert(id.clone(), provider);
         drop(guard);
+        drop(timing);
         crate::agent::model_catalog::invalidate(&id);
         self.mark_startup_provider_loaded(&id);
     }
@@ -150,19 +156,23 @@ impl AgentRegistry {
     /// id was already registered (caller's provider is dropped).
     pub fn register_provider_if_absent(&self, provider: Box<dyn AgentProvider>) -> bool {
         let id = provider.id().to_string();
+        let timing = RegistryTiming::new("register_if_absent", &id);
         let mut guard = self.providers.write();
+        let timing = timing.acquired();
         if guard.contains_key(&id) {
             log::info!(
                 "[agent-registry] skipping provider {}: already registered",
                 id
             );
             drop(guard);
+            drop(timing);
             self.mark_startup_provider_loaded(&id);
             return false;
         }
         log::info!("[agent-registry] registered provider: {}", id);
         guard.insert(id.clone(), Arc::from(provider));
         drop(guard);
+        drop(timing);
         crate::agent::model_catalog::invalidate(&id);
         self.mark_startup_provider_loaded(&id);
         true
@@ -176,7 +186,12 @@ impl AgentRegistry {
 
     /// Remove a provider by id. Returns true if it existed.
     pub fn unregister_provider(&self, id: &str) -> bool {
-        let removed = self.providers.write().remove(id).is_some();
+        let timing = RegistryTiming::new("unregister", id);
+        let mut guard = self.providers.write();
+        let timing = timing.acquired();
+        let removed = guard.remove(id).is_some();
+        drop(guard);
+        drop(timing);
         if removed {
             crate::agent::model_catalog::invalidate(id);
         }
@@ -185,12 +200,18 @@ impl AgentRegistry {
 
     /// Get a provider by ID and execute a closure with it.
     /// Uses a read lock — cheap for concurrent access.
+    #[track_caller]
     pub fn with_provider<F, R>(&self, id: &str, f: F) -> Option<R>
     where
         F: FnOnce(&dyn AgentProvider) -> R,
     {
+        let timing = RegistryTiming::new("with_provider", id);
         let guard = self.providers.read();
-        guard.get(id).map(|p| f(p.as_ref()))
+        let timing = timing.acquired();
+        let result = guard.get(id).map(|p| f(p.as_ref()));
+        drop(guard);
+        drop(timing);
+        result
     }
 
     /// Clone the `Arc` for a provider so it can be moved into a background task

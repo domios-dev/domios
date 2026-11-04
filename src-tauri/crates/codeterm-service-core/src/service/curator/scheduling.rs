@@ -272,6 +272,8 @@ impl ServiceContext {
                 .and_then(|mirror| self.available_mirror(mirror));
             if let Err(reason) = mirror {
                 loop_state.fallback_reason = Some(reason);
+            } else if loop_state.fallback_reason == Some(CuratorFailure::OrchestratorUnbound) {
+                loop_state.fallback_reason = None;
             }
             let close = read.group_close();
             if close.is_some_and(|at| {

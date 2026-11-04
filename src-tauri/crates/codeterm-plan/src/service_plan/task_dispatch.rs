@@ -108,7 +108,9 @@ fn startup_status_allows(task: &crate::plan::Task) -> bool {
     )
 }
 
-fn current_dispatch_startup_owner(task: &crate::plan::Task) -> Option<DispatchStartupOwner> {
+pub(super) fn current_dispatch_startup_owner(
+    task: &crate::plan::Task,
+) -> Option<DispatchStartupOwner> {
     let tab_id = task.assigned_tab_id.as_deref()?;
     let attempt = task
         .execution_attempts
@@ -137,21 +139,19 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
     ) -> Result<(), PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        task_startup_status(&task.status).map(|_| ())
+        let status = self
+            .database
+            .task_startup_status_projection(plan_id, task_id)?;
+        task_startup_status(&status).map(|_| ())
     }
 
     pub fn dispatch_startup_owner_candidate(
         &self,
         plan_id: &str,
         task_id: &str,
-    ) -> Option<DispatchStartupOwner> {
-        self.get(plan_id).and_then(|plan| {
-            crate::plan::task_key::find_task(&plan.tasks, task_id)
-                .and_then(current_dispatch_startup_owner)
-        })
+    ) -> Result<Option<DispatchStartupOwner>, PlanError> {
+        self.database
+            .dispatch_startup_owner_projection(plan_id, task_id)
     }
 
     pub fn worker_startup_attempt_owns(
