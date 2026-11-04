@@ -176,12 +176,8 @@ pub(crate) fn start_background_tasks(
         let update_st = states.update.clone();
         let update_ui = service.ui.clone();
         codeterm_service_core::async_runtime::spawn(async move {
-            if let Err(error) =
-                codeterm_commands::update::discovery::check(&update_ui, &update_st, bundles, true)
-                    .await
-            {
-                log::warn!("[update-discovery] startup check failed: {error}");
-            }
+            codeterm_commands::update::discovery::lifecycle::run(update_ui, update_st, bundles)
+                .await;
         });
     }
 
