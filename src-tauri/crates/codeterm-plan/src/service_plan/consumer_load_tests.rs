@@ -124,10 +124,12 @@ fn list_tasks_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let tasks = store.list_tasks(TaskListFilter {
-        project_path: Some(project.clone()),
-        ..Default::default()
-    });
+    let tasks = store
+        .list_tasks(TaskListFilter {
+            project_path: Some(project.clone()),
+            ..Default::default()
+        })
+        .unwrap();
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].plan_id, here);
     assert!(store.plan_loads_for_test().is_empty());
