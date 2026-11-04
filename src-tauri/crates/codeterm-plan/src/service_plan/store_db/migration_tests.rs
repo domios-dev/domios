@@ -1,6 +1,9 @@
 use super::*;
 use crate::service_plan::store_db::{self, PlanDatabase};
 
+#[path = "migration_tests/backup.rs"]
+mod backup_tests;
+
 type Schema = Vec<(String, String, String, Option<String>)>;
 type Rows = Vec<(String, Vec<Vec<rusqlite::types::Value>>)>;
 

@@ -1,6 +1,6 @@
 use super::{admission, db_error, PlanError, SCHEMA_VERSION as TARGET_VERSION};
 use crate::service_plan::store_convert_118::{self, ConversionReport};
-use rusqlite::{Connection, OpenFlags, Transaction, TransactionBehavior};
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 use std::path::Path;
 
 struct Step {
@@ -46,6 +46,8 @@ const STEPS: &[Step] = &[
 pub(super) const SCHEMA_VERSION: i64 = STEPS[STEPS.len() - 1].version;
 const APPLICATION_ID: i64 = 0x44504c4e;
 const V1_WITHOUT_FTS: &str = include_str!("migrations/schemas/published-v1.18.7.sql");
+
+mod backup;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(in crate::service_plan) enum Source {
@@ -133,16 +135,26 @@ fn migrate_with(
     backup_path: Option<&Path>,
     mut after_step: impl FnMut(&Transaction<'_>) -> Result<(), PlanError>,
 ) -> Result<Option<ConversionReport>, PlanError> {
+    let source = validate_source(connection)?;
+    if let Some(path) = backup_path {
+        let backup = match source {
+            Source::Legacy => Some(store_convert_118::back_up(connection, path)?),
+            Source::Version(version) if version < TARGET_VERSION => {
+                Some(backup::create(connection, path)?)
+            }
+            _ => None,
+        };
+        if let Some(backup) = backup {
+            log::info!("[plan.store] pre-migration backup: {}", backup.display());
+        }
+    }
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(db_error)?;
-    let source = validate_source(&transaction)?;
-    if source == Source::Legacy {
-        if let Some(path) = backup_path {
-            let reader = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .map_err(db_error)?;
-            store_convert_118::back_up(&reader, path)?;
-        }
+    if validate_source(&transaction)? != source {
+        return Err(PlanError::Io(
+            "plan migration refused: source changed after backup".into(),
+        ));
     }
     let (source_version, report) = match source {
         Source::Empty => (0, None),
