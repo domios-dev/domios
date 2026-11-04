@@ -1,5 +1,5 @@
 import { referenceMarkerText } from "../../../packages/chat-ui/src/codeterm/referenceMarkers";
-import type { Plan } from "../../components/Canvas/types";
+import type { PlanView as Plan } from "../../components/Canvas/planProjection";
 import { mentionMatch, type MentionSource } from "../composerMentions";
 import { planInMentionScope } from "./scope";
 

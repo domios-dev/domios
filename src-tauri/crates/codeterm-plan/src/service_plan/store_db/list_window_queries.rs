@@ -1,6 +1,6 @@
 use super::read_projections::{column, decode, record_query};
+use super::ui_projections::{ListCursorView, ListWindowView, TaskView};
 use super::{db_error, PlanDatabase};
-use crate::plan::{Plan, Task};
 use crate::service_plan::{
     ui_projections::{ListWindowQuery, PlanViewProjection},
     PlanError,
@@ -23,9 +23,8 @@ pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanErro
 pub(super) fn window(
     connection: &Connection,
     id: &str,
-    plan: &mut Plan,
     query: &ListWindowQuery,
-) -> Result<Value, PlanError> {
+) -> Result<(Vec<TaskView>, ListWindowView), PlanError> {
     if query.after_position.is_some() != query.after_task_id.is_some() {
         return Err(PlanError::Validation(
             "List cursor requires position and task id".into(),
@@ -93,14 +92,17 @@ pub(super) fn window(
     let more = rows.len() > limit;
     rows.truncate(limit);
     let cursor = if more {
-        rows.last()
-            .map(|row| json!({"position":row.0,"task_id":row.1}))
+        rows.last().map(|row| ListCursorView {
+            position: row.0,
+            task_id: row.1.clone(),
+        })
     } else {
         None
     };
-    for (_, _, raw) in rows {
-        plan.tasks.push(decode::<Task>(id, &raw)?);
-    }
+    let tasks = rows
+        .into_iter()
+        .map(|(_, _, raw)| decode::<TaskView>(id, &raw))
+        .collect::<Result<Vec<_>, _>>()?;
     record_query();
     let total: usize = connection
         .query_row(
@@ -116,7 +118,14 @@ pub(super) fn window(
             |row| row.get(0),
         )
         .map_err(db_error)?;
-    Ok(json!({"next_cursor":cursor,"total":total,"cancelled":cancelled}))
+    Ok((
+        tasks,
+        ListWindowView {
+            next_cursor: cursor,
+            total,
+            cancelled,
+        },
+    ))
 }
 
 pub(super) fn apply_task_counts(
@@ -164,7 +173,7 @@ impl PlanDatabase {
         let value =
             super::ui_projections::projection_with_list(&transaction, id, view, Some(query))?;
         transaction.commit().map_err(db_error)?;
-        Ok(value)
+        serde_json::to_value(value).map_err(super::json_error)
     }
 }
 

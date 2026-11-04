@@ -1,6 +1,7 @@
 use super::*;
 use crate::plan::{Goal, TaskStatus};
 use crate::service_plan::store_db::hot_write::tests::fixtures;
+use serde_json::json;
 
 #[test]
 fn ui_projections_expose_only_the_requested_document_or_visible_task_metadata() {
@@ -27,10 +28,10 @@ fn ui_projections_expose_only_the_requested_document_or_visible_task_metadata() 
     ] {
         let projection = database.ui_plan_projection(&plan.id, view).unwrap();
         assert_eq!(projection["revision"], "1");
-        assert_eq!(projection["strides"], json!([]));
+        assert!(projection.get("strides").is_none());
         let tasks = projection["tasks"].as_array().unwrap();
-        assert!(tasks.iter().all(|task| task["body"] == ""
-            && task["milestones"] == json!([])
+        assert!(tasks.iter().all(|task| task.get("body").is_none()
+            && task.get("milestones").is_none()
             && task["execution_attempts"].as_array().unwrap().len() <= 1));
         match view {
             PlanViewProjection::Chat | PlanViewProjection::TaskMetadata => {
@@ -44,7 +45,7 @@ fn ui_projections_expose_only_the_requested_document_or_visible_task_metadata() 
                 assert_eq!(tasks.len(), 1);
                 assert_eq!(tasks[0]["id"], "task_0000");
                 assert_eq!(projection["goal"]["vector"], "Visible goal");
-                assert_eq!(projection["goal"]["vision"], "");
+                assert!(projection["goal"].get("vision").is_none());
             }
             PlanViewProjection::Document => {
                 assert!(tasks.is_empty());
@@ -55,7 +56,7 @@ fn ui_projections_expose_only_the_requested_document_or_visible_task_metadata() 
                 assert_eq!(tasks.len(), 25);
                 assert!(projection["task_window"]["next_cursor"].is_object());
                 assert_eq!(projection["sections"][0]["title"], "Visible section");
-                assert_eq!(projection["sections"][0]["body"], "");
+                assert!(projection["sections"][0].get("body").is_none());
             }
         }
     }
@@ -196,4 +197,80 @@ fn reference_batch_refuses_ambiguous_alias_even_when_an_exact_sibling_is_request
     assert_eq!(read.task("mixed-handle").unwrap().id, exact);
     assert_eq!(read.task("KEY-2").unwrap().id, plan.tasks[1].id);
     assert!(read.task("missing").is_none());
+}
+
+#[test]
+fn ui_views_bound_selected_bytes_and_never_write_or_load_a_plan() {
+    let mut baseline = None;
+    for (strides, attempts, body_bytes) in [(0, 0, 0), (2048, 2048, 32768)] {
+        let root = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(root.path(), strides, attempts);
+        plan.tasks[0].assigned_tab_id = Some("visible-worker".into());
+        plan.tasks[0].status = TaskStatus::InProgress;
+        let unrelated = std::mem::take(&mut plan.tasks[1].execution_attempts);
+        plan.tasks.last_mut().unwrap().execution_attempts = unrelated;
+        plan.tasks[100].body.push_str(&"x".repeat(body_bytes));
+        let store = crate::service_plan::PlanStore::new_for_test(root.path());
+        store.database.persist_plan_rows(&plan, None).unwrap();
+        crate::service_plan::load_audit::start(&store);
+        fixtures::audit(&store.database);
+        let mut measured = Vec::new();
+        for view in [
+            PlanViewProjection::Summary,
+            PlanViewProjection::Board,
+            PlanViewProjection::Document,
+            PlanViewProjection::List,
+            PlanViewProjection::TaskMetadata,
+        ] {
+            super::super::read_projections::take_metrics();
+            crate::service_plan::store_sync::take_decoded_row_bytes();
+            crate::service_plan::store_rows::take_serialized_row_bytes();
+            let value = store.ui_plan_projection(&plan.id, view).unwrap();
+            let payload = serde_json::to_vec(&value).unwrap().len();
+            let metrics = super::super::read_projections::take_metrics();
+            let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
+            let serialized = crate::service_plan::store_rows::take_serialized_row_bytes();
+            assert!(payload < 65536, "{view:?}: payload={payload}");
+            assert!(
+                metrics.materialized_bytes < 65536,
+                "{view:?}: materialized={}",
+                metrics.materialized_bytes
+            );
+            assert!(decoded < 65536, "{view:?}: decoded={decoded}");
+            assert_eq!(serialized, 0);
+            assert_eq!(value["revision"], "1");
+            assert!(store.plan_loads_for_test().is_empty());
+            assert!(fixtures::audit_counts(&store.database).is_empty());
+            println!("fixture={} surface={view:?} payload_bytes={payload} decoded_json_bytes={decoded} serialized_row_bytes={serialized} materialized_text_bytes={} changed_rows=0", fixtures::SEED, metrics.materialized_bytes);
+            measured.push((
+                metrics.queries,
+                metrics.materialized_bytes,
+                decoded,
+                payload,
+            ));
+        }
+        if let Some(baseline) = baseline {
+            assert_eq!(measured, baseline);
+        }
+        baseline = Some(measured);
+    }
+}
+
+#[test]
+fn ui_projection_decode_errors_are_not_replaced_with_empty_views() {
+    let root = tempfile::tempdir().unwrap();
+    let plan = fixtures::fixture(root.path(), 0, 0);
+    let database = fixtures::database(root.path(), &plan);
+    database.connection.lock().execute(
+        "UPDATE plan_tasks SET row_json=json_set(row_json,'$.name',NULL) WHERE plan_id=?1 AND task_id='task_0000'",
+        [&plan.id],
+    ).unwrap();
+    fixtures::audit(&database);
+    assert!(database
+        .ui_plan_list_window(&plan.id, &Default::default())
+        .is_err());
+    assert!(database
+        .ui_plan_metadata_window(&plan.id, &Default::default())
+        .is_err());
+    assert!(fixtures::audit_counts(&database).is_empty());
 }

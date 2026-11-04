@@ -81,3 +81,38 @@ pub(super) fn edit_selected(
     receipt.milestones += 1;
     queue_milestone_index(tx, plan_id, task_id, &milestone, remove, receipt)
 }
+
+impl PlanDatabase {
+    pub(in crate::service_plan) fn with_milestone_rows<T>(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+        milestone_id: &str,
+        now_ms: u64,
+        change: impl FnOnce(&mut Milestone) -> Result<T, PlanError>,
+    ) -> Result<(T, CommittedRows), PlanError> {
+        let mut result = None;
+        let receipt = self.hot_transaction(plan_id, now_ms, |tx, receipt| {
+            let mut task = read_task(tx, plan_id, task_id, receipt)?;
+            edit_selected(
+                tx,
+                plan_id,
+                &task.id,
+                milestone_id,
+                false,
+                receipt,
+                |milestone, _| {
+                    result = Some(change(milestone)?);
+                    Ok(())
+                },
+            )?;
+            task.updated_at = now_ms;
+            write_task(tx, plan_id, &task, receipt)?;
+            task_fields::queue_task_index(tx, plan_id, &task, false, false, receipt)
+        })?;
+        Ok((
+            result.ok_or_else(|| PlanError::Io("milestone edit returned no result".into()))?,
+            receipt,
+        ))
+    }
+}

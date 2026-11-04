@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "./planProjection";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "../../lib/bridge";
 import { formatPlanFetchError } from "../../lib/fetchResilience";
@@ -5,7 +6,6 @@ import { onResync } from "../../lib/resync";
 import type { ApiConfig } from "../../lib/types";
 import { fetchPlanProjection, fetchPlans, PlanReadError } from "./plansApi";
 import { comparePlanRevisions, planRevision, type CommittedPlanChange, type PlanProjection } from "./planProjection";
-import type { Plan } from "./types";
 
 export interface UsePlansResult {
   plans: Plan[];

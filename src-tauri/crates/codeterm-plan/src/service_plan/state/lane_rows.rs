@@ -1,8 +1,9 @@
+use crate::service_plan::state::input::{StateSource, StateTaskInput};
 use serde::Serialize;
 
 use crate::plan::lane_liveness::{derive_lane_liveness, LaneInputs, LaneLiveness, LaneThresholds};
 use crate::plan::reconcile::TabProbe;
-use crate::plan::{Plan, Task, TaskStatus};
+use crate::plan::TaskStatus;
 
 /// One row of the `plan lanes` hygiene table: a lane task joined with its
 /// TaskLaneMetadata and a liveness verdict keyed off the tab's OWN session.
@@ -28,7 +29,7 @@ fn is_open(status: &TaskStatus) -> bool {
 }
 
 // Terminal lanes with unreclaimed worktrees count as cleanup debt.
-fn lane_uncleaned(task: &Task) -> bool {
+fn lane_uncleaned(task: &StateTaskInput) -> bool {
     let has_artifacts = task.lane.worktree_path.is_some() || task.lane.branch.is_some();
     match task.lane.cleanup_status.as_deref() {
         Some("cleaned") | Some("done") | Some("released") => false,
@@ -37,7 +38,11 @@ fn lane_uncleaned(task: &Task) -> bool {
     }
 }
 
-fn lane_liveness<F>(task: &Task, tab_probe: &mut F, now_ms: u64) -> (Option<String>, LaneLiveness)
+fn lane_liveness<F>(
+    task: &StateTaskInput,
+    tab_probe: &mut F,
+    now_ms: u64,
+) -> (Option<String>, LaneLiveness)
 where
     F: FnMut(&str) -> TabProbe,
 {
@@ -65,10 +70,12 @@ where
 
 /// Build one row per open lane (pending/in_progress/in_review). Liveness is
 /// derived from the tab's own probe — unknown tabs stay honestly NoTab.
-pub fn build_lane_rows<F>(plan: &Plan, mut tab_probe: F, now_ms: u64) -> Vec<LaneRow>
+pub fn build_lane_rows<F>(plan: &impl StateSource, mut tab_probe: F, now_ms: u64) -> Vec<LaneRow>
 where
     F: FnMut(&str) -> TabProbe,
 {
+    let input = plan.state_input();
+    let plan = input.as_ref();
     plan.tasks
         .iter()
         .filter(|t| is_open(&t.status))

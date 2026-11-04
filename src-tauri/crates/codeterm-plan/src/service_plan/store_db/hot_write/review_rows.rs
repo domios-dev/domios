@@ -3,6 +3,7 @@ use super::*;
 #[derive(Clone)]
 pub(in crate::service_plan) enum TaskHistory {
     Core,
+    Escalation,
     Selected(Vec<String>),
     Respawn(String),
     Attempt(String),
@@ -32,6 +33,7 @@ pub(in crate::service_plan) struct TaskRowEdit {
     pub terminal_check: bool,
     pub close_all_live: bool,
     pub created_tasks: Vec<Task>,
+    pub removed_attempts: Vec<String>,
 }
 
 impl PlanDatabase {
@@ -169,8 +171,13 @@ pub(super) fn edit_task_rows<T>(
         .iter()
         .map(|(_, attempt)| attempt.clone())
         .collect();
-    if matches!(history, TaskHistory::Review) {
-        let mut statement = tx.prepare_cached("SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq").map_err(db_error)?;
+    if matches!(history, TaskHistory::Review | TaskHistory::Escalation) {
+        let sql = if matches!(history, TaskHistory::Escalation) {
+            "SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 AND json_extract(row_json,'$.kind')='review_escalation' AND json_extract(row_json,'$.ts')>=(SELECT json_extract(row_json,'$.status_changed_at') FROM plan_tasks WHERE plan_id=?1 AND task_id=?2) ORDER BY seq DESC LIMIT 1"
+        } else {
+            "SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq"
+        };
+        let mut statement = tx.prepare_cached(sql).map_err(db_error)?;
         task.milestones = statement
             .query_map(params![plan_id, task.id], |row| row.get::<_, String>(0))
             .map_err(db_error)?
@@ -233,6 +240,7 @@ pub(super) fn edit_task_rows<T>(
         terminal_check: false,
         close_all_live: false,
         created_tasks: Vec::new(),
+        removed_attempts: Vec::new(),
     };
     let result = change(&mut edit)?;
     super::dispatch_rows::finish(
@@ -253,13 +261,33 @@ pub(super) fn edit_task_rows<T>(
             "task row edit changed an immutable history prefix".into(),
         ));
     }
+    for id in &edit.removed_attempts {
+        if attempts
+            .iter()
+            .filter(|(_, attempt)| &attempt.id == id)
+            .count()
+            != 1
+        {
+            return Err(PlanError::Io(
+                "attempt removal conflict: exact row identity is ambiguous".into(),
+            ));
+        }
+    }
     for ((position, previous), next) in attempts.iter().zip(&edit.task.execution_attempts) {
         if previous.id != next.id {
             return Err(PlanError::Io(
                 "task row edit changed an immutable attempt identity".into(),
             ));
         }
-        if previous != next {
+        if edit.removed_attempts.contains(&previous.id) {
+            tx.execute(
+                "DELETE FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND position=?3",
+                params![plan_id, edit.task.id, position],
+            )
+            .map_err(db_error)?;
+            receipt.attempts += 1;
+            receipt.tasks.insert(edit.task.id.clone());
+        } else if previous != next {
             let json = encode(next, receipt)?;
             tx.execute("UPDATE plan_task_attempts SET row_json=?4, content_hash=?5 WHERE plan_id=?1 AND task_id=?2 AND position=?3", params![plan_id, edit.task.id, position, json, store_rows::row_hash(&json)]).map_err(db_error)?;
             receipt.attempts += 1;
@@ -311,14 +339,14 @@ pub(super) fn edit_task_rows<T>(
     Ok(result)
 }
 
-fn read_attempts(
+pub(super) fn read_attempts(
     tx: &Transaction<'_>,
     plan_id: &str,
     task_id: &str,
     history: &TaskHistory,
     receipt: &mut CommittedRows,
 ) -> Result<Vec<(i64, TaskExecutionAttempt)>, PlanError> {
-    if matches!(history, TaskHistory::Core) {
+    if matches!(history, TaskHistory::Core | TaskHistory::Escalation) {
         return Ok(Vec::new());
     }
     let selected_json = match history {

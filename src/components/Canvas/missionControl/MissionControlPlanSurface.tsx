@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "../planProjection";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
@@ -17,7 +18,6 @@ import { enrichSwitcherOptions, selectActiveWork } from "../planView/activeWork"
 import { orderPlansByActivity, selectDefaultPlanId } from "../planView/boardModel";
 import { PlanFetchErrorState, PlanFetchReconnectingBanner } from "../planView/PlanFetchErrorState";
 import { planFetchShowsData } from "../planView/planViewFetchGate";
-import type { Plan } from "../types";
 import { usePlanProjection } from "../usePlanProjection";
 import { MissionControlBoard } from "./MissionControlBoard";
 import { MissionControlTeamBoard } from "./MissionControlTeamBoard";

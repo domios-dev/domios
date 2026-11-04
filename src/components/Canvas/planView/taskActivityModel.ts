@@ -1,6 +1,7 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import type { Tab } from "../../../lib/types";
 import { formatTime } from "../../../lib/formatters";
-import type { Milestone, Plan, Task } from "../types";
+import type { Milestone } from "../types";
 import { resolveTaskExecutionAttempts } from "../taskExecutorHistory";
 import { activityAge } from "./planListModel";
 
@@ -50,7 +51,7 @@ export function buildPlanRecentActivity(plan: Plan, limit = 12): PlanActivityIte
   }
   for (const task of plan.tasks) {
     const taskLabel = task.handle?.trim() || task.name?.trim() || task.id;
-    for (const milestone of task.milestones) {
+    for (const milestone of task.milestones ?? []) {
       items.push({ taskId: task.id, taskLabel, milestone });
     }
   }
@@ -59,7 +60,7 @@ export function buildPlanRecentActivity(plan: Plan, limit = 12): PlanActivityIte
 }
 
 export function taskHasActivity(task: Task, tabs: Record<string, Tab> = {}): boolean {
-  return task.milestones.length > 0
+  return (task.milestones?.length ?? 0) > 0
     || resolveTaskExecutionAttempts(task, tabs).length > 0;
 }
 

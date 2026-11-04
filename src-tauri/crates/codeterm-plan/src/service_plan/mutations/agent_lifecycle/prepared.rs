@@ -1,22 +1,14 @@
 use super::*;
+use crate::service_plan::store_db::hot_write::lifecycle_rows::{self, LifecyclePatch, TeamOwners};
 
 pub struct PreparedLifecycleChanges {
-    expected: Vec<Plan>,
-    team_owners: Vec<(String, Option<(String, String)>)>,
     selector: PlanMatch,
-    originals: Vec<Plan>,
-    staged: Vec<Plan>,
+    expected: Vec<(String, i64)>,
+    team_owners: TeamOwners,
+    patches: Vec<LifecyclePatch>,
 }
 
 impl PlanStore {
-    fn lifecycle_candidates_checked(&self, selector: &PlanMatch) -> Result<Vec<Plan>, PlanError> {
-        self.database
-            .plan_ids_matching(selector)?
-            .iter()
-            .map(|id| self.try_get(id))
-            .collect()
-    }
-
     pub fn prepare_agent_lifecycle_with<T>(
         &self,
         now_ms: u64,
@@ -35,39 +27,32 @@ impl PlanStore {
         changes: Vec<AgentLifecyclePlanChange>,
         now_ms: u64,
     ) -> Result<PreparedLifecycleChanges, PlanError> {
-        let mut team_owners = Vec::new();
         for rebind in changes
             .iter()
             .filter_map(|change| change.plan_rebind.as_ref())
         {
             self.plan_identity_projection(&rebind.plan_id)?;
-            team_owners.push((
-                rebind.team_id.clone(),
-                self.active_plan_for_team(&rebind.team_id),
-            ));
         }
         let selector = PlanMatch::Any(changes.iter().map(lifecycle_candidates).collect());
-        let expected = self.lifecycle_candidates_checked(&selector)?;
-        let mut originals = Vec::new();
-        let mut staged = Vec::new();
-        for original in &expected {
+        let (plans, team_owners) = self.database.observe_lifecycle_rows(&selector, &changes)?;
+        let expected = lifecycle_rows::expected(&plans);
+        let mut patches = Vec::new();
+        for original in plans {
             let mut candidate = original.clone();
             for change in &changes {
                 apply_change(&mut candidate, change, now_ms);
             }
-            if &candidate != original {
-                candidate.updated_at = now_ms;
-                tag_model::normalize_plan(&mut candidate);
-                originals.push(original.clone());
-                staged.push(candidate);
+            if candidate != original {
+                if let Some(patch) = lifecycle_rows::patch(original, candidate, now_ms) {
+                    patches.push(patch);
+                }
             }
         }
         Ok(PreparedLifecycleChanges {
+            selector,
             expected,
             team_owners,
-            selector,
-            originals,
-            staged,
+            patches,
         })
     }
 
@@ -77,7 +62,9 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(PreparedLifecycleChanges, String), PlanError> {
         let _writer = self.mutation_writer.enter();
-        let original = self.try_get(plan_id)?;
+        let selector = PlanMatch::Ids(vec![plan_id.into()]);
+        let (mut plans, _) = self.database.observe_lifecycle_rows(&selector, &[])?;
+        let original = plans.pop().ok_or(PlanError::NotFound)?;
         let team = original
             .team_id
             .clone()
@@ -95,16 +82,18 @@ impl PlanStore {
                 });
             }
         }
+        let expected = vec![(original.id.clone(), original.revision)];
         let mut staged = original.clone();
         staged.status = crate::plan::PlanStatus::Active;
         staged.updated_at = now_ms;
         Ok((
             PreparedLifecycleChanges {
-                expected: vec![original.clone()],
+                selector,
+                expected,
                 team_owners: vec![(team.clone(), active)],
-                selector: PlanMatch::Ids(vec![plan_id.into()]),
-                originals: vec![original],
-                staged: vec![staged],
+                patches: lifecycle_rows::patch(original, staged, now_ms)
+                    .into_iter()
+                    .collect(),
             },
             team,
         ))
@@ -114,22 +103,32 @@ impl PlanStore {
         &self,
         prepared: PreparedLifecycleChanges,
     ) -> Result<Vec<String>, PlanError> {
-        let writer = self.mutation_writer.enter();
-        let current = self.lifecycle_candidates_checked(&prepared.selector)?;
-        if prepared
-            .team_owners
-            .iter()
-            .any(|(team, expected)| self.active_plan_for_team(team) != *expected)
-            || current.len() != prepared.expected.len()
-            || current
-                .iter()
-                .any(|plan| !prepared.expected.iter().any(|expected| expected == plan))
-        {
-            return Err(PlanError::Io(
-                "lifecycle conflict: plan changed during preparation; retry by intent".into(),
-            ));
-        }
-        self.commit_lifecycle_candidates(&writer, prepared.originals, prepared.staged)
+        self.commit_prepared_lifecycle_transaction(prepared)
             .map(|transaction| transaction.changed_plan_ids)
+    }
+
+    pub(super) fn commit_prepared_lifecycle_transaction(
+        &self,
+        prepared: PreparedLifecycleChanges,
+    ) -> Result<AgentLifecyclePlanTransaction, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (undo, receipts) = self.database.commit_lifecycle_rows(
+            &prepared.selector,
+            &prepared.expected,
+            &prepared.team_owners,
+            prepared.patches,
+        )?;
+        let changed_plan_ids = undo
+            .patches
+            .iter()
+            .map(|patch| patch.before.id.clone())
+            .collect();
+        for receipt in receipts {
+            self.publish_hot_receipt(&turn, receipt);
+        }
+        Ok(AgentLifecyclePlanTransaction {
+            undo,
+            changed_plan_ids,
+        })
     }
 }

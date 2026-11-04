@@ -1,3 +1,4 @@
+import type { PlanView as Plan, PlanSectionView as Section } from "../planProjection";
 import { useMuxSelector } from "../../../store/multiplexer/hooks";
 import { InlineErrorNotice } from "../../shared/ErrorNotice";
 import {
@@ -13,7 +14,6 @@ import {
 } from "react";
 import { ExternalLink, MessageCircle, X } from "lucide-react";
 import type { Tab } from "../../../lib/types";
-import type { Plan, Section } from "../types";
 import { useReducedMotion } from "../missionControl/useReducedMotion";
 import { sendTrackedChatMessage } from "../../Terminal/chatSendStatus";
 import { PlanAskExchange } from "./PlanAskExchange";

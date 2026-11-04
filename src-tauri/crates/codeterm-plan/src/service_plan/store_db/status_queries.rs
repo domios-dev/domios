@@ -7,12 +7,7 @@ use crate::service_plan::PlanError;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 
-const HEADER: &str = "SELECT json_set(json_remove(header_json,
-    '$.planning_log','$.owner_history','$.lifecycle_events','$.pause_operations',
-    '$.planner_requests','$.planner_inbox'),
-    '$.control_loop.rounds',json((SELECT json_group_array(json(value)) FROM (
-        SELECT value FROM (SELECT key,value FROM json_each(p.header_json,'$.control_loop.rounds') WHERE json_extract(value,'$.ended_at')>=?2 ORDER BY key DESC LIMIT 20) ORDER BY key))))
-    FROM plans p WHERE id=?1";
+mod state_facts;
 
 const TASKS: &str = "SELECT json_set(json_remove(row_json,
     '$.body','$.test_plan','$.qa_plan','$.model_rationale','$.intent','$.correctness',
@@ -64,58 +59,14 @@ impl PlanDatabase {
         &self,
         plan_id: &str,
         now_ms: u64,
-        selected_learnings: &[String],
+        _selected_learnings: &[String],
     ) -> Result<PlanStatusRead, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
-        let read = load_status_projection(&transaction, plan_id, now_ms, selected_learnings)?;
+        let read = state_facts::load_status_projection(&transaction, plan_id, now_ms)?;
         transaction.commit().map_err(db_error)?;
         Ok(read)
     }
-}
-
-pub(super) fn load_status_projection(
-    transaction: &Connection,
-    plan_id: &str,
-    now_ms: u64,
-    selected_learnings: &[String],
-) -> Result<PlanStatusRead, PlanError> {
-    record_query();
-    let header: String = transaction
-        .query_row(
-            HEADER,
-            params![plan_id, now_ms.saturating_sub(7 * 24 * 60 * 60 * 1000)],
-            |row| column(row, 0),
-        )
-        .optional()
-        .map_err(db_error)?
-        .ok_or(PlanError::NotFound)?;
-    let mut plan: Plan = decode(plan_id, &header)?;
-    load_tasks(transaction, &mut plan)?;
-    load_sections(transaction, &mut plan)?;
-    load_attempts(transaction, &mut plan)?;
-    load_history(transaction, &mut plan)?;
-    load_heartbeat(transaction, &mut plan, selected_learnings)?;
-    refresh_control_counts(transaction, &mut plan, now_ms)?;
-    let (bounces, held_reviews, lane_history_count) = history_facts(transaction, &plan)?;
-    let event_log = super::state_event_queries::event_log(transaction, plan_id)?;
-    record_query();
-    let (undelivered_requests,delivery_uncertain) = transaction.query_row(
-            "SELECT (SELECT count(*) FROM json_each(p.header_json,'$.planner_requests') WHERE json_extract(value,'$.state')<>'completed'),
-                    EXISTS(SELECT 1 FROM json_each(p.header_json,'$.planner_inbox') WHERE json_extract(value,'$.phase')='delivery_uncertain')
-             FROM plans p WHERE id=?1",[plan_id],|row| Ok((row.get(0)?,row.get(1)?))
-        ).map_err(db_error)?;
-    let revision = super::change_feed::revision(transaction, plan_id)?.to_string();
-    Ok(PlanStatusRead {
-        revision,
-        plan,
-        event_log,
-        bounces,
-        held_reviews,
-        lane_history_count,
-        undelivered_requests,
-        delivery_uncertain,
-    })
 }
 
 pub(super) fn load_tasks(connection: &Connection, plan: &mut Plan) -> Result<(), PlanError> {
@@ -321,7 +272,10 @@ pub(super) fn load_heartbeat(
 
 type HistoryFacts = (BounceSummary, HashMap<String, (usize, Option<u64>)>, usize);
 
-fn history_facts(connection: &Connection, plan: &Plan) -> Result<HistoryFacts, PlanError> {
+fn history_facts(
+    connection: &Connection,
+    plan: &crate::service_plan::state::input::StateInput,
+) -> Result<HistoryFacts, PlanError> {
     record_query();
     let mut statement = connection.prepare_cached(
         "SELECT t.task_id,(SELECT count(*) FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id),
@@ -361,15 +315,6 @@ fn history_facts(connection: &Connection, plan: &Plan) -> Result<HistoryFacts, P
         }
     }
     Ok((bounces, held, lane_history))
-}
-
-pub(super) fn refresh_control_counts(
-    connection: &Connection,
-    plan: &mut Plan,
-    now_ms: u64,
-) -> Result<(), PlanError> {
-    plan.control_loop.counts_7d = control_counts(connection, &plan.id, now_ms)?;
-    Ok(())
 }
 
 pub(super) fn control_counts(
