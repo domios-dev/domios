@@ -421,7 +421,8 @@ fn lane_clean_inventory_git_call_count_is_constant_for_historical_lanes() {
                     destination: Some("HEAD".into()),
                     hold_reason: None,
                 };
-                let row = run_lane_with_inventory(&lane, online, &inventory, || (vec![], None));
+                let row = run_lane_with_inventory(&lane, online, &inventory, || Ok((vec![], None)))
+                    .unwrap();
                 assert_eq!(row.action, "absent");
             }
             assert_eq!(
@@ -546,8 +547,9 @@ fn lane_clean_real_project_preview_measurement() {
                             .is_some_and(|(a, b)| a == b)
                 })
                 .find_map(|task| task_refusal(task, lane, &live));
-            (tabs.clone(), refusal)
-        });
+            Ok((tabs.clone(), refusal))
+        })
+        .unwrap();
         rows.push(row);
     }
     let lanes_ms = started.elapsed().as_millis();
@@ -604,8 +606,9 @@ fn lane_clean_absence_never_overrides_remote_or_live_worker_refusal() {
         "lane Worker tab is live",
     ] {
         let row = run_lane_with_inventory(&lane, true, &Inventory::default(), || {
-            (vec![], Some(reason.into()))
-        });
+            Ok((vec![], Some(reason.into())))
+        })
+        .unwrap();
         assert_eq!(row.action, "kept");
         assert_eq!(row.reason, reason);
     }
