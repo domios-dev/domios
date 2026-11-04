@@ -1,8 +1,12 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
 mod arguments;
+mod call_mutex;
 mod connection;
 mod objects;
+mod operation;
+#[cfg(test)]
+mod operation_tests;
 #[cfg(test)]
 mod raw_arguments_test;
 mod runtime_hook;
@@ -110,6 +114,8 @@ pub enum VmError {
     InvalidJson(String, String),
     ArgSerialize(String, serde_json::Error),
     AsyncJobTimedOut,
+    CallCancelled,
+    AdmissionBusy,
 }
 
 impl std::fmt::Display for VmError {
@@ -130,6 +136,8 @@ impl std::fmt::Display for VmError {
                 write!(f, "argument serialization failed for `{name}`: {err}")
             }
             VmError::AsyncJobTimedOut => write!(f, "{ASYNC_JOB_TIMEOUT_ERROR}"),
+            VmError::CallCancelled => write!(f, "plugin call cancelled"),
+            VmError::AdmissionBusy => write!(f, "plugin call admission is busy"),
         }
     }
 }
@@ -153,7 +161,8 @@ pub const ASYNC_JOB_TIMEOUT_ERROR: &str = "plugin async job exceeded its bounded
 pub struct PluginVm {
     connection: Mutex<connection::ConnectionSnapshot>,
     bundle_access: std::sync::Arc<crate::bundle_access::BundleAccess>,
-    inner: Mutex<Inner>,
+    inner: call_mutex::CallMutex<Inner>,
+    admission: std::sync::Arc<operation::Admission>,
     // Acquire before the VM lock, never while holding a VM or mux guard.
     pub(super) catalogue_gate: Mutex<()>,
     methods: parking_lot::RwLock<HashSet<String>>,
@@ -325,7 +334,8 @@ impl PluginVm {
             methods: parking_lot::RwLock::new(methods),
             holder: Mutex::new(None),
             runtime_inner: Mutex::new(None),
-            inner: Mutex::new(Inner {
+            admission: std::sync::Arc::new(operation::Admission::default()),
+            inner: call_mutex::CallMutex::new(Inner {
                 _ctx: ctx,
                 _rt: rt,
                 bundle_source,
@@ -420,6 +430,7 @@ impl PluginVm {
     /// Re-load the plugin from a fresh source string. Used by the
     /// hot-reload path when `plugin.js` changes on disk.
     pub fn reload(&self, new_source: String) -> Result<(), VmError> {
+        let _paused = self.admission.pause();
         let mut inner = self.inner.lock();
         let rt = Runtime::new().map_err(|e| VmError::RuntimeInit(e.to_string()))?;
         let ctx = Context::full(&rt).map_err(|e| VmError::RuntimeInit(e.to_string()))?;
@@ -542,6 +553,15 @@ fn call_json_mode<R: serde::de::DeserializeOwned>(
     call_json_mode_interruptible(vm, method, args, strict, None)
 }
 
+fn default_call_interrupt(
+    vm: &PluginVm,
+) -> (crate::converter::ConversionCancellation, std::time::Instant) {
+    (
+        crate::converter::ConversionCancellation::default(),
+        std::time::Instant::now() + super::host_exec::wait_bound(vm.sandbox.plugin_id()),
+    )
+}
+
 fn call_json_mode_interruptible<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
@@ -549,9 +569,12 @@ fn call_json_mode_interruptible<R: serde::de::DeserializeOwned>(
     strict: bool,
     interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
 ) -> Result<R, VmError> {
+    let operation = vm
+        .admission
+        .enter(interrupt.or_else(|| Some(default_call_interrupt(vm))))?;
     let args = Arguments::prepare(method, args)
         .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
-    call_prepared(vm, method, &args, strict, interrupt)
+    call_prepared(vm, method, &args, strict, operation.context.clone())
 }
 
 pub(super) fn call_records<R: serde::de::DeserializeOwned>(
@@ -560,10 +583,11 @@ pub(super) fn call_records<R: serde::de::DeserializeOwned>(
     args: &[serde_json::Value],
     window: &crate::jsonl_window::records::RecordWindow,
 ) -> Result<R, VmError> {
+    let operation = vm.admission.enter(Some(default_call_interrupt(vm)))?;
     let mut args = Arguments::prepare(method, args)
         .map_err(|e| VmError::ArgSerialize(method.to_string(), e))?;
     args.window = Some(window);
-    call_prepared(vm, method, &args, false, None)
+    call_prepared(vm, method, &args, false, operation.context.clone())
 }
 
 fn call_prepared<R: serde::de::DeserializeOwned>(
@@ -571,7 +595,7 @@ fn call_prepared<R: serde::de::DeserializeOwned>(
     method: &str,
     args: &Arguments<'_>,
     strict: bool,
-    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
+    operation: std::sync::Arc<operation::Context>,
 ) -> Result<R, VmError> {
     if !has_method(vm, method) {
         return Err(VmError::MissingFunction(method.to_owned()));
@@ -584,7 +608,7 @@ fn call_prepared<R: serde::de::DeserializeOwned>(
     let _surface_scope = crate::surface_invocation::RootScope::enter(&vm.plugin_id, registration);
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| {
-        call_json_inner_interruptible::<R>(vm, method, args, strict, interrupt)
+        call_json_inner_interruptible::<R>(vm, method, args, strict, operation)
     });
     let result = match std::panic::catch_unwind(run) {
         Ok(res) => res,
@@ -604,14 +628,14 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     method: &str,
     args: &Arguments<'_>,
     strict: bool,
-    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
+    operation: std::sync::Arc<operation::Context>,
 ) -> Result<R, VmError> {
     let mut timing = (method == "runtimeStoredHistory").then(|| timing::HookTiming::new(method));
     if let Some(timing) = timing.as_mut() {
         timing.bytes = args.bytes();
         timing.enter("vm_wait");
     }
-    let mut result_json = enter_call(vm, method, args, strict, interrupt.clone(), timing.as_mut())?;
+    let mut result_json = enter_call(vm, method, args, strict, operation.clone(), timing.as_mut())?;
     let mut continuations = 0;
     while let Some(pending) = parse_await(&result_json) {
         continuations += 1;
@@ -619,23 +643,18 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
             awaits::discard(vm, &pending);
             return Err(VmError::Script("await continuation limit reached".into()));
         }
-        awaits::validate(
-            vm,
-            method,
-            &pending,
-            interrupt.as_ref().map(|(_, deadline)| *deadline),
-        )?;
+        awaits::validate(vm, method, &pending, &operation)?;
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
-        let waited = match &interrupt {
-            Some((cancellation, deadline)) => super::host_exec::wait_json_interruptible(
-                vm.sandbox.plugin_id(),
-                &pending.job,
-                cancellation,
-                *deadline,
-            ),
-            None => super::host_exec::wait_json(vm.sandbox.plugin_id(), &pending.job),
-        };
+        operation.check()?;
+        let waited = super::host_exec::wait_json_until(
+            vm.sandbox.plugin_id(),
+            &pending.job,
+            operation.cancellation(),
+            operation.deadline,
+            || operation.check().is_err(),
+        );
+        operation.check()?;
         let job_result = match waited {
             super::host_exec::WaitResult::Completed(result) => result,
             super::host_exec::WaitResult::TimedOut => {
@@ -654,7 +673,7 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
             &pending.continuation,
             &job_result,
             strict,
-            interrupt.clone(),
+            operation.clone(),
         )?;
     }
     if let Some(timing) = timing.as_mut() {
@@ -672,21 +691,12 @@ fn enter_call(
     method: &str,
     args: &Arguments<'_>,
     strict: bool,
-    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
+    operation: std::sync::Arc<operation::Context>,
     timing: Option<&mut timing::HookTiming<'_>>,
 ) -> Result<String, VmError> {
-    let inner = VmEntry::acquire(
-        vm,
-        method,
-        interrupt.as_ref().map(|(_, deadline)| *deadline),
-    )?;
+    let inner = VmEntry::acquire(vm, method, &operation)?;
     if let Some(timing) = timing {
         timing.enter("execute");
-    }
-    if let Some((cancellation, deadline)) = interrupt.clone() {
-        inner._rt.set_interrupt_handler(Some(Box::new(move || {
-            cancellation.is_cancelled() || std::time::Instant::now() >= deadline
-        })));
     }
     let result = inner._ctx.with(|ctx| -> Result<String, VmError> {
         let plugin_obj: Value = ctx
@@ -746,9 +756,7 @@ fn enter_call(
         let _ = globals.remove("__ct_object_args__");
         result
     });
-    if interrupt.is_some() {
-        inner._rt.set_interrupt_handler(None);
-    }
+    inner.check()?;
     result
 }
 
@@ -758,18 +766,9 @@ fn resume_call(
     continuation: &str,
     job_result: &str,
     strict: bool,
-    interrupt: Option<(crate::converter::ConversionCancellation, std::time::Instant)>,
+    operation: std::sync::Arc<operation::Context>,
 ) -> Result<String, VmError> {
-    let inner = VmEntry::acquire(
-        vm,
-        method,
-        interrupt.as_ref().map(|(_, deadline)| *deadline),
-    )?;
-    if let Some((cancellation, deadline)) = interrupt.clone() {
-        inner._rt.set_interrupt_handler(Some(Box::new(move || {
-            cancellation.is_cancelled() || std::time::Instant::now() >= deadline
-        })));
-    }
+    let inner = VmEntry::acquire(vm, method, &operation)?;
     let result = inner._ctx.with(|ctx| -> Result<String, VmError> {
         let globals = ctx.globals();
         globals
@@ -794,9 +793,7 @@ fn resume_call(
             .map_err(|e| VmError::Script(format!("{method}: {e:?}")))?;
         Ok(result)
     });
-    if interrupt.is_some() {
-        inner._rt.set_interrupt_handler(None);
-    }
+    inner.check()?;
     result
 }
 
@@ -831,36 +828,35 @@ fn exported_methods(ctx: &Context) -> Result<HashSet<String>, VmError> {
 }
 
 struct VmEntry<'a> {
-    inner: parking_lot::MutexGuard<'a, Inner>,
+    inner: call_mutex::Guard<'a, Inner>,
     _bundle_reader: Option<parking_lot::RwLockReadGuard<'a, ()>>,
     vm: &'a PluginVm,
     method: &'a str,
     started: std::time::Instant,
     waited: std::time::Duration,
+    operation: std::sync::Arc<operation::Context>,
+    deadline: std::time::Instant,
 }
 
 impl<'a> VmEntry<'a> {
     fn acquire(
         vm: &'a PluginVm,
         method: &'a str,
-        deadline: Option<std::time::Instant>,
+        operation: &std::sync::Arc<operation::Context>,
     ) -> Result<Self, VmError> {
-        let bundle_reader = match deadline {
-            Some(deadline) => vm
-                .bundle_access
-                .read_until(deadline)
-                .map_err(|error| VmError::Script(error.into()))?,
-            None => vm.bundle_access.read(),
-        };
+        operation.check()?;
+        let bundle_reader = vm
+            .bundle_access
+            .try_read()
+            .map_err(|_| VmError::AdmissionBusy)?;
         let started = std::time::Instant::now();
         let previous = vm.holder.lock().clone();
-        let inner = match deadline {
-            Some(deadline) => vm
-                .inner
-                .try_lock_until(deadline)
-                .ok_or(VmError::AsyncJobTimedOut)?,
-            None => vm.inner.lock(),
-        };
+        let inner = vm.inner.enter(operation)?;
+        let deadline = operation.frame_deadline();
+        let interrupt = operation.clone();
+        inner._rt.set_interrupt_handler(Some(Box::new(move || {
+            interrupt.check().is_err() || std::time::Instant::now() >= deadline
+        })));
         let waited = started.elapsed();
         let started = std::time::Instant::now();
         *vm.holder.lock() = Some((method.to_owned(), started));
@@ -880,7 +876,18 @@ impl<'a> VmEntry<'a> {
             method,
             started,
             waited,
+            operation: operation.clone(),
+            deadline,
         })
+    }
+
+    fn check(&self) -> Result<(), VmError> {
+        self.operation.check()?;
+        if std::time::Instant::now() >= self.deadline {
+            Err(VmError::AsyncJobTimedOut)
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -893,6 +900,7 @@ impl std::ops::Deref for VmEntry<'_> {
 
 impl Drop for VmEntry<'_> {
     fn drop(&mut self) {
+        self.inner._rt.set_interrupt_handler(None);
         let held = self.started.elapsed();
         if held >= SLOW_CALL_THRESHOLD {
             log::warn!(

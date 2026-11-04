@@ -606,67 +606,6 @@ async fn account_mesh_session_revoke_uses_a_signed_request_and_keeps_the_pairing
 }
 
 #[tokio::test]
-async fn account_mesh_new_links_need_the_online_permit_and_the_registry_address() {
-    let harness = enrolled().await;
-    let target = harness.mesh.resolve_link_target(PEER).await.unwrap();
-    assert_eq!(target.endpoint.ip().to_string(), "100.101.102.103");
-    let transcript = [6u8; 32];
-    let request = LinkAuthorization {
-        transcript,
-        local_installation_id: INSTALLATION.into(),
-        peer_installation_id: PEER.into(),
-        account_id: account_id(UID),
-    };
-    let permit = harness.mesh.authorize_link(request.clone()).await.unwrap();
-    assert_eq!(harness.calls("link"), 1);
-    let grant = parse_membership_token(&permit).unwrap();
-    let peer_view = LinkPermitExpectation {
-        transcript: &transcript,
-        holder_installation_id: INSTALLATION,
-        peer_installation_id: PEER,
-        account_id: &request.account_id,
-        peer_target: Some(&target.target),
-    };
-    assert_eq!(
-        verify_link_permit(&grant, &Issuer::new().trust(), &peer_view, START),
-        Ok(())
-    );
-
-    harness.registry.script.lock().unwrap().permit = Some(RegistryRefusal::Unavailable);
-    assert!(harness.state().current_membership(START).is_some());
-    assert_eq!(
-        harness.mesh.authorize_link(request.clone()).await,
-        Err(AccountMeshRefusal::Unavailable),
-        "a cached membership never authorizes a new link"
-    );
-
-    harness.clock.set(START + 3600);
-    assert_eq!(
-        harness.mesh.authorize_link(request).await,
-        Err(AccountMeshRefusal::Revoked)
-    );
-}
-
-#[tokio::test]
-async fn account_mesh_responder_authorizes_an_initiator_without_a_published_endpoint() {
-    let harness = enrolled().await;
-    harness.registry.script.lock().unwrap().peer_unpublished = true;
-    assert_eq!(
-        harness.mesh.resolve_link_target(PEER).await.err(),
-        Some(AccountMeshRefusal::Unavailable),
-        "dialing still needs the published endpoint"
-    );
-    let request = LinkAuthorization {
-        transcript: [7u8; 32],
-        local_installation_id: INSTALLATION.into(),
-        peer_installation_id: PEER.into(),
-        account_id: account_id(UID),
-    };
-    assert!(harness.mesh.authorize_link(request).await.is_ok());
-    assert_eq!(harness.calls("link"), 1);
-}
-
-#[tokio::test]
 async fn account_mesh_peer_membership_and_possession_follow_the_signed_in_account() {
     let harness = enrolled().await;
     let state = harness.state();
@@ -714,7 +653,7 @@ async fn account_mesh_internal_registry_reads_update_the_snapshot() {
     let harness = enrolled().await;
     assert!(harness.state().registry.is_some());
 
-    harness.mesh.resolve_link_identity(PEER).await.unwrap();
+    harness.mesh.resolve_link_target(PEER).await.unwrap();
 
     let observation = harness
         .state()

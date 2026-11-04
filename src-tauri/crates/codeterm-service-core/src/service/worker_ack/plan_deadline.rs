@@ -5,6 +5,7 @@ use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin,
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
 
+#[path = "plan_deadline/task_deadline.rs"]
 mod task_deadline;
 
 impl ServiceContext {

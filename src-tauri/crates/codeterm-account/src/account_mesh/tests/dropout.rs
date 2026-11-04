@@ -352,7 +352,9 @@ async fn account_mesh_retired_renew_waiting_for_key_cannot_repopulate_new_epoch_
         installation_id: INSTALLATION.into(),
         request_id: "e".repeat(64),
         signed_registry: None,
-        requested_membership_seconds: Some(86400),
+        endpoint: None,
+        own_row: Some(true),
+
         operation: MeshOperation::Renew {
             expected_slot_revision: 77,
         },

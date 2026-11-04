@@ -489,6 +489,7 @@ impl DoneEvent {
         self.cv.notify_all();
     }
 
+    #[cfg(test)]
     fn wait_for(&self, timeout: Duration) -> bool {
         let mut done = self.done.lock();
         if !*done {
@@ -682,28 +683,52 @@ pub(super) fn drop_plugin_jobs(plugin_id: &str) {
     }
 }
 
+#[cfg(test)]
 pub(super) fn wait_json_interruptible(
     plugin_id: &str,
     job_id: &str,
     cancellation: &crate::converter::ConversionCancellation,
     deadline: Instant,
 ) -> WaitResult {
+    wait_json_until(plugin_id, job_id, cancellation, deadline, || {
+        cancellation.is_cancelled()
+    })
+}
+
+pub(super) fn wait_json_until(
+    plugin_id: &str,
+    job_id: &str,
+    cancellation: &crate::converter::ConversionCancellation,
+    deadline: Instant,
+    cancelled: impl Fn() -> bool,
+) -> WaitResult {
     if !observation_wait_allowed(plugin_id, job_id) {
         return WaitResult::Completed(err("effect job unavailable during observation"));
     }
     let plugin_id = normalize_plugin_id(plugin_id);
-    {
+    let deadline = {
         let mut jobs = EXEC_JOBS.lock();
         if let Some(job) = jobs
             .get_mut(job_id)
             .filter(|job| job.plugin_id == plugin_id)
         {
             job.waiters.push(cancellation.clone());
+            job.deadline
+                .map_or(deadline, |job_deadline| job_deadline.min(deadline))
+        } else {
+            deadline
         }
-    }
+    };
     loop {
         let generation = cancellation.generation();
-        if cancellation.is_cancelled() || Instant::now() >= deadline {
+        if cancelled() {
+            abandon(&plugin_id, job_id);
+            return WaitResult::TimedOut;
+        }
+        if Instant::now() >= deadline {
+            if let Some(result) = scoped::timeout_result(&plugin_id, job_id) {
+                return WaitResult::Completed(result);
+            }
             abandon(&plugin_id, job_id);
             return WaitResult::TimedOut;
         }
@@ -728,6 +753,7 @@ pub(super) enum WaitResult {
     TimedOut,
 }
 
+#[cfg(test)]
 pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
     if !observation_wait_allowed(plugin_id, job_id) {
         return WaitResult::Completed(err("effect job unavailable during observation"));
@@ -786,7 +812,7 @@ fn abandon(plugin_id: &str, job_id: &str) {
 }
 
 #[cfg(not(test))]
-fn wait_bound(_plugin_id: &str) -> Duration {
+pub(super) fn wait_bound(_plugin_id: &str) -> Duration {
     ASYNC_JOB_WAIT_BOUND
 }
 
@@ -795,7 +821,7 @@ static TEST_WAIT_BOUNDS: LazyLock<Mutex<HashMap<String, Duration>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 #[cfg(test)]
-fn wait_bound(plugin_id: &str) -> Duration {
+pub(super) fn wait_bound(plugin_id: &str) -> Duration {
     TEST_WAIT_BOUNDS
         .lock()
         .get(plugin_id)
