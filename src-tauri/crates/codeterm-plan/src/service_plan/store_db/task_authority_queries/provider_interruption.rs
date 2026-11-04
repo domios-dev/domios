@@ -1,3 +1,4 @@
+use super::super::document_queries::regression::unsigned_timestamp;
 use super::*;
 use crate::service_plan::{ProviderRecoveryRead, TaskInterruptionRead};
 
@@ -31,10 +32,11 @@ impl PlanDatabase {
     ) -> Result<Vec<ProviderRecoveryRead>, PlanError> {
         let connection = self.connection.lock();
         record_query();
-        let mut statement = connection.prepare("SELECT p.id,json_object('plan_id',p.id,'task_id',t.task_id,
+        let owner = unsigned_timestamp("t.row_json", "interruption.owner_epoch", true);
+        let mut statement = connection.prepare(&format!("SELECT p.id,json_object('plan_id',p.id,'task_id',t.task_id,
                 'owner_tab_id',json_extract(t.row_json,'$.interruption.owner_tab_id'),
                 'owner_session_id',json_extract(t.row_json,'$.interruption.owner_session_id'),
-                'owner_epoch',coalesce(json_extract(t.row_json,'$.interruption.owner_epoch'),0))
+                'owner_epoch',json({owner}))
             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
             WHERE json_extract(t.row_json,'$.status_label')=?2
                 AND json_extract(t.row_json,'$.interruption.owner_session_id') IS NOT NULL
@@ -43,7 +45,7 @@ impl PlanDatabase {
                         AND json_extract(a.row_json,'$.closed_at') IS NULL
                         AND json_extract(a.row_json,'$.executor_tab_id')=json_extract(t.row_json,'$.interruption.owner_tab_id')
                     ORDER BY a.position LIMIT 1)=?1
-            ORDER BY p.updated_at DESC,p.id,t.position").map_err(db_error)?;
+            ORDER BY p.updated_at DESC,p.id,t.position")).map_err(db_error)?;
         let rows = statement
             .query_map(
                 params![
@@ -66,6 +68,8 @@ impl PlanDatabase {
     ) -> Result<Option<TaskInterruptionRead>, PlanError> {
         let connection = self.connection.lock();
         record_query();
+        let owner = unsigned_timestamp("t.row_json", "interruption.owner_epoch", true);
+        let attempt_epoch = unsigned_timestamp("a.row_json", "interruption.owner_epoch", true);
         let selected: Option<(String,String)> = connection.query_row(&format!("WITH selected AS (
             SELECT p.id AS plan_id,t.task_id,a.position FROM plans p
             JOIN plan_tasks t ON t.plan_id=p.id JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
@@ -75,12 +79,12 @@ impl PlanDatabase {
                 AND json_extract(t.row_json,'$.interruption.owner_session_id') IS NOT NULL
                 AND json_extract(t.row_json,'$.lane.worktree_path') IS NOT NULL
                 AND json_extract(a.row_json,'$.executor_tab_id')=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL
-                AND coalesce(json_extract(a.row_json,'$.interruption.owner_epoch'),0)=coalesce(json_extract(t.row_json,'$.interruption.owner_epoch'),0)
+                AND {attempt_epoch}={owner}
                 AND {ACTIVE_INTERRUPTION}
             ORDER BY p.updated_at DESC,p.id,t.position,a.position LIMIT 1)
             SELECT p.id,json_object('plan_id',p.id,'task_id',t.task_id,'attempt_id',json_extract(a.row_json,'$.id'),
                 'owner_session_id',json_extract(t.row_json,'$.interruption.owner_session_id'),
-                'owner_epoch',coalesce(json_extract(t.row_json,'$.interruption.owner_epoch'),0),
+                'owner_epoch',json({owner}),
                 'repo_path',CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?2)=''
                     THEN json_extract(p.header_json,'$.project_path') ELSE json_extract(p.header_json,'$.canonical_project_path') END,
                 'worktree_path',json_extract(t.row_json,'$.lane.worktree_path'),

@@ -86,7 +86,7 @@ fn configure(task: &mut Task) {
 
 #[test]
 fn provider_interruption_matches_owner_continuation_and_first_attempt_rules() {
-    for variant in 0..25 {
+    for variant in 0..27 {
         let directory = tempfile::tempdir().unwrap();
         let mut plan = authority_plan(directory.path());
         configure(&mut plan.tasks[0]);
@@ -137,6 +137,14 @@ fn provider_interruption_matches_owner_continuation_and_first_attempt_rules() {
             22 => plan.status = PlanStatus::Archived,
             23 => plan.canonical_project_path = "\u{2003}\t".into(),
             24 => plan.canonical_project_path = " canonical ".into(),
+            25 => {
+                task.interruption.owner_epoch = u64::MAX;
+                task.execution_attempts[0].interruption.owner_epoch = u64::MAX;
+            }
+            26 => {
+                task.interruption.owner_epoch = u64::MAX;
+                task.execution_attempts[0].interruption.owner_epoch = u64::MAX - 1;
+            }
             _ => {}
         }
         let database = fixtures::database(directory.path(), &plan);
