@@ -806,6 +806,7 @@ fn plan_owner(
         .ok_or_else(|| format!("Plan {plan_id} has no live Orchestrator owner"))
 }
 
+#[cfg(test)]
 /// An explicit parent wins; otherwise resolves from the plan's live owner.
 pub(super) fn resolve_planner_parent(
     plan_store: &crate::service::plan::PlanStore,

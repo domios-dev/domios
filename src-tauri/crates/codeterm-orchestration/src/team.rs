@@ -6,13 +6,15 @@ use codeterm_service_core::multiplexer::state::MultiplexerState;
 use codeterm_service_core::multiplexer::types::{AgentRole, TabCloseReason};
 use codeterm_service_core::service::plan::PlanError;
 use codeterm_service_core::service::team_core::{
-    is_remote_team, local_team_anchors, now_ms, remote_team_origin, valid_live_plan_team,
-    TeamMutationCaller, TeamPlanError,
+    is_remote_team, local_team_anchors, now_ms, remote_team_origin, TeamMutationCaller,
+    TeamPlanError,
 };
 use codeterm_service_core::service::ServiceContext;
 
 pub mod close;
 mod close_busy;
+mod member_commit;
+pub use member_commit::commit_team_member_prepared;
 mod storage_teardown;
 mod validation;
 #[cfg(any(test, feature = "test-support"))]
@@ -202,21 +204,28 @@ pub async fn add_team_member(
         &prepared.expected_role,
         prepared.expected_profile.as_deref(),
     );
-    let (result, history_batch) = {
-        let mut mux = svc.mux.write();
-        let result = commit_team_member_with_plan_takeover(
-            &mut mux,
-            &svc.events,
-            team_id,
-            caller_tab_id,
-            &tab_id,
+    let service = svc.clone();
+    let (team_id_owned, caller_owned, tab_owned) = (
+        team_id.to_string(),
+        caller_tab_id.map(str::to_string),
+        tab_id.clone(),
+    );
+    let (result, history_batch) = codeterm_service_core::async_runtime::spawn_blocking(move || {
+        let result = commit_team_member_prepared(
+            &service,
+            &team_id_owned,
+            caller_owned.as_deref(),
+            &tab_owned,
             &prepared.expected_role,
             &prepared.expected_profile,
             anchors,
-            |mux| take_over_team_plan(mux, &svc.plan_store, team_id, &tab_id, now_ms()),
+            now_ms(),
         );
-        (result, mux.take_closed_history_batch())
-    };
+        let history = service.mux.write().take_closed_history_batch();
+        (result, history)
+    })
+    .await
+    .map_err(|error| format!("Team member commit worker failed: {error}"))?;
     if let Some(batch) = history_batch {
         codeterm_service_core::async_runtime::spawn_blocking(move || batch.persist())
             .await
@@ -633,12 +642,28 @@ pub fn unarchive_team_plan(
     plan_id: &str,
     now_ms: u64,
 ) -> Result<(), TeamPlanError> {
-    let mux = svc.mux.read();
-    valid_live_plan_team(svc, &mux, plan_id)?;
-    svc.plan_store
-        .unarchive(plan_id, now_ms)
+    let history = codeterm_service_core::multiplexer::state::ClosedTabsStore::in_memory();
+    let mut before = svc
+        .mux
+        .read()
+        .begin_team_close_transaction_with_store(history);
+    let (prepared, team_id) = svc
+        .plan_store
+        .prepare_team_plan_unarchive(plan_id, now_ms)
         .map_err(TeamPlanError::Plan)?;
-    drop(mux);
+    if before.state_mut().get_team(&team_id).is_none() {
+        return Err(TeamPlanError::Team(format!("Plan {plan_id} references missing Team {team_id}; adopt it into a live Team before resuming")));
+    }
+    let history = codeterm_service_core::multiplexer::state::ClosedTabsStore::in_memory();
+    let after = before
+        .state_mut()
+        .begin_team_close_transaction_with_store(history);
+    codeterm_service_core::multiplexer::state::LifecyclePatch::new(before, after)
+        .apply(&mut svc.mux.write())
+        .map_err(TeamPlanError::Team)?;
+    svc.plan_store
+        .commit_prepared_agent_lifecycle_changes(prepared)
+        .map_err(TeamPlanError::Plan)?;
     svc.emit_plan_changed(plan_id);
     Ok(())
 }
@@ -704,6 +729,7 @@ pub fn rename_team_with_state_change(
     Ok(team)
 }
 
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn commit_team_member_with_plan_takeover<F>(
     mux: &mut MultiplexerState,

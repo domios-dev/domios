@@ -528,3 +528,126 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
         .current_plan_skill_attempt(TAB_ID, SESSION_ID, OLD_NONCE)
         .is_err());
 }
+
+#[test]
+fn restoration_undo_preserves_metadata_and_refuses_a_newer_nonce_or_owner() {
+    for conflict in [false, true] {
+        let f = fixture();
+        let request = request(&f, 10);
+        f.store
+            .restore_current_attempt_binding(request.clone(), 10)
+            .unwrap();
+        f.store
+            .with_plan(&f.plan_id, 11, |plan| {
+                plan.title = "unrelated edit".into();
+                if conflict {
+                    let task = plan
+                        .tasks
+                        .iter_mut()
+                        .find(|task| task.id == f.task_id)
+                        .unwrap();
+                    task.interruption.owner_epoch += 1;
+                }
+                Ok(())
+            })
+            .unwrap();
+        let result = f.store.undo_restored_attempt_binding(&request, 12);
+        let plan = f.store.get(&f.plan_id).unwrap();
+        assert_eq!(plan.title, "unrelated edit");
+        let attempt = plan
+            .tasks
+            .iter()
+            .find(|task| task.id == f.task_id)
+            .unwrap()
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == f.attempt_id)
+            .unwrap();
+        if conflict {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("rollback conflict"));
+            assert_eq!(
+                attempt.session_binding_nonce.as_deref(),
+                Some(CURRENT_NONCE)
+            );
+            assert_eq!(attempt.binding_restorations.last(), Some(&request.receipt));
+        } else {
+            result.unwrap();
+            assert_eq!(attempt.session_binding_nonce.as_deref(), Some(OLD_NONCE));
+            assert!(!attempt
+                .binding_restorations
+                .iter()
+                .any(|receipt| receipt.operation_id == request.receipt.operation_id));
+        }
+    }
+}
+
+#[test]
+fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_identity() {
+    for newer in [false, true] {
+        let f = fixture();
+        let before = f
+            .store
+            .inspect_task_for_test(&f.task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .clone();
+        let receipt = f
+            .store
+            .update_attempt_executor_identity_with_undo(
+                &f.plan_id,
+                &f.task_id,
+                TAB_ID,
+                Some("captured executor"),
+                Some(SESSION_ID),
+                Some(CURRENT_NONCE),
+                10,
+            )
+            .unwrap();
+        f.store
+            .with_plan(&f.plan_id, 11, |plan| {
+                let attempt = plan
+                    .tasks
+                    .iter_mut()
+                    .find(|task| task.id == f.task_id)
+                    .unwrap()
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == f.attempt_id)
+                    .unwrap();
+                attempt.model = Some("unrelated model edit".into());
+                if newer {
+                    attempt.session_binding_nonce = Some("newer nonce".into());
+                }
+                Ok(())
+            })
+            .unwrap();
+        let result = f.store.undo_attempt_executor_identity(receipt, 12);
+        let current = f
+            .store
+            .inspect_task_for_test(&f.task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
+            .clone();
+        assert_eq!(current.model.as_deref(), Some("unrelated model edit"));
+        if newer {
+            assert!(result
+                .unwrap_err()
+                .to_string()
+                .contains("rollback conflict"));
+            assert_eq!(
+                current.session_binding_nonce.as_deref(),
+                Some("newer nonce")
+            );
+        } else {
+            result.unwrap();
+            assert_eq!(current.executor_title, before.executor_title);
+            assert_eq!(current.session_id, before.session_id);
+            assert_eq!(current.session_binding_nonce, before.session_binding_nonce);
+        }
+    }
+}

@@ -34,6 +34,41 @@ impl PlanStore {
         })
         .map(|result| result.unwrap_or(RestoreCurrentAttemptBindingResult::AlreadyCurrent))
     }
+
+    pub fn undo_restored_attempt_binding(
+        &self,
+        request: &RestoreCurrentAttemptBinding,
+        now_ms: u64,
+    ) -> Result<(), PlanError> {
+        self.with_plan_if_changed(&request.plan_id, now_ms, |plan| {
+            let task = plan
+                .tasks
+                .iter_mut()
+                .find(|task| task.id == request.task_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            let attempt = task
+                .execution_attempts
+                .iter_mut()
+                .find(|attempt| attempt.id == request.attempt_id)
+                .ok_or(PlanError::TaskNotFound)?;
+            if task.interruption.owner_epoch != request.owner_epoch
+                || task.interruption.owner_tab_id.as_deref()
+                    != Some(request.executor_tab_id.as_str())
+                || attempt.executor_tab_id != request.executor_tab_id
+                || attempt.session_id.as_deref() != Some(request.session_id.as_str())
+                || attempt.session_binding_nonce.as_deref() != Some(request.current_nonce.as_str())
+                || attempt.binding_restorations.last() != Some(&request.receipt)
+            {
+                return Err(PlanError::Io(
+                    "attempt restoration rollback conflict: newer authority or receipt".into(),
+                ));
+            }
+            attempt.session_binding_nonce = Some(request.expected_old_nonce.clone());
+            attempt.binding_restorations.pop();
+            Ok(Some(()))
+        })
+        .map(|_| ())
+    }
 }
 
 fn restore_binding(

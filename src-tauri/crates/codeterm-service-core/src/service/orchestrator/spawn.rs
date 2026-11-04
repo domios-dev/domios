@@ -85,12 +85,7 @@ impl ServiceContext {
                 .plan_id
                 .as_deref()
                 .ok_or("Planner requires --plan <id>")?;
-            params.parent_tab_id = Some(crate::service::agent_transition::resolve_planner_parent(
-                &self.plan_store,
-                &self.mux.read(),
-                plan_id,
-                None,
-            )?);
+            params.parent_tab_id = Some(self.resolve_planner_parent_for_spawn(plan_id)?);
         }
         crate::service::spawn_plan_task::validate_worker_plan_task_spawn(&params)?;
         crate::service::spawn_params::reject_team_with_binding(&params)?;

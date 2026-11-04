@@ -11,7 +11,9 @@ use codeterm_types::agent::ReportStatus;
 
 use super::{PlanError, PlanStore};
 
+mod executor_identity;
 mod executor_termination;
+pub use executor_identity::AttemptExecutorIdentityChange;
 mod launch_binding;
 mod plan_skill_evidence;
 pub mod remote_dispatch;
@@ -393,40 +395,6 @@ impl PlanStore {
     ) -> Result<Vec<String>, PlanError> {
         self.database
             .recent_worker_titles(workspace_id, session_id, limit)
-    }
-
-    pub fn update_attempt_executor_identity(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab_id: &str,
-        title: Option<&str>,
-        session_id: Option<&str>,
-        session_binding_nonce: Option<&str>,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        let title = title.map(str::trim).filter(|value| !value.is_empty());
-        let session_id = session_id.map(str::trim).filter(|value| !value.is_empty());
-        let session_binding_nonce = session_binding_nonce
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-        self.change_attempt(
-            plan_id,
-            task_id,
-            AttemptTarget {
-                tab: tab_id,
-                ..Default::default()
-            },
-            now_ms,
-            |attempt| {
-                let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
-                attempt.executor_title = title.map(str::to_string);
-                attempt.session_id = session_id.map(str::to_string);
-                attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
-                Ok(Some(()))
-            },
-        )?;
-        Ok(())
     }
 
     pub fn update_attempt_session_model_if_unknown(
