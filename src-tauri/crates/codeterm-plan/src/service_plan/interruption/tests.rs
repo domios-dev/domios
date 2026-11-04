@@ -23,9 +23,10 @@ fn below_reserve_or_exhausted_allowance_warns_and_never_blocks() {
     ] {
         let mut low = allowance(remaining_pct, 100);
         low.reserve_pct = reserve_pct;
-        let warning = provider_allowance_warning(&ExecutionIntent::Mutating, Some(&low), "codex")
-            .expect("a low allowance is reported on the receipt");
-        assert!(warning.starts_with("provider_allowance_low: provider codex"));
+        let warning =
+            provider_allowance_warning(&ExecutionIntent::Mutating, Some(&low), "allowance-fixture")
+                .expect("a low allowance is reported on the receipt");
+        assert!(warning.starts_with("provider_allowance_low: provider allowance-fixture"));
         assert!(warning.contains(state), "{warning}");
     }
 }
@@ -76,7 +77,7 @@ fn negative_remaining_dispatch_policy_is_recorded() {
             TaskLaneMetadata::default(),
             ExecutionIntent::Mutating,
             Some(overdrawn.clone()),
-            Some("codex"),
+            Some("allowance-fixture"),
             3,
         )
         .expect("a negative remaining allowance never blocks dispatch");

@@ -27,14 +27,13 @@ async fn session_start_keeps_health_list_and_send_responsive_while_journal_write
     .await;
     let (entered, observed) = tokio::sync::oneshot::channel();
     let entered = Arc::new(parking_lot::Mutex::new(Some(entered)));
-    fixture.ui.listen(
-        "session-binding-state-changed",
-        Arc::new(move |_| {
+    fixture
+        .ui
+        .listen("session-binding-state-changed", move |_| {
             if let Some(entered) = entered.lock().take() {
                 let _ = entered.send(());
             }
-        }),
-    );
+        });
     let request = axum::http::Request::builder().method("POST").uri(format!("/hook/{tab}"))
         .header("content-type", "application/json")
         .body(Body::from(serde_json::json!({"session_id":"own-session", "provider_id":"hook-journal-fixture", "binding_nonce":"own-nonce"}).to_string())).unwrap();
