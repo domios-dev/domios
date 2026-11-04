@@ -1,7 +1,7 @@
 import { createEventSubscriptionRegistry, eventStreamKey, shareEventSubscriptions } from "./eventSubscriptionRegistry";
 import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
 import { installWebDiagnosticPort } from "./webDiagnosticPort";
-import { createTransportClient, type TokenSource, type TransportClient } from "./transportClient";
+import { type TokenSource, type TransportClient } from "./transportClient";
 import { withStreamMux } from "./streamMux";
 
 export interface DaemonBootstrap { origin: string; token: TokenSource; frontendOrigin?: string }
@@ -57,7 +57,7 @@ export function configureDaemonTransport(input: DaemonBootstrap | ReloadCredenti
   if (typeof input.token === "string" && !input.token) throw new Error("Daemon bearer token required");
   if (base && bootstrap?.origin === origin && bootstrap.token === input.token) return base;
   bootstrap = { origin, token: input.token };
-  const client = withStreamMux(createTransportClient({ ...bootstrap, onGatewayState: gateway }));
+  const client = withStreamMux({ ...bootstrap, onGatewayState: gateway });
   if (eventSubscriptions) eventSubscriptions.replace(client.subscribe);
   else eventSubscriptions = createEventSubscriptionRegistry(client.subscribe);
   base = shareEventSubscriptions(client, eventSubscriptions);
@@ -95,7 +95,7 @@ export function daemonTransportForPeer(peerId?: string): TransportClient {
   const client = baseDaemonTransport();
   if (!peerId) return client;
   if (!peers.has(peerId)) {
-    const peer = createTransportClient({ ...bootstrap!, relayPeerId: peerId, onGatewayState: gateway });
+    const peer = withStreamMux({ ...bootstrap!, relayPeerId: peerId, onGatewayState: gateway });
     peers.set(peerId, { ...peer, subscribe(path, listener, options) {
       if (eventStreamKey(path)?.startsWith("/api/events/stream")) {
         const url = new URL(path, client.origin());

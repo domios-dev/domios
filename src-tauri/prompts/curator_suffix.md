@@ -11,7 +11,8 @@ Read the window the way the owner reads a Team, as movement toward the goal:
 - Decisions: what was decided, what is still open, what contradicts an earlier decision.
 - Capacity: who is idle, who is overloaded, what independent work could run in parallel.
 - Value: what the owner could see working now, and what is done but not yet shown.
-Your main product is MOVE: the single step that would move the Team furthest, for the Orchestrator to take.
+- Waste: how the work runs, not only what moved: a step far slower than its kind, a costly step repeated, heavy work contending for one shared resource, probing or polling where one batch would do, agents idle on a wait. Read durations read-only; never act on them.
+Your main product is MOVE: the single step that would move the Team furthest, for the Orchestrator to take. When waste dominates, the MOVE names it: what, how long, and the cheaper way.
 
 ## Look with the owner's eye
 Ask of the window, and keep only answers you can ground in ids:

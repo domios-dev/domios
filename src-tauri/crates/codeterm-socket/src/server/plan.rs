@@ -434,12 +434,12 @@ pub(super) fn dispatch(
                 };
             let mut entries = store.list_index();
             if let Some(want) = &want {
-                entries.retain(|e| {
-                    store
-                        .get(&e.plan_id)
-                        .map(|pl| pl.project_path == *want)
-                        .unwrap_or(false)
-                });
+                let matching = store
+                    .plan_project_ids_projection(want)
+                    .map_err(plan_rpc_err)?
+                    .into_iter()
+                    .collect::<std::collections::HashSet<_>>();
+                entries.retain(|entry| matching.contains(&entry.plan_id));
             }
             if p.and_then(|x| x.get("unowned")).and_then(|v| v.as_bool()) == Some(true) {
                 entries.retain(|e| e.owner.tab_id.is_none() && e.owner.session_id.is_none());
@@ -540,7 +540,9 @@ pub(super) fn dispatch(
             emit_plan_changed(svc, &id);
             let mut response_hints = Vec::new();
             if matches!(
-                store.resolve_planner_tab(&id, |pid| svc.tab_probe(pid)),
+                store
+                    .resolve_planner_tab(&id, |pid| svc.tab_probe(pid))
+                    .map_err(plan_rpc_err)?,
                 codeterm_service_core::plan::peer::PeerResolution::Unbound
             ) {
                 let spawn_cmd =
@@ -594,9 +596,8 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str());
             let mut resp = json!({ "section_id": sid });
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -625,9 +626,8 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str());
             let mut resp = json!({ "ok": true, "section_id": sid });
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -691,8 +691,8 @@ pub(super) fn dispatch(
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
             let mut value = serde_json::to_value(snapshot).unwrap_or_default();
             let tab_id = store
-                .get(&id)
-                .and_then(|plan| plan.owner.tab_id)
+                .plan_owner_tab_projection(&id)
+                .map_err(plan_rpc_err)?
                 .unwrap_or_default();
             value["reminder"] =
                 serde_json::to_value(svc.plan_turn_counter.time_reminder_telemetry(&tab_id))
@@ -702,10 +702,8 @@ pub(super) fn dispatch(
 
         "plan.next" => {
             let id = plan_refs::resolve_plan(store, params)?;
-            let plan = store
-                .get(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            if let Some(response) = archived_next_response(&id, plan.status) {
+            let status = store.plan_status_projection(&id).map_err(plan_rpc_err)?;
+            if let Some(response) = archived_next_response(&id, status) {
                 return Ok(response);
             }
             let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;

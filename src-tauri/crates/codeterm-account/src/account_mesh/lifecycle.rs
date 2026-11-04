@@ -235,6 +235,7 @@ pub struct AccountMesh {
     pub(super) ports: AccountMeshPorts,
     pub(super) inner: Mutex<Inner>,
     pub(super) watch: watch::Sender<Arc<LifecycleState>>,
+    pub(super) closed: watch::Sender<()>,
     persist_lock: tokio::sync::Mutex<()>,
     push_lock: tokio::sync::Mutex<()>,
     pub(super) key_lock: tokio::sync::Mutex<()>,
@@ -291,6 +292,7 @@ impl AccountMesh {
                 store_unreadable: false,
             }),
             watch: watch::channel(state).0,
+            closed: watch::channel(()).0,
             persist_lock: tokio::sync::Mutex::new(()),
             push_lock: tokio::sync::Mutex::new(()),
             key_lock: tokio::sync::Mutex::new(()),
@@ -332,7 +334,7 @@ impl AccountMesh {
         }
     }
 
-    async fn persist_checked(&self) -> Result<(), String> {
+    pub(super) async fn persist_checked(&self) -> Result<(), String> {
         let _guard = self.persist_lock.lock().await;
         let record = self
             .with(|inner| (!inner.store_unreadable).then(|| inner.record.clone()))
@@ -891,6 +893,27 @@ impl AccountMesh {
                             .is_some_and(|window| window.live(epoch, self.now()))))
             {
                 inner.retry.keep_recovering(self.now());
+            }
+            if matches!(
+                result,
+                Err(AccountMeshRefusal::Offline
+                    | AccountMeshRefusal::Unavailable
+                    | AccountMeshRefusal::AuthorityUnavailable)
+            ) {
+                if let Some(membership) = inner.state.current_membership(self.now()) {
+                    let remaining = membership.verified.expires_at.saturating_sub(self.now());
+                    let limit = (remaining / 2).max(1);
+                    let delay = inner
+                        .retry
+                        .deadline
+                        .unwrap_or(self.now().saturating_add(300))
+                        .saturating_sub(self.now())
+                        .max(1);
+                    let jittered =
+                        delay.saturating_mul(3) / 4 + rand::random::<u64>() % (delay / 4 + 1);
+                    inner.retry.deadline =
+                        Some(self.now().saturating_add(jittered.max(1).min(limit)));
+                }
             }
             let retry_at = inner.retry.deadline;
             let rerun = if owned

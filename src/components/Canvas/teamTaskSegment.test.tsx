@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -537,18 +538,19 @@ const BOARD_STATE: PlanBoardState = {
 async function settle() {
   for (let pass = 0; pass < 10; pass += 1) {
     await act(async () => {
-      await Promise.resolve();
+      // Daemon responses ride the mux stream, which settles across event-loop turns.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
 }
 
 describe("Board jumps through the single navigation", () => {
   it("opens What happened tasks by key through onOpenPlanTarget with no surface overlay", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
+    vi.stubGlobal("fetch", muxMockFetch(vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
       : url.includes(`/api/plans/${TEAM_PLAN.id}/projection?view=board`)
         ? { ok: true, status: 200, json: async () => ({ ...TEAM_PLAN, revision: "1" }), text: async () => "" }
-      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
+      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" }))));
     const onOpenPlanTarget = vi.fn();
     const plan = { ...TEAM_PLAN, owner: FIXTURE_PLAN.owner };
     const host = await render(
@@ -576,11 +578,11 @@ describe("Board jumps through the single navigation", () => {
   });
 
   it("a What happened task on the Board opens the shared side panel over Board", async () => {
-    vi.stubGlobal("fetch", vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
+    vi.stubGlobal("fetch", muxMockFetch(vi.fn(async (url: string) => (url.includes(`/api/plans/${TEAM_PLAN.id}/board-state`)
       ? { ok: true, status: 200, json: async () => BOARD_STATE, text: async () => "" }
       : url.includes(`/api/plans/${TEAM_PLAN.id}/projection?view=board`)
         ? { ok: true, status: 200, json: async () => ({ ...TEAM_PLAN, revision: "1" }), text: async () => "" }
-      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" })));
+      : { ok: false, status: 404, json: async () => ({}), text: async () => "not found" }))));
     const plan = { ...TEAM_PLAN, owner: FIXTURE_PLAN.owner };
     const host = await render(<TeamView plans={[plan]} api={API} />);
     await act(async () => modeTab(host, "board").click());

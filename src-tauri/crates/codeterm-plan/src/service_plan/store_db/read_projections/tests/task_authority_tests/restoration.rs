@@ -37,7 +37,7 @@ fn lineage_restoration_selects_exact_target_team_and_nonce_with_duplicate_refusa
         .connection
         .lock()
         .execute(
-            "UPDATE plans SET header_json='broken' WHERE id=?1",
+            "UPDATE plans SET header_json=json_set(header_json,'$.team_id',json('[]')) WHERE id=?1",
             [&plan.id],
         )
         .unwrap();

@@ -1,3 +1,4 @@
+import { type DaemonFake, muxMockFetch } from "./muxMockFetch.testdata";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -36,7 +37,7 @@ beforeEach(() => {
       : { data: "# REST document", media_type: "text/markdown" };
     return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
   });
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", muxMockFetch(fetchMock as DaemonFake));
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);

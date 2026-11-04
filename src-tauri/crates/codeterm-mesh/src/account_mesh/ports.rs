@@ -155,23 +155,6 @@ impl std::fmt::Display for AdmissionRefusal {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LinkAuthorizationRequest {
-    pub transcript: [u8; 32],
-    pub local_installation_id: String,
-    pub peer_installation_id: String,
-    pub account_id: String,
-    pub link_nonce: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LinkPermitExpectation {
-    pub transcript: [u8; 32],
-    pub holder_installation_id: String,
-    pub peer_installation_id: String,
-    pub account_id: String,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkTarget {
     pub installation_id: String,
@@ -185,7 +168,7 @@ pub trait AccountMeshAuthority: Send + Sync {
         &'a self,
         _snapshot: &'a codeterm_entitlements::DetachedGrant,
     ) -> BoxFuture<'a, Result<bool, AdmissionRefusal>> {
-        Box::pin(async { Ok(false) })
+        Box::pin(async { Err(AdmissionRefusal::Revoked) })
     }
 
     fn verify_membership(
@@ -202,18 +185,6 @@ pub trait AccountMeshAuthority: Send + Sync {
         transcript: &[u8; 32],
         signature: &str,
     ) -> bool;
-
-    fn authorize_link(
-        &self,
-        request: LinkAuthorizationRequest,
-    ) -> BoxFuture<'_, Result<String, AdmissionRefusal>>;
-
-    fn verify_link_permit(
-        &self,
-        permit: &str,
-        expected: &LinkPermitExpectation,
-        now: u64,
-    ) -> Result<(), AdmissionRefusal>;
 
     fn resolve_link_target(
         &self,

@@ -7,6 +7,10 @@ use crate::plan::{
     TaskStatus,
 };
 
+pub(super) mod view;
+
+pub(in crate::service_plan) const HANDOFF_ACTION_VERB: &str = "recover handoff";
+
 pub const STATE_RECONCILIATION_PROMPT: &str = "STATE-RECONCILIATION";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -83,29 +87,37 @@ fn render_competitive_attempts(plan: &Plan, out: &mut String) {
 }
 
 fn render_regression_gates(plan: &Plan, out: &mut String) {
-    let gates = super::milestone_gates::pending_regression_gates(plan);
+    out.push_str(&regression_line(
+        &super::milestone_gates::pending_regression_gates(plan),
+        false,
+    ));
+}
+
+fn render_group_retrospectives(plan: &Plan, out: &mut String) {
+    out.push_str(&regression_line(
+        &super::milestone_gates::pending_group_retrospectives(plan),
+        true,
+    ));
+}
+
+pub(in crate::service_plan) fn regression_line(
+    gates: &[super::milestone_gates::RegressionGate],
+    retrospective: bool,
+) -> String {
     if gates.is_empty() {
-        return;
+        return String::new();
     }
+    let title = if retrospective {
+        "Close groups"
+    } else {
+        "Record group regression"
+    };
     let groups = gates
         .iter()
         .map(|gate| gate.key.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    out.push_str(&format!("Record group regression: {groups}\n"));
-}
-
-fn render_group_retrospectives(plan: &Plan, out: &mut String) {
-    let pending = super::milestone_gates::pending_group_retrospectives(plan);
-    if pending.is_empty() {
-        return;
-    }
-    let groups = pending
-        .iter()
-        .map(|gate| gate.key.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    out.push_str(&format!("Close groups: {groups}\n"));
+    format!("{title}: {groups}\n")
 }
 
 fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
@@ -115,22 +127,38 @@ fn render_open_gates(plan: &Plan, now_ms: u64, out: &mut String) {
     }
     out.push_str("Decision gates:\n");
     for gate in open {
-        let age_ms = now_ms.saturating_sub(gate.asked_at);
-        let age_h = age_ms / 3_600_000;
-        let age_min = (age_ms % 3_600_000) / 60_000;
-        let age = if age_h > 0 {
-            format!("{age_h}h{age_min}m")
-        } else {
-            format!("{age_min}m")
-        };
-        let blocking = gate.blocking_task_ids.len();
-        let routed = gate.routed_to_tab_id.as_deref().unwrap_or("unrouted");
-        out.push_str(&format!(
-            "- {} (age:{age} blocking:{blocking} routed:{routed}): {}\n",
-            gate.id,
-            gate.question.chars().take(100).collect::<String>()
+        out.push_str(&gate_line(
+            &gate.id,
+            &gate.question,
+            gate.asked_at,
+            gate.blocking_task_ids.len(),
+            gate.routed_to_tab_id.as_deref(),
+            now_ms,
         ));
     }
+}
+
+pub(in crate::service_plan) fn gate_line(
+    id: &str,
+    question: &str,
+    asked_at: u64,
+    blocking: usize,
+    routed: Option<&str>,
+    now_ms: u64,
+) -> String {
+    let age_ms = now_ms.saturating_sub(asked_at);
+    let age_h = age_ms / 3_600_000;
+    let age_min = (age_ms % 3_600_000) / 60_000;
+    let age = if age_h > 0 {
+        format!("{age_h}h{age_min}m")
+    } else {
+        format!("{age_min}m")
+    };
+    format!(
+        "- {id} (age:{age} blocking:{blocking} routed:{}): {}\n",
+        routed.unwrap_or("unrouted"),
+        question.chars().take(100).collect::<String>()
+    )
 }
 
 fn role_identity_line(plan: &Plan, tab_id: Option<&str>) -> String {
@@ -171,7 +199,7 @@ fn is_owner_rule(learning: &HeartbeatLearning) -> bool {
     learning.tag.as_deref() == Some("owner")
 }
 
-fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
+pub(in crate::service_plan) fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
     out.push_str("- ");
     out.push_str(
         &learning
@@ -185,7 +213,10 @@ fn render_learning(learning: &HeartbeatLearning, out: &mut String) {
 
 const SITUATIONAL_LEARNING_CHARS: usize = 160;
 
-fn render_situational_learning(learning: &HeartbeatLearning, out: &mut String) {
+pub(in crate::service_plan) fn render_situational_learning(
+    learning: &HeartbeatLearning,
+    out: &mut String,
+) {
     let text = learning
         .text
         .split_whitespace()
@@ -217,6 +248,20 @@ fn reminder_snapshot(plan: &Plan) -> super::state::PlanStateSnapshot {
     )
 }
 
+pub(in crate::service_plan) fn action_verb(
+    kind: super::next_actions::NextActionKind,
+) -> Option<&'static str> {
+    use super::next_actions::NextActionKind;
+    match kind {
+        NextActionKind::Gate => Some("gate"),
+        NextActionKind::ClaimQa => Some("claim QA"),
+        NextActionKind::Dispatch => Some("dispatch"),
+        NextActionKind::Advance => Some("unblock"),
+        NextActionKind::WaitingOnDependency => Some("repair missing dependency"),
+        _ => None,
+    }
+}
+
 fn render_actions(
     plan: &Plan,
     snapshot: &super::state::PlanStateSnapshot,
@@ -227,17 +272,11 @@ fn render_actions(
     let mut named = std::collections::HashSet::new();
     let mut actions = Vec::new();
     for action in &snapshot.next_actions {
-        let verb = match action.kind {
-            NextActionKind::Gate => "gate",
-            NextActionKind::ClaimQa => "claim QA",
-            NextActionKind::Dispatch => "dispatch",
-            NextActionKind::Advance => "unblock",
-            NextActionKind::WaitingOnDependency => "repair missing dependency",
-            NextActionKind::ConsiderStop => {
+        let Some(verb) = action_verb(action.kind) else {
+            if action.kind == NextActionKind::ConsiderStop {
                 out.push_str(&format!("- {}\n", action.message));
-                continue;
             }
-            _ => continue,
+            continue;
         };
         if let Some(id) = action.task_id.as_ref().filter(|id| actionable.contains(id)) {
             if named.insert(id.clone()) {
@@ -252,7 +291,7 @@ fn render_actions(
             && super::state::task_projection(plan, task).presentation
                 == super::state::TaskPresentation::HandoffRequired
         {
-            out.push_str(&format!("- {}: recover handoff\n", task.id));
+            out.push_str(&format!("- {}: {HANDOFF_ACTION_VERB}\n", task.id));
             actions.push(task.id.clone());
         }
     }
@@ -293,47 +332,7 @@ fn render_heartbeat(
     _loops: &[LoopSpec],
     extra_digest_lines: &[String],
 ) -> String {
-    let snapshot = reminder_snapshot(plan);
-    let pending = snapshot
-        .open_lanes
-        .iter()
-        .filter(|lane| lane.presentation == super::state::TaskPresentation::ActionablePending)
-        .count();
-    let mut out = format!("{HEARTBEAT_BLOCK_OPEN} plan=\"{}\">\nState: in_review={} in_progress={} pending_actionable={pending} blocked={}\n",
-        plan.id, snapshot.task_counts.in_review, snapshot.task_counts.in_progress, snapshot.task_counts.blocked);
-    let actions = render_actions(plan, &snapshot, &mut out);
-    for learning in heartbeat
-        .learnings
-        .iter()
-        .filter(|learning| is_owner_rule(learning))
-    {
-        render_learning(learning, &mut out);
-    }
-    for learning in heartbeat
-        .learnings
-        .iter()
-        .rev()
-        .filter(|learning| !is_owner_rule(learning) && !learning.text.trim().is_empty())
-        .take(MAX_SITUATIONAL_LEARNINGS)
-    {
-        render_situational_learning(learning, &mut out);
-    }
-    render_regression_gates(plan, &mut out);
-    render_group_retrospectives(plan, &mut out);
-    render_competitive_attempts(plan, &mut out);
-    render_open_gates(plan, now_ms(), &mut out);
-    for line in extra_digest_lines
-        .iter()
-        .filter(|line| !line.trim().is_empty())
-    {
-        out.push_str("- ");
-        out.push_str(line.trim());
-        out.push('\n');
-    }
-    render_actionable_skills(plan, &actions, &mut out);
-    out.push_str(HEARTBEAT_MORE);
-    out.push_str("\n</codeterm-orchestrator-heartbeat>");
-    out
+    view::HeartbeatView::from_plan(plan).render_block(heartbeat, extra_digest_lines)
 }
 
 pub(super) fn reconciliation_prompt(plan_id: &str, tab_id: Option<&str>) -> String {
@@ -409,42 +408,10 @@ pub fn prepend_plan_heartbeat_with_selection(
     digest_lines: &[String],
     learning_ids: Option<&[String]>,
 ) -> String {
-    let mut heartbeat = plan.heartbeat.clone();
-    if let Some(ids) = learning_ids {
-        let allowed: Vec<_> = ids
-            .iter()
-            .filter(|id| {
-                heartbeat
-                    .learnings
-                    .iter()
-                    .any(|learning| &learning.id == *id && !is_owner_rule(learning))
-            })
-            .take(MAX_SITUATIONAL_LEARNINGS)
-            .collect();
-        heartbeat
-            .learnings
-            .retain(|learning| is_owner_rule(learning) || allowed.contains(&&learning.id));
-    }
     if matches!(plan.mode, PlanMode::Paused | PlanMode::Complete) || is_plan_complete(plan) {
         return text.to_string();
     }
-    let mut lines = digest_lines.to_vec();
-    lines.push(format!(
-        "control loop: {:?}, next {:?}{}",
-        plan.control_loop.mode,
-        plan.control_loop.next_at,
-        plan.control_loop
-            .fallback_reason
-            .as_ref()
-            .map(|r| format!(", fallback: heartbeat ({r})"))
-            .unwrap_or_default()
-    ));
-    let block = render_heartbeat(plan, &heartbeat, &plan.loops, &lines);
-    if text.trim().is_empty() {
-        block
-    } else {
-        format!("{block}\n\n{text}")
-    }
+    view::HeartbeatView::from_plan(plan).prepend(text, digest_lines, learning_ids)
 }
 
 pub(super) fn prepend_heartbeat_snapshot(

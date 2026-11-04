@@ -16,12 +16,7 @@ impl AccountMesh {
                 return inner.retry.deadline;
             }
             let membership_due = inner.membership_renewal_at();
-            let publication_due = inner
-                .published_endpoint
-                .as_ref()
-                .map(|_| inner.publication_refresh_after);
             if membership_due.is_none()
-                && publication_due.is_none()
                 && matches!(
                     result,
                     Err(AccountMeshRefusal::MachineLimit { .. }
@@ -43,7 +38,7 @@ impl AccountMesh {
             } else {
                 None
             };
-            [membership_due, publication_due, retry_due]
+            [membership_due, retry_due]
                 .into_iter()
                 .flatten()
                 .map(|due| {
@@ -88,6 +83,7 @@ impl AccountMesh {
             return;
         };
         let mesh = Arc::downgrade(self);
+        let mut closed = self.closed.subscribe();
         if matches!(result, Err(AccountMeshRefusal::EnrollmentBudget { .. })) {
             let remaining = due.saturating_sub(self.now());
             let Some(deadline) =
@@ -96,7 +92,10 @@ impl AccountMesh {
                 return;
             };
             tokio::spawn(async move {
-                tokio::time::sleep_until(deadline).await;
+                tokio::select! {
+                    _ = closed.changed() => return,
+                    _ = tokio::time::sleep_until(deadline) => {}
+                }
                 let Some(mesh) = mesh.upgrade() else {
                     return;
                 };
@@ -129,7 +128,10 @@ impl AccountMesh {
                 }
                 // A local drift check bounds suspend recovery without contacting the registry before due.
                 drop(mesh);
-                tokio::time::sleep(Duration::from_secs(remaining.min(60))).await;
+                tokio::select! {
+                    _ = closed.changed() => return,
+                    _ = tokio::time::sleep(Duration::from_secs(remaining.min(60))) => {}
+                }
             }
         });
     }

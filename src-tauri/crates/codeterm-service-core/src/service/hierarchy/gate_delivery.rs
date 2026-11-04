@@ -1,23 +1,18 @@
-use crate::plan::{DecisionGate, PlannerRef};
+use crate::plan::DecisionGate;
 
 impl crate::service::ServiceContext {
-    pub fn planner_gate_owner_answerer(
-        &self,
-        plan_id: &str,
-        asked_by_tab_id: Option<&str>,
-    ) -> Option<String> {
-        let plan = self.plan_store.get(plan_id)?;
-        planner_owner_for_gate(&plan, asked_by_tab_id).map(str::to_string)
-    }
-
     pub fn deliver_planner_gate_to_owner(
         &self,
         plan_id: &str,
         requested_owner: &str,
         gate: &DecisionGate,
     ) -> Result<(), String> {
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
-        let intended_owner = plan
+        let routing = self
+            .plan_store
+            .planner_gate_context(plan_id, None)
+            .map_err(|error| error.to_string())?
+            .ok_or("plan not found")?;
+        let intended_owner = routing
             .owner
             .tab_id
             .as_deref()
@@ -57,38 +52,4 @@ impl crate::service::ServiceContext {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::plan::{OrchestratorRef, Plan, PlannerRef};
-
-    #[test]
-    fn planner_gate_routes_to_the_plan_owner() {
-        let mut plan = Plan::new(
-            "routing".into(),
-            "cwd".into(),
-            OrchestratorRef::from_tab("owner"),
-        );
-        plan.planner = Some(PlannerRef::Tab {
-            tab_id: "planner".into(),
-            session_id: Some("session".into()),
-            title: None,
-        });
-
-        assert_eq!(
-            super::planner_owner_for_gate(&plan, Some("planner")),
-            Some("owner")
-        );
-        assert_eq!(super::planner_owner_for_gate(&plan, Some("worker")), None);
-    }
-}
-
-pub(super) fn planner_owner_for_gate<'a>(
-    plan: &'a crate::plan::Plan,
-    asked_by_tab_id: Option<&str>,
-) -> Option<&'a str> {
-    let PlannerRef::Tab { tab_id, .. } = plan.planner.as_ref()? else {
-        return None;
-    };
-    (asked_by_tab_id == Some(tab_id.as_str()))
-        .then_some(plan.owner.tab_id.as_deref())
-        .flatten()
-}
+mod tests;

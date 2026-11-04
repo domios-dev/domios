@@ -37,25 +37,54 @@ fn run_rpc(args: &[&str], method: &str, json_mode: bool, result: Value) -> std::
         .create_sync()
         .unwrap();
     let method = method.to_owned();
+    let stopping = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let server_stopping = stopping.clone();
     let server = std::thread::spawn(move || {
+        let mut connections = Vec::new();
+        let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         for stream in listener.incoming() {
-            let mut stream = BufReader::new(stream.unwrap());
-            let mut line = String::new();
-            if stream.read_line(&mut line).unwrap() == 0 {
-                continue;
+            let stream = stream.unwrap();
+            if server_stopping.load(std::sync::atomic::Ordering::Acquire) {
+                break;
             }
-            let request: Value = serde_json::from_str(&line).unwrap();
-            assert_eq!(request["method"], method);
-            let response = json!({ "jsonrpc": "2.0", "id": request["id"], "result": result });
-            writeln!(stream.get_mut(), "{response}").unwrap();
-            stream.get_mut().flush().unwrap();
-            return;
+            let method = method.clone();
+            let result = result.clone();
+            let calls = calls.clone();
+            connections.push(std::thread::spawn(move || {
+                let mut stream = BufReader::new(stream);
+                loop {
+                    let mut line = String::new();
+                    if stream.read_line(&mut line).unwrap() == 0 {
+                        return;
+                    }
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    let admission = request["method"] == "cli.local.authorize";
+                    let result = if admission {
+                        json!({ "authorized": true })
+                    } else {
+                        assert_eq!(request["method"], method);
+                        assert_eq!(calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst), 0);
+                        result.clone()
+                    };
+                    let response =
+                        json!({ "jsonrpc": "2.0", "id": request["id"], "result": result });
+                    writeln!(stream.get_mut(), "{response}").unwrap();
+                    stream.get_mut().flush().unwrap();
+                    if !admission {
+                        return;
+                    }
+                }
+            }));
         }
+        for connection in connections {
+            connection.join().unwrap();
+        }
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     });
     let scratch = tempfile::tempdir().unwrap();
     let mut command = codeterm_bin::command();
     command
-        .env("CODETERM_SOCKET_PATH", socket)
+        .env("CODETERM_SOCKET_PATH", &socket)
         .env("CODETERM_API_TOKEN", "fixture-host-token")
         .env("CODETERM_DATA_DIR", scratch.path())
         .current_dir(scratch.path())
@@ -71,7 +100,7 @@ fn run_rpc(args: &[&str], method: &str, json_mode: bool, result: Value) -> std::
     let (completed, completion) = mpsc::channel();
     std::thread::spawn(move || completed.send(child.wait_with_output()).unwrap());
     let output = match completion.recv_timeout(Duration::from_secs(15)) {
-        Ok(output) => output.unwrap(),
+        Ok(output) => output,
         Err(error) => {
             if cfg!(windows) {
                 let _ = Command::new("taskkill")
@@ -80,11 +109,19 @@ fn run_rpc(args: &[&str], method: &str, json_mode: bool, result: Value) -> std::
             } else {
                 let _ = Command::new("kill").args(["-9", &pid.to_string()]).status();
             }
-            panic!("CLI completion exceeded failure deadline: {error}");
+            Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                format!("CLI completion exceeded failure deadline: {error}"),
+            ))
         }
     };
+    stopping.store(true, std::sync::atomic::Ordering::Release);
+    let _wake = interprocess::local_socket::Stream::connect(
+        socket.to_ns_name::<GenericNamespaced>().unwrap(),
+    )
+    .unwrap();
     server.join().unwrap();
-    output
+    output.unwrap()
 }
 
 #[test]

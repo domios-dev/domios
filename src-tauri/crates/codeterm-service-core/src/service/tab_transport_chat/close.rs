@@ -106,6 +106,12 @@ impl ServiceContext {
                 }
                 sessions.remove(&key);
             }
+            {
+                let mut starts = guards.turn_starts.lock();
+                if starts.get(tab_id).is_some_and(|entry| Some(entry.nonce.as_str()) == nonce.as_deref()) {
+                    starts.remove(tab_id);
+                }
+            }
             crate::service::tab_chat::chatbackend_history::ChatBackendHistory::release(
                 &plugin_id,
                 &session_id,

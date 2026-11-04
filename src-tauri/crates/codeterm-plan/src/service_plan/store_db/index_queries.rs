@@ -268,10 +268,7 @@ impl PlanDatabase {
         unowned: bool,
         owner: Option<&str>,
     ) -> Result<Vec<IndexEntry>, PlanError> {
-        let status = status.as_ref().map(|status| match status {
-            PlanStatus::Active => "active",
-            PlanStatus::Archived => "archived",
-        });
+        let status = status_filter(status.as_ref());
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
         let mut assigned = HashMap::<String, Vec<String>>::new();
@@ -318,4 +315,40 @@ impl PlanDatabase {
         transaction.commit().map_err(db_error)?;
         Ok(result)
     }
+}
+
+pub(super) fn status_filter(status: Option<&PlanStatus>) -> Option<&'static str> {
+    status.map(|status| match status {
+        PlanStatus::Active => "active",
+        PlanStatus::Archived => "archived",
+    })
+}
+
+pub(super) fn filtered_plan_ids(
+    connection: &rusqlite::Connection,
+    project: Option<&str>,
+    status: Option<&str>,
+    unowned: bool,
+    owner: Option<&str>,
+) -> Result<Vec<String>, PlanError> {
+    record_query();
+    let mut statement = connection
+        .prepare_cached(&format!(
+            "SELECT p.id,p.status FROM plans p WHERE {INDEX_FILTER} ORDER BY p.rowid"
+        ))
+        .map_err(db_error)?;
+    let rows = statement
+        .query_map(params![project, status, unowned, owner], |row| {
+            Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
+        })
+        .map_err(db_error)?;
+    rows.map(|row| {
+        let (id, status) = row.map_err(db_error)?;
+        parse_status(&status).ok_or_else(|| PlanError::Quarantined {
+            plan_id: id.clone(),
+            reason: format!("unknown plan status {status:?}"),
+        })?;
+        Ok(id)
+    })
+    .collect()
 }

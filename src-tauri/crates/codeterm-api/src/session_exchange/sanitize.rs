@@ -4,15 +4,33 @@ use codeterm_service_core::session::store::LEAF_SESSION_ID_KEY;
 
 mod typed;
 
-pub(super) fn sanitize_plan(plan: &codeterm_types::plan::Plan) -> Result<Value, String> {
-    use serde::Serialize;
+pub(super) struct SanitizedPlanRows;
 
-    let safe = plan
+impl codeterm_service_core::service::plan::PlanExportEncoder for SanitizedPlanRows {
+    fn encode<T: serde::Serialize>(
+        &self,
+        record: &T,
+    ) -> Result<Value, codeterm_service_core::service::plan::PlanError> {
+        sanitize_record(record).map_err(codeterm_service_core::service::plan::PlanError::Io)
+    }
+}
+
+#[cfg(test)]
+pub(super) fn sanitize_plan(plan: &codeterm_types::plan::Plan) -> Result<Value, String> {
+    sanitize_record(plan)
+}
+
+fn sanitize_record(record: &impl serde::Serialize) -> Result<Value, String> {
+    let safe = record
         .serialize(typed::Sanitizer::default())
-        .map_err(|e| e.to_string())?;
-    let raw = serde_json::to_value(plan).map_err(|e| e.to_string())?;
-    if serde_json::to_vec(&raw).map_err(|e| e.to_string())?.len()
-        != serde_json::to_vec(&safe).map_err(|e| e.to_string())?.len()
+        .map_err(|error| error.to_string())?;
+    let raw = serde_json::to_value(record).map_err(|error| error.to_string())?;
+    if serde_json::to_vec(&raw)
+        .map_err(|error| error.to_string())?
+        .len()
+        != serde_json::to_vec(&safe)
+            .map_err(|error| error.to_string())?
+            .len()
     {
         return Err("Plan sanitization changed the serialized size".into());
     }

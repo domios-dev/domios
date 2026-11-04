@@ -13,10 +13,14 @@ pub mod cleanup_debt;
 pub mod competition;
 pub mod complete_wrapup;
 pub mod curator;
+mod curator_notice_projection;
 mod curator_projection;
+pub use curator_notice_projection::CuratorNoticeRead;
 pub mod digest_rules;
 pub mod element_queries;
+mod export_projection;
 pub mod external_refs;
+pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
 mod header_projection;
@@ -339,9 +343,15 @@ impl PlanStore {
 }
 
 mod task_authority_projection;
+pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
 pub use task_authority_projection::{
-    CompletedTaskRestartRead, PlanTaskAdmissionRead, RestartAttemptRead, ReviewBindingRestoreRead,
-    ReviewRestoreAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead, TaskContextFilesRead,
-    TaskContinuityDigest, TaskContinuityRead, TaskOwnerEpochRead, TaskRestartAuthorityRead,
-    TaskRestartQuery,
+    BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
+    PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,
+    RemoteWorkerBindingRead, RestartAttemptRead, ReviewBindingRestoreRead,
+    ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
+    RuntimeSessionAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead,
+    TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
+    TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
+    TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
+    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead,
 };

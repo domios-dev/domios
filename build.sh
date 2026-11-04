@@ -625,6 +625,7 @@ run_nextest_scope() {
   fi
   if CARGO_TEST_CMD="cargo nextest run" CARGO_TEST_BUILD_CMD="" NEXTEST_STATUS_LEVEL=pass TEST_RAW_OUTPUT=1 \
     scripts/test-capped.sh \
+    --config-file "$(pwd -P)/.config/nextest.toml" \
     "${reuse_args[@]}" \
     "${filter_args[@]}" "${run_ignored_args[@]}" --no-fail-fast --no-tests="${NEXTEST_NO_TESTS_MODE:-fail}" > "$timing_dir/parallel.log" 2>&1; then
     run_exit=0
@@ -2947,7 +2948,7 @@ EOF
     prepare_dev_frontend_dist "$(pwd -P)"
     prepare_bundle_stubs
     check_log="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.cargo-check.log"
-    cargo check --manifest-path src-tauri/Cargo.toml 2>&1 | tee "$check_log"
+    cargo check --manifest-path src-tauri/Cargo.toml "${@:2}" 2>&1 | tee "$check_log"
     check_status="${PIPESTATUS[0]}"
     check_warning_summary < "$check_log"
     exit "$check_status"

@@ -145,8 +145,11 @@ impl AccountCredentials {
 }
 #[async_trait]
 impl CredentialStore for AccountCredentials {
-    fn session_only(&self, provider: &str) -> bool {
-        self.local.session_only(&credential_name(provider))
+    async fn session_only(&self, provider: &str) -> bool {
+        let name = credential_name(provider);
+        self.blocking(move |local| Ok(local.session_only(&name)))
+            .await
+            .unwrap_or(true)
     }
     async fn load(&self, provider: &str) -> codeterm_account::Result<Option<Secret>> {
         self.load_named(credential_name(provider)).await

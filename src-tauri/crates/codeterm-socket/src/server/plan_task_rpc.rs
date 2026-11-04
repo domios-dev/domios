@@ -15,6 +15,7 @@ use super::{get_string_param, JsonRpcError};
 use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::plan::task_queries::TaskListFilter;
 use codeterm_service_core::service::plan::{hints, NewTask, PlanError};
+
 use codeterm_service_core::service::ServiceState;
 use serde_json::{json, Value};
 
@@ -23,6 +24,20 @@ mod respawn;
 mod split;
 mod task_fields;
 use task_fields::task_files_field;
+
+fn draft_mutation_rpc_err(
+    error: codeterm_service_core::service::PlanAuthorityError,
+) -> JsonRpcError {
+    if error == codeterm_service_core::service::PlanAuthorityError::StoreReadFailed {
+        super::plan_task_authority::planning_authority_error(error)
+    } else {
+        JsonRpcError {
+            code: -32003,
+            message: error.to_string(),
+            data: None,
+        }
+    }
+}
 
 pub(super) fn authenticated_caller(
     params: Option<&Value>,
@@ -310,12 +325,8 @@ pub(super) fn dispatch(
                 .resolve_task_section_ids(&id, &requested_sections)
                 .map_err(plan_rpc_err)?;
             let author = svc
-                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
-                })?;
+                .authorize_draft_structure_mutation_typed(&id, &authenticated_caller(p))
+                .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),
@@ -405,7 +416,13 @@ pub(super) fn dispatch(
                             .map(|s| s.to_string()),
                         execution_intent: execution_intent_field(
                             p,
-                            store.get(&id).map(|plan| plan.project_path).as_deref(),
+                            Some(
+                                store
+                                    .document_metadata(&id)
+                                    .map_err(plan_rpc_err)?
+                                    .project_path
+                                    .as_str(),
+                            ),
                         )?,
                         parent_task_id: p
                             .and_then(|x| x.get("parent"))
@@ -438,15 +455,13 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(svc, &id);
-            let linked = store
-                .get(&id)
-                .and_then(|plan| {
-                    plan.tasks
-                        .iter()
-                        .find(|task| task.id == tid)
-                        .map(|task| task.section_ids.clone())
-                })
-                .unwrap_or_default();
+            let (linked, key) = match store
+                .task_creation_projection(&id, &tid)
+                .map_err(plan_rpc_err)?
+            {
+                Some(read) => (read.section_ids, Some(read.key)),
+                None => (Vec::new(), None),
+            };
             let linked_has_sections = !linked.is_empty();
             let mut response_hints = hints::task_create_hints(
                 &id,
@@ -469,14 +484,13 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str());
             let mut resp = json!({
                 "task_id": tid.clone(),
-                "key": store.task_display_key(&id, &tid),
+                "key": key,
                 "section_ids": linked,
                 "_hints": response_hints
             });
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }
@@ -489,12 +503,8 @@ pub(super) fn dispatch(
             let (id, tid) = plan_refs::resolve_task(store, params)?;
             let previous_name = store.task_name_projection(&tid).map_err(plan_rpc_err)?;
             let author = svc
-                .authorize_draft_structure_mutation(&id, &authenticated_caller(p))
-                .map_err(|message| JsonRpcError {
-                    code: -32003,
-                    message,
-                    data: None,
-                })?;
+                .authorize_draft_structure_mutation_typed(&id, &authenticated_caller(p))
+                .map_err(draft_mutation_rpc_err)?;
             codeterm_service_core::service::ensure_planner_task_fields_are_structural(
                 &author,
                 p.unwrap_or(&Value::Null),
@@ -646,9 +656,8 @@ pub(super) fn dispatch(
                     .map_err(plan_rpc_err)?;
             }
             let updated_task = store
-                .show_task(&tid)
-                .ok_or_else(|| plan_rpc_err(PlanError::TaskNotFound))?
-                .task;
+                .task_description_projection(&tid)
+                .map_err(plan_rpc_err)?;
             if previous_name != updated_task.name {
                 if let Some(tab_id) = updated_task.assigned_tab_id.as_deref() {
                     set_task_description(svc, p, tab_id, &updated_task.name, true)?;
@@ -667,9 +676,8 @@ pub(super) fn dispatch(
                 }
             }
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }

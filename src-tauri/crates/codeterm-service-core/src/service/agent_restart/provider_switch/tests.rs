@@ -178,22 +178,23 @@ fn source_archive_failure_releases_authority_and_fences_the_attempt() {
             tx.send(()).unwrap();
         }
     });
-    let retire = || -> Result<(), String> {
-        let _cleanup = SwitchBindingCleanup {
-            service: &fixture.service,
-            tab_id: &id,
-            interrupt_on_failure: true,
-        };
-        assert!(!fixture.service.signal_worker_interruption(
+    let retire =
+        || -> Result<(), String> {
+            let _cleanup = SwitchBindingCleanup {
+                service: &fixture.service,
+                tab_id: &id,
+                interrupt_on_failure: true,
+            };
+            assert!(!fixture.service.signal_worker_interruption(
             &id,
             crate::service::worker_interruption::WorkerInterruptionEvent::ForcedContextReset
-        ));
-        assert!(fixture.service.mux.write().remove_tab(&id).is_some());
-        fixture
-            .service
-            .archive_provider_switch_source(&id, &source)?;
-        Ok(())
-    };
+        ).unwrap());
+            assert!(fixture.service.mux.write().remove_tab(&id).is_some());
+            fixture
+                .service
+                .archive_provider_switch_source(&id, &source)?;
+            Ok(())
+        };
     assert!(retire()
         .unwrap_err()
         .contains("tab closed after source retirement"));

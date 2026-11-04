@@ -22,7 +22,8 @@ pub type InstallationObserver = Arc<dyn Fn() + Send + Sync>;
 
 pub struct FrontendBundles {
     root: PathBuf,
-    inner: Mutex<(Store, Activation)>,
+    inner: Mutex<Activation>,
+    store: Mutex<Store>,
     check_job: update::CheckJob,
     discovery: OnceLock<Result<update::Discovery, String>>,
     pub api_version: u32,
@@ -78,7 +79,8 @@ impl FrontendBundles {
         store.save(&state)?;
         Ok(Self {
             root: root.into(),
-            inner: Mutex::new((store, state)),
+            inner: Mutex::new(state),
+            store: Mutex::new(store),
             check_job: update::CheckJob::default(),
             discovery: OnceLock::new(),
             api_version,
@@ -102,21 +104,21 @@ impl FrontendBundles {
     pub fn local_availability(&self) -> codeterm_plugins::AvailabilityItem {
         let inner = self.inner.lock();
         selection::availability(
-            &selection::rendered(&inner.1, &self.app_version).version,
-            selection::staged(&inner.1),
+            &selection::rendered(&inner, &self.app_version).version,
+            selection::staged(&inner),
             None,
             self.api_version,
         )
     }
 
     pub fn rendered(&self) -> selection::Rendered {
-        selection::rendered(&self.inner.lock().1, &self.app_version)
+        selection::rendered(&self.inner.lock(), &self.app_version)
     }
 
     pub fn status(&self) -> Value {
         let inner = self.inner.lock();
-        let mut status = inner.1.public_status();
-        let rendered = selection::rendered(&inner.1, &self.app_version);
+        let mut status = inner.public_status();
+        let rendered = selection::rendered(&inner, &self.app_version);
         status["rendered"] =
             serde_json::json!({"version": rendered.version, "releaseId": rendered.release_id});
         status["apiVersion"] = self.api_version.into();
@@ -284,21 +286,20 @@ impl FrontendBundles {
     pub fn active_index(&self) -> Option<String> {
         self.inner
             .lock()
-            .1
             .active
             .as_ref()
             .map(|m| format!("/frontend/{}/index.html", m.release_id))
     }
 
     pub fn asset(&self, release: &str, path: &str) -> Result<Vec<u8>, String> {
-        self.inner.lock().0.asset(release, path)
+        Store::asset_at(&self.root, release, path)
     }
 
     pub fn checkpoint(&self, client: &str) -> Result<Value, String> {
         if !manifest::safe_component(client) {
             return Err("Invalid client ID".into());
         }
-        let checkpoint = self.inner.lock().0.checkpoint(client)?;
+        let checkpoint = self.store.lock().checkpoint(client)?;
         Ok(checkpoint
             .map(
                 |(revision, payload)| serde_json::json!({"revision": revision, "payload": payload}),
@@ -315,9 +316,8 @@ impl FrontendBundles {
         if !manifest::safe_component(client) {
             return Err("Invalid client ID".into());
         }
-        self.inner
+        self.store
             .lock()
-            .0
             .put_checkpoint(client, revision, &payload)?;
         Ok(serde_json::json!({"revision": revision, "payload": payload}))
     }
@@ -326,13 +326,14 @@ impl FrontendBundles {
         &self,
         action: impl FnOnce(&mut Activation) -> Result<(), String>,
     ) -> Result<(), String> {
-        let mut inner = self.inner.lock();
-        let mut candidate = inner.1.clone();
+        let mut store = self.store.lock();
+        let previous = self.inner.lock().clone();
+        let mut candidate = previous.clone();
         action(&mut candidate)?;
-        let changed = inner.1 != candidate;
-        inner.0.save(&candidate)?;
-        inner.1 = candidate;
-        drop(inner);
+        let changed = previous != candidate;
+        store.save(&candidate)?;
+        *self.inner.lock() = candidate;
+        drop(store);
         let observer = self.availability_observer.read().clone();
         if changed {
             if let Some(observer) = observer {

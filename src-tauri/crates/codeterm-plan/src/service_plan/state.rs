@@ -149,17 +149,32 @@ pub fn task_projection(plan: &Plan, task: &crate::plan::Task) -> TaskProjection 
         candidate.parent_task_id.as_deref() == Some(&task.id)
             && !matches!(candidate.status, TaskStatus::Done | TaskStatus::Cancelled)
     });
-    let base_presentation = if task.interruption.handoff_required {
+    project_task_facts(
+        &task.status,
+        dependency_waits,
+        &task.review_stage,
+        &task.qa_state,
+        task.interruption.handoff_required,
+        has_open_subtasks,
+        task.status == TaskStatus::Pending && is_later_group_task(plan, task),
+    )
+}
+
+pub(super) fn project_task_facts(
+    status: &TaskStatus,
+    dependency_waits: Vec<DependencyWait>,
+    review_stage: &ReviewStage,
+    qa_state: &Option<QaState>,
+    handoff_required: bool,
+    has_open_subtasks: bool,
+    parked_for_later_group: bool,
+) -> TaskProjection {
+    let base_presentation = if handoff_required {
         TaskPresentation::HandoffRequired
     } else {
-        task_presentation(
-            &task.status,
-            &dependency_waits,
-            &task.review_stage,
-            &task.qa_state,
-        )
+        task_presentation(status, &dependency_waits, review_stage, qa_state)
     };
-    let presentation = if task.status == TaskStatus::Pending && is_later_group_task(plan, task) {
+    let presentation = if parked_for_later_group {
         TaskPresentation::ParkedForLaterGroup
     } else if has_open_subtasks
         && matches!(

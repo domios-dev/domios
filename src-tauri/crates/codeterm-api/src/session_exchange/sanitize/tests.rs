@@ -29,7 +29,7 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
                     "continuation":{"epoch":1, "state":"private state"},
                     "report":{"id":"report-unrecognized", "status":"private status"}}]
         })).collect();
-        let plan: Plan = serde_json::from_value(json!({
+        let mut plan: Plan = serde_json::from_value(json!({
             "id":"plan-bound", "title":"private plan", "status":"active", "mode":"paused",
             "paused_from_mode":"execution", "planning_state":planning_state,
             "owner":{"tab_id":"owner-tab", "session_id":"owner-session", "title":"private owner"},
@@ -45,8 +45,26 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
                     "resume_notice":{"state":"delivered"}}]}],
             "elements":[{"id":"element-bound", "kind":"private kind", "content":{"status":"private nested status", "role":"Worker", "id":"private nested id"}}]
         })).unwrap();
+        let directory = tempfile::tempdir().unwrap();
+        plan.project_path = directory
+            .path()
+            .join("private-project")
+            .display()
+            .to_string();
+        plan.canonical_project_path = plan.project_path.clone();
+        let store = codeterm_service_core::service::plan::PlanStore::new_for_test(directory.path());
+        store.save(&mut plan, 2).unwrap();
+        codeterm_service_core::service::plan::load_audit::start(&store);
         let raw = serde_json::to_value(&plan).unwrap();
         let safe = sanitize_plan(&plan).unwrap();
+        assert_eq!(
+            store
+                .export_all_plan_documents_with(&SanitizedPlanRows)
+                .unwrap(),
+            vec![safe.clone()]
+        );
+        assert!(store.plan_loads_for_test().is_empty());
+        assert!(store.cached_plan_ids_for_test().is_empty());
         assert_eq!(
             serde_json::to_vec(&raw).unwrap().len(),
             serde_json::to_vec(&safe).unwrap().len()

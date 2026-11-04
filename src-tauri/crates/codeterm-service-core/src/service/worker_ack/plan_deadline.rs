@@ -4,7 +4,9 @@ use crate::service::hierarchy::HierarchyReportDelivery;
 use crate::service::message_gateway::{DeliveryClass, MessageBody, MessageOrigin, OutboundMessage};
 use crate::service::startup_lease::StartupHoldRejection;
 use serde_json::json;
-use std::sync::Arc;
+
+#[path = "plan_deadline/task_deadline.rs"]
+mod task_deadline;
 
 impl ServiceContext {
     fn startup_provider_output(&self, attempt_id: &str) -> Option<String> {
@@ -630,7 +632,7 @@ impl ServiceContext {
         tab_id: &str,
         attempt_id: &str,
         session_id: Option<&str>,
-    ) -> bool {
+    ) -> Result<bool, crate::service::plan::PlanError> {
         self.plan_store
             .worker_startup_attempt_owns(plan_id, task_id, tab_id, attempt_id, session_id)
     }
@@ -647,7 +649,7 @@ impl ServiceContext {
         plan_id: &str,
         task_id: &str,
         tab_id: &str,
-        attempt: &crate::plan::TaskExecutionAttempt,
+        attempt_id: &str,
     ) -> WorkerAckIdentity {
         let binding = self.mux.read().get_tab(tab_id).map(|tab| {
             (
@@ -660,7 +662,7 @@ impl ServiceContext {
         WorkerAckIdentity {
             plan_id: plan_id.to_string(),
             task_id: task_id.to_string(),
-            attempt_id: attempt.id.clone(),
+            attempt_id: attempt_id.to_string(),
             tab_id: tab_id.to_string(),
             startup_attempt_id,
             session_id,
@@ -668,7 +670,10 @@ impl ServiceContext {
         }
     }
 
-    fn worker_ack_identity_is_current(&self, identity: &WorkerAckIdentity) -> bool {
+    fn worker_ack_identity_is_current(
+        &self,
+        identity: &WorkerAckIdentity,
+    ) -> Result<bool, crate::service::plan::PlanError> {
         let tab_binding = self.mux.read().get_tab(&identity.tab_id).map(|tab| {
             (
                 tab.pty_id.clone(),
@@ -676,11 +681,14 @@ impl ServiceContext {
                 tab.session_binding_nonce.clone(),
             )
         });
-        tab_binding.is_some_and(|binding| {
+        if !tab_binding.is_some_and(|binding| {
             binding.0 == identity.startup_attempt_id
                 && binding.1 == identity.session_id
                 && binding.2 == identity.binding_nonce
-        }) && self.plan_store.worker_startup_attempt_owns(
+        }) {
+            return Ok(false);
+        }
+        self.plan_store.worker_startup_attempt_owns(
             &identity.plan_id,
             &identity.task_id,
             &identity.tab_id,
@@ -711,7 +719,7 @@ impl ServiceContext {
             &candidate.plan_id,
             &candidate.task_id,
             tab_id,
-            &candidate.attempt,
+            &candidate.attempt.id,
         );
         self.worker_ack.extend_deadline(&identity)
     }
@@ -723,7 +731,7 @@ impl ServiceContext {
         tab_id: &str,
         attempt: &crate::plan::TaskExecutionAttempt,
     ) -> bool {
-        let identity = self.worker_ack_identity_for_attempt(plan_id, task_id, tab_id, attempt);
+        let identity = self.worker_ack_identity_for_attempt(plan_id, task_id, tab_id, &attempt.id);
         let acknowledged = self.worker_ack.acknowledge(&identity);
         let task_identity = StartupTaskIdentity {
             plan_id: plan_id.to_string(),
@@ -876,209 +884,6 @@ impl ServiceContext {
             .unwrap_or_default(),
         );
         self.deliver_hierarchy_report_if_allowed(&gate, &report, delivery);
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn arm_worker_ack_deadline(
-        &self,
-        parent_tab_id: &str,
-        worker_tab_id: &str,
-        worker_title: &str,
-        plan_id: &str,
-        task_id: &str,
-        attempt_id: &str,
-        spawn_command: String,
-    ) {
-        let Some(attempt) = self
-            .plan_store
-            .get(plan_id)
-            .filter(|plan| plan.status == crate::plan::PlanStatus::Active)
-            .and_then(|plan| crate::plan::task_key::find_task(&plan.tasks, task_id).cloned())
-            .filter(|task| {
-                matches!(
-                    task.status,
-                    crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
-                )
-            })
-            .and_then(|task| {
-                task.execution_attempts.into_iter().find(|attempt| {
-                    attempt.id == attempt_id
-                        && attempt.executor_tab_id == worker_tab_id
-                        && attempt.closed_at.is_none()
-                        && attempt.retired_at.is_none()
-                })
-            })
-        else {
-            return;
-        };
-        if attempt.acknowledged_at.is_some() {
-            return;
-        }
-        let identity =
-            self.worker_ack_identity_for_attempt(plan_id, task_id, worker_tab_id, &attempt);
-        if !self.worker_ack_identity_is_current(&identity) {
-            return;
-        }
-        let arm = self.worker_ack.arm(identity.clone());
-        if arm.identity_conflict {
-            log::warn!(
-                "[worker-ack] conflicting waiter identity task={} attempt={} tab={}",
-                task_id,
-                attempt_id,
-                worker_tab_id
-            );
-            return;
-        }
-        if !arm.starts_supervisor {
-            return;
-        }
-        let Some(receiver) = arm.receiver else {
-            return;
-        };
-        let service = Arc::new((*self).clone());
-        let parent_tab_id = parent_tab_id.to_string();
-        let worker_tab_id = worker_tab_id.to_string();
-        let worker_title = worker_title.to_string();
-        let plan_id = plan_id.to_string();
-        let task_id = task_id.to_string();
-        let attempt_id = attempt_id.to_string();
-        std::thread::spawn(move || {
-            if await_worker_ack(&receiver, WORKER_ACK_TIMEOUT) == WorkerAckWaitOutcome::Resolved {
-                return;
-            }
-            service.reconcile_tool_less_worker_ack(&worker_tab_id);
-            if !service.worker_ack_identity_is_current(&identity) {
-                return;
-            }
-            let authenticated = service.authenticated_worker_binding(&worker_tab_id);
-            let reminder_allowed = authenticated.as_ref().is_some_and(|(session_id, nonce)| {
-                identity.session_id.as_deref() == Some(session_id)
-                    && identity.binding_nonce.as_deref() == Some(nonce)
-                    && service.live_unacknowledged_attempt_owns_tab(
-                        &plan_id,
-                        &task_id,
-                        &worker_tab_id,
-                        &attempt_id,
-                        Some(session_id),
-                    )
-            });
-            service.observe_tab_state(
-                &worker_tab_id,
-                crate::service::supporter_tab_state::ObservationTrigger::StartupEscalation,
-                "worker_ack_startup_deadline",
-            );
-            service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
-            if !reminder_allowed {
-                let _ = service.plan_store.mark_worker_startup_deadline(
-                    &plan_id,
-                    &task_id,
-                    &worker_tab_id,
-                    &attempt_id,
-                    false,
-                    epoch_ms(),
-                );
-            }
-            if await_worker_ack(&receiver, WORKER_ACK_FINAL_TIMEOUT)
-                == WorkerAckWaitOutcome::Resolved
-            {
-                return;
-            }
-            service.reconcile_tool_less_worker_ack(&worker_tab_id);
-            if !service.worker_ack_identity_is_current(&identity) {
-                return;
-            }
-            if !service.worker_ack.expire(&identity) {
-                return;
-            }
-            if !service.worker_ack_identity_is_current(&identity) {
-                return;
-            }
-            let finalized = service
-                .plan_store
-                .mark_worker_startup_deadline(
-                    &plan_id,
-                    &task_id,
-                    &worker_tab_id,
-                    &attempt_id,
-                    true,
-                    epoch_ms(),
-                )
-                .unwrap_or(false);
-            if !finalized {
-                return;
-            }
-            service.nudge_unacknowledged_startup(&worker_tab_id, &attempt_id);
-            service.publish_worker_lifecycle_report(
-                &parent_tab_id,
-                &worker_tab_id,
-                &worker_title,
-                &plan_id,
-                &task_id,
-                worker_ack_timeout_event(
-                    &plan_id,
-                    &task_id,
-                    &worker_tab_id,
-                    &attempt_id,
-                    &spawn_command,
-                ),
-            );
-        });
-    }
-
-    pub fn arm_bound_worker_ack_deadline_for_tab(
-        &self,
-        tab_id: &str,
-        spawn_command: String,
-    ) -> Result<bool, String> {
-        use crate::service::plan::{ambiguous_subject_cause, unresolved_subject_cause};
-        let bound = self.plan_store.live_task_attempts_for_tab(tab_id);
-        if bound.is_empty() {
-            return Ok(false);
-        }
-        let armable = bound
-            .iter()
-            .filter(|candidate| {
-                candidate.plan_active
-                    && matches!(
-                        candidate.task_status,
-                        crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
-                    )
-            })
-            .collect::<Vec<_>>();
-        let selected = match armable.len() {
-            1 => armable[0],
-            0 => return Err(unresolved_subject_cause(tab_id, &bound)),
-            _ => return Err(ambiguous_subject_cause(tab_id, armable.iter().copied())),
-        };
-        let (plan_id, task_id, attempt) = (&selected.plan_id, &selected.task_id, &selected.attempt);
-        let parent_tab_id = attempt
-            .orchestrator_tab_id
-            .as_deref()
-            .or(attempt.parent_tab_id.as_deref())
-            .map(str::to_string)
-            .or_else(|| {
-                self.mux
-                    .read()
-                    .get_tab(tab_id)
-                    .and_then(|tab| tab.parent_tab_id.clone())
-            })
-            .ok_or_else(|| format!("task-bound Worker {tab_id} has no report target"))?;
-        let title = self
-            .mux
-            .read()
-            .get_tab(tab_id)
-            .map(|tab| tab.title.clone())
-            .unwrap_or_else(|| "Worker".into());
-        self.arm_worker_ack_deadline(
-            &parent_tab_id,
-            tab_id,
-            &title,
-            plan_id,
-            task_id,
-            &attempt.id,
-            spawn_command,
-        );
-        Ok(true)
     }
 }
 

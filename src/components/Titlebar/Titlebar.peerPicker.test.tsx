@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -60,7 +61,7 @@ beforeEach(() => {
   vi.stubGlobal("__APP_VERSION__", "test");
   vi.stubGlobal("innerWidth", 1024);
   Object.defineProperty(window, "innerWidth", { value: 1024, configurable: true });
-  vi.stubGlobal("fetch", fetchMock);
+  vi.stubGlobal("fetch", muxMockFetch(fetchMock));
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (url) => {
     if (String(url) === `${selfHost()}/api/mesh/peers`) {

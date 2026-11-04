@@ -100,9 +100,12 @@ function toNotice(value: Record<string, unknown>): SurfaceNotice | null {
 }
 
 export function surfaceStreamEvent(message: SseMessage): SurfaceStreamEvent | null {
-  const value = parseJson(message.data);
+  return surfaceStreamValue(message.event, parseJson(message.data));
+}
+
+export function surfaceStreamValue(event: string, value: unknown): SurfaceStreamEvent | null {
   if (!isRecord(value)) return null;
-  switch (message.event) {
+  switch (event) {
     case "state":
       return { type: "state", state: toState(value) };
     case "frame": {

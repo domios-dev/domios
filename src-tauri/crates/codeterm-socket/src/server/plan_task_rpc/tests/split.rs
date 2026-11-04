@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn split_refuses_stale_owner_before_any_child_is_written() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let service = Arc::new(fixture.service.clone());
+    let before = service.plan_store.get(&plan_id).unwrap().tasks.len();
+    let mut params = serde_json::Value::Object(owner_params(&owner));
+    params["plan_id"] = json!(plan_id);
+    params["task_id"] = json!(task_id);
+    params["session_binding_nonce"] = json!("stale-owner-nonce");
+    params["children"] = json!([{"name":"Child","executor_role":"Worker"}]);
+    let error = dispatch("plan.task.split", &Some(params), &service, 10).unwrap_err();
+    assert_eq!(error.code, -32003);
+    assert_eq!(
+        service.plan_store.get(&plan_id).unwrap().tasks.len(),
+        before
+    );
+}
+
+#[test]
 fn split_creates_children_with_parent_and_inherited_routing() {
     let (fixture, plan_id, _, _, _, owner) = update_fixture();
     let parent_id = fixture

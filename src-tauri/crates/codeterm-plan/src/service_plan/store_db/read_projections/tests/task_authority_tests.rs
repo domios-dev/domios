@@ -56,7 +56,7 @@ fn unplanned_work_facet_read_selects_only_exact_declared_key() {
         .connection
         .lock()
         .execute(
-            "UPDATE plans SET header_json='broken' WHERE id=?1",
+            "UPDATE plans SET header_json=json_set(header_json,'$.tag_facets',json('[\"broken\"]')) WHERE id=?1",
             [&plan.id],
         )
         .unwrap();
@@ -747,9 +747,7 @@ fn startup_projection_preserves_status_and_exact_historical_owner_decisions() {
             "variant {index}"
         );
         assert_eq!(
-            database
-                .task_startup_status_projection(&plan.id, "named")
-                .unwrap(),
+            database.task_status_projection(&plan.id, "named").unwrap(),
             plan.tasks[0].status,
             "variant {index}"
         );
@@ -762,11 +760,11 @@ fn startup_projection_preserves_status_and_exact_historical_owner_decisions() {
         None
     );
     assert!(matches!(
-        database.task_startup_status_projection("missing", "named"),
+        database.task_status_projection("missing", "named"),
         Err(PlanError::NotFound)
     ));
     assert!(matches!(
-        database.task_startup_status_projection(&base.id, "missing"),
+        database.task_status_projection(&base.id, "missing"),
         Err(PlanError::TaskNotFound)
     ));
     let mut collision = base.tasks[0].clone();
@@ -780,7 +778,7 @@ fn startup_projection_preserves_status_and_exact_historical_owner_decisions() {
         None
     );
     assert!(matches!(
-        database.task_startup_status_projection(&base.id, "named"),
+        database.task_status_projection(&base.id, "named"),
         Err(PlanError::TaskNotFound)
     ));
     database.connection.lock().execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.acknowledged_at','invalid') WHERE task_id='task_exact'",[]).unwrap();
@@ -819,7 +817,7 @@ fn startup_owner_and_status_queries_ignore_unselected_history_and_bodies() {
         super::super::super::super::store_sync::take_decoded_row_bytes();
         super::super::super::super::store_rows::take_serialized_row_bytes();
         let status = database
-            .task_startup_status_projection(&plan.id, "task_0000")
+            .task_status_projection(&plan.id, "task_0000")
             .unwrap();
         let owner = database
             .dispatch_startup_owner_projection(&plan.id, "task_0000")
@@ -847,6 +845,32 @@ fn startup_owner_and_status_queries_ignore_unselected_history_and_bodies() {
         prior = Some(measured);
     }
 }
+mod checkpoint;
 mod continuity;
+mod creation;
+mod gates;
 mod restart;
 mod restoration;
+mod review;
+mod runtime_restore;
+mod runtime_session;
+mod split;
+mod startup_ownership;
+
+mod provider_interruption;
+
+mod remote;
+
+mod review_followup;
+
+mod lane_admission;
+
+mod batch;
+
+mod shared_inspection;
+
+mod review_roles;
+
+mod plan_metadata;
+
+mod respawn_source;

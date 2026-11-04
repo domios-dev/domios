@@ -1,6 +1,6 @@
 use serde_json::{json, Value};
 
-use super::{JsonRpcError, PlanError};
+use super::JsonRpcError;
 
 /// Validate the whole draft before any task is persisted.
 pub(super) fn normalize(
@@ -37,9 +37,9 @@ pub(super) fn normalize(
         Ok(personality) => value["personality"] = json!(personality),
         Err(error) => errors.push(format!("--personality: {error}")),
     }
-    let plan = store
-        .get(plan_id)
-        .ok_or_else(|| super::plan_rpc_err(PlanError::NotFound))?;
+    let work_facet = store
+        .plan_work_facet_projection(plan_id)
+        .map_err(super::plan_rpc_err)?;
     let sections = super::csv_string_field(Some(&value), "sections");
     for section in &sections {
         if store
@@ -54,7 +54,7 @@ pub(super) fn normalize(
     }
     let mut tags = super::tags_field(Some(&value));
     let inferred = codeterm_types::plan::work_facet::infer_work_tag(
-        plan.tag_facets.iter().map(|facet| facet.key.as_str()),
+        work_facet.then_some("work"),
         &mut tags,
         &format!(
             "{name} {} {}",
@@ -63,7 +63,7 @@ pub(super) fn normalize(
         ),
     );
     if let Err(error) = codeterm_types::plan::work_facet::validate_work_facet(
-        plan.tag_facets.iter().map(|facet| facet.key.as_str()),
+        work_facet.then_some("work"),
         tags.iter().map(String::as_str),
     ) {
         errors.push(format!("--tag: {error}"));
