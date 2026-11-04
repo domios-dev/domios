@@ -37,16 +37,26 @@ fn declared_indexes(connection: &Connection) -> Vec<(String, String)> {
 }
 
 #[test]
-fn schema_admission_allows_every_declared_index_to_be_missing() {
+fn schema_admission_allows_only_nonunique_indexes_to_be_missing() {
     let expected = Connection::open_in_memory().unwrap();
     super::super::create_schema(&expected).unwrap();
     let actual = Connection::open_in_memory().unwrap();
     super::super::create_schema(&actual).unwrap();
     let indexes = declared_indexes(&expected);
     assert!(!indexes.is_empty());
-    for (name, _) in indexes {
+    for (name, table) in indexes {
         actual.execute_batch(&format!("DROP INDEX {name}")).unwrap();
-        validate(&actual, &expected).unwrap();
+        let unique: bool = expected
+            .query_row(
+                "SELECT \"unique\" FROM pragma_index_list(?1) WHERE name = ?2",
+                rusqlite::params![table, name],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(validate(&actual, &expected).is_err(), unique, "{name}");
+        if unique {
+            super::super::create_schema(&actual).unwrap();
+        }
     }
 }
 

@@ -241,22 +241,15 @@ fn version_one_database_written_by_1_18_6_opens_and_gains_the_new_indexes() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("plans.db");
     let connection = Connection::open(&path).unwrap();
-    store_db::create_schema(&connection).unwrap();
-    for name in ADDED_AFTER_1_18_6 {
-        connection
-            .execute_batch(&format!("DROP INDEX {name}"))
-            .unwrap();
-    }
     connection
-        .execute_batch(schema::RETIRED_FTS_SCHEMA)
+        .execute_batch(include_str!("../../../tests/fixtures/releases/v1.18.6.sql"))
         .unwrap();
-    connection.execute_batch("INSERT INTO plan_operations(entity_id, kind, state, submitted_at) VALUES ('retained', 'fixture', 'committed', 1)").unwrap();
-    connection
-        .pragma_update(None, "user_version", SCHEMA_VERSION)
-        .unwrap();
+    super::super::store_db::release_upgrade_tests::assert_input_records(&connection, false);
     drop(connection);
 
-    drop(PlanDatabase::open(path.clone()).unwrap());
+    let database = PlanDatabase::open(path.clone()).unwrap();
+    super::super::store_db::release_upgrade_tests::assert_records(&database);
+    drop(database);
 
     let opened = snapshot(&path);
     for name in ADDED_AFTER_1_18_6 {
@@ -272,6 +265,51 @@ fn version_one_database_written_by_1_18_6_opens_and_gains_the_new_indexes() {
         .schema
         .iter()
         .any(|entry| entry.1.starts_with("plan_fts")));
-    assert_eq!(table_count(&path, "plan_operations"), 1);
     assert!(!backup_path(&path).exists());
+}
+
+#[test]
+fn missing_unique_index_is_refused_without_mutation_for_v0_and_v1() {
+    for fixture in [
+        include_str!("../../../tests/fixtures/releases/supported-v0.sql"),
+        include_str!("../../../tests/fixtures/releases/v1.18.6.sql"),
+    ] {
+        for conflicting_rows in [false, true] {
+            let directory = tempfile::tempdir().unwrap();
+            let path = directory.path().join("plans.db");
+            let connection = Connection::open(&path).unwrap();
+            connection.execute_batch(fixture).unwrap();
+            connection
+                .execute_batch("DROP INDEX one_active_plan_per_team")
+                .unwrap();
+            if conflicting_rows {
+                let column = if fixture.contains("PRAGMA user_version = 0;") {
+                    "document_json"
+                } else {
+                    "header_json"
+                };
+                connection.execute_batch(&format!("INSERT INTO plans(id,title,status,team_id,project_path,updated_at,{column}) SELECT 'conflict',title,status,team_id,project_path,updated_at,{column} FROM plans")).unwrap();
+            }
+            drop(connection);
+            refuses_without_mutation(&path);
+        }
+    }
+}
+
+#[test]
+fn legacy_nonunique_indexes_are_additive() {
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("plans.db");
+    let connection = Connection::open(&path).unwrap();
+    connection
+        .execute_batch(include_str!(
+            "../../../tests/fixtures/releases/supported-v0.sql"
+        ))
+        .unwrap();
+    connection
+        .execute_batch("DROP INDEX plans_status_updated; DROP INDEX plan_operations_state_id")
+        .unwrap();
+    drop(connection);
+    let database = PlanDatabase::open(path).unwrap();
+    super::super::store_db::release_upgrade_tests::assert_records(&database);
 }

@@ -122,6 +122,8 @@ jobs:
       - name: Archive-portable Rust test paths
         run: node scripts/check-archive-portable-test-paths.mjs
         if: ${{ !cancelled() && steps.change.outcome == 'success' }}
+      - name: Persisted plan schema contract
+        run: python scripts/check-plan-schema.py
       - name: Run file-size discipline check
         run: bash scripts/check-file-sizes.sh --fail
         if: ${{ !cancelled() && steps.change.outcome == 'success' }}
