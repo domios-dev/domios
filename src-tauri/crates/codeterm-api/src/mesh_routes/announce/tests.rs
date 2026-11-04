@@ -2,8 +2,8 @@ use super::*;
 use codeterm_service_core::mesh::{
     account_mesh::{
         protocol::PartyDescriptor, transcript::Party, AccountMeshAuthority, AccountMeshState,
-        AccountPresence, AdmissionRefusal, BoxFuture, LinkAuthorizationRequest,
-        LinkPermitExpectation, LinkTarget, SignedMembership, VerifiedMembership,
+        AccountPresence, AdmissionRefusal, BoxFuture, LinkTarget, SignedMembership,
+        VerifiedMembership,
     },
     types::{PeerAddress, PeerAnnounce, RELAY_PROTOCOL_VERSION},
 };
@@ -47,20 +47,6 @@ impl AccountMeshAuthority for Authority {
     fn verify_possession(&self, _: &VerifiedMembership, _: &[u8; 32], _: &str) -> bool {
         false
     }
-    fn authorize_link(
-        &self,
-        _: LinkAuthorizationRequest,
-    ) -> BoxFuture<'_, Result<String, AdmissionRefusal>> {
-        Box::pin(async { Err(AdmissionRefusal::Offline) })
-    }
-    fn verify_link_permit(
-        &self,
-        _: &str,
-        _: &LinkPermitExpectation,
-        _: u64,
-    ) -> Result<(), AdmissionRefusal> {
-        Err(AdmissionRefusal::Offline)
-    }
     fn resolve_link_target(&self, _: &str) -> BoxFuture<'_, Result<LinkTarget, AdmissionRefusal>> {
         Box::pin(async { Err(AdmissionRefusal::Offline) })
     }
@@ -81,7 +67,13 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         mesh.set_clock(Arc::new(|| 100));
         mesh.bind_account_authority(Arc::new(Authority));
         mesh.apply_account_state(AccountMeshState {
-            registry_members: None,
+            registry_members: Some(
+                [
+                    ("local-installation".into(), ("key".into(), 1, 1)),
+                    ("peer-installation".into(), ("key".into(), 1, 2)),
+                ]
+                .into(),
+            ),
             presence: AccountPresence::SignedIn {
                 account_id: "account".into(),
             },

@@ -8,7 +8,7 @@ A terminal admission refusal stops background enrollment and asks for a fresh si
 
 The account registry is the only source of machines in Mesh and `domios mesh peers`. Each installation appears once, identified by installation ID. Equal names do not merge installations. An expired endpoint stays visible as stale and can be removed explicitly. A signed-out or revoked installation session says **Sign in on NAME**; its last heartbeat does not authorize access.
 
-Each side verifies signed membership and possession of both the installation and Mesh keys over one transcript, then obtains its own fresh online link permit. Both permits must verify before the connection opens. Account endpoints locate a peer; they never authorize it. One registry observation supplies a serialized connection wave. Rate-limit deadlines apply to the entire wave; concurrent lifecycle events cannot start overlapping waves.
+Each side verifies current signed membership and possession of both the installation and Mesh keys over one transcript, then checks the newest locally verified server-signed registry revision. Missing, revoked or mismatched slots are refused. Peers exchange signed registry revisions before admission; higher verified revisions win. Linking and retries make no server calls. Peers using the older online-permit protocol must update. Account endpoints locate a peer; they never authorize it. One registry observation supplies a serialized connection wave. Rate-limit deadlines apply to the entire wave; concurrent lifecycle events cannot start overlapping waves.
 
 `domios mesh status` returns identity, transport, publication, refusal and account machine summaries to authenticated local agents. Account mutations and credential-bearing account details remain local-owner only.
 
@@ -22,7 +22,7 @@ Windows Defender may ask to allow incoming connections for Domios on first use; 
 
 ## Admission and sign-out
 
-Protected traffic requires current signed membership on both sides. Renewals travel in authenticated peer announcements. Expiry blocks requests, relays and open streams without a grace period. Signing out blocks every connection before endpoint cleanup; signing in to the same account restores account connections automatically. The backend authorizes membership and permits but never carries Mesh traffic.
+Protected traffic requires current signed membership on both sides. Renewals travel in authenticated peer announcements. Expiry blocks requests, relays and open streams without a grace period. Signing out blocks every connection before endpoint cleanup; signing in to the same account restores account connections automatically. The backend authorizes membership but never carries Mesh traffic. Renewal includes the endpoint in the same transaction. Its lifetime comes from the signed membership; renewal starts one twelfth of that lifetime before expiry. Local registry views and signed peer gossip avoid periodic registry reads. Removing a machine blocks it locally before the server request, even offline; other machines require the server-signed revocation revision.
 
 A machine refused a slot under its plan limit stays blocked with `plan_limit_locked`. Account machine cards remain inspectable; the owner can remove an occupying installation or change plans. Missing membership trust cannot open a connection.
 
@@ -156,4 +156,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 75 -->
+<!-- revision: 76 -->

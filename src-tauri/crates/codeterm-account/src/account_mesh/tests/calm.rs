@@ -330,69 +330,6 @@ async fn account_mesh_rejoin_window_expiry_requires_sign_in_without_network() {
 }
 
 #[tokio::test]
-async fn account_mesh_cached_permit_identity_conflict_refreshes_once() {
-    for refusal in [RegistryRefusal::Conflict, RegistryRefusal::Forbidden] {
-        let harness = Harness::new().await;
-        harness.sign_in("owner").await;
-        harness
-            .mesh
-            .refresh(EnrollTrigger::Automatic)
-            .await
-            .unwrap();
-        let lists = harness.calls("list");
-        {
-            let mut script = harness.registry.script.lock().unwrap();
-            script.peer_key = Some(("d".repeat(64), 2));
-            script.permit_once = Some(refusal);
-        }
-        harness
-            .mesh
-            .authorize_link(LinkAuthorization {
-                transcript: [9; 32],
-                local_installation_id: INSTALLATION.into(),
-                peer_installation_id: PEER.into(),
-                account_id: account_id("owner"),
-            })
-            .await
-            .unwrap();
-        assert_eq!(harness.calls("list"), lists + 1);
-        assert_eq!(harness.calls("link"), 2);
-        let bodies = &harness.registry.script.lock().unwrap().link_bodies;
-        let first = serde_json::to_value(&bodies[0]).unwrap();
-        let second = serde_json::to_value(&bodies[1]).unwrap();
-        assert_eq!(first["peer"]["key_generation"], 1);
-        assert_eq!(second["peer"]["key_generation"], 2);
-        assert_eq!(second["peer"]["key_id"], "d".repeat(64));
-    }
-}
-
-#[tokio::test]
-async fn account_mesh_repeated_permit_identity_refusal_does_not_loop() {
-    let harness = Harness::new().await;
-    harness.sign_in("owner").await;
-    harness
-        .mesh
-        .refresh(EnrollTrigger::Automatic)
-        .await
-        .unwrap();
-    harness.registry.script.lock().unwrap().permit = Some(RegistryRefusal::Conflict);
-    assert_eq!(
-        harness
-            .mesh
-            .authorize_link(LinkAuthorization {
-                transcript: [10; 32],
-                local_installation_id: INSTALLATION.into(),
-                peer_installation_id: PEER.into(),
-                account_id: account_id("owner"),
-            })
-            .await,
-        Err(AccountMeshRefusal::Conflict)
-    );
-    assert_eq!(harness.calls("link"), 2);
-    assert_eq!(harness.calls("list"), 1);
-}
-
-#[tokio::test]
 async fn account_mesh_budget_cached_registry_is_for_display_only() {
     let harness = Harness::new().await;
     harness.sign_in("owner").await;
