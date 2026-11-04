@@ -39,6 +39,7 @@ fn assert_matches_sql(store: &PlanStore) {
         );
         let listed = store
             .list_index()
+            .unwrap()
             .into_iter()
             .find(|entry| entry.plan_id == id)
             .unwrap();

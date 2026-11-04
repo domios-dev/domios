@@ -116,6 +116,7 @@ fn team_close_force_keeps_plan_active_flagged() {
     assert!(task.execution_attempts[0].closed_at.is_some());
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == plan.id)
         .unwrap();

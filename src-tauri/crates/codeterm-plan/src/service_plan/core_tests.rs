@@ -21,7 +21,11 @@ fn store_saves_loads_indexes() {
     assert!(path.exists());
     let loaded = store.get(&p.id).unwrap();
     assert_eq!(loaded.title, "T");
-    assert!(store.list_index().iter().any(|e| e.plan_id == p.id));
+    assert!(store
+        .list_index()
+        .unwrap()
+        .iter()
+        .any(|e| e.plan_id == p.id));
     assert_eq!(loaded.updated_at, 1000);
 }
 
@@ -47,6 +51,7 @@ fn reload_from_disk_replaces_memory_and_index() {
     assert_eq!(store.get(&p.id).unwrap().title, "Edited");
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|e| e.plan_id == p.id)
         .unwrap();
@@ -278,6 +283,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
     assert_eq!(current.updated_at, 3000);
     let entry = store
         .list_index()
+        .unwrap()
         .into_iter()
         .find(|entry| entry.plan_id == p.id)
         .unwrap();
@@ -304,6 +310,7 @@ fn scan_project_does_not_import_a_plan_written_directly_to_disk() {
     let loaded_project = store.scan_project(dir.path()).unwrap();
     let plans: Vec<_> = store
         .list_index()
+        .unwrap()
         .into_iter()
         .filter_map(|e| store.get(&e.plan_id))
         .filter(|p| p.project_path == loaded_project.display().to_string())

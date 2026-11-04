@@ -105,7 +105,7 @@ impl ServiceContext {
     ) -> Result<(), String> {
         let round = self
             .plan_store
-            .with_plan(plan_id, now, |plan| {
+            .edit_curator_round(plan_id, now, |plan| {
                 let state = &mut plan.control_loop;
                 state.consecutive_failures += 1;
                 state.fallback_reason = Some(reason);
@@ -126,7 +126,7 @@ impl ServiceContext {
                     next_delay_secs: curator_delay(None),
                     ..Default::default()
                 };
-                curator::append_round(plan, round.clone());
+                plan.append_round(round.clone());
                 Ok(round)
             })
             .map_err(|e| e.to_string())?;
@@ -226,11 +226,11 @@ impl ServiceContext {
                 loop_state.next_at = Some(now + curator_delay(None) * 1000);
                 let applied = self
                     .plan_store
-                    .with_plan(&plan.id, now, |p| {
+                    .edit_curator_round(&plan.id, now, |p| {
                         if !read.apply_control_loop(&mut p.control_loop, loop_state.clone())? {
                             return Ok(false);
                         }
-                        curator::append_round(p, round.clone());
+                        p.append_round(round.clone());
                         Ok(true)
                     })
                     .map_err(|e| e.to_string())?;
@@ -373,13 +373,13 @@ impl ServiceContext {
                 });
             let applied = self
                 .plan_store
-                .with_plan(&plan.id, now, |p| {
+                .edit_curator_round(&plan.id, now, |p| {
                     let next = loop_state.next_at;
                     if !read.apply_control_loop(&mut p.control_loop, loop_state)? {
                         return Ok(false);
                     }
                     if let Some(round) = &fallback {
-                        curator::append_round(p, round.clone());
+                        p.append_round(round.clone());
                         p.control_loop.next_at = next;
                     }
                     Ok(true)
@@ -426,7 +426,7 @@ impl ServiceContext {
         });
         if occupied {
             self.plan_store
-                .with_plan(&plan.id, now, |plan| {
+                .edit_curator_state(&plan.id, now, |plan| {
                     plan.control_loop.next_at =
                         Some(now.saturating_add(curator_delay(None) * 1000));
                     Ok(())
@@ -491,7 +491,7 @@ impl ServiceContext {
         }
         if let Some(cursor) = cursor {
             self.plan_store
-                .with_plan(&plan.id, now, |p| {
+                .edit_curator_state(&plan.id, now, |p| {
                     p.control_loop.owner_turn_cursor = cursor.turn_cursor;
                     p.control_loop.owner_session_key = cursor.session_key;
                     Ok(())
@@ -578,7 +578,7 @@ impl ServiceContext {
         }
         let hash = crate::service::supporter::criteria_hash(digest.body.as_bytes());
         self.plan_store
-            .with_plan(&plan.id, now, |p| {
+            .edit_curator_state(&plan.id, now, |p| {
                 p.control_loop.running = Some(CuratorRun {
                     synthesis,
                     synthesis_group_close_at: group_close,
@@ -619,7 +619,7 @@ impl ServiceContext {
             })?;
         let number = self
             .plan_store
-            .with_plan(plan_id, now, |p| {
+            .edit_curator_state(plan_id, now, |p| {
                 let run = p.control_loop.running.as_mut().ok_or_else(|| {
                     crate::service::plan::PlanError::Validation("round absent".into())
                 })?;

@@ -9,12 +9,14 @@ mod batch_rows;
 mod gate_rows;
 mod header_edits;
 mod loop_rows;
+pub(in crate::service_plan) mod handoff;
 mod milestones;
 mod plan_audit;
 mod plan_fields;
 mod plan_state;
 mod review_rows;
 mod section_rows;
+pub(in crate::service_plan) mod runtime;
 mod task_fields;
 pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
 pub(in crate::service_plan) use header_edits::HeaderChange;
@@ -85,6 +87,8 @@ pub(in crate::service_plan) struct CommittedRows {
     pub task_rows: usize,
     pub section_rows: usize,
     pub header_rows: usize,
+    pub heartbeat_rows: usize,
+    pub element_rows: usize,
     pub decoded_bytes: usize,
     pub serialized_bytes: usize,
     pub projected_text_bytes: usize,
@@ -313,7 +317,9 @@ impl PlanDatabase {
             receipt.revision =
                 super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
             change(&tx, &mut receipt)?;
-            if receipt.header_rows
+            if receipt.element_rows
+                + receipt.heartbeat_rows
+                + receipt.header_rows
                 + receipt.section_rows
                 + receipt.task_rows
                 + receipt.milestones

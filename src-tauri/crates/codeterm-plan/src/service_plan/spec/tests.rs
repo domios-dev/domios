@@ -314,7 +314,7 @@ fn from_spec_conflict_leaves_no_orphan_plan() {
             2,
         )
         .unwrap();
-    assert_eq!(store.list_index().len(), 1);
+    assert_eq!(store.list_index().unwrap().len(), 1);
 
     let conflict = store.create_plan_from_spec(
         &spec.id,
@@ -325,7 +325,7 @@ fn from_spec_conflict_leaves_no_orphan_plan() {
     );
     assert!(conflict.is_err(), "second from-spec must be rejected");
     assert_eq!(
-        store.list_index().len(),
+        store.list_index().unwrap().len(),
         1,
         "spec-conflict must leave zero orphan plans"
     );
