@@ -110,6 +110,11 @@ fn authority_read_error(error: PlanError) -> PlanAuthorityError {
     }
 }
 
+fn authority_join_error(error: tokio::task::JoinError) -> PlanAuthorityError {
+    log::error!("Plan authority blocking operation failed: {error}");
+    PlanAuthorityError::StoreReadFailed
+}
+
 impl From<PlanAuthorityError> for String {
     fn from(error: PlanAuthorityError) -> Self {
         error.message().to_string()
@@ -386,20 +391,40 @@ impl ServiceContext {
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<PlanningAuthor, PlanAuthorityError> {
-        let immediate = self.classify_planning_caller_now(plan_id, caller);
+        let immediate = self
+            .classify_planning_caller_off_runtime(plan_id, caller)
+            .await;
         if immediate != Err(PlanAuthorityError::SessionBindingPending) {
             return immediate;
         }
         let deadline = self.planning_binding_deadline(caller);
         crate::service::general_agent::binding_wait::wait_for_session_binding_async(
             deadline,
-            || match self.classify_planning_caller_now(plan_id, caller) {
-                Err(PlanAuthorityError::SessionBindingPending) => None,
-                result => Some(result),
+            || async {
+                match self
+                    .classify_planning_caller_off_runtime(plan_id, caller)
+                    .await
+                {
+                    Err(PlanAuthorityError::SessionBindingPending) => None,
+                    result => Some(result),
+                }
             },
         )
         .await
         .unwrap_or(Err(PlanAuthorityError::SessionBindingPending))
+    }
+
+    async fn classify_planning_caller_off_runtime(
+        &self,
+        plan_id: &str,
+        caller: &AuthenticatedPlanCaller,
+    ) -> Result<PlanningAuthor, PlanAuthorityError> {
+        let service = self.clone();
+        let plan_id = plan_id.to_string();
+        let caller = caller.clone();
+        tokio::task::spawn_blocking(move || service.classify_planning_caller_now(&plan_id, &caller))
+            .await
+            .map_err(authority_join_error)?
     }
 
     fn planning_binding_deadline(&self, caller: &AuthenticatedPlanCaller) -> Instant {
@@ -601,10 +626,13 @@ impl ServiceContext {
     ) -> Result<(), PlanAuthorityError> {
         self.authorize_plan_orchestrator_async(plan_id, caller)
             .await?;
-        let plan = self
-            .plan_store
-            .plan_task_admission_projection(plan_id)
-            .map_err(authority_read_error)?;
+        let store = self.plan_store.clone();
+        let plan_id = plan_id.to_string();
+        let plan =
+            tokio::task::spawn_blocking(move || store.plan_task_admission_projection(&plan_id))
+                .await
+                .map_err(authority_join_error)?
+                .map_err(authority_read_error)?;
         if plan.planning_state != PlanningState::Approved {
             return Err(PlanAuthorityError::PlanNotApproved);
         }
@@ -629,10 +657,13 @@ impl ServiceContext {
         task_id: &str,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<(String, String), PlanAuthorityError> {
-        let target = self
-            .plan_store
-            .task_authority_target_projection(task_id)
-            .map_err(authority_read_error)?;
+        let store = self.plan_store.clone();
+        let task_id = task_id.to_string();
+        let target =
+            tokio::task::spawn_blocking(move || store.task_authority_target_projection(&task_id))
+                .await
+                .map_err(authority_join_error)?
+                .map_err(authority_read_error)?;
         self.authorize_execution_action_async(&target.plan_id, caller)
             .await?;
         Ok((target.plan_id, target.task_id))

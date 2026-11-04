@@ -127,7 +127,8 @@ fn index(svc: &ServiceContext, tab: &str) -> Arc<Entry> {
 #[test]
 fn historical_reference_previews_beyond_tail_and_warm_reads_never_parse() {
     let (fixture, tab, reads) = fixture();
-    let root = codeterm_local_preview::html_preview::preview_test_root(fixture.temp.path());
+    let artifacts = tempfile::tempdir().unwrap();
+    let root = codeterm_local_preview::html_preview::preview_test_root(artifacts.path());
     let historical = root.join("apple2.png");
     let unreferenced = root.join("og2.png");
     std::fs::write(&historical, b"image").unwrap();

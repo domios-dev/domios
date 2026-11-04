@@ -122,7 +122,9 @@ fn late_attempt_failure_after_a_newer_live_attempt_keeps_the_task_on_it() {
         .expect("the stale attempt stays in history");
     assert!(history.closed_at.is_some());
     assert!(history.retired_at.is_some());
-    assert!(store.worker_startup_attempt_owns(&plan_id, &task_id, LIVE_TAB, &live_attempt, None));
+    assert!(store
+        .worker_startup_attempt_owns(&plan_id, &task_id, LIVE_TAB, &live_attempt, None)
+        .unwrap());
 }
 
 #[test]

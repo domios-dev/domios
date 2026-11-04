@@ -347,13 +347,9 @@ fn retired_attempt_stays_fenced_from_dispatch_ready_and_ack() {
     assert!(store
         .acknowledge_task_attempt(&plan_id, &task_id, "tab-worker", &retired_attempt_id, 14)
         .is_err());
-    assert!(!store.worker_startup_attempt_owns(
-        &plan_id,
-        &task_id,
-        "tab-worker",
-        &retired_attempt_id,
-        None,
-    ));
+    assert!(!store
+        .worker_startup_attempt_owns(&plan_id, &task_id, "tab-worker", &retired_attempt_id, None,)
+        .unwrap());
 
     let after = store.show_task(&task_id).unwrap().task;
     let retired = after
@@ -1053,20 +1049,24 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
         store.show_task(&task_id).unwrap().task.execution_attempts[2].acknowledged_at,
         None
     );
-    assert!(store.worker_startup_attempt_owns(
-        &plan.id,
-        &task_id,
-        &attempts[2].0,
-        &attempts[2].1,
-        Some("session-2"),
-    ));
-    assert!(!store.worker_startup_attempt_owns(
-        &plan.id,
-        &task_id,
-        &attempts[2].0,
-        &attempts[2].1,
-        Some("session-wrong"),
-    ));
+    assert!(store
+        .worker_startup_attempt_owns(
+            &plan.id,
+            &task_id,
+            &attempts[2].0,
+            &attempts[2].1,
+            Some("session-2"),
+        )
+        .unwrap());
+    assert!(!store
+        .worker_startup_attempt_owns(
+            &plan.id,
+            &task_id,
+            &attempts[2].0,
+            &attempts[2].1,
+            Some("session-wrong"),
+        )
+        .unwrap());
 
     let mut blocked_plan = store.get(&plan.id).unwrap();
     let task = blocked_plan
@@ -1077,13 +1077,15 @@ fn competition_ack_reminder_and_cleanup_use_exact_attempt_authority() {
     task.status = TaskStatus::Blocked;
     task.status_label = Some("judge dependency".into());
     store.save(&mut blocked_plan, 22).unwrap();
-    assert!(!store.worker_startup_attempt_owns(
-        &plan.id,
-        &task_id,
-        &attempts[2].0,
-        &attempts[2].1,
-        Some("session-2"),
-    ));
+    assert!(!store
+        .worker_startup_attempt_owns(
+            &plan.id,
+            &task_id,
+            &attempts[2].0,
+            &attempts[2].1,
+            Some("session-2"),
+        )
+        .unwrap());
     assert!(!store
         .mark_worker_startup_deadline(&plan.id, &task_id, &attempts[2].0, &attempts[2].1, true, 23,)
         .unwrap());

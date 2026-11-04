@@ -46,7 +46,11 @@ fn typed_desk_plans_preserve_enums_and_mask_all_free_text() {
             "elements":[{"id":"element-bound", "kind":"private kind", "content":{"status":"private nested status", "role":"Worker", "id":"private nested id"}}]
         })).unwrap();
         let directory = tempfile::tempdir().unwrap();
-        plan.project_path = directory.path().display().to_string();
+        plan.project_path = directory
+            .path()
+            .join("private-project")
+            .display()
+            .to_string();
         plan.canonical_project_path = plan.project_path.clone();
         let store = codeterm_service_core::service::plan::PlanStore::new_for_test(directory.path());
         store.save(&mut plan, 2).unwrap();

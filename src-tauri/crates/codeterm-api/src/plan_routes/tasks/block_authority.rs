@@ -1,7 +1,7 @@
 use axum::{http::HeaderMap, Json};
 use serde_json::Value;
 
-use codeterm_service_core::service::ServiceState;
+use codeterm_service_core::service::{PlanAuthorityError, ServiceState};
 
 use super::{epoch_ms, plan_authority_err, plan_err, text_err};
 
@@ -46,17 +46,19 @@ async fn require_plan_role_for_unowned_task(
             "task mutation requires a Plan role or explicit human confirmation",
         ));
     }
-    if !confirmed_human
-        && !matches!(
-            svc.classify_planning_caller_async(plan_id, caller).await,
-            Ok(codeterm_service_core::plan::PlanningAuthor::User
-                | codeterm_service_core::plan::PlanningAuthor::Planner { .. })
-        )
-    {
-        return Err(text_err(
-            axum::http::StatusCode::FORBIDDEN,
-            "the caller is not the Plan Orchestrator or Planner",
-        ));
+    if !confirmed_human {
+        match svc.classify_planning_caller_async(plan_id, caller).await {
+            Ok(_) => {}
+            Err(error @ PlanAuthorityError::StoreReadFailed) => {
+                return Err(plan_authority_err(error))
+            }
+            Err(_) => {
+                return Err(text_err(
+                    axum::http::StatusCode::FORBIDDEN,
+                    "the caller is not the Plan Orchestrator or Planner",
+                ))
+            }
+        }
     }
     Ok(())
 }
@@ -73,10 +75,13 @@ pub(super) async fn verify_task_mutation_owner(
     let task = task_id.to_owned();
     let plan = plan_id.to_owned();
     let detail = crate::plan_routes::run_blocking(move || {
-        store
-            .show_task(&task)
-            .filter(|detail| detail.plan_id == plan)
-            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))
+        let detail = store.task_owner_epoch_projection(&task).map_err(plan_err)?;
+        if detail.plan_id != plan {
+            return Err(plan_err(
+                codeterm_service_core::service::plan::PlanError::TaskNotFound,
+            ));
+        }
+        Ok(detail)
     })
     .await?;
     let caller = crate::tab_routes::authenticated_plan_caller(headers);
@@ -86,17 +91,21 @@ pub(super) async fn verify_task_mutation_owner(
             .await
         {
             Ok(()) => true,
-            Err(codeterm_service_core::service::PlanAuthorityError::SessionBindingPending) => {
-                return Err(plan_authority_err(
-                    codeterm_service_core::service::PlanAuthorityError::SessionBindingPending,
-                ));
+            Err(
+                error @ (PlanAuthorityError::SessionBindingPending
+                | PlanAuthorityError::StoreReadFailed),
+            ) => {
+                return Err(plan_authority_err(error));
             }
             Err(_) => false,
         };
-        let planner = matches!(
-            svc.classify_planning_caller_async(plan_id, &caller).await,
-            Ok(codeterm_service_core::plan::PlanningAuthor::Planner { .. })
-        );
+        let planner = match svc.classify_planning_caller_async(plan_id, &caller).await {
+            Ok(codeterm_service_core::plan::PlanningAuthor::Planner { .. }) => true,
+            Err(error @ PlanAuthorityError::StoreReadFailed) => {
+                return Err(plan_authority_err(error))
+            }
+            _ => false,
+        };
         if !owner && !planner {
             return Err(text_err(
                 axum::http::StatusCode::FORBIDDEN,
@@ -105,11 +114,11 @@ pub(super) async fn verify_task_mutation_owner(
         }
         let owner_gone = owner_session_is_gone(
             svc,
-            detail.task.interruption.owner_tab_id.as_deref(),
-            detail.task.interruption.owner_session_id.as_deref(),
+            detail.owner_tab_id.as_deref(),
+            detail.owner_session_id.as_deref(),
         );
         if planner {
-            if owner_gone && detail.task.interruption.owner_epoch > 0 {
+            if owner_gone && detail.owner_epoch > 0 {
                 retire_stale_owner(
                     svc,
                     plan_id,
@@ -125,7 +134,7 @@ pub(super) async fn verify_task_mutation_owner(
             return Ok(());
         }
     }
-    if detail.task.interruption.owner_epoch == 0 {
+    if detail.owner_epoch == 0 {
         return require_plan_role_for_unowned_task(svc, headers, plan_id, &caller).await;
     }
     if matches!(
@@ -137,8 +146,8 @@ pub(super) async fn verify_task_mutation_owner(
         .is_some_and(|tab_id| !tab_id.is_empty())
         && owner_session_is_gone(
             svc,
-            detail.task.interruption.owner_tab_id.as_deref(),
-            detail.task.interruption.owner_session_id.as_deref(),
+            detail.owner_tab_id.as_deref(),
+            detail.owner_session_id.as_deref(),
         )
     {
         match svc
@@ -158,10 +167,11 @@ pub(super) async fn verify_task_mutation_owner(
                 )
                 .await;
             }
-            Err(codeterm_service_core::service::PlanAuthorityError::SessionBindingPending) => {
-                return Err(plan_authority_err(
-                    codeterm_service_core::service::PlanAuthorityError::SessionBindingPending,
-                ));
+            Err(
+                error @ (PlanAuthorityError::SessionBindingPending
+                | PlanAuthorityError::StoreReadFailed),
+            ) => {
+                return Err(plan_authority_err(error));
             }
             Err(_) => {}
         }
@@ -201,7 +211,7 @@ pub(super) async fn verify_task_mutation_owner(
         .and_then(|value| value.to_str().ok())
         .and_then(|value| value.parse::<u64>().ok())
         .ok_or_else(|| text_err(axum::http::StatusCode::CONFLICT, "missing task owner epoch"))?;
-    if detail.task.interruption.owner_epoch != caller_epoch {
+    if detail.owner_epoch != caller_epoch {
         return Err(text_err(
             axum::http::StatusCode::CONFLICT,
             "task mutation owner epoch is stale",

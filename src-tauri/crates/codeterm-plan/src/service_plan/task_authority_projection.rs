@@ -13,6 +13,14 @@ pub struct TaskOwnerEpochRead {
     pub handoff_required: bool,
 }
 
+impl TaskOwnerEpochRead {
+    pub fn matches_owner_epoch(&self, tab_id: &str, owner_epoch: u64) -> bool {
+        !self.handoff_required
+            && self.owner_epoch == owner_epoch
+            && self.owner_tab_id.as_deref() == Some(tab_id)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TaskContextFilesRead {
     pub plan_id: String,
@@ -98,8 +106,16 @@ pub(super) mod startup;
 mod continuity;
 pub use continuity::{TaskContinuityDigest, TaskContinuityRead};
 
+mod checkpoint;
+mod creation;
+pub use checkpoint::TaskCheckpointAdoptionRead;
 mod restart;
+mod restoration;
+mod runtime_restore;
+pub use creation::{TaskCreationRead, TaskDescriptionRead};
 pub use restart::{
     CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
     TaskRestartQuery,
 };
+pub use restoration::{ReviewBindingRestoreRead, ReviewRestoreAttemptRead, TaskBindingRestoreRead};
+pub use runtime_restore::{RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead};
