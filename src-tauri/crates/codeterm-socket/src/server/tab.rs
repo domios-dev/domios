@@ -378,6 +378,7 @@ pub(super) fn dispatch(
                     ));
                 }
             }
+            let restored_send = writes_pty && svc.public_send_restores_agent(&resolved_target);
             let system_context = opt_string_param(params, "system_context");
             let response = if source_tab.is_some() || target_has_agent || system_context.is_some() {
                 let src = source_tab.as_deref().unwrap_or("");
@@ -412,10 +413,16 @@ pub(super) fn dispatch(
                         message: e,
                         data: None,
                     })?;
-                gateway_send_response(
-                    svc.public_delivery_receipt(&resolved_target, delivery),
-                    pad_file,
-                )
+                let delivery = if restored_send {
+                    codeterm_service_core::async_runtime::block_on(svc.await_restored_send_receipt(
+                        &resolved_target,
+                        delivery,
+                        std::time::Duration::from_secs(30),
+                    ))
+                } else {
+                    svc.public_delivery_receipt(&resolved_target, delivery)
+                };
+                gateway_send_response(delivery, pad_file)
             } else {
                 let (text, pad_file) = svc
                     .as_ref()

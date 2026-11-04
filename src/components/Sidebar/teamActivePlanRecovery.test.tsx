@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Sidebar/teamActivePlanRecovery.test.tsx
 
 import { act, useEffect, useState } from "react";
@@ -171,10 +172,8 @@ function response(value: unknown): Response {
   });
 }
 
-function installFetch() {
-  Object.defineProperty(globalThis, "fetch", {
-    configurable: true,
-    value: (input: RequestInfo | URL) => tracked((async () => {
+// The fixture daemon; the UI reaches it through the mux carrier, the probe's own mux snapshot reads it directly.
+const daemon = (input: RequestInfo | URL) => tracked((async () => {
       if (!restAvailable) throw new TypeError("REST unavailable");
       const url = String(input);
       if (url.endsWith("/api/plans?view=summary")) return response({ plans: backendPlans.map(summary) });
@@ -185,8 +184,10 @@ function installFetch() {
       const planId = url.match(/\/api\/plans\/([^/?]+)\/projection\?view=summary$/)?.[1];
       const found = backendPlans.find((value) => value.id === planId);
       return found ? response(summary(found)) : new Response("not found", { status: 404 });
-    })()),
-  });
+    })());
+
+function installFetch() {
+  Object.defineProperty(globalThis, "fetch", { configurable: true, value: muxMockFetch(daemon) });
 }
 
 async function installListen() {
@@ -217,7 +218,7 @@ function Projection() {
 
   useEffect(() => {
     const refresh = () => {
-      void fetch("http://127.0.0.1:7686/api/mux/state")
+      void daemon("http://127.0.0.1:7686/api/mux/state")
         .then((value) => value.json())
         .then((value) => setMux(value as MultiplexerState));
     };

@@ -382,5 +382,6 @@
   "plugins/provider-shared/tests/runPromptStep.test.ts",
   "packages/chat-ui/src/ExpandableReader.test.tsx",
   "src/lib/streamMuxRequestModel.test.ts",
-  "src/lib/streamMuxRequests.wiring.test.ts"
+  "src/lib/streamMuxRequests.wiring.test.ts",
+  "src/lib/streamMux.startup.test.ts"
 ]

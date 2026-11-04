@@ -74,7 +74,17 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
                     .or_else(|| error.get("message").and_then(serde_json::Value::as_str))
                     .or_else(|| error.get("code").and_then(serde_json::Value::as_str))
             })
-            .unwrap_or("send has not been written; inspect its retained status before resending");
+            .unwrap_or_else(|| {
+                if value
+                    .get("send_id")
+                    .and_then(serde_json::Value::as_str)
+                    .is_some()
+                {
+                    "send is retained and may still be written; do not resend; inspect its status"
+                } else {
+                    "send has not been written"
+                }
+            });
         let detail = value.get("detail").and_then(serde_json::Value::as_str);
         let message = detail.map_or_else(
             || reason.to_string(),

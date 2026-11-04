@@ -532,12 +532,15 @@ where
                 .into(),
         );
     }
-    codeterm_service_core::service::plan::interruption::provider_allowance_preflight(
-        &execution_intent,
-        allowance.as_ref(),
-        now,
-    )
-    .map_err(plan_rpc_err)?;
+    if let Some(warning) =
+        codeterm_service_core::service::plan::interruption::provider_allowance_warning(
+            &execution_intent,
+            allowance.as_ref(),
+            &resolved_provider,
+        )
+    {
+        warnings.push(warning);
+    }
     let model_resolution =
         codeterm_service_core::service::spawn::resolve_fresh_agent_model_with_notice(
             &svc.configuration(),

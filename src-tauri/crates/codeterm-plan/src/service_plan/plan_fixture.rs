@@ -33,6 +33,11 @@ impl PlanStore {
         Ok(output)
     }
     #[cfg(test)]
+    pub(in crate::service_plan) fn export_sidecars_for_test(&self, id: &str) {
+        let plan = self.try_get(id).unwrap();
+        self.persist_test_sidecars(&plan, None).unwrap();
+    }
+    #[cfg(test)]
     pub(in crate::service_plan) fn forget_all_plans_for_test(&self) {
         self.index.write().clear();
     }

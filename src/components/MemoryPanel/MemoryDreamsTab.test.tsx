@@ -2,11 +2,18 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { Window } from "happy-dom";
 import { __setListenForTest } from "../../lib/bridge";
+import { baseDaemonTransport } from "../../lib/daemonBootstrap";
 import type { ApiConfig } from "../../lib/types";
 import { MemoryDreamsTab } from "./MemoryDreamsTab";
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
+}
+
+// Memory requests go through the daemon transport; a raw fetch would be a bypass.
+function routeDaemonRequests(handler: (path: string) => Promise<Response>) {
+  globalThis.fetch = (() => { throw new Error("Raw daemon fetch bypass"); }) as typeof fetch;
+  baseDaemonTransport().request = async (path: string) => handler(path);
 }
 
 function setupDom() {
@@ -110,8 +117,7 @@ async function main() {
   __setListenForTest(async () => () => {});
 
   const seen: string[] = [];
-  globalThis.fetch = (async (url: string | URL) => {
-    const u = String(url);
+  routeDaemonRequests(async (u: string) => {
     seen.push(u);
     if (u.includes("/api/mem/dream/diary")) {
       return { ok: true, json: async () => DIARY_RESPONSE } as Response;
@@ -126,7 +132,7 @@ async function main() {
       return { ok: true, json: async () => [] } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
-  }) as typeof fetch;
+  });
 
   const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
   const host = document.createElement("div");
@@ -166,8 +172,7 @@ async function incompleteOnPageKeepsOneCount() {
   setupDom();
   __setListenForTest(async () => () => {});
 
-  globalThis.fetch = (async (url: string | URL) => {
-    const u = String(url);
+  routeDaemonRequests(async (u: string) => {
     if (u.includes("/api/mem/dream/diary")) {
       return { ok: true, json: async () => MIXED_DIARY_RESPONSE } as Response;
     }
@@ -178,7 +183,7 @@ async function incompleteOnPageKeepsOneCount() {
       return { ok: true, json: async () => [] } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
-  }) as typeof fetch;
+  });
 
   const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
   const host = document.createElement("div");
@@ -255,8 +260,7 @@ async function openedDreamShowsItsRunReport() {
     },
   ];
 
-  globalThis.fetch = (async (url: string | URL) => {
-    const u = String(url);
+  routeDaemonRequests(async (u: string) => {
     if (u.includes("/api/mem/dream/diary")) {
       return { ok: true, json: async () => DIARY_RESPONSE } as Response;
     }
@@ -267,7 +271,7 @@ async function openedDreamShowsItsRunReport() {
       return { ok: true, json: async () => workers } as Response;
     }
     return { ok: true, json: async () => ({}) } as Response;
-  }) as typeof fetch;
+  });
 
   const api: ApiConfig = { enabled: true, host: "127.0.0.1", port: 7686, token: "t", cors: false, cors_allow_origins: [] };
   const host = document.createElement("div");

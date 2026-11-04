@@ -1,9 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { BULK_CREDIT_STEP, bulkCreditDue, decodeMuxFrame, isMuxStreamPath, muxSessionRefused } from "./streamMuxModel";
+import { BULK_CREDIT_STEP, bulkCreditDue, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused } from "./streamMuxModel";
 
 describe("mux stream routes", () => {
   it("shares events, startup, output, relay, agent-run and surface streams", () => {
-    for (const path of ["/api/events/stream?since=b:4", "/api/startup/events", "/api/output/stream", "/api/mesh/relay-stream?peer=p", "/api/tabs/t/output/stream?from=3", "/api/surfaces/t/stream"]) expect(isMuxStreamPath(path)).toBe(true);
+    for (const path of ["/api/events/stream?since=b:4", "/api/output/stream", "/api/mesh/relay-stream?peer=p", "/api/tabs/t/output/stream?from=3", "/api/surfaces/t/stream"]) expect(isMuxStreamPath(path)).toBe(true);
+    // Startup readiness must not depend on the carrier that itself waits for startup.
+    expect(isMuxStreamPath("/api/startup/events")).toBe(false);
+    expect(isDirectDaemonPath("/api/startup/events")).toBe(true);
+    expect(isDirectDaemonPath("/api/events/stream")).toBe(false);
     for (const path of ["/api/stream-mux?session=s", "//evil/api/output/stream", "/api\\output/stream", "/api/tabs/t/chat-send"]) expect(isMuxStreamPath(path)).toBe(false);
   });
 });

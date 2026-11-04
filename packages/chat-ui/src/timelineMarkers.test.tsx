@@ -7,11 +7,14 @@ import {
 } from "@codeterm/chat-core";
 import claudePlugin from "../../../plugins/provider-claude/src/plugin";
 import codexPlugin from "../../../plugins/provider-codex/src/plugin";
+import { installTestIo } from "../../../plugins/provider-shared/tests/hostIo";
 import { MessageBubble } from "./MessageBubble";
 import {
   ChatSessionIntentLine,
   sessionIntentFromMessages,
 } from "./timelineMarkers";
+
+(globalThis as { host?: unknown }).host = installTestIo({ manifestJson: () => "null", log: () => undefined });
 
 type RichMessage = Record<string, unknown> & {
   blocks?: Array<Record<string, unknown>>;

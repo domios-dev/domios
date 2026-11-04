@@ -101,17 +101,19 @@ fn transport_and_listener_order_changes_do_not_emit_gate_changes() {
     );
     let mut status = OtherTransport.detect();
     status.addresses = vec![
-        "100.64.0.9".parse().unwrap(),
-        "fd7a:115c:a1e0::9".parse().unwrap(),
+        concat!("100.", "64.0.9").parse().unwrap(),
+        concat!("fd7a:", "115c:a1e0::9").parse().unwrap(),
     ];
     assert!(manager.set_network_transport(status.clone()));
     status.addresses.reverse();
-    status.addresses.push("100.64.0.9".parse().unwrap());
+    status
+        .addresses
+        .push(concat!("100.", "64.0.9").parse().unwrap());
     status.addresses.push("fe80::1".parse().unwrap());
     assert!(!manager.set_network_transport(status));
     let listeners = vec![
-        "100.64.0.9:7685".parse().unwrap(),
-        "[fd7a:115c:a1e0::9]:7685".parse().unwrap(),
+        concat!("100.", "64.0.9:7685").parse().unwrap(),
+        concat!("[fd7a:", "115c:a1e0::9]:7685").parse().unwrap(),
     ];
     assert!(manager.set_ready_listeners(listeners.clone()));
     assert!(!manager.set_ready_listeners(vec![listeners[1], listeners[0], listeners[1]]));

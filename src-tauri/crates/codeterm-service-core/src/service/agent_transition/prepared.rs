@@ -1,11 +1,13 @@
 use super::*;
-use crate::multiplexer::state::LifecyclePatch;
+use crate::multiplexer::state::{LifecyclePatch, LIFECYCLE_CONTEXT_CONFLICT};
+
+pub(super) const PREPARE_ATTEMPTS: usize = 3;
 
 impl ServiceContext {
     pub fn transition_agent_prepared_at(
         &self,
         now_ms: u64,
-        request: impl FnOnce(
+        mut request: impl FnMut(
             &MultiplexerState,
             &crate::service::plan::PlanStore,
         ) -> Result<AgentTransitionRequest, String>,
@@ -22,7 +24,29 @@ impl ServiceContext {
     pub fn transition_agent_prepared_with_at<T>(
         &self,
         now_ms: u64,
-        prepare: impl FnOnce(
+        mut prepare: impl FnMut(
+            &mut MultiplexerState,
+            &crate::service::plan::PlanStore,
+        ) -> Result<(Option<AgentTransitionRequest>, T), String>,
+        failure: TransitionFailurePoint,
+    ) -> Result<(Vec<String>, Vec<String>, T), String> {
+        let mut attempt = 1;
+        loop {
+            match self.transition_agent_prepared_once(now_ms, &mut prepare, failure) {
+                Err(error) if error == LIFECYCLE_CONTEXT_CONFLICT && attempt < PREPARE_ATTEMPTS => {
+                    attempt += 1;
+                }
+                outcome => return outcome,
+            }
+        }
+    }
+
+    /// Preparation reads a mux snapshot outside the guard, so a concurrent
+    /// launch binding can invalidate it; the caller re-prepares from intent.
+    fn transition_agent_prepared_once<T>(
+        &self,
+        now_ms: u64,
+        prepare: &mut impl FnMut(
             &mut MultiplexerState,
             &crate::service::plan::PlanStore,
         ) -> Result<(Option<AgentTransitionRequest>, T), String>,

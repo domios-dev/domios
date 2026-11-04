@@ -520,3 +520,21 @@ fn unconfirmed_pending_json_keeps_receipt_and_resolved_body_without_failure() {
         })
     );
 }
+
+#[test]
+fn retained_send_failure_warns_that_the_original_can_still_write() {
+    let receipt = serde_json::json!({
+        "ok": true, "delivery": "pending", "bytes_written": false,
+        "send_id": "agent-pty:own-tab:own-delivery"
+    });
+    let SendTextOutcome::Error { msg, exit_code } = analyze_send_text_response(&receipt) else {
+        panic!("held original is not written success");
+    };
+    assert_eq!(exit_code, 1);
+    assert!(msg.contains("may still be written"), "{msg}");
+    assert!(msg.contains("do not resend"), "{msg}");
+    assert!(
+        msg.contains("domios tab send-status agent-pty:own-tab:own-delivery"),
+        "{msg}"
+    );
+}

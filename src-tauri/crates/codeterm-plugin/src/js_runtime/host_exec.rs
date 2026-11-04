@@ -23,7 +23,10 @@ const ASYNC_JOB_WAIT_BOUND: Duration = Duration::from_secs(5);
 mod child;
 mod control;
 mod scoped;
-pub(super) use scoped::{abort_scoped_json_job, drop_scoped_json_jobs, start_scoped_json_job};
+pub(super) use scoped::{
+    abort_scoped_json_job, drop_scoped_json_jobs, start_admitted_scoped_json_job,
+    start_scoped_json_job,
+};
 
 thread_local! {
     static HOST_EXEC_ENV: RefCell<Vec<HashMap<String, String>>> = const { RefCell::new(Vec::new()) };

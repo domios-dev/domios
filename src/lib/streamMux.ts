@@ -1,6 +1,6 @@
 import { uid } from "./uid";
 import { browserFetch, createTransportClient, SseCapacityError, streamClientId, TransportError, type TransportClient, type TransportOptions, type Unsubscribe } from "./transportClient";
-import { bulkCreditDue, CREDIT_ATTEMPTS, decodeMuxFrame, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
+import { bulkCreditDue, CREDIT_ATTEMPTS, decodeMuxFrame, isDirectDaemonPath, isMuxStreamPath, muxSessionRefused, type MuxFrame } from "./streamMuxModel";
 import { EMPTY_MUX_POSTS, initialMuxRequest, MUX_REQUEST_TIMEOUT, muxPostCancel, muxPostEnqueue, muxPostRemove, muxPostStart, muxPostTraffic, muxRequestAdmission, muxRequestOperation, muxRequestPolicy, transitionMuxRequest, type MuxPostState, type MuxRequestInit, type MuxRequestState, type MuxTraffic } from "./streamMuxRequestModel";
 import { restRequestTimeoutMs } from "./restTimeoutPolicy";
 import { RECONNECT_FIRST_MS, reconnectDelay, nextReconnectBackoff, shouldResetReconnectBackoff } from "./webReconnectModel";
@@ -58,7 +58,7 @@ interface Pending {
   reject: (error: unknown) => void;
 }
 
-export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void }
+export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void; idle: () => Promise<void>; busy: () => boolean }
 
 export function createStreamMux(transport: () => TransportClient, fetcher: FetchPort): StreamMux {
   const pending = new Map<string, Pending>();
@@ -98,7 +98,13 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     if (!pending.size && !live && current) {
       const close = closeStream; current = null; closeStream = null; close?.();
     }
+    // After the caller's drain, so an idle waiter sees complete bodies.
+    queueMicrotask(notifyIdle);
   }
+
+  const idleWaiters: Array<() => void> = [];
+  function requestsInFlight(): boolean { return [...pending.values()].some(entry => !entry.stream); }
+  function notifyIdle(): void { if (!requestsInFlight()) for (const waiter of idleWaiters.splice(0)) waiter(); }
 
   function failure(entry: Pending, error?: unknown): void {
     if (!pending.has(entry.id)) return;
@@ -372,6 +378,7 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
       const client = transport(), url = new URL(input instanceof Request ? input.url : String(input), client.origin());
       if (url.origin !== client.origin()) return Promise.reject(new Error("Mux requires its own daemon origin"));
       const path = url.pathname + url.search;
+      if (isDirectDaemonPath(path)) return fetcher(input, init);
       const method = (init.method ?? (input instanceof Request ? input.method : "GET")).toUpperCase();
       const stream = method === "GET" && isMuxStreamPath(path);
       const headers = new Headers(input instanceof Request ? input.headers : undefined);
@@ -402,6 +409,10 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
         options.signal?.addEventListener("abort", abort, { once: true });
         void prepare(entry);
       });
+    },
+    busy: requestsInFlight,
+    idle() {
+      return requestsInFlight() ? new Promise<void>(resolve => { idleWaiters.push(resolve); }) : Promise.resolve();
     },
     // A wake (network back, page visible, explicit retry) skips the remaining backoff once.
     wake() {
@@ -438,6 +449,15 @@ export function withStreamMux(options: TransportOptions): TransportClient {
 
 export function wakeStreamMuxes(): void {
   for (const holder of muxesByOrigin.values()) holder.mux.wake();
+}
+
+/** Resolves once no carrier request is in flight and every finished response body is complete. */
+export async function __streamMuxesIdleForTest(): Promise<void> {
+  await Promise.all([...muxesByOrigin.values()].map(holder => holder.mux.idle()));
+}
+
+export function __streamMuxesBusyForTest(): boolean {
+  return [...muxesByOrigin.values()].some(holder => holder.mux.busy());
 }
 
 export function __resetStreamMuxesForTest(): void {

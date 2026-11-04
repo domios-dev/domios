@@ -353,7 +353,9 @@ describe("shell file operation visibility", () => {
         expect(failed.querySelector('[data-testid="file-diff-card"]')).toBeNull();
       }
       const unknown = await render(<ToolCallBubble event={singleEvent(codexChain("unknown-file", "Set-Content $outside x"))} expanded={false} onToggle={() => {}} />);
-      expect(unknown.querySelector('ul[aria-label="Intended file operations"]')?.textContent).toContain("unresolved target");
+      // A write into a target that cannot be resolved has nothing to show, so no row and no list render.
+      expect(unknown.querySelector('ul[aria-label="Intended file operations"]')).toBeNull();
+      expect(unknown.textContent).not.toContain("unresolved target");
       const read = await render(<ToolCallBubble event={singleEvent(codexChain("readonly-file", "Get-Content source.txt -Raw"))} expanded={false} onToggle={() => {}} />);
       expect(read.querySelector('ul[aria-label="Intended file operations"]')).toBeNull();
 

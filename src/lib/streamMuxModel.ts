@@ -1,4 +1,9 @@
-const MUX_STREAM_PATHS = new Set(["/api/mesh/relay-stream", "/api/output/stream", "/api/events/stream", "/api/startup/events"]);
+const MUX_STREAM_PATHS = new Set(["/api/mesh/relay-stream", "/api/output/stream", "/api/events/stream"]);
+
+/** Startup readiness stays a direct, finite stream: the carrier's own session waits for that readiness. */
+export function isDirectDaemonPath(path: string): boolean {
+  return new URL(path, "http://daemon").pathname === "/api/startup/events";
+}
 
 export function isMuxStreamPath(path: string): boolean {
   if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return false;
