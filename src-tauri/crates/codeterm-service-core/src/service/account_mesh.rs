@@ -55,7 +55,7 @@ impl AccountMeshService {
 
 struct AccountSessions(
     Weak<OnceCell<Arc<codeterm_account::Account>>>,
-    watch::WeakSender<u64>,
+    Weak<watch::Sender<u64>>,
 );
 fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
     match error {
@@ -269,7 +269,7 @@ impl ServiceContext {
                 CallableRegistry::new(transport)
                     .with_validator(Arc::new(AccountSessions(
                         Arc::downgrade(&self.ext::<AccountCell>().0),
-                        self.callable_admission_changes().downgrade(),
+                        Arc::downgrade(&self.callable_admission_changes()),
                     )))
                     .with_revocations(self.session_revocations()),
             ),
@@ -300,7 +300,7 @@ impl ServiceContext {
                         registry: self.registry(),
                         sessions: Arc::new(AccountSessions(
                             Arc::downgrade(&self.ext::<AccountCell>().0),
-                            self.callable_admission_changes().downgrade(),
+                            Arc::downgrade(&self.callable_admission_changes()),
                         )),
                         keys: self.account_credentials().await?,
                         store: Arc::new(FileAccountMeshStore::new(self.account_data_root()?)),
