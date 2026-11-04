@@ -20,15 +20,178 @@ var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: tru
 // plugins/provider-codex/src/plugin.ts
 var plugin_exports = {};
 __export(plugin_exports, {
-  codexProfileInstanceId: () => codexProfileInstanceId,
-  codexProfileTabId: () => codexProfileTabId,
   default: () => plugin_default,
-  inspectCodexProfiles: () => inspectCodexProfiles,
   manageCodexProfiles: () => manageCodexProfiles,
-  releaseCodexProfile: () => releaseCodexProfile,
-  sweepCodexProfiles: () => sweepCodexProfiles
+  releaseCodexProfile: () => releaseCodexProfile
 });
 module.exports = __toCommonJS(plugin_exports);
+
+// packages/plugin-sdk/src/ioPrograms.ts
+function* ioValue(request) {
+  return yield request;
+}
+function* ioMap(values, project) {
+  const result = [];
+  for (let index = 0; index < values.length; index++) result.push(yield* project(values[index], index));
+  return result;
+}
+function* ioFilter(values, predicate) {
+  const result = [];
+  for (let index = 0; index < values.length; index++) if (yield* predicate(values[index], index)) result.push(values[index]);
+  return result;
+}
+function defineProviderIo(source, io) {
+  const exports = { ...source };
+  for (const key of Object.keys(source)) {
+    const value = source[key];
+    if (typeof value !== "function") continue;
+    exports[key] = function(...args) {
+      const result = value.apply(source, args);
+      return result && typeof result.next === "function" ? io().run(result) : result;
+    };
+  }
+  return exports;
+}
+function* ioEncoded(steps) {
+  return JSON.stringify(yield* steps);
+}
+function* ioJson(request, nullable = false) {
+  const value = yield* ioValue(request);
+  return nullable && value == null ? null : JSON.stringify(value);
+}
+function* ioResolve(value) {
+  if (value && typeof value.next === "function") return yield* value;
+  return value;
+}
+function* ioFileTransaction(fs, paths, work) {
+  const locks = [];
+  try {
+    for (const path of [...new Set(paths)].sort()) {
+      const parent = path.slice(0, Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\")));
+      if (parent && !(yield* fs.makeDirs(parent))) return { ok: false, error: "integration directory is unavailable" };
+      const lock = yield* fs.lockFile(path);
+      if (!lock) return { ok: false, error: "integration files are busy" };
+      locks.push(lock);
+    }
+    return yield* work();
+  } finally {
+    for (const lock of locks.reverse()) yield* fs.unlockFile(lock);
+  }
+}
+
+// packages/plugin-sdk/src/remoteTasks.ts
+var RemoteTaskController = class {
+  constructor(storage, backend, assertCurrent = () => {
+  }) {
+    this.storage = storage;
+    this.backend = backend;
+    this.assertCurrent = assertCurrent;
+  }
+  *create(tabId, providerId, environment, branch, prompt) {
+    this.assertCurrent();
+    if (this.backend.capability.availability.status !== "available") {
+      throw new Error(this.backend.capability.availability.reason);
+    }
+    if (!branch.trim() || !prompt.trim()) throw new Error("A branch and task are required");
+    const environments = this.backend.environments();
+    if (!environments.some((row3) => row3.id === environment.id && row3.accountRef === environment.accountRef)) {
+      throw new Error("Choose an environment available to this account");
+    }
+    const claim = {
+      revision: 0,
+      providerId,
+      executionMode: this.backend.capability.mode,
+      backend: this.backend.capability.backend,
+      environmentId: environment.id,
+      accountRef: environment.accountRef,
+      branch,
+      phase: "creating",
+      snapshot: null
+    };
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, null, claim)))) {
+      throw new Error("This tab already has a remote task; creation was not repeated");
+    }
+    let acknowledgement;
+    this.assertCurrent();
+    try {
+      acknowledgement = yield* ioResolve(this.backend.create({ environmentId: environment.id, accountRef: environment.accountRef, branch, prompt }));
+      if (!acknowledgement.taskId) throw new Error("Missing remote task acknowledgement");
+    } catch {
+      this.assertCurrent();
+      const uncertain = { ...claim, revision: 1, phase: "create_uncertain" };
+      yield* ioResolve(this.storage.compareExchange(tabId, claim.revision, uncertain));
+      return uncertain;
+    }
+    const bound = {
+      ...claim,
+      revision: 1,
+      phase: "bound",
+      snapshot: { taskId: acknowledgement.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null }
+    };
+    this.assertCurrent();
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, claim.revision, bound)))) {
+      throw new Error("Remote creation was acknowledged but its binding could not be saved; do not submit again");
+    }
+    return bound;
+  }
+  *restore(tabId) {
+    this.assertCurrent();
+    const binding = yield* ioResolve(this.storage.read(tabId));
+    this.assertCurrent();
+    if (!binding) return null;
+    if (binding.executionMode !== this.backend.capability.mode) throw new Error("Remote execution mode does not match the stored tab");
+    if (binding.backend !== this.backend.capability.backend) throw new Error("Remote backend does not match the stored tab");
+    if (binding.phase !== "bound" || !binding.snapshot) {
+      if (binding.phase === "create_uncertain") return binding;
+      const uncertain = { ...binding, revision: binding.revision + 1, phase: "create_uncertain" };
+      if (!(yield* ioResolve(this.storage.compareExchange(tabId, binding.revision, uncertain)))) return yield* ioResolve(this.storage.read(tabId));
+      return uncertain;
+    }
+    const snapshot = yield* ioResolve(this.backend.read(binding));
+    this.assertCurrent();
+    if (snapshot.taskId !== binding.snapshot.taskId) throw new Error("Remote response belongs to a different task");
+    const updated = { ...binding, revision: binding.revision + 1, snapshot };
+    if (!(yield* ioResolve(this.storage.compareExchange(tabId, binding.revision, updated)))) return yield* ioResolve(this.storage.read(tabId));
+    return updated;
+  }
+};
+
+// packages/plugin-sdk/src/remoteTaskStorage.ts
+var RemoteTaskFileStorage = class {
+  constructor(fs, root) {
+    this.fs = fs;
+    this.root = root;
+  }
+  path(tabId) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(tabId)) throw new Error("Invalid remote tab storage identity");
+    return `${this.root}/${tabId}.json`;
+  }
+  *read(tabId) {
+    return yield* this.readFile(this.path(tabId));
+  }
+  *readFile(path) {
+    const raw = yield* this.fs.readFile(path);
+    if (raw === null) return null;
+    const binding = JSON.parse(raw);
+    if (!binding || !Number.isSafeInteger(binding.revision) || binding.revision < 0 || !["creating", "create_uncertain", "bound"].includes(binding.phase) || ![binding.providerId, binding.executionMode, binding.backend, binding.environmentId, binding.accountRef, binding.branch].every((value) => typeof value === "string" && value.length > 0) || binding.phase === "bound" && (!binding.snapshot || typeof binding.snapshot.taskId !== "string" || !binding.snapshot.taskId)) {
+      throw new Error("Stored remote task binding is invalid; creation was not repeated");
+    }
+    return binding;
+  }
+  *compareExchange(tabId, revision, next) {
+    const path = this.path(tabId);
+    if (!(yield* this.fs.makeDirs(this.root))) throw new Error("Remote task storage is unavailable");
+    const lock = yield* this.fs.lockFile(`${path}.lock`);
+    if (!lock) throw new Error("Remote task storage is busy; creation was not repeated");
+    try {
+      if (((yield* this.readFile(path))?.revision ?? null) !== revision) return false;
+      if (!(yield* this.fs.writeFileAtomic(path, JSON.stringify(next)))) throw new Error("Remote task binding could not be saved");
+      return true;
+    } finally {
+      yield* this.fs.unlockFile(lock);
+    }
+  }
+};
 
 // plugins/provider-shared/runPromptStep.ts
 function bytes(text7) {
@@ -46,20 +209,20 @@ function bounded(text7) {
   return points.join("") + "\n[truncated]";
 }
 function runPromptSteps(getHost, options = {}) {
-  function update2(job, reply) {
+  function update(job, reply) {
     if (reply.state === "running") return { job, state: "running", outcome: null, outputs: {} };
     if (reply.state === "unknown" || reply.state === "canceled") return { job, state: reply.state, outcome: null, outputs: {} };
     const done = reply.state === "done" && typeof reply.text === "string" && reply.text.trim().length > 0;
     return { job, state: "succeeded", outcome: done ? "done" : "failed", outputs: { text: [{ kind: "text", text: bounded(done ? reply.text : "The agent run failed.") }] } };
   }
   return {
-    blueprintSubmit(request2) {
-      const params = request2.params;
-      const failed = () => update2(request2.context.operation, { state: "failed" });
+    blueprintSubmit(request) {
+      const params = request.params;
+      const failed = () => update(request.context.operation, { state: "failed" });
       if (typeof params.prompt !== "string" || !params.prompt.trim() || params.prompt.length > 32768 || typeof params.cwd !== "string" || params.cwd.length > 1024 || !/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(params.cwd) || params.model !== void 0 && (typeof params.model !== "string" || !params.model.trim() || params.model.length > 128)) return failed();
       const timeout = params.timeout_ms ?? 6e5;
       if (!Number.isInteger(timeout) || timeout < 1 || timeout > 36e5) return failed();
-      const context = request2.inputs.context?.[0];
+      const context = request.inputs.context?.[0];
       let prompt = params.prompt;
       if (context) {
         if (context.kind !== "text") return failed();
@@ -73,17 +236,17 @@ ${fence}`;
       }
       if (bytes(prompt) > 48 * 1024) return failed();
       return getHost().start({ prompt, cwd: params.cwd, model: params.model, timeoutMs: timeout, ...options }, (reply) => {
-        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update2(request2.context.operation, { state: "unknown" });
+        if (reply.error === "launch_unconfirmed" || reply.error === "transport_unconfirmed") return update(request.context.operation, { state: "unknown" });
         return typeof reply.run === "string" ? { job: reply.run, state: "running", outcome: null, outputs: {} } : failed();
       });
     },
-    blueprintReconcile(request2) {
-      const job = request2.job ?? request2.context.operation;
-      return getHost().await(job, (reply) => update2(job, reply));
+    blueprintReconcile(request) {
+      const job = request.job ?? request.context.operation;
+      return getHost().await(job, (reply) => update(job, reply));
     },
-    blueprintCancel(request2) {
-      const job = request2.job ?? request2.context.operation;
-      return getHost().cancel(job, (reply) => update2(job, reply));
+    blueprintCancel(request) {
+      const job = request.job ?? request.context.operation;
+      return getHost().cancel(job, (reply) => update(job, reply));
     }
   };
 }
@@ -91,7 +254,7 @@ ${fence}`;
 // plugins/provider-shared/sessionRecords.ts
 function* sessionRecords(input, accepts) {
   if (typeof input !== "string") {
-    for (const record6 of input) yield { row: record6.row, value: record6.value };
+    for (const record5 of input) yield { row: record5.row, value: record5.value };
     return;
   }
   const lines = String(input || "").split("\n");
@@ -147,21 +310,21 @@ function foldSessionIndex(contents) {
   }
   return Array.from(folded.values());
 }
-function sessionFilePath(_cwd, sessionId) {
-  const path = trimmedField(threadRow(sessionId), "rollout_path");
-  return path && host.fs.fileExists(path) ? path : null;
+function* sessionFilePath(_cwd, sessionId) {
+  const path = trimmedField(yield* threadRow(sessionId), "rollout_path");
+  return path && (yield* host.io.fs.fileExists(path)) ? path : null;
 }
-function sessionExists(_cwd, sessionId) {
+function* sessionExists(_cwd, sessionId) {
   if (!sessionId) return false;
-  if (threadRow(sessionId) !== null) return true;
+  if ((yield* threadRow(sessionId)) !== null) return true;
   const store = codexSessionStore();
-  return store !== null && sessionIndexEntry(store.indexPath, sessionId) !== null;
+  return store !== null && (yield* sessionIndexEntry(store.indexPath, sessionId)) !== null;
 }
-function detectSessionId(cwd, exclude, maxAgeMs) {
-  if (!cwd || !host.fs.fileExists(cwd)) return null;
+function* detectSessionId(cwd, exclude, maxAgeMs) {
+  if (!cwd || !(yield* host.io.fs.fileExists(cwd))) return null;
   const store = codexSessionStore();
   if (!store) return null;
-  const entries = readSessionIndex(store.indexPath);
+  const entries = yield* readSessionIndex(store.indexPath);
   if (entries.length === 0) return null;
   const excluded = new Set(Array.isArray(exclude) ? exclude : exclude ? [exclude] : []);
   const now = host.unixNowMs ? host.unixNowMs() : Date.now();
@@ -172,48 +335,50 @@ function detectSessionId(cwd, exclude, maxAgeMs) {
     if (excluded.has(entry.id)) continue;
     const updatedMs = sessionTimestamp(entry.updated_at);
     if (updatedMs > 0 && now - updatedMs > ageLimit) continue;
-    const project = readThreadCwd(entry.id);
+    const project = yield* readThreadCwd(entry.id);
     if (project && host.path.equal(project, cwd)) matching.push(entry.id);
   }
   return matching.length === 1 ? matching[0] : null;
 }
-function enumerateSessions() {
+function* enumerateSessions() {
   const store = codexSessionStore();
   if (!store) return [];
-  const entries = readSessionIndex(store.indexPath);
-  return entries.map((entry) => ({
-    sessionId: entry.id,
-    provider: "codex",
-    projectPath: readThreadCwd(entry.id),
-    title: entry.thread_name || null,
-    summary: null,
-    filePath: store.indexPath,
-    createdTs: null,
-    modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
-  }));
+  const entries = yield* readSessionIndex(store.indexPath);
+  return yield* ioMap(entries, function* (entry) {
+    return {
+      sessionId: entry.id,
+      provider: "codex",
+      projectPath: yield* readThreadCwd(entry.id),
+      title: entry.thread_name || null,
+      summary: null,
+      filePath: store.indexPath,
+      createdTs: null,
+      modifiedTs: sessionTimestamp(entry.updated_at) > 0 ? Math.floor(sessionTimestamp(entry.updated_at) / 1e3) : null
+    };
+  });
 }
-function findSession(sessionId) {
-  const row3 = queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
+function* findSession(sessionId) {
+  const row3 = yield* queryThreadRow(sessionId, "SELECT * FROM threads WHERE id = ? LIMIT 1");
   if (!row3) return null;
   const store = codexSessionStore();
   return {
     sessionId,
     provider: "codex",
-    projectPath: resolveThreadCwd(sessionId, row3),
+    projectPath: yield* resolveThreadCwd(sessionId, row3),
     title: trimmedField(row3, "name") || trimmedField(row3, "title"),
     summary: null,
-    filePath: store ? store.indexPath : codexStateDbPath() || "",
+    filePath: store ? store.indexPath : (yield* codexStateDbPath()) || "",
     createdTs: unixSeconds(row3.created_at),
     modifiedTs: unixSeconds(row3.updated_at)
   };
 }
-function detectSessionModel(_cwd, sessionId) {
-  return trimmedField(threadRow(sessionId), "model");
+function* detectSessionModel(_cwd, sessionId) {
+  return trimmedField(yield* threadRow(sessionId), "model");
 }
-function detectSessionReasoningEffort(_cwd, sessionId) {
-  const path = sessionFilePath(_cwd, sessionId);
+function* detectSessionReasoningEffort(_cwd, sessionId) {
+  const path = yield* sessionFilePath(_cwd, sessionId);
   if (!path) return null;
-  const contents = host.fs.readFileTail(path, 4 * 1024 * 1024);
+  const contents = yield* host.io.fs.readFileTail(path, 4 * 1024 * 1024);
   if (typeof contents !== "string") return null;
   const lines = contents.split("\n");
   for (let index = lines.length - 1; index >= 0; index--) {
@@ -229,15 +394,15 @@ function detectSessionReasoningEffort(_cwd, sessionId) {
   }
   return null;
 }
-function threadRow(sessionId) {
-  return queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
+function* threadRow(sessionId) {
+  return yield* queryThreadRow(sessionId, "SELECT model, rollout_path, cwd FROM threads WHERE id = ? LIMIT 1");
 }
-function queryThreadRow(sessionId, sql) {
+function* queryThreadRow(sessionId, sql) {
   if (!sessionId) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
+  const db = yield* codexStateDbPath();
+  if (!db || !(yield* host.io.fs.fileExists(db))) return null;
   try {
-    const rows2 = host.fs.sqliteQuery(db, sql, [sessionId]);
+    const rows2 = yield* host.io.fs.sqliteQuery(db, sql, [sessionId]);
     return rows2.length > 0 ? rows2[0] : null;
   } catch (_) {
     return null;
@@ -250,7 +415,7 @@ function trimmedField(row3, field) {
   const value = row3 ? row3[field] : null;
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
-function codexStateDbPath() {
+function* codexStateDbPath() {
   const override = host.envGet(sessionStoreOverrides.state);
   if (override) return override;
   const sep = host.platform() === "windows" ? "\\" : "/";
@@ -258,7 +423,7 @@ function codexStateDbPath() {
   if (!root) return null;
   let entries;
   try {
-    entries = host.fs.readDir(root);
+    entries = yield* host.io.fs.readDir(root);
   } catch (_) {
     return null;
   }
@@ -302,23 +467,23 @@ function codexSessionsRoot(sep) {
   const home = host.homeDir();
   return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" : null, "", sep);
 }
-function readSessionIndex(path) {
-  if (!host.fs.fileExists(path)) return [];
-  const contents = host.fs.readFile(path);
+function* readSessionIndex(path) {
+  if (!(yield* host.io.fs.fileExists(path))) return [];
+  const contents = yield* host.io.fs.readFile(path);
   return typeof contents === "string" ? foldSessionIndex(contents) : [];
 }
-function sessionIndexEntry(path, sessionId) {
-  const entries = readSessionIndex(path);
+function* sessionIndexEntry(path, sessionId) {
+  const entries = yield* readSessionIndex(path);
   for (let i = 0; i < entries.length; i++) {
     if (entries[i].id === sessionId) return entries[i];
   }
   return null;
 }
 var unresolvedCwdDiagnostics = /* @__PURE__ */ new Set();
-function readThreadCwd(sessionId) {
-  return resolveThreadCwd(sessionId, threadRow(sessionId));
+function* readThreadCwd(sessionId) {
+  return yield* resolveThreadCwd(sessionId, yield* threadRow(sessionId));
 }
-function resolveThreadCwd(sessionId, row3) {
+function* resolveThreadCwd(sessionId, row3) {
   if (!row3) {
     logUnresolvedCwd(sessionId, "no_row");
     return null;
@@ -328,7 +493,7 @@ function resolveThreadCwd(sessionId, row3) {
     logUnresolvedCwd(sessionId, "no_cwd");
     return null;
   }
-  if (!host.fs.fileExists(cwd)) {
+  if (!(yield* host.io.fs.fileExists(cwd))) {
     logUnresolvedCwd(sessionId, "cwd_absent");
     return null;
   }
@@ -360,28 +525,24 @@ function withLaunchMarker(instructions, marker) {
   if (!marker) return instructions;
   return instructions + "\n\n<!-- " + MARKER_PREFIX + " " + marker + " -->\n";
 }
-function detectCodexLaunchSession(evidence) {
+function* detectCodexLaunchSession(evidence) {
   const marker = evidence && typeof evidence.launchMarker === "string" ? evidence.launchMarker : "";
   if (marker.length < MIN_MARKER_LENGTH) return null;
-  const db = codexStateDbPath();
-  if (!db || !host.fs.fileExists(db)) return null;
+  const db = yield* codexStateDbPath();
+  if (!db || !(yield* host.io.fs.fileExists(db))) return null;
   const since = Math.floor(Math.max(0, Number(evidence.launchedAtMs) || 0) / 1e3);
-  const rows2 = host.fs.sqliteQuery(
-    db,
-    "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS,
-    [since]
-  );
+  const rows2 = yield* host.io.fs.sqliteQuery(db, "SELECT id, rollout_path FROM threads WHERE created_at >= ? ORDER BY created_at DESC LIMIT " + CANDIDATE_THREADS, [since]);
   const matches = [];
   for (let i = 0; i < rows2.length; i++) {
     const id = typeof rows2[i].id === "string" ? rows2[i].id : "";
     const path = typeof rows2[i].rollout_path === "string" ? rows2[i].rollout_path : "";
     if (!id || !path || matches.indexOf(id) !== -1) continue;
-    if (rolloutCarriesMarker(path, id, marker)) matches.push(id);
+    if (yield* rolloutCarriesMarker(path, id, marker)) matches.push(id);
   }
   return matches.length === 1 ? { sessionId: matches[0], source: "launch_marker" } : null;
 }
-function rolloutCarriesMarker(path, id, marker) {
-  const head = host.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
+function* rolloutCarriesMarker(path, id, marker) {
+  const head = yield* host.io.fs.readFileHead(path, ROLLOUT_HEAD_BYTES);
   if (typeof head !== "string") return false;
   const lines = head.split("\n");
   let records = 0;
@@ -425,10 +586,10 @@ function utf8Bytes(value) {
   }
   return bytes2;
 }
-function supportsDirectResume() {
+function* supportsDirectResume() {
   try {
     const minimum = "0.159.0";
-    const observed = JSON.parse(host.providerVersionJson());
+    const observed = JSON.parse(yield* ioJson({ op: "providerVersion" }));
     if (observed?.status !== "detected" || typeof minimum !== "string") return false;
     const parse = (value) => /^(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
     const version = parse(String(observed.version));
@@ -442,14 +603,14 @@ function supportsDirectResume() {
     return false;
   }
 }
-function buildCodexLaunchSpec(input, starter) {
+function* buildCodexLaunchSpec(input, starter) {
   const platform = host.platform();
   if (platform === "windows") return null;
   const hostOwned = "resume" in input ? input.resume?.hostOwned : input.hostOwned;
   const args = [...CODEX_LAUNCH_CONFIG];
   if ("resume" in input) {
     const resume = input.resume;
-    if (!resume || typeof resume.sessionId !== "string" || !supportsDirectResume()) return null;
+    if (!resume || typeof resume.sessionId !== "string" || !(yield* supportsDirectResume())) return null;
     args.push("resume");
     if (resume.skipPermissions) args.push("--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust");
     args.push(extractSessionUuid(resume.sessionId) || resume.sessionId, "--no-daemon", ...resume.args || []);
@@ -482,298 +643,6 @@ function codexCommandFromSpec(spec) {
   const quote = (value) => host.shell.quoteFor(value, host.platform());
   const unset = spec.envUnset.length ? "unset " + spec.envUnset.map(quote).join(" ") + " && " : "";
   return unset + [spec.program, ...spec.args].map((value) => /^[A-Za-z0-9_\-.,:=@/+%]+$/.test(value) ? value : quote(value)).join(" ");
-}
-
-// packages/plugin-sdk/src/fileDiffs.ts
-function recordedPatchDiff(path, patch, kind) {
-  if (!path.trim()) return [];
-  const hunks = [];
-  let current;
-  for (const line of patch.replace(/\n$/, "").split("\n")) {
-    const header = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (header) {
-      current = { oldStart: Number(header[1]), oldLines: Number(header[2] ?? 1), newStart: Number(header[3]), newLines: Number(header[4] ?? 1), lines: [] };
-      hunks.push(current);
-    } else if (current) {
-      if (!/^[ +\-\\]/.test(line)) return [];
-      current.lines.push(line);
-    }
-  }
-  if (hunks.some((h) => h.lines.filter((l) => /^[ -]/.test(l)).length !== h.oldLines || h.lines.filter((l) => /^[ +]/.test(l)).length !== h.newLines)) return [];
-  if (!hunks.length && kind === "modify") return [];
-  const lines = hunks.flatMap((h) => h.lines);
-  return [{
-    path,
-    kind,
-    additions: lines.filter((l) => l.startsWith("+")).length,
-    deletions: lines.filter((l) => l.startsWith("-")).length,
-    hunks
-  }];
-}
-
-// packages/plugin-sdk/src/remoteTasks.ts
-var RemoteTaskController = class {
-  constructor(storage, backend) {
-    this.storage = storage;
-    this.backend = backend;
-  }
-  create(tabId, providerId, environment, branch, prompt) {
-    if (this.backend.capability.availability.status !== "available") {
-      throw new Error(this.backend.capability.availability.reason);
-    }
-    if (!branch.trim() || !prompt.trim()) throw new Error("A branch and task are required");
-    const environments = this.backend.environments();
-    if (!environments.some((row3) => row3.id === environment.id && row3.accountRef === environment.accountRef)) {
-      throw new Error("Choose an environment available to this account");
-    }
-    const claim = {
-      revision: 0,
-      providerId,
-      executionMode: this.backend.capability.mode,
-      backend: this.backend.capability.backend,
-      environmentId: environment.id,
-      accountRef: environment.accountRef,
-      branch,
-      phase: "creating",
-      snapshot: null
-    };
-    if (!this.storage.compareExchange(tabId, null, claim)) {
-      throw new Error("This tab already has a remote task; creation was not repeated");
-    }
-    let acknowledgement;
-    try {
-      acknowledgement = this.backend.create({ environmentId: environment.id, accountRef: environment.accountRef, branch, prompt });
-      if (!acknowledgement.taskId) throw new Error("Missing remote task acknowledgement");
-    } catch {
-      const uncertain = { ...claim, revision: 1, phase: "create_uncertain" };
-      this.storage.compareExchange(tabId, claim.revision, uncertain);
-      return uncertain;
-    }
-    const bound = {
-      ...claim,
-      revision: 1,
-      phase: "bound",
-      snapshot: { taskId: acknowledgement.taskId, attempt: null, status: "pending", result: "", diff: null, cursor: null, error: null }
-    };
-    if (!this.storage.compareExchange(tabId, claim.revision, bound)) {
-      throw new Error("Remote creation was acknowledged but its binding could not be saved; do not submit again");
-    }
-    return bound;
-  }
-  restore(tabId) {
-    const binding = this.storage.read(tabId);
-    if (!binding) return null;
-    if (binding.executionMode !== this.backend.capability.mode) throw new Error("Remote execution mode does not match the stored tab");
-    if (binding.backend !== this.backend.capability.backend) throw new Error("Remote backend does not match the stored tab");
-    if (binding.phase !== "bound" || !binding.snapshot) {
-      if (binding.phase === "create_uncertain") return binding;
-      const uncertain = { ...binding, revision: binding.revision + 1, phase: "create_uncertain" };
-      if (!this.storage.compareExchange(tabId, binding.revision, uncertain)) return this.storage.read(tabId);
-      return uncertain;
-    }
-    const snapshot = this.backend.read(binding);
-    if (snapshot.taskId !== binding.snapshot.taskId) throw new Error("Remote response belongs to a different task");
-    const updated = { ...binding, revision: binding.revision + 1, snapshot };
-    if (!this.storage.compareExchange(tabId, binding.revision, updated)) return this.storage.read(tabId);
-    return updated;
-  }
-};
-
-// packages/plugin-sdk/src/remoteTaskStorage.ts
-var RemoteTaskFileStorage = class {
-  constructor(fs, root) {
-    this.fs = fs;
-    this.root = root;
-  }
-  path(tabId) {
-    if (!/^[a-zA-Z0-9_-]+$/.test(tabId)) throw new Error("Invalid remote tab storage identity");
-    return `${this.root}/${tabId}.json`;
-  }
-  read(tabId) {
-    return this.readFile(this.path(tabId));
-  }
-  readFile(path) {
-    const raw = this.fs.readFile(path);
-    if (raw === null) return null;
-    const binding = JSON.parse(raw);
-    if (!binding || !Number.isSafeInteger(binding.revision) || binding.revision < 0 || !["creating", "create_uncertain", "bound"].includes(binding.phase) || ![binding.providerId, binding.executionMode, binding.backend, binding.environmentId, binding.accountRef, binding.branch].every((value) => typeof value === "string" && value.length > 0) || binding.phase === "bound" && (!binding.snapshot || typeof binding.snapshot.taskId !== "string" || !binding.snapshot.taskId)) {
-      throw new Error("Stored remote task binding is invalid; creation was not repeated");
-    }
-    return binding;
-  }
-  compareExchange(tabId, revision, next) {
-    const path = this.path(tabId);
-    if (!this.fs.makeDirs(this.root)) throw new Error("Remote task storage is unavailable");
-    const lock = this.fs.lockFile(`${path}.lock`);
-    if (!lock) throw new Error("Remote task storage is busy; creation was not repeated");
-    try {
-      if ((this.readFile(path)?.revision ?? null) !== revision) return false;
-      if (!this.fs.writeFileAtomic(path, JSON.stringify(next))) throw new Error("Remote task binding could not be saved");
-      return true;
-    } finally {
-      this.fs.unlockFile(lock);
-    }
-  }
-};
-
-// packages/plugin-sdk/src/activityLabel.ts
-var MAX_LABEL_CHARS = 60;
-var POWERSHELL = /* @__PURE__ */ new Set(["pwsh", "powershell"]);
-var POSIX_SHELLS = /* @__PURE__ */ new Set(["bash", "sh", "zsh"]);
-function executableName(token) {
-  const leaf = token.split(/[\\/]+/).filter(Boolean).pop() ?? token;
-  return leaf.replace(/\.(exe|cmd|bat|com)$/i, "");
-}
-function unquoteWhole(value) {
-  const trimmed = value.trim();
-  if (trimmed.length < 2 || !['"', "'"].includes(trimmed[0]) || trimmed[0] !== trimmed[trimmed.length - 1]) return trimmed;
-  if (!/^"(?:[^"\\]|\\.)*"$/.test(trimmed) && !/^'[^']*'$/.test(trimmed)) return trimmed;
-  try {
-    const parsed = JSON.parse(trimmed);
-    return typeof parsed === "string" ? parsed : trimmed;
-  } catch {
-    return trimmed.slice(1, -1);
-  }
-}
-function tokenize(source) {
-  const tokens = [];
-  const starts = [];
-  let current = "";
-  let open = false;
-  let quote = "";
-  for (let i = 0; i < source.length; i++) {
-    const char = source[i];
-    if (quote) {
-      if (char === "\\" && quote === '"' && source[i + 1] === '"') current += source[++i];
-      else if (char === quote) quote = "";
-      else current += char;
-    } else if (char === '"' || char === "'") {
-      if (!open) {
-        starts.push(i);
-        open = true;
-      }
-      quote = char;
-    } else if (/\s/.test(char)) {
-      if (open) {
-        tokens.push(current);
-        current = "";
-        open = false;
-      }
-    } else {
-      if (!open) {
-        starts.push(i);
-        open = true;
-      }
-      current += char;
-    }
-  }
-  if (open) tokens.push(current);
-  return { tokens, rest: (index) => index < starts.length ? source.slice(starts[index]) : "" };
-}
-function argvParsed(argv) {
-  const display2 = argv.map((argument) => argument === "" || /[\s"']/.test(argument) ? JSON.stringify(argument) : argument);
-  return { tokens: argv, rest: (index) => display2.slice(index).join(" ") };
-}
-function isCommandSwitch(name, option) {
-  const flag = option.toLowerCase();
-  if (POWERSHELL.has(name)) return flag === "-command" || flag === "-c";
-  if (POSIX_SHELLS.has(name)) return /^-[a-z]*c$/.test(flag);
-  return name === "cmd" && (flag === "/c" || flag === "/k");
-}
-function innerCommand(parsed) {
-  const name = executableName(parsed.tokens[0] ?? "").toLowerCase();
-  if (!POWERSHELL.has(name) && !POSIX_SHELLS.has(name) && name !== "cmd") return null;
-  for (let i = 1; i < parsed.tokens.length; i++) {
-    if (!isCommandSwitch(name, parsed.tokens[i])) continue;
-    const inner = POSIX_SHELLS.has(name) ? parsed.tokens[i + 1] ?? "" : parsed.rest(i + 1);
-    return inner.trim() ? unquoteWhole(inner) : null;
-  }
-  return null;
-}
-function compact(value) {
-  return value.split(/\r?\n/, 1)[0].replace(/\s+/g, " ").trim();
-}
-function clip(value) {
-  const chars = Array.from(value);
-  if (chars.length <= MAX_LABEL_CHARS) return value;
-  const head = chars.slice(0, MAX_LABEL_CHARS - 1).join("");
-  const boundary = head.lastIndexOf(" ");
-  return (boundary > 30 ? head.slice(0, boundary) : head).trimEnd() + "\u2026";
-}
-function unwrapCommand(command, depth = 0) {
-  let parsed;
-  if (Array.isArray(command) && command.length > 0 && command.every((part) => typeof part === "string")) {
-    parsed = argvParsed(command);
-  } else if (typeof command === "string") {
-    parsed = tokenize(unquoteWhole(command).replace(/^&\s+/, ""));
-  } else {
-    return "";
-  }
-  if (parsed.tokens.length === 0) return "";
-  const inner = innerCommand(parsed);
-  if (inner !== null && depth < 8) return unwrapCommand(inner, depth + 1);
-  const source = parsed.rest(0);
-  const stripped = source.replace(/^(?:Set-Location|cd)\s+(?:"[^"]*"|'[^']*'|[^;&\r\n]+)\s*(?:&&|;)\s*/i, "");
-  if (stripped !== source && depth < 8) return unwrapCommand(stripped, depth + 1);
-  const rest = parsed.rest(1);
-  return compact(`${executableName(parsed.tokens[0])}${rest ? " " + rest : ""}`);
-}
-function record(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-function activityCommand(tool) {
-  const input = record(tool.toolInput);
-  const command = input.cmd ?? input.command ?? tool.toolDetail ?? (tool.toolKind === "command" ? tool.toolSummary : void 0);
-  return Array.isArray(command) ? argvParsed(command.map(String)).rest(0) : typeof command === "string" ? command : "";
-}
-function basename(value) {
-  return value.split(/[\\/]/).pop() || "file";
-}
-function activityLabel(tool) {
-  const input = record(tool.toolInput);
-  const name = tool.toolName ?? "";
-  const file = (Array.isArray(tool.fileDiffs) ? record(tool.fileDiffs[0]).path : void 0) ?? input.file_path ?? input.path;
-  if (tool.toolKind === "edit" || /apply_patch|^(?:Edit|Write|MultiEdit)$/i.test(name)) {
-    const patch = typeof tool.toolInput === "string" ? tool.toolInput : String(input.patch ?? input.input ?? "");
-    const path = typeof file === "string" ? file : patch.match(/\*\*\* (?:Update|Add|Delete) File: (.+)/)?.[1] ?? tool.toolSummary;
-    return path ? clip(`Editing ${basename(path.split(/\r?\n/)[0])}`) : "Editing files";
-  }
-  if (tool.toolKind === "read" || /^(?:Read|read_file)$/i.test(name)) {
-    return typeof file === "string" ? clip(`Reading ${basename(file)}`) : "Reading files";
-  }
-  if (tool.toolKind !== "command" && input.cmd === void 0 && input.command === void 0) {
-    return clip(compact(tool.toolTitle || name || "Working"));
-  }
-  const command = activityCommand(tool);
-  if (!command) return clip(compact(tool.toolTitle || name || "Working"));
-  const unwrapped = unwrapCommand(command);
-  const parsed = tokenize(unwrapped);
-  let tokens = parsed.tokens;
-  if (POSIX_SHELLS.has(executableName(tokens[0] ?? "")) && /build\.(?:sh|ps1)$/i.test(tokens[1] ?? "")) tokens = tokens.slice(1);
-  if (["npx", "pnpm", "npm", "yarn", "bun"].includes(executableName(tokens[0] ?? "").toLowerCase())) {
-    tokens = tokens.slice(1);
-    if (["exec", "run", "x"].includes(tokens[0])) tokens = tokens.slice(1);
-  }
-  const exe = executableName(tokens[0] ?? "").toLowerCase();
-  if (exe === "tsc") return "Checking types";
-  if (["vitest", "jest", "test"].includes(exe) || exe === "node" && tokens.includes("--test")) return "Running tests";
-  if (exe === "build.sh" || exe === "build.ps1") return clip(`Build: ${tokens[1] || "build"}`);
-  if (exe === "git") {
-    let index = 1;
-    while (tokens[index]?.startsWith("-")) index += ["-C", "-c", "--git-dir", "--work-tree"].includes(tokens[index]) ? 2 : 1;
-    return clip(`git ${tokens[index] || ""}`.trim());
-  }
-  if (exe === "apply_patch") {
-    const path = command.match(/\*\*\* (?:Update|Add|Delete) File: ([^\r\n]+)/)?.[1];
-    return path ? clip(`Editing ${basename(path)}`) : "Editing files";
-  }
-  if (exe === "rg" || exe === "grep") return "Searching";
-  if (["cat", "get-content"].includes(exe) || exe === "sed" && tokens[1] === "-n") {
-    const args = tokens.slice(exe === "sed" ? 3 : 1);
-    const path = args.find((token) => !token.startsWith("-"));
-    return path ? clip(`Reading ${basename(path)}`) : "Reading files";
-  }
-  return clip(unwrapped) || "Working";
 }
 
 // plugins/provider-codex/src/cloud/backend.ts
@@ -829,9 +698,9 @@ function cloudTaskSnapshot(value, binding) {
   if (task.environment_id !== void 0 && task.environment_id !== binding.environmentId) throw new Error("Cloud task environment does not match this tab");
   const assistant = row(details.current_assistant_turn);
   const error = row(assistant.error);
-  const display2 = row(details.task_status_display ?? task.task_status_display);
-  const turn = row(display2.latest_turn_status_display);
-  const status = text(turn.turn_status) ?? text(assistant.turn_status) ?? text(display2.state);
+  const display = row(details.task_status_display ?? task.task_status_display);
+  const turn = row(display.latest_turn_status_display);
+  const status = text(turn.turn_status) ?? text(assistant.turn_status) ?? text(display.state);
   const output = rows(assistant.output_items);
   const result = output.filter((item) => item.type === "message").flatMap(
     (item) => Array.isArray(item.content) ? item.content.map((fragment) => typeof fragment === "string" ? fragment : text(row(fragment).text) ?? "") : []
@@ -853,15 +722,15 @@ function cloudTaskBackend(capability, transport) {
   return {
     capability,
     environments: () => capability.environments,
-    create(input) {
-      const response = row(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt)));
+    *create(input) {
+      const response = row(yield* ioResolve(transport.request("POST", cloudTaskPath(input.environmentId), input.accountRef, cloudTaskRequest(input.environmentId, input.branch, input.prompt))));
       const taskId = text(row(response.task).id) ?? text(response.id);
       if (!taskId) throw new Error("Cloud did not acknowledge a task identity");
       return { taskId };
     },
-    read(binding) {
+    *read(binding) {
       if (!binding.snapshot) throw new Error("Cloud task identity is missing");
-      return cloudTaskSnapshot(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef), binding);
+      return cloudTaskSnapshot(yield* ioResolve(transport.request("GET", cloudTaskPath(binding.environmentId, binding.snapshot.taskId), binding.accountRef)), binding);
     }
   };
 }
@@ -884,15 +753,26 @@ ${task.diff}
   return [{ id: `${task.taskId}:${binding.revision}`, type: "assistant", content }];
 }
 function remoteChatBackend(storage, backend, providerId) {
-  const controller = new RemoteTaskController(storage, backend);
+  const epochs = /* @__PURE__ */ new Map();
+  const requireCurrent = (id, epoch) => {
+    if (epochs.get(id) !== epoch) throw new Error("Remote task tab closed during operation");
+  };
+  const controllerFor = (id) => {
+    const epoch = epochs.get(id);
+    return new RemoteTaskController(storage, backend, () => requireCurrent(id, epoch));
+  };
   const sessions = /* @__PURE__ */ new Map();
   return {
-    openSession(ctx) {
+    *openSession(ctx) {
+      const epoch = {};
+      epochs.set(ctx.tabId, epoch);
       if (ctx.config?.executionMode !== backend.capability.mode) throw new Error("Choose the declared Cloud execution mode");
       if (backend.capability.availability.status === "unavailable") throw new Error(backend.capability.availability.reason);
-      const saved = storage.read(ctx.tabId);
+      const saved = yield* ioResolve(storage.read(ctx.tabId));
       if (saved && saved.providerId !== providerId) throw new Error("Stored task belongs to another provider");
-      const existing = controller.restore(ctx.tabId);
+      requireCurrent(ctx.tabId, epoch);
+      const existing = yield* controllerFor(ctx.tabId).restore(ctx.tabId);
+      requireCurrent(ctx.tabId, epoch);
       if (!existing && !backend.capability.environments.some((environment) => environment.id === ctx.preset)) {
         throw new Error("Choose a Cloud environment before opening a remote task");
       }
@@ -901,47 +781,54 @@ function remoteChatBackend(storage, backend, providerId) {
         const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
         if (!environment) throw new Error("The selected environment is unavailable");
         try {
-          controller.create(ctx.tabId, providerId, environment, "master", ctx.systemPrompt);
+          yield* controllerFor(ctx.tabId).create(ctx.tabId, providerId, environment, "master", ctx.systemPrompt);
         } catch (error) {
-          if (!storage.read(ctx.tabId)) throw error;
+          requireCurrent(ctx.tabId, epoch);
+          if (!(yield* ioResolve(storage.read(ctx.tabId)))) throw error;
         }
       }
+      requireCurrent(ctx.tabId, epoch);
       return { sessionId: ctx.tabId };
     },
-    sendMessage(sessionId, prompt) {
+    *sendMessage(sessionId, prompt) {
       const ctx = sessions.get(sessionId);
       if (!ctx) throw new Error("Remote task tab is not open");
       const environment = backend.capability.environments.find((environment2) => environment2.id === ctx.preset);
       if (!environment) throw new Error("The selected environment is unavailable");
-      controller.create(sessionId, providerId, environment, "master", prompt);
+      yield* controllerFor(sessionId).create(sessionId, providerId, environment, "master", prompt);
     },
-    poll(sessionId, cursor) {
+    *poll(sessionId, cursor) {
+      const epoch = epochs.get(sessionId);
       if (!sessions.has(sessionId)) throw new Error("Remote task tab is not open");
-      const binding = storage.read(sessionId);
+      const binding = yield* ioResolve(storage.read(sessionId));
+      requireCurrent(sessionId, epoch);
       const messages = taskMessages(binding);
       const next = JSON.stringify(messages);
       return { messages: cursor === next ? [] : messages, cursor: next, done: binding?.snapshot?.status === "ready" || binding?.snapshot?.status === "error" };
     },
     closeSession(sessionId) {
+      epochs.delete(sessionId);
       sessions.delete(sessionId);
     },
     listModels: () => [],
     listPresets: () => backend.capability.environments.map((environment) => ({ id: environment.id, name: environment.label })),
-    viewCall(method, args) {
+    *viewCall(method, args) {
       const input = args;
       const sessionId = input?.sessionId;
       if (!sessionId) throw new Error("Remote task tab is not open");
       if (method === "read") {
-        const binding = storage.read(sessionId);
+        const epoch = epochs.get(sessionId);
+        const binding = yield* ioResolve(storage.read(sessionId));
+        requireCurrent(sessionId, epoch);
         if (binding && (binding.executionMode !== backend.capability.mode || binding.providerId !== providerId)) throw new Error("Stored execution mode does not match Cloud");
         return binding;
       }
-      if (method === "refresh") return controller.restore(sessionId);
+      if (method === "refresh") return yield* controllerFor(sessionId).restore(sessionId);
       if (method === "submit") {
         if (!sessions.has(sessionId)) throw new Error("Remote task tab must reopen before submission");
         const environment = backend.capability.environments.find((environment2) => environment2.id === sessions.get(sessionId)?.preset);
         if (!environment) throw new Error("The selected environment is unavailable");
-        return controller.create(sessionId, providerId, environment, input?.branch ?? "master", input?.prompt ?? "");
+        return yield* controllerFor(sessionId).create(sessionId, providerId, environment, input?.branch ?? "master", input?.prompt ?? "");
       }
       throw new Error("This remote task operation is unsupported");
     }
@@ -963,14 +850,14 @@ var CloudTransportError = class extends Error {
     this.status = status;
   }
 };
-function record2(value) {
+function record(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
-function publicAccountId(host2) {
+function* publicAccountId(host2) {
   let credential = null;
   try {
-    const raw = host2.credentialPublic(CODEX_AUTH_CREDENTIAL);
-    credential = raw ? record2(JSON.parse(raw)) : null;
+    const raw = yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL }, true);
+    credential = raw ? record(JSON.parse(raw)) : null;
   } catch {
     credential = null;
   }
@@ -991,15 +878,15 @@ function isCodexTaskPath(method, path) {
   return path === "/api/codex/tasks/list" || /^\/api\/codex\/tasks\/list\?[^#]*$/.test(path) || /^\/api\/codex\/tasks\/[A-Za-z0-9._-]+$/.test(path);
 }
 function createCodexCloudTransport(host2) {
-  const request2 = (method, path, accountRef, body) => {
+  const request = function* (method, path, accountRef, body) {
     const settingsRequest = method === "GET" && path === SETTINGS_ENVIRONMENTS_PATH;
     const legacyRequest = path.startsWith("/wham/");
     const codexTaskRequest = isCodexTaskPath(method, path);
     if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || !settingsRequest && !legacyRequest && !codexTaskRequest) throw new CloudTransportError();
-    const accountId = publicAccountId(host2);
+    const accountId = yield* publicAccountId(host2);
     let result;
     try {
-      result = JSON.parse(host2.fetch(JSON.stringify({
+      result = JSON.parse(yield* ioEncoded(host2.io.fetch({
         url: `${settingsRequest || codexTaskRequest ? SETTINGS_BASE_URL : CLOUD_BASE_URL}${path}`,
         method,
         timeoutMs: 6e3,
@@ -1017,29 +904,29 @@ function createCodexCloudTransport(host2) {
     } catch {
       throw new CloudTransportError();
     }
-    const response = record2(result);
+    const response = record(result);
     if (!response || typeof response.status !== "number") throw new CloudTransportError();
     const status = response.status;
     if (status < 200 || status >= 300) throw new CloudTransportError(status);
     return readBody(response);
   };
-  const discoverRemoteTask = () => {
+  const discoverRemoteTask = function* () {
     try {
       try {
-        const settingsEnvironments = cloudEnvironmentConfigList(request2("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        const settingsEnvironments = cloudEnvironmentConfigList(yield* request("GET", SETTINGS_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
         if (settingsEnvironments.length > 0) return { availability: { status: "available" }, environments: settingsEnvironments };
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
       }
       let repoEnvironments = null;
       try {
-        repoEnvironments = cloudEnvironmentList(request2("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        repoEnvironments = cloudEnvironmentList(yield* request("GET", REPOSITORY_ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
       }
       let allEnvironments = null;
       try {
-        allEnvironments = cloudEnvironmentList(request2("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
+        allEnvironments = cloudEnvironmentList(yield* request("GET", ENVIRONMENTS_PATH, CODEX_CLOUD_ACCOUNT_REF));
       } catch (error) {
         if (error instanceof CloudTransportError && (error.status === 401 || error.status === 403)) throw error;
         if (repoEnvironments === null) throw error;
@@ -1055,7 +942,7 @@ function createCodexCloudTransport(host2) {
       return { availability: { status: "unavailable", reason }, environments: [] };
     }
   };
-  return { request: request2, discoverRemoteTask };
+  return { request, discoverRemoteTask };
 }
 
 // plugins/provider-codex/src/cloud/plugin.ts
@@ -1072,203 +959,39 @@ function cloudExports(hostRef) {
     const root = `${dataRoot.replace(/[\\/]$/, "")}/codex/tasks`;
     capability = manifest.capabilities.remoteTask;
     transport = createCodexCloudTransport(host2);
-    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.fs, root), cloudTaskBackend(capability, transport), manifest.id);
+    backend = remoteChatBackend(new RemoteTaskFileStorage(host2.io.fs, root), cloudTaskBackend(capability, transport), manifest.id);
     return backend;
   };
-  const discoverRemoteTask = () => {
+  const discoverRemoteTask = function* () {
     get();
-    const discovery = transport.discoverRemoteTask();
+    const discovery = yield* ioResolve(transport.discoverRemoteTask());
     Object.assign(capability, discovery);
     return discovery;
   };
   return {
     discoverRemoteTask,
-    openSession: (ctx) => {
-      const discovery = discoverRemoteTask();
+    openSession: function* (ctx) {
+      const discovery = yield* discoverRemoteTask();
       if (discovery.availability.status === "unavailable") throw new Error(discovery.availability.reason);
-      return get().openSession(ctx);
+      return yield* get().openSession(ctx);
     },
-    sendMessage: (session, text7) => get().sendMessage(session, text7),
-    poll: (session, cursor) => get().poll(session, cursor),
+    sendMessage: function* (session, text7) {
+      return yield* get().sendMessage(session, text7);
+    },
+    poll: function* (session, cursor) {
+      return yield* get().poll(session, cursor);
+    },
     closeSession: (session) => get().closeSession(session),
-    viewCall: (method, args, context) => get().viewCall(method, args, context)
+    viewCall: function* (method, args, context) {
+      return yield* get().viewCall(method, args, context);
+    }
   };
-}
-
-// plugins/provider-codex/src/runtimeGoal.ts
-var statuses = /* @__PURE__ */ new Set(["active", "paused", "blocked", "usageLimited", "budgetLimited", "complete"]);
-function goalIntent(raw, thread) {
-  if (!raw || typeof raw !== "object") return null;
-  const goal = raw;
-  if (thread && goal.threadId !== thread) return null;
-  if (typeof goal.objective !== "string" || !goal.objective.trim()) return null;
-  return { goal: goal.objective, ...typeof goal.status === "string" && statuses.has(goal.status) ? { goalStatus: goal.status } : {} };
-}
-function goalPlan(threadId, value) {
-  const action = value && typeof value === "object" && !Array.isArray(value) ? value.action : void 0;
-  const status = action === "pause" ? "paused" : action === "resume" ? "active" : action === "complete" ? "complete" : void 0;
-  if (action !== "read" && action !== "cancel" && !status) throw new Error("Unsupported goal action");
-  const method = action === "read" ? "thread/goal/get" : action === "cancel" ? "thread/goal/clear" : "thread/goal/set";
-  return { action: { kind: "request", call: { method, params: { threadId, ...action !== "read" ? { origin: "user" } : {}, ...status ? { status } : {} } } }, state: { goalAction: String(action) } };
-}
-function goalResponse(threadId, state, reply) {
-  const refuse = (message) => ({ kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance: false });
-  if (reply.kind === "error") return refuse(reply.error.message);
-  const value = reply.value;
-  if (!value || typeof value !== "object") return refuse("Goal response is invalid");
-  if (state.goalAction === "cancel") return value.cleared === true ? { kind: "continue", plan: { ...goalPlan(threadId, { action: "read" }), state: { goalAction: "verifyCancel" } } } : refuse("Goal removal was not confirmed");
-  if (!("goal" in value)) return refuse("Goal response is missing");
-  if (state.goalAction === "verifyCancel" && value.goal !== null) return refuse("Goal still exists after removal");
-  const intent = goalIntent(value.goal, threadId);
-  if (value.goal !== null && (!intent || !intent.goalStatus)) return refuse("Goal identity or status is invalid");
-  const expected = state.goalAction === "pause" ? "paused" : state.goalAction === "resume" ? "active" : state.goalAction === "complete" ? "complete" : void 0;
-  if (expected && intent?.goalStatus !== expected) return refuse("Goal status was not confirmed");
-  return { kind: "complete", result: { kind: "goal", threadId, intent } };
-}
-
-// plugins/provider-codex/src/runtimeVersion.ts
-function runtimeBinaryVersion(userAgent) {
-  if (typeof userAgent !== "string") return void 0;
-  return userAgent.match(/^[^\s/]+\/(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?=\s|$)/)?.[0].split("/")[1];
-}
-function initializedResult(state) {
-  const binaryVersion = typeof state.binaryVersion === "string" ? state.binaryVersion : void 0;
-  return { kind: "initialized", ...binaryVersion ? { binaryVersion } : {} };
-}
-
-// plugins/provider-codex/src/runtimeProtocol.ts
-function object(value) {
-  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
-}
-function text2(value) {
-  return typeof value === "string" && value.length > 0 ? value : void 0;
-}
-function list(value) {
-  return Array.isArray(value) ? value : [];
-}
-function userThread(value, expected) {
-  const thread = object(object(value).thread);
-  const id = text2(thread.id);
-  if (!id || expected && expected !== id || thread.parentThreadId != null || object(thread.source).subAgent != null || String(thread.threadSource ?? "").toLowerCase().startsWith("subagent")) return void 0;
-  return id;
-}
-function steerRefused(error, turn) {
-  return error.code === -32600 && error.data == null && (error.message === "no active turn to steer" || error.message.startsWith(`expected active turn id \`${turn}\` but found \``) && error.message.endsWith("`"));
-}
-function archivedResume(message) {
-  const words = message.toLowerCase().split(/\s+/).map((word) => word.replace(/^[`"']+|[`"'.:;,]+$/g, ""));
-  return words.some((word, index) => word === "codex" && words[index + 1] === "unarchive" || word === "session" && !!words[index + 1] && words[index + 2] === "is" && words[index + 3] === "archived");
-}
-function missingRollout(error, thread) {
-  return error.code === -32600 && error.data == null && error.message === `no rollout found for thread id ${thread}`;
-}
-var serverRequestMethods = [
-  "item/commandExecution/requestApproval",
-  "item/fileChange/requestApproval",
-  "item/permissions/requestApproval",
-  "item/tool/requestUserInput",
-  "mcpServer/elicitation/request"
-];
-
-// plugins/provider-shared/outputLimit.ts
-function outputLimit(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
-  const record6 = value;
-  const details = record6.incomplete_details;
-  if (record6.stop_reason === "max_tokens" || record6.finish_reason === "length") return true;
-  if (record6.status === "incomplete" && details?.reason === "max_output_tokens") return true;
-  const message = record6.message;
-  return typeof message === "string" && message.length <= 16384 && /incomplete response[^\n]*\bmax_output_tokens\b/i.test(message);
-}
-
-// plugins/provider-codex/src/runtimeTurnStatus.ts
-function threadStatus(raw) {
-  const status = object(raw);
-  const type = typeof raw === "string" ? raw : status.type;
-  if (type === "idle") return { state: "idle" };
-  if (type === "systemError") return { state: "needs_input", detail: "systemError" };
-  if (type !== "active") return void 0;
-  const flags = list(status.activeFlags);
-  if (flags.includes("waitingOnApproval")) return { state: "needs_input", detail: "awaitingApproval" };
-  if (flags.includes("waitingOnUserInput")) return { state: "needs_input", detail: "awaitingInput" };
-  return { state: "working" };
-}
-function turnOutcome(turn) {
-  if (outputLimit(turn)) return "failed";
-  const status = object(turn).status;
-  return status === "interrupted" ? "interrupted" : status === "failed" ? "failed" : void 0;
-}
-function requestDetail(method) {
-  return method.endsWith("/requestApproval") ? "awaitingApproval" : "awaitingInput";
-}
-function withDetail(status, compacting) {
-  return status.state === "working" && compacting ? { state: "working", detail: "compacting" } : status;
 }
 
 // plugins/provider-codex/src/runtimeHistoryBounds.ts
 var HISTORY_CHUNK_BYTES = 512 * 1024;
 var ITEM_BYTES = 64 * 1024;
 var STRING_BYTES = 16 * 1024;
-function utf8Bytes2(value) {
-  try {
-    return unescape(encodeURIComponent(value)).length;
-  } catch {
-    return value.length + (value.match(/[\u0080-\u07ff]/g)?.length ?? 0) + 2 * (value.match(/[\u0800-\uffff]/g)?.length ?? 0) - 2 * (value.match(/[\ud800-\udbff][\udc00-\udfff]/g)?.length ?? 0);
-  }
-}
-function serializedBytes(value) {
-  return utf8Bytes2(JSON.stringify(value));
-}
-function boundedString(value) {
-  const scrubbed = value.replace(
-    /data:image\/[^\s"'<>]*;base64,[A-Za-z0-9+/=_-]*/gi,
-    (image) => `[image omitted: ${utf8Bytes2(image)} bytes]`
-  );
-  const bytes2 = utf8Bytes2(scrubbed);
-  if (bytes2 <= STRING_BYTES) return scrubbed;
-  return `${scrubbed.slice(0, 2048)}
-[content truncated: ${bytes2} bytes total]`;
-}
-function sanitizeHistory(value) {
-  return JSON.parse(JSON.stringify(value, (_key, entry) => {
-    if (typeof entry === "string") return boundedString(entry);
-    if (entry && typeof entry === "object" && !Array.isArray(entry)) {
-      const item = entry;
-      if (item.type === "image" && typeof item.data === "string" && !item.data.startsWith("[image omitted:")) {
-        const { data, ...rest } = item;
-        return { ...rest, data: `[image omitted: ${utf8Bytes2(data)} bytes]` };
-      }
-      if (item.type === "imageGeneration" && typeof item.result === "string" && !item.result.startsWith("[image omitted:")) {
-        return { ...item, result: `[image omitted: ${utf8Bytes2(item.result)} bytes]` };
-      }
-    }
-    return entry;
-  }));
-}
-function historyItem(value) {
-  const sanitized = sanitizeHistory(value);
-  const bytes2 = serializedBytes(sanitized);
-  return bytes2 <= ITEM_BYTES ? sanitized : { id: sanitized.id, type: "error", message: `[history item omitted: ${bytes2} serialized bytes]` };
-}
-function boundHistoryRows(rows2) {
-  const bounded2 = rows2.map((row3) => {
-    const sanitized = sanitizeHistory(row3);
-    const bytes3 = serializedBytes(sanitized);
-    if (sanitized.attachments) {
-      sanitized.attachments = sanitized.attachments.map((attachment) => {
-        if (!attachment.url?.startsWith("[image omitted:")) return attachment;
-        sanitized.content += `
-${attachment.url}`;
-        const { url, ...chip } = attachment;
-        return chip;
-      });
-    }
-    if (bytes3 <= ITEM_BYTES) return sanitized;
-    return { id: row3.id, seq: row3.seq, type: "system", content: `[history item omitted: ${bytes3} serialized bytes]` };
-  });
-  const bytes2 = serializedBytes(bounded2);
-  return bytes2 <= ITEM_BYTES || !rows2.length ? bounded2 : [{ id: rows2[0].id, seq: rows2[0].seq, type: "system", content: `[history item omitted: ${bytes2} serialized bytes]` }];
-}
 
 // plugins/provider-codex/src/canonicalJson.ts
 function canonicalJson(value, indentation = 0) {
@@ -1285,6 +1008,11 @@ ${gap.repeat(depth + 1)}`)}
 ${gap.repeat(depth)}${close}` : open + parts.join(",") + close;
   };
   return render(normalized, 0);
+}
+
+// plugins/provider-codex/src/runtimeProtocol.ts
+function object(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 }
 
 // plugins/provider-codex/src/fileDiffs.ts
@@ -1380,281 +1108,12 @@ function diffEdits(diffs) {
   return edits;
 }
 
-// plugins/provider-codex/src/runtimeDiffs.ts
-function runtimeFileDiffs(changes) {
-  if (changes && typeof changes === "object" && !Array.isArray(changes)) return codexFileDiffs(changes);
-  return list(changes).map(object).flatMap((change) => {
-    const path = text2(change.path);
-    const kind = object(change.kind);
-    const diff = text2(change.diff);
-    if (!path || diff === void 0) return [];
-    const selected = kind.type === "update" ? "modify" : kind.type === "add" ? "add" : kind.type === "delete" ? "delete" : void 0;
-    if (!selected) return [];
-    let rows2;
-    if (/^Binary files|^GIT binary patch/m.test(diff)) rows2 = [{ path, kind: selected, binary: true, additions: 0, deletions: 0, hunks: [] }];
-    else if (selected === "add" || selected === "delete") {
-      const lines = diff.replace(/\n$/, "").split("\n");
-      const add = selected === "add";
-      rows2 = [{
-        path,
-        kind: selected,
-        additions: add ? lines.length : 0,
-        deletions: add ? 0 : lines.length,
-        hunks: [{ oldStart: add ? 0 : 1, oldLines: add ? 0 : lines.length, newStart: add ? 1 : 0, newLines: add ? lines.length : 0, lines: lines.map((line) => (add ? "+" : "-") + line) }]
-      }];
-    } else rows2 = recordedPatchDiff(path, diff, "modify");
-    const movePath = text2(kind.move_path);
-    return rows2.map((row3) => ({ ...row3, ...movePath ? { kind: "rename", movePath } : {} }));
-  });
-}
-
-// plugins/provider-codex/src/runtimeQuestions.ts
-function nativeOption(value) {
-  if (typeof value === "string") return { value, label: value };
-  const option = object(value);
-  const label = text2(option.label) ?? text2(option.title);
-  const id = text2(option.value) ?? text2(option.id) ?? label;
-  return label && id ? { value: id, label } : void 0;
-}
-function runtimeQuestions(value) {
-  return list(value).map(object).map((question, index) => ({
-    id: text2(question.id) ?? String(index),
-    text: text2(question.title) ?? text2(question.question) ?? "Choose an answer",
-    options: list(question.options).flatMap((option) => {
-      const parsed = nativeOption(option);
-      return parsed ? [parsed] : [];
-    }),
-    ...typeof question.multiSelect === "boolean" ? { multiSelect: question.multiSelect } : {},
-    ...typeof question.allowFreeText === "boolean" ? { allowFreeText: question.allowFreeText } : {}
-  }));
-}
-function questionAnswerInput(itemId, answers) {
-  return { text: canonicalJson({ itemId, answers: answers.map((answer) => ({ questionId: answer.questionId, values: [...answer.values], ...answer.text !== void 0 ? { text: answer.text } : {} })) }), attachments: [] };
-}
-function answersMatch(questions, raw) {
-  const answers = list(raw).map(object);
-  if (answers.length !== questions.length || new Set(answers.map((answer) => answer.questionId)).size !== answers.length) return false;
-  return questions.every((question) => {
-    const answer = answers.find((answer2) => answer2.questionId === question.id);
-    if (!answer || !Array.isArray(answer.values)) return false;
-    const values = answer.values;
-    if (new Set(values).size !== values.length || values.some((value) => typeof value !== "string" || !question.options.some((option) => option.value === value))) return false;
-    if (!question.multiSelect && values.length > 1) return false;
-    const freeText = text2(answer.text);
-    if (answer.text !== void 0 && (!freeText || question.allowFreeText === false)) return false;
-    return values.length > 0 || !!freeText;
-  });
-}
-function reconcileHistoryQuestions(threadId, raw, previous) {
-  const item = object(raw);
-  const itemId = text2(item.id);
-  if (item.type === "agentMessage" && item.delivery === "async" && itemId && list(item.questions).length) {
-    const old = previous.find((question2) => question2.itemId === itemId);
-    const question = { threadId, itemId, questions: runtimeQuestions(item.questions), response: "message", ...old?.resolved ? { resolved: true } : {} };
-    return [...previous.filter((existing) => existing.itemId !== itemId), question];
-  }
-  if (item.type !== "userMessage") return [...previous];
-  const content = list(item.content).map(object).filter((part) => part.type === "text").map((part) => part.text).join("\n");
-  let answer;
-  try {
-    answer = object(JSON.parse(content));
-  } catch {
-    return [...previous];
-  }
-  return previous.map((question) => answer.itemId === question.itemId && answersMatch(question.questions, answer.answers) ? { ...question, resolved: true } : question);
-}
-
-// plugins/provider-codex/src/runtimeMessages.ts
-function json(value) {
-  return JSON.parse(JSON.stringify(value));
-}
-function toolOutput(value) {
-  const result = json(value);
-  const parts = Array.isArray(result) ? result : list(object(result).content);
-  const mapped = parts.map((part) => {
-    const item = object(part);
-    if (item.type === "image") return typeof item.data === "string" && item.data.startsWith("[image omitted:") ? { type: "text", text: item.data } : { type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.data}` } };
-    if (item.type === "inputImage") return { type: "image_url", image_url: { url: item.imageUrl } };
-    return part;
-  });
-  return display(Array.isArray(result) ? mapped : parts.length ? { ...object(result), content: mapped } : result);
-}
-function display(value) {
-  return typeof value === "string" ? value : canonicalJson(value, 2);
-}
-function runtimeItem(raw, seq, previous) {
-  const item = object(raw);
-  const id = text2(item.id);
-  if (!id) return void 0;
-  const row3 = { id, seq: previous?.seq ?? seq, type: "tool_call", content: "" };
-  if (previous?.timestamp) row3.timestamp = previous.timestamp;
-  switch (item.type) {
-    case "userMessage": {
-      row3.type = "user";
-      row3.content = list(item.content).map(object).filter((p) => p.type === "text").map((p) => p.text).join("\n");
-      const attachments = list(item.content).map(object).flatMap((p, index) => {
-        if (p.type !== "image" && p.type !== "localImage") return [];
-        const url = text2(p.url);
-        const data = url?.match(/^data:([^;]+);base64,(.*)$/);
-        return [{
-          id: `${id}-image-${index}`,
-          mimeType: data?.[1] ?? "image/png",
-          ...data ? { data: data[2] } : url ? { url } : {},
-          ...text2(p.path) ? { path: String(p.path) } : {}
-        }];
-      });
-      if (attachments.length) row3.attachments = attachments;
-      return row3;
-    }
-    case "toolFlow":
-      return { ...row3, type: "tool_flow", content: String(item.state ?? "") };
-    case "sessionIntent":
-      return { ...row3, type: "custom", sessionIntent: { ...text2(item.title) ? { title: String(item.title) } : {}, ...text2(item.objective) ? { goal: String(item.objective) } : {} } };
-    case "sleep":
-      row3.toolSummary = `Wait ${item.durationMs} ms`;
-      break;
-    case "agentMessage":
-    case "plan":
-      row3.type = "assistant";
-      row3.content = typeof item.text === "string" ? item.text : previous?.content ?? "";
-      if (item.delivery === "async" && list(item.questions).length) {
-        row3.toolInput = item;
-        row3.interactive = runtimeQuestions(item.questions).map((question) => ({ type: "question", id: question.id, toolUseId: id, prompt: question.text, options: question.options.map((option) => ({ ...option })), multiSelect: question.multiSelect ?? false }));
-      }
-      return row3;
-    case "reasoning":
-      row3.type = "thinking";
-      row3.collapsed = true;
-      row3.content = list(item.summary).join("\n") || list(item.content).join("\n");
-      return row3;
-    case "contextCompaction":
-      return { ...row3, type: "system", content: "context compacted", systemSubtype: "contextCompaction", timelineMarker: { kind: "context_compaction" } };
-    case "error":
-      return { ...row3, type: "system", content: String(item.message ?? ""), systemSubtype: "api_error" };
-    case "hookPrompt":
-    case "enteredReviewMode":
-    case "exitedReviewMode":
-      return { ...row3, type: "system", systemSubtype: String(item.type), content: item.type === "hookPrompt" ? list(item.fragments).map(object).map((p) => p.text ?? "").join("\n") : String(item.review ?? "") };
-    case "commandExecution":
-      row3.toolKind = "command";
-      row3.toolDetail = activityCommand({ toolInput: item });
-      row3.toolSummary = activityLabel(row3);
-      if (typeof item.aggregatedOutput === "string") row3.toolResult = item.aggregatedOutput;
-      else if (previous?.toolResult !== void 0) row3.toolResult = previous.toolResult;
-      if (typeof item.exitCode === "number") row3.toolExitCode = item.exitCode;
-      if (item.status === "interrupted") row3.toolInterrupted = true;
-      break;
-    case "fileChange": {
-      const diffs = runtimeFileDiffs(item.changes);
-      row3.toolKind = "edit";
-      row3.fileDiffs = diffs;
-      row3.toolEdits = diffEdits(diffs);
-      row3.toolSummary = diffs.map((diff) => diff.path).join("\n") || "File change";
-      row3.toolDetail = display(item);
-      break;
-    }
-    case "mcpToolCall":
-    case "dynamicToolCall": {
-      const prefix = text2(item.server) ?? text2(item.namespace);
-      row3.toolKind = "generic";
-      row3.toolName = [prefix, text2(item.tool)].filter(Boolean).join(" \xB7 ");
-      row3.toolInput = item.arguments ?? null;
-      row3.toolSummary = display(item.arguments);
-      row3.toolTitle = row3.toolName;
-      if (item.result != null || item.contentItems != null) row3.toolResult = toolOutput(item.result ?? item.contentItems);
-      if (item.error != null) {
-        row3.toolResult = display(item.error);
-        row3.toolError = true;
-      }
-      if (item.success === false || object(item.result).isError === true) row3.toolError = true;
-      break;
-    }
-    case "functionCallOutput":
-      return { ...row3, type: "tool_result", toolId: id, toolName: String(item.name ?? ""), toolResult: display(item.output) };
-    case "webSearch":
-      row3.toolKind = "web";
-      row3.toolSummary = String(item.query ?? "");
-      row3.toolRichResult = json({
-        kind: "web",
-        query: item.query,
-        action: object(item.action).type,
-        url: object(item.action).url,
-        pattern: object(item.action).pattern,
-        resultCount: Array.isArray(item.results) ? item.results.length : void 0
-      });
-      if (item.results != null) row3.toolResult = display(item.results);
-      break;
-    case "imageView":
-    case "imageGeneration":
-      row3.toolKind = "image";
-      row3.toolSummary = String(item.savedPath ?? item.path ?? item.revisedPrompt ?? "");
-      row3.toolRichResult = json({ kind: "image", origin: item.type === "imageGeneration" ? "generated" : "viewed", path: item.savedPath ?? item.path, prompt: item.revisedPrompt, status: item.status });
-      if (text2(item.result)) row3.toolResult = String(item.result).startsWith("data:") || String(item.result).startsWith("[image omitted:") || item.type === "imageView" ? String(item.result) : `data:image/png;base64,${item.result}`;
-      break;
-    case "collabAgentToolCall":
-    case "subAgentActivity": {
-      if (item.type === "collabAgentToolCall" && !list(item.receiverThreadIds).length) {
-        if (item.tool === "spawnAgent") return void 0;
-        row3.toolKind = "generic";
-        row3.toolName = text2(item.tool) ?? "collabAgentToolCall";
-        break;
-      }
-      const agent = String(item.agentThreadId ?? list(item.receiverThreadIds)[0] ?? id);
-      const status = String(item.kind ?? object(object(item.agentsStates)[agent]).status ?? "");
-      row3.toolKind = "agent";
-      row3.toolName = "agent_activity";
-      row3.toolSummary = agent;
-      row3.toolInput = json({
-        agent_id: agent,
-        agent_path: item.agentPath,
-        agent_state: { pendingInit: "started", errored: "failed", shutdown: "closed" }[status] ?? status,
-        agent_call_id: id,
-        agent_description: item.prompt,
-        agent_model: item.model,
-        agent_reasoning_effort: item.reasoningEffort,
-        agent_ordinal: item.ordinal,
-        agent_result: object(object(item.agentsStates)[agent]).message
-      });
-      break;
-    }
-    case "planUpdate":
-      row3.toolName = "update_plan";
-      row3.toolSummary = String(item.explanation ?? "");
-      row3.toolResult = display(item.plan);
-      break;
-    default:
-      return void 0;
-  }
-  row3.toolId = id;
-  row3.toolName ?? (row3.toolName = String(item.type));
-  row3.toolInput ?? (row3.toolInput = item);
-  if (row3.toolSummary !== void 0) row3.toolArgs = row3.toolKind === "command" ? row3.toolDetail : row3.toolSummary;
-  row3.collapsed = true;
-  if (typeof item.durationMs === "number") row3.toolDurationMs = item.durationMs;
-  if (row3.toolError == null) {
-    if (typeof item.exitCode === "number") row3.toolError = item.exitCode !== 0;
-    else if (["failed", "declined", "error"].includes(String(item.status))) row3.toolError = true;
-    else if (item.status === "completed") row3.toolError = false;
-  }
-  return row3;
-}
-function runtimeItems(raw, seq) {
-  const item = object(raw);
-  const receivers = list(item.receiverThreadIds);
-  if (item.type === "collabAgentToolCall" && receivers.length) return receivers.flatMap((receiver, index) => {
-    const row4 = runtimeItem({ ...item, id: `${item.id}:${receiver}`, receiverThreadIds: [receiver], ...item.tool === "spawnAgent" ? { ordinal: index + 1 } : {} }, seq + index);
-    return row4 ? [row4] : [];
-  });
-  const row3 = runtimeItem(raw, seq);
-  return row3 ? [row3] : [];
-}
-
 // plugins/provider-codex/src/actionTitle.ts
 var MAX_TITLE_CHARS = 48;
-function clip2(value) {
-  const compact2 = value.replace(/\s+/g, " ").trim();
-  if (compact2.length <= MAX_TITLE_CHARS) return compact2;
-  return compact2.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
+function clip(value) {
+  const compact = value.replace(/\s+/g, " ").trim();
+  if (compact.length <= MAX_TITLE_CHARS) return compact;
+  return compact.substring(0, MAX_TITLE_CHARS - 3).trimEnd() + "...";
 }
 function text3(value) {
   return typeof value === "string" ? value : "";
@@ -1673,15 +1132,15 @@ function actionTitle(fields) {
   const detail = text3(fields.tool_detail);
   if (fields.tool_kind === "command") {
     const more = /\(\+(\d+) more\)$/.exec(summary);
-    return clip2(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
+    return clip(commandHead(detail || summary) + (more ? ` +${more[1]}` : ""));
   }
-  if (fields.tool_kind === "read" && summary) return clip2(`Read ${baseName(summary)}`);
+  if (fields.tool_kind === "read" && summary) return clip(`Read ${baseName(summary)}`);
   if (fields.tool_kind === "edit") {
     const edits = Array.isArray(fields.tool_edits) ? fields.tool_edits : [];
     const paths = edits.map((edit) => text3(edit && edit.path)).filter((path, index, all) => path && all.indexOf(path) === index);
-    if (paths.length > 0) return clip2(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
+    if (paths.length > 0) return clip(`Patched ${baseName(paths[0])}` + (paths.length > 1 ? ` +${paths.length - 1}` : ""));
   }
-  return clip2(summary || "Tool activity");
+  return clip(summary || "Tool activity");
 }
 
 // plugins/provider-codex/src/agentActivity.ts
@@ -1699,7 +1158,7 @@ var AGENT_STATES = {
 function text4(value) {
   return typeof value === "string" ? value.trim() : "";
 }
-function record3(value) {
+function record2(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function row2(uuid, blocks, ts, timestamp) {
@@ -1729,7 +1188,7 @@ function reasoningItemRow(item, ts, timestamp) {
 function reasoningResponseRow(payload, ts, timestamp) {
   const parts = Array.isArray(payload.summary) ? payload.summary : [];
   const summaries = parts.map((part) => {
-    const entry = record3(part);
+    const entry = record2(part);
     return entry && entry.type === "summary_text" ? entry.text : void 0;
   });
   return thoughtRow(payload.id, summaries, ts, timestamp);
@@ -1744,8 +1203,8 @@ function subAgentRow(item, id, turnId, ts, timestamp) {
 }
 function collabCallRow(item, turnId, ts, timestamp) {
   const receivers = Array.isArray(item.receiver_thread_ids) ? item.receiver_thread_ids : [];
-  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record3) : [];
-  const states = record3(item.agents_states);
+  const agents = Array.isArray(item.receiver_agents) ? item.receiver_agents.map(record2) : [];
+  const states = record2(item.agents_states);
   const seen = [];
   const blocks = [];
   for (const receiver of receivers) {
@@ -1753,7 +1212,7 @@ function collabCallRow(item, turnId, ts, timestamp) {
     if (!agentId || seen.indexOf(agentId) !== -1) continue;
     seen.push(agentId);
     const agentPath = text4(agents.find((entry) => entry !== null && text4(entry.thread_id) === agentId)?.agent_path);
-    const state = AGENT_STATES[text4(record3(states?.[agentId])?.status)] ?? "unknown";
+    const state = AGENT_STATES[text4(record2(states?.[agentId])?.status)] ?? "unknown";
     blocks.push(agentBlock({ agent_id: agentId, agent_path: agentPath, agent_state: state }, agentPath || agentId, turnId));
   }
   return row2(text4(item.id) ? `collab-${text4(item.id)}` : "", blocks, ts, timestamp);
@@ -1762,7 +1221,7 @@ function agentMessageRow(payload, ts, timestamp) {
   const from = text4(payload.author);
   const to = text4(payload.recipient);
   if (!from || !to || from === to) return null;
-  const turnId = record3(payload.internal_chat_message_metadata_passthrough)?.turn_id;
+  const turnId = record2(payload.internal_chat_message_metadata_passthrough)?.turn_id;
   const block = agentBlock({ message_from: from, message_to: to }, `${from} \u2192 ${to}`, turnId);
   return row2(text4(payload.id) ? `agent-message-${text4(payload.id)}` : "", [block], ts, timestamp);
 }
@@ -1899,9 +1358,9 @@ function clipSummary(value, limit = MAX_SUMMARY_CHARS) {
   return value.substring(0, Math.max(1, limit - 3)).trimEnd() + "...";
 }
 function commandSummary(commands) {
-  const compact2 = commands.map(compactCommand).filter(Boolean);
-  const first = compact2[0];
-  const suffix = compact2.length > 1 ? ` (+${compact2.length - 1} more)` : "";
+  const compact = commands.map(compactCommand).filter(Boolean);
+  const first = compact[0];
+  const suffix = compact.length > 1 ? ` (+${compact.length - 1} more)` : "";
   const summary = clipSummary(first, MAX_SUMMARY_CHARS - suffix.length) + suffix;
   return { kind: "command", summary, detail: commands.map((value) => value.trim()).join("\n\n") };
 }
@@ -1937,11 +1396,11 @@ function summarizeExecScript(raw) {
 function text5(value) {
   return typeof value === "string" ? value : "";
 }
-function record4(value) {
+function record3(value) {
   return value && typeof value === "object" && !Array.isArray(value) ? value : null;
 }
 function webFields(source) {
-  const action = record4(source.action);
+  const action = record3(source.action);
   const rich = { kind: "web" };
   const query = text5(source.query) || text5(action?.query);
   if (query) rich.query = query;
@@ -1972,7 +1431,7 @@ function resultMessage(uuid, id, name, rich, summary, detail, failed, turnId, ts
   };
 }
 function webSearchEndResult(payload, ts, timestamp) {
-  const source = record4(payload);
+  const source = record3(payload);
   const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = webFields(source);
@@ -1981,7 +1440,7 @@ function webSearchEndResult(payload, ts, timestamp) {
   return resultMessage(`result-${id}`, id, "web_search", rich, summary, summary, false, source.turn_id, ts, timestamp);
 }
 function imageGenerationEndResult(payload, ts, timestamp) {
-  const source = record4(payload);
+  const source = record3(payload);
   const id = text5(source?.call_id);
   if (!source || !id) return null;
   const rich = { kind: "image", origin: "generated" };
@@ -2119,1781 +1578,12 @@ function completedActivity(value, ts, timestamp, turnId) {
 function storedHistoryAvailable(sessionId, head) {
   if (!sessionId || !head) return false;
   try {
-    const record6 = object(JSON.parse(head.split("\n", 1)[0]));
-    const payload = object(record6.payload);
-    return record6.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
+    const record5 = object(JSON.parse(head.split("\n", 1)[0]));
+    const payload = object(record5.payload);
+    return record5.type === "session_meta" && payload.id === sessionId && payload.history_base == null;
   } catch {
     return false;
   }
-}
-function projectHistoryItem(raw, seq, turn, timestamp, parent) {
-  const source = object(raw);
-  const rows2 = source.historyTruncated === true ? [{ id: String(source.id), seq, type: "system", content: "[content truncated: history item exceeds display budget]" }] : boundHistoryRows(runtimeItems(historyItem(raw), seq));
-  for (const row3 of rows2) {
-    const spawn = source.type === "collabAgentToolCall" && source.tool === "spawnAgent" && source.senderThreadId === parent;
-    const started = source.type === "subAgentActivity" && source.kind === "started" && (source.senderThreadId == null || source.senderThreadId === parent);
-    if (parent && (spawn || started) && row3.toolKind === "agent") {
-      const input = object(row3.toolInput);
-      row3.toolInput = json({ ...input, agent_parent_thread_id: parent, agent_ordinal: input.agent_ordinal ?? 1 });
-    }
-    row3.toolFlowId = turn;
-    if (typeof timestamp === "number" && Number.isFinite(timestamp)) row3.timestamp = new Date(timestamp).toISOString();
-  }
-  return rows2;
-}
-function recordedItem(raw) {
-  const item = Object.fromEntries(Object.entries(object(raw)).map(([key, value]) => [
-    key.replace(/_([a-z])/g, (_match, letter) => letter.toUpperCase()),
-    value
-  ]));
-  if (typeof item.type === "string") item.type = item.type.replace(/^./, (letter) => letter.toLowerCase());
-  if (item.type === "commandExecution") {
-    item.command = commandText(item.command);
-    item.aggregatedOutput ?? (item.aggregatedOutput = [item.stdout, item.stderr].filter((value) => typeof value === "string" && value).join("\n"));
-    item.durationMs ?? (item.durationMs = durationMilliseconds({ duration: item.duration, duration_ms: item.durationMs }));
-  }
-  if (Array.isArray(item.changes)) item.changes = item.changes.map((change) => {
-    const value = object(change), kind = object(value.kind);
-    return { ...value, kind: { ...kind, ...typeof kind.type === "string" ? { type: kind.type.toLowerCase() } : {} } };
-  });
-  if (Array.isArray(item.content)) item.content = item.content.map((part) => {
-    const value = object(part);
-    return { ...value, ...typeof value.type === "string" ? { type: value.type.replace(/^./, (letter) => letter.toLowerCase()) } : {} };
-  });
-  if (item.type === "agentMessage" && typeof item.text !== "string" && Array.isArray(item.content)) {
-    item.text = item.content.map(object).filter((part) => part.type === "text" && typeof part.text === "string").map((part) => part.text).join("\n");
-  }
-  return item;
-}
-function storedRecordType(line) {
-  const tokens = /"type"\s*:\s*"([^"\\]*)"|"(?:\\.|[^"\\])*"|[\{\[]/g;
-  const opening = tokens.exec(line);
-  if (opening?.[0] !== "{") return void 0;
-  for (let token = tokens.exec(line); token; token = tokens.exec(line)) {
-    if (token[1] !== void 0) return token[1];
-    if (token[0] === "{" || token[0] === "[") return void 0;
-  }
-  return void 0;
-}
-function runtimeStoredHistory(sessionId, records) {
-  return projectStoredRecords(sessionId, textRecords(records));
-}
-function* textRecords(records) {
-  for (const line of records.split("\n")) {
-    if (!line.trim()) continue;
-    const type = storedRecordType(line);
-    if (type !== void 0 && type !== "event_msg" && type !== "session_meta") continue;
-    yield JSON.parse(line);
-  }
-}
-function runtimeStoredRecords(sessionId, records) {
-  return projectStoredRecords(sessionId, records.map((record6) => {
-    if (!record6.oversized) return record6.value;
-    const value = object(record6.value), payload = object(value.payload);
-    return { ...value, payload: { ...payload, item: { ...object(payload.item), historyTruncated: true } } };
-  }));
-}
-function projectStoredRecords(sessionId, records) {
-  const rows2 = /* @__PURE__ */ new Map();
-  for (const raw of records) {
-    const record6 = object(raw);
-    const payload = object(record6.payload);
-    if (record6.type === "session_meta" && text2(payload.id) !== sessionId) throw new Error("Stored session identity differs");
-    if (record6.type !== "event_msg" || payload.type !== "item_completed" || payload.thread_id !== sessionId) continue;
-    const turn = text2(payload.turn_id);
-    if (!turn || !text2(object(payload.item).id)) throw new Error("Stored runtime item identity missing");
-    const projected = projectHistoryItem(recordedItem(payload.item), rows2.size, turn, payload.started_at_ms ?? payload.completed_at_ms, sessionId);
-    for (const row3 of projected) {
-      row3.seq = rows2.get(row3.id)?.seq ?? rows2.size;
-      rows2.set(row3.id, row3);
-    }
-  }
-  return [...rows2.values()];
-}
-
-// plugins/provider-codex/src/runtimeHistoryPager.ts
-var PREFIX = "history:";
-function failure(message) {
-  throw { code: "provider_refused", message };
-}
-function encode(position) {
-  return PREFIX + JSON.stringify(position);
-}
-function decode(op) {
-  if (!op.cursor) return { pager: 1, thread: op.threadId, stage: "turns", cursor: null, historyItemLimit: 16 };
-  if (!op.cursor.startsWith(PREFIX) || op.cursor.length > 128 * 1024) failure("Invalid history checkpoint");
-  const position = JSON.parse(op.cursor.slice(PREFIX.length));
-  if (position.pager !== 1 || position.thread !== op.threadId || !["turns", "items", "goal"].includes(position.stage) || position.cursor !== null && typeof position.cursor !== "string" || position.stage === "items" && !text2(object(position.turn).id)) failure("History checkpoint differs from bound thread");
-  position.historyItemLimit ?? (position.historyItemLimit = 16);
-  if (!Number.isSafeInteger(position.historyItemLimit) || position.historyItemLimit < 1 || position.historyItemLimit > 16) failure("Invalid history item limit");
-  return position;
-}
-function pagedHistoryPlan(op) {
-  const state = decode(op);
-  const params = { threadId: op.threadId, sortDirection: "desc", cursor: state.cursor };
-  const call = state.stage === "items" ? { method: "thread/items/list", params: { ...params, turnId: state.turn.id, limit: state.historyItemLimit } } : state.stage === "goal" ? { method: "thread/goal/get", params: { threadId: op.threadId } } : { method: "thread/turns/list", params: { ...params, itemsView: "notLoaded", limit: 1 } };
-  return { action: { kind: "request", call: { ...call, params: call.params } }, state };
-}
-function nextCursor(value, previous) {
-  const next = text2(value.nextCursor) ?? null;
-  if (next && (next.length > 4096 || next === previous)) failure("History RPC cursor did not advance");
-  return next;
-}
-function finish(op, items, openItems, questions, next) {
-  return { kind: "complete", result: {
-    kind: "historyPage",
-    threadId: op.threadId,
-    order: "desc",
-    items,
-    openItems,
-    ...questions.length ? { questions } : {},
-    ...next ? { nextCursor: encode(next) } : {}
-  } };
-}
-function pagedHistoryResponse(op, raw, reply) {
-  const state = raw;
-  if (state.thread !== op.threadId) failure("History checkpoint differs from bound thread");
-  if (reply.kind === "error") {
-    const smaller = object(reply.error.data).historyPageLimit;
-    if (state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < (state.historyItemLimit ?? 16)) {
-      return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode({ ...state, historyItemLimit: smaller }) }) };
-    }
-    if (state.stage === "goal") return finish(op, [], [], []);
-    failure(`History ${state.stage} read failed (${reply.error.code}): ${reply.error.message}`);
-  }
-  const value = object(reply.value);
-  if (state.stage === "goal") {
-    const goal = text2(object(value.goal).objective);
-    return finish(op, goal ? [{ id: "thread:goal", seq: 0, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal } }] : [], [], []);
-  }
-  if (!Array.isArray(value.data)) failure("History page has no data array");
-  const next = nextCursor(value, state.cursor);
-  if (state.stage === "turns") {
-    if (value.data.length > 1) failure("History turn page exceeds requested limit");
-    const turn = object(value.data[0]);
-    if (!value.data.length) return finish(op, [], [], [], next ? { ...state, cursor: next } : { ...state, stage: "goal", cursor: null });
-    if (!text2(turn.id) || String(turn.id).length > 4096) failure("History turn identity missing or oversized");
-    const position2 = {
-      pager: 1,
-      thread: op.threadId,
-      stage: "items",
-      cursor: null,
-      nextTurn: next,
-      turn: { id: String(turn.id), status: turn.status === "inProgress" ? "inProgress" : "completed", startedAt: typeof turn.startedAt === "number" && Number.isFinite(turn.startedAt) ? turn.startedAt : null }
-    };
-    return { kind: "continue", plan: pagedHistoryPlan({ ...op, cursor: encode(position2) }) };
-  }
-  if (value.data.length > (state.historyItemLimit ?? 16)) failure("History item page exceeds requested limit");
-  const items = [], openItems = [];
-  let questions = [], bytes2 = 0;
-  const offset = state.offset ?? 0;
-  if (!Number.isSafeInteger(offset) || offset < 0 || offset > value.data.length) failure("History item offset is invalid");
-  for (let index = offset; index < value.data.length; index++) {
-    const record6 = object(value.data[index]), item = record6.item ?? record6;
-    const rows2 = projectHistoryItem(item, 0, state.turn.id, record6.startedAtMs ?? record6.completedAtMs, op.threadId);
-    const nextQuestions = reconcileHistoryQuestions(op.threadId, item, questions);
-    const active = state.turn.status === "inProgress" && state.turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(item).status));
-    const opened = active ? rows2.map((item2) => ({ turnId: state.turn.id, item: item2 })) : [];
-    const used = serializedBytes({ rows: rows2, opened, questions: nextQuestions });
-    if (bytes2 + used > HISTORY_CHUNK_BYTES && index > offset) return finish(op, items, openItems, questions, { ...state, offset: index });
-    bytes2 += used;
-    items.unshift(...rows2);
-    openItems.unshift(...opened);
-    questions = nextQuestions;
-  }
-  const position = next ? { ...state, cursor: next, offset: 0 } : { pager: 1, thread: op.threadId, stage: state.nextTurn ? "turns" : "goal", cursor: state.nextTurn ?? null };
-  return finish(op, items, openItems, questions, position);
-}
-
-// plugins/provider-codex/src/runtimeLogin.ts
-function loginPlan(raw) {
-  const value = object(raw);
-  if (value.action === "cancel" && text2(value.loginId)) return {
-    action: { kind: "request", call: { method: "account/login/cancel", params: { loginId: String(value.loginId) } } },
-    state: { stage: "loginCancel", loginId: String(value.loginId) }
-  };
-  const types = { browser: "chatgpt", device: "chatgptDeviceCode", apiKey: "apiKey" };
-  const method = String(value.method);
-  if (!["browser", "device", "apiKey"].includes(method) || method === "apiKey" && !text2(value.apiKey)) throw { code: "invalid_schema", message: "Invalid login request" };
-  return { action: { kind: "request", call: { method: "account/login/start", params: json({ type: types[method], ...method === "apiKey" ? { apiKey: value.apiKey } : {} }) } }, state: { stage: "loginStart", method } };
-}
-function loginResponse(state, value) {
-  if (state.stage === "loginCancel") {
-    if (value.status !== "canceled" && value.status !== "notFound") throw { code: "invalid_schema", message: "Invalid cancellation result" };
-    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "canceled", loginId: String(state.loginId) } }] };
-  }
-  if (state.method === "apiKey" && value.type === "apiKey") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "completed", method: "apiKey" } }] };
-  const loginId = text2(value.loginId);
-  const url = text2(value.authUrl) ?? text2(value.verificationUrl);
-  if (!loginId || !url || !["chatgpt", "chatgptDeviceCode"].includes(String(value.type))) throw { code: "invalid_schema", message: "Invalid login start result" };
-  const method = state.method === "device" ? "device" : "browser";
-  const userCode = text2(value.userCode);
-  if (method === "device" && !userCode) throw { code: "invalid_schema", message: "Missing device code" };
-  return { kind: "complete", result: { kind: "done" }, events: [{ kind: "authLogin", login: { status: "pending", method, loginId, url, ...userCode ? { userCode } : {} } }] };
-}
-function loginCompleted(value) {
-  const loginId = text2(value.loginId);
-  return { kind: "authLogin", login: { status: value.success === true ? "completed" : "failed", ...loginId ? { loginId } : {}, ...value.success === true ? {} : { error: "Sign-in did not complete. Try again." } } };
-}
-
-// plugins/provider-codex/src/resetCredits.ts
-function expiry(value) {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 864e10 ? value * 1e3 : null;
-}
-function resetCredits(raw) {
-  const summary = object(raw);
-  const count = summary.availableCount;
-  if (typeof count !== "number" || !Number.isSafeInteger(count) || count < 0) return void 0;
-  const credits = Array.isArray(summary.credits) ? summary.credits.flatMap((rawCredit) => {
-    const credit = object(rawCredit);
-    const id = text2(credit.id);
-    if (!id) return [];
-    const status = credit.status === "available" || credit.status === "redeeming" || credit.status === "redeemed" ? credit.status : "unknown";
-    return [{
-      id,
-      status,
-      expiresAt: expiry(credit.expiresAt),
-      ...text2(credit.title) ? { title: text2(credit.title) } : {},
-      ...text2(credit.description) ? { description: text2(credit.description) } : {}
-    }];
-  }) : null;
-  const expiries = credits?.filter((credit) => credit.status === "available" && credit.expiresAt !== null).map((credit) => credit.expiresAt) ?? [];
-  return { availableCount: count, nextExpiry: expiries.length ? Math.min(...expiries) : null, credits };
-}
-function resetOutcome(raw) {
-  const outcome2 = object(raw).outcome;
-  return outcome2 === "reset" || outcome2 === "nothingToReset" || outcome2 === "noCredit" || outcome2 === "alreadyRedeemed" ? outcome2 : void 0;
-}
-
-// plugins/provider-codex/src/runtimeUsage.ts
-function rateLimitEvents(raw, rawResets) {
-  const limits = object(raw);
-  if (limits.limitId && limits.limitId !== "codex") return [];
-  const windows = ["primary", "secondary"].flatMap((window) => {
-    const value = object(limits[window]);
-    if (typeof value.usedPercent !== "number" || !Number.isFinite(value.usedPercent)) return [];
-    return [{
-      window,
-      usedPercent: Math.max(0, Math.min(100, value.usedPercent)),
-      ...typeof value.resetsAt === "number" && value.resetsAt >= 0 ? { resetsAt: value.resetsAt * 1e3 } : {},
-      ...typeof value.windowDurationMins === "number" && value.windowDurationMins > 0 ? { windowMinutes: value.windowDurationMins } : {}
-    }];
-  });
-  const resets = resetCredits(rawResets);
-  const accountCredits = parseAccountCredits(limits.credits);
-  return windows.length || resets || accountCredits ? [{ kind: "rateLimits", rateLimits: windows, ...resets ? { resets } : {}, ...accountCredits ? { accountCredits } : {} }] : [];
-}
-function parseAccountCredits(raw) {
-  const value = object(raw);
-  if (typeof value.hasCredits !== "boolean" || typeof value.unlimited !== "boolean") return void 0;
-  if (value.unlimited) return { kind: "unlimited" };
-  return typeof value.balance === "string" && /^\d+(?:\.\d+)?$/.test(value.balance) ? { kind: "balance", balance: value.balance } : void 0;
-}
-
-// plugins/provider-codex/src/runtimeAuth.ts
-function accountAuth(value) {
-  const response = object(value);
-  if (response.account === null && response.requiresOpenaiAuth === true) return { kind: "auth", state: "signedOut" };
-  const account = object(response.account);
-  if (text2(account.type)) return { kind: "auth", state: "signedIn", billingMode: account.type === "apiKey" ? "api" : account.type === "chatgpt" || account.type === "chatgptAuthTokens" ? "subscription" : "unknown" };
-  return { kind: "auth", state: "unknown" };
-}
-function notificationAuth(value) {
-  const params = object(value);
-  if (params.authMode === null) return { kind: "auth", state: "signedOut" };
-  if (text2(params.authMode)) return { kind: "auth", state: "signedIn", billingMode: params.authMode === "apiKey" ? "api" : params.authMode === "chatgpt" || params.authMode === "chatgptAuthTokens" ? "subscription" : "unknown" };
-  return { kind: "auth", state: "unknown" };
-}
-
-// plugins/provider-codex/src/runtimeBackground.ts
-var identifier = (value) => typeof value === "string" && value.length > 0 && value.length <= 4096 && !value.includes("\0");
-function invalid(message) {
-  throw { code: "invalid_schema", message };
-}
-function backgroundOwns(ctx, thread) {
-  const seen = /* @__PURE__ */ new Set();
-  while (thread !== ctx.threadId) {
-    if (seen.has(thread)) return false;
-    seen.add(thread);
-    const parent = ctx.threadParents.find((parent2) => parent2.threadId === thread);
-    if (!parent) return false;
-    thread = parent.parentThreadId;
-  }
-  return !!ctx.threadId;
-}
-function backgroundPlan(ctx, op) {
-  if (!backgroundOwns(ctx, op.threadId)) throw { code: "binding_mismatch", message: "Background thread is not owned" };
-  const params = { threadId: op.threadId };
-  if (op.action.kind === "list") {
-    params.cursor = op.action.cursor;
-    params.limit = 256;
-  }
-  if (op.action.kind === "terminate") params.processId = op.action.processId;
-  if (op.action.kind === "terminate" && !identifier(op.action.processId)) invalid("Invalid background process id");
-  if (op.action.kind === "list" && op.action.cursor !== null && !identifier(op.action.cursor)) invalid("Invalid background cursor");
-  return { action: { kind: "request", call: { method: `thread/backgroundTerminals/${op.action.kind}`, params, target: { threadId: op.threadId } } }, state: null };
-}
-function backgroundResponse(op, reply) {
-  if (reply.kind === "error" && reply.error.code === -32600 && reply.error.data == null && reply.error.message === `thread not found: ${op.threadId}`) {
-    if (op.action.kind === "list") return { kind: "complete", result: { kind: "backgroundProcesses", threadId: op.threadId, processes: [], nextCursor: null } };
-    if (op.action.kind === "terminate") return { kind: "complete", result: { kind: "backgroundProcessTermination", threadId: op.threadId, processId: op.action.processId, acknowledged: false } };
-    return { kind: "complete", result: { kind: "done" } };
-  }
-  if (reply.kind === "error") return { kind: "refused", reason: { code: "provider_refused", message: reply.error.message }, beforeAcceptance: false };
-  const value = object(reply.value);
-  if (op.action.kind === "clean") return { kind: "complete", result: { kind: "done" } };
-  if (op.action.kind === "terminate") {
-    if (typeof value.terminated !== "boolean") invalid("Missing termination acknowledgement");
-    return { kind: "complete", result: { kind: "backgroundProcessTermination", threadId: op.threadId, processId: op.action.processId, acknowledged: value.terminated } };
-  }
-  if (!Array.isArray(value.data) || value.data.length > 256) invalid("Invalid background process page");
-  if (value.nextCursor !== null && !identifier(value.nextCursor)) invalid("Missing or invalid background cursor");
-  if (value.nextCursor !== null && value.nextCursor === op.action.cursor) invalid("Repeated background cursor");
-  const seen = /* @__PURE__ */ new Set();
-  const processes = value.data.map((raw) => {
-    const entry = object(raw);
-    if (!identifier(entry.processId) || !identifier(entry.itemId) || !identifier(entry.cwd) || typeof entry.command !== "string" || entry.command.length > 65536 || entry.command.includes("\0") || entry.osPid !== null && (!Number.isInteger(entry.osPid) || Number(entry.osPid) < 1 || Number(entry.osPid) > 4294967295) || seen.has(entry.processId)) invalid("Invalid background process entry");
-    seen.add(entry.processId);
-    return { processId: entry.processId, itemId: entry.itemId, command: entry.command, cwd: entry.cwd, osPid: entry.osPid };
-  });
-  return { kind: "complete", result: { kind: "backgroundProcesses", threadId: op.threadId, processes, nextCursor: value.nextCursor } };
-}
-
-// plugins/provider-codex/src/runtimeInterrupt.ts
-function interruptTargets(ctx, root) {
-  const turns = [...ctx.activeTurns];
-  const depth = (thread) => {
-    let current = thread;
-    let count = 0;
-    const seen = /* @__PURE__ */ new Set();
-    while (current !== root) {
-      if (seen.has(current)) return -1;
-      seen.add(current);
-      const parent = ctx.threadParents.find((parent2) => parent2.threadId === current)?.parentThreadId;
-      if (!parent) return -1;
-      current = parent;
-      count++;
-    }
-    return count;
-  };
-  return turns.map((turn) => ({ turn, depth: depth(turn.threadId) })).filter((entry) => entry.depth >= 0).sort((a, b) => b.depth - a.depth || a.turn.threadId.localeCompare(b.turn.threadId)).map((entry) => entry.turn);
-}
-
-// plugins/provider-codex/src/runtimeBinding.ts
-function descendantThread(ctx, threadId) {
-  if (!ctx.threadId || threadId === ctx.threadId) return false;
-  const seen = /* @__PURE__ */ new Set();
-  let current = threadId;
-  while (current !== ctx.threadId) {
-    if (seen.has(current)) return false;
-    seen.add(current);
-    const parents = ctx.threadParents.filter((parent) => parent.threadId === current);
-    if (parents.length !== 1) return false;
-    current = parents[0].parentThreadId;
-  }
-  return true;
-}
-function historyThread(ctx, value, expected) {
-  if (expected === ctx.threadId) return userThread(value, expected) !== void 0;
-  if (!descendantThread(ctx, expected)) return false;
-  const thread = object(object(value).thread);
-  if (text2(thread.id) !== expected) return false;
-  const parent = ctx.threadParents.find((entry) => entry.threadId === expected)?.parentThreadId;
-  const declared = text2(thread.parentThreadId);
-  const source = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
-  return (declared !== void 0 || source !== void 0) && (declared === void 0 || declared === parent) && (source === void 0 || source === parent);
-}
-
-// plugins/provider-codex/src/runtimePrompts.ts
-function fail(message) {
-  throw { code: "provider_refused", message };
-}
-function decisionOptions(data) {
-  const decisions = list(data.availableDecisions);
-  const supported = decisions.length ? [...decisions] : ["accept", "acceptForSession", "decline", "cancel"];
-  if (!supported.includes("decline")) supported.push("decline");
-  const labels = { accept: "Approve", acceptForSession: "Approve for session", decline: "Decline", cancel: "Cancel" };
-  return supported.map((value) => ({ label: typeof value === "string" ? labels[value] ?? value : "Approve with the proposed rule", value: typeof value === "string" ? value : canonicalJson(value) }));
-}
-function runtimePrompt(method, params, _id) {
-  const data = object(params);
-  if (method === "item/tool/requestUserInput") {
-    const questions = list(data.questions).map(object);
-    if (!questions.length) return void 0;
-    return {
-      question: questions.map((q) => String(q.question ?? "")).join("\n"),
-      options: questions.flatMap((q) => list(q.options).flatMap((o) => {
-        const parsed = nativeOption(o);
-        return parsed ? [parsed] : [];
-      })),
-      sections: questions.map((q) => ({ label: String(q.header ?? q.question ?? "") })),
-      multi_select: questions.length > 1
-    };
-  }
-  switch (method) {
-    case "item/commandExecution/requestApproval":
-    case "item/fileChange/requestApproval":
-      return { question: String(data.command ?? data.reason ?? "Approve this operation?"), options: decisionOptions(data) };
-    case "item/permissions/requestApproval":
-      return { question: `Grant permissions: ${canonicalJson(data.permissions)}`, options: [{ label: "Grant for turn", value: "turn" }, { label: "Grant for session", value: "session" }, { label: "Deny", value: "deny" }] };
-    case "mcpServer/elicitation/request":
-      if (data.mode !== "form" || list(object(data.requestedSchema).required).length)
-        return { question: String(data.message ?? "Unsupported tool request"), options: [{ label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
-      return { question: String(data.message ?? "Respond to the tool request"), options: [{ label: "Accept", value: "accept" }, { label: "Decline", value: "decline" }, { label: "Cancel", value: "cancel" }] };
-    default:
-      return void 0;
-  }
-}
-function runtimeAnswer(method, params, id, answer) {
-  const data = object(params);
-  const values = answer.kind === "choice" ? answer.values : [];
-  const prompt = runtimePrompt(method, params, id);
-  if (!prompt) fail("Unsupported server request");
-  if (values.some((value2) => !prompt.options.some((o) => o.value === value2))) fail("Invalid native option value");
-  if (method === "item/tool/requestUserInput") {
-    const questions = list(data.questions).map(object);
-    const answers = {};
-    if (answer.kind === "cancel") fail("Questions cannot be cancelled without an answer");
-    for (const q of questions) {
-      const key = text2(q.id);
-      if (!key) fail("Missing question id");
-      const selected = list(q.options).flatMap((o) => {
-        const parsed = nativeOption(o);
-        return parsed && values.includes(parsed.value) ? [parsed.value] : [];
-      });
-      const value2 = answer.kind === "text" && questions.length === 1 ? answer.text : selected.length === 1 ? selected[0] : void 0;
-      if (!value2?.trim()) fail("Each question requires one answer");
-      answers[key] = { answers: [value2] };
-    }
-    return json({ answers });
-  }
-  if (answer.kind === "text" || answer.kind === "choice" && values.length !== 1) fail("Approval requires one declared option");
-  const value = answer.kind === "cancel" ? "cancel" : values[0];
-  switch (method) {
-    case "item/commandExecution/requestApproval":
-    case "item/fileChange/requestApproval":
-      return { decision: value.startsWith("{") ? JSON.parse(value) : value };
-    case "item/permissions/requestApproval":
-      return json({ permissions: value === "turn" || value === "session" ? data.permissions ?? {} : {}, scope: value === "session" ? "session" : "turn" });
-    case "mcpServer/elicitation/request":
-      return json({ action: value, ...value === "accept" ? { content: {} } : {} });
-    default:
-      return fail("Unsupported server request");
-  }
-}
-
-// plugins/provider-codex/src/runtimeContext.ts
-function invalid2(message) {
-  throw { code: "invalid_schema", message };
-}
-function exactObject(raw, keys) {
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) invalid2("Invalid restoreContext object");
-  const value = object(raw);
-  if (Object.keys(value).length !== keys.length || keys.some((key) => !Object.prototype.hasOwnProperty.call(value, key))) invalid2("Invalid restoreContext fields");
-  return value;
-}
-function restoreContextItems(raw) {
-  const value = exactObject(raw, ["instructions", "additionalContext"]);
-  if (value.instructions !== null && typeof value.instructions !== "string") invalid2("Invalid restoreContext instructions");
-  if (!Array.isArray(value.additionalContext)) invalid2("Invalid restoreContext additionalContext");
-  const entries = /* @__PURE__ */ new Map();
-  for (const rawEntry of value.additionalContext) {
-    const entry = exactObject(rawEntry, ["key", "kind", "value"]);
-    if (typeof entry.key !== "string" || typeof entry.value !== "string" || entry.kind !== "application" && entry.kind !== "user") invalid2("Invalid restoreContext entry");
-    const previous = entries.get(entry.key);
-    if (previous && (previous.kind !== entry.kind || previous.value !== entry.value)) invalid2("Conflicting restoreContext key");
-    entries.set(entry.key, entry);
-  }
-  const context = value;
-  const item = (role, text7) => ({ type: "message", role, content: [{ type: "input_text", text: text7 }] });
-  const items = context.instructions ? [item("developer", context.instructions)] : [];
-  for (const entry of entries.values()) items.push(item(entry.kind === "application" ? "developer" : "user", entry.value));
-  if (!items.length) invalid2("Empty restoreContext");
-  return items;
-}
-
-// plugins/provider-codex/src/runtimeSettings.ts
-var windowsSandboxFeatures = ["prefer_mxc", "experimental_windows_sandbox", "enable_experimental_windows_sandbox", "elevated_windows_sandbox"];
-function codexRestrictedCliConfig(ctx) {
-  const policy = ctx.restrictedCli;
-  if (!policy) return {};
-  const hash = (value) => /^[0-9a-f]{64}$/.test(value);
-  if (policy.tabId !== ctx.tabId || policy.bindingNonce !== ctx.bindingNonce || policy.epoch !== ctx.epoch || policy.cwd !== ctx.cwd || policy.metadataDirectory !== ".codex" || ctx.settings.mode !== "workspace-write" || ctx.settings.networkAccess !== false || !/^[A-Za-z0-9/\\:._~-]+$/.test(policy.executable) || !/^(?:[A-Za-z]:[\\/]|\/)/.test(policy.executable) || policy.executable.includes("\0") || ![policy.executableSha256, policy.configSha256, policy.ruleSha256].every(hash))
-    throw { code: "binding_mismatch", message: "Restricted CLI policy differs from the bound launch" };
-  return { projects: { [ctx.cwd]: { trust_level: "trusted" } } };
-}
-function codexValidateCliTrust(ctx, raw) {
-  if (!ctx.restrictedCli) return;
-  codexRestrictedCliConfig(ctx);
-  const root = object(raw);
-  if (!root.config || typeof root.config !== "object" || Array.isArray(root.config))
-    throw { code: "invalid_schema", message: "Restricted CLI project trust was not reported" };
-  const config = object(root.config);
-  if (config.projects === void 0 || config.projects === null) return;
-  if (typeof config.projects !== "object" || Array.isArray(config.projects))
-    throw { code: "invalid_schema", message: "Invalid configured project trust" };
-  const normalize = (path) => path.replace(/\\/g, "/").replace(/\/$/, "").toLowerCase();
-  const cwd = normalize(ctx.cwd);
-  for (const [path, value] of Object.entries(object(config.projects))) {
-    if (cwd !== normalize(path) && !cwd.startsWith(normalize(path) + "/")) continue;
-    if (!value || typeof value !== "object" || Array.isArray(value))
-      throw { code: "invalid_schema", message: "Invalid configured project trust" };
-    const project = object(value);
-    const trust = project.trust_level ?? project.trustLevel;
-    if (trust !== void 0 && trust !== null && trust !== "trusted")
-      throw { code: "provider_refused", message: "Configured project trust refuses the restricted CLI exception" };
-  }
-}
-function codexNeedsWindowsSandboxSelection(raw) {
-  const root = object(raw);
-  if (root.config === null || typeof root.config !== "object" || Array.isArray(root.config))
-    throw { code: "invalid_schema", message: "Windows sandbox configuration was not reported" };
-  const config = object(root.config);
-  const windows = object(config.windows);
-  if (config.windows != null && (typeof config.windows !== "object" || Array.isArray(config.windows)))
-    throw { code: "invalid_schema", message: "Invalid Windows sandbox configuration" };
-  if (windows.sandbox != null) {
-    if (!["mxc", "elevated", "unelevated"].includes(String(windows.sandbox)))
-      throw { code: "invalid_schema", message: "Unknown configured Windows sandbox" };
-    return false;
-  }
-  if (windows.allow_mxc !== void 0) {
-    if (typeof windows.allow_mxc !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows MXC policy" };
-    if (!windows.allow_mxc) return false;
-  }
-  if (config.features != null && (typeof config.features !== "object" || Array.isArray(config.features)))
-    throw { code: "invalid_schema", message: "Invalid Windows sandbox features" };
-  const features = object(config.features);
-  for (const key of windowsSandboxFeatures) {
-    if (features[key] !== void 0) {
-      if (typeof features[key] !== "boolean") throw { code: "invalid_schema", message: "Invalid Windows sandbox feature selection" };
-      return false;
-    }
-  }
-  return true;
-}
-function codexWindowsSandboxOverride(raw) {
-  const root = object(raw);
-  if (root.requirements === null) return "mxc";
-  if (typeof root.requirements !== "object" || Array.isArray(root.requirements))
-    throw { code: "invalid_schema", message: "Windows sandbox requirements were not reported" };
-  const requirements = object(root.requirements);
-  const allowed = requirements.allowedWindowsSandboxImplementations;
-  if (allowed !== null && (!Array.isArray(allowed) || allowed.some((mode) => !["mxc", "elevated", "unelevated"].includes(String(mode)))))
-    throw { code: "invalid_schema", message: "Windows sandbox implementation requirements are unknown" };
-  if (Array.isArray(allowed) && !allowed.includes("mxc")) return void 0;
-  const modes = requirements.allowedSandboxModes;
-  if (modes !== null && (!Array.isArray(modes) || modes.some((mode) => !["read-only", "workspace-write", "danger-full-access"].includes(String(mode)))))
-    throw { code: "invalid_schema", message: "Sandbox mode requirements are unknown" };
-  if (Array.isArray(modes) && !modes.includes("workspace-write")) return void 0;
-  if (requirements.defaultPermissions != null || requirements.allowedPermissionProfiles != null) return void 0;
-  if (requirements.featureRequirements != null && (typeof requirements.featureRequirements !== "object" || Array.isArray(requirements.featureRequirements)))
-    throw { code: "invalid_schema", message: "Windows sandbox feature requirements are unknown" };
-  const features = object(requirements.featureRequirements);
-  if (windowsSandboxFeatures.some((key) => features[key] !== void 0)) return void 0;
-  return "mxc";
-}
-function codexServiceTier(settings) {
-  return settings.serviceTier === void 0 ? {} : { serviceTier: settings.serviceTier.id };
-}
-function codexRuntimePolicy(settings) {
-  const selected = settings.mode ?? "auto-accept-edits";
-  const policies = {
-    "approval-required": ["untrusted", "user", "readOnly"],
-    "auto-accept-edits": ["on-request", "user", "workspaceWrite"],
-    "auto": ["on-request", "auto_review", "workspaceWrite"],
-    "full-access": ["never", "user", "dangerFullAccess"],
-    "read-only": ["never", "user", "readOnly"],
-    "read-only-with-writable-roots": ["never", "user", "workspaceWrite"],
-    "workspace-write": ["never", "user", "workspaceWrite"]
-  };
-  const policy = policies[selected];
-  if (!policy) throw { code: "unsupported", message: `Unsupported runtime mode: ${selected}` };
-  const padOnly = selected === "read-only-with-writable-roots";
-  if (padOnly && !settings.additionalDirectories?.length) throw { code: "invalid_schema", message: "Read-only writable roots are missing" };
-  return { approvalPolicy: policy[0], approvalsReviewer: policy[1], ...padOnly ? { runtimeWorkspaceRoots: [...settings.additionalDirectories] } : {}, sandboxPolicy: {
-    type: policy[2],
-    ...(policy[2] === "workspaceWrite" || selected === "read-only") && settings.networkAccess !== void 0 ? { networkAccess: settings.networkAccess } : {},
-    ...selected === "workspace-write" || padOnly ? { writableRoots: [...settings.additionalDirectories ?? []], excludeTmpdirEnvVar: true, excludeSlashTmp: true } : {},
-    ...policy[2] === "workspaceWrite" && settings.additionalDirectories?.length ? { writableRoots: [...settings.additionalDirectories] } : {}
-  } };
-}
-function codexThreadConfig(settings, hostOwned) {
-  const workspaceWrite = codexRuntimePolicy(settings).sandboxPolicy.type === "workspaceWrite";
-  return {
-    check_for_update_on_startup: false,
-    project_doc_max_bytes: 65536,
-    ...["read-only", "workspace-write", "read-only-with-writable-roots"].includes(settings.mode ?? "") ? {
-      "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories ?? []],
-      "sandbox_workspace_write.exclude_tmpdir_env_var": true,
-      "sandbox_workspace_write.exclude_slash_tmp": true
-    } : {},
-    ...workspaceWrite && settings.networkAccess !== void 0 ? { "sandbox_workspace_write.network_access": settings.networkAccess } : {},
-    ...settings.additionalDirectories?.length ? { "sandbox_workspace_write.writable_roots": [...settings.additionalDirectories] } : {},
-    ...settings.effort ? { model_reasoning_effort: settings.effort } : {},
-    ...hostOwned?.questions ? { "features.default_mode_request_user_input": false } : {}
-  };
-}
-function codexReportedSettings(raw, requested) {
-  const root = object(raw);
-  const settings = root.threadSettings ? object(root.threadSettings) : root;
-  const thread = object(settings.thread);
-  const tier = settings.serviceTier !== void 0 ? settings.serviceTier : thread.serviceTier;
-  const serviceTier = tier === void 0 ? void 0 : tier === null || typeof tier === "string" ? { id: tier === "default" ? null : tier === "fast" ? "priority" : tier } : void 0;
-  const model = text2(settings.model) ?? text2(thread.model);
-  const effort = text2(settings.reasoningEffort) ?? text2(settings.effort) ?? text2(thread.reasoningEffort) ?? text2(thread.effort);
-  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox).type;
-  const approval = settings.approvalPolicy ?? thread.approvalPolicy;
-  const reviewer = settings.approvalsReviewer ?? thread.approvalsReviewer;
-  const mode = text2(settings.mode) ?? text2(thread.mode) ?? (approval === "untrusted" ? "approval-required" : approval === "never" && sandbox === "dangerFullAccess" ? "full-access" : approval === "never" && sandbox === "readOnly" ? "read-only" : approval === "never" && sandbox === "workspaceWrite" ? "workspace-write" : approval === "on-request" && reviewer === "auto_review" ? "auto" : approval === "on-request" && reviewer === "user" && sandbox === "workspaceWrite" ? "auto-accept-edits" : void 0);
-  const effectiveMode = requested?.mode === "read-only-with-writable-roots" && mode === "workspace-write" ? requested.mode : mode;
-  return { ...serviceTier !== void 0 ? { serviceTier } : {}, ...model ? { model } : {}, ...effort ? { effort } : {}, ...effectiveMode ? { mode: effectiveMode } : {} };
-}
-function codexEffectiveSettings(requested, reply) {
-  const { serviceTier: _requestedTier, ...other } = requested;
-  return { ...other, ...codexReportedSettings(reply, requested) };
-}
-function codexWorkspaceWriteConfirmed(raw) {
-  const root = object(raw);
-  const settings = root.threadSettings ? object(root.threadSettings) : root;
-  const thread = object(settings.thread);
-  const sandbox = object(settings.sandboxPolicy ?? settings.sandbox ?? thread.sandboxPolicy ?? thread.sandbox);
-  return codexReportedSettings(raw).mode === "workspace-write" && sandbox.type === "workspaceWrite" && (settings.approvalPolicy ?? thread.approvalPolicy) === "never" && sandbox.networkAccess === false;
-}
-function codexWritableRootsConfirmed(settings, reply) {
-  if (settings.mode !== "read-only-with-writable-roots") return true;
-  const root = object(reply);
-  const reported = root.threadSettings ? object(root.threadSettings) : root;
-  const roots = reported.runtimeWorkspaceRoots;
-  const sandbox = object(reported.sandboxPolicy ?? reported.sandbox);
-  const expected = settings.additionalDirectories ?? [];
-  const same = (value) => Array.isArray(value) && value.length === expected.length && value.every((path) => typeof path === "string" && expected.includes(path));
-  return expected.length > 0 && reported.approvalPolicy === "never" && sandbox.type === "workspaceWrite" && sandbox.excludeTmpdirEnvVar === true && sandbox.excludeSlashTmp === true && same(roots) && same(sandbox.writableRoots);
-}
-function codexRestrictedCliInstructions(ctx, instructions) {
-  if (!ctx.restrictedCli) return instructions;
-  codexRestrictedCliConfig(ctx);
-  const executable = ctx.restrictedCli.executable;
-  return [instructions, `Trusted Domios CLI executable: ${executable}. Use this exact bare command token with normal Domios arguments in the native command tool. Do not add a PowerShell call operator, executable quotes, environment assignments or another interpreter. Single-quote opaque string arguments, especially IDs beginning with digits; keep the executable itself unquoted. Keep the inherited connection and credential; server authorization decides allowed operations. This exception applies only to the trusted CLI; other commands retain their sandbox.`].filter((value) => value !== void 0).join("\n\n");
-}
-
-// plugins/provider-codex/src/runtimeServiceTiers.ts
-var codexServiceTiers = [
-  { id: "priority", name: "Fast", description: "", unavailableReason: "Availability not confirmed" },
-  { id: "ultrafast", name: "Ultrafast", description: "", unavailableReason: "Not available on your plan" }
-];
-function serviceTierSelection(value) {
-  const selection = object(value);
-  return value !== null && (selection.id === null || typeof selection.id === "string" && selection.id.length > 0 && selection.id.length <= 128);
-}
-function modelServiceTiers(models, requirements) {
-  const response = object(requirements);
-  const features = object(object(response.requirements).featureRequirements);
-  const fast = features.fast_mode !== false;
-  const ultra = features.ultrafast_mode !== false && (response.supportsIndependentSpeedModes === true || fast);
-  const knownRequirements = requirements !== void 0;
-  const result = /* @__PURE__ */ Object.create(null);
-  for (const raw of list(models)) {
-    const model = object(raw);
-    const id = text2(model.model) ?? text2(model.id);
-    if (!id) continue;
-    const advertised = list(model.serviceTiers).map(object).flatMap((tier) => {
-      const tierId = text2(tier.id), name = text2(tier.name), description = text2(tier.description);
-      if (!tierId || !name || typeof tier.description !== "string") return [];
-      const allowed = knownRequirements && (tierId === "flex" || (tierId === "ultrafast" ? ultra : fast));
-      return [{ id: tierId, name, description: description ?? "", ...!allowed ? { unavailableReason: knownRequirements ? "Disabled by your administrator" : "Availability not confirmed" } : {} }];
-    });
-    const missing = codexServiceTiers.filter((tier) => !advertised.some((item) => item.id === tier.id)).map((tier) => ({
-      ...tier,
-      ...knownRequirements && !(tier.id === "ultrafast" ? ultra : fast) ? { unavailableReason: "Disabled by your administrator" } : {}
-    }));
-    result[id] = [...advertised, ...missing];
-  }
-  return result;
-}
-function tierAvailable(settings, tier) {
-  return tier.id === null || !!settings.serviceTierAvailability?.[settings.model ?? ""]?.some((option) => option.id === tier.id && !option.unavailableReason);
-}
-
-// plugins/provider-codex/src/runtimeErrors.ts
-function statusCode(value) {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
-  return null;
-}
-function nestedStatus(info) {
-  for (const value of Object.values(info)) {
-    const code = statusCode(object(value).httpStatusCode);
-    if (code != null) return code;
-  }
-  return null;
-}
-function runtimeClass(code, status) {
-  if (code === "token_expired" || code === "refresh_token_expired" || code === "auth_expired" || code === "auth_expiry") return "auth_expiry";
-  if (status === 401 || status === 403 || code === "authError" || code === "unauthorized" || code === "authentication_error") return "authentication";
-  if (code === "usageLimitExceeded" || code === "sessionBudgetExceeded" || code === "usage_limit") return "usage_limit";
-  if (code === "rateLimitExceeded" || code === "rate_limit" || status === 429) return "rate_limit";
-  if (code === "serverOverloaded" || code === "internalServerError" || code === "overloaded" || code === "server_overloaded" || status != null && status >= 500 && status <= 599) return "server_overloaded";
-  if (code?.startsWith("http") || code?.startsWith("responseStream")) return "transport_error";
-  return "provider_error";
-}
-function runtimeError(value, willRetry = false, limits) {
-  const error = typeof value === "string" ? { message: value } : object(value);
-  const info = error.codexErrorInfo;
-  const infoObject = object(info);
-  const keys = Object.keys(infoObject);
-  const code = typeof info === "string" ? info : keys.length === 1 ? keys[0] : void 0;
-  const diagnostic = text2(error.additionalDetails) ?? text2(error.message);
-  const limited = outputLimit(error) || outputLimit({ message: diagnostic });
-  const message = diagnostic ?? (limited ? "Output limit reached" : "Provider request failed");
-  const status = statusCode(error.status) ?? statusCode(error.statusCode) ?? statusCode(error.httpStatusCode) ?? statusCode(infoObject.httpStatusCode) ?? nestedStatus(infoObject);
-  return { message, metadata: { ...code ? { code } : {}, class: runtimeClass(code, status), retryable: willRetry, ...limited ? { retryableKind: "output_limit" } : retrySignal(code, status, limits) } };
-}
-function retrySignal(code, status, limits) {
-  if (status === 401 || status === 403) return {};
-  const rate2 = code === "rateLimitExceeded" || code === "usageLimitExceeded";
-  const transport = code === "httpConnectionFailed" || code === "responseStreamConnectionFailed" || code === "responseStreamDisconnected" || code === "responseTooManyFailedAttempts";
-  const transient = code === "serverOverloaded" || code === "flexUnavailable" || code === "internalServerError";
-  if (rate2 || (transport || transient) && status === 429) {
-    const snapshot = object(limits);
-    if (snapshot.limitId && snapshot.limitId !== "codex") return {};
-    const blocked = [snapshot.primary, snapshot.secondary].map(object).filter((window) => typeof window.usedPercent === "number" && Number.isFinite(window.usedPercent) && window.usedPercent >= 100);
-    if (!blocked.length || blocked.some((window) => typeof window.resetsAt !== "number" || !Number.isSafeInteger(window.resetsAt) || window.resetsAt <= 0 || !Number.isSafeInteger(window.resetsAt * 1e3))) return {};
-    return { retryableKind: "rate_limited_until", retryAtMs: Math.max(...blocked.map((window) => Number(window.resetsAt) * 1e3)) };
-  }
-  if (transient || transport && (status == null || status === 408 || status >= 500 && status <= 599)) return { retryableKind: "transient" };
-  return {};
-}
-
-// plugins/provider-codex/src/runtimeAbandonedTurns.ts
-function pendingCall(state) {
-  return Object.values(state.items).find((row3) => row3.toolFlowId === state.activeTurnId && row3.toolStatus === "running");
-}
-function runningCallStatus(state) {
-  const row3 = pendingCall(state);
-  return row3 ? activityLabel(row3) : void 0;
-}
-function abandonOpenTurn(state, threadId, nextTurnId) {
-  const previous = state.activeTurnId;
-  if (!previous || previous === nextTurnId || state.completed.includes(previous)) return [];
-  state.completed.push(previous);
-  (state.abandoned ?? (state.abandoned = [])).push(previous);
-  const events = [];
-  for (const row4 of Object.values(state.items)) {
-    if (row4.toolFlowId !== previous || row4.toolStatus !== "running") continue;
-    const abandoned = { ...row4, toolStatus: "abandoned", toolInterrupted: true };
-    state.items[row4.id] = abandoned;
-    events.push({ kind: "chatItem", threadId, item: abandoned });
-  }
-  const row3 = { id: `${previous}:abandoned`, seq: ++state.seq, type: "system", content: "Turn interrupted by a new turn", systemSubtype: "turn_abandoned", toolFlowId: previous };
-  state.items[row3.id] = row3;
-  events.push({ kind: "chatItem", threadId, item: row3 }, { kind: "turnState", threadId, turnId: previous, state: "idle", ...{ detail: "interrupted" } });
-  return events;
-}
-function stampToolLifecycle(row3, previous, method, params) {
-  if (row3.type !== "tool_call") return row3;
-  if (previous?.toolStatus === "abandoned") return previous;
-  const raw = params.item;
-  const suppliedStart = params.startedAtMs;
-  const suppliedEnd = params.completedAtMs;
-  const started = previous?.toolStartedAtMs ?? (typeof suppliedStart === "number" ? suppliedStart : void 0);
-  if (started === void 0) delete row3.toolStartedAtMs;
-  else row3.toolStartedAtMs = started;
-  row3.toolStatus = previous?.toolStatus ?? "running";
-  if (method === "item/completed") {
-    row3.toolStatus = raw?.status === "interrupted" ? "interrupted" : row3.toolError ? "failed" : "completed";
-    if (typeof suppliedEnd === "number") row3.toolCompletedAtMs = suppliedEnd;
-    else delete row3.toolCompletedAtMs;
-  }
-  return row3;
-}
-function interruptPendingCalls(state, threadId, turnId) {
-  return Object.values(state.items).flatMap((row3) => {
-    if (row3.toolFlowId !== turnId || row3.toolStatus !== "running") return [];
-    const interrupted = { ...row3, toolStatus: "interrupted", toolInterrupted: true };
-    state.items[row3.id] = interrupted;
-    return [{ kind: "chatItem", threadId, item: interrupted }];
-  });
-}
-
-// plugins/provider-codex/src/runtimeAgents.ts
-var TERMINAL_STATES = ["completed", "failed", "interrupted", "closed"];
-function update(previous, activity) {
-  const input = object(previous.toolInput);
-  const patch = Object.fromEntries(Object.entries(object(activity.toolInput)).filter(([, value]) => value != null));
-  delete patch.agent_call_id;
-  if (!text2(patch.agent_state)) delete patch.agent_state;
-  if (TERMINAL_STATES.includes(String(input.agent_state)) && !TERMINAL_STATES.includes(String(patch.agent_state))) delete patch.agent_state;
-  return { ...previous, toolInput: { ...input, ...patch } };
-}
-function reduceRuntimeAgents(state, items, parents, parent, raw, seq) {
-  const item = object(raw);
-  if (item.type !== "collabAgentToolCall" && item.type !== "subAgentActivity") return void 0;
-  const spawn = item.type === "collabAgentToolCall" && item.tool === "spawnAgent";
-  if (spawn && !list(item.receiverThreadIds).length) return [];
-  const rows2 = runtimeItems(item, seq);
-  return rows2.flatMap((row3) => {
-    const agent = text2(object(row3.toolInput).agent_id);
-    if (!agent) return [row3];
-    const existing = state.rows[agent];
-    const previous = existing ? items[existing] : void 0;
-    if (previous) return [update(previous, row3)];
-    const started = item.type === "subAgentActivity" && item.kind === "started";
-    if (!spawn && !started) return [row3];
-    state.rows[agent] = row3.id;
-    parents[agent] = parent;
-    state.ordinal += 1;
-    row3.toolInput = { ...object(row3.toolInput), agent_parent_thread_id: parent, agent_ordinal: state.ordinal };
-    return [row3];
-  });
-}
-
-// plugins/provider-codex/src/runtimeStateBudget.ts
-var STATE_TEXT_CAP = 16 * 1024;
-var STATE_TOTAL_BUDGET = 192 * 1024;
-var EVENT_TEXT_CAP = 256 * 1024;
-var RETIRED_ROW_CAP = 256;
-var ID_LIST_CAP = 128;
-var TRUNCATED = "[earlier output truncated]\n";
-var HEAVY = ["content", "toolResult", "toolDetail"];
-function capText(value, cap) {
-  if (value.length <= cap) return value;
-  const body = value.startsWith(TRUNCATED) ? value.slice(TRUNCATED.length) : value;
-  return TRUNCATED + body.slice(body.length - (cap - TRUNCATED.length));
-}
-function capAgentPayload(input, cap) {
-  const bounded2 = { ...input };
-  const fields = ["agent_result", "agent_description"].filter((key) => typeof input[key] === "string" && input[key].length > 0).sort((a, b) => input[b].length - input[a].length);
-  for (const key of fields) {
-    if (utf8Bytes2(JSON.stringify(bounded2)) <= cap) break;
-    const text7 = bounded2[key];
-    const body = text7.startsWith(TRUNCATED) ? text7.slice(TRUNCATED.length) : text7;
-    const room = cap - utf8Bytes2(JSON.stringify({ ...bounded2, [key]: "" })) - utf8Bytes2(JSON.stringify(TRUNCATED));
-    const keep = Math.max(0, Math.floor(room / 6));
-    let start = Math.max(0, body.length - keep);
-    const unit = body.charCodeAt(start), previous = body.charCodeAt(start - 1);
-    if (unit >= 56320 && unit <= 57343 && previous >= 55296 && previous <= 56319) start++;
-    bounded2[key] = TRUNCATED + body.slice(start);
-  }
-  return bounded2;
-}
-function capRow(row3, cap) {
-  let capped;
-  for (const key of HEAVY) {
-    const value = row3[key];
-    if (typeof value !== "string" || value.length <= cap) continue;
-    capped ?? (capped = { ...row3 });
-    capped[key] = capText(value, cap);
-  }
-  if (row3.toolInput !== void 0) {
-    const serialized = JSON.stringify(row3.toolInput);
-    const agentInput = row3.toolKind === "agent" && row3.toolName === "agent_activity" && row3.toolInput !== null && typeof row3.toolInput === "object" && !Array.isArray(row3.toolInput);
-    if ((agentInput ? utf8Bytes2(serialized) : serialized.length) > cap) {
-      capped ?? (capped = { ...row3 });
-      if (agentInput) capped.toolInput = capAgentPayload(row3.toolInput, cap);
-      else delete capped.toolInput;
-    }
-  }
-  return capped ?? row3;
-}
-function isRetired(state, id) {
-  return !!state.retired?.includes(id);
-}
-function markOpen(state, id) {
-  if (!(state.open ?? (state.open = [])).includes(id)) state.open.push(id);
-}
-function markClosed(state, id) {
-  if (state.open) state.open = state.open.filter((open) => open !== id);
-  if (state.reasoning) delete state.reasoning[id];
-}
-function retire(row3) {
-  const slim = { id: row3.id, seq: row3.seq, type: row3.type, content: "" };
-  if (row3.timestamp) slim.timestamp = row3.timestamp;
-  if (row3.toolFlowId) slim.toolFlowId = row3.toolFlowId;
-  if (row3.toolStatus) slim.toolStatus = row3.toolStatus;
-  return slim;
-}
-function tail(values) {
-  return values && values.length > ID_LIST_CAP ? values.slice(values.length - ID_LIST_CAP) : values;
-}
-function compactState(state) {
-  const agents = new Set(Object.values(state.agents?.rows ?? {}));
-  const done = new Set(state.completed);
-  const open = new Set((state.open ?? []).filter((id) => {
-    const row3 = state.items[id];
-    return row3 && (!row3.toolStatus || row3.toolStatus === "running") && !(row3.toolFlowId && done.has(row3.toolFlowId));
-  }));
-  state.open = [...open];
-  const retired = new Set(state.retired ?? []);
-  for (const [id, row3] of Object.entries(state.items)) {
-    if (agents.has(id)) continue;
-    if (row3.toolStatus === "running" || open.has(id)) {
-      state.items[id] = capRow(row3, STATE_TEXT_CAP);
-      retired.delete(id);
-    } else {
-      state.items[id] = retire(row3);
-      retired.add(id);
-    }
-  }
-  const order = [...retired].filter((id) => state.items[id]).sort((a, b) => state.items[a].seq - state.items[b].seq);
-  for (const id of order.slice(0, Math.max(0, order.length - RETIRED_ROW_CAP))) delete state.items[id];
-  state.retired = order.slice(Math.max(0, order.length - RETIRED_ROW_CAP));
-  for (const parts of Object.values(state.reasoning ?? {})) {
-    parts.summary = parts.summary.map((part) => capText(part, STATE_TEXT_CAP));
-    parts.content = parts.content.map((part) => capText(part, STATE_TEXT_CAP));
-  }
-  state.completed = tail(state.completed);
-  state.compacted = tail(state.compacted);
-  state.evidenced = tail(state.evidenced);
-  state.questions = tail(state.questions);
-  state.abandoned = tail(state.abandoned);
-  state.childCompleted = tail(state.childCompleted);
-  fitTotal(state);
-}
-var MIN_RUNNING_CAP = 1024;
-function fitTotal(state) {
-  if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
-  const retiredOrder = () => (state.retired ?? []).filter((id) => state.items[id]);
-  while (retiredOrder().length > 0 && utf8Bytes2(JSON.stringify(state)) > STATE_TOTAL_BUDGET) {
-    const drop = retiredOrder().slice(0, Math.max(1, Math.ceil(retiredOrder().length / 4)));
-    for (const id of drop) delete state.items[id];
-    state.retired = retiredOrder();
-  }
-  for (let cap = STATE_TEXT_CAP / 2; cap >= MIN_RUNNING_CAP; cap = Math.floor(cap / 2)) {
-    if (utf8Bytes2(JSON.stringify(state)) <= STATE_TOTAL_BUDGET) return;
-    for (const [id, row3] of Object.entries(state.items)) state.items[id] = capRow(row3, cap);
-    for (const parts of Object.values(state.reasoning ?? {})) {
-      parts.summary = parts.summary.map((part) => capText(part, cap));
-      parts.content = parts.content.map((part) => capText(part, cap));
-    }
-  }
-}
-
-// plugins/provider-codex/src/runtimeBatchBudget.ts
-var REDUCTION_BYTE_BUDGET = 4 * 1024 * 1024;
-var TRUNCATED2 = "[earlier output truncated]\n";
-var CONTINUATION = "[full output available in session history]\n";
-var TEXT_FIELDS = ["content", "toolResult", "toolDetail", "toolSummary", "toolArgs", "toolTitle", "toolName", "toolDescription"];
-var DATA_FIELDS = ["toolInput", "toolRichResult", "fileDiffs", "toolEdits"];
-function coalesce(events) {
-  const last = /* @__PURE__ */ new Map();
-  events.forEach((event, index) => {
-    if (event.kind === "chatItem") last.set(JSON.stringify([event.threadId, event.item.id]), index);
-  });
-  return events.filter((event, index) => event.kind !== "chatItem" || last.get(JSON.stringify([event.threadId, event.item.id])) === index);
-}
-function shrinkRow(row3, cap) {
-  const result = { ...row3 };
-  let shortened = false;
-  for (const field of TEXT_FIELDS) {
-    const value = result[field];
-    if (typeof value === "string" && value.length > cap) {
-      result[field] = capText(value, cap);
-      shortened = true;
-    }
-  }
-  let omitted = false;
-  for (const field of DATA_FIELDS) {
-    if (result[field] !== void 0 && serializedBytes(result[field]) > cap) {
-      delete result[field];
-      omitted = true;
-    }
-  }
-  if (omitted && !result.content.startsWith(TRUNCATED2)) result.content = TRUNCATED2 + result.content;
-  if ((shortened || omitted) && !result.content.includes(CONTINUATION)) result.content = CONTINUATION + result.content;
-  return result;
-}
-function budgetReduction(state, updates) {
-  let events = coalesce(updates).map((event) => event.kind === "chatItem" ? { ...event, item: capRow(event.item, EVENT_TEXT_CAP) } : event);
-  let serialized = JSON.stringify({ state, events });
-  let bytes2 = utf8Bytes2(serialized);
-  for (let cap = EVENT_TEXT_CAP / 2; bytes2 > REDUCTION_BYTE_BUDGET && cap >= 64; cap = Math.floor(cap / 2)) {
-    events = events.map((event) => event.kind === "chatItem" ? { ...event, item: shrinkRow(event.item, cap) } : event);
-    serialized = JSON.stringify({ state, events });
-    bytes2 = utf8Bytes2(serialized);
-  }
-  if (bytes2 > REDUCTION_BYTE_BUDGET) throw new Error("runtime batch metadata exceeds output budget");
-  const normalized = JSON.parse(serialized);
-  return { state: normalized.state, events };
-}
-
-// plugins/provider-codex/src/runtimeReduce.ts
-function copyReducerState(state) {
-  const items = /* @__PURE__ */ Object.create(null);
-  for (const [id, row3] of Object.entries(state.items)) items[id] = { ...row3 };
-  const copy = { ...state, items, completed: [...state.completed], compacted: [...state.compacted], evidenced: [...state.evidenced] };
-  for (const key of ["questions", "abandoned", "childCompleted", "open", "retired"]) {
-    const values = state[key];
-    if (values) copy[key] = [...values];
-  }
-  if (state.parents) copy.parents = Object.assign(/* @__PURE__ */ Object.create(null), state.parents);
-  if (state.childActive) copy.childActive = { ...state.childActive };
-  if (state.agents) copy.agents = { ...state.agents, rows: Object.assign(/* @__PURE__ */ Object.create(null), state.agents.rows) };
-  if (state.reasoning) copy.reasoning = Object.fromEntries(Object.entries(state.reasoning).map(([id, parts]) => [id, { summary: [...parts.summary], content: [...parts.content] }]));
-  return copy;
-}
-function initial(ctx, raw) {
-  const state = object(raw);
-  if (state.epoch === ctx.epoch && state.bindingNonce === ctx.bindingNonce && state.threadId === ctx.threadId) {
-    return copyReducerState(state);
-  }
-  return { epoch: ctx.epoch, bindingNonce: ctx.bindingNonce, threadId: ctx.threadId, seq: 0, items: /* @__PURE__ */ Object.create(null), completed: [], compacted: [], evidenced: [], activeTurnId: ctx.activeTurnId };
-}
-function timing(params) {
-  const turn = object(params.turn);
-  return {
-    ...typeof turn.startedAt === "number" && turn.startedAt >= 0 ? { startedAt: turn.startedAt * 1e3 } : {},
-    ...typeof turn.completedAt === "number" && turn.completedAt >= 0 ? { completedAt: turn.completedAt * 1e3 } : {}
-  };
-}
-function usage(params) {
-  const token = object(params.tokenUsage);
-  const total = object(token.total);
-  if (typeof total.inputTokens !== "number" || typeof total.outputTokens !== "number") return void 0;
-  return {
-    ...typeof total.costUsd === "number" && Number.isFinite(total.costUsd) && total.costUsd >= 0 ? { cost_micros: Math.round(total.costUsd * 1e6) } : {},
-    input_tokens: total.inputTokens,
-    output_tokens: total.outputTokens,
-    ...typeof total.cacheWriteInputTokens === "number" ? { cache_write_tokens: total.cacheWriteInputTokens } : {},
-    ...typeof total.cachedInputTokens === "number" ? { cache_read_tokens: total.cachedInputTokens } : {},
-    ...typeof object(token.last).totalTokens === "number" ? { used_tokens: Number(object(token.last).totalTokens) } : {},
-    ...typeof token.modelContextWindow === "number" ? { window_tokens: token.modelContextWindow } : {}
-  };
-}
-function sendEvidence(ctx, item, turnId) {
-  if (item.type !== "userMessage" || !turnId) return void 0;
-  const sendId = text2(item.clientId);
-  const claim = ctx.claimedSends.find((c) => c.sendId === sendId && c.threadId === ctx.threadId);
-  if (!claim) return void 0;
-  const parts = list(item.content).map(object);
-  const content = parts.filter((p) => p.type === "text").map((p) => p.text).join("\n");
-  if (content !== claim.input.text) return void 0;
-  const images = parts.filter((p) => p.type === "image" || p.type === "localImage");
-  if (images.length !== claim.input.attachments.length) return void 0;
-  if (!images.every((image, index) => {
-    const expected = claim.input.attachments[index];
-    if (expected.data) return image.type === "image" && image.url === `data:${expected.mimeType};base64,${expected.data}`;
-    if (expected.url) return image.type === "image" && image.url === expected.url;
-    return !!expected.path && image.type === "localImage" && image.path === expected.path;
-  })) return void 0;
-  return { kind: "sendEvidence", threadId: claim.threadId, sendId: claim.sendId, turnId, ...text2(item.id) ? { itemId: text2(item.id) } : {} };
-}
-function stamp(state, row3, params) {
-  const previous = state.items[row3.id];
-  row3.seq = previous?.seq ?? ++state.seq;
-  const ms = params.startedAtMs ?? params.completedAtMs;
-  if (previous?.timestamp) row3.timestamp = previous.timestamp;
-  else if (typeof ms === "number" && Number.isFinite(ms)) row3.timestamp = new Date(ms).toISOString();
-  const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
-  if (turnId && !row3.toolFlowId) row3.toolFlowId = turnId;
-  if (row3.toolKind === "agent" && row3.toolName === "agent_activity") {
-    row3.toolInput = json({ ...object(row3.toolInput), agent_binding_nonce: state.bindingNonce, agent_runtime_epoch: state.epoch });
-  }
-  state.items[row3.id] = row3;
-  return row3;
-}
-function mapItem(state, method, params) {
-  const raw = object(params.item);
-  const id = text2(raw.id) ?? text2(params.itemId);
-  if (!id) return void 0;
-  const retired = isRetired(state, id);
-  const previous = retired ? void 0 : state.items[id];
-  if (method === "item/started" || method === "item/completed") {
-    if (method === "item/started") markOpen(state, id);
-    else markClosed(state, id);
-    const row4 = runtimeItem(raw, state.seq + 1, previous);
-    return row4 ? stamp(state, stampToolLifecycle(row4, previous, method, params), params) : void 0;
-  }
-  const delta = text2(params.delta) ?? text2(params.message);
-  if (!delta || retired) return void 0;
-  markOpen(state, id);
-  const row3 = previous ? { ...previous } : { id, seq: state.seq + 1, type: "assistant", content: "" };
-  switch (method) {
-    case "item/agentMessage/delta":
-    case "item/plan/delta":
-      row3.type = "assistant";
-      row3.content += delta;
-      break;
-    case "item/reasoning/textDelta":
-    case "item/reasoning/summaryTextDelta":
-      row3.type = "thinking";
-      row3.collapsed = true;
-      row3.content += delta;
-      break;
-    case "item/commandExecution/outputDelta":
-    case "item/fileChange/outputDelta":
-      row3.type = "tool_call";
-      row3.toolKind = method === "item/commandExecution/outputDelta" ? "command" : "edit";
-      row3.toolId = id;
-      row3.toolResult = (row3.toolResult ?? "") + delta;
-      break;
-    case "item/mcpToolCall/progress":
-      row3.type = "tool_call";
-      row3.toolKind = "generic";
-      row3.toolId = id;
-      row3.toolDetail = delta;
-      break;
-    default:
-      return void 0;
-  }
-  return stamp(state, stampToolLifecycle(row3, previous, method, params), params);
-}
-function runtimeReduce(ctx, raw, frames) {
-  var _a;
-  const state = initial(ctx, raw);
-  const events = [];
-  for (const frame of frames) {
-    const params = object(frame.params);
-    if (frame.kind === "notification" && frame.method === "account/login/completed") {
-      delete state.rateLimitSnapshot;
-      events.push(loginCompleted(params));
-      continue;
-    }
-    if (frame.kind === "notification" && frame.method === "account/updated") {
-      delete state.rateLimitSnapshot;
-      if (ctx.threadId) events.push({ kind: "controlsConfirmed", threadId: ctx.threadId, settings: { serviceTierAvailability: {} } });
-      events.push(notificationAuth(params));
-      continue;
-    }
-    if (frame.kind === "notification" && frame.method === "thread/reverted") {
-      if (ctx.threadId && params.threadId === ctx.threadId) events.push({ kind: "threadReverted", threadId: ctx.threadId });
-      continue;
-    }
-    state.parents ?? (state.parents = Object.fromEntries(ctx.threadParents.map((parent) => [parent.threadId, parent.parentThreadId])));
-    if (frame.kind === "notification" && frame.method === "thread/started") {
-      const thread = object(params.thread);
-      const id = text2(thread.id);
-      const parent = text2(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
-      if (id && parent && (parent === ctx.threadId || Object.prototype.hasOwnProperty.call(state.parents, parent))) state.parents[id] = parent;
-      continue;
-    }
-    if (frame.kind === "notification" && params.threadId !== ctx.threadId && typeof params.threadId === "string" && Object.prototype.hasOwnProperty.call(state.parents, params.threadId) && frame.method !== "serverRequest/resolved") {
-      if ((frame.method === "item/started" || frame.method === "item/completed") && ctx.threadId) {
-        state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
-        const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, params.threadId, params.item, state.seq + 1);
-        if (agents) for (const activity of agents) events.push({ kind: "chatItem", threadId: ctx.threadId, item: stamp(state, activity, params) });
-      }
-      const threadId2 = params.threadId;
-      const turnId2 = text2(object(params.turn).id) ?? text2(params.turnId);
-      if (!turnId2) continue;
-      state.childActive ?? (state.childActive = {});
-      state.childCompleted ?? (state.childCompleted = []);
-      if (frame.method === "turn/started" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
-        state.childActive[threadId2] = turnId2;
-        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "working", ...timing(params) });
-      } else if (frame.method === "turn/completed" && !state.childCompleted.includes(`${threadId2}:${turnId2}`)) {
-        state.childCompleted.push(`${threadId2}:${turnId2}`);
-        if (state.childActive[threadId2] && state.childActive[threadId2] !== turnId2) continue;
-        delete state.childActive[threadId2];
-        events.push({ kind: "turnState", threadId: threadId2, turnId: turnId2, parentThreadId: state.parents[threadId2], state: "idle", ...timing(params) });
-      }
-      continue;
-    }
-    if (frame.kind === "notification" && frame.method === "account/rateLimits/updated") {
-      const limits = object(params.rateLimits);
-      if (limits.limitId && limits.limitId !== "codex") continue;
-      state.rateLimitSnapshot = { ...state.rateLimitSnapshot, ...limits };
-      events.push(...rateLimitEvents(state.rateLimitSnapshot, params.rateLimitResetCredits));
-      continue;
-    }
-    const descendant = typeof params.threadId === "string" && ctx.threadParents.some((parent) => parent.threadId === params.threadId);
-    if (ctx.threadId && (params.threadId === ctx.threadId || descendant) && frame.kind === "request") {
-      if (!serverRequestMethods.includes(frame.method)) continue;
-      const prompt = runtimePrompt(frame.method, params, frame.requestId);
-      const turnId2 = descendant ? ctx.activeTurnId : text2(params.turnId);
-      if (prompt) events.push({ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }, { kind: "turnState", threadId: ctx.threadId, state: "needs_input", detail: requestDetail(frame.method), ...turnId2 ? { turnId: turnId2 } : {} });
-      continue;
-    }
-    if (ctx.threadId && descendant && frame.kind === "notification" && frame.method === "serverRequest/resolved") {
-      if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId: ctx.threadId, requestId: params.requestId });
-      continue;
-    }
-    if (!ctx.threadId || params.threadId !== ctx.threadId) continue;
-    const threadId = ctx.threadId;
-    const turnId = text2(params.turnId) ?? text2(object(params.turn).id);
-    if (turnId && state.abandoned?.includes(turnId)) continue;
-    switch (frame.method) {
-      case "turn/started": {
-        if (!turnId || state.completed.includes(turnId)) break;
-        events.push(...abandonOpenTurn(state, threadId, turnId));
-        state.activeTurnId = turnId;
-        delete state.compacting;
-        const settings = codexReportedSettings({ ...params, ...object(params.turn) }, ctx.settings);
-        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
-        events.push({ kind: "turnState", threadId, turnId, state: "working", ...timing(params) });
-        break;
-      }
-      case "turn/completed": {
-        if (!turnId || state.completed.includes(turnId)) break;
-        state.completed.push(turnId);
-        if (state.activeTurnId && state.activeTurnId !== turnId) break;
-        events.push(...interruptPendingCalls(state, threadId, turnId));
-        delete state.activeTurnId;
-        delete state.compacting;
-        const failure2 = outputLimit(params.turn) ? object(params.turn) : object(object(params.turn).error);
-        if (Object.keys(failure2).length) {
-          const error = runtimeError(failure2, false, state.rateLimitSnapshot);
-          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: "api_error", toolInput: error.metadata }, params) });
-        }
-        const outcome2 = turnOutcome(params.turn);
-        events.push({ kind: "turnState", threadId, turnId, state: "idle", ...outcome2 ? { detail: outcome2 } : {}, ...timing(params) });
-        break;
-      }
-      case "thread/status/changed": {
-        const status = threadStatus(params.status);
-        if (!status) break;
-        if (status.state === "working" && !state.activeTurnId) break;
-        if (status.state === "idle" && state.activeTurnId && !pendingStatus(state, threadId)) break;
-        if (status.state === "idle") delete state.compacting;
-        events.push(status.state !== "needs_input" && pendingStatus(state, threadId) || { kind: "turnState", threadId, ...withDetail(status, !!state.compacting), ...state.activeTurnId && status.state !== "idle" ? { turnId: state.activeTurnId } : {} });
-        break;
-      }
-      case "item/fileChange/patchUpdated": {
-        const id = text2(params.itemId);
-        if (!id || !Array.isArray(params.changes) || isRetired(state, id)) break;
-        const previous = state.items[id];
-        const row3 = runtimeItem({ id, type: "fileChange", changes: params.changes, status: "inProgress" }, state.seq + 1, previous);
-        if (!row3) break;
-        markOpen(state, id);
-        if (previous?.toolResult !== void 0) row3.toolResult = previous.toolResult;
-        events.push({ kind: "chatItem", threadId, item: stamp(state, row3, params) });
-        break;
-      }
-      case "thread/tokenUsage/updated": {
-        const mapped = usage(params);
-        if (mapped) events.push({ kind: "usage", threadId, usage: mapped });
-        break;
-      }
-      case "thread/settings/updated": {
-        const settings = codexReportedSettings(params, ctx.settings);
-        if (Object.keys(settings).length) events.push({ kind: "controlsConfirmed", threadId, settings });
-        break;
-      }
-      case "serverRequest/resolved":
-        if (typeof params.requestId === "string" || typeof params.requestId === "number") events.push({ kind: "promptResolved", threadId, requestId: params.requestId });
-        break;
-      case "model/rerouted": {
-        const model = text2(params.toModel);
-        if (model) {
-          events.push({ kind: "controlsConfirmed", threadId, settings: { model } });
-          events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId ?? "thread"}:model-rerouted`, seq: state.seq + 1, type: "system", content: `Model changed to ${model}`, systemSubtype: "model_rerouted", toolInput: params }, params) });
-        }
-        break;
-      }
-      case "thread/goal/cleared":
-        events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: {} }, params) });
-        break;
-      case "turn/diff/updated": {
-        const diff = text2(params.diff);
-        if (diff && turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:diff`, seq: state.seq + 1, type: "tool_call", content: "", toolKind: "edit", toolName: "turn_diff", toolResult: diff, collapsed: true }, params) });
-        break;
-      }
-      case "thread/goal/updated": {
-        const goal = text2(object(params.goal).objective);
-        if (goal) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: "thread:goal", seq: state.seq + 1, type: "custom", content: "", sessionIntent: goalIntent(params.goal) ?? { goal } }, params) });
-        break;
-      }
-      case "turn/plan/updated": {
-        const row3 = runtimeItem({ id: `${turnId}:plan`, type: "planUpdate", plan: params.plan, explanation: params.explanation }, state.seq + 1);
-        if (row3) events.push({ kind: "chatItem", threadId, item: stamp(state, row3, params) });
-        break;
-      }
-      case "error": {
-        const error = runtimeError(params.error, params.willRetry === true, state.rateLimitSnapshot);
-        if (turnId) events.push({ kind: "chatItem", threadId, item: stamp(state, { id: `${turnId}:error`, seq: state.seq + 1, type: "system", content: error.message, systemSubtype: params.willRetry === true ? "provider_retry" : "api_error", toolInput: error.metadata }, params) });
-        break;
-      }
-      default: {
-        let row3;
-        const rawItem = object(params.item);
-        if (frame.method === "item/started" || frame.method === "item/completed") {
-          state.agents ?? (state.agents = { rows: /* @__PURE__ */ Object.create(null), ordinal: 0 });
-          const agents = reduceRuntimeAgents(state.agents, state.items, state.parents, threadId, rawItem, state.seq + 1);
-          if (agents) {
-            for (const activity of agents) events.push({ kind: "chatItem", threadId, item: stamp(state, activity, params) });
-            continue;
-          }
-        }
-        if (frame.method === "item/completed" && rawItem.type === "agentMessage" && rawItem.delivery === "async" && list(rawItem.questions).length) {
-          const itemId = text2(rawItem.id);
-          state.questions ?? (state.questions = []);
-          if (itemId && !state.questions.includes(itemId)) {
-            state.questions.push(itemId);
-            events.push({ kind: "question", threadId, itemId, questions: runtimeQuestions(rawItem.questions), response: "message" });
-          }
-          continue;
-        }
-        const compactionId = rawItem.type === "contextCompaction" ? text2(rawItem.id) : void 0;
-        if (compactionId && frame.method === "item/started" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) {
-          if (state.compacting === compactionId || state.compacted.includes(compactionId)) continue;
-          state.compacting = compactionId;
-          events.push({ kind: "turnState", threadId, state: "working", detail: "compacting", ...turnId ? { turnId } : {} });
-          continue;
-        }
-        if (compactionId && frame.method === "item/completed" && state.compacting === compactionId) {
-          delete state.compacting;
-          if (turnId && state.activeTurnId === turnId) events.push({ kind: "turnState", threadId, turnId, state: "working" });
-        }
-        const reasoningId = text2(rawItem.id) ?? text2(params.itemId);
-        if (reasoningId && (rawItem.type === "reasoning" || frame.method.startsWith("item/reasoning/"))) {
-          if (frame.method !== "item/completed" && isRetired(state, reasoningId)) continue;
-          state.reasoning ?? (state.reasoning = {});
-          const parts = state.reasoning[reasoningId] ?? { summary: [], content: [] };
-          state.reasoning[reasoningId] = parts;
-          if (rawItem.type === "reasoning") {
-            if (list(rawItem.summary).length) parts.summary = list(rawItem.summary).map(String);
-            if (list(rawItem.content).length) parts.content = list(rawItem.content).map(String);
-          } else if (frame.method === "item/reasoning/summaryPartAdded") {
-            const index = Number(params.summaryIndex);
-            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) (_a = parts.summary)[index] ?? (_a[index] = "");
-            continue;
-          } else {
-            const stream = frame.method === "item/reasoning/summaryTextDelta" ? "summary" : "content";
-            const index = Number(params.summaryIndex ?? params.contentIndex ?? 0);
-            if (Number.isSafeInteger(index) && index >= 0 && index < 1024) parts[stream][index] = (parts[stream][index] ?? "") + String(params.delta ?? "");
-          }
-          row3 = stamp(state, { id: reasoningId, seq: state.seq + 1, type: "thinking", content: parts.summary.filter(Boolean).join("\n") || parts.content.join("\n"), collapsed: true }, params);
-          if (frame.method === "item/completed") markClosed(state, reasoningId);
-          else markOpen(state, reasoningId);
-        } else row3 = mapItem(state, frame.method, params);
-        if (row3) {
-          events.push({ kind: "chatItem", threadId, item: row3 });
-          if (row3.type === "tool_call" && state.activeTurnId && (!turnId || turnId === state.activeTurnId)) events.push({ kind: "turnState", threadId, ...state.activeTurnId ? { turnId: state.activeTurnId } : {}, state: "working", ...{ statusLine: runningCallStatus(state) ?? "" } });
-        }
-        if (frame.method === "item/started" || frame.method === "item/completed") {
-          const evidence = sendEvidence(ctx, object(params.item), turnId);
-          if (evidence?.kind === "sendEvidence" && !state.evidenced.includes(evidence.sendId)) {
-            state.evidenced.push(evidence.sendId);
-            events.push(evidence);
-          }
-          const item = object(params.item);
-          const id = text2(item.id);
-          if (frame.method === "item/completed" && item.type === "contextCompaction" && id && !state.compacted.includes(id)) {
-            state.compacted.push(id);
-            events.push({ kind: "contextCompacted", threadId, itemId: id });
-          }
-        }
-      }
-    }
-  }
-  compactState(state);
-  return budgetReduction(state, events);
-}
-function pendingStatus(state, threadId) {
-  const statusLine = runningCallStatus(state);
-  return statusLine && state.activeTurnId ? { kind: "turnState", threadId, turnId: state.activeTurnId, state: "working", ...{ statusLine } } : void 0;
-}
-
-// plugins/provider-codex/src/runtime.ts
-function fail2(code, message) {
-  throw { code, message };
-}
-function request(method, params, state = { stage: method }) {
-  const target = method === "turn/interrupt" ? { threadId: String(object(params).threadId), turnId: String(object(params).turnId) } : void 0;
-  return { action: { kind: "request", call: { method, params: json(params), ...target ? { target } : {} } }, state: json(state) };
-}
-function settingsParams(ctx, settings, instructions, windowsSandbox) {
-  instructions = codexRestrictedCliInstructions(ctx, instructions);
-  const policies = codexRuntimePolicy(settings);
-  const sandbox = object(policies.sandboxPolicy).type;
-  return {
-    cwd: ctx.cwd,
-    model: settings.model,
-    ...codexServiceTier(settings),
-    threadSource: "user",
-    config: { ...codexThreadConfig(settings, ctx.hostOwned), ...codexRestrictedCliConfig(ctx), ...windowsSandbox ? { "windows.sandbox": windowsSandbox } : {} },
-    ...policies.runtimeWorkspaceRoots ? { runtimeWorkspaceRoots: policies.runtimeWorkspaceRoots } : {},
-    approvalPolicy: policies.approvalPolicy,
-    approvalsReviewer: policies.approvalsReviewer,
-    sandbox: { readOnly: "read-only", workspaceWrite: "workspace-write", dangerFullAccess: "danger-full-access" }[String(sandbox)],
-    ...instructions !== void 0 ? { developerInstructions: instructions } : {}
-  };
-}
-function threadPlan(ctx, op, windowsSandbox) {
-  const params = settingsParams(ctx, op.settings, op.instructions, windowsSandbox);
-  return op.kind === "openThread" ? request("thread/start", params) : request("thread/resume", { ...params, threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", ...windowsSandbox ? { windowsSandbox } : {} });
-}
-function turnParams(ctx, op) {
-  const input = [{ type: "text", text: op.input.text }];
-  for (const attachment of op.input.attachments) {
-    if (attachment.data) input.push({ type: "image", url: `data:${attachment.mimeType};base64,${attachment.data}` });
-    else if (attachment.url) input.push({ type: "image", url: attachment.url });
-    else if (attachment.path) input.push({ type: "localImage", path: attachment.path });
-    else fail2("invalid_schema", "Attachment has no image source");
-  }
-  return {
-    threadId: op.threadId,
-    clientUserMessageId: op.sendId,
-    input,
-    cwd: ctx.cwd,
-    ...codexRuntimePolicy(op.settings),
-    ...codexServiceTier(op.settings),
-    model: op.settings.model,
-    effort: op.settings.effort
-  };
-}
-function threadHistoryPlan(ctx, thread, value) {
-  const action = text2(object(value).action);
-  const turnId = text2(object(value).turnId);
-  if (action !== "fork" && action !== "revert" || !turnId || turnId.length > 4096) fail2("invalid_schema", "Invalid thread history action");
-  if (ctx.activeTurnId) fail2("provider_refused", "Thread history cannot change during an active turn");
-  return request(
-    "thread/turns/list",
-    { threadId: thread, itemsView: "notLoaded", sortDirection: "asc", limit: 8 },
-    { stage: "threadHistoryTurns", action, turnId, cursor: null, targetFound: false, ...action === "fork" ? { sourceThreadId: thread } : {} }
-  );
-}
-function forkThreadPlan(ctx, op) {
-  if (ctx.threadId || ctx.activeTurnId || ctx.activeTurns.length) fail2("binding_mismatch", "Fork requires an unbound child runtime");
-  return threadHistoryPlan(ctx, op.sourceThreadId, { action: "fork", turnId: op.turnId });
-}
-function threadHistoryTurns(ctx, op, state, value) {
-  const controlThread = op.kind === "control" ? op.threadId : void 0;
-  const thread = text2(state.sourceThreadId) ?? controlThread ?? ctx.threadId;
-  const action = text2(state.action);
-  const turnId = text2(state.turnId);
-  if (!thread || !action || !turnId || !Array.isArray(value.data) || value.data.length > 8) return refused("Invalid thread history page");
-  let targetFound = state.targetFound === true;
-  for (const raw of value.data) {
-    const turn = object(raw);
-    const id = text2(turn.id);
-    if (!id || id.length > 4096) return refused("Thread history turn identity missing");
-    if (targetFound) {
-      if (action === "revert") return continuation(request("thread/revert", { threadId: thread, beforeTurnId: id }, { stage: "thread/revert", turnId }));
-      return refused("Fork boundary resolution failed");
-    }
-    if (id !== turnId) continue;
-    if (turn.status === "inProgress") return refused("Active turns cannot be forked or reverted");
-    if (action === "fork") return continuation(request(
-      "thread/fork",
-      {
-        threadId: thread,
-        lastTurnId: turnId,
-        ...ctx.hostOwned?.questions ? { config: codexThreadConfig(ctx.settings, ctx.hostOwned) } : {}
-      },
-      { stage: "thread/fork", turnId, sourceThreadId: thread }
-    ));
-    targetFound = true;
-  }
-  const next = text2(value.nextCursor);
-  if (next && (next.length > 4096 || next === state.cursor)) return refused("Thread history cursor did not advance");
-  if (next) return continuation(request(
-    "thread/turns/list",
-    { threadId: thread, itemsView: "notLoaded", sortDirection: "asc", limit: 8, cursor: next },
-    { ...state, cursor: next, targetFound }
-  ));
-  return targetFound ? refused("There is no later turn to revert") : refused("Selected turn is not in the bound thread");
-}
-function validateBinding(ctx, op) {
-  if (op.kind === "backgroundProcesses") {
-    if (!backgroundOwns(ctx, op.threadId)) fail2("binding_mismatch", "Background thread is not owned");
-    return;
-  }
-  if (op.kind === "readHistory" && !ctx.threadId) fail2("binding_mismatch", "History requires a bound root thread");
-  if ("threadId" in op && op.threadId && ctx.threadId && op.threadId !== ctx.threadId && !(op.kind === "readHistory" && descendantThread(ctx, op.threadId))) fail2("binding_mismatch", "Thread differs from the bound thread");
-  if ("activeTurnId" in op && op.activeTurnId && op.activeTurnId !== ctx.activeTurnId) fail2("binding_mismatch", "Active turn differs from the bound turn");
-}
-function historyTarget(ctx, op, plan) {
-  if (op.kind !== "readHistory" || op.threadId === ctx.threadId || plan.action.kind !== "request") return plan;
-  return { ...plan, action: { ...plan.action, call: { ...plan.action.call, target: { threadId: op.threadId } } } };
-}
-function runtimePlan(ctx, op) {
-  return historyTarget(ctx, op, planOperation(ctx, op));
-}
-function planOperation(ctx, op) {
-  validateBinding(ctx, op);
-  switch (op.kind) {
-    case "backgroundProcesses":
-      return backgroundPlan(ctx, op);
-    case "initialize":
-      return request("initialize", { clientInfo: { name: "domios", version: ctx.hostVersion }, capabilities: { experimentalApi: true, optOutNotificationMethods: [] } });
-    case "openThread":
-    case "resumeThread":
-      return op.settings.mode === "workspace-write" ? request("config/read", { includeLayers: false, cwd: ctx.cwd }, { stage: "windowsSandboxConfig" }) : threadPlan(ctx, op);
-    case "forkThread":
-      return forkThreadPlan(ctx, op);
-    case "readHistory":
-      if (op.order === "desc") return pagedHistoryPlan(op);
-      return request(
-        "thread/turns/list",
-        { threadId: op.threadId, itemsView: "notLoaded", sortDirection: op.order ?? "asc", limit: 8, cursor: op.cursor },
-        { stage: "turns", turns: [], cursor: null, seq: 0 }
-      );
-    case "submitTurn": {
-      const params = turnParams(ctx, op);
-      if (!op.activeTurnId) return request("turn/start", params);
-      return request("turn/steer", { threadId: op.threadId, clientUserMessageId: op.sendId, input: params.input, expectedTurnId: op.activeTurnId });
-    }
-    case "interrupt": {
-      const turns = interruptTargets(ctx, op.threadId);
-      if (!turns.length) fail2("provider_refused", "No active turn to interrupt");
-      return request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) });
-    }
-    case "answerQuestion":
-      return { action: { kind: "questionAnswer", input: questionAnswerInput(op.itemId, op.answers) }, state: null };
-    case "answer": {
-      const pending = ctx.pendingRequest;
-      if (!pending || pending.requestId !== op.requestId) fail2("binding_mismatch", "Answer has no exact pending request");
-      return { action: { kind: "reply", requestId: op.requestId, result: { kind: "success", value: runtimeAnswer(pending.method, pending.params, op.requestId, op.answer) } }, state: null };
-    }
-    case "control": {
-      if (op.action === "readResetCredits") return request("account/rateLimits/read", { excludeResetCreditDetails: object(op.value).details !== true });
-      if (op.action === "redeemResetCredit") {
-        const key = text2(object(op.value).idempotencyKey);
-        if (!key || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(key)) fail2("invalid_schema", "A confirmation UUID is required");
-        const creditId = object(op.value).creditId;
-        if (creditId != null && (typeof creditId !== "string" || !creditId.trim())) fail2("invalid_schema", "Reset credit identifier is invalid");
-        return request("account/rateLimitResetCredit/consume", { idempotencyKey: key, ...creditId ? { creditId } : {} });
-      }
-      if (op.action === "login") return loginPlan(op.value);
-      if (op.action === "auth") return request("account/read", { refreshToken: false }, { stage: "auth" });
-      const thread = op.threadId ?? ctx.threadId;
-      if (!thread) fail2("binding_mismatch", "Control requires the bound thread");
-      if (op.action === "goal") return goalPlan(thread, op.value);
-      if (op.action === "threadHistory") return threadHistoryPlan(ctx, thread, op.value);
-      if (op.action === "compact") return request("thread/compact/start", { threadId: thread });
-      if (op.action === "serviceTiers") return request("model/list", { includeHidden: true, limit: 100 }, { stage: "serviceTiers", models: [], cursors: [] });
-      if (op.action === "restoreContext") return request("thread/inject_items", { threadId: thread, items: restoreContextItems(op.value) });
-      if (!["model", "effort", "mode", "settings"].includes(op.action)) fail2("unsupported", `Unsupported control: ${op.action}`);
-      const settings = op.action === "settings" ? { ...ctx.settings, ...object(op.value) } : { ...ctx.settings, [op.action]: op.value };
-      for (const key of ["model", "effort", "mode"]) if (settings[key] !== void 0 && typeof settings[key] !== "string") fail2("invalid_schema", `Invalid ${key}`);
-      if (settings.serviceTier !== void 0 && !serviceTierSelection(settings.serviceTier)) fail2("invalid_schema", "Invalid service tier");
-      const parsed = settings;
-      if (parsed.serviceTier && !tierAvailable({ ...parsed, serviceTierAvailability: ctx.settings.serviceTierAvailability }, parsed.serviceTier)) fail2("provider_refused", "Service tier is not available for this account and model");
-      if (ctx.settings.mode === "read-only-with-writable-roots") {
-        if (parsed.mode !== ctx.settings.mode || JSON.stringify(parsed.additionalDirectories) !== JSON.stringify(ctx.settings.additionalDirectories) || parsed.networkAccess !== ctx.settings.networkAccess) fail2("provider_refused", "Read-only writable roots require a new launch to change");
-        return request("thread/settings/update", { threadId: thread, ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
-      }
-      if (parsed.mode === "read-only-with-writable-roots") fail2("provider_refused", "Read-only writable roots require a new launch");
-      return request("thread/settings/update", { threadId: thread, ...codexRuntimePolicy(parsed), ...codexServiceTier(parsed), model: parsed.model, effort: parsed.effort }, { stage: "thread/settings/update", settings: parsed });
-    }
-  }
-}
-function refused(message, beforeAcceptance = false) {
-  return { kind: "refused", reason: { code: "provider_refused", message }, beforeAcceptance };
-}
-function continuation(plan, beforeAcceptance) {
-  return { kind: "continue", plan, ...beforeAcceptance ? { beforeAcceptance } : {} };
-}
-function runtimeResponse(ctx, op, raw, reply) {
-  const step = respondOperation(ctx, op, raw, reply);
-  return step.kind === "continue" ? { ...step, plan: historyTarget(ctx, op, step.plan) } : step;
-}
-function respondOperation(ctx, op, raw, reply) {
-  validateBinding(ctx, op);
-  if (op.kind === "backgroundProcesses") return backgroundResponse(op, reply);
-  const state = object(raw);
-  if (op.kind === "control" && op.action === "goal") return goalResponse(op.threadId ?? ctx.threadId, state, reply);
-  if ((op.kind === "forkThread" || op.kind === "control" && op.action === "threadHistory") && state.stage === "threadHistoryTurns") {
-    if (reply.kind === "error") return refused(reply.error.message);
-    return threadHistoryTurns(ctx, op, state, object(reply.value));
-  }
-  if (op.kind === "readHistory" && reply.kind === "error" && state.stage === "turns" && !op.cursor && reply.error.code === -32600 && reply.error.message === `thread ${op.threadId} is not materialized yet; thread/turns/list is unavailable before first user message`)
-    return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "unmaterialized" }));
-  if (op.kind === "readHistory" && state.stage === "unmaterialized" && reply.kind === "success") {
-    const thread = object(object(reply.value).thread);
-    if (!historyThread(ctx, reply.value, op.threadId) || !Array.isArray(thread.turns) || thread.turns.length)
-      return refused("Empty thread identity unverified");
-    return { kind: "complete", result: { kind: "historyPage", threadId: op.threadId, items: [], openItems: [], ...op.order ? { order: op.order } : {} } };
-  }
-  if (op.kind === "readHistory" && state.pager === 1) {
-    if (reply.kind === "error" && reply.error.code === -32601 && ["turns", "items"].includes(String(state.stage)))
-      return historyComplete(op, { items: [], openItems: [] });
-    return pagedHistoryResponse(op, state, reply);
-  }
-  if (reply.kind === "error") {
-    if (op.kind === "resumeThread" && state.stage === "thread/resume" && missingRollout(reply.error, op.threadId))
-      return { kind: "refused", reason: { code: "thread_not_found", message: "The provider's saved conversation rollout is unavailable." }, beforeAcceptance: true };
-    if (op.kind === "control" && op.action === "serviceTiers") return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: {} } }] };
-    const smaller = object(reply.error.data).historyPageLimit;
-    if (op.kind === "readHistory" && state.stage === "items" && reply.error.code === -32097 && typeof smaller === "number" && Number.isSafeInteger(smaller) && smaller >= 1 && smaller < Number(state.historyItemLimit ?? 100))
-      return historyItems(op, { ...state, historyItemLimit: smaller }, text2(state.cursor));
-    if (op.kind === "control" && op.action === "redeemResetCredit" && state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" } };
-    if (op.kind === "initialize" && state.stage === "initializeLimits") return { kind: "complete", result: initializedResult(state), events: [state.auth] };
-    if (op.kind === "control" && op.action === "login") return refused("Sign-in failed. Try again.");
-    if (op.kind === "readHistory" && state.stage === "goal") return historyComplete(op, state);
-    if (op.kind === "readHistory" && ["turns", "items"].includes(String(state.stage)) && reply.error.code === -32601)
-      return historyComplete(op, { items: [], openItems: [] });
-    if (op.kind === "submitTurn" && state.stage === "turn/steer" && op.activeTurnId && steerRefused(reply.error, op.activeTurnId))
-      return continuation(request("turn/start", turnParams(ctx, op)), true);
-    if (op.kind === "resumeThread" && state.stage === "thread/resume" && !state.unarchived && archivedResume(reply.error.message))
-      return continuation(request("thread/unarchive", { threadId: op.threadId }, { stage: "unarchive", ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
-    return refused(reply.error.message, op.kind === "submitTurn" && state.stage === "turn/steer" && !!op.activeTurnId && steerRefused(reply.error, op.activeTurnId));
-  }
-  const value = object(reply.value);
-  if (op.kind === "openThread" || op.kind === "resumeThread") {
-    if (state.stage === "windowsSandboxConfig") {
-      codexValidateCliTrust(ctx, value);
-      return continuation(codexNeedsWindowsSandboxSelection(value) ? request("configRequirements/read", null, { stage: "windowsSandboxRequirements" }) : threadPlan(ctx, op));
-    }
-    if (state.stage === "windowsSandboxRequirements") return continuation(threadPlan(ctx, op, codexWindowsSandboxOverride(value)));
-  }
-  switch (op.kind) {
-    case "initialize":
-      if (state.stage === "initialize") return continuation({ action: { kind: "notification", notification: { method: "initialized", params: {} } }, state: json({ stage: "initializedNotification", binaryVersion: runtimeBinaryVersion(value.userAgent) }) });
-      if (state.stage === "initializedNotification") return continuation(request("account/read", { refreshToken: false }, { ...state, stage: "initializeAccount" }));
-      if (state.stage === "initializeAccount") {
-        const auth = accountAuth(value);
-        if (auth.billingMode === "subscription") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: true }, { ...state, stage: "initializeLimits", auth }));
-        return { kind: "complete", result: initializedResult(state), events: [auth] };
-      }
-      return { kind: "complete", result: initializedResult(state), events: [state.auth, ...rateLimitEvents(value.rateLimits, value.rateLimitResetCredits)] };
-    case "openThread": {
-      const threadId = userThread(value);
-      if (!threadId) return refused("New thread identity unverified");
-      if (op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
-      if (!codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
-      return { kind: "complete", result: { kind: "threadLoaded", threadId, settings: codexEffectiveSettings(op.settings, value) } };
-    }
-    case "resumeThread": {
-      if (state.stage === "unarchive") return continuation(request("thread/resume", { ...settingsParams(ctx, op.settings, op.instructions, state.windowsSandbox === "mxc" ? "mxc" : void 0), threadId: op.threadId, excludeTurns: true }, { stage: "thread/resume", unarchived: true, ...state.windowsSandbox === "mxc" ? { windowsSandbox: "mxc" } : {} }));
-      if (!userThread(value, op.threadId)) return refused("Resumed thread identity unverified");
-      if (state.stage !== "verify" && op.settings.mode === "workspace-write" && !codexWorkspaceWriteConfirmed(value)) return refused("Provider did not confirm the requested workspace-write sandbox");
-      if (state.stage !== "verify" && !codexWritableRootsConfirmed(op.settings, value)) return refused("Provider did not confirm the exact read-only writable roots");
-      if (state.stage !== "verify") return continuation(request("thread/read", { threadId: op.threadId, includeTurns: false }, { stage: "verify", settings: codexEffectiveSettings(op.settings, value) }));
-      const idle = threadStatus(object(value.thread).status)?.state === "idle";
-      return {
-        kind: "complete",
-        result: { kind: "threadLoaded", threadId: op.threadId, settings: state.settings },
-        ...idle ? { events: [{ kind: "turnState", threadId: op.threadId, state: "idle", ...ctx.activeTurnId ? { turnId: ctx.activeTurnId } : {} }] } : {}
-      };
-    }
-    case "readHistory":
-      return historyResponse(op, state, value);
-    case "submitTurn": {
-      const turnId = text2(object(value.turn).id) ?? text2(value.turnId);
-      return { kind: "complete", result: { kind: "turnAccepted", threadId: op.threadId, sendId: op.sendId, ...turnId ? { turnId } : {} } };
-    }
-    case "interrupt": {
-      const turns = list(state.remaining).map(object);
-      if (turns.length) return continuation(request("turn/interrupt", { threadId: turns[0].threadId, turnId: turns[0].turnId }, { stage: "interrupt", remaining: turns.slice(1) }));
-      return { kind: "complete", result: { kind: "done" } };
-    }
-    case "forkThread": {
-      if (state.stage !== "thread/fork") return refused("Fork did not reach its provider boundary");
-      const threadId = userThread(reply.value);
-      if (!threadId || threadId === op.sourceThreadId || state.sourceThreadId !== op.sourceThreadId || state.turnId !== op.turnId) return refused("Forked thread identity unverified");
-      return { kind: "complete", result: { kind: "threadForked", sourceThreadId: op.sourceThreadId, threadId, turnId: op.turnId } };
-    }
-    case "control": {
-      if (op.action === "serviceTiers") {
-        if (state.stage === "serviceTiers") {
-          const models = [...list(state.models), ...list(value.data)];
-          const cursors = list(state.cursors);
-          const cursor = text2(value.nextCursor);
-          if (models.length > 1e3 || cursor && (cursors.includes(cursor) || cursors.length >= 10)) return refused("Invalid model catalogue pagination");
-          if (cursor) return continuation(request("model/list", { includeHidden: true, limit: 100, cursor }, { stage: "serviceTiers", models, cursors: [...cursors, cursor] }));
-          return continuation(request("configRequirements/read", {}, { stage: "tierRequirements", models }));
-        }
-        return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: { serviceTierAvailability: modelServiceTiers(state.models, value) } }] };
-      }
-      if (op.action === "readResetCredits") {
-        if (!resetCredits(value.rateLimitResetCredits)) return refused("Reset credit allowance was not reported");
-        return { kind: "complete", result: { kind: "done" }, events: rateLimitEvents(value.rateLimits, value.rateLimitResetCredits) };
-      }
-      if (op.action === "redeemResetCredit") {
-        if (state.stage === "refreshResetCredits") return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: "reset" }, events: rateLimitEvents(value.rateLimits, value.rateLimitResetCredits) };
-        const outcome2 = resetOutcome(value);
-        if (!outcome2) return refused("Unknown reset credit outcome");
-        if (outcome2 === "reset") return continuation(request("account/rateLimits/read", { excludeResetCreditDetails: false }, { stage: "refreshResetCredits" }));
-        return { kind: "complete", result: { kind: "resetCreditConsumed", outcome: outcome2 } };
-      }
-      if (op.action === "login") return loginResponse(state, value);
-      if (op.action === "threadHistory" && state.stage === "thread/revert") return { kind: "complete", result: { kind: "done" } };
-      if (state.stage === "auth") return { kind: "complete", result: { kind: "done" }, events: [accountAuth(value)] };
-      const awaitingTier = state.stage === "thread/settings/update" && object(state.settings).serviceTier !== void 0;
-      return { kind: "complete", result: { kind: "done" }, ...state.stage === "thread/settings/update" && !awaitingTier ? { events: [{ kind: "controlsConfirmed", threadId: op.threadId ?? ctx.threadId, settings: codexEffectiveSettings(state.settings, value) }] } : {} };
-    }
-    case "answer":
-    case "answerQuestion":
-      return { kind: "complete", result: { kind: "done" } };
-  }
-}
-function historyResponse(op, state, value) {
-  if (state.stage === "goal") {
-    const objective = text2(object(sanitizeHistory(object(value.goal))).objective);
-    if (objective) state.items = [...list(state.items), { id: "thread:goal", seq: Number(state.seq) + 1, type: "custom", content: "", sessionIntent: goalIntent(value.goal) ?? { goal: objective } }];
-    return historyComplete(op, state);
-  }
-  if (!Array.isArray(value.data)) return refused("Missing history page data");
-  if (state.stage === "turns") {
-    const source = list(value.data).map(object);
-    if (source.length > 8 || source.some((turn2) => typeof turn2.id !== "string" || !turn2.id || turn2.id.length > 4096)) return refused("Invalid history turn page");
-    const turns2 = (op.order === "desc" ? [...source].reverse() : source).map((turn2) => ({
-      id: turn2.id,
-      status: turn2.status === "inProgress" ? "inProgress" : "completed",
-      startedAt: typeof turn2.startedAt === "number" && Number.isFinite(turn2.startedAt) ? turn2.startedAt : null
-    }));
-    const next2 = text2(value.nextCursor);
-    if (next2 && (next2.length > 4096 || next2 === op.cursor)) return refused("Repeated history cursor");
-    const collected2 = { ...state, turns: turns2, nextCursor: next2, index: 0, stage: "items" };
-    if (!turns2.length) return historyGoal(op, collected2);
-    return historyItems(op, collected2);
-  }
-  if (state.stage !== "items") return refused("Invalid history state");
-  const turns = list(state.turns).map(object);
-  const turn = turns[Number(state.index)];
-  if (!turn || !text2(turn.id)) return refused("Missing history turn id");
-  const mapped = collectHistoryItems(op, { ...state, items: [], openItems: [], questions: [] }, turn, value.data);
-  if (mapped.offset != null) return streamHistory(op, historyItems(op, mapped, text2(state.cursor)), mapped);
-  const next = text2(value.nextCursor);
-  if (next && (next.length > 4096 || next === state.cursor)) return refused("Repeated history cursor");
-  const collected = { ...mapped };
-  if (next) return streamHistory(op, historyItems(op, { ...collected, cursor: next }, next), collected);
-  const index = Number(state.index) + 1;
-  if (index < turns.length) return streamHistory(op, historyItems(op, { ...collected, index, cursor: null }), collected);
-  return historyGoal(op, collected);
-}
-function collectHistoryItems(op, state, turn, entries) {
-  const items = list(state.items);
-  const openItems = list(state.openItems);
-  let seq = Number(state.seq);
-  let questions = list(state.questions);
-  let bytes2 = serializedBytes({ items, openItems, questions });
-  for (let index = Number(state.offset ?? 0); index < entries.length; index++) {
-    const record6 = object(entries[index]);
-    const rawItem = historyItem(record6.item ?? record6);
-    const nextQuestions = reconcileHistoryQuestions(op.threadId, rawItem, questions);
-    const timestamp = record6.startedAtMs ?? record6.completedAtMs;
-    const rows2 = projectHistoryItem(rawItem, seq + 1, String(turn.id), timestamp, op.threadId);
-    const active = turn.status === "inProgress" && turn.startedAt != null && record6.completedAtMs == null && !["completed", "failed", "interrupted", "declined"].includes(String(object(rawItem).status));
-    const opened = active ? rows2.map((item) => ({ turnId: String(turn.id), item })) : [];
-    const rowBytes = serializedBytes(rows2) + serializedBytes(opened) + serializedBytes(nextQuestions);
-    if (bytes2 + rowBytes > HISTORY_CHUNK_BYTES && items.length) return { ...state, items, openItems, seq, questions, offset: index };
-    bytes2 += rowBytes;
-    questions = nextQuestions;
-    seq += rows2.length;
-    items.push(...rows2);
-    openItems.push(...opened);
-  }
-  return { ...state, items, openItems, seq, questions, offset: null };
-}
-function historyItems(op, state, cursor) {
-  const turn = object(list(state.turns)[Number(state.index)]);
-  if (!text2(turn.id)) return refused("Missing history turn id");
-  return continuation(request("thread/items/list", { threadId: op.threadId, turnId: turn.id, sortDirection: "asc", limit: Number(state.historyItemLimit ?? 100), cursor }, { ...state, historyItemLimit: Number(state.historyItemLimit ?? 100), cursor: cursor ?? null }));
-}
-function historyGoal(op, state) {
-  if (text2(state.nextCursor)) return historyComplete(op, state);
-  return streamHistory(op, continuation(request("thread/goal/get", { threadId: op.threadId }, { ...state, stage: "goal" })), state);
-}
-function historyComplete(op, state) {
-  return { kind: "complete", result: {
-    kind: "historyPage",
-    threadId: op.threadId,
-    items: list(state.items),
-    openItems: list(state.openItems),
-    ...text2(state.nextCursor) ? { nextCursor: String(state.nextCursor) } : {},
-    ...list(state.questions).length ? { questions: list(state.questions) } : {},
-    ...op.order ? { order: op.order } : {}
-  } };
-}
-function streamHistory(op, step, state) {
-  if (step.kind !== "continue") return step;
-  const { items, openItems, questions, ...cursor } = object(step.plan.state);
-  const complete = historyComplete(op, { ...state, nextCursor: void 0 });
-  if (complete.kind !== "complete" || complete.result.kind !== "historyPage") return step;
-  return { ...step, plan: { ...step.plan, state: json(cursor) }, history: complete.result };
 }
 
 // plugins/provider-codex/src/toolOutput.ts
@@ -3906,159 +1596,19 @@ function codexToolOutputText(output) {
   return typeof output === "object" ? canonicalJson(output) : String(output);
 }
 
-// plugins/provider-shared/accessError.ts
-function object2(value) {
-  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
-}
-var authExpiry = ["token_expired", "refresh_token_expired", "auth_expired", "auth_expiry"];
-var authentication = [
-  "401",
-  "403",
-  "authentication_error",
-  "auth",
-  "unauthorized",
-  "permission_error",
-  "permission_denied",
-  "forbidden",
-  "subscription_disabled",
-  "organization_disabled",
-  "oauth_refresh_failed",
-  "token_revoked",
-  "refresh_token_reused",
-  "refresh_token_invalidated",
-  "logged_out",
-  "signed_out",
-  "unauthenticated",
-  "authError"
-];
-var usage2 = ["usageLimitExceeded", "usage_limit", "sessionBudgetExceeded"];
-var rate = ["429", "rate_limit", "rate_limit_error", "rateLimitExceeded"];
-var server = ["overloaded", "overloaded_error", "serverOverloaded", "server_overloaded", "internalServerError", "internal_server_error"];
-function statusCode2(value) {
-  if (typeof value === "number" && Number.isInteger(value)) return value;
-  if (typeof value === "string" && /^\d+$/.test(value)) return Number(value);
-  return null;
-}
-function classifyAccessError(error, record6) {
-  const detail = object2(error);
-  const info = detail?.codexErrorInfo;
-  const infoObject = object2(info);
-  const fields = [
-    typeof error === "string" ? error : null,
-    detail?.type,
-    detail?.code,
-    detail?.status,
-    detail?.statusCode,
-    detail?.status_code,
-    detail?.httpStatusCode,
-    typeof info === "string" ? info : null,
-    ...Object.keys(infoObject ?? {}),
-    ...Object.values(infoObject ?? {}).map((value) => object2(value)?.httpStatusCode),
-    record6.status,
-    record6.statusCode,
-    record6.status_code,
-    record6.apiErrorStatus,
-    record6.apiErrorCode
-  ];
-  const named = (codes) => fields.some((value) => typeof value === "string" && codes.includes(value));
-  const prefixed = (prefix) => fields.some((value) => typeof value === "string" && value.startsWith(prefix));
-  const status = (match) => fields.some((value) => {
-    const code = statusCode2(value);
-    return code != null && match(code);
-  });
-  if (named(authExpiry)) return "auth_expiry";
-  if (named(["authError"]) || prefixed("oauth_") || prefixed("authentication_") || status((code) => code === 401 || code === 403) || named(authentication)) return "authentication";
-  if (named(usage2)) return "usage_limit";
-  if (status((code) => code === 429) || named(rate)) return "rate_limit";
-  if (status((code) => code >= 500 && code <= 599) || named(server)) return "server_overloaded";
-  return "other";
-}
-function readRetry(value) {
-  if (!value) return null;
-  for (const key of ["retryAfter", "retry_after", "retryAfterSeconds", "retry_after_secs", "retryAfterSecs"]) {
-    const field = value[key];
-    if (typeof field === "number" && Number.isInteger(field) && field >= 0) return field;
-    if (typeof field === "string" && /^\d+$/.test(field)) return Number(field);
-  }
-  return null;
-}
-function retryAfterSecs(error, record6) {
-  return readRetry(object2(error)) ?? readRetry(record6);
-}
-function observationTurnId(record6) {
-  for (const key of ["uuid", "turn_id", "turnId", "requestId"]) {
-    const value = record6[key];
-    if (typeof value === "string" && value) return value;
-  }
-  const payload = object2(record6.payload);
-  if (!payload) return null;
-  for (const key of ["turn_id", "turnId", "uuid", "requestId"]) {
-    const value = payload[key];
-    if (typeof value === "string" && value) return value;
-  }
-  return null;
-}
-function observationRetrying(error, record6) {
-  return record6.willRetry === true || object2(error)?.willRetry === true;
-}
-function observationExtras(error, record6) {
-  const extras = {};
-  const retry = retryAfterSecs(error, record6);
-  if (retry != null) extras.retry_after_secs = retry;
-  const turn = observationTurnId(record6);
-  if (turn) extras.turn_id = turn;
-  if (observationRetrying(error, record6)) extras.retrying = true;
-  return extras;
-}
-
-// plugins/provider-codex/src/signals.ts
-function parseSessionObservations(value) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const record6 = value;
-  if (record6.type !== "event_msg" || !record6.payload || typeof record6.payload !== "object" || Array.isArray(record6.payload)) return null;
-  const payload = record6.payload;
-  if (payload.type === "error" || payload.type === "task_complete" && outputLimit(payload)) {
-    const error = payload.error ?? payload;
-    return {
-      api_error: classifyAccessError(error, payload),
-      permission_mode: null,
-      clears_api_error: false,
-      ...observationExtras(error, record6),
-      retry_error: runtimeError(error, payload.willRetry === true).metadata
-    };
-  }
-  if (payload.type === "task_complete") return { api_error: null, permission_mode: null, clears_api_error: true, retry_succeeded: true };
-  return null;
-}
-
-// plugins/provider-shared/updatePrompt.ts
-function updatePromptSafeChoice(prompt) {
-  if (prompt.options.length < 2 || !prompt.options.some(([label2]) => /\bupdate\b/i.test(label2))) {
-    return null;
-  }
-  const safe = prompt.options.filter(([label2]) => /\b(skip|later|postpone)\b/i.test(label2));
-  const bare = safe.filter(([label2]) => /^\s*(skip|later|postpone)\s*$/i.test(label2));
-  const chosen = safe.length === 1 ? safe : bare;
-  if (chosen.length !== 1) return null;
-  const [label, value] = chosen[0];
-  if (!value || /\bupdate\b/i.test(label)) return null;
-  if (prompt.options.filter(([, candidate]) => candidate === value).length !== 1) return null;
-  return value;
-}
-
 // plugins/provider-codex/src/models.ts
-function discoverCodexModels() {
-  return discoverCodexModelsFromCache();
+function* discoverCodexModels() {
+  return yield* discoverCodexModelsFromCache();
 }
 function codexModelsCachePath() {
   const home = host.homeDir();
   const sep = host.platform() === "windows" ? "\\" : "/";
   return effectiveReadPath(host.envGet("CODEX_HOME"), home ? home + sep + ".codex" + sep + "models_cache.json" : null, "models_cache.json", sep);
 }
-function discoverCodexModelsFromCache() {
+function* discoverCodexModelsFromCache() {
   const path = codexModelsCachePath();
-  if (!path || !host.fs.fileExists(path)) return null;
-  const cache = host.fs.readJson(path);
+  if (!path || !(yield* host.io.fs.fileExists(path))) return null;
+  const cache = yield* host.io.fs.readJson(path);
   const raw = cache && cache.models;
   if (!Array.isArray(raw)) return null;
   const kept = [];
@@ -4252,9 +1802,9 @@ function parseMenuOptions(screen) {
   return options;
 }
 function joinWrappedLabel(label, row3) {
-  const continuation2 = row3.trim();
+  const continuation = row3.trim();
   const pathBoundary = /[\\/]$/.test(label);
-  return `${label}${pathBoundary ? "" : " "}${continuation2}`;
+  return `${label}${pathBoundary ? "" : " "}${continuation}`;
 }
 function parseActiveTerminalChoice(screen) {
   const lines = normalizeLines(screen);
@@ -4347,10 +1897,10 @@ function cleanPromptText(value) {
 // plugins/provider-codex/src/usage.ts
 var CODEX_USAGE_KIND = "codeterm_usage_v1";
 var CODEX_AUTH_CREDENTIAL2 = "codexAuth";
-function fetchCodexUsage(host2) {
-  const accountId = stringAt(safeJson(host2.credentialPublic(CODEX_AUTH_CREDENTIAL2)), "accountId");
+function* fetchCodexUsage(host2) {
+  const accountId = stringAt(safeJson(yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL2 }, true)), "accountId");
   if (!accountId) return null;
-  const response = safeJson(host2.fetch(JSON.stringify({
+  const response = safeJson(yield* ioEncoded(host2.io.fetch({
     url: "https://chatgpt.com/backend-api/wham/usage",
     method: "GET",
     timeoutMs: 6e3,
@@ -4580,7 +2130,7 @@ function codexParseWeeklyResets(raw, nowMs) {
 }
 
 // plugins/provider-shared/updateCheck.ts
-function record5(raw) {
+function record4(raw) {
   if (raw !== null && typeof raw === "object") return raw;
   if (typeof raw !== "string") return null;
   try {
@@ -4630,15 +2180,15 @@ function newestSupportedVersion(versions, compatibility) {
   }, null);
 }
 function installedVersion(result) {
-  const installed = record5(result);
+  const installed = record4(result);
   if (installed?.code !== 0 || typeof installed.stdout !== "string") return null;
   const version = installed.stdout.match(/(?:^|\s)(\d+\.\d+\.\d+)(?=\s|$)/)?.[1];
   return version && versionParts(version) ? version : null;
 }
 function availableUpdate(currentVersion, result, compatibility) {
-  const response = record5(result);
+  const response = record4(result);
   if (response?.status !== 200) return null;
-  const metadata = record5(response.body);
+  const metadata = record4(response.body);
   let latestVersion = typeof metadata?.version === "string" ? metadata.version : null;
   if (!compatibility && !latestVersion) return null;
   if (compatibility) {
@@ -4647,25 +2197,27 @@ function availableUpdate(currentVersion, result, compatibility) {
   }
   return latestVersion && compare(latestVersion, currentVersion) === 1 ? { currentVersion, latestVersion } : { currentVersion, latestVersion: currentVersion };
 }
-function startedJob(raw) {
-  const job = record5(raw)?.jobId;
-  return typeof job === "string" && job !== "" ? job : null;
-}
-function checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
-  const probe = startedJob(host2.execStart(JSON.stringify({ bin: binary, args: ["--version"], timeoutMs: 5e3 })));
-  if (!probe) return null;
-  return host2.awaitJob(probe, (installed) => {
-    const currentVersion = parseInstalled(installed);
-    if (!currentVersion) return null;
-    const metadata = startedJob(host2.fetchStart(JSON.stringify({
+function* checkProviderUpdate(host2, binary, metadataUrl, compatibility, parseInstalled = installedVersion) {
+  let installed;
+  try {
+    installed = yield* host2.io.exec({ bin: binary, args: ["--version"], timeoutMs: 5e3 });
+  } catch {
+    return null;
+  }
+  const currentVersion = parseInstalled(installed);
+  if (!currentVersion) return null;
+  let metadata;
+  try {
+    metadata = yield* host2.io.fetch({
       url: metadataUrl,
       method: "GET",
       timeoutMs: 6e3,
       headers: { Accept: compatibility ? "application/vnd.npm.install-v1+json" : "application/json" }
-    })));
-    if (!metadata) return null;
-    return host2.awaitJob(metadata, (response) => availableUpdate(currentVersion, response, compatibility));
-  });
+    });
+  } catch {
+    return null;
+  }
+  return availableUpdate(currentVersion, metadata, compatibility);
 }
 
 // plugins/provider-codex/src/update.ts
@@ -4674,14 +2226,8 @@ var codexSelfUpdateCapability = {
   standaloneDirectory: "packages/standalone",
   standaloneArgs: ["update"]
 };
-function checkCodexUpdate(host2) {
-  return checkProviderUpdate(
-    host2,
-    "codex",
-    `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`,
-    void 0,
-    installedVersion
-  );
+function* checkCodexUpdate(host2) {
+  return yield* checkProviderUpdate(host2, "codex", `https://registry.npmjs.org/${encodeURIComponent(codexSelfUpdateCapability.npmPackage)}/latest`, void 0, installedVersion);
 }
 
 // plugins/provider-codex/src/patchEdits.ts
@@ -5082,24 +2628,24 @@ function collectExistingPaths(config) {
   let currentTable = [];
   let rootInline = null;
   let projectsTableSeen = false;
-  let invalid3 = false;
+  let invalid = false;
   for (const line of lines) {
     const parts = headerParts(line);
     if (parts) {
       currentTable = parts;
       if (parts[0] === "projects") {
-        if (rootInline) invalid3 = true;
+        if (rootInline) invalid = true;
         if (parts.length === 1) {
-          if (projectsTableSeen) invalid3 = true;
+          if (projectsTableSeen) invalid = true;
           projectsTableSeen = true;
         } else {
           const key = normalizedPath(parts[1]);
           const headerKey = JSON.stringify([key, ...parts.slice(2)]);
-          if (projectHeaders.has(headerKey)) invalid3 = true;
+          if (projectHeaders.has(headerKey)) invalid = true;
           projectHeaders.add(headerKey);
           paths.add(key);
           if (parts.length === 2) {
-            if (directTables.has(key) || parentKeys.has(key)) invalid3 = true;
+            if (directTables.has(key) || parentKeys.has(key)) invalid = true;
             directTables.add(key);
           } else {
             nestedTables.add(key);
@@ -5110,33 +2656,33 @@ function collectExistingPaths(config) {
     }
     const relevantHeader = withoutComment(line).trim();
     if (relevantHeader.startsWith("[")) {
-      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid3 = true;
+      if (/^\[\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader) || /^\[\s*projects(?:\s*\.|\s*\])/.test(relevantHeader)) invalid = true;
       currentTable = [];
       continue;
     }
     const assignment = assignmentParts(line);
     if (!assignment) {
-      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid3 = true;
-      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid3 = true;
+      if (currentTable.length === 1 && currentTable[0] === "projects" && relevantHeader.length > 0 && !relevantHeader.startsWith("#")) invalid = true;
+      if (currentTable.length === 0 && /^projects\s*=/.test(relevantHeader)) invalid = true;
       continue;
     }
     if (currentTable.length === 0 && assignment.key[0] === "projects") {
       if (assignment.key.length === 1) {
         const keys = inlineTableKeys(assignment.value);
         if (!keys || rootInline) {
-          invalid3 = true;
+          invalid = true;
           continue;
         }
         rootInline = /* @__PURE__ */ new Set();
         for (const key of keys) {
           const normalized = normalizedPath(key);
-          if (rootInline.has(normalized)) invalid3 = true;
+          if (rootInline.has(normalized)) invalid = true;
           rootInline.add(normalized);
           paths.add(normalized);
         }
       } else {
         const key = normalizedPath(assignment.key[1]);
-        if (parentKeys.has(key) || directTables.has(key)) invalid3 = true;
+        if (parentKeys.has(key) || directTables.has(key)) invalid = true;
         parentKeys.add(key);
         paths.add(key);
       }
@@ -5144,16 +2690,16 @@ function collectExistingPaths(config) {
     }
     if (currentTable.length === 1 && currentTable[0] === "projects") {
       const key = normalizedPath(assignment.key[0]);
-      if (parentKeys.has(key) || directTables.has(key)) invalid3 = true;
+      if (parentKeys.has(key) || directTables.has(key)) invalid = true;
       parentKeys.add(key);
       paths.add(key);
     }
   }
   for (const key of parentKeys) {
-    if (nestedTables.has(key)) invalid3 = true;
+    if (nestedTables.has(key)) invalid = true;
   }
-  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid3 = true;
-  return { paths, rootInline, invalid: invalid3 };
+  if (rootInline && (projectsTableSeen || directTables.size > 0 || nestedTables.size > 0 || parentKeys.size > 0)) invalid = true;
+  return { paths, rootInline, invalid };
 }
 function mergeTrustedProjectEntries(profile, config) {
   const entries = collectProfileEntries(profile);
@@ -5173,21 +2719,21 @@ function mergeTrustedProjectEntries(profile, config) {
   const appended = missing.flatMap((entry) => [entry.header, entry.assignment]).join(newline) + newline;
   return config + separator + appended;
 }
-function carryCodexProjectTrust(host2, profilePath2, configPath) {
-  const lockId = host2.fs.lockFile(configPath + ".project-trust.lock");
+function* carryCodexProjectTrust(host2, profilePath2, configPath) {
+  const lockId = yield* host2.io.fs.lockFile(configPath + ".project-trust.lock");
   if (lockId === null) {
     host2.log?.("warn", "Codex project trust carry-over skipped because the shared config lock is busy");
     return false;
   }
   try {
-    if (host2.fs.isSymlink(configPath) !== false) {
+    if ((yield* host2.io.fs.isSymlink(configPath)) !== false) {
       host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
       return false;
     }
-    const profile = host2.fs.readFile(profilePath2);
+    const profile = yield* host2.io.fs.readFile(profilePath2);
     if (profile === null) return false;
-    const configExists = host2.fs.fileExists(configPath);
-    const config = configExists ? host2.fs.readFile(configPath) : "";
+    const configExists = yield* host2.io.fs.fileExists(configPath);
+    const config = configExists ? yield* host2.io.fs.readFile(configPath) : "";
     if (config === null) return false;
     const merged = mergeTrustedProjectEntries(profile, config);
     if (merged === null) {
@@ -5195,23 +2741,23 @@ function carryCodexProjectTrust(host2, profilePath2, configPath) {
       return false;
     }
     if (merged === config) return true;
-    const currentExists = host2.fs.fileExists(configPath);
-    const current = currentExists ? host2.fs.readFile(configPath) : "";
+    const currentExists = yield* host2.io.fs.fileExists(configPath);
+    const current = currentExists ? yield* host2.io.fs.readFile(configPath) : "";
     if (current === null || currentExists !== configExists || current !== config) {
       host2.log?.("warn", "Codex project trust carry-over skipped after a concurrent config change");
       return false;
     }
-    if (host2.fs.isSymlink(configPath) !== false) {
+    if ((yield* host2.io.fs.isSymlink(configPath)) !== false) {
       host2.log?.("warn", "Codex project trust carry-over skipped because the shared config path could not be safely replaced");
       return false;
     }
-    if (!host2.fs.writeFileAtomic(configPath, merged)) {
+    if (!(yield* host2.io.fs.writeFileAtomic(configPath, merged))) {
       host2.log?.("warn", "Codex project trust carry-over could not atomically update the shared config");
       return false;
     }
     return true;
   } finally {
-    host2.fs.unlockFile(lockId);
+    yield* host2.io.fs.unlockFile(lockId);
   }
 }
 
@@ -5220,9 +2766,9 @@ var CODEX_PROFILE_NAME_RE = /^codeterm-([A-Za-z0-9_-]+?)(?:-(?:preserved(?:-\d+-
 var INSTANCE_MARKER_RE = /^# codeterm-instance: ([A-Za-z0-9_-]+)$/;
 var LEGACY_PROFILE_NAME_RE = /^codeterm-([a-f0-9]{8})(?:-(?:preserved(?:-\d+-\d+)?|retry-\d+-\d+))?\.config\.toml$/;
 function classifyCodexProfile(name, contents, liveTabIds, instanceId, goneInstanceIds) {
-  const tabId = codexProfileTabId(name);
+  const tabId = codexProfileTabId2(name);
   if (tabId === null) return null;
-  const owner = codexProfileInstanceId(contents);
+  const owner = codexProfileInstanceId2(contents);
   if (owner === instanceId) return liveTabIds.has(tabId) ? null : "dead";
   if (owner !== null) return goneInstanceIds.has(owner) ? "dead" : null;
   if (contents.includes("# codeterm-instance:")) return null;
@@ -5233,21 +2779,21 @@ function codexConfigPath(host2, home) {
   const separator = host2.platform() === "windows" ? "\\" : "/";
   return `${home}${separator}.codex${separator}config.toml`;
 }
-function isCodexDirectoryTrusted(host2, path) {
-  return codexDirectoryTrustState(host2, path) === "trusted";
+function* isCodexDirectoryTrusted(host2, path) {
+  return (yield* codexDirectoryTrustState(host2, path)) === "trusted";
 }
-function codexDirectoryTrustState(host2, cwd, _skipPermissions = false) {
+function* codexDirectoryTrustState(host2, cwd, _skipPermissions = false) {
   const home = host2.homeDir();
   if (!home || !isAbsolutePath(host2, cwd)) return "unknown";
   const configPath = codexConfigPath(host2, home);
-  const configSymlink = host2.fs.isSymlink(configPath);
+  const configSymlink = yield* host2.io.fs.isSymlink(configPath);
   if (configSymlink !== false) return "unknown";
-  const configExists = host2.fs.fileExists(configPath);
-  const config = configExists ? host2.fs.readFile(configPath) : "";
+  const configExists = yield* host2.io.fs.fileExists(configPath);
+  const config = configExists ? yield* host2.io.fs.readFile(configPath) : "";
   if (config === null) return "unknown";
   const markers = projectRootMarkers(config);
   if (!markers) return "unknown";
-  const roots = codexTrustRoots(host2, cwd, markers);
+  const roots = yield* codexTrustRoots(host2, cwd, markers);
   if (!roots) return "unknown";
   for (const root of roots) {
     const trust = projectTrustForPath(config, root);
@@ -5287,22 +2833,22 @@ function projectRootMarkers(config) {
   }
   return markers;
 }
-function codexTrustRoots(host2, cwd, markers) {
+function* codexTrustRoots(host2, cwd, markers) {
   const windows = host2.platform() === "windows";
   const normalizedCwd = normalizeAbsolutePath(cwd, windows);
   if (!normalizedCwd) return null;
-  const projectRoot = markers.length === 0 ? normalizedCwd : findRoot(host2, normalizedCwd, markers, windows);
-  const gitRoot = findRoot(host2, normalizedCwd, [".git"], windows);
+  const projectRoot = markers.length === 0 ? normalizedCwd : yield* findRoot(host2, normalizedCwd, markers, windows);
+  const gitRoot = yield* findRoot(host2, normalizedCwd, [".git"], windows);
   if (projectRoot === null || gitRoot === null) return null;
-  const mainRepoRoot = gitRoot === void 0 ? void 0 : worktreeMainRoot(host2, gitRoot, windows);
+  const mainRepoRoot = gitRoot === void 0 ? void 0 : yield* worktreeMainRoot(host2, gitRoot, windows);
   return uniquePaths(
     [normalizedCwd, projectRoot, gitRoot, mainRepoRoot].filter((path) => path !== void 0),
     windows
   );
 }
-function worktreeMainRoot(host2, gitRoot, windows) {
+function* worktreeMainRoot(host2, gitRoot, windows) {
   const separator = windows ? "\\" : "/";
-  const pointer = host2.fs.readFile(`${gitRoot.replace(/[\\/]$/, "")}${separator}.git`);
+  const pointer = yield* host2.io.fs.readFile(`${gitRoot.replace(/[\\/]$/, "")}${separator}.git`);
   const gitdir = pointer?.match(/^gitdir:\s*(.+?)\s*$/m)?.[1];
   if (!gitdir) return void 0;
   const absolute = isAbsolutePath(host2, gitdir) ? gitdir : `${gitRoot}${separator}${gitdir}`;
@@ -5310,17 +2856,17 @@ function worktreeMainRoot(host2, gitRoot, windows) {
   const main = normalized?.match(/^(.*?)[\\/]\.git[\\/]worktrees[\\/][^\\/]+[\\/]?$/i)?.[1];
   return main || void 0;
 }
-function findRoot(host2, cwd, markers, windows) {
+function* findRoot(host2, cwd, markers, windows) {
   const separator = windows ? "\\" : "/";
   let current = cwd;
   const root = windows ? current.slice(0, 3) : "/";
   while (current) {
-    if (host2.fs.isSymlink(current) !== false) return null;
+    if ((yield* host2.io.fs.isSymlink(current)) !== false) return null;
     for (const markerName of markers) {
       const marker = `${current.replace(/[\\/]$/, "")}${separator}${markerName}`;
-      const markerSymlink = host2.fs.isSymlink(marker);
+      const markerSymlink = yield* host2.io.fs.isSymlink(marker);
       if (markerSymlink === null || markerSymlink === true) return null;
-      if (host2.fs.fileExists(marker)) return current;
+      if (yield* host2.io.fs.fileExists(marker)) return current;
     }
     if (current === root) break;
     const parent = parentPath(current, windows);
@@ -5333,9 +2879,9 @@ function normalizeAbsolutePath(path, windows) {
   const value = windows ? path.replace(/\//g, "\\") : path;
   const prefix = windows ? /^([A-Za-z]:\\|\\\\[^\\]+\\[^\\]+\\)/.exec(value)?.[0] : "/";
   if (!prefix) return null;
-  const tail2 = value.slice(prefix.length);
+  const tail = value.slice(prefix.length);
   const parts = [];
-  for (const part of tail2.split(/[\\/]+/)) {
+  for (const part of tail.split(/[\\/]+/)) {
     if (!part || part === ".") continue;
     if (part === "..") {
       if (parts.length === 0) return null;
@@ -5365,10 +2911,10 @@ function uniquePaths(paths, windows) {
     return true;
   });
 }
-function codexProfileTabId(fileName) {
+function codexProfileTabId2(fileName) {
   return CODEX_PROFILE_NAME_RE.exec(fileName)?.[1] ?? null;
 }
-function codexProfileInstanceId(contents) {
+function codexProfileInstanceId2(contents) {
   const firstLine = contents.replace(/^\uFEFF/, "").split(/\r?\n/, 1)[0];
   return INSTANCE_MARKER_RE.exec(firstLine)?.[1] ?? null;
 }
@@ -5377,75 +2923,77 @@ function profilePath(host2, name) {
   const separator = host2.platform() === "windows" ? "\\" : "/";
   return home ? `${home}${separator}.codex${separator}${name}` : null;
 }
-function profiles(host2) {
+function* profiles(host2) {
   const home = host2.homeDir();
   if (!home) return null;
   const separator = host2.platform() === "windows" ? "\\" : "/";
   const dir = `${home}${separator}.codex`;
   try {
-    const entries = host2.fs.readDir(dir);
+    const entries = yield* host2.io.fs.readDir(dir);
     if (!Array.isArray(entries)) return null;
     return entries.filter((entry) => entry?.isFile).map((entry) => entry.name);
   } catch {
     return null;
   }
 }
-function readProfile(host2, path) {
+function* readProfile(host2, path) {
   try {
-    if (host2.fs.isSymlink(path) !== false) return null;
-    return host2.fs.readFile(path);
+    if ((yield* host2.io.fs.isSymlink(path)) !== false) return null;
+    return yield* host2.io.fs.readFile(path);
   } catch {
     return null;
   }
 }
-function removeProfile(host2, path) {
+function* removeProfile(host2, path) {
   try {
-    if (host2.fs.isSymlink(path) !== false) return false;
-    return host2.fs.removeFile(path);
+    if ((yield* host2.io.fs.isSymlink(path)) !== false) return false;
+    return yield* host2.io.fs.removeFile(path);
   } catch {
     return false;
   }
 }
-function removeProfileAfterTrustCarry(host2, path, expected) {
+function* removeProfileAfterTrustCarry(host2, path, expected) {
   const home = host2.homeDir();
   if (!home) return false;
-  const original = readProfile(host2, path);
+  const original = yield* readProfile(host2, path);
   if (original === null || original !== expected) return false;
   const configPath = codexConfigPath(host2, home);
-  if (!carryCodexProjectTrust(host2, path, configPath)) return false;
-  return readProfile(host2, path) === original && removeProfile(host2, path);
+  if (!(yield* carryCodexProjectTrust(host2, path, configPath))) return false;
+  return (yield* readProfile(host2, path)) === original && (yield* removeProfile(host2, path));
 }
-function carryCodexProjectTrustForTab(host2, tabId, instanceId) {
-  const listing = profiles(host2);
+function* carryCodexProjectTrustForTab(host2, tabId, instanceId) {
+  const listing = yield* profiles(host2);
   const home = host2.homeDir();
   if (!listing || !home) return false;
   const configPath = codexConfigPath(host2, home);
   const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
-  const owned = listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null).filter((path) => codexProfileInstanceId(readProfile(host2, path) || "") === instanceId);
+  const owned = yield* ioFilter(listing.filter((name) => codexProfileTabId2(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null), function* (path) {
+    return codexProfileInstanceId2((yield* readProfile(host2, path)) || "") === instanceId;
+  });
   if (owned.length === 0) return false;
   let foundTrustedEntry = false;
   for (const path of owned) {
-    const profile = readProfile(host2, path);
+    const profile = yield* readProfile(host2, path);
     if (profile === null) return false;
     if (!hasTrustedProjectEntries(profile)) continue;
     foundTrustedEntry = true;
-    if (!carryCodexProjectTrust(host2, path, configPath)) return false;
+    if (!(yield* carryCodexProjectTrust(host2, path, configPath))) return false;
   }
   return foundTrustedEntry;
 }
-function inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds = []) {
-  const listing = profiles(host2);
+function* inspectCodexProfiles2(host2, liveTabIds, instanceId, goneInstanceIds = []) {
+  const listing = yield* profiles(host2);
   if (!listing) return { dead: [], legacy: [] };
   const live = new Set(liveTabIds);
   const gone = new Set(goneInstanceIds);
   const dead = [];
   const legacy = [];
   for (const name of listing) {
-    const tabId = codexProfileTabId(name);
+    const tabId = codexProfileTabId2(name);
     if (tabId === null) continue;
     const path = profilePath(host2, name);
     if (!path) continue;
-    const contents = readProfile(host2, path);
+    const contents = yield* readProfile(host2, path);
     if (contents === null) continue;
     const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
     if (classification === "dead") dead.push(name);
@@ -5453,12 +3001,9 @@ function inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds = [
   }
   return { dead, legacy };
 }
-function sweepCodexProfiles(host2, liveTabIds, instanceId) {
-  return manageCodexProfiles(host2, liveTabIds, instanceId, true, false);
-}
 var MAX_SWEEP_REMOVALS = 200;
-function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy, goneInstanceIds = []) {
-  const candidates = inspectCodexProfiles(host2, liveTabIds, instanceId, goneInstanceIds);
+function* manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLegacy, goneInstanceIds = []) {
+  const candidates = yield* inspectCodexProfiles2(host2, liveTabIds, instanceId, goneInstanceIds);
   const removed = [];
   if (!confirm) return { ...candidates, removed };
   const targets = [...candidates.dead, ...includeLegacy ? candidates.legacy : []];
@@ -5468,23 +3013,25 @@ function manageCodexProfiles(host2, liveTabIds, instanceId, confirm, includeLega
     if (removed.length >= MAX_SWEEP_REMOVALS) break;
     const path = profilePath(host2, name);
     if (!path) continue;
-    const contents = readProfile(host2, path);
+    const contents = yield* readProfile(host2, path);
     if (contents === null) continue;
     const classification = classifyCodexProfile(name, contents, live, instanceId, gone);
-    if ((classification === "dead" || includeLegacy && classification === "legacy") && removeProfileAfterTrustCarry(host2, path, contents)) removed.push(name);
+    if ((classification === "dead" || includeLegacy && classification === "legacy") && (yield* removeProfileAfterTrustCarry(host2, path, contents))) removed.push(name);
   }
   return { ...candidates, removed };
 }
-function releaseCodexProfile(host2, tabId, instanceId) {
+function* releaseCodexProfile(host2, tabId, instanceId) {
   const suffix = tabId.replace(/[^A-Za-z0-9_-]/g, "-");
-  const listing = profiles(host2);
+  const listing = yield* profiles(host2);
   if (!listing) return false;
-  const ownedPaths = listing.filter((name) => codexProfileTabId(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null).filter((path) => codexProfileInstanceId(readProfile(host2, path) || "") === instanceId);
+  const ownedPaths = yield* ioFilter(listing.filter((name) => codexProfileTabId2(name) === suffix).map((name) => profilePath(host2, name)).filter((path) => path !== null), function* (path) {
+    return codexProfileInstanceId2((yield* readProfile(host2, path)) || "") === instanceId;
+  });
   if (ownedPaths.length === 0) return false;
   let released = true;
   for (const path of ownedPaths) {
-    const contents = readProfile(host2, path);
-    if (contents === null || codexProfileInstanceId(contents) !== instanceId || !removeProfileAfterTrustCarry(host2, path, contents)) released = false;
+    const contents = yield* readProfile(host2, path);
+    if (contents === null || codexProfileInstanceId2(contents) !== instanceId || !(yield* removeProfileAfterTrustCarry(host2, path, contents))) released = false;
   }
   return released;
 }
@@ -5505,11 +3052,11 @@ function classifyCodexTabState(snapshot, nowMs) {
       action: { surface: { kind: "auth_prompt", payload: { reason: "login_detected" } } }
     };
   }
-  const update2 = scoreUpdatePrompt(screen);
-  if (update2.confidence >= CLASSIFY_THRESHOLD) {
+  const update = scoreUpdatePrompt(screen);
+  if (update.confidence >= CLASSIFY_THRESHOLD) {
     return {
       state: "update_prompt",
-      confidence: update2.confidence
+      confidence: update.confidence
     };
   }
   const rateLimit = scoreRateLimit(screen, nowMs);
@@ -5546,7 +3093,7 @@ function classifyCodexTabState(snapshot, nowMs) {
       }
     };
   }
-  const partial = rateLimit.confidence > update2.confidence ? rateLimit.confidence : update2.confidence;
+  const partial = rateLimit.confidence > update.confidence ? rateLimit.confidence : update.confidence;
   if (partial > 0) return { state: "unknown", confidence: partial };
   return { state: "working", confidence: 0 };
 }
@@ -5730,8 +3277,8 @@ function isCurrentCodexHookScriptContent(text7) {
   }
   return true;
 }
-function isOwnedCodexWindowsHookScript(path) {
-  const text7 = host.fs.readFile(path);
+function* isOwnedCodexWindowsHookScript(path) {
+  const text7 = yield* host.io.fs.readFile(path);
   return typeof text7 === "string" && isOwnedCodexHookScriptContent(text7);
 }
 
@@ -5790,7 +3337,7 @@ function parseAppServerSession(raw) {
   }
   return { kind: "ok", responses };
 }
-function runAppServerSession(requests, then) {
+function* runAppServerSession(requests, then) {
   const initialize = JSON.stringify({
     method: "initialize",
     id: 1,
@@ -5817,12 +3364,13 @@ function runAppServerSession(requests, then) {
     ],
     timeoutMs: APP_SERVER_EXIT_DEADLINE_MS
   };
+  let outcome2;
   try {
-    const asyncExec = host.exec.async;
-    return typeof asyncExec === "function" ? asyncExec(opts, (raw) => then(parseAppServerSession(raw))) : then(parseAppServerSession(host.exec(JSON.stringify(opts))));
-  } catch (e) {
-    return then({ kind: "failed", reason: "host.exec threw: " + String(e) });
+    outcome2 = parseAppServerSession(yield* host.io.exec(opts));
+  } catch (error) {
+    outcome2 = { kind: "failed", reason: "host.exec threw: " + String(error) };
   }
+  return yield* ioResolve(then(outcome2));
 }
 function requestOutcome(session, id, method) {
   if (session.kind !== "ok") return session;
@@ -5918,33 +3466,33 @@ function recordedTrustedHash(config, key) {
   }
   return null;
 }
-function inspectCodexHookTrust(opts, then = (inspection) => inspection) {
-  return runAppServerSession([
+function* inspectCodexHookTrust(opts, then = (inspection) => inspection) {
+  return yield* runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
-  ], (session) => {
+  ], function* (session) {
     const result = requestOutcome(session, 2, "hooks/list");
-    if (result.kind !== "ok") return then({ verdict: "unknown", reason: result.reason });
+    if (result.kind !== "ok") return yield* ioResolve(then({ verdict: "unknown", reason: result.reason }));
     const managed = managedListings(collectHookListings(result.result), opts.hooksPath, opts.managedLabels);
     if (managed.length !== opts.managedLabels.length) {
-      return then({
+      return yield* ioResolve(then({
         verdict: "unknown",
         reason: "Codex returned " + managed.length + " managed hooks, expected " + opts.managedLabels.length
-      });
+      }));
     }
     for (let i = 0; i < managed.length; i++) {
       const listing = managed[i];
       const recorded = recordedTrustedHash(opts.config, listing.key);
       if (recorded === null) {
-        return then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key });
+        return yield* ioResolve(then({ verdict: "unknown", reason: "No recorded trusted_hash exists for " + listing.key }));
       }
       if (recorded !== listing.currentHash) {
-        return then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key });
+        return yield* ioResolve(then({ verdict: "stale", reason: "Recorded trusted_hash does not match Codex currentHash for " + listing.key }));
       }
       if (listing.trustStatus !== "trusted") {
-        return then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key });
+        return yield* ioResolve(then({ verdict: "unknown", reason: "Codex reports trustStatus=" + listing.trustStatus + " for " + listing.key }));
       }
     }
-    return then({ verdict: "trusted" });
+    return yield* ioResolve(then({ verdict: "trusted" }));
   });
 }
 function outcome(partial) {
@@ -5956,87 +3504,87 @@ function outcome(partial) {
     ...partial
   };
 }
-function grantCodexHookTrust(opts, then = (result) => result) {
+function* grantCodexHookTrust(opts, then = (result) => result) {
   if (!opts.configPath) {
-    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+    return yield* ioResolve(then(outcome({ degraded: true, reason: "could not resolve Codex config path" })));
   }
-  return grantCodexHookTrustFromCodex(opts, then);
+  return yield* grantCodexHookTrustFromCodex(opts, then);
 }
-function grantCodexHookTrustFromCodex(opts, then) {
+function* grantCodexHookTrustFromCodex(opts, then) {
   if (!opts.managedLabels.length) {
-    return then(outcome({ degraded: true, reason: "no managed hook keys declared" }));
+    return yield* ioResolve(then(outcome({ degraded: true, reason: "no managed hook keys declared" })));
   }
   if (!opts.configPath) {
-    return then(outcome({ degraded: true, reason: "could not resolve Codex config path" }));
+    return yield* ioResolve(then(outcome({ degraded: true, reason: "could not resolve Codex config path" })));
   }
-  return runAppServerSession([
+  return yield* runAppServerSession([
     { method: "hooks/list", id: 2, params: { cwds: [opts.listCwd] } }
-  ], (listSession) => {
+  ], function* (listSession) {
     const listResult = requestOutcome(listSession, 2, "hooks/list");
-    if (listResult.kind === "unavailable") return then(outcome({ degraded: true, reason: listResult.reason }));
-    if (listResult.kind === "failed") return then(outcome({ reason: listResult.reason }));
+    if (listResult.kind === "unavailable") return yield* ioResolve(then(outcome({ degraded: true, reason: listResult.reason })));
+    if (listResult.kind === "failed") return yield* ioResolve(then(outcome({ reason: listResult.reason })));
     const managed = managedListings(collectHookListings(listResult.result), opts.hooksPath, opts.managedLabels);
     if (managed.length !== opts.managedLabels.length) {
-      return then(outcome({
+      return yield* ioResolve(then(outcome({
         verify_failed: true,
         reason: "hooks/list reported " + managed.length + " managed entries, expected " + opts.managedLabels.length
-      }));
+      })));
     }
     const needingTrust = [];
     for (let i = 0; i < managed.length; i++) {
       if (managed[i].trustStatus !== "trusted") needingTrust.push(managed[i]);
     }
     if (!needingTrust.length) {
-      return then(outcome({
+      return yield* ioResolve(then(outcome({
         granted: true,
         entries: managed.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
-      }));
+      })));
     }
-    if (!opts.configPath) return then(outcome({ reason: "Codex config path is unknown; trust was not granted" }));
+    if (!opts.configPath) return yield* ioResolve(then(outcome({ reason: "Codex config path is unknown; trust was not granted" })));
     const value = {};
     for (let i = 0; i < needingTrust.length; i++) {
       const currentHash = needingTrust[i].currentHash;
-      if (!currentHash) return then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" }));
+      if (!currentHash) return yield* ioResolve(then(outcome({ reason: "Codex reported no current hash for a hook that needs trust" })));
       value[needingTrust[i].key] = { trusted_hash: currentHash };
     }
-    return runAppServerSession([
+    return yield* runAppServerSession([
       {
         method: "config/batchWrite",
         id: 2,
         params: { edits: [{ keyPath: "hooks.state", value, mergeStrategy: "upsert" }], reloadUserConfig: true }
       },
       { method: "hooks/list", id: 3, params: { cwds: [opts.listCwd] } }
-    ], (writeSession) => {
+    ], function* (writeSession) {
       const writeResult = requestOutcome(writeSession, 2, "config/batchWrite");
-      if (writeResult.kind !== "ok") return then(outcome({ reason: writeResult.reason }));
+      if (writeResult.kind !== "ok") return yield* ioResolve(then(outcome({ reason: writeResult.reason })));
       const writeStatus = writeResult.result && typeof writeResult.result === "object" ? writeResult.result.status : void 0;
       if (writeStatus !== "ok") {
-        return then(outcome({ reason: "config/batchWrite did not confirm status=ok" }));
+        return yield* ioResolve(then(outcome({ reason: "config/batchWrite did not confirm status=ok" })));
       }
       const verifyResult = requestOutcome(writeSession, 3, "hooks/list");
       if (verifyResult.kind !== "ok") {
-        return then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason }));
+        return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: verifyResult.reason })));
       }
       const verified = managedListings(collectHookListings(verifyResult.result), opts.hooksPath, opts.managedLabels);
       if (verified.length !== opts.managedLabels.length) {
-        return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" }));
+        return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported " + verified.length + " managed entries" })));
       }
       const expectedHashes = {};
       for (let i = 0; i < managed.length; i++) expectedHashes[managed[i].key] = managed[i].currentHash;
       for (let i = 0; i < verified.length; i++) {
         const listing = verified[i];
         if (listing.trustStatus !== "trusted") {
-          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus }));
+          return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify left " + listing.key + " " + listing.trustStatus })));
         }
         if (expectedHashes[listing.key] !== listing.currentHash) {
-          return then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key }));
+          return yield* ioResolve(then(outcome({ wrote: true, verify_failed: true, reason: "post-grant verify reported a different hash for " + listing.key })));
         }
       }
-      return then(outcome({
+      return yield* ioResolve(then(outcome({
         granted: true,
         wrote: true,
         entries: verified.map((listing) => ({ key: listing.key, hash: listing.currentHash }))
-      }));
+      })));
     });
   });
 }
@@ -6047,21 +3595,21 @@ var CODEX_INTEGRATION_STATE_STALE_VERSION = "stale_version";
 var CODEX_INTEGRATION_STATE_UNTRUSTED_HASH = "untrusted_hash";
 var CODEX_INTEGRATION_STATE_INSTALLED = "installed";
 var codexHookTrustCache = /* @__PURE__ */ new Map();
-function checkIntegration() {
+function* checkIntegration() {
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) {
-    return emptyIntegrationStatus(path, false);
+  if (!path || !(yield* host.io.fs.fileExists(path))) {
+    return yield* emptyIntegrationStatus(path, false);
   }
-  const json2 = host.fs.readJson(path);
+  const json2 = yield* host.io.fs.readJson(path);
   if (!json2) {
-    return emptyIntegrationStatus(path, true);
+    return yield* emptyIntegrationStatus(path, true);
   }
   const arr = json2.hooks && json2.hooks.SessionStart;
   const stopArr = json2.hooks && json2.hooks.Stop;
   const installed = Array.isArray(arr) && arr.some(isCodetermCodexHook);
   const stopInstalled = Array.isArray(stopArr) && stopArr.some(isCodetermCodexHook) && (host.platform() !== "windows" || stopArr.some(hasCodetermCodexWindowsCommand));
   const winScript = codexWindowsHookScriptPath();
-  const winScriptText = winScript && host.fs.fileExists(winScript) ? String(host.fs.readFile(winScript) || "") : "";
+  const winScriptText = winScript && (yield* host.io.fs.fileExists(winScript)) ? String((yield* host.io.fs.readFile(winScript)) || "") : "";
   const windowsReady = host.platform() !== "windows" || !!winScript && Array.isArray(arr) && arr.some(hasCodetermCodexWindowsCommand);
   const contractOk = host.platform() === "windows" ? isCurrentCodexHookScriptContent(winScriptText) : Array.isArray(arr) && arr.some((entry) => {
     const hk = entry && entry.hooks;
@@ -6071,10 +3619,10 @@ function checkIntegration() {
     });
   });
   const current = installed && windowsReady && contractOk && hookTimeoutsAdequate(arr, stopArr);
-  const trustState = codexHookTrustState(path);
-  const trustReason = trustState === "unknown" ? codexHookTrustReason(path) : void 0;
+  const trustState = yield* codexHookTrustState(path);
+  const trustReason = trustState === "unknown" ? yield* codexHookTrustReason(path) : void 0;
   const trustOk = trustState === "trusted";
-  const trustVerificationSource = codexHookTrustVerificationSource(path, trustState);
+  const trustVerificationSource = yield* codexHookTrustVerificationSource(path, trustState);
   const trustVerifiedCurrent = trustState === "trusted" && trustVerificationSource === "hash_verified";
   const proposedChanges = ["SessionStart hook", "Stop hook"];
   if (!trustVerifiedCurrent) proposedChanges.push("hook trust");
@@ -6095,7 +3643,7 @@ function checkIntegration() {
     hooks_owned: installed,
     hook_contract_current: current && stopInstalled,
     target: path,
-    backup_exists: host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: yield* host.io.fs.fileExists(path + ".codeterm-backup"),
     proposed_changes: proposedChanges
   };
 }
@@ -6115,7 +3663,7 @@ function ownedContentHash(sessionStart, stop, scriptText) {
   parts.push(scriptText);
   return codexHookContentHash(parts.join(String.fromCharCode(0)));
 }
-function emptyIntegrationStatus(path, fileExists) {
+function* emptyIntegrationStatus(path, fileExists) {
   return {
     hooks_file_exists: fileExists,
     hook_content_hash: codexHookContentHash(""),
@@ -6131,19 +3679,19 @@ function emptyIntegrationStatus(path, fileExists) {
     hooks_owned: false,
     hook_contract_current: false,
     target: path || "~/.codex/hooks.json",
-    backup_exists: !!path && host.fs.fileExists(path + ".codeterm-backup"),
+    backup_exists: !!path && (yield* host.io.fs.fileExists(path + ".codeterm-backup")),
     proposed_changes: ["SessionStart hook", "Stop hook", "hook trust"]
   };
 }
-function installIntegration(apiPort, options) {
+function* installIntegrationLocked(apiPort, options) {
   void apiPort;
   if (!options || options.consent !== true) {
     return { ok: false, error: "provider integration installation requires explicit local-user consent" };
   }
   const path = codexHooksPath();
   if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
-  const hooksExisted = host.fs.fileExists(path);
-  const originalHooksValue = hooksExisted ? host.fs.readFile(path) : null;
+  const hooksExisted = yield* host.io.fs.fileExists(path);
+  const originalHooksValue = hooksExisted ? yield* host.io.fs.readFile(path) : null;
   if (hooksExisted && typeof originalHooksValue !== "string") {
     return { ok: false, error: "could not read existing hooks JSON at " + path };
   }
@@ -6171,24 +3719,24 @@ function installIntegration(apiPort, options) {
     return { ok: false, error: "hooks.Stop is not an array" };
   }
   const configPath = codexConfigPath2();
-  const configExisted = !!configPath && host.fs.fileExists(configPath);
-  const originalConfigValue = configPath && configExisted ? host.fs.readFile(configPath) : null;
+  const configExisted = !!configPath && (yield* host.io.fs.fileExists(configPath));
+  const originalConfigValue = configPath && configExisted ? yield* host.io.fs.readFile(configPath) : null;
   if (configExisted && typeof originalConfigValue !== "string") {
     return { ok: false, error: "could not read existing Codex config at " + configPath };
   }
   const originalConfig = typeof originalConfigValue === "string" ? originalConfigValue : "";
   const scriptPath = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-  const scriptExisted = !!scriptPath && host.fs.fileExists(scriptPath);
-  const originalScriptValue = scriptExisted && scriptPath ? host.fs.readFile(scriptPath) : null;
+  const scriptExisted = !!scriptPath && (yield* host.io.fs.fileExists(scriptPath));
+  const originalScriptValue = scriptExisted && scriptPath ? yield* host.io.fs.readFile(scriptPath) : null;
   if (scriptExisted && typeof originalScriptValue !== "string") {
     return { ok: false, error: "could not read existing hook script at " + scriptPath };
   }
   const originalScript = typeof originalScriptValue === "string" ? originalScriptValue : "";
-  if (scriptPath && scriptExisted && !isOwnedCodexWindowsHookScript(scriptPath)) {
+  if (scriptPath && scriptExisted && !(yield* isOwnedCodexWindowsHookScript(scriptPath))) {
     return { ok: false, error: "refusing to replace unowned hook script at " + scriptPath };
   }
   const ownershipPath = codexHookTrustOwnershipPath();
-  const ownershipSnapshot = ownershipPath ? captureIntegrationFile(ownershipPath) : null;
+  const ownershipSnapshot = ownershipPath ? yield* captureIntegrationFile(ownershipPath) : null;
   if (ownershipPath && !ownershipSnapshot) {
     return { ok: false, error: "could not read existing Codex trust ownership record" };
   }
@@ -6198,7 +3746,7 @@ function installIntegration(apiPort, options) {
     ...configPath && configExisted ? [configPath + ".codeterm-backup"] : [],
     ...scriptPath ? [scriptPath + ".codeterm-backup", scriptPath + ".codeterm-backup-state"] : []
   ];
-  const artifactSnapshots = artifactPaths.map(captureIntegrationFile);
+  const artifactSnapshots = yield* ioMap(artifactPaths, captureIntegrationFile);
   if (artifactSnapshots.some((snapshot) => snapshot === null)) {
     return { ok: false, error: "could not snapshot existing CodeTerm integration artifacts" };
   }
@@ -6209,19 +3757,19 @@ function installIntegration(apiPort, options) {
     ...ownershipSnapshot ? [ownershipSnapshot] : [],
     ...artifactSnapshots
   ];
-  const fail3 = (error) => {
-    const restored = restoreIntegrationFiles(rollbackSnapshots);
+  const fail = function* (error) {
+    const restored = yield* restoreIntegrationFiles(rollbackSnapshots);
     invalidateCodexHookTrust(path);
     return { ok: false, error: restored ? error : error + "; exact rollback failed" };
   };
-  if (!writeFileIfChanged(path + ".codeterm-backup", originalHooks) || !writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent")) {
-    return fail3("could not write recoverable backup for " + path);
+  if (!(yield* writeFileIfChanged(path + ".codeterm-backup", originalHooks)) || !(yield* writeFileIfChanged(path + ".codeterm-backup-state", hooksExisted ? "present" : "absent"))) {
+    return yield* fail("could not write recoverable backup for " + path);
   }
-  if (configPath && configExisted && !writeFileIfChanged(configPath + ".codeterm-backup", originalConfig)) {
-    return fail3("could not write recoverable backup for " + configPath);
+  if (configPath && configExisted && !(yield* writeFileIfChanged(configPath + ".codeterm-backup", originalConfig))) {
+    return yield* fail("could not write recoverable backup for " + configPath);
   }
-  if (scriptPath && (!writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript) || !writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent"))) {
-    return fail3("could not write recoverable backup for " + scriptPath);
+  if (scriptPath && (!(yield* writeFileIfChanged(scriptPath + ".codeterm-backup", originalScript)) || !(yield* writeFileIfChanged(scriptPath + ".codeterm-backup-state", scriptExisted ? "present" : "absent")))) {
+    return yield* fail("could not write recoverable backup for " + scriptPath);
   }
   if (!json2.hooks) json2.hooks = {};
   for (const event of ["SessionStart", "Stop"]) {
@@ -6245,8 +3793,8 @@ function installIntegration(apiPort, options) {
   ].join(" ") : hookCmd(route);
   const scriptContents = codexWindowsHookScript();
   const scriptChanged = !!scriptPath && (!scriptExisted || originalScript !== scriptContents);
-  if (scriptChanged && scriptPath && !host.fs.writeFile(scriptPath, scriptContents)) {
-    return fail3("writeFile failed for " + scriptPath);
+  if (scriptChanged && scriptPath && !(yield* host.io.fs.writeFile(scriptPath, scriptContents))) {
+    return yield* fail("writeFile failed for " + scriptPath);
   }
   json2.hooks.SessionStart.push({
     matcher: "startup|resume|clear|compact",
@@ -6268,44 +3816,44 @@ function installIntegration(apiPort, options) {
     }]
   });
   const hooksChanged = !hooksExisted || JSON.stringify(json2) !== originalHooksJson;
-  const ok = hooksChanged ? host.fs.writeJson(path, json2) : true;
+  const ok = hooksChanged ? yield* host.io.fs.writeJson(path, json2) : true;
   if (ok) {
-    const trust = enableExistingCodexHookTrust(path);
-    if (trust.write_failed) return fail3("could not enable existing Codex hook trust");
+    const trust = yield* enableExistingCodexHookTrust(path);
+    if (trust.write_failed) return yield* fail("could not enable existing Codex hook trust");
     if (trust.changed) {
-      if (!ownershipPath || !writeFileIfChanged(ownershipPath, path)) {
-        return fail3("could not record owned Codex hook trust expansion");
+      if (!ownershipPath || !(yield* writeFileIfChanged(ownershipPath, path))) {
+        return yield* fail("could not record owned Codex hook trust expansion");
       }
     }
     if (scriptChanged || hooksChanged || trust.changed) invalidateCodexHookTrust(path);
     host.log("info", "[codex-plugin] SessionStart + Stop hooks installed at " + path);
     return { ok: true, hook_trust_state: trust.state };
   }
-  return fail3("writeJson failed for " + path);
+  return yield* fail("writeJson failed for " + path);
 }
-function grantIntegrationTrust(managedKeys, then = (result) => result) {
+function* grantIntegrationTrustLocked(managedKeys, then = (result) => result) {
   const hooksPath = codexHooksPath();
   if (!hooksPath) {
-    return then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" });
+    return yield* ioResolve(then({ granted: false, wrote: false, degraded: true, verify_failed: false, reason: "could not resolve ~/.codex/hooks.json" }));
   }
   invalidateCodexHookTrust(hooksPath);
-  return grantCodexHookTrust({
+  return yield* grantCodexHookTrust({
     hooksPath,
     configPath: codexConfigPath2(),
     managedLabels: Array.isArray(managedKeys) ? managedKeys.map(String) : [],
     listCwd: host.homeDir() || "."
-  }, (result) => {
-    if (result.granted) cacheCodexHookTrust(hooksPath, "trusted");
-    else cacheCodexHookTrust(hooksPath, "unknown", result.reason);
-    return then(result);
+  }, function* (result) {
+    if (result.granted) yield* cacheCodexHookTrust(hooksPath, "trusted");
+    else yield* cacheCodexHookTrust(hooksPath, "unknown", result.reason);
+    return yield* ioResolve(then(result));
   });
 }
-function uninstallIntegration() {
+function* uninstallIntegrationLocked() {
   const path = codexHooksPath();
   if (!path) return { ok: true };
   let hooksOk = true;
-  if (host.fs.fileExists(path)) {
-    const json2 = host.fs.readJson(path);
+  if (yield* host.io.fs.fileExists(path)) {
+    const json2 = yield* host.io.fs.readJson(path);
     if (!json2 || !json2.hooks || typeof json2.hooks !== "object") {
       return { ok: false, error: "could not safely read hooks JSON at " + path };
     }
@@ -6316,79 +3864,79 @@ function uninstallIntegration() {
     if (Array.isArray(json2.hooks.Stop)) {
       json2.hooks.Stop = removeOwnedCodexHooks(json2.hooks.Stop);
     }
-    hooksOk = before === JSON.stringify(json2) || host.fs.writeJson(path, json2);
+    hooksOk = before === JSON.stringify(json2) || (yield* host.io.fs.writeJson(path, json2));
   }
   const ownershipPath = codexHookTrustOwnershipPath();
-  if (ownershipPath && host.fs.fileExists(ownershipPath)) {
-    const ownedTarget = host.fs.readFile(ownershipPath);
-    if (ownedTarget === path && disableOwnedCodexHookTrust(path)) {
-      host.fs.removeFile(ownershipPath);
+  if (ownershipPath && (yield* host.io.fs.fileExists(ownershipPath))) {
+    const ownedTarget = yield* host.io.fs.readFile(ownershipPath);
+    if (ownedTarget === path && (yield* disableOwnedCodexHookTrust(path))) {
+      yield* host.io.fs.removeFile(ownershipPath);
     }
   }
   const scriptPath = codexWindowsHookScriptPath();
-  if (scriptPath && host.fs.fileExists(scriptPath) && isOwnedCodexWindowsHookScript(scriptPath)) {
-    host.fs.removeFile(scriptPath);
+  if (scriptPath && (yield* host.io.fs.fileExists(scriptPath)) && (yield* isOwnedCodexWindowsHookScript(scriptPath))) {
+    yield* host.io.fs.removeFile(scriptPath);
   }
   invalidateCodexHookTrust(path);
   return hooksOk ? { ok: true } : { ok: false, error: "writeJson failed for " + path };
 }
-function restoreIntegration() {
+function* restoreIntegrationLocked() {
   const path = codexHooksPath();
   if (!path) return { ok: false, error: "could not resolve ~/.codex/hooks.json" };
   const backup = path + ".codeterm-backup";
-  if (!host.fs.fileExists(backup)) return { ok: false, error: "no recoverable backup at " + backup };
-  const hooks = host.fs.readFile(backup);
+  if (!(yield* host.io.fs.fileExists(backup))) return { ok: false, error: "no recoverable backup at " + backup };
+  const hooks = yield* host.io.fs.readFile(backup);
   if (typeof hooks !== "string") return { ok: false, error: "restore failed for " + path };
-  const hooksState = host.fs.readFile(path + ".codeterm-backup-state");
+  const hooksState = yield* host.io.fs.readFile(path + ".codeterm-backup-state");
   if (hooksState === "absent" || typeof hooksState !== "string" && hooks === "") {
-    if (host.fs.fileExists(path) && !host.fs.removeFile(path)) return { ok: false, error: "restore failed for " + path };
-  } else if (!writeFileIfChanged(path, hooks)) {
+    if ((yield* host.io.fs.fileExists(path)) && !(yield* host.io.fs.removeFile(path))) return { ok: false, error: "restore failed for " + path };
+  } else if (!(yield* writeFileIfChanged(path, hooks))) {
     return { ok: false, error: "restore failed for " + path };
   }
   const config = codexConfigPath2();
-  if (config && host.fs.fileExists(config + ".codeterm-backup")) {
-    const original = host.fs.readFile(config + ".codeterm-backup");
-    if (typeof original !== "string" || !writeFileIfChanged(config, original)) return { ok: false, error: "restore failed for " + config };
+  if (config && (yield* host.io.fs.fileExists(config + ".codeterm-backup"))) {
+    const original = yield* host.io.fs.readFile(config + ".codeterm-backup");
+    if (typeof original !== "string" || !(yield* writeFileIfChanged(config, original))) return { ok: false, error: "restore failed for " + config };
     const ownershipPath = codexHookTrustOwnershipPath();
-    if (ownershipPath && host.fs.fileExists(ownershipPath)) host.fs.removeFile(ownershipPath);
+    if (ownershipPath && (yield* host.io.fs.fileExists(ownershipPath))) yield* host.io.fs.removeFile(ownershipPath);
   }
   const script = host.platform() === "windows" ? codexWindowsHookScriptPath() : null;
-  if (script && host.fs.fileExists(script + ".codeterm-backup")) {
-    const original = host.fs.readFile(script + ".codeterm-backup");
+  if (script && (yield* host.io.fs.fileExists(script + ".codeterm-backup"))) {
+    const original = yield* host.io.fs.readFile(script + ".codeterm-backup");
     if (typeof original !== "string") return { ok: false, error: "restore failed for " + script };
-    const scriptState = host.fs.readFile(script + ".codeterm-backup-state");
+    const scriptState = yield* host.io.fs.readFile(script + ".codeterm-backup-state");
     if (scriptState === "absent" || typeof scriptState !== "string" && original === "") {
-      if (host.fs.fileExists(script) && !host.fs.removeFile(script)) return { ok: false, error: "restore failed for " + script };
-    } else if (!writeFileIfChanged(script, original)) {
+      if ((yield* host.io.fs.fileExists(script)) && !(yield* host.io.fs.removeFile(script))) return { ok: false, error: "restore failed for " + script };
+    } else if (!(yield* writeFileIfChanged(script, original))) {
       return { ok: false, error: "restore failed for " + script };
     }
   }
   invalidateCodexHookTrust(path);
   return { ok: true };
 }
-function ensureIntegrationOnStartup(apiPort, install, then = (result) => result) {
+function* ensureIntegrationOnStartup(apiPort, install, then = (result) => result) {
   void apiPort;
   void install;
   const path = codexHooksPath();
-  if (!path || !host.fs.fileExists(path)) return then({ ok: true, changed: false });
-  const json2 = host.fs.readJson(path);
-  if (!json2 || !json2.hooks) return then({ ok: true, changed: false });
+  if (!path || !(yield* host.io.fs.fileExists(path))) return yield* ioResolve(then({ ok: true, changed: false }));
+  const json2 = yield* host.io.fs.readJson(path);
+  if (!json2 || !json2.hooks) return yield* ioResolve(then({ ok: true, changed: false }));
   const owned = (json2.hooks.SessionStart || []).filter(isCodetermCodexHook);
-  if (owned.length === 0) return then({ ok: true, changed: false });
-  return refreshCodexHookTrustState(path, (trustState) => {
+  if (owned.length === 0) return yield* ioResolve(then({ ok: true, changed: false }));
+  return yield* refreshCodexHookTrustState(path, function* (trustState) {
     if (trustState === "disabled") {
-      return then({ ok: true, changed: false, reason: "Codex hook trust is disabled" });
+      return yield* ioResolve(then({ ok: true, changed: false, reason: "Codex hook trust is disabled" }));
     }
     if (trustState === "unknown") {
-      return then({
+      return yield* ioResolve(then({
         ok: false,
         changed: false,
         actionable: true,
-        error: "Codex could not confirm hook trust: " + codexHookTrustReason(path)
-      });
+        error: "Codex could not confirm hook trust: " + (yield* codexHookTrustReason(path))
+      }));
     }
     const scriptPath = codexWindowsHookScriptPath();
-    const scriptStale = host.platform() === "windows" && !!scriptPath && (!host.fs.fileExists(scriptPath) || !isCurrentCodexHookScriptContent(String(host.fs.readFile(scriptPath) || "")));
+    const scriptStale = host.platform() === "windows" && !!scriptPath && (!(yield* host.io.fs.fileExists(scriptPath)) || !isCurrentCodexHookScriptContent(String((yield* host.io.fs.readFile(scriptPath)) || "")));
     const commandStale = owned.some((entry) => {
       const hooks = entry && entry.hooks || [];
       return hooks.some(
@@ -6405,14 +3953,14 @@ function ensureIntegrationOnStartup(apiPort, install, then = (result) => result)
     const timeoutStale = owned.some((entry) => !hasAdequateCodexHookTimeout(entry));
     const trustStale = trustState === "stale";
     if (!scriptStale && !commandStale && !timeoutStale && !stopCommandStale && stopOwned && !trustStale) {
-      return then({ ok: true, changed: false });
+      return yield* ioResolve(then({ ok: true, changed: false }));
     }
-    return then({
+    return yield* ioResolve(then({
       ok: false,
       changed: false,
       actionable: true,
       error: "Codex hook repair requires recorded integration consent; open provider integration settings and approve Repair"
-    });
+    }));
   });
 }
 function codexHooksPath() {
@@ -6444,35 +3992,35 @@ function codexHookTrustOwnershipPath() {
   const config = codexConfigPath2();
   return config ? config + ".codeterm-hook-trust-owned" : null;
 }
-function captureIntegrationFile(path) {
-  const existed = host.fs.fileExists(path);
-  const bytes2 = existed ? host.fs.readFile(path) : "";
+function* captureIntegrationFile(path) {
+  const existed = yield* host.io.fs.fileExists(path);
+  const bytes2 = existed ? yield* host.io.fs.readFile(path) : "";
   return typeof bytes2 === "string" ? { path, existed, bytes: bytes2 } : null;
 }
-function writeFileIfChanged(path, contents) {
-  return host.fs.readFile(path) === contents || host.fs.writeFile(path, contents);
+function* writeFileIfChanged(path, contents) {
+  return (yield* host.io.fs.readFile(path)) === contents || (yield* host.io.fs.writeFile(path, contents));
 }
-function restoreIntegrationFiles(snapshots) {
+function* restoreIntegrationFiles(snapshots) {
   let restored = true;
   for (let i = snapshots.length - 1; i >= 0; i--) {
     const snapshot = snapshots[i];
-    const ok = snapshot.existed ? writeFileIfChanged(snapshot.path, snapshot.bytes) : !host.fs.fileExists(snapshot.path) || host.fs.removeFile(snapshot.path);
+    const ok = snapshot.existed ? yield* writeFileIfChanged(snapshot.path, snapshot.bytes) : !(yield* host.io.fs.fileExists(snapshot.path)) || (yield* host.io.fs.removeFile(snapshot.path));
     restored = ok && restored;
   }
   return restored;
 }
-function codexHookTrustContext(hooksPath) {
+function* codexHookTrustContext(hooksPath) {
   const cfg = codexConfigPath2();
-  if (!cfg || !host.fs.fileExists(cfg)) return null;
-  const text7 = String(host.fs.readFile(cfg) || "");
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return null;
+  const text7 = String((yield* host.io.fs.readFile(cfg)) || "");
   const block = findCodexHookTrustBlock(text7, hooksPath);
   if (block == null) return null;
-  const hooks = host.fs.readJson(hooksPath)?.hooks;
+  const hooks = (yield* host.io.fs.readJson(hooksPath))?.hooks;
   const labels = [];
   if ((hooks?.SessionStart || []).some(isCodetermCodexHook)) labels.push("session_start");
   if ((hooks?.Stop || []).some(isCodetermCodexHook)) labels.push("stop");
   const script = codexWindowsHookScriptPath();
-  const scriptText = script && host.fs.fileExists(script) ? String(host.fs.readFile(script) || "") : "";
+  const scriptText = script && (yield* host.io.fs.fileExists(script)) ? String((yield* host.io.fs.readFile(script)) || "") : "";
   const trustFingerprint = codexHookContentHash(hookTrustConfigSections(text7));
   const hookFingerprint = codexHookContentHash([
     ownedContentHash(hooks?.SessionStart, hooks?.Stop, scriptText),
@@ -6499,8 +4047,8 @@ function hookTrustConfigSections(config) {
   if (active) sections.push(lines.join("\n"));
   return sections.join(String.fromCharCode(0));
 }
-function cacheCodexHookTrust(hooksPath, verdict, reason) {
-  const context = codexHookTrustContext(hooksPath);
+function* cacheCodexHookTrust(hooksPath, verdict, reason) {
+  const context = yield* codexHookTrustContext(hooksPath);
   if (context) codexHookTrustCache.set(hooksPath, {
     fingerprint: context.fingerprint,
     hookFingerprint: context.hookFingerprint,
@@ -6509,8 +4057,8 @@ function cacheCodexHookTrust(hooksPath, verdict, reason) {
     reason
   });
 }
-function codexHookTrustState(hooksPath) {
-  const context = codexHookTrustContext(hooksPath);
+function* codexHookTrustState(hooksPath) {
+  const context = yield* codexHookTrustContext(hooksPath);
   if (!context) return "missing";
   const { block, fingerprint } = context;
   const m = block.match(/(?:^|\n)\s*enabled\s*=\s*(true|false)\s*(?:\n|$)/);
@@ -6523,17 +4071,17 @@ function codexHookTrustState(hooksPath) {
   if (m) return "unknown";
   return "missing";
 }
-function codexHookTrustReason(hooksPath) {
-  const context = codexHookTrustContext(hooksPath);
+function* codexHookTrustReason(hooksPath) {
+  const context = yield* codexHookTrustContext(hooksPath);
   if (!context) return "Codex hook trust configuration is unavailable";
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint === context.fingerprint && cached.reason) return cached.reason;
   return "Codex has not confirmed the current hook hash";
 }
-function codexHookTrustVerificationSource(hooksPath, state) {
+function* codexHookTrustVerificationSource(hooksPath, state) {
   if (state === "disabled") return "disabled";
   if (state === "missing") return "missing";
-  const context = codexHookTrustContext(hooksPath);
+  const context = yield* codexHookTrustContext(hooksPath);
   if (!context || !context.labels.includes("session_start")) return "unverified";
   const cached = codexHookTrustCache.get(hooksPath);
   if (cached?.fingerprint !== context.fingerprint) return "unverified";
@@ -6542,20 +4090,22 @@ function codexHookTrustVerificationSource(hooksPath, state) {
 function invalidateCodexHookTrust(hooksPath) {
   codexHookTrustCache.delete(hooksPath);
 }
-function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
-  const context = codexHookTrustContext(hooksPath);
-  if (!context) return then("missing");
-  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return then("disabled");
-  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return then(codexHookTrustState(hooksPath));
+function* refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
+  const context = yield* codexHookTrustContext(hooksPath);
+  if (!context) return yield* ioResolve(then("missing"));
+  if (/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(context.block)) return yield* ioResolve(then("disabled"));
+  if (!/(?:^|\n)\s*trusted_hash\s*=/.test(context.block)) return yield* ioResolve(then(yield* codexHookTrustState(hooksPath)));
   const cached = codexHookTrustCache.get(hooksPath);
-  if (cached?.fingerprint === context.fingerprint) return then(cached.verdict);
-  if (!context.labels.includes("session_start")) return then("unknown");
-  return inspectCodexHookTrust({
+  if (cached?.fingerprint === context.fingerprint) return yield* ioResolve(then(cached.verdict));
+  if (!context.labels.includes("session_start")) return yield* ioResolve(then("unknown"));
+  return yield* inspectCodexHookTrust({
     hooksPath,
     config: context.config,
     managedLabels: context.labels,
     listCwd: host.homeDir() || "."
-  }, (inspected) => {
+  }, function* (inspected) {
+    const current = yield* codexHookTrustContext(hooksPath);
+    if (current?.fingerprint !== context.fingerprint) return yield* ioResolve(then("unknown"));
     codexHookTrustCache.set(hooksPath, {
       fingerprint: context.fingerprint,
       hookFingerprint: context.hookFingerprint,
@@ -6563,30 +4113,30 @@ function refreshCodexHookTrustState(hooksPath, then = (verdict) => verdict) {
       verdict: inspected.verdict,
       reason: inspected.reason
     });
-    return then(inspected.verdict);
+    return yield* ioResolve(then(inspected.verdict));
   });
 }
-function enableExistingCodexHookTrust(hooksPath) {
+function* enableExistingCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
-  if (!cfg || !host.fs.fileExists(cfg)) return { state: "missing", changed: false, write_failed: false };
-  const text7 = String(host.fs.readFile(cfg) || "");
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return { state: "missing", changed: false, write_failed: false };
+  const text7 = String((yield* host.io.fs.readFile(cfg)) || "");
   if (!text7) return { state: "missing", changed: false, write_failed: false };
   const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return { state: "missing", changed: false, write_failed: false };
   const block = text7.substring(span.start, span.end);
   if (!/(?:^|\n)\s*enabled\s*=\s*false\s*(?:\n|$)/.test(block)) {
-    const current = codexHookTrustState(hooksPath);
+    const current = yield* codexHookTrustState(hooksPath);
     const state = current === "enabled" || current === "trusted" ? current : "unknown";
     return { state, changed: false, write_failed: false };
   }
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)false(\s*(?:\n|$))/, "$1$2true$3");
   const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
-  return host.fs.writeFile(cfg, next) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
+  return (yield* host.io.fs.writeFile(cfg, next)) ? { state: "enabled", changed: true, write_failed: false } : { state: "unknown", changed: false, write_failed: true };
 }
-function disableOwnedCodexHookTrust(hooksPath) {
+function* disableOwnedCodexHookTrust(hooksPath) {
   const cfg = codexConfigPath2();
-  if (!cfg || !host.fs.fileExists(cfg)) return true;
-  const text7 = host.fs.readFile(cfg);
+  if (!cfg || !(yield* host.io.fs.fileExists(cfg))) return true;
+  const text7 = yield* host.io.fs.readFile(cfg);
   if (typeof text7 !== "string") return false;
   const span = findCodexHookTrustBlockSpan(text7, hooksPath);
   if (!span) return true;
@@ -6594,7 +4144,7 @@ function disableOwnedCodexHookTrust(hooksPath) {
   const nextBlock = block.replace(/(^|\n)(\s*enabled\s*=\s*)true(\s*(?:\n|$))/, "$1$2false$3");
   if (nextBlock === block) return true;
   const next = text7.substring(0, span.start) + nextBlock + text7.substring(span.end);
-  return host.fs.writeFile(cfg, next);
+  return yield* host.io.fs.writeFile(cfg, next);
 }
 function findCodexHookTrustBlock(text7, hooksPath) {
   const span = findCodexHookTrustBlockSpan(text7, hooksPath);
@@ -6659,6 +4209,26 @@ function hasCodetermCodexWindowsCommand(entry) {
   }
   return false;
 }
+function integrationLockPaths() {
+  return [codexHooksPath() && codexHooksPath() + ".codeterm-integration.lock", codexConfigPath2() && codexConfigPath2() + ".project-trust.lock"].filter((path) => !!path);
+}
+function* installIntegration(apiPort, options) {
+  if (options?.consent !== true) return yield* installIntegrationLocked(apiPort, options);
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), function* () {
+    return yield* installIntegrationLocked(apiPort, options);
+  });
+}
+function* grantIntegrationTrust(managedKeys, then = (value) => value) {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), function* () {
+    return yield* grantIntegrationTrustLocked(managedKeys, then);
+  });
+}
+function* uninstallIntegration() {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), uninstallIntegrationLocked);
+}
+function* restoreIntegration() {
+  return yield* ioFileTransaction(host.io.fs, integrationLockPaths(), restoreIntegrationLocked);
+}
 
 // plugins/provider-codex/src/plugin.ts
 function profileSweepHost() {
@@ -6666,16 +4236,7 @@ function profileSweepHost() {
     platform: () => host.platform(),
     homeDir: () => host.homeDir(),
     log: (level, message) => host.log(level, message),
-    fs: {
-      fileExists: (path) => host.fs.fileExists(path),
-      isSymlink: (path) => host.fs.isSymlink(path),
-      readDir: (path) => host.fs.readDir(path),
-      readFile: (path) => host.fs.readFile(path),
-      removeFile: (path) => host.fs.removeFile(path),
-      writeFileAtomic: (path, contents) => host.fs.writeFileAtomic(path, contents),
-      lockFile: (path) => host.fs.lockFile(path),
-      unlockFile: (id) => host.fs.unlockFile(id)
-    }
+    io: host.io
   };
 }
 var TITLE_RE = /codex/i;
@@ -6732,9 +4293,9 @@ var plugin = {
   sessionResume: () => ({ exact: true }),
   runtimeStoredHistory,
   runtimeStoredRecords,
-  runtimeStoredHistoryAvailable(cwd, sessionId) {
-    const path = sessionFilePath(cwd, sessionId);
-    return storedHistoryAvailable(sessionId, path ? host.fs.readFileHead(path, 262144) : null);
+  *runtimeStoredHistoryAvailable(cwd, sessionId) {
+    const path = yield* sessionFilePath(cwd, sessionId);
+    return storedHistoryAvailable(sessionId, path ? yield* host.io.fs.readFileHead(path, 262144) : null);
   },
   runtimePlan,
   runtimeResponse,
@@ -6805,42 +4366,35 @@ var plugin = {
     return responseKeysForIndex(prompt.affirmativeIndex, view).slice(0, 1);
   },
   // Codex CLI has no model-list subcommand; its local cache is the only sync account-scoped source. Missing => seed.
-  discoverModels() {
-    return discoverCodexModels();
+  *discoverModels() {
+    return yield* discoverCodexModels();
   },
-  checkForUpdate() {
-    return checkCodexUpdate(host);
+  *checkForUpdate() {
+    return yield* checkCodexUpdate(host);
   },
   providerSelfUpdateCapability() {
     return codexSelfUpdateCapability;
   },
-  releaseTabLaunchArtifacts(tabId, instanceId) {
-    return releaseCodexProfile(profileSweepHost(), tabId, instanceId);
+  *releaseTabLaunchArtifacts(tabId, instanceId) {
+    return yield* releaseCodexProfile(profileSweepHost(), tabId, instanceId);
   },
-  folderTrustAnswered(tabId, instanceId) {
-    return carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
+  *folderTrustAnswered(tabId, instanceId) {
+    return yield* carryCodexProjectTrustForTab(profileSweepHost(), tabId, instanceId);
   },
-  isDirectoryTrusted(path) {
-    return isCodexDirectoryTrusted(profileSweepHost(), path);
+  *isDirectoryTrusted(path) {
+    return yield* isCodexDirectoryTrusted(profileSweepHost(), path);
   },
-  directoryTrustState(path, skipPermissions) {
-    return codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
+  *directoryTrustState(path, skipPermissions) {
+    return yield* codexDirectoryTrustState(profileSweepHost(), path, skipPermissions);
   },
-  sweepLaunchArtifacts(request2) {
-    return manageCodexProfiles(
-      profileSweepHost(),
-      request2.liveTabIds,
-      request2.instanceId,
-      request2.confirm,
-      request2.includeLegacy,
-      request2.goneInstanceIds
-    );
+  *sweepLaunchArtifacts(request) {
+    return yield* manageCodexProfiles(profileSweepHost(), request.liveTabIds, request.instanceId, request.confirm, request.includeLegacy, request.goneInstanceIds);
   },
-  buildLaunchSpec(input) {
-    return buildCodexLaunchSpec(input, starterPrompt);
+  *buildLaunchSpec(input) {
+    return yield* buildCodexLaunchSpec(input, starterPrompt);
   },
-  buildLaunchCommand(params) {
-    const spec = buildCodexLaunchSpec(params || {}, starterPrompt);
+  *buildLaunchCommand(params) {
+    const spec = yield* buildCodexLaunchSpec(params || {}, starterPrompt);
     if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG];
@@ -6857,7 +4411,7 @@ var plugin = {
         return "Write-Error 'CodeTerm refused the Codex launch: instance identity is missing, so a per-tab profile cannot be safely owned'; exit 1";
       }
       const instructions = withLaunchMarker(p.task, typeof p.launchMarker === "string" ? p.launchMarker : void 0);
-      const taskPath = host.fs.writeTempFile(instructions, ".ct-task.md");
+      const taskPath = yield* host.io.fs.writeTempFile(instructions, ".ct-task.md");
       if (!taskPath) throw new Error("failed to write Codex task instructions");
       const quotedPath = host.shell.quoteFor(taskPath, host.platform());
       if (host.platform() === "windows") {
@@ -6879,8 +4433,8 @@ var plugin = {
     parts.push(...hostOwnedCodexLaunchArgs(p.hostOwned));
     return parts.join(" ");
   },
-  buildResumeCommand(sessionId, skipPermissions) {
-    const spec = buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
+  *buildResumeCommand(sessionId, skipPermissions) {
+    const spec = yield* buildCodexLaunchSpec({ resume: { sessionId, skipPermissions } }, starterPrompt);
     if (spec) return codexCommandFromSpec(spec);
     const parts = ["codex", ...CODEX_LAUNCH_CONFIG, "resume"];
     if (skipPermissions) {
@@ -6891,8 +4445,8 @@ var plugin = {
     parts.push(host.shell.quoteFor(uuid, host.platform()), "--no-daemon");
     return requireDirectResume(parts.join(" "));
   },
-  buildResumeCommandWithContext(params) {
-    const spec = buildCodexLaunchSpec({ resume: params }, starterPrompt);
+  *buildResumeCommandWithContext(params) {
+    const spec = yield* buildCodexLaunchSpec({ resume: params }, starterPrompt);
     if (spec) return codexCommandFromSpec(spec);
     const p = params || {};
     const platform = host.platform();
@@ -6917,18 +4471,18 @@ var plugin = {
     }
     return requireDirectResume(parts.join(" "));
   },
-  sessionFilePath(_cwd, sessionId) {
-    return sessionFilePath(_cwd, sessionId);
+  *sessionFilePath(_cwd, sessionId) {
+    return yield* sessionFilePath(_cwd, sessionId);
   },
-  sessionExists(cwd, sessionId) {
-    return sessionExists(cwd, sessionId);
+  *sessionExists(cwd, sessionId) {
+    return yield* sessionExists(cwd, sessionId);
   },
-  detectLaunchSession(evidence) {
-    return detectCodexLaunchSession(evidence);
+  *detectLaunchSession(evidence) {
+    return yield* detectCodexLaunchSession(evidence);
   },
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
-  sessionJsonlPath(cwd, sessionId) {
-    return this.sessionFilePath(cwd, sessionId);
+  *sessionJsonlPath(cwd, sessionId) {
+    return yield* this.sessionFilePath(cwd, sessionId);
   },
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.
   parseSessionObservations,
@@ -6936,50 +4490,52 @@ var plugin = {
   parseSessionRecords(records, meta) {
     return { ...parseSessionDelta(records, meta.sourceKey ? { session_key: meta.sourceKey, from_offset: meta.fromOffset } : void 0), new_offset: meta.newOffset };
   },
-  detectSessionId(cwd, exclude, maxAgeMs) {
-    return detectSessionId(cwd, exclude, maxAgeMs);
+  *detectSessionId(cwd, exclude, maxAgeMs) {
+    return yield* detectSessionId(cwd, exclude, maxAgeMs);
   },
-  checkIntegration() {
-    return checkIntegration();
+  *checkIntegration() {
+    return yield* checkIntegration();
   },
-  installIntegration(apiPort, options) {
-    return installIntegration(apiPort, options);
+  *installIntegration(apiPort, options) {
+    return yield* installIntegration(apiPort, options);
   },
   // Codex is the only hash authority; the grant lane never computes a trust hash CodeTerm-side.
-  grantIntegrationTrust(managedKeys) {
-    return grantIntegrationTrust(managedKeys);
+  *grantIntegrationTrust(managedKeys) {
+    return yield* grantIntegrationTrust(managedKeys);
   },
-  uninstallIntegration() {
-    return uninstallIntegration();
+  *uninstallIntegration() {
+    return yield* uninstallIntegration();
   },
-  restoreIntegration() {
-    return restoreIntegration();
+  *restoreIntegration() {
+    return yield* restoreIntegration();
   },
-  ensureIntegrationOnStartup(apiPort) {
-    return ensureIntegrationOnStartup(apiPort, (port, options) => installIntegration(port, options));
+  *ensureIntegrationOnStartup(apiPort) {
+    return yield* ensureIntegrationOnStartup(apiPort, function* (port, options) {
+      return yield* installIntegration(port, options);
+    });
   },
   // Parse the `/status` TUI screen into a UsageSnapshot; gauges report "% left", snapshot stores "% used".
   parseUsage(rawText, nowMs) {
     return parseCodexUsage(rawText, nowMs);
   },
-  fetchUsage() {
-    return fetchCodexUsage(host);
+  *fetchUsage() {
+    return yield* fetchCodexUsage(host);
   },
   detectActiveSession(_cwd, _currentSid) {
     return null;
   },
-  enumerateSessions() {
-    return enumerateSessions();
+  *enumerateSessions() {
+    return yield* enumerateSessions();
   },
-  findSession(sessionId) {
-    return findSession(sessionId);
+  *findSession(sessionId) {
+    return yield* findSession(sessionId);
   },
   // Read the exact model identity from this session's latest turn context.
-  detectSessionModel(cwd, sessionId) {
-    return detectSessionModel(cwd, sessionId);
+  *detectSessionModel(cwd, sessionId) {
+    return yield* detectSessionModel(cwd, sessionId);
   },
-  detectSessionReasoningEffort(cwd, sessionId) {
-    return detectSessionReasoningEffort(cwd, sessionId);
+  *detectSessionReasoningEffort(cwd, sessionId) {
+    return yield* detectSessionReasoningEffort(cwd, sessionId);
   },
   // Mirror native parse_session_messages for response_item message blocks.
   parseSessionMessages,
@@ -7455,4 +5011,4 @@ function parseSessionMessages(text7) {
   }
   return out;
 }
-var plugin_default = plugin;
+var plugin_default = defineProviderIo(plugin, () => host.io);
