@@ -166,7 +166,15 @@ fn sql_status_work_and_materialization_ignore_unrelated_bodies_and_old_history()
         let metrics = take_metrics();
         let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
-        let response_bytes = serde_json::to_vec(&projected).unwrap().len();
+        let mut response = projected.clone();
+        response.window_details(crate::service_plan::state::window::StateWindowRequest::default());
+        let response_bytes = serde_json::to_vec(&response).unwrap().len();
+        assert_eq!(response.open_lanes.len(), 50);
+        assert_eq!(
+            response.details.as_ref().unwrap().totals["open_lanes"],
+            fixtures::TASKS
+        );
+        assert!(response_bytes < 100 * 1024);
         assert_eq!(projected.mission_control.event_log.entries.len(), 200);
         assert_eq!(projected.recent_strides.len(), 10);
         assert_eq!(
