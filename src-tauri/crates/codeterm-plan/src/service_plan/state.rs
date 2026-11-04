@@ -273,16 +273,28 @@ pub fn plan_needs_orchestrator_action(plan: &Plan) -> bool {
 pub fn outstanding_blocked_count(plan: &Plan) -> usize {
     plan.tasks
         .iter()
-        .filter(|task| match task.status {
-            TaskStatus::Blocked => true,
-            TaskStatus::Pending => {
-                let projection = task_projection(plan, task);
-                projection.presentation != TaskPresentation::ParkedForLaterGroup
-                    && !projection.dependency_waits.is_empty()
-            }
-            _ => false,
+        .filter(|task| {
+            let projection =
+                (task.status == TaskStatus::Pending).then(|| task_projection(plan, task));
+            outstanding_blocked_facts(
+                &task.status,
+                projection.as_ref().is_some_and(|value| {
+                    value.presentation == TaskPresentation::ParkedForLaterGroup
+                }),
+                projection
+                    .as_ref()
+                    .is_some_and(|value| !value.dependency_waits.is_empty()),
+            )
         })
         .count()
+}
+
+pub(super) fn outstanding_blocked_facts(status: &TaskStatus, parked: bool, waiting: bool) -> bool {
+    match status {
+        TaskStatus::Blocked => true,
+        TaskStatus::Pending => !parked && waiting,
+        _ => false,
+    }
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]

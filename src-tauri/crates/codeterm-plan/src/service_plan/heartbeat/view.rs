@@ -13,6 +13,7 @@ pub(in crate::service_plan) struct HeartbeatParts {
     pub plan_id: String,
     pub counts: TaskCounts,
     pub pending_actionable: usize,
+    pub blocked_or_gated_count: usize,
     pub actions: String,
     pub regression: String,
     pub retrospectives: String,
@@ -80,6 +81,7 @@ impl HeartbeatView {
                             == super::super::state::TaskPresentation::ActionablePending
                     })
                     .count(),
+                blocked_or_gated_count: super::super::state::outstanding_blocked_count(plan),
                 actions,
                 regression,
                 retrospectives,
@@ -102,24 +104,7 @@ impl HeartbeatView {
         heartbeat: &OrchestratorHeartbeat,
         extra: &[String],
     ) -> String {
-        let mut learnings = String::new();
-        for learning in heartbeat
-            .learnings
-            .iter()
-            .filter(|learning| is_owner_rule(learning))
-        {
-            render_learning(learning, &mut learnings);
-        }
-        for learning in heartbeat
-            .learnings
-            .iter()
-            .rev()
-            .filter(|learning| !is_owner_rule(learning) && !learning.text.trim().is_empty())
-            .take(MAX_SITUATIONAL_LEARNINGS)
-        {
-            render_situational_learning(learning, &mut learnings);
-        }
-        self.parts.render_block(&learnings, extra)
+        self.parts.render_block(&learning_lines(heartbeat), extra)
     }
 
     pub(in crate::service_plan) fn prepend(
@@ -159,6 +144,50 @@ impl HeartbeatView {
 }
 
 impl HeartbeatParts {
+    pub(in crate::service_plan) fn from_snapshot(plan_id: &str, loops: &[LoopSpec]) -> Self {
+        use crate::service_plan::next_actions::{
+            compute_next_actions_from, ActionLoop, NextActionInput, NextActionKind,
+        };
+        let actions = compute_next_actions_from(&NextActionInput {
+            plan_id,
+            execution_tasks_unlocked: false,
+            planning_approval_blockers: &[],
+            planner_resolution: &crate::plan::peer::PeerResolution::Unbound,
+            open_lanes: Vec::new(),
+            blocked_lanes: Vec::new(),
+            drift_total: 0,
+            has_live_agents: false,
+            loops: loops
+                .iter()
+                .map(|item| ActionLoop {
+                    id: &item.id,
+                    status: item.status.clone(),
+                    count: item.count,
+                    budget: item.budget,
+                })
+                .collect(),
+            pending_regression_gates: &[],
+            pending_group_retrospectives: &[],
+        })
+        .into_iter()
+        .filter(|action| action.kind == NextActionKind::ConsiderStop)
+        .map(|action| format!("- {}\n", action.message))
+        .collect::<String>();
+        Self {
+            plan_id: plan_id.into(),
+            counts: TaskCounts::default(),
+            pending_actionable: 0,
+            blocked_or_gated_count: 0,
+            actions,
+            regression: String::new(),
+            retrospectives: String::new(),
+            competition: String::new(),
+            gates: String::new(),
+            skills: String::new(),
+            control_line: String::new(),
+        }
+    }
+
     pub(in crate::service_plan) fn render_block(
         &self,
         learnings: &str,
@@ -202,4 +231,25 @@ pub(in crate::service_plan) fn state_header(
     pending: usize,
 ) -> String {
     format!("{HEARTBEAT_BLOCK_OPEN} plan=\"{id}\">\nState: in_review={} in_progress={} pending_actionable={pending} blocked={}\n",counts.in_review,counts.in_progress,counts.blocked)
+}
+
+pub(in crate::service_plan) fn learning_lines(heartbeat: &OrchestratorHeartbeat) -> String {
+    let mut learnings = String::new();
+    for learning in heartbeat
+        .learnings
+        .iter()
+        .filter(|learning| is_owner_rule(learning))
+    {
+        render_learning(learning, &mut learnings);
+    }
+    for learning in heartbeat
+        .learnings
+        .iter()
+        .rev()
+        .filter(|learning| !is_owner_rule(learning) && !learning.text.trim().is_empty())
+        .take(MAX_SITUATIONAL_LEARNINGS)
+    {
+        render_situational_learning(learning, &mut learnings);
+    }
+    learnings
 }

@@ -299,6 +299,25 @@ fn curator_notice_owner_body_and_decisions_share_one_snapshot_and_errors_stay_lo
             heartbeat.contains("loop B nearly exhausted"),
             heartbeat.contains("- B\n")
         );
+        let shown = database
+            .heartbeat_show_projection(&plan.id, 10_000)
+            .unwrap();
+        assert_eq!(
+            shown.reinjection.contains("loop B nearly exhausted"),
+            shown
+                .heartbeat
+                .learnings
+                .iter()
+                .any(|learning| learning.text == "B")
+        );
+        assert_eq!(
+            shown.reinjection.contains("- B\n"),
+            shown
+                .heartbeat
+                .learnings
+                .iter()
+                .any(|learning| learning.text == "B")
+        );
         barrier.wait();
     }
     writer.join().unwrap();
