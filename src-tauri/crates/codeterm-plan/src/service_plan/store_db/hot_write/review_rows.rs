@@ -1,5 +1,6 @@
 use super::*;
 
+#[derive(Clone)]
 pub(in crate::service_plan) enum TaskHistory {
     Core,
     Attempt(String),
@@ -66,56 +67,9 @@ impl PlanDatabase {
     ) -> Result<(T, CommittedRows), PlanError> {
         let mut result = None;
         let receipt = self.hot_transaction(plan_id, now_ms, |tx, receipt| {
-            let mut task = read_task(tx, plan_id, selector, receipt)?;
-            let previous_name = task.name.clone();
-            let previous_status = task.status.clone();
-            let original_core = task.clone();
-            let attempts = read_attempts(tx, plan_id, &task.id, &history, receipt)?;
-            task.execution_attempts = attempts.iter().map(|(_, attempt)| attempt.clone()).collect();
-            if matches!(history, TaskHistory::Review) {
-                let mut statement = tx.prepare_cached("SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq").map_err(db_error)?;
-                task.milestones = statement.query_map(params![plan_id, task.id], |row| row.get::<_, String>(0)).map_err(db_error)?.map(|row| {
-                    let json = row.map_err(db_error)?;
-                    receipt.decoded_bytes += json.len();
-                    serde_json::from_str(&json).map_err(json_error)
-                }).collect::<Result<_, _>>()?;
-            }
-            let milestone_count = task.milestones.len();
-            let owner_tab: Option<String> = tx.query_row("SELECT owner_tab_id FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
-            receipt.projected_text_bytes += owner_tab.as_ref().map_or(0, String::len);
-            let mut edit = TaskRowEdit { task, owner_tab, review_credit: 0, terminal_check: false, close_all_live: false, created_tasks: Vec::new() };
-            result = Some(change(&mut edit)?);
-            if edit.terminal_check { task_fields::reject_open_subtasks(tx, plan_id, &edit.task.id)?; }
-            if edit.task.execution_attempts.len() < attempts.len() || edit.task.milestones.len() < milestone_count {
-                return Err(PlanError::Io("task row edit changed an immutable history prefix".into()));
-            }
-            for ((position, previous), next) in attempts.iter().zip(&edit.task.execution_attempts) {
-                if previous != next {
-                    let json = encode(next, receipt)?;
-                    tx.execute("UPDATE plan_task_attempts SET row_json=?4, content_hash=?5 WHERE plan_id=?1 AND task_id=?2 AND position=?3", params![plan_id, edit.task.id, position, json, store_rows::row_hash(&json)]).map_err(db_error)?;
-                    receipt.attempts += 1;
-                    receipt.tasks.insert(edit.task.id.clone());
-                }
-            }
-            for attempt in &edit.task.execution_attempts[attempts.len()..] {
-                let json = encode(attempt, receipt)?;
-                tx.execute("INSERT INTO plan_task_attempts(plan_id, task_id, attempt_id, position, content_hash, row_json) VALUES (?1, ?2, ?3, (SELECT coalesce(max(position)+1,0) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2), ?4, ?5)", params![plan_id, edit.task.id, attempt.id, store_rows::row_hash(&json), json]).map_err(db_error)?;
-                receipt.attempts += 1;
-                receipt.tasks.insert(edit.task.id.clone());
-            }
-            let appended = edit.task.milestones.split_off(milestone_count);
-            edit.task.milestones.clear();
-            edit.task.execution_attempts.clear();
-            if edit.close_all_live { close_all_live(tx, plan_id, &edit.task.id, now_ms, receipt)?; }
-            if edit.review_credit != 0 { task_fields::change_review_credit(tx, plan_id, edit.review_credit, receipt)?; }
-            let core_changed = edit.task != original_core;
-            if core_changed { write_task(tx, plan_id, &edit.task, receipt)?; }
-            for milestone in appended { append_milestone(tx, plan_id, &edit.task.id, &milestone, receipt)?; }
-            if core_changed { task_fields::queue_task_index(tx, plan_id, &edit.task, previous_name != edit.task.name, previous_status != edit.task.status, receipt)?; }
-            let created = !edit.created_tasks.is_empty();
-            for task in &edit.created_tasks { task_fields::insert_task(tx, plan_id, task, receipt)?; }
-            if created { task_fields::normalize_handles(tx, plan_id, receipt)?; }
-            for task in &edit.created_tasks { task_fields::queue_task_index(tx, plan_id, task, false, false, receipt)?; }
+            result = Some(edit_task_rows(
+                tx, plan_id, selector, history, now_ms, receipt, change,
+            )?);
             Ok(())
         })?;
         Ok((
@@ -123,6 +77,174 @@ impl PlanDatabase {
             receipt,
         ))
     }
+    pub(in crate::service_plan) fn with_task_rows_batch<T>(
+        &self,
+        plan_id: &str,
+        selectors: &[String],
+        history: TaskHistory,
+        now_ms: u64,
+        mut change: impl FnMut(usize, &mut TaskRowEdit) -> Result<Option<T>, PlanError>,
+    ) -> Result<(Vec<T>, CommittedRows), PlanError> {
+        let mut results = Vec::new();
+        let receipt = self.hot_transaction(plan_id, now_ms, |tx, receipt| {
+            for (index, selector) in selectors.iter().enumerate() {
+                let exists: bool = tx
+                    .query_row(
+                        "SELECT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND task_id=?2)",
+                        params![plan_id, selector],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_error)?;
+                if !exists {
+                    continue;
+                }
+                if let Some(result) = edit_task_rows(
+                    tx,
+                    plan_id,
+                    selector,
+                    history.clone(),
+                    now_ms,
+                    receipt,
+                    |edit| change(index, edit),
+                )? {
+                    results.push(result);
+                }
+            }
+            Ok(())
+        })?;
+        Ok((results, receipt))
+    }
+
+    pub(in crate::service_plan) fn claim_next_qa_rows<T>(
+        &self,
+        plan_id: &str,
+        max_running: usize,
+        now_ms: u64,
+        change: impl FnOnce(&mut TaskRowEdit) -> Result<T, PlanError>,
+    ) -> Result<(Option<T>, CommittedRows), PlanError> {
+        let mut result = None;
+        let receipt = self.hot_transaction(plan_id, now_ms, |tx, receipt| {
+            let running: usize = tx.query_row("SELECT count(*) FROM plan_tasks WHERE plan_id=?1 AND status='in_review' AND json_extract(row_json,'$.review_stage')='qa' AND json_extract(row_json,'$.qa_state')='running'", [plan_id], |row| row.get(0)).map_err(db_error)?;
+            if running >= max_running { return Ok(()); }
+            let selector: Option<String> = tx.query_row("SELECT task_id FROM plan_tasks WHERE plan_id=?1 AND status='in_review' AND json_extract(row_json,'$.review_stage')='qa' AND json_extract(row_json,'$.qa_state')='queued' ORDER BY position LIMIT 1", [plan_id], |row| row.get(0)).optional().map_err(db_error)?;
+            if let Some(selector) = selector {
+                result = Some(edit_task_rows(tx, plan_id, &selector, TaskHistory::Attempts, now_ms, receipt, change)?);
+            }
+            Ok(())
+        })?;
+        Ok((result, receipt))
+    }
+}
+
+pub(super) fn edit_task_rows<T>(
+    tx: &Transaction<'_>,
+    plan_id: &str,
+    selector: &str,
+    history: TaskHistory,
+    now_ms: u64,
+    receipt: &mut CommittedRows,
+    change: impl FnOnce(&mut TaskRowEdit) -> Result<T, PlanError>,
+) -> Result<T, PlanError> {
+    let mut task = read_task(tx, plan_id, selector, receipt)?;
+    let previous_name = task.name.clone();
+    let previous_status = task.status.clone();
+    let original_core = task.clone();
+    let attempts = read_attempts(tx, plan_id, &task.id, &history, receipt)?;
+    task.execution_attempts = attempts
+        .iter()
+        .map(|(_, attempt)| attempt.clone())
+        .collect();
+    if matches!(history, TaskHistory::Review) {
+        let mut statement = tx.prepare_cached("SELECT row_json FROM plan_task_milestones WHERE plan_id=?1 AND task_id=?2 ORDER BY seq").map_err(db_error)?;
+        task.milestones = statement
+            .query_map(params![plan_id, task.id], |row| row.get::<_, String>(0))
+            .map_err(db_error)?
+            .map(|row| {
+                let json = row.map_err(db_error)?;
+                receipt.decoded_bytes += json.len();
+                serde_json::from_str(&json).map_err(json_error)
+            })
+            .collect::<Result<_, _>>()?;
+    }
+    let milestone_count = task.milestones.len();
+    let owner_tab: Option<String> = tx
+        .query_row(
+            "SELECT owner_tab_id FROM plans WHERE id=?1",
+            [plan_id],
+            |row| row.get(0),
+        )
+        .map_err(db_error)?;
+    receipt.projected_text_bytes += owner_tab.as_ref().map_or(0, String::len);
+    let mut edit = TaskRowEdit {
+        task,
+        owner_tab,
+        review_credit: 0,
+        terminal_check: false,
+        close_all_live: false,
+        created_tasks: Vec::new(),
+    };
+    let result = change(&mut edit)?;
+    if edit.terminal_check {
+        task_fields::reject_open_subtasks(tx, plan_id, &edit.task.id)?;
+    }
+    if edit.task.execution_attempts.len() < attempts.len()
+        || edit.task.milestones.len() < milestone_count
+    {
+        return Err(PlanError::Io(
+            "task row edit changed an immutable history prefix".into(),
+        ));
+    }
+    for ((position, previous), next) in attempts.iter().zip(&edit.task.execution_attempts) {
+        if previous != next {
+            let json = encode(next, receipt)?;
+            tx.execute("UPDATE plan_task_attempts SET row_json=?4, content_hash=?5 WHERE plan_id=?1 AND task_id=?2 AND position=?3", params![plan_id, edit.task.id, position, json, store_rows::row_hash(&json)]).map_err(db_error)?;
+            receipt.attempts += 1;
+            receipt.tasks.insert(edit.task.id.clone());
+        }
+    }
+    for attempt in &edit.task.execution_attempts[attempts.len()..] {
+        let json = encode(attempt, receipt)?;
+        tx.execute("INSERT INTO plan_task_attempts(plan_id, task_id, attempt_id, position, content_hash, row_json) VALUES (?1, ?2, ?3, (SELECT coalesce(max(position)+1,0) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2), ?4, ?5)", params![plan_id, edit.task.id, attempt.id, store_rows::row_hash(&json), json]).map_err(db_error)?;
+        receipt.attempts += 1;
+        receipt.tasks.insert(edit.task.id.clone());
+    }
+    let appended = edit.task.milestones.split_off(milestone_count);
+    edit.task.milestones.clear();
+    edit.task.execution_attempts.clear();
+    if edit.close_all_live {
+        close_all_live(tx, plan_id, &edit.task.id, now_ms, receipt)?;
+    }
+    if edit.review_credit != 0 {
+        task_fields::change_review_credit(tx, plan_id, edit.review_credit, receipt)?;
+    }
+    let core_changed = edit.task != original_core;
+    if core_changed {
+        write_task(tx, plan_id, &edit.task, receipt)?;
+    }
+    for milestone in appended {
+        append_milestone(tx, plan_id, &edit.task.id, &milestone, receipt)?;
+    }
+    if core_changed {
+        task_fields::queue_task_index(
+            tx,
+            plan_id,
+            &edit.task,
+            previous_name != edit.task.name,
+            previous_status != edit.task.status,
+            receipt,
+        )?;
+    }
+    let created = !edit.created_tasks.is_empty();
+    for task in &edit.created_tasks {
+        task_fields::insert_task(tx, plan_id, task, receipt)?;
+    }
+    if created {
+        task_fields::normalize_handles(tx, plan_id, receipt)?;
+    }
+    for task in &edit.created_tasks {
+        task_fields::queue_task_index(tx, plan_id, task, false, false, receipt)?;
+    }
+    Ok(result)
 }
 
 fn read_attempts(

@@ -45,6 +45,25 @@ impl PlanStore {
         Ok(result)
     }
 
+    pub(in crate::service_plan) fn with_task_rows_batch<T>(
+        &self,
+        plan_id: &str,
+        selectors: &[String],
+        history: super::super::store_db::hot_write::TaskHistory,
+        now_ms: u64,
+        change: impl FnMut(
+            usize,
+            &mut super::super::store_db::hot_write::TaskRowEdit,
+        ) -> Result<Option<T>, PlanError>,
+    ) -> Result<Vec<T>, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (result, receipt) = self
+            .database
+            .with_task_rows_batch(plan_id, selectors, history, now_ms, change)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(result)
+    }
+
     pub(in crate::service_plan) fn commit_hot_changes(
         &self,
         id: &str,
