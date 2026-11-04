@@ -227,3 +227,15 @@ fn expired_phase_deadline_stops_retry_writes_before_enqueue() {
     assert!(!result.submit_observed);
     assert!(result.submit_anomaly, "uncertainty stays honest, not fatal");
 }
+
+#[test]
+fn capacity_refusal_before_enqueue_is_distinct_from_post_enqueue_uncertainty() {
+    let error = injection_write_error(
+        "bounded",
+        "tab_busy_refused: PTY write queue capacity refused before enqueue".into(),
+    );
+    assert!(matches!(error, InjectionError::WriteQueueFull { .. }));
+    let delivery = crate::service::delivery_error::DeliveryError::from_injection("bounded", error);
+    assert_eq!(delivery.code(), "tab_busy_refused");
+    assert!(!delivery.bytes_written());
+}

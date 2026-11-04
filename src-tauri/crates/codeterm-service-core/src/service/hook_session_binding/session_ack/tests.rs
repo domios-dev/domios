@@ -18,7 +18,7 @@ fn blueprint_v2_call_durable_async_authentication_keeps_single_thread_runtime_re
             fixture.service.mux.read().get_tab(&tab).unwrap(),
         ),
     };
-    let gate = fixture.service.pty_ownership.acquire(&tab);
+    let gate = fixture.service.pty_ownership.acquire(&tab).unwrap();
     let (waiting_tx, waiting_rx) = mpsc::channel();
     fixture
         .service

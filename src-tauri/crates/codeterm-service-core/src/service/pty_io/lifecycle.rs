@@ -517,7 +517,7 @@ impl ServiceContext {
             return Err(refusal);
         }
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_enter");
-        let pty_claim = self.pty_ownership.acquire(&resolved);
+        let pty_claim = self.pty_ownership.acquire(&resolved)?;
         crate::startup::boot_timing::mark(&resolved, None, "pty_claim_acquired");
         self.ensure_tab_pty_for_send_inner(&pty_claim)
     }

@@ -19,7 +19,7 @@ async fn protected_frontend_attach_reuses_the_backend_launch_claim() {
         .map(|built| svc.pty.lock().register_session(None, built))
     }
     .unwrap();
-    let claim = svc.pty_ownership.acquire(&tab_id);
+    let claim = svc.pty_ownership.acquire(&tab_id).unwrap();
     let selected = svc.link_pty_with_claim(&claim, &tab_id, backend.clone(), true);
     assert!(selected.linked);
     drop(claim);

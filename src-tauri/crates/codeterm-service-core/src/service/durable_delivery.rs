@@ -210,7 +210,7 @@ impl ServiceContext {
         let Some(saved) = &delivery.saved_target else {
             return Ok(PreparedDelivery::Ready);
         };
-        let _claim = self.pty_ownership.acquire(target);
+        let _claim = self.pty_ownership.acquire(target)?;
         self.resolve_pending_binding_failure(target)?;
         if self.binding_failure(target, record).is_some() {
             return Ok(PreparedDelivery::Failed("launch_authority_unavailable"));

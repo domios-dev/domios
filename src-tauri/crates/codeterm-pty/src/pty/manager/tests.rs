@@ -1016,3 +1016,5 @@ fn child_launch_uses_only_its_explicit_tab_credential() {
         Some(std::ffi::OsStr::new("own-tab"))
     );
 }
+
+mod teardown;
