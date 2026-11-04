@@ -474,6 +474,60 @@ async fn account_mesh_logout_during_enrollment_cannot_be_reopened_by_the_late_re
 }
 
 #[tokio::test]
+async fn account_mesh_account_switch_applies_each_accounts_accepted_admission() {
+    let harness = Harness::new().await;
+    let set_peer = |key: Option<(String, u64)>, metadata_revision: u64| {
+        let mut script = harness.registry.script.lock().unwrap();
+        script.peer_key = key;
+        script.peer_metadata_revision = metadata_revision;
+    };
+    set_peer(Some(("d".repeat(64), 2)), 5);
+    harness.sign_in(UID).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    assert!(harness.state().current_membership(START).is_some());
+
+    harness.logout().await;
+    set_peer(None, 0);
+    harness.sign_in("user-2").await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let other = harness.state();
+    assert_eq!(other.binding(), Binding::Other);
+    assert_eq!(other.owner, Some(account_id(UID)));
+    assert_eq!(other.last_refusal, None);
+    assert!(other.self_installation.is_some());
+    assert_eq!(
+        other.current_membership(START).unwrap().verified.account_id,
+        account_id("user-2"),
+        "a lower generation in another account's registry is not a rollback"
+    );
+
+    harness.logout().await;
+    set_peer(Some(("d".repeat(64), 2)), 5);
+    harness.sign_in(UID).await;
+    harness
+        .mesh
+        .refresh(EnrollTrigger::Automatic)
+        .await
+        .unwrap();
+    let back = harness.state();
+    assert_eq!(back.binding(), Binding::Current);
+    assert_eq!(back.last_refusal, None);
+    assert_eq!(back.traffic(), Traffic::Open);
+    assert_eq!(
+        back.current_membership(START).unwrap().verified.account_id,
+        account_id(UID)
+    );
+}
+
+#[tokio::test]
 async fn account_mesh_same_account_resumes_and_another_account_cannot() {
     let harness = enrolled().await;
     let signed_out_epoch = {
