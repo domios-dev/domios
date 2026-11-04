@@ -360,3 +360,5 @@ pub use task_authority_projection::{
     TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead, WorkerLossRead,
     WorkerLossRecoveryRead, WorkerLossReplacementRead,
 };
+
+pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};
