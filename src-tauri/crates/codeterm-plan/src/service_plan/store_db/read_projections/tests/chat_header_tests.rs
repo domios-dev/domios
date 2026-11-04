@@ -2,6 +2,74 @@ use super::*;
 use crate::plan::{PlanMode, PlannerRef, TaskStatus};
 
 #[test]
+fn chat_attempt_timestamps_preserve_none_missing_values_and_latest_ties() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = Plan::new(
+        "Chat".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let cases = [
+        ("task_null", vec![("null_first", None), ("null_last", None)]),
+        (
+            "task_tie",
+            vec![
+                ("tie_first", Some(20)),
+                ("tie_last", Some(20)),
+                ("undated", None),
+            ],
+        ),
+        ("task_missing", vec![("missing", None)]),
+    ];
+    for (id, attempts) in cases {
+        let mut task = crate::service_plan::load_audit::task(id, TaskStatus::Pending, None);
+        task.execution_attempts = attempts
+            .into_iter()
+            .map(|(id, assigned_at)| {
+                let mut attempt = crate::service_plan::load_audit::attempt(id, "worker");
+                attempt.assigned_at = assigned_at;
+                attempt
+            })
+            .collect();
+        plan.tasks.push(task);
+    }
+    let database = fixtures::database(directory.path(), &plan);
+    database.connection.lock().execute(
+        "UPDATE plan_task_attempts SET row_json=json_remove(row_json,'$.assigned_at') WHERE attempt_id='missing'",[],
+    ).unwrap();
+    fixtures::audit(&database);
+    let rows = database
+        .chat_projection(None, None, None, Some(&plan.id), None)
+        .unwrap();
+    for task in &plan.tasks {
+        let projected = rows[0]["tasks"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["id"] == task.id)
+            .unwrap();
+        let expected = task
+            .execution_attempts
+            .iter()
+            .max_by_key(|attempt| attempt.assigned_at)
+            .unwrap();
+        assert_eq!(projected["execution_attempts"][0]["id"], expected.id);
+        assert_eq!(
+            projected["execution_attempts"][0]["assigned_at"],
+            json!(expected.assigned_at)
+        );
+    }
+    assert!(fixtures::audit_counts(&database).is_empty());
+    database.connection.lock().execute(
+        "UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.assigned_at','invalid') WHERE attempt_id='tie_last'",[],
+    ).unwrap();
+    assert!(matches!(
+        database.chat_projection(None, None, None, Some(&plan.id), None),
+        Err(PlanError::Quarantined { .. })
+    ));
+}
+
+#[test]
 fn chat_header_membership_preserves_all_four_binding_paths_and_filters() {
     let directory = tempfile::tempdir().unwrap();
     let mut plan = Plan::new(

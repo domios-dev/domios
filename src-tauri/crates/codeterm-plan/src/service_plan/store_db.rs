@@ -581,6 +581,7 @@ mod chat_read_queries;
 mod curator_digest_queries;
 mod curator_queries;
 mod curator_snapshot;
+mod export_queries;
 mod header_queries;
 mod index_queries;
 mod notice_queries;
