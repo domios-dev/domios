@@ -149,11 +149,9 @@ pub(super) fn dispatch(
             let record = store
                 .record_regression_override(&plan_id, gates, reason, actor(p), now)
                 .map_err(plan_rpc_err)?;
-            let remaining = {
-                let plan = store.get(&plan_id);
-                plan.map(|pl| codeterm_service_core::service::plan::milestone_gates::blocking_regression_gates(&pl))
-                    .unwrap_or_default()
-            };
+            let remaining = store.regression_gate_projection(&plan_id).map_err(plan_rpc_err)?
+                .map(codeterm_service_core::service::plan::milestone_gates::blocking_regression_gates)
+                .unwrap_or_default();
             emit_plan_changed(svc, &plan_id);
             Ok(json!({
                 "plan_id": plan_id,

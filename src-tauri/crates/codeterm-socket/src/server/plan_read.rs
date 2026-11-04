@@ -103,16 +103,14 @@ pub(super) fn dispatch(
         }
         "plan.tags" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
-            let plan = store
-                .get(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(
-                serde_json::to_value(codeterm_service_core::service::plan::tag_model::tag_report(
-                    &plan,
-                ))
-                .unwrap_or_default(),
-            )
+            let report = store.tag_report(&id).map_err(plan_rpc_err)?;
+            serde_json::to_value(report).map_err(|error| JsonRpcError {
+                code: -32603,
+                message: error.to_string(),
+                data: None,
+            })
         }
+
         "plan.related" => {
             let id = get_string_param(params, "id")?;
             let depth = params
