@@ -138,6 +138,11 @@ impl AccountMesh {
             if !inner.is_current(state.account_epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
             }
+            inner.select_fences(
+                account,
+                cached.as_ref().map(|known| known.rows.as_slice()),
+                &self.installation(),
+            );
             if inner
                 .state
                 .signed_registry
@@ -164,6 +169,7 @@ impl AccountMesh {
                                 && row.key_id != known.key_id)
                     })
             }) {
+                log::debug!("[account-mesh] registry refused: installation key rollback");
                 return Err(AccountMeshRefusal::Invalid);
             }
             if verified.rows.iter().any(|row| {
@@ -176,6 +182,7 @@ impl AccountMesh {
                             && row.metadata_revision < known.metadata_revision
                     })
             }) {
+                log::debug!("[account-mesh] registry refused: presence metadata rollback");
                 return Err(AccountMeshRefusal::Invalid);
             }
             let freed_slot = inner.state.registry.as_ref().is_some_and(|previous| {

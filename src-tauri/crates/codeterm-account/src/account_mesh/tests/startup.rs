@@ -167,13 +167,20 @@ async fn account_mesh_cold_start_republishes_an_expired_unchanged_endpoint_once(
     let mut harness = Harness::new().await;
     harness.registry.script.lock().unwrap().membership_seconds = Some(86400);
     harness.registry.script.lock().unwrap().endpoint_seconds = Some(3600);
-    *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
     harness.sign_in("owner").await;
     harness
         .mesh
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
+    // A separately published lease ends before the membership, as when a renew lacked it.
+    *harness.endpoint.0.lock().unwrap() = Some(tailnet_endpoint());
+    harness.mesh.refresh(EnrollTrigger::Network).await.unwrap();
+    assert_eq!(harness.calls("publish"), 1);
+    assert_eq!(
+        harness.registry.endpoint("owner").unwrap().expires_at,
+        START + 3600
+    );
     harness.clock.set(START + 3600);
     harness.log.lock().unwrap().clear();
     harness.restart().await;
