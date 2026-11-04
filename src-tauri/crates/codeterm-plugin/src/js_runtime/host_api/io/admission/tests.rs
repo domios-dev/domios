@@ -1,14 +1,18 @@
 use super::*;
+use std::sync::atomic::AtomicUsize;
 
 type Started = Arc<Mutex<Vec<(String, Permit)>>>;
 
 fn submit(admission: &Arc<Admission>, started: &Started, plugin: &str, label: &str) {
     let started = started.clone();
     let label = label.to_string();
-    admission.submit(
-        plugin,
-        Box::new(move |permit| started.lock().push((label, permit))),
-    );
+    admission
+        .submit(
+            plugin,
+            ticket(),
+            Box::new(move |permit| started.lock().push((label, permit))),
+        )
+        .unwrap();
 }
 
 fn labels(started: &Started) -> Vec<String> {
@@ -28,9 +32,21 @@ fn finish(started: &Started, label: &str) {
     drop(permit);
 }
 
+struct Capture(Arc<AtomicUsize>);
+impl Drop for Capture {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
+}
+
+fn captured_launch(dropped: &Arc<AtomicUsize>) -> Launch {
+    let capture = Capture(dropped.clone());
+    Box::new(move |_permit| drop(capture))
+}
+
 #[test]
 fn saturated_plugin_queues_jobs_and_starts_them_in_submission_order() {
-    let admission = Arc::new(Admission::new(16, 2));
+    let admission = Arc::new(Admission::new(16, 2, 8));
     let started = Started::default();
     for label in ["a1", "a2", "a3", "a4", "a5"] {
         submit(&admission, &started, "a", label);
@@ -53,7 +69,7 @@ fn saturated_plugin_queues_jobs_and_starts_them_in_submission_order() {
 
 #[test]
 fn global_capacity_admits_the_oldest_eligible_job_across_plugins() {
-    let admission = Arc::new(Admission::new(2, 2));
+    let admission = Arc::new(Admission::new(2, 2, 8));
     let started = Started::default();
     for (plugin, label) in [
         ("a", "a1"),
@@ -76,7 +92,7 @@ fn global_capacity_admits_the_oldest_eligible_job_across_plugins() {
 
 #[test]
 fn a_job_submitted_after_release_queues_behind_earlier_jobs_of_its_plugin() {
-    let admission = Arc::new(Admission::new(4, 1));
+    let admission = Arc::new(Admission::new(4, 1, 8));
     let started = Started::default();
     for label in ["a1", "a2", "a3"] {
         submit(&admission, &started, "a", label);
@@ -88,4 +104,43 @@ fn a_job_submitted_after_release_queues_behind_earlier_jobs_of_its_plugin() {
     assert_eq!(labels(&started), ["a3"]);
     finish(&started, "a3");
     assert_eq!(labels(&started), ["a4"]);
+}
+
+#[test]
+fn cancel_and_resubmit_cycles_never_accumulate_queued_captures_behind_held_capacity() {
+    let admission = Arc::new(Admission::new(16, 1, 2));
+    let started = Started::default();
+    submit(&admission, &started, "a", "held");
+    let dropped = Arc::new(AtomicUsize::new(0));
+    for cycle in 0..100 {
+        let queued = ticket();
+        admission
+            .submit("a", queued, captured_launch(&dropped))
+            .unwrap();
+        assert_eq!(admission.queued("a"), 1);
+        admission.withdraw(queued);
+        assert_eq!(admission.queued("a"), 0);
+        assert_eq!(dropped.load(Ordering::SeqCst), cycle + 1);
+    }
+    assert_eq!(labels(&started), ["held"]);
+    finish(&started, "held");
+    assert_eq!(dropped.load(Ordering::SeqCst), 100);
+    assert_eq!(admission.state.lock().running, 0);
+}
+
+#[test]
+fn a_full_plugin_queue_refuses_and_drops_the_launch_without_blocking_other_plugins() {
+    let admission = Arc::new(Admission::new(16, 1, 2));
+    let started = Started::default();
+    for label in ["a1", "a2", "a3"] {
+        submit(&admission, &started, "a", label);
+    }
+    let dropped = Arc::new(AtomicUsize::new(0));
+    assert!(admission
+        .submit("a", ticket(), captured_launch(&dropped))
+        .is_err());
+    assert_eq!(dropped.load(Ordering::SeqCst), 1);
+    assert_eq!(admission.queued("a"), 2);
+    submit(&admission, &started, "b", "b1");
+    assert_eq!(labels(&started), ["a1", "b1"]);
 }

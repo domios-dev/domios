@@ -456,6 +456,69 @@ fn saturated_capacity_queues_concurrent_status_reads_and_completes_every_one() {
 }
 
 #[test]
+fn cancelled_queued_reads_free_queue_and_job_slots_while_workers_stay_held() {
+    let plugin = "io-queue-cancel";
+    let vm = vm(plugin, None);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("status.txt");
+    std::fs::write(&path, "healthy").unwrap();
+    let held = (0..4)
+        .map(|index| {
+            let gates = Gates::new(&format!("io-queue-cancel-held-{index}"));
+            let request = gates.request();
+            let caller_vm = vm.clone();
+            let caller = std::thread::spawn(move || {
+                call_json_interruptible::<String>(
+                    &caller_vm,
+                    "pause",
+                    &[request],
+                    ConversionCancellation::default(),
+                    Instant::now() + Duration::from_secs(60),
+                )
+            });
+            gates.entered();
+            (gates, caller)
+        })
+        .collect::<Vec<_>>();
+    let held_jobs = crate::js_runtime::host_exec::plugin_job_count(plugin);
+    // More cycles than the queue bound: a retained entry or job record would surface.
+    for _ in 0..40 {
+        let cancellation = ConversionCancellation::default();
+        let caller_cancel = cancellation.clone();
+        let caller_vm = vm.clone();
+        let caller_path = path.clone();
+        let caller = std::thread::spawn(move || {
+            call_json_interruptible::<Value>(
+                &caller_vm,
+                "read",
+                &[json!(caller_path)],
+                caller_cancel,
+                Instant::now() + Duration::from_secs(60),
+            )
+        });
+        assert!(admission::wait_queued(plugin, 1, WEDGED));
+        cancellation.cancel();
+        assert!(matches!(
+            caller.join().unwrap(),
+            Err(VmError::CallCancelled)
+        ));
+        assert_eq!(admission::queued(plugin), 0);
+        assert_eq!(
+            crate::js_runtime::host_exec::plugin_job_count(plugin),
+            held_jobs
+        );
+    }
+    for (gates, caller) in held {
+        gates.finish();
+        assert_eq!(caller.join().unwrap().unwrap(), "resumed");
+    }
+    assert_eq!(
+        call_json::<Value>(&vm, "read", &[json!(path)]).unwrap(),
+        "healthy"
+    );
+}
+
+#[test]
 fn unawaited_native_jobs_are_refused_without_reentering_their_caller() {
     let vm = vm("io-unawaited", None);
     let gates = Gates::new("io-unawaited");

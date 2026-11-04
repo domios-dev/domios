@@ -38,8 +38,10 @@ function readSettings(path: string): string | null {
 The job owner checks the original sandbox, canonical paths and captured host
 authority. Jobs grant no additional filesystem, environment, credential or
 service access. Each yielded request is admitted once. When worker capacity is
-saturated, jobs wait in submission order within their call's deadline; there is
-no synchronous fallback, and cancellation never replays an effect. A started native
+saturated, jobs wait in submission order within their call's deadline, a
+cancelled call's queued jobs are dropped unstarted, and a bounded per-plugin
+queue refuses overflow. There is no synchronous fallback, and cancellation never
+replays an effect. A started native
 operation can outlive cancellation, retains its bounded worker capacity and
 invocation-owned file locks until it exits, and produces an unconfirmed outcome
 when its effect cannot be observed. Late completion cannot resume a cancelled

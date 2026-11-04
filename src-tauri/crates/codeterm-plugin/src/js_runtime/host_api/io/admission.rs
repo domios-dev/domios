@@ -1,4 +1,5 @@
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock};
 
 use parking_lot::Mutex;
@@ -6,58 +7,113 @@ use parking_lot::Mutex;
 /// Native host I/O threads that may run at once, across all plugins and per plugin.
 const GLOBAL_LIMIT: usize = 16;
 const PLUGIN_LIMIT: usize = 4;
+/// Waiting jobs per plugin. Revocation withdraws a queued job, so every entry belongs to
+/// a live call, and a plugin VM admits at most this many live calls.
+const QUEUE_LIMIT: usize = crate::js_runtime::vm::operation::MAX_OPERATIONS;
 
 static SHARED: LazyLock<Arc<Admission>> =
-    LazyLock::new(|| Arc::new(Admission::new(GLOBAL_LIMIT, PLUGIN_LIMIT)));
+    LazyLock::new(|| Arc::new(Admission::new(GLOBAL_LIMIT, PLUGIN_LIMIT, QUEUE_LIMIT)));
+static NEXT_TICKET: AtomicU64 = AtomicU64::new(0);
 
 pub(super) type Launch = Box<dyn FnOnce(Permit) + Send>;
+pub(super) type Ticket = u64;
+
+pub(super) fn ticket() -> Ticket {
+    NEXT_TICKET.fetch_add(1, Ordering::Relaxed)
+}
 
 /// Admits a started host I/O job now when capacity allows, otherwise queues it behind
-/// earlier jobs; queued jobs never fail for capacity, their caller's deadline bounds them.
-pub(super) fn submit(plugin: &str, launch: Launch) {
-    SHARED.submit(plugin, launch);
+/// earlier jobs until a permit frees or `withdraw` drops it; only a full queue refuses.
+pub(super) fn submit(plugin: &str, ticket: Ticket, launch: Launch) -> Result<(), String> {
+    SHARED.submit(plugin, ticket, launch)
+}
+
+/// Drops a still-queued job and everything its launch captured; started jobs are unaffected.
+pub(super) fn withdraw(ticket: Ticket) {
+    SHARED.withdraw(ticket);
+}
+
+struct Queued {
+    plugin: String,
+    ticket: Ticket,
+    launch: Launch,
 }
 
 #[derive(Default)]
 struct State {
     running: usize,
     active: HashMap<String, usize>,
-    queued: VecDeque<(String, Launch)>,
+    queued: VecDeque<Queued>,
 }
 
 pub(super) struct Admission {
     global: usize,
     plugin: usize,
+    queue: usize,
     state: Mutex<State>,
     #[cfg(test)]
     queued_changed: parking_lot::Condvar,
 }
 
 impl Admission {
-    pub(super) fn new(global: usize, plugin: usize) -> Self {
+    pub(super) fn new(global: usize, plugin: usize, queue: usize) -> Self {
         Self {
             global,
             plugin,
+            queue,
             state: Mutex::default(),
             #[cfg(test)]
             queued_changed: parking_lot::Condvar::new(),
         }
     }
 
-    pub(super) fn submit(self: &Arc<Self>, plugin: &str, launch: Launch) {
+    pub(super) fn submit(
+        self: &Arc<Self>,
+        plugin: &str,
+        ticket: Ticket,
+        launch: Launch,
+    ) -> Result<(), String> {
         let permit = {
             let mut state = self.state.lock();
             // Release drains every eligible queued job under this lock, so a job that is
             // admissible here cannot overtake an earlier queued job of its plugin.
-            if !self.admits(&state, plugin) {
-                state.queued.push_back((plugin.into(), launch));
+            if self.admits(&state, plugin) {
+                self.take(&mut state, plugin)
+            } else {
+                let waiting = state
+                    .queued
+                    .iter()
+                    .filter(|entry| entry.plugin == plugin)
+                    .count();
+                if waiting >= self.queue {
+                    drop(state);
+                    drop(launch);
+                    return Err("host I/O job queue is full".into());
+                }
+                state.queued.push_back(Queued {
+                    plugin: plugin.into(),
+                    ticket,
+                    launch,
+                });
                 #[cfg(test)]
                 self.queued_changed.notify_all();
-                return;
+                return Ok(());
             }
-            self.take(&mut state, plugin)
         };
         launch(permit);
+        Ok(())
+    }
+
+    pub(super) fn withdraw(&self, ticket: Ticket) {
+        let withdrawn = {
+            let mut state = self.state.lock();
+            let index = state.queued.iter().position(|entry| entry.ticket == ticket);
+            let withdrawn = index.and_then(|index| state.queued.remove(index));
+            #[cfg(test)]
+            self.queued_changed.notify_all();
+            withdrawn
+        };
+        drop(withdrawn);
     }
 
     fn admits(&self, state: &State, plugin: &str) -> bool {
@@ -88,12 +144,12 @@ impl Admission {
             while let Some(index) = state
                 .queued
                 .iter()
-                .position(|(queued, _)| self.admits(&state, queued))
+                .position(|entry| self.admits(&state, &entry.plugin))
             {
-                let Some((queued, launch)) = state.queued.remove(index) else {
+                let Some(entry) = state.queued.remove(index) else {
                     break;
                 };
-                ready.push((self.take(&mut state, &queued), launch));
+                ready.push((self.take(&mut state, &entry.plugin), entry.launch));
             }
             #[cfg(test)]
             self.queued_changed.notify_all();
@@ -102,6 +158,16 @@ impl Admission {
         for (permit, launch) in ready {
             launch(permit);
         }
+    }
+
+    #[cfg(test)]
+    pub(super) fn queued(&self, plugin: &str) -> usize {
+        self.state
+            .lock()
+            .queued
+            .iter()
+            .filter(|entry| entry.plugin == plugin)
+            .count()
     }
 
     #[cfg(test)]
@@ -117,7 +183,7 @@ impl Admission {
             let queued = state
                 .queued
                 .iter()
-                .filter(|(queued, _)| queued == plugin)
+                .filter(|entry| entry.plugin == plugin)
                 .count();
             if queued >= count {
                 return true;
@@ -131,6 +197,11 @@ impl Admission {
             }
         }
     }
+}
+
+#[cfg(test)]
+pub(super) fn queued(plugin: &str) -> usize {
+    SHARED.queued(plugin)
 }
 
 #[cfg(test)]

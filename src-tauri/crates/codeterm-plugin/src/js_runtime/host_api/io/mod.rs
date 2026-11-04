@@ -173,13 +173,14 @@ fn start(
     let owner_operation = operation.clone();
     let owner_root = root.clone();
     let admitted = plugin.clone();
+    let ticket = admission::ticket();
     let job = host_exec::start_admitted_scoped_json_job(
         &plugin,
         &root,
         operation.deadline,
         Arc::new(move || cancel_operation.revoke()),
         json!({"error":"io_unconfirmed", "requestMayHaveStarted":!read_only && effects_allowed}),
-        move |launch| admission::submit(&admitted, launch),
+        move |launch| admission::submit(&admitted, ticket, launch),
         move |permit: admission::Permit| {
             let encoded = {
                 let _permit = permit;
@@ -222,6 +223,9 @@ fn start(
             encoded
         },
     )?;
+    // Cancellation, close, deadline close or call exit revokes the call; a still-queued
+    // job then drops its captures at once instead of waiting for capacity.
+    owner_operation.on_revoke(Box::new(move || admission::withdraw(ticket)));
     host_exec::allow_observation(&plugin, &job);
     host_exec::bind_invocation(&plugin, &job, owner_root);
     owner_operation.register_job(job.clone());
