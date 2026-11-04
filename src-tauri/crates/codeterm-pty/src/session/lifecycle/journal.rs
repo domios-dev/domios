@@ -128,6 +128,12 @@ impl TabLifecycleJournal {
         }
     }
 
+    #[doc(hidden)]
+    pub fn with_writer_held_for_test(&self, work: impl FnOnce()) {
+        let _writer = self.writer.lock();
+        work();
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }

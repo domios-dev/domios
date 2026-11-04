@@ -508,3 +508,5 @@ mod orphan_executor;
 mod preview_encoding;
 
 mod system_heartbeats;
+
+mod hook_journal;
