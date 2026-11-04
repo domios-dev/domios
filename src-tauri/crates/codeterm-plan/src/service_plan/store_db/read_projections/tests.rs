@@ -17,6 +17,8 @@ mod document_reader_tests;
 mod export_tests;
 mod header_tests;
 mod index_filter_tests;
+mod lane_reader_tests;
+mod lane_team_state_tests;
 mod notice_tests;
 mod qa_tests;
 mod related_tests;
@@ -229,6 +231,8 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
     let mut selected =
         crate::service_plan::load_audit::task("task_selected", TaskStatus::Pending, Some("worker"));
     selected.body = "selected body".into();
+    selected.lane.branch = Some("feature/selected".into());
+    selected.lane.workspace_id = Some("workspace".into());
     selected.parent_task_id = Some("task_parent".into());
     selected.depends_on = vec!["task_done".into(), "task_missing".into()];
     selected.section_ids = vec!["sec_b".into()];
@@ -308,6 +312,14 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
     assert_eq!(mine.tasks.len(), 1);
     assert_eq!(mine.tasks[0].task.id, "task_selected");
     assert_eq!(mine.tasks[0].section_titles, vec!["Nested"]);
+    assert_eq!(
+        mine.tasks[0].task.lane.branch.as_deref(),
+        Some("feature/selected")
+    );
+    assert_eq!(
+        mine.tasks[0].task.lane.workspace_id.as_deref(),
+        Some("workspace")
+    );
     let inactive = store
         .list_tasks_with_reason(TaskListFilter {
             plan_id: Some(plan.id.clone()),
@@ -339,6 +351,14 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
         .iter()
         .any(|summary| summary.task.id == "task_selected"));
     assert!(store.plan_loads_for_test().is_empty());
+    store.database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.name',NULL) WHERE task_id='task_selected'",[]).unwrap();
+    assert!(matches!(
+        store.list_tasks(TaskListFilter {
+            plan_id: Some(plan.id.clone()),
+            ..Default::default()
+        }),
+        Err(PlanError::Quarantined { .. })
+    ));
 }
 
 #[test]
@@ -403,6 +423,11 @@ fn selected_task_list_detail_and_chat_materialization_stays_bounded() {
             let serialized = super::super::super::store_rows::take_serialized_row_bytes();
             let response_bytes = serde_json::to_vec(&response).unwrap().len();
             assert!(metrics.materialized_bytes < 1024 * 1024);
+            if consumer == "task_list" {
+                assert!(metrics.materialized_bytes < 8192);
+                assert!(decoded < 8192);
+                assert_eq!(metrics.queries, 1);
+            }
             assert_eq!(serialized, 0);
             assert!(fixtures::audit_counts(&database).is_empty());
             println!("fixture={} consumer={consumer} tasks={} base_bytes={} strides={strides} unrelated_attempts={attempts} extra_body={extra_body} selected_body={selected_body} selected_attempts={selected_attempts} selected_milestones={selected_milestones} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response_bytes} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
@@ -429,6 +454,7 @@ fn task_detail_and_chat_keep_committed_snapshots_and_unicode_search() {
         crate::service_plan::load_audit::task("task_one", crate::plan::TaskStatus::Pending, None);
     task.body = "A".into();
     task.name = "ÄTHER".into();
+    task.lane.branch = Some("A".into());
     plan.tasks = vec![task];
     let database = fixtures::database(directory.path(), &plan);
     let store = PlanStore::open(database.path()).unwrap();
@@ -450,7 +476,7 @@ fn task_detail_and_chat_keep_committed_snapshots_and_unicode_search() {
             transaction
                 .execute("UPDATE plans SET title=?2 WHERE id=?1", params![id, text])
                 .unwrap();
-            transaction.execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.body',?2) WHERE plan_id=?1",params![id,text]).unwrap();
+            transaction.execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.body',?2,'$.lane.branch',?2) WHERE plan_id=?1",params![id,text]).unwrap();
             writer_barrier.wait();
             transaction.commit().unwrap();
             writer_barrier.wait();
@@ -460,6 +486,16 @@ fn task_detail_and_chat_keep_committed_snapshots_and_unicode_search() {
         barrier.wait();
         let detail = store.show_task_window("task_one").unwrap();
         assert_eq!(detail.plan_title, detail.task.body);
+        let list = store
+            .list_tasks(crate::service_plan::task_queries::TaskListFilter {
+                plan_id: Some(plan.id.clone()),
+                ..Default::default()
+            })
+            .unwrap();
+        assert_eq!(
+            list[0].task.lane.branch.as_deref(),
+            Some(list[0].plan_title.as_str())
+        );
         barrier.wait();
     }
     writer.join().unwrap();

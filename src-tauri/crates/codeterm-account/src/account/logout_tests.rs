@@ -284,3 +284,6 @@ async fn concurrent_expiry_and_explicit_refreshes_share_success_and_failure() {
         );
     }
 }
+
+#[path = "logout_tests/concurrency.rs"]
+mod concurrency;

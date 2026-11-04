@@ -24,3 +24,20 @@ async fn event_before_wait_is_retained_without_a_settle_delay() {
     starts.observe("accepted");
     starts.wait(before, Some("accepted")).await;
 }
+
+#[test]
+fn reopen_lock_identity_survives_contenders_and_registry_retires_last_lease() {
+    let guards = TabReopenGuards::default();
+    for index in 0..1000 {
+        let tab = format!("tab-{index}");
+        let first = guards.lock_for(&tab);
+        let second = guards.lock_for(&tab);
+        assert!(Arc::ptr_eq(&first.lock, &second.lock));
+        drop(first);
+        let third = guards.lock_for(&tab);
+        assert!(Arc::ptr_eq(&second.lock, &third.lock));
+        drop(second);
+        drop(third);
+        assert!(guards.locks.lock().is_empty());
+    }
+}
