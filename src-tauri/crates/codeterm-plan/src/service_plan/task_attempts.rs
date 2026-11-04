@@ -1,9 +1,12 @@
 use crate::service_plan::store_db::hot_write::AttemptTarget;
 mod prompt_read;
 mod prompt_render;
+pub(super) mod read;
 mod respawn_record;
 use super::store_db::read_projections::task_drafts::TaskDraftPromptRead;
-pub(super) use prompt_render::{build_compete_prompt, build_prompt, build_prompt_read};
+#[cfg(test)]
+pub(super) use prompt_render::build_prompt;
+pub(super) use prompt_render::{build_compete_prompt, build_prompt_read};
 use serde::{Deserialize, Serialize};
 
 use crate::plan::{Task, TaskExecutionAttempt, TaskLaneMetadata, TaskStatus};
@@ -14,6 +17,7 @@ use super::{PlanError, PlanStore};
 mod executor_identity;
 mod executor_termination;
 pub use executor_identity::AttemptExecutorIdentityChange;
+pub use executor_termination::{ExecutorSourceFields, ExecutorSourceRead};
 mod launch_binding;
 mod plan_skill_evidence;
 pub mod remote_dispatch;
@@ -198,13 +202,6 @@ fn attempt_report_status(attempt: &TaskExecutionAttempt) -> Option<String> {
         .and_then(|report| report.status.clone())
 }
 
-fn last_report_for_attempt(
-    task: &Task,
-    attempt: &TaskExecutionAttempt,
-) -> (Option<String>, Option<String>, Option<u64>) {
-    last_report_for_milestones(&task.milestones, attempt)
-}
-
 fn last_report_for_milestones(
     milestones: &[crate::plan::Milestone],
     attempt: &TaskExecutionAttempt,
@@ -370,15 +367,17 @@ pub(super) fn live_attempt_count(task: &Task) -> usize {
 
 pub(super) fn attempt_view(
     plan_id: &str,
-    task: &Task,
+    task_id: &str,
+    milestones: &[crate::plan::Milestone],
     attempt: TaskExecutionAttempt,
     prompt: Option<String>,
 ) -> TaskAttemptView {
-    let (last_report, last_report_status, last_report_at) = last_report_for_attempt(task, &attempt);
+    let (last_report, last_report_status, last_report_at) =
+        last_report_for_milestones(milestones, &attempt);
     TaskAttemptView {
         attempt_id: attempt.id.clone(),
         status: attempt_status(&attempt),
-        report_command: task_report_command(plan_id, &task.id),
+        report_command: task_report_command(plan_id, task_id),
         attempt,
         prompt,
         last_report,
@@ -672,7 +671,7 @@ impl PlanStore {
             .execution_attempts
             .iter()
             .cloned()
-            .map(|attempt| attempt_view(plan_id, &task, attempt, None))
+            .map(|attempt| attempt_view(plan_id, &task.id, &task.milestones, attempt, None))
             .collect())
     }
 
@@ -686,7 +685,11 @@ impl PlanStore {
             .database
             .task_attempt_projection(plan_id, task_id, Some(attempt_id))?;
         let source = task.execution_attempts[0].clone();
-        let (task_provider, task_model) = split_provider_model(task.model.as_deref());
+        let prompt_input = task
+            .prompt
+            .as_ref()
+            .ok_or_else(|| PlanError::Io("selected attempt has no prompt facts".into()))?;
+        let (task_provider, task_model) = split_provider_model(prompt_input.model.as_deref());
         let provider = source
             .provider
             .clone()
@@ -694,9 +697,9 @@ impl PlanStore {
             .unwrap_or_else(|| "claude".into());
         let model = source.model.clone().or(task_model);
         let report_command = task_report_command(plan_id, &task.id);
-        let prompt = build_prompt(
+        let prompt = build_prompt_read(
             plan_id,
-            &task,
+            (prompt_input, task.milestones.as_slice()),
             &source,
             &provider,
             model.as_deref(),
@@ -704,7 +707,13 @@ impl PlanStore {
             &source.plan_skill_manifest,
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
-        Ok(attempt_view(plan_id, &task, source, Some(prompt)))
+        Ok(attempt_view(
+            plan_id,
+            &task.id,
+            &task.milestones,
+            source,
+            Some(prompt),
+        ))
     }
 
     pub fn build_task_respawn_draft(

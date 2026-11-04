@@ -3,13 +3,13 @@ use crate::multiplexer::types::{AgentRole, Tab, TabCloseReason};
 use crate::service::ServiceContext;
 use std::time::Duration;
 
-use super::task_attempts::TaskRespawnDraft;
+use super::task_attempts::{ExecutorSourceFields, TaskRespawnDraft};
 
 #[derive(Clone, Copy)]
 struct ExecutorSource<'a> {
     plan_id: &'a str,
     task_id: &'a str,
-    source_attempt: &'a crate::plan::TaskExecutionAttempt,
+    source_attempt: ExecutorSourceFields<'a>,
     allow_incomplete_binding: bool,
 }
 
@@ -18,7 +18,7 @@ impl<'a> From<&'a TaskRespawnDraft> for ExecutorSource<'a> {
         Self {
             plan_id: &draft.plan_id,
             task_id: &draft.task_id,
-            source_attempt: &draft.source_attempt,
+            source_attempt: (&draft.source_attempt).into(),
             allow_incomplete_binding: false,
         }
     }
@@ -80,7 +80,7 @@ impl ServiceContext {
                 ExecutorSource {
                     plan_id: &candidate.0,
                     task_id: &candidate.1,
-                    source_attempt: &candidate.2,
+                    source_attempt: (&candidate.2).into(),
                     allow_incomplete_binding: true,
                 },
                 reason,
@@ -96,7 +96,7 @@ impl ServiceContext {
             ExecutorSource {
                 plan_id: &plan_id,
                 task_id: &task_id,
-                source_attempt: &attempt,
+                source_attempt: (&attempt).into(),
                 allow_incomplete_binding: false,
             },
             reason,
@@ -144,7 +144,7 @@ impl ServiceContext {
             ExecutorSource {
                 plan_id,
                 task_id,
-                source_attempt: &candidate.attempt,
+                source_attempt: (&candidate.attempt).into(),
                 allow_incomplete_binding: true,
             },
             reason,
@@ -247,7 +247,7 @@ impl ServiceContext {
         if draft.source_attempt.mesh_peer.is_some() {
             return Err("remote respawn requires peer-owned executor retirement".into());
         }
-        let tab_id = &draft.source_attempt.executor_tab_id;
+        let tab_id = draft.source_attempt.executor_tab_id;
         let tabs = {
             let mux = self.mux.read();
             mux.get_tab(tab_id)
@@ -339,7 +339,7 @@ fn release_orphan_binding(tab: &mut Tab, cause: &str) {
 }
 
 fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
-    let source = &draft.source_attempt;
+    let source = draft.source_attempt;
     let binding = tab.task_binding.as_ref();
     if tab.id != source.executor_tab_id
         || tab.protected
@@ -356,13 +356,12 @@ fn validate_source(tab: &Tab, draft: ExecutorSource<'_>) -> Result<(), String> {
         )
         || !binding_field_matches(
             binding.and_then(|binding| binding.attempt_id.as_deref()),
-            &source.id,
+            source.id,
             draft.allow_incomplete_binding,
         )
         || source
             .session_id
-            .as_ref()
-            .is_some_and(|session| tab.agent_session_id.as_ref() != Some(session))
+            .is_some_and(|session| tab.agent_session_id.as_deref() != Some(session))
         || !source_nonce_matches(tab, source)
     {
         return Err("respawn source executor identity changed".into());
@@ -374,8 +373,9 @@ fn binding_field_matches(actual: Option<&str>, expected: &str, allow_missing: bo
     actual.map_or(allow_missing, |actual| actual == expected)
 }
 
-fn source_nonce_matches(tab: &Tab, source: &crate::plan::TaskExecutionAttempt) -> bool {
-    let Some(old_nonce) = source.session_binding_nonce.as_deref() else {
+fn source_nonce_matches<'a>(tab: &Tab, source: impl Into<ExecutorSourceFields<'a>>) -> bool {
+    let source = source.into();
+    let Some(old_nonce) = source.session_binding_nonce else {
         return true;
     };
     let Some(current_nonce) = tab.session_binding_nonce.as_deref() else {
@@ -387,11 +387,11 @@ fn source_nonce_matches(tab: &Tab, source: &crate::plan::TaskExecutionAttempt) -
     if current_nonce == old_nonce {
         return true;
     }
-    let Some(session) = source.session_id.as_deref() else {
+    let Some(session) = source.session_id else {
         return false;
     };
     source.provider.is_some()
-        && source.provider == tab.agent_type
+        && source.provider == tab.agent_type.as_deref()
         && tab.agent_session_id.as_deref() == Some(session)
         && crate::service::worker_identity::restore_binding::prove_same_session_restoration(
             &tab.prior_session_binding_nonces,

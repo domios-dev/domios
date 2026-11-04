@@ -85,7 +85,40 @@ fn detail(plan_id: &str, task: &Task) -> serde_json::Value {
         &attempt.plan_skill_manifest,
         attempt.authorized_gates.as_deref().unwrap_or(&[]),
     );
-    serde_json::to_value(attempt_view(plan_id, task, attempt, Some(prompt))).unwrap()
+    serde_json::to_value(attempt_view(
+        plan_id,
+        &task.id,
+        &task.milestones,
+        attempt,
+        Some(prompt),
+    ))
+    .unwrap()
+}
+
+fn detail_read(
+    plan_id: &str,
+    task: &crate::service_plan::task_attempts::read::TaskAttemptRead,
+) -> serde_json::Value {
+    let attempt = task.execution_attempts[0].clone();
+    let command = task_report_command(plan_id, &task.id);
+    let prompt = crate::service_plan::task_attempts::build_prompt_read(
+        plan_id,
+        (task.prompt.as_ref().unwrap(), task.milestones.as_slice()),
+        &attempt,
+        "test-provider",
+        None,
+        &command,
+        &attempt.plan_skill_manifest,
+        attempt.authorized_gates.as_deref().unwrap_or(&[]),
+    );
+    serde_json::to_value(attempt_view(
+        plan_id,
+        &task.id,
+        &task.milestones,
+        attempt,
+        Some(prompt),
+    ))
+    .unwrap()
 }
 
 #[test]
@@ -114,7 +147,10 @@ fn attempt_projection_keeps_exact_alias_resolution_latest_report_ties_and_worker
             .unwrap();
         assert_eq!(task.execution_attempts.len(), 1);
         assert_eq!(task.milestones.len(), 7);
-        assert_eq!(detail(&plan.id, &task), detail(&plan.id, &plan.tasks[0]));
+        assert_eq!(
+            detail_read(&plan.id, &task),
+            detail(&plan.id, &plan.tasks[0])
+        );
     }
     let listed = database
         .task_attempt_projection(&plan.id, "target", None)
@@ -125,7 +161,14 @@ fn attempt_projection_keeps_exact_alias_resolution_latest_report_ties_and_worker
         .iter()
         .cloned()
         .map(|attempt| {
-            serde_json::to_value(attempt_view(&plan.id, &listed, attempt, None)).unwrap()
+            serde_json::to_value(attempt_view(
+                &plan.id,
+                &listed.id,
+                &listed.milestones,
+                attempt,
+                None,
+            ))
+            .unwrap()
         })
         .collect::<Vec<_>>();
     let expected = plan.tasks[0]
@@ -133,7 +176,14 @@ fn attempt_projection_keeps_exact_alias_resolution_latest_report_ties_and_worker
         .iter()
         .cloned()
         .map(|attempt| {
-            serde_json::to_value(attempt_view(&plan.id, &plan.tasks[0], attempt, None)).unwrap()
+            serde_json::to_value(attempt_view(
+                &plan.id,
+                &plan.tasks[0].id,
+                &plan.tasks[0].milestones,
+                attempt,
+                None,
+            ))
+            .unwrap()
         })
         .collect::<Vec<_>>();
     assert_eq!(actual, expected);
@@ -278,7 +328,7 @@ fn worker_readers_bound_selected_attempt_history_titles_and_replay_materializati
         let task = database
             .task_attempt_projection(&plan.id, &plan.tasks[0].id, Some("current"))
             .unwrap();
-        let selected = detail(&plan.id, &task);
+        let selected = detail_read(&plan.id, &task);
         assert_eq!(selected, detail(&plan.id, &full.tasks[0]));
         let titles = database.recent_worker_titles("workspace", None, 2).unwrap();
         assert_eq!(titles, vec!["Current"]);
@@ -353,7 +403,7 @@ fn attempt_projection_keeps_task_prompt_fields_and_attempt_identity_in_one_commi
             .task_attempt_projection(&plan.id, "task", Some("current"))
             .unwrap();
         assert_eq!(
-            Some(task.name.as_str()),
+            Some(task.prompt.as_ref().unwrap().name.as_str()),
             task.execution_attempts[0].executor_title.as_deref()
         );
         barrier.wait();
