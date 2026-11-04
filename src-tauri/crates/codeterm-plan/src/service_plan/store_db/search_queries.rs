@@ -30,6 +30,8 @@ impl PlanDatabase {
         record_query();
         let mut statement=tx.prepare_cached(&format!(
             "SELECT path,json_object('id',id,'title',json_extract(document,'$.title'),
+                'subsection_count',CASE WHEN json_type(document,'$.subsections') IS NULL THEN 0
+                    WHEN json_type(document,'$.subsections')='array' THEN json_array_length(document,'$.subsections') END,
                 'body',CASE WHEN json_type(document,'$.body') IS NULL THEN '' ELSE json_extract(document,'$.body') END)
              FROM ({SECTION_ROWS}) ORDER BY position,traversal"
         )).map_err(db_error)?;

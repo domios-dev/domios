@@ -19,6 +19,7 @@ pub(in crate::service_plan) struct SearchHeaderRead {
 
 #[derive(serde::Deserialize)]
 pub(in crate::service_plan) struct SearchSectionRead {
+    pub subsection_count: usize,
     pub id: String,
     pub title: String,
     pub body: String,
@@ -76,7 +77,13 @@ impl PlanSearchSnapshot {
             .collect::<Vec<_>>()
             .join("\n");
         let mut units = vec![parent.header(&titles, header.updated_at)];
-        let total = input.sections.len().max(1);
+        // The held formatter counts each empty child list as one ordinal slot.
+        let leaves = input
+            .sections
+            .iter()
+            .filter(|(_, section)| section.subsection_count == 0)
+            .count();
+        let total = (input.sections.len() + leaves).max(1);
         for (index, (_, section)) in input.sections.into_iter().enumerate() {
             units.push(parent.section(
                 &section.id,
