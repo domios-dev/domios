@@ -105,8 +105,12 @@ impl AccountMesh {
                 return Err(AccountMeshRefusal::Unavailable);
             }
         }
+        let now = self.now();
         let cold_start = ready.is_some()
-            && self.with(|inner| inner.published_endpoint != ready)
+            && self.with(|inner| {
+                inner.published_endpoint != ready
+                    || (inner.launch_publication_pending && inner.published_until <= now)
+            })
             && !self.ports.transport.peers_reachable();
         if cold_start {
             self.with(|inner| inner.record.published = true);
@@ -127,6 +131,7 @@ impl AccountMesh {
             if !inner.is_current(signed.epoch) {
                 return Err(AccountMeshRefusal::Cancelled);
             }
+            inner.launch_publication_pending &= ready.is_none();
             inner.update(&self.watch, |state| {
                 state.publication = if ready.is_some() {
                     Publication::Published

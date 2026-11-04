@@ -389,8 +389,14 @@ impl FakeRegistry {
                     account.display_name = Some(name);
                     account.metadata_revision += 1;
                 }
-                let mut changed = account.presence != RegistryPresence::Present;
-                account.presence = RegistryPresence::Present;
+                // Like the server, a renew never changes presence; only enroll and recover restore it.
+                let restores_presence =
+                    !matches!(envelope.request.operation, MeshOperation::Renew { .. });
+                let mut changed =
+                    restores_presence && account.presence != RegistryPresence::Present;
+                if restores_presence {
+                    account.presence = RegistryPresence::Present;
+                }
                 if account.display_name.is_none() {
                     if let Some(name) = &envelope.request.default_display_name {
                         account.display_name = Some(name.clone());
