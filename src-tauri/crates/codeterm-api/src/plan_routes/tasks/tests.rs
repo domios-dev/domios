@@ -16,6 +16,7 @@ async fn task_mutation_authority_storage_failure_is_internal_before_any_write() 
     let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
     let headers = crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner));
     let before = full_task_record(&fixture, &plan_id, &task_id);
+    let service = Arc::new(fixture.service.clone());
     let connection =
         rusqlite::Connection::open(fixture.temp.path().join(".domios/plans.db")).unwrap();
     connection
@@ -30,7 +31,7 @@ async fn task_mutation_authority_storage_failure_is_internal_before_any_write() 
         TaskMutationKind::BlockDecision,
     ] {
         let (status, Json(body)) =
-            verify_task_mutation_owner(&fixture.service, &headers, &plan_id, &task_id, kind, None)
+            verify_task_mutation_owner(&service, &headers, &plan_id, &task_id, kind, None)
                 .await
                 .unwrap_err();
         assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
