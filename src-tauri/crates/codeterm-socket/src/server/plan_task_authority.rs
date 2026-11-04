@@ -682,19 +682,12 @@ pub(super) fn verify_remote_worker_binding(
     })?;
     let worker_tab_id = super::get_string_param(params, "worker_tab_id")?;
     let nonce = super::get_string_param(params, "session_binding_nonce")?;
-    let detail = svc.plan_store.show_task(&task_id);
-    let attempt = detail.as_ref().and_then(|detail| {
-        detail
-            .task
-            .execution_attempts
-            .iter()
-            .find(|attempt| attempt.id == attempt_id)
-    });
-    let valid = attempt.is_some_and(|attempt| {
-        attempt.closed_at.is_none()
-            && attempt.retired_at.is_none()
-            && attempt.mesh_peer.as_deref() == Some(peer_id.as_str())
-            && attempt.executor_tab_id == worker_tab_id
+    let attempt = svc
+        .plan_store
+        .remote_worker_binding_projection(&plan_id, &task_id, &attempt_id)
+        .map_err(super::plan::plan_rpc_err)?;
+    let valid = attempt.as_ref().is_some_and(|attempt| {
+        attempt.can_observe(&peer_id, &worker_tab_id)
             && super::plan_task_dispatch::remote_recovery::observe_worker(
                 svc,
                 &plan_id,

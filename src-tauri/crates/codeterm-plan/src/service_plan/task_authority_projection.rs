@@ -126,3 +126,6 @@ pub use split::TaskSplitDefaultsRead;
 
 mod provider_interruption;
 pub use provider_interruption::{ProviderRecoveryRead, TaskInterruptionRead};
+
+mod remote;
+pub use remote::{RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
