@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::*;
 use wire::RegistryPresence;
 
@@ -307,7 +308,7 @@ async fn account_mesh_own_signed_out_row_cannot_clear_fresh_membership_before_si
     *harness.store.save_gate.lock().unwrap() = Some(gate.clone());
     let refresh = harness.mesh.refresh(EnrollTrigger::Explicit);
     let read = async {
-        harness.store.save_entered.notified().await;
+        wait_for_event(harness.store.save_entered.notified()).await;
         let fresh = harness.state().membership.clone().unwrap();
         assert_eq!(
             harness.registry.presence("owner"),

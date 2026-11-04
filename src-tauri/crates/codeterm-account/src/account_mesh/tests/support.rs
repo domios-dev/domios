@@ -558,3 +558,9 @@ fn ports(
         clock: clock.clone(),
     }
 }
+
+pub async fn wait_for_event<T>(event: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(5), event)
+        .await
+        .expect("mesh test event did not arrive within its deadline")
+}

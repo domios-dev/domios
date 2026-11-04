@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::{wire::RegistryRefusal, *};
 use serde_json::json;
 use std::sync::Arc;
@@ -13,7 +14,7 @@ async fn account_mesh_fresh_sign_in_cancels_the_previous_enrollment_epoch() {
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     harness.mesh.enrollment_signed_in();
     harness.registry.script.lock().unwrap().gate = None;
     harness
@@ -517,14 +518,14 @@ async fn account_mesh_unconfirmed_recovery_never_adopts_an_old_slot_generation()
 #[tokio::test]
 async fn account_mesh_rejoin_network_event_joins_the_current_recovery() {
     let harness = fresh_rejoin().await;
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     let gate = Arc::new(Notify::new());
     harness.registry.script.lock().unwrap().gate = Some(gate.clone());
     let recovery = tokio::spawn({
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     assert_eq!(harness.mesh.refresh(EnrollTrigger::Network).await, Ok(()));
     gate.notify_one();
     assert_eq!(recovery.await.unwrap(), Ok(()));

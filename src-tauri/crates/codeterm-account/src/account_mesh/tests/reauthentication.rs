@@ -1,5 +1,6 @@
 use super::support::*;
 use crate::account_mesh::callable::{refusal, CallableFailure};
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::wire::RegistryRefusal;
 use crate::account_mesh::*;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -126,7 +127,7 @@ async fn account_mesh_post_sign_in_list_and_automatic_refresh_enroll_the_key_onc
         let mesh = harness.mesh.clone();
         async move { mesh.refresh(EnrollTrigger::Automatic).await }
     });
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     let list = async { harness.mesh.list().await };
     let release = async {
         harness.registry.script.lock().unwrap().enrollment_gate = None;

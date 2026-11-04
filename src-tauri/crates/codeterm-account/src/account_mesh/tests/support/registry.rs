@@ -1,4 +1,5 @@
 use super::*;
+use crate::account_mesh::tests::support::wait_for_event;
 
 #[async_trait]
 impl MeshRegistry for FakeRegistry {
@@ -50,7 +51,7 @@ impl MeshRegistry for FakeRegistry {
         let gate = self.script.lock().unwrap().enrollment_gate.clone();
         if let Some(gate) = gate {
             self.entered.notify_one();
-            gate.notified().await;
+            wait_for_event(gate.notified()).await;
         }
         if let Some(refusal) = self.script.lock().unwrap().enrollment {
             return Err(refusal);
@@ -259,7 +260,7 @@ impl FakeRegistry {
             let gate = self.script.lock().unwrap().list_gate.clone();
             if let Some(gate) = gate {
                 self.list_entered.notify_one();
-                gate.notified().await;
+                wait_for_event(gate.notified()).await;
             }
         }
         let membership_op = matches!(
@@ -272,7 +273,7 @@ impl FakeRegistry {
             self.entered.notify_one();
             let gate = self.script.lock().unwrap().gate.clone();
             if let Some(gate) = gate {
-                gate.notified().await;
+                wait_for_event(gate.notified()).await;
             }
         }
         let proof = &envelope.installation_proof;
@@ -281,7 +282,7 @@ impl FakeRegistry {
             let gate = self.script.lock().unwrap().sync_gate.clone();
             if let Some(gate) = gate {
                 self.sync_entered.notify_one();
-                gate.notified().await;
+                wait_for_event(gate.notified()).await;
             }
         }
         let script = {
