@@ -1,4 +1,4 @@
-import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
+import { type DaemonFake, muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -10,7 +10,7 @@ import { statusFixture } from "../Supporter/testSupport";
 import { __setListenForTest } from "../../lib/bridge";
 import type { SupporterActivity } from "../Supporter/activity";
 
-function daemonFake<T extends Parameters<typeof muxMockFetch>[0]>(domain: T): T {
+function daemonFake<T extends DaemonFake>(domain: T): T {
   vi.stubGlobal("fetch", muxMockFetch(domain));
   return domain;
 }

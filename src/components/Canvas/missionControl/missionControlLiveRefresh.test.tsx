@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { beforeEach as beforeDaemonCase } from "vitest";
 import { configureDaemonFixture } from "../../../test/daemonTransport.testdata";
 beforeDaemonCase(() => configureDaemonFixture());
@@ -158,7 +159,8 @@ function emit(event: string, payload: unknown) {
 }
 
 async function flush() {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  // Daemon responses ride the mux stream, which settles across event-loop turns.
+  for (let i = 0; i < 20; i++) await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 async function render(ui: ReactElement) {
@@ -216,7 +218,7 @@ beforeEach(() => {
   nextFrameId = 0;
   installBrowserHarness();
   installListenHarness();
-  vi.stubGlobal("fetch", vi.fn());
+  vi.stubGlobal("fetch", muxMockFetch(vi.fn()));
 });
 
 afterEach(() => {
