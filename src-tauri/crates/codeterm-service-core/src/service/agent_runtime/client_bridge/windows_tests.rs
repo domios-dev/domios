@@ -54,6 +54,33 @@ fn windows_denies_all_reparse_components_and_nonregular_files() {
 }
 
 #[test]
+fn windows_temporary_file_cannot_be_replaced_or_mutated_before_commit() {
+    let (_temp, root) = tests::root();
+    let handle = fs::windows::open_root(&root).unwrap();
+    fs::write(&root, &handle, Path::new("file"), "approved", |apply| {
+        let temporary = std::fs::read_dir(&root)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .find(|path| {
+                path.file_name()
+                    .unwrap()
+                    .to_string_lossy()
+                    .starts_with(".domios-bridge-")
+            })
+            .unwrap();
+        assert!(std::fs::rename(&temporary, root.join("stolen")).is_err());
+        assert!(std::fs::write(&temporary, "substituted").is_err());
+        apply()
+    })
+    .unwrap();
+    assert_eq!(
+        std::fs::read_to_string(root.join("file")).unwrap(),
+        "approved"
+    );
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+}
+
+#[test]
 fn windows_atomic_commit_pins_parent_and_rechecks_leaf() {
     let (_temp, root) = tests::root();
     std::fs::create_dir(root.join("parent")).unwrap();

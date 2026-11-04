@@ -12,10 +12,9 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{GENERIC_READ, GENERIC_WRITE, HANDLE},
     Storage::FileSystem::{
-        GetFileInformationByHandle, GetFinalPathNameByHandleW, MoveFileExW,
-        BY_HANDLE_FILE_INFORMATION, FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_FLAG_OPEN_REPARSE_POINT, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
+        GetFileInformationByHandle, GetFinalPathNameByHandleW, BY_HANDLE_FILE_INFORMATION,
+        FILE_ATTRIBUTE_REPARSE_POINT, FILE_FLAG_BACKUP_SEMANTICS, FILE_FLAG_OPEN_REPARSE_POINT,
+        FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
     },
 };
 
@@ -54,14 +53,18 @@ unsafe extern "system" {
         ea: *const c_void,
         ea_length: u32,
     ) -> i32;
+    fn NtSetInformationFile(
+        handle: HANDLE,
+        status: *mut IoStatus,
+        information: *const c_void,
+        length: u32,
+        class: u32,
+    ) -> i32;
     fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 
 fn error() -> String {
     std::io::Error::last_os_error().to_string()
-}
-fn wide(value: &OsStr) -> Vec<u16> {
-    value.encode_wide().chain(Some(0)).collect()
 }
 
 pub(in super::super) fn relative(root: &Path, raw: &str) -> Result<PathBuf, String> {
@@ -175,13 +178,18 @@ fn open_at(parent: &File, name: &OsStr, directory: bool, create: bool) -> Result
     let result = unsafe {
         NtCreateFile(
             &mut handle,
-            GENERIC_READ | if create { GENERIC_WRITE } else { 0 },
+            GENERIC_READ
+                | if create {
+                    GENERIC_WRITE | 0x0001_0000
+                } else {
+                    0
+                },
             &mut attributes,
             &mut status,
             std::ptr::null(),
             0,
             FILE_SHARE_READ
-                | if directory {
+                | if directory || create {
                     0
                 } else {
                     FILE_SHARE_WRITE | FILE_SHARE_DELETE
@@ -304,6 +312,51 @@ pub(in super::super) fn root_matches(root: &Path, held: &File) -> Result<(), Str
     same(&open_root(root)?, held)
 }
 
+fn rename(file: &File, parent: &File, name: &OsStr) -> Result<(), String> {
+    #[repr(C)]
+    struct RenameInformation {
+        replace: u8,
+        root: HANDLE,
+        name_length: u32,
+        name: [u16; 1],
+    }
+    let name: Vec<_> = name.encode_wide().collect();
+    let offset = std::mem::offset_of!(RenameInformation, name);
+    let length = (offset + name.len() * 2).max(std::mem::size_of::<RenameInformation>());
+    let mut storage = vec![0usize; length.div_ceil(std::mem::size_of::<usize>())];
+    let information = storage.as_mut_ptr().cast::<RenameInformation>();
+    unsafe {
+        (*information).replace = 1;
+        (*information).root = parent.as_raw_handle();
+        (*information).name_length = (name.len() * 2) as u32;
+        std::ptr::copy_nonoverlapping(
+            name.as_ptr(),
+            information.cast::<u8>().add(offset).cast::<u16>(),
+            name.len(),
+        );
+    }
+    let mut status = IoStatus {
+        status: 0,
+        information: 0,
+    };
+    let result = unsafe {
+        NtSetInformationFile(
+            file.as_raw_handle(),
+            &mut status,
+            information.cast(),
+            length as u32,
+            10,
+        )
+    };
+    if result < 0 {
+        return Err(std::io::Error::from_raw_os_error(
+            unsafe { RtlNtStatusToDosError(result) } as i32
+        )
+        .to_string());
+    }
+    file.sync_all().map_err(|error| error.to_string())
+}
+
 pub(in super::super) fn write(
     root: &Path,
     root_handle: &File,
@@ -344,19 +397,7 @@ pub(in super::super) fn write(
             root_matches(root, root_handle)?;
             same(&directory(root_handle, parent)?, held)?;
             check(root, relative, true)?;
-            let source = wide(temporary_path.as_os_str());
-            let destination = wide(parent_path.join(name).as_os_str());
-            if unsafe {
-                MoveFileExW(
-                    source.as_ptr(),
-                    destination.as_ptr(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-                )
-            } == 0
-            {
-                return Err(error());
-            }
-            Ok(())
+            rename(&file, held, name)
         };
         commit(&mut apply)
     })();
