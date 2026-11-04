@@ -3,8 +3,34 @@ use crate::service_plan::{
     milestone_gates::{RegressionGroupInput, RegressionInput},
     PlanError,
 };
+use rusqlite::OptionalExtension;
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn retrospective_presence_projection(
+        &self,
+        id: &str,
+    ) -> Result<Option<bool>, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM plan_strides s WHERE s.plan_id=p.id
+                AND CASE WHEN json_extract(s.row_json,'$.kind')='retrospective'
+                    THEN CASE WHEN json_type(s.row_json,'$.text')='text'
+                        THEN trim(json_extract(s.row_json,'$.text'),?2)<>?3
+                        ELSE json('invalid retrospective text') END ELSE 0 END)
+             FROM plans p WHERE p.id=?1",
+                rusqlite::params![
+                    id,
+                    super::super::status_queries::WHITESPACE,
+                    crate::service_plan::retrospective::retrospective_supersede_note()
+                ],
+                |row| column(row, 0),
+            )
+            .optional()
+            .map_err(db_error)
+    }
+
     pub(in crate::service_plan) fn regression_gate_input(
         &self,
         id: &str,

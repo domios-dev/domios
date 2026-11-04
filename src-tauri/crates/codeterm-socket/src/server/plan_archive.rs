@@ -11,8 +11,8 @@ use super::{plan_refs, JsonRpcError};
 
 /// Advisory, never a gate. A missing retrospective is worth saying loudly, but
 /// refusing here would trap closure exactly as the stale epoch trapped recovery.
-pub(super) fn retrospective_nudge(plan: &codeterm_service_core::plan::Plan) -> Option<SafetyNudge> {
-    if codeterm_service_core::service::plan::retrospective::has_retrospective(plan) {
+pub(super) fn retrospective_nudge(plan_id: &str, has_retrospective: bool) -> Option<SafetyNudge> {
+    if has_retrospective {
         return None;
     }
     Some(SafetyNudge::new(
@@ -20,11 +20,11 @@ pub(super) fn retrospective_nudge(plan: &codeterm_service_core::plan::Plan) -> O
         format!(
             "plan {} was archived with no retrospective, so what worked and what \
              failed is not recoverable from plan state.",
-            plan.id
+            plan_id
         ),
         format!(
             "domios plan retrospective {} --body-file <pad-relative-path>",
-            plan.id
+            plan_id
         ),
     ))
 }
@@ -37,8 +37,8 @@ pub(super) fn archive_with_evidence(
     now: u64,
 ) -> Result<Option<SafetyNudge>, PlanError> {
     let nudge = store
-        .get(plan_id)
-        .and_then(|plan| retrospective_nudge(&plan));
+        .retrospective_presence_projection(plan_id)?
+        .and_then(|present| retrospective_nudge(plan_id, present));
     let incident = nudge.as_ref().map(|nudge| PlanIncident {
         kind: SAFETY_INCIDENT_KIND.to_string(),
         text: safety_incident_text(plan_id, nudge.id, &nudge.reason),
@@ -58,11 +58,10 @@ pub(super) fn archive(
     let nudge = archive_with_evidence(store, &id, now).map_err(plan_rpc_err)?;
     emit_plan_changed(svc, &id);
     let mut resp = json!({ "ok": true });
-    if let Some(plan) = store.get(&id) {
-        let cleanup = codeterm_service_core::service::plan::cleanup_debt::detect_plan_cleanup_debt(
-            &plan,
-            |tab| svc.tab_probe(tab).exists,
-        );
+    if let Some(cleanup) = store
+        .cleanup_debt_projection(&id, |tab| svc.tab_probe(tab).exists)
+        .map_err(plan_rpc_err)?
+    {
         push_hints(
             &mut resp,
             codeterm_service_core::service::plan::cleanup_debt::cleanup_debt_hints(&cleanup),
