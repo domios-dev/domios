@@ -50,6 +50,9 @@ impl ServiceContext {
         if binding.attempt_id.is_none() {
             let candidates = self.plan_store.live_task_attempts_for_tab(&tab.id);
             let candidate = match candidates.as_slice() {
+                [] if binding.plan_id.is_some() && binding.task_id.is_some() => {
+                    return self.close_terminal_worker_executor(&tab, reason);
+                }
                 [] if binding.plan_id.is_none() && binding.task_id.is_none() => return Ok(false),
                 [candidate] => candidate,
                 _ => return Err("executor current attempt is unavailable or ambiguous".into()),
@@ -88,6 +91,49 @@ impl ServiceContext {
                 task_id: &task_id,
                 source_attempt: attempt,
                 allow_incomplete_binding: false,
+            },
+            reason,
+            |tabs| self.terminate_executor_tabs(tabs),
+        )?;
+        Ok(true)
+    }
+
+    fn close_terminal_worker_executor(
+        &self,
+        tab: &Tab,
+        reason: TabCloseReason,
+    ) -> Result<bool, String> {
+        let binding = tab
+            .task_binding
+            .as_ref()
+            .ok_or("executor task binding is missing")?;
+        let plan_id = binding
+            .plan_id
+            .as_deref()
+            .ok_or("executor plan binding is missing")?;
+        let task_id = binding
+            .task_id
+            .as_deref()
+            .ok_or("executor task binding is missing")?;
+        let attempts = self
+            .plan_store
+            .list_task_attempts(plan_id, task_id)
+            .map_err(|error| error.to_string())?;
+        let candidates = attempts
+            .iter()
+            .filter(|view| {
+                view.attempt.executor_tab_id == tab.id && view.attempt.closed_at.is_some()
+            })
+            .collect::<Vec<_>>();
+        let [candidate] = candidates.as_slice() else {
+            return Err("executor terminal attempt is unavailable or ambiguous".into());
+        };
+        self.retire_executor_with(
+            ExecutorSource {
+                plan_id,
+                task_id,
+                source_attempt: &candidate.attempt,
+                allow_incomplete_binding: true,
             },
             reason,
             |tabs| self.terminate_executor_tabs(tabs),
