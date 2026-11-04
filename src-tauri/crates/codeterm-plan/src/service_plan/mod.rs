@@ -353,5 +353,6 @@ pub use task_authority_projection::{
     TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
     TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
     TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
-    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead,
+    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead, WorkerLossRead,
+    WorkerLossRecoveryRead, WorkerLossReplacementRead,
 };

@@ -171,3 +171,6 @@ mod plan_metadata;
 
 mod respawn_source;
 pub(super) use respawn_source::{ensure_respawn_source_fields, TaskRespawnSourceRead};
+
+mod worker_loss;
+pub use worker_loss::{WorkerLossRead, WorkerLossRecoveryRead, WorkerLossReplacementRead};
