@@ -606,5 +606,6 @@ pub(in crate::service_plan) mod task_page_queries;
 #[cfg(test)]
 mod tests;
 
+mod document_queries;
 pub(in crate::service_plan) mod hot_write;
 mod operation_retention;
