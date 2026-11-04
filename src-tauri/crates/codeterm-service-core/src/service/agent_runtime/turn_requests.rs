@@ -248,10 +248,36 @@ async fn await_reply(
             "Turn completion must finish the original request".into(),
         ));
     };
+    let current = session.context.lock().clone();
+    if matches!(&reply, RpcReply::Success { .. })
+        && matches!(&result, RuntimeResult::TurnAccepted { thread_id, send_id, turn_id: Some(turn_id) }
+            if Some(thread_id) == pending.context.thread_id.as_ref()
+                && send_id == &pending.send_id && turn_id == &pending.turn)
+        && current.claimed_sends.iter().any(|claim| {
+            claim.send_id == pending.send_id
+                && Some(&claim.thread_id) == pending.context.thread_id.as_ref()
+        })
+    {
+        subscriber::publish_events(
+            svc,
+            session,
+            pending.context.epoch,
+            vec![AgentRuntimeEvent::SendEvidence {
+                thread_id: current
+                    .thread_id
+                    .clone()
+                    .ok_or(RuntimeFailure::Superseded)?,
+                send_id: pending.send_id.clone(),
+                turn_id: pending.turn.clone(),
+                item_id: None,
+            }],
+            now(),
+        )
+        .await?;
+    }
     if pending.settled.swap(true, Ordering::AcqRel) {
         return Ok(result);
     }
-    let current = session.context.lock().clone();
     let events = events
         .unwrap_or_default()
         .into_iter()

@@ -173,6 +173,13 @@ describe("concise thoughts", () => {
     expect(view.querySelector('[role="region"][aria-label="Thinking"]')?.hasAttribute("hidden")).toBe(false);
   });
 
+  it("long single-line summary has no expand control", async () => {
+    const text = "Review this single-line summary carefully. ".repeat(80).trim();
+    const view = await render([thought("long-summary", text)]);
+    expect(view.querySelector('button[aria-expanded]')).toBeNull();
+    expect(view.querySelector('[role="region"][aria-label="Thinking"]')?.textContent).toBe(text);
+  });
+
   it("renders equivalent normalized Claude and Codex thoughts identically", async () => {
     const shared = thought("shared-think", "**Check the plan**\n\nDetails");
     const claude = await render([{ ...shared, provider: "claude", sourceSessionId: CLAUDE }]);

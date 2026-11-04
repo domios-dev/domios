@@ -13,6 +13,7 @@ module.exports = {
   },
   runtimeResponse(ctx, op, state, reply) {
     if (op.kind === 'interrupt') return {kind:'complete',result:{kind:'done'}};
+    if (reply.kind === 'error') return {kind:'refused',reason:{code:'provider_refused',message:reply.error.message},beforeAcceptance:false};
     return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'},events:[{kind:'turnState',threadId:op.threadId,turnId:'turn',state:'idle',detail:reply.value.stopReason === 'cancelled' ? 'interrupted' : undefined}]};
   },
   runtimeReduce(ctx, state, frames) { return {state,events:[]}; }
@@ -442,4 +443,93 @@ fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
     release.send(()).unwrap();
     crate::async_runtime::block_on(completed(&session));
     let _peer = crate::async_runtime::block_on(server).unwrap();
+}
+
+#[test]
+fn silent_written_reply_confirms_only_success_and_clears_its_claim() {
+    use crate::service::{
+        chat_send_transaction::ChatSendState,
+        delivery_error::DeliveryError,
+        messenger::{AgentInput, HumanInput},
+    };
+    for success in [true, false] {
+        let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+        let session = engine::for_tab(&tab).unwrap();
+        let pending = fixture
+            .service
+            .chat_send_ledger
+            .try_start(&tab, "opaque prompt", None)
+            .unwrap();
+        let (release, ready) = tokio::sync::oneshot::channel();
+        let server = crate::async_runtime::spawn(async move {
+            let mut peer = BufReader::new(peer);
+            let mut line = String::new();
+            peer.read_line(&mut line).await.unwrap();
+            let request: Value = serde_json::from_str(&line).unwrap();
+            ready.await.unwrap();
+            let reply = if success {
+                json!({"id":request["id"],"result":{"stopReason":"end_turn"}})
+            } else {
+                json!({"id":request["id"],"error":{"code":-32603,"message":"opaque refusal"}})
+            };
+            peer.get_mut()
+                .write_all(format!("{reply}\n").as_bytes())
+                .await
+                .unwrap();
+            peer
+        });
+        let sent = super::super::transport::send(
+            &fixture.service,
+            &tab,
+            &AgentInput::Human(HumanInput::composer("opaque prompt")),
+            Some(&pending.send_id),
+        );
+        let Err(DeliveryError::SubmitUnconfirmed { detail, .. }) = sent else {
+            panic!("silent written submit must remain unconfirmed until its reply");
+        };
+        assert!(!detail.contains("WrittenAwaitingEvidence"));
+        assert_eq!(
+            fixture
+                .service
+                .chat_send_ledger
+                .status(&pending.send_id)
+                .unwrap()
+                .state,
+            ChatSendState::Unknown
+        );
+        release.send(()).unwrap();
+        crate::async_runtime::block_on(completed(&session));
+        assert_eq!(
+            fixture
+                .service
+                .chat_send_ledger
+                .status(&pending.send_id)
+                .unwrap()
+                .state,
+            if success {
+                ChatSendState::Sent
+            } else {
+                ChatSendState::Unknown
+            }
+        );
+        assert_eq!(
+            session
+                .context
+                .lock()
+                .claimed_sends
+                .iter()
+                .any(|claim| claim.send_id == pending.send_id),
+            !success
+        );
+        assert!(session.context.lock().active_turn_id.is_none());
+        if !success {
+            assert!(session
+                .cache
+                .lock()
+                .snapshot()
+                .iter()
+                .any(|row| row.content.contains("completion reply failed")));
+        }
+        let _peer = crate::async_runtime::block_on(server).unwrap();
+    }
 }
