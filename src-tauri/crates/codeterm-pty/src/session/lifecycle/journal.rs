@@ -128,6 +128,12 @@ impl TabLifecycleJournal {
         }
     }
 
+    #[doc(hidden)]
+    pub fn with_writer_held_for_test(&self, work: impl FnOnce()) {
+        let _writer = self.writer.lock();
+        work();
+    }
+
     pub fn path(&self) -> &Path {
         &self.path
     }
@@ -270,17 +276,29 @@ impl TabLifecycleJournal {
             (cursor.last_seq, cursor.records)
         };
         let load = read_journal(&self.path);
-        if !load.tail.is_intact() {
-            return Err("journal tail changed; reopen to quarantine before compaction".into());
-        }
+        let refused = prepare_refused_tail(&self.path, &load)?;
         let compacted = super::reduce::compact_records(&load.records);
         let written = compacted.len();
         let temporary = codeterm_util::atomic_write::unique_tmp_path(&self.path);
         let result = (|| {
             write_all_records(&temporary, &compacted)?;
-            self.commit_compaction(&temporary, seq, records, written)
+            self.commit_compaction(
+                &temporary,
+                seq,
+                records,
+                written,
+                refused.as_ref().map(|(path, len)| (path.as_path(), *len)),
+            )
         })();
         let _ = fs::remove_file(&temporary);
+        if let Some((path, _)) = refused {
+            let _ = fs::remove_file(path);
+            if result.is_ok() {
+                if let TailStatus::Refused { line, reason } = &load.tail {
+                    log::warn!("[tab-lifecycle] quarantined journal tail from line {line} ({reason}) into {}", refused_tail_path(&self.path).display());
+                }
+            }
+        }
         if result.is_ok() && load.duplicate_seqs > 0 {
             log::warn!(
                 "[tab-lifecycle] repaired {} duplicate sequence number(s) while compacting",
@@ -296,6 +314,7 @@ impl TabLifecycleJournal {
         seq: JournalSeq,
         records: usize,
         written: usize,
+        refused: Option<(&Path, u64)>,
     ) -> Result<usize, String> {
         // Append order is owned by this writer; readers never wait for file work.
         let _writer = self.writer.lock();
@@ -307,6 +326,22 @@ impl TabLifecycleJournal {
                         .into(),
                 );
             }
+        }
+        if let Some((prepared, expected_len)) = refused {
+            let sidecar = refused_tail_path(&self.path);
+            let current_len = match fs::metadata(&sidecar) {
+                Ok(metadata) => metadata.len(),
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
+                Err(error) => return Err(format!("stat {}: {error}", sidecar.display())),
+            };
+            if current_len != expected_len {
+                return Err(
+                    "journal compaction conflict: quarantine changed while preparing replacement"
+                        .into(),
+                );
+            }
+            fs::rename(prepared, &sidecar)
+                .map_err(|error| format!("replace {}: {error}", sidecar.display()))?;
         }
         fs::rename(temporary, &self.path)
             .map_err(|error| format!("replace {}: {error}", self.path.display()))?;
@@ -332,6 +367,32 @@ fn append_line(path: &Path, record: &JournalRecord) -> Result<(), String> {
 /// Sidecar that receives a refused tail, verbatim and never replayed.
 pub fn refused_tail_path(path: &Path) -> PathBuf {
     path.with_extension("refused.jsonl")
+}
+
+fn prepare_refused_tail(path: &Path, load: &JournalLoad) -> Result<Option<(PathBuf, u64)>, String> {
+    let TailStatus::Refused { line, .. } = &load.tail else {
+        return Ok(None);
+    };
+    let body =
+        fs::read_to_string(path).map_err(|error| format!("read {}: {error}", path.display()))?;
+    let sidecar = refused_tail_path(path);
+    let mut bytes = match fs::read(&sidecar) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(format!("read {}: {error}", sidecar.display())),
+    };
+    let expected_len = bytes.len() as u64;
+    for text in body.lines().skip(line.saturating_sub(1)) {
+        bytes.extend_from_slice(text.as_bytes());
+        bytes.push(b'\n');
+    }
+    if bytes.len() as u64 == expected_len {
+        bytes.push(b'\n');
+    }
+    let temporary = codeterm_util::atomic_write::unique_tmp_path(&sidecar);
+    codeterm_util::atomic_write::write_atomic(&temporary, bytes)
+        .map_err(|error| format!("prepare {}: {error}", sidecar.display()))?;
+    Ok(Some((temporary, expected_len)))
 }
 
 /// Moves a refused tail aside so later appends land behind an intact prefix

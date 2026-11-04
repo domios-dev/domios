@@ -7,6 +7,7 @@ use super::ServiceContext;
 use std::sync::Arc;
 
 mod held;
+mod public_receipt;
 
 enum AgentWriteResult {
     Continue,
@@ -118,10 +119,9 @@ impl ServiceContext {
                 }
                 let blocked = owner.block_after_refusal(target, generation);
                 drop(pty_claim);
-                log::warn!(
-                    "[agent-delivery] tab={} delivery={} outcome=refused_pending reason=tab_busy_refused",
-                    target,
-                    id
+                log::debug!(
+                    "[agent-delivery] tab={} delivery={} outcome=refused_pending reason=tab_busy_refused detail={}",
+                    target, id, error
                 );
                 if !blocked {
                     self.wake_agent_deliveries_on_state_change(target);
@@ -652,11 +652,9 @@ impl ServiceContext {
                     if let Err(error) = owner.set_pending_reason(tab_id, &record.id, &error) {
                         log::error!("[agent-delivery] pending reason persistence failed tab={tab_id}: {error}");
                     }
-                    log::warn!(
-                        "[agent-delivery] tab={} delivery={} outcome=refused_pending reason={}",
-                        tab_id,
-                        record.id,
-                        classified.code()
+                    log::debug!(
+                        "[agent-delivery] tab={} delivery={} outcome=refused_pending reason={} detail={}",
+                        tab_id, record.id, classified.code(), error
                     );
                     if !owner.block_after_refusal(tab_id, generation) {
                         AgentWriteResult::Continue
