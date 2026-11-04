@@ -108,7 +108,6 @@ fn startup_status_allows(task: &crate::plan::Task) -> bool {
     )
 }
 
-#[cfg(test)]
 pub(super) fn current_dispatch_startup_owner(
     task: &crate::plan::Task,
 ) -> Option<DispatchStartupOwner> {
