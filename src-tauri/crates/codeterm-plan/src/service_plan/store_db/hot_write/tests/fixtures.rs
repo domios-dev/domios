@@ -90,6 +90,7 @@ pub(in crate::service_plan::store_db) fn audit(database: &PlanDatabase) {
     for table in [
         "plans",
         "plan_tasks",
+        "plan_sections",
         "plan_task_milestones",
         "plan_task_attempts",
         "plan_strides",
@@ -121,7 +122,7 @@ pub(super) fn database_for_baseline(root: &std::path::Path, plan: &Plan) -> Plan
     database(root, plan)
 }
 
-pub(super) fn baseline_operation(
+pub(in crate::service_plan::store_db) fn baseline_operation(
     database: &PlanDatabase,
     id: &str,
     kind: &str,
@@ -144,6 +145,7 @@ pub(super) fn baseline_operation(
 pub(super) fn assert_and_clear_writes(database: &PlanDatabase, receipt: &CommittedRows) {
     let mut expected: Vec<(String, usize)> = [
         ("plan_tasks", receipt.task_rows),
+        ("plan_sections", receipt.section_rows),
         ("plans", receipt.header_rows),
         ("plan_task_attempts", receipt.attempts),
         ("plan_task_milestones", receipt.milestones),

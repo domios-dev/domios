@@ -18,6 +18,8 @@ use changes::{unit_changes, UnitChanges};
 mod embedding;
 mod incremental;
 mod narrow;
+mod sections;
+pub(in crate::service_plan) use sections::{enqueue_section_index, SectionIndexDelta};
 mod recovery;
 mod snapshot;
 mod unit_inputs;

@@ -2,6 +2,18 @@ use super::super::{MutationWriterTurn, PlanError, PlanStore};
 use crate::plan::Plan;
 
 impl PlanStore {
+    pub(in crate::service_plan) fn commit_section_change(
+        &self,
+        plan_id: &str,
+        change: super::super::store_db::hot_write::SectionChange,
+        now_ms: u64,
+    ) -> Result<Vec<String>, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (removed, receipt) = self.database.change_section(plan_id, change, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(removed)
+    }
+
     pub(in crate::service_plan) fn commit_header_change(
         &self,
         plan_id: &str,
@@ -154,6 +166,9 @@ impl PlanStore {
         }
         for delta in receipt.task_search {
             super::super::search_index::enqueue_task_index(turn, delta);
+        }
+        for delta in receipt.section_search {
+            super::super::search_index::enqueue_section_index(turn, delta);
         }
         log::debug!("[plan.store] hot commit tasks={} attempts={} milestones={} strides={} decoded_bytes={} serialized_bytes={} projected_text_bytes={} hashed_bytes={}", receipt.task_rows, receipt.attempts, receipt.milestones, receipt.strides, receipt.decoded_bytes, receipt.serialized_bytes, receipt.projected_text_bytes, receipt.hashed_bytes);
     }
