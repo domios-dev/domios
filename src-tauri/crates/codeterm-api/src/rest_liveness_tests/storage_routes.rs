@@ -278,7 +278,7 @@ async fn team_adopt_and_transfer_keep_health_list_and_send_responsive_with_plan_
             Duration::from_secs(1),
             crate::tab_routes::list_tabs(
                 State(state.clone()),
-                Default::default(),
+                owner_headers(&state),
                 Query(crate::tab_routes::TabListQuery {
                     local_only: true,
                     ..Default::default()
@@ -293,7 +293,7 @@ async fn team_adopt_and_transfer_keep_health_list_and_send_responsive_with_plan_
             Duration::from_secs(1),
             crate::tab_routes::send_text(
                 State(state.clone()),
-                Default::default(),
+                owner_headers(&state),
                 Path("missing-held-dependency-target".into()),
                 axum::Json(serde_json::from_value(serde_json::json!({"text":"opaque"})).unwrap()),
             ),

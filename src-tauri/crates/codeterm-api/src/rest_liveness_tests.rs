@@ -149,6 +149,19 @@ async fn published_mux_state_returns_seeded_json_while_state_writers_hold_both_l
     assert_eq!(body, expected);
 }
 
+fn owner_headers(state: &crate::routes::AppState) -> axum::http::HeaderMap {
+    let token = state
+        .config
+        .lock()
+        .api
+        .token
+        .get_or_insert_with(|| "liveness-owner-fixture".into())
+        .clone();
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("authorization", format!("Bearer {token}").parse().unwrap());
+    headers
+}
+
 pub(crate) async fn assert_health_list_send_respond(state: crate::routes::AppState) {
     let health = tokio::time::timeout(
         Duration::from_secs(1),
@@ -161,7 +174,7 @@ pub(crate) async fn assert_health_list_send_respond(state: crate::routes::AppSta
         Duration::from_secs(1),
         crate::tab_routes::list_tabs(
             axum::extract::State(state.clone()),
-            Default::default(),
+            owner_headers(&state),
             axum::extract::Query(crate::tab_routes::TabListQuery {
                 local_only: true,
                 all_workspaces: true,
@@ -176,8 +189,8 @@ pub(crate) async fn assert_health_list_send_respond(state: crate::routes::AppSta
     let rejection = tokio::time::timeout(
         Duration::from_secs(1),
         crate::tab_routes::send_text(
-            axum::extract::State(state),
-            Default::default(),
+            axum::extract::State(state.clone()),
+            owner_headers(&state),
             axum::extract::Path("missing-liveness-target".into()),
             axum::Json(serde_json::from_value(serde_json::json!({"text":"opaque"})).unwrap()),
         ),
