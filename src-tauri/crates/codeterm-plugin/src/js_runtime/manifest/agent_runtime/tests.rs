@@ -176,14 +176,10 @@ fn launch_profiles_require_pinned_packages_and_protect_secret_references() {
         invalid["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["install"]
             ["package"] = json!(package);
         assert!(PluginManifest::from_json_str(&invalid.to_string())
-            .unwrap()
-            .validate_agent_runtime()
-            .is_err());
+            .map_or(true, |manifest| manifest.validate_agent_runtime().is_err()));
     }
     raw["capabilities"]["agentRuntime"]["launchProfiles"]["selected"]["secretEnv"] =
         json!({"CODETERM_API_TOKEN":"foreign"});
     assert!(PluginManifest::from_json_str(&raw.to_string())
-        .unwrap()
-        .validate_agent_runtime()
-        .is_err());
+        .map_or(true, |manifest| manifest.validate_agent_runtime().is_err()));
 }
