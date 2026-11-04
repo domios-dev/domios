@@ -2,6 +2,7 @@ import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, Runt
 import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, usage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
+import { copyAccounting, clearEntries, putEntry, removeEntry, mapBytes, mapKeys, utf8Length } from "./runtimeReduceAccounting";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
 interface TextCursor { offset:number; chars:number; echo?:string }
@@ -20,10 +21,11 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
   const state=previous as unknown as StreamState;
   const copy:StreamState={...state,items:Object.assign(Object.create(null),state.items),offsetById:Object.assign(Object.create(null),state.offsetById),warnings:Object.assign(Object.create(null),state.warnings),controls:{...state.controls},
     evidenced:[...state.evidenced],compacted:[...state.compacted],seenItems:[...state.seenItems],...(state.chunk ? {chunk:{...state.chunk}} : {})};
+  copyAccounting(state,copy);
   if (copy.replay !== cursor.replay) {
-    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];copy.offsetById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.replay=cursor.replay;copy.turn=1;copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.chunk;copy.settled=false;copy.started=false;
   } else if (copy.prompt !== cursor.prompt) {
-    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];copy.offsetById=Object.create(null);delete copy.chunk;copy.settled=false;copy.started=false;
+    copy.turn=Math.max(copy.turn+1,cursor.prompt);copy.ordinal=0;copy.seenItems=[];clearEntries(copy,"offsetById");delete copy.chunk;copy.settled=false;copy.started=false;
   }
   copy.prompt=cursor.prompt;copy.loading=cursor.loading;
   return copy;
@@ -45,29 +47,28 @@ function emit(state:StreamState, events:AgentEvent[], row:ChatMsg, patch=false):
     events.push({kind:"chatItem",threadId:state.sessionId,item:{...row,toolStatus:"interrupted",toolInterrupted:true,content:"[ACP tool tracking capacity exhausted]"}});
     return;
   }
-  state.items[row.id]=retained;
+  putEntry(state,"items",row.id,retained);
   if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== undefined || row.toolResult !== undefined || row.fileDiffs !== undefined || row.toolInterrupted) events.push({kind:patch ? "chatItemPatch" : "chatItem",threadId:state.sessionId,item:row});
 }
 function admitToolIdentity(state:StreamState, retained:ChatMsg):boolean {
-  let bytes=utf8Length(JSON.stringify(state.items))+utf8Length(JSON.stringify({[retained.id]:retained}))-1;
+  let bytes=mapBytes(state,"items")+utf8Length(JSON.stringify({[retained.id]:retained}))-1;
   const submittedId=`${state.sessionId}:turn:${state.turn}:item:1`;
   for (const [id,row] of Object.entries(state.items)) {
     if (bytes <= 16384) break;
     if (row.toolStatus === "running" || id === state.chunk?.id || id === submittedId) continue;
-    bytes-=utf8Length(JSON.stringify({[id]:row}))-1;
-    delete state.items[id];
+    bytes+=removeEntry(state,"items",id);
   }
   return bytes <= 16384;
 }
 function rememberControl(state:StreamState, kind:string, update:Record<string,JsonValue>):void {
   const encoded=JSON.stringify(update);
-  if (encoded.length <= 16384) state.controls[kind]=JSON.parse(encoded) as JsonValue;
+  if (encoded.length <= 16384) putEntry(state,"controls",kind,JSON.parse(encoded) as JsonValue);
 }
 function warn(state:StreamState, events:AgentEvent[], rawKind:string):void {
   const kind=rawKind.slice(0,128);
   if (!Object.prototype.hasOwnProperty.call(state.warnings,kind) && Object.keys(state.warnings).length >= 32) return;
   const count=state.warnings[kind] ?? 0;
-  state.warnings[kind]=Math.min(count+1,Number.MAX_SAFE_INTEGER);
+  putEntry(state,"warnings",kind,Math.min(count+1,Number.MAX_SAFE_INTEGER));
   if (!count) events.push({kind:"notice",threadId:state.sessionId,message:`Ignored unknown ACP session update: ${kind}`});
 
 }
@@ -92,7 +93,8 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
     return {state:raw,events:[{kind:"turnState",threadId:ctx.threadId,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})}]};
   const state=source as unknown as StreamState;
   if (state.settled) return {state:raw,events:[]};
-  const next:StreamState={...state,items:Object.assign(Object.create(null),state.items),evidenced:[...state.evidenced],settled:true};
+  const next:StreamState={...state,items:Object.assign(Object.create(null),state.items),offsetById:Object.assign(Object.create(null),state.offsetById),controls:{...state.controls},warnings:Object.assign(Object.create(null),state.warnings),evidenced:[...state.evidenced],settled:true};
+  copyAccounting(state,next);
   const events:AgentEvent[]=[];
   closeChunk(ctx,next,events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
@@ -110,146 +112,140 @@ function startTurn(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):v
     events.push({kind:"turnState",threadId:state.sessionId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"working"});
   }
 }
-export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}, deferBounds=false):RuntimeReduction {
+export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=initial(ctx,raw,cursor);
   const events:AgentEvent[]=[];
   const ownSubmitted=submitted && ctx.claimedSends.some(claim=>claim.sendId === submitted.sendId && claim.threadId === state.sessionId) ? submitted : undefined;
+  let bounded=false;
   for (const frame of frames) {
     const params=object(frame.params);
     if (params.sessionId !== ctx.threadId) continue;
-    const submittedId=`${state.sessionId}:turn:${state.turn}:item:1`;
-    if (ownSubmitted && !state.loading && !state.settled && !state.items[submittedId]) {
-      state.ordinal=1;
-      emit(state,events,{id:submittedId,seq:0,type:"user",content:ownSubmitted.input.text});
-    }
-    if (frame.kind === "request" && clientRequest(frame.method)) { startTurn(ctx,state,events);continue; }
-    if (frame.kind !== "notification" || frame.method !== "session/update") continue;
-    const update=object(params.update);
-    const kind=text(update.sessionUpdate);
-    if (!kind) continue;
-    startTurn(ctx,state,events);
-    if (ownSubmitted && !state.loading && !state.settled && !state.evidenced.includes(ownSubmitted.sendId)) {
-      if (!events.some(event=>event.kind === "chatItem" && event.item.id === submittedId))
-        events.push({kind:"chatItem",threadId:state.sessionId,item:{...state.items[submittedId],content:ownSubmitted.input.text}});
-      state.evidenced.push(ownSubmitted.sendId);
-      events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:ownSubmitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:submittedId});
-    }
-    if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
-      const content=object(update.content);
-      if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
-      if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
-      const messageId=text(update.messageId);
-      const explicit=messageId ? `${kind}:${messageId}` : undefined;
-      if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
+    try {
+      const submittedId=`${state.sessionId}:turn:${state.turn}:item:1`;
+      if (ownSubmitted && !state.loading && !state.settled && !state.items[submittedId]) {
+        state.ordinal=1;
+        emit(state,events,{id:submittedId,seq:0,type:"user",content:ownSubmitted.input.text});
+      }
+      if (frame.kind === "request" && clientRequest(frame.method)) { startTurn(ctx,state,events);continue; }
+      if (frame.kind !== "notification" || frame.method !== "session/update") continue;
+      const update=object(params.update);
+      const kind=text(update.sessionUpdate);
+      if (!kind) continue;
+      startTurn(ctx,state,events);
+      if (ownSubmitted && !state.loading && !state.settled && !state.evidenced.includes(ownSubmitted.sendId)) {
+        if (!events.some(event=>event.kind === "chatItem" && event.item.id === submittedId))
+          events.push({kind:"chatItem",threadId:state.sessionId,item:{...state.items[submittedId],content:ownSubmitted.input.text}});
+        state.evidenced.push(ownSubmitted.sendId);
+        events.push({kind:"sendEvidence",threadId:state.sessionId,sendId:ownSubmitted.sendId,turnId:`${state.sessionId}:turn:${state.turn}`,itemId:submittedId});
+      }
+      if (kind === "user_message_chunk" || kind === "agent_message_chunk" || kind === "agent_thought_chunk") {
+        const content=object(update.content);
+        if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
+        if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
+        const messageId=text(update.messageId);
+        const explicit=messageId ? `${kind}:${messageId}` : undefined;
+        if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
+          closeChunk(ctx,state,events);
+          if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) { state.turn++;state.ordinal=0;state.seenItems=[]; }
+          state.ordinal++;
+          const id=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
+          state.chunk={kind,id,offset:0,chars:0,...(explicit ? state.offsetById[id] : {})};
+          if (explicit && state.offsetById[id] === undefined && mapBytes(state,"offsetById")+utf8Length(id)+32 > 16384) {
+            state.chunk.dropped=true;
+            emit(state,events,{id,seq:0,type:kind === "agent_thought_chunk" ? "thinking" : kind === "user_message_chunk" ? "user" : "assistant",
+              content:"[ACP row truncated: message identity budget exhausted]"});
+          }
+        }
+        const chunk=state.chunk;
+        if (chunk.dropped) continue;
+        if (kind === "user_message_chunk" && !state.loading) {
+          const claim=ctx.claimedSends.find(claim=>claim.threadId === ctx.threadId && !state.evidenced.includes(claim.sendId)
+            && claim.input.attachments.length === 0 && (chunk.chars === 0 || claim.sendId === chunk.echo)
+            && claim.input.text.slice(chunk.chars,chunk.chars+content.text.length) === content.text);
+          if (claim) chunk.echo=claim.sendId;
+          else delete chunk.echo;
+        }
+        chunk.chars+=content.text.length;
+        const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
+        const previous=state.items[chunk.id];
+        const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:"",...(type === "thinking" ? {collapsed:true} : {})};
+        events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:content.text,offset:chunk.offset}
+          : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:content.text}});
+        chunk.offset+=utf8Length(content.text);
+        putEntry(state,"items",row.id,row);
+        if (explicit) putEntry(state,"offsetById",chunk.id,{offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {})});
+        if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
+        continue;
+      }
+      if (kind === "tool_call" || kind === "tool_call_update") {
+        if (state.settled && !state.loading) continue;
         closeChunk(ctx,state,events);
-        if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) { state.turn++;state.ordinal=0;state.seenItems=[]; }
-        state.ordinal++;
-        const id=explicit ? `${state.sessionId}:turn:${state.turn}:message:${explicit}` : `${ctx.threadId}:turn:${state.turn}:item:${state.ordinal}`;
-        state.chunk={kind,id,offset:0,chars:0,...(explicit ? state.offsetById[id] : {})};
-        if (explicit && state.offsetById[id] === undefined && utf8Length(JSON.stringify(state.offsetById))+utf8Length(id)+32 > 16384) {
-          state.chunk.dropped=true;
-          emit(state,events,{id,seq:0,type:kind === "agent_thought_chunk" ? "thinking" : kind === "user_message_chunk" ? "user" : "assistant",
-            content:"[ACP row truncated: message identity budget exhausted]"});
+        const id=text(update.toolCallId);
+        const previous=id ? state.items[id] : undefined;
+        if (id && !state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
+        const row=reduceTool(update,previous,state.seq+1);
+        if (row && (previous || kind === "tool_call")) {
+          if (kind === "tool_call_update") {
+            if (update.title === undefined) { delete row.toolTitle;delete row.toolName; }
+            if (update.kind === undefined) delete row.toolKind;
+          }
+          emit(state,events,row,kind === "tool_call_update");
         }
+      } else if (kind === "plan") {
+        closeChunk(ctx,state,events);
+        const id=`${ctx.threadId}:plan`;
+        if (!state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
+        emit(state,events,planRow(ctx.threadId,update,state.items[id],state.seq+1));
+      } else if (["available_commands_update","config_option_update","session_info_update","current_mode_update"].includes(kind)) {
+        rememberControl(state,kind,update);
+        if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
+          events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{commands:commands(update.availableCommands)}});
+        if (kind === "config_option_update" && Array.isArray(update.configOptions))
+          events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:sessionSettings(update)});
+        if (kind === "current_mode_update" && typeof update.currentModeId === "string")
+          events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{mode:update.currentModeId}});
+        const compaction=object(object(update._meta).compaction);
+        if (kind !== "session_info_update" || !Object.keys(compaction).length) continue;
+        const id=text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
+        if (!state.compacted.includes(id)) {state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id});}
+      } else if (kind === "usage_update") {
+        const mapped=usage(update);
+        if (mapped) events.push({kind:"usage",threadId:ctx.threadId,usage:mapped});
+      } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
+        const id=text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
+        if (!state.compacted.includes(id)) { state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id}); }
+      } else if (kind === "agent_notice") {
+        if (typeof update.message === "string" && update.message.length)
+          events.push({kind:"notice",threadId:ctx.threadId,message:update.message.slice(0,4096)});
       }
-      const chunk=state.chunk;
-      if (chunk.dropped) continue;
-      if (kind === "user_message_chunk" && !state.loading) {
-        const claim=ctx.claimedSends.find(claim=>claim.threadId === ctx.threadId && !state.evidenced.includes(claim.sendId)
-          && claim.input.attachments.length === 0 && (chunk.chars === 0 || claim.sendId === chunk.echo)
-          && claim.input.text.slice(chunk.chars,chunk.chars+content.text.length) === content.text);
-        if (claim) chunk.echo=claim.sendId;
-        else delete chunk.echo;
-      }
-      chunk.chars+=content.text.length;
-      const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
-      const previous=state.items[chunk.id];
-      const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:"",...(type === "thinking" ? {collapsed:true} : {})};
-      events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:content.text,offset:chunk.offset}
-        : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:content.text}});
-      chunk.offset+=utf8Length(content.text);
-      state.items[row.id]=row;
-      if (explicit) state.offsetById[chunk.id]={offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {})};
-      if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
-      continue;
+      else warn(state,events,kind);
+    } finally {
+      boundState(state);
+      bounded=true;
     }
-    if (kind === "tool_call" || kind === "tool_call_update") {
-      if (state.settled && !state.loading) continue;
-      closeChunk(ctx,state,events);
-      const id=text(update.toolCallId);
-      const previous=id ? state.items[id] : undefined;
-      if (id && !state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
-      const row=reduceTool(update,previous,state.seq+1);
-      if (row && (previous || kind === "tool_call")) {
-        if (kind === "tool_call_update") {
-          if (update.title === undefined) { delete row.toolTitle;delete row.toolName; }
-          if (update.kind === undefined) delete row.toolKind;
-        }
-        emit(state,events,row,kind === "tool_call_update");
-      }
-    } else if (kind === "plan") {
-      closeChunk(ctx,state,events);
-      const id=`${ctx.threadId}:plan`;
-      if (!state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
-      emit(state,events,planRow(ctx.threadId,update,state.items[id],state.seq+1));
-    } else if (["available_commands_update","config_option_update","session_info_update","current_mode_update"].includes(kind)) {
-      rememberControl(state,kind,update);
-      if (kind === "available_commands_update" && Array.isArray(update.availableCommands))
-        events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{commands:commands(update.availableCommands)}});
-      if (kind === "config_option_update" && Array.isArray(update.configOptions))
-        events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:sessionSettings(update)});
-      if (kind === "current_mode_update" && typeof update.currentModeId === "string")
-        events.push({kind:"controlsConfirmed",threadId:ctx.threadId,settings:{mode:update.currentModeId}});
-      const compaction=object(object(update._meta).compaction);
-      if (kind !== "session_info_update" || !Object.keys(compaction).length) continue;
-      const id=text(compaction.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
-      if (!state.compacted.includes(id)) {state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id});}
-    } else if (kind === "usage_update") {
-      const mapped=usage(update);
-      if (mapped) events.push({kind:"usage",threadId:ctx.threadId,usage:mapped});
-    } else if (kind === "compaction_update" || kind === "compaction_summary_chunk") {
-      const id=text(update.id) ?? `${ctx.threadId}:compaction:${state.turn}`;
-      if (!state.compacted.includes(id)) { state.compacted.push(id);events.push({kind:"contextCompacted",threadId:ctx.threadId,itemId:id}); }
-    } else if (kind === "agent_notice") {
-      if (typeof update.message === "string" && update.message.length)
-        events.push({kind:"notice",threadId:ctx.threadId,message:update.message.slice(0,4096)});
-    }
-    else warn(state,events,kind);
   }
-  if (!deferBounds) boundState(state);
+  if (!bounded) boundState(state);
   return {state:json(state),events};
 }
 
-export function boundStreamState(raw:JsonValue):JsonValue {
-  boundState(raw as unknown as StreamState);
-  return raw;
-}
-
-function utf8Length(value:string):number {
-  let bytes=0;
-  for (const character of value) {
-    const code=character.codePointAt(0)!;
-    bytes+=code <= 0x7f ? 1 : code <= 0x7ff ? 2 : code <= 0xffff ? 3 : 4;
-  }
-  return bytes;
-}
 function boundState(state:StreamState):void {
   for (const key of ["evidenced","compacted","seenItems"] as const) state[key]=state[key].slice(-32);
-  let bytes=utf8Length(JSON.stringify(state));
+  let bytes=utf8Length(JSON.stringify({...state,items:{},controls:{},warnings:{},offsetById:{}}));
+  for (const key of mapKeys) bytes+=mapBytes(state,key)-2;
   for (const key of ["items","controls","warnings"] as const) {
     for (const id of Object.keys(state[key])) {
       if (bytes <= 47000) break;
       const value=state[key][id];
       if (id === state.chunk?.id || key === "items" && object(value).toolStatus === "running") continue;
-      bytes-=utf8Length(JSON.stringify({[id]:value}))-1;
-      delete state[key][id];
+      bytes+=removeEntry(state,key,id);
     }
   }
   for (const key of ["evidenced","compacted","seenItems"] as const) {
     while (bytes > 47000 && state[key].length) {
+      const count=state[key].length;
       const removed=state[key].shift()!;
-      bytes-=utf8Length(JSON.stringify(removed))+1;
+      bytes-=utf8Length(JSON.stringify(removed))+(count>1 ? 1 : 0);
     }
   }
 }

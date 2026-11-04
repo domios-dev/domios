@@ -8,6 +8,7 @@ import { runtimePlan as sourcePlan, runtimeResponse as sourceResponse, runtimeRe
 import { runtimeJson } from "./runtimeJson";
 import { assertRuntimePlan, assertRuntimeReduction } from "./runtimeAuthority";
 import { reduceTool } from "../src/runtimeReduceTools";
+import { fitTextReduction } from "../src/runtimeReduceBudget";
 const runtimePlan=(...args:Parameters<typeof sourcePlan>)=>{const plan=runtimeJson(sourcePlan(...args),"runtimePlan");assertRuntimePlan(args[0],args[1],plan);return plan;};
 const runtimeResponse=(...args:Parameters<typeof sourceResponse>)=>{const step=runtimeJson(sourceResponse(...args),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(args[0],args[1],step.plan);return step;};
 const runtimeReduce=(...args:Parameters<typeof sourceReduce>)=>{const reduction=runtimeJson(sourceReduce(...args),"runtimeReduce");assertRuntimeReduction(reduction);return reduction;};
@@ -417,3 +418,11 @@ for (const [name,values] of [
   assert.ok([...rows.values()][0].content.endsWith("healthy"),"continuation offset follows the visible prefix and marker");
 }
 console.log("✓ ACP serialized reduction byte limit degrades only the affected text and preserves continuation offsets");
+
+{
+  const content="x".repeat(1024*1024);
+  const state={omitted:undefined,callback:()=>null,values:[undefined,()=>null]};
+  const event:AgentEvent={kind:"chatItem",threadId:"session-fixture",item:{id:"omitted-sizing",seq:1,type:"assistant",content}};
+  const reduced=fitTextReduction(state as unknown as JsonValue,[event]);
+  assert.deepEqual(reduced.events,[event],"omitted object values and null array slots cannot consume the text budget");
+}

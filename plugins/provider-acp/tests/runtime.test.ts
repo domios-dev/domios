@@ -77,7 +77,7 @@ const names = fs.readdirSync(root).filter(name=>name.endsWith(".json")).sort();
 assert.ok(descriptor.scenarios.length > 0);
 assert.equal(new Set(descriptor.scenarios).size,descriptor.scenarios.length);
 assert.deepEqual(names,[...descriptor.scenarios].sort());
-function replayFixture(name:string):void {
+function replayFixture(name:string, splitFrames=false):AgentEvent[] {
   const fixture:Fixture = JSON.parse(fs.readFileSync(new URL(name,root),"utf8"));
   assert.equal(fixture.schemaVersion,1);
   for (const entry of fixture.operations) assertRuntimeOperation(entry.context ?? fixture.context,entry.operation);
@@ -109,13 +109,16 @@ function replayFixture(name:string):void {
         if (step.kind === "complete") events.push(...step.events ?? []);
       }
     } else {
-      const reduction = plain(hooks.runtimeReduce(record.context ?? fixture.context,state,"frames" in record ? record.frames : [record.frame]));
-      maxReductionBytes=Math.max(maxReductionBytes,Buffer.byteLength(JSON.stringify(reduction)));
-      maxReductionEvents=Math.max(maxReductionEvents,reduction.events.length);
-      state = reduction.state;
-      maxStateBytes=Math.max(maxStateBytes,Buffer.byteLength(JSON.stringify(state)));
-      assert.ok(maxStateBytes<65536,`${name}: reducer state below 64 KiB`);
-      events.push(...reduction.events);
+      const frames="frames" in record ? record.frames : [record.frame];
+      for (const batch of splitFrames ? frames.map(frame=>[frame]) : [frames]) {
+        const reduction = plain(hooks.runtimeReduce(record.context ?? fixture.context,state,batch));
+        maxReductionBytes=Math.max(maxReductionBytes,Buffer.byteLength(JSON.stringify(reduction)));
+        maxReductionEvents=Math.max(maxReductionEvents,reduction.events.length);
+        state = reduction.state;
+        maxStateBytes=Math.max(maxStateBytes,Buffer.byteLength(JSON.stringify(state)));
+        assert.ok(maxStateBytes<65536,`${name}: reducer state below 64 KiB`);
+        events.push(...reduction.events);
+      }
     }
   }
   for (const expected of fixture.expected.planErrors ?? []) {
@@ -190,10 +193,14 @@ function replayFixture(name:string):void {
     assert.equal(projected.echoes.size,3);
   }
   console.log(`✓ ACP ${name}`);
+  return events;
 }
 const fixtureFailures:string[]=[];
 for (const name of names) {
-  try { replayFixture(name); }
+  try {
+    const batch=replayFixture(name);
+    if (name === "batch-row-determinism.json") assert.deepEqual(batch,replayFixture(name,true),"batching preserves exact events, implicit row ids and seq");
+  }
   catch (error) {
     const failure=`${name}: ${String(error)}`;
     fixtureFailures.push(failure);

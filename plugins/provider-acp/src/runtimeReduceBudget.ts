@@ -1,4 +1,7 @@
 import type { AgentEvent, JsonValue, RuntimeReduction } from "@codeterm/plugin-sdk";
+import { forgetAccounting } from "./runtimeReduceAccounting";
+
+const omitted=(value:unknown):boolean=>value === undefined || typeof value === "function" || typeof value === "symbol";
 
 const MAX_BYTES=4*1024*1024-1024, MAX_EVENTS=1024, MAX_STATE_BYTES=256*1024;
 const marker="\n[ACP row truncated: runtime reduction byte limit]";
@@ -14,25 +17,27 @@ function stringBytes(value:string):{json:number;raw:number} {
   return {json,raw};
 }
 function size(value:unknown):number {
+  if (omitted(value)) return 0;
   if (typeof value === "string") return stringBytes(value).json;
   if (typeof value === "number") return Number.isFinite(value) ? String(value).length : 4;
   if (value === null) return 4;
   if (typeof value === "boolean") return value ? 4 : 5;
   if (typeof value !== "object") return MAX_BYTES+1;
-  if (Array.isArray(value)) return 2+Math.max(0,value.length-1)+value.reduce((sum,entry)=>sum+size(entry),0);
-  const entries=Object.entries(value);
+  if (Array.isArray(value)) return 2+Math.max(0,value.length-1)+value.reduce((sum,entry)=>sum+(omitted(entry) ? 4 : size(entry)),0);
+  const entries=Object.entries(value).filter(([,entry])=>!omitted(entry));
   return 2+Math.max(0,entries.length-1)+entries.reduce((sum,[key,entry])=>sum+stringBytes(key).json+1+size(entry),0);
 }
 function upperBound(value:unknown):number {
+  if (omitted(value)) return 0;
   if (typeof value === "string") return value.length*6+2;
   if (typeof value === "number") return 32;
   if (value === null || typeof value === "boolean") return 5;
   if (typeof value !== "object") return MAX_BYTES+1;
   let total=2;
   if (Array.isArray(value)) {
-    for (const entry of value) {total+=upperBound(entry)+1;if (total>MAX_BYTES) break;}
+    for (const entry of value) {total+=(omitted(entry) ? 4 : upperBound(entry))+1;if (total>MAX_BYTES) break;}
   } else {
-    for (const [key,entry] of Object.entries(value)) {total+=key.length*6+4+upperBound(entry);if (total>MAX_BYTES) break;}
+    for (const [key,entry] of Object.entries(value)) {if (omitted(entry)) continue;total+=key.length*6+4+upperBound(entry);if (total>MAX_BYTES) break;}
   }
   return total;
 }
@@ -53,6 +58,8 @@ function prefix(value:string, budget:number):{value:string;cost:number;raw:numbe
   return {value:value.slice(0,length),cost,raw};
 }
 function shift(state:JsonValue, events:AgentEvent[], index:number, id:string, removed:number):number {
+  // Budget cuts replace cursor entries after per-frame accounting has finished.
+  forgetAccounting(state);
   let delta=0;
   for (let next=index+1;next<events.length;next++) {
     const event=events[next];

@@ -121,12 +121,16 @@ retains a 500,000-character frame and its subsequent chunk in full.
 delivers multiple large updates ending in a sentinel. Each text update emits one
 row event, including the astral boundary case in `oversize-astral-cut`.
 `batch-text-1024` restores a mixed drain of small and 8–16 KiB text updates.
+`batch-row-determinism` starts a plan, emits more than 32 completed tools with
+large Unicode titles, revisits the plan and an evicted tool, then emits implicit
+text rows. Its expected events come from individual live frames; the Node harness
+also compares those events and row ids against one batched reduction.
 `batch-byte-limit` crosses the aggregate serialized-value budget while its input
 fits; `batch-event-limit` crosses the event count because a written turn adds
 Working activity. Both deliver a subsequent healthy update with the adjusted offset.
 Native replay validates each whole reduction under QuickJS and serde. The byte budget
-reserves 1 KiB below the host limit for serialization differences. Budgeting and
-state compaction run once per aggregate. The Node VM spy limits internal stringify
+reserves 1 KiB below the host limit for serialization differences. Budgeting runs
+once per aggregate; semantic bounds run per frame using cached map byte totals. The Node VM spy limits internal stringify
 and UTF-8 sizing work for `batch-text-1024` to four output-length passes plus fixed headroom; this
 checks the cost class without claiming a QuickJS timing result.
 Text is retained in full within those limits; byte-limit degradation uses a visible

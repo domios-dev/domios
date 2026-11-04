@@ -4,7 +4,7 @@ import type {
 } from "@codeterm/plugin-sdk";
 import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
-import { clientRequest, reduceStream, settleStream, boundStreamState, type StreamCursor } from "./runtimeReduce";
+import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
 import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
@@ -384,7 +384,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       window.turnRequests?.some(request=>request.sendId === claim.sendId && request.written === true
         && request.afterSequence !== undefined && sequence !== undefined && sequence > request.afterSequence))};
     const claim=frameContext.claimedSends.find(claim=>claim.threadId === ctx.threadId && claim.sendId === state.promptSend?.sendId);
-    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable && claim ? {sendId:claim.sendId,input:claim.input} : undefined,true);
+    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable && claim ? {sendId:claim.sendId,input:claim.input} : undefined);
     projection=reduced.state;events.push(...reduced.events);
   }
   const reduction={state:projection,events};
@@ -396,7 +396,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       if (model) state.settings.model=model;
     }
   }
-  const bounded=fitTextReduction(boundStreamState(projection),[...reduction.events,...prompts]);
+  const bounded=fitTextReduction(projection,[...reduction.events,...prompts]);
   state.projection=bounded.state;
   return bounded;
 }
