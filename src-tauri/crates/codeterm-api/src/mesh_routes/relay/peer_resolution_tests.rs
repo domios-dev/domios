@@ -58,6 +58,51 @@ fn mesh_peer_resolution_table() {
 }
 
 #[test]
+fn mesh_send_admission_distinguishes_registry_peer_without_link_from_unpaired() {
+    let mut mesh = mesh_with(Vec::new());
+    mesh.account_installations
+        .push(codeterm_service_core::mesh::types::AccountInstallation {
+            installation_id: LIVE_ID.into(),
+            name: "ROG".into(),
+            active: true,
+            signed_out: false,
+            membership_expires_at: None,
+            endpoint_expires_at: None,
+            instance_id: None,
+            online: false,
+        });
+    assert!(mesh.paired_peers.is_empty());
+    assert!(mesh.client_for(LIVE_ID).is_none());
+    for target in ["ROG", "rog", LIVE_ID, "dc737738"] {
+        let (status, body) = match resolve_relay_peer(&mesh, target) {
+            Ok(_) => panic!("a registry member without a link cannot receive a send"),
+            Err(error) => error,
+        };
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{target}");
+        let refusal: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert_eq!(refusal["code"], "peer_unreachable");
+        assert_eq!(refusal["bytes_written"], false);
+        assert!(refusal["message"].as_str().unwrap().contains("paired"));
+        assert!(!body.contains(PEER_NOT_PAIRED_REASON));
+    }
+    for target in ["unknown", "ROG-other"] {
+        let (status, body) = match resolve_relay_peer(&mesh, target) {
+            Ok(_) => panic!("an unknown peer cannot receive a send"),
+            Err(error) => error,
+        };
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(body.starts_with(PEER_NOT_PAIRED_REASON));
+    }
+    mesh.account_installations[0].active = false;
+    let (status, body) = match resolve_relay_peer(&mesh, "ROG") {
+        Ok(_) => panic!("a revoked registry member cannot receive a send"),
+        Err(error) => error,
+    };
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(body.starts_with(PEER_NOT_PAIRED_REASON));
+}
+
+#[test]
 fn mesh_peer_resolution_refuses_a_v1_peer_for_routed_send() {
     let mut legacy_peer = peer(LIVE_ID, "AIR", true);
     legacy_peer.relay_protocol_version = 1;

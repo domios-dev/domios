@@ -255,6 +255,19 @@ pub async fn serve_file(
     _headers: HeaderMap,
     Query(query): Query<ServeFileQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
+    tokio::task::spawn_blocking(move || serve_file_blocking(query))
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "File read worker stopped",
+            )
+        })?
+}
+
+fn serve_file_blocking(
+    query: ServeFileQuery,
+) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     // path, so comparing against the plain data_dir() always failed the prefix check (every request 403'd).
     let requested = std::path::Path::new(&query.path)
         .canonicalize()

@@ -7,6 +7,7 @@ use std::sync::Arc;
 
 pub fn build_service_context(
     states: &crate::startup::AppStates,
+    plan_store: Arc<crate::service::plan::PlanStore>,
     ui: Arc<dyn crate::ports::host::UiEvents>,
     shell: Arc<dyn crate::ports::host::Shell>,
     rt: tokio::runtime::Handle,
@@ -54,7 +55,6 @@ pub fn build_service_context(
     ));
     drop(phase);
     let phase = crate::startup::StartupStep::debug("service: plan store");
-    let plan_store = Arc::new(crate::service::plan::PlanStore::new());
     let plan_turn_counter = Arc::new(crate::service::plan::reminders::TurnCounter::new());
     plan_store.bind_turn_counter(plan_turn_counter.clone());
     drop(phase);

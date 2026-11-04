@@ -254,6 +254,7 @@ pub fn run(
     let service_quit = exact_quit.clone();
     let probe_workers = audit.is_some();
     let worker_data = identity.data().to_path_buf();
+    let initialization_api = startup_api.clone();
     let mut initializing = runtime.spawn_blocking(move || {
         codeterm_util::sensitive_state::tighten_existing(&worker_data);
         if let Ok(config) = codeterm_service_core::paths::config_path() {
@@ -306,7 +307,7 @@ pub fn run(
                     )),
                 ))
                 .map_err(|_| "native application host already registered".to_string())?;
-            startup_api.activate(
+            initialization_api.activate(
                 running
                     .service
                     .ext::<codeterm_service_core::ports::rest::LocalApiRouter>()
@@ -315,8 +316,8 @@ pub fn run(
             )?;
             Ok::<_, String>((running, worker_cli))
         })();
-        if result.is_err() {
-            startup_api.fail("initialization");
+        if let Err(error) = &result {
+            initialization_api.fail_with_error("initialization", Some(error.clone()));
         }
         result
     });
@@ -343,8 +344,8 @@ pub fn run(
             loop { tokio::select! {
                 result = &mut initializing, if running.is_none() => {
                     running = Some(result.map_err(io::Error::other).and_then(|result| result.map_err(io::Error::other)));
-                    if running.as_ref().is_some_and(Result::is_err) {
-                        return Err(io::Error::other("Service initialization failed"));
+                    if let Some(Err(error)) = &running {
+                        startup_api.fail_with_error("initialization", Some(error.to_string()));
                     }
                 }
                 result = &mut control => return result.map(|completion| Some(QuitControl::Bootstrap(completion))),
@@ -368,9 +369,27 @@ pub fn run(
     }) {
         Ok(running) => running,
         Err(error) => {
-            let _ = runtime.block_on(startup_control.shutdown_and_wait());
+            log::error!("[startup] service initialization failed: {error}");
+            let result = finish_server_control(
+                control_result,
+                || {
+                    runtime
+                        .block_on(startup_control.shutdown_and_wait())
+                        .map_err(io::Error::other)
+                },
+                |completion, cleanup| {
+                    let result = match completion {
+                        QuitControl::Bootstrap(completion) => {
+                            runtime.block_on(completion.complete(cleanup))
+                        }
+                        QuitControl::Headless => cleanup,
+                    };
+                    exact_quit.complete(&result);
+                    result
+                },
+            );
             runtime.shutdown_timeout(std::time::Duration::from_secs(6));
-            return Err(error);
+            return result;
         }
     };
     let result = finish_server_control(

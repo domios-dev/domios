@@ -104,6 +104,26 @@ fn refusal() -> Response {
         .into_response()
 }
 
+pub(super) async fn prepare(
+    State(state): State<AppState>,
+    Path(tab): Path<String>,
+    Extension(admission): Extension<Arc<Admission>>,
+) -> Response {
+    if let Err(status) = admission.count((admission.clock)()) {
+        return status.into_response();
+    }
+    match tokio::task::spawn_blocking(move || {
+        codeterm_service_core::service::local_preview::reference_inventory::prepare(
+            &state.svc, &tab,
+        )
+    })
+    .await
+    {
+        Ok(Ok(state)) => Json(state).into_response(),
+        _ => refusal(),
+    }
+}
+
 pub(super) async fn read(
     State(state): State<AppState>,
     Path(tab): Path<String>,

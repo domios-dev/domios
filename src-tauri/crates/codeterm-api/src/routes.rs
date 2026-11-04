@@ -84,6 +84,13 @@ pub(super) fn create_router_with_preview_admission(
 ) -> Router {
     let router = Router::new()
         .route(
+            "/api/tabs/{id}/preview/prepare",
+            super::local_preview_routes::bounded(
+                post(super::local_preview_routes::prepare),
+                &super::local_preview_routes::admission(),
+            ),
+        )
+        .route(
             "/api/tabs/{id}/preview/read",
             super::local_preview_routes::bounded(
                 post(super::local_preview_routes::read),
@@ -988,6 +995,7 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
     #[cfg(debug_assertions)]
     let router = router.layer(middleware::from_fn(super::request_census::record));
     router
+        .layer(middleware::from_fn(super::request_activity::record))
         .layer(middleware::from_fn(
             super::plan_quota_status::typed_plan_refusal,
         ))

@@ -20,11 +20,17 @@ pub(in crate::service_plan) fn validate(
     expected: &Connection,
 ) -> Result<(), PlanError> {
     let actual = schema(connection).map_err(db_error)?;
+    let mut statement = expected
+        .prepare("SELECT il.name FROM sqlite_schema AS s, pragma_index_list(s.name) AS il WHERE s.type = 'table' AND il.\"unique\" = 0")
+        .map_err(db_error)?;
+    let additive = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<rusqlite::Result<std::collections::HashSet<_>>>()
+        .map_err(db_error)?;
     let expected = schema(expected).map_err(db_error)?;
-    // Every declared index is additive: opening creates a missing one, so an older
-    // database may lack it. Tables, triggers and present indexes must match exactly.
     let admissible = |expected: &(String, String, String, Option<String>)| {
-        expected.0 == "index" || actual.contains(expected)
+        (expected.0 == "index" && additive.contains(&expected.1)) || actual.contains(expected)
     };
     let declared = actual.iter().all(|entry| expected.contains(entry));
     if !declared || !expected.iter().all(admissible) {

@@ -42,6 +42,55 @@ fn request(method: Method, path: &str) -> Request {
         .unwrap()
 }
 
+#[tokio::test]
+async fn deterministic_store_failure_retains_exact_cause_without_dispatch() {
+    let api = EarlyApi::new(None);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("plans.db");
+    let original = b"opaque refused database";
+    std::fs::write(&path, original).unwrap();
+    let error = codeterm_service_core::service::plan::PlanStore::open(path.clone())
+        .err()
+        .unwrap()
+        .to_string();
+    api.fail_with_error("initialization", Some(error.clone()));
+    let listener = api.router();
+    for endpoint in ["/api/health", "/api/startup", "/api/plans"] {
+        let body = json(
+            listener
+                .clone()
+                .oneshot(request(Method::GET, endpoint))
+                .await
+                .unwrap(),
+        )
+        .await;
+        let startup = if endpoint == "/api/startup" {
+            &body
+        } else {
+            &body["startup"]
+        };
+        assert_eq!(startup["state"], "failed");
+        assert_eq!(startup["error"], error);
+        assert_eq!(startup["routes_ready"], false);
+    }
+    let response = listener
+        .clone()
+        .oneshot(request(Method::POST, "/api/plans"))
+        .await
+        .unwrap();
+    assert_eq!(json(response).await["error"]["request_executed"], false);
+    let response = listener
+        .oneshot(request(Method::GET, "/api/startup/events"))
+        .await
+        .unwrap();
+    let stream = to_bytes(response.into_body(), 16 * 1024).await.unwrap();
+    assert!(std::str::from_utf8(&stream)
+        .unwrap()
+        .contains(&serde_json::to_string(&error).unwrap()));
+    assert_eq!(std::fs::read(path).unwrap(), original);
+    assert!(api.activate(Router::new()).is_err());
+}
+
 async fn json(response: Response) -> serde_json::Value {
     serde_json::from_slice(&to_bytes(response.into_body(), 16 * 1024).await.unwrap()).unwrap()
 }

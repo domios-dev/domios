@@ -26,6 +26,8 @@ enum PhaseState {
 #[derive(Clone, Debug, Serialize)]
 pub(crate) struct Readiness {
     state: PhaseState,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
     desktop_ready: bool,
     routes_ready: bool,
     subsystems: BTreeMap<&'static str, PhaseState>,
@@ -132,6 +134,7 @@ impl EarlyApi {
     fn new(token: Option<String>) -> Self {
         let readiness = Readiness {
             state: PhaseState::Starting,
+            error: None,
             desktop_ready: false,
             routes_ready: false,
             subsystems: [
@@ -233,12 +236,17 @@ impl EarlyApi {
     }
 
     pub fn fail(&self, phase: &'static str) {
+        self.fail_with_error(phase, None);
+    }
+
+    pub fn fail_with_error(&self, phase: &'static str, error: Option<String>) {
         let mut gate = self.gate.lock();
         gate.router = None;
         gate.desktop = None;
         gate.readiness.desktop_ready = false;
         gate.readiness.routes_ready = false;
         gate.readiness.state = PhaseState::Failed;
+        gate.readiness.error = error;
         gate.readiness.phases.insert(phase, PhaseState::Failed);
         self.publish(&gate.readiness, phase);
     }

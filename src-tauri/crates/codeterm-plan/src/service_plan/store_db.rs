@@ -612,3 +612,5 @@ pub(in crate::service_plan) mod hot_write;
 mod operation_retention;
 
 mod task_authority_queries;
+#[cfg(test)]
+pub(super) mod release_upgrade_tests;
