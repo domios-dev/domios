@@ -126,6 +126,22 @@ impl PlanStore {
         turn.assert_store(self);
         #[cfg(test)]
         super::super::store_db::hot_write::record_work(&receipt);
+        for spec in receipt.specs {
+            let existing = self.specs.read().get(&spec.id).cloned();
+            if let Some(existing) = existing {
+                *existing.lock() = spec.clone();
+            } else {
+                self.specs.write().insert(
+                    spec.id.clone(),
+                    std::sync::Arc::new(parking_lot::Mutex::new(spec.clone())),
+                );
+            }
+            self.spec_index.write().insert(
+                spec.id.clone(),
+                Self::spec_index_entry(&spec, self.database.path()),
+            );
+            super::super::search_index::enqueue_spec_index(turn, spec);
+        }
         if receipt.header_rows == 0 {
             return;
         }

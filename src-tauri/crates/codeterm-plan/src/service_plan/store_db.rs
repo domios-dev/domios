@@ -214,30 +214,6 @@ impl PlanDatabase {
         result
     }
 
-    pub(super) fn delete_spec(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
-        let mut connection = self.connection.lock();
-        let operation_id = queue_operation(&connection, id, "delete_spec", now_ms)?;
-        let transaction = connection
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(db_error)?;
-        transaction
-            .execute(
-                "UPDATE plan_operations SET state = 'running' WHERE id = ?1",
-                [operation_id],
-            )
-            .map_err(db_error)?;
-        transaction
-            .execute("DELETE FROM specs WHERE id = ?1", [id])
-            .map_err(db_error)?;
-        transaction
-            .execute(
-                "UPDATE plan_operations SET state = 'committed', finished_at = ?2 WHERE id = ?1",
-                params![operation_id, now_ms],
-            )
-            .map_err(db_error)?;
-        transaction.commit().map_err(db_error)
-    }
-
     pub(super) fn delete_plan(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
         let mut connection = self.connection.lock();
         let operation_id = queue_operation(&connection, id, "delete_plan", now_ms)?;
@@ -615,6 +591,7 @@ mod related_queries;
 mod search_queries;
 mod section_link_queries;
 mod task_key_queries;
+mod transactions;
 mod worker_read_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;

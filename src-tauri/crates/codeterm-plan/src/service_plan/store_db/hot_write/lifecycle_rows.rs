@@ -200,21 +200,13 @@ impl PlanDatabase {
                     ..Default::default()
                 };
                 persist::apply(&tx, patch, rollback, &mut receipt)?;
-                finish_receipt(&tx, *operation, &mut receipt)?;
+                touch_header(&tx, &mut receipt)?;
+                tx.execute("UPDATE plan_operations SET state='committed',finished_at=?2 WHERE id=?1", params![operation, now]).map_err(db_error)?;
                 receipts.push(receipt);
             }
             tx.commit().map_err(db_error)?;
             for receipt in &receipts {
-                self.pending_changes
-                    .lock()
-                    .insert(super::super::change_feed::change(
-                        &receipt.plan_id,
-                        receipt.revision,
-                        receipt.previous_revision,
-                        receipt.tasks.iter().cloned().collect(),
-                        false,
-                        false,
-                    ));
+                self.record_row_change(receipt);
             }
             Ok(receipts)
         })();
