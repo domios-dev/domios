@@ -2,13 +2,20 @@ use super::*;
 use crate::startup::rest_api::{self, RestApiControl, RestApiPhase};
 use std::net::{Ipv4Addr, SocketAddr};
 
-struct LoopbackAlias(watch::Receiver<()>);
+/// Stand-in tailnet address: 127.0.0.1 on its own port, since macOS lo0 carries no 127.0.0.2.
+fn tailnet_stand_in() -> SocketAddr {
+    std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0))
+        .and_then(|listener| listener.local_addr())
+        .expect("reserve a loopback port")
+}
+
+struct LoopbackAlias(watch::Receiver<()>, SocketAddr);
 
 #[async_trait]
 impl tailnet::AddressChanges for LoopbackAlias {
     async fn selected(&self, enabled: bool, port: u16) -> Vec<SocketAddr> {
         if enabled && port != 0 {
-            vec![(Ipv4Addr::new(127, 0, 0, 2), port).into()]
+            vec![self.1]
         } else {
             Vec::new()
         }
@@ -20,13 +27,13 @@ impl tailnet::AddressChanges for LoopbackAlias {
 }
 
 /// Detection that can fail transiently and never emits a native address notification.
-struct FlakyDetection(Arc<std::sync::atomic::AtomicBool>);
+struct FlakyDetection(Arc<std::sync::atomic::AtomicBool>, SocketAddr);
 
 #[async_trait]
 impl tailnet::AddressChanges for FlakyDetection {
     async fn selected(&self, enabled: bool, port: u16) -> Vec<SocketAddr> {
         if enabled && port != 0 && self.0.load(std::sync::atomic::Ordering::SeqCst) {
-            vec![(Ipv4Addr::new(127, 0, 0, 2), port).into()]
+            vec![self.1]
         } else {
             Vec::new()
         }
@@ -88,15 +95,12 @@ async fn transport_recovery() {
     while status.borrow_and_update().phase != RestApiPhase::Listening {
         status.changed().await.unwrap();
     }
-    let remote = SocketAddr::new(
-        Ipv4Addr::new(127, 0, 0, 2).into(),
-        control.bound_addr().unwrap().port(),
-    );
+    let remote = tailnet_stand_in();
     let detected = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let transport = mesh.lock().transport_watch();
     let task = tokio::spawn(tailnet::run_with_network(
         service.clone(),
-        FlakyDetection(detected.clone()),
+        FlakyDetection(detected.clone(), remote),
         transport,
     ));
     wait_for_ready(&mut ready, remote, true).await;
@@ -200,15 +204,12 @@ async fn lifecycle() {
         }
         status.changed().await.unwrap();
     }
-    let remote = SocketAddr::new(
-        Ipv4Addr::new(127, 0, 0, 2).into(),
-        control.bound_addr().unwrap().port(),
-    );
+    let remote = tailnet_stand_in();
     let (network_change, notifications) = watch::channel(());
     let mut network_events = service.events.subscribe();
     let task = tokio::spawn(tailnet::run_with_network(
         service.clone(),
-        LoopbackAlias(notifications),
+        LoopbackAlias(notifications, remote),
         mesh.lock().transport_watch(),
     ));
     wait_for_ready(&mut ready, remote, true).await;
