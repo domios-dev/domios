@@ -346,18 +346,10 @@ fn run_plan(
             let file = val.get("file").and_then(|v| v.as_str()).unwrap_or("?");
             let start = val.get("start_line").and_then(|v| v.as_u64()).unwrap_or(0);
             let end = val.get("end_line").and_then(|v| v.as_u64()).unwrap_or(0);
-            let editable = val
-                .get("editable")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
             println!("{file}:{start}-{end}");
-            if editable {
-                println!("body is a yaml block scalar (markdown); edit these lines in place, keep the indentation");
-            } else {
-                println!(
-                    "body is empty/inline — set it via CLI (--body/--body-file) instead of editing"
-                );
-            }
+            println!(
+                "Read-only snapshot; write through typed mutation commands (--body/--body-file)."
+            );
             return Ok(None);
         }
 

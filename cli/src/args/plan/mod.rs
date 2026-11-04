@@ -71,7 +71,7 @@ pub enum PlanAction {
     },
     /// Print only the plan's hydrated section prose (no goal, tasks, or metadata)
     Spec { plan_id: String },
-    /// File + line range of a body block, for in-place edits with file tools
+    /// Read-only body snapshot file + line range; write via typed mutation commands
     Locate {
         plan_id: String,
         /// Task id or handle

@@ -83,6 +83,8 @@ Each command's `--help` has the flags; the Docs column has the depth.
 
 Plans, tasks, Teams: `domios plan --help` / `domios task --help` / `domios team --help`, with the full rules in `domios docs PLAN-EDITING` and `domios docs ORCHESTRATION`. Orchestrator, Planner and Worker launches carry their own flag contract.
 
+Plan bodies live in the database. `domios plan locate` returns a read-only requested-body snapshot with exact file lines; changing that file does not update the plan. Write with typed mutation commands (`--body` / `--body-file`); see `domios docs PLAN-EDITING`.
+
 The live Plan owner may complete pending, blocked or in-progress work directly with `domios plan task close <plan> <task> --result-file <file>`, or `domios plan record <plan> --task <task> --status done --step status_update:@<file>`. A nonblank result note is required for that task. Workers submit reports for review.
 
 Workers default to full machine access for either execution intent. Execution intent limits task and report authority, not OS permissions. Use the default launch policy for project workers; General Agent owns concierge confinement setup. Saved launch policies remain immutable.
