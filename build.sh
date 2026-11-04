@@ -930,6 +930,7 @@ fi
 
 source scripts/cache-policy.sh
 source scripts/build-gateway.sh
+source scripts/stable-build-path.sh
 source scripts/nextest-archive.sh
 source scripts/lane-check.sh
 source scripts/release-signing.sh
@@ -1062,16 +1063,14 @@ enter_stable_build_path() {
   [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = production ] || return 0
   case "$OSTYPE" in msys*|cygwin*|win32) ;; *) return 0 ;; esac
   local drive="${CODETERM_STABLE_BUILD_DRIVE:-X}" lower
+  drive="$(printf '%s' "$drive" | tr 'a-z' 'A-Z')"
+  case "$drive" in [A-Z]) ;; *) echo "ERROR: stable build drive must be one letter" >&2; return 2 ;; esac
   if ! ct_gateway_owned_by_caller; then
     echo "ERROR: stable build mapping requires the exact production gateway owner" >&2
     return 75
   fi
   lower="$(printf '%s' "$drive" | tr 'A-Z' 'a-z')"
-  MSYS2_ARG_CONV_EXCL='*' subst "$drive:" /D >/dev/null 2>&1 || true
-  if ! MSYS2_ARG_CONV_EXCL='*' subst "$drive:" "$(cygpath -w "$CT_REAL_WORKTREE")" >/dev/null 2>&1; then
-    echo "[cache-policy] stable build path unavailable; building from $CT_REAL_WORKTREE" >&2
-    return 0
-  fi
+  ct_stable_mapping acquire "$drive" || return $?
   CT_STABLE_BUILD_DRIVE_MAPPED="$drive"
   CT_STABLE_BUILD_JOB_ID="$CT_BUILD_JOB_ID"
   cd "/$lower"
@@ -1082,21 +1081,21 @@ release_stable_build_path() {
   [ -n "${CT_STABLE_BUILD_DRIVE_MAPPED:-}" ] || return 0
   [ "${CT_BUILD_GATEWAY_SCOPE:-production}" = production ] || return 0
   [ -n "${CT_STABLE_BUILD_JOB_ID:-}" ] || return 0
-  [ "$(cat "$(ct_gateway_dir)/lock/job_id" 2>/dev/null)" = "${CT_STABLE_BUILD_JOB_ID:-}" ] || return 0
+  [ "$CT_BUILD_JOB_ID" = "$CT_STABLE_BUILD_JOB_ID" ] || return 75
   cd "${CT_REAL_WORKTREE:-/}" 2>/dev/null || cd /
-  MSYS2_ARG_CONV_EXCL='*' subst "$CT_STABLE_BUILD_DRIVE_MAPPED:" /D >/dev/null 2>&1 || true
+  ct_stable_mapping release "$CT_STABLE_BUILD_DRIVE_MAPPED" || return $?
   CT_STABLE_BUILD_DRIVE_MAPPED=""
 }
 
 enter_build_gateway() {
-  ct_gateway_acquire "$*"
+  ct_gateway_acquire "$*" || return $?
   local gateway_log
   CT_BUILD_ARTIFACT_DIR="$(ct_gateway_dir)/jobs/$CT_BUILD_JOB_ID.artifacts"
   mkdir -p "$CT_BUILD_ARTIFACT_DIR"
   export CT_BUILD_ARTIFACT_DIR
   gateway_log="$(ct_gateway_log_path)"
   echo "Build gateway job $CT_BUILD_JOB_ID log: $gateway_log"
-  [ "$CMD" = check-queue ] || [ "$CMD" = check-workspace ] || enter_stable_build_path
+  [ "$CMD" = check-queue ] || [ "$CMD" = check-workspace ] || enter_stable_build_path || return $?
   # Runs after the stable mapping so retention sees X: and refreshes the recorded gateway build directory.
   if [ "$CMD" != gc ]; then
     ct_cache_retention auto || echo "[cache-policy] retention refused; build continues" >&2
@@ -1167,6 +1166,7 @@ prepare_release_target() {
     exit 2
   fi
   export CARGO_TARGET_DIR="$dir"
+  ct_select_build_dir
   export CARGO_INCREMENTAL=0
   export CODETERM_ALLOW_EXTERNAL_TARGET=1
   mkdir -p "$CARGO_TARGET_DIR"
@@ -1746,6 +1746,7 @@ prepare_bundle_stubs() {
 }
 
 prepare_nextest_metadata() {
+  ct_select_build_dir >&2 || return $?
   node "${CT_GATEWAY_SCRIPT_ROOT:-.}/scripts/nextest-metadata-cache.mjs" "$@"
 }
 
@@ -1864,10 +1865,11 @@ check_queue_worktree() {
 }
 
 enter_check_worktree() {
-  enter_cargo_gateway "$CMD $1"
-  CT_CHECK_WORKTREE="$(check_queue_worktree "$1")"
-  cd "$CT_CHECK_WORKTREE"
-  enter_stable_build_path "$CT_CHECK_WORKTREE"
+  enter_cargo_gateway "$CMD $1" || return $?
+  CT_CHECK_WORKTREE="$(check_queue_worktree "$1")" || return $?
+  cd "$CT_CHECK_WORKTREE" || return $?
+  enter_stable_build_path "$CT_CHECK_WORKTREE" || return $?
+  ct_select_build_dir "$CT_CHECK_WORKTREE/target/app" || return $?
   prepare_dev_frontend_dist "$CT_CHECK_WORKTREE"
   prepare_bundle_stubs
   unset CARGO_INCREMENTAL
@@ -2629,9 +2631,11 @@ prepare_release_bundle_inputs() {
 
 enter_cargo_gateway() {
   dev_build_phase gateway-enter.begin
-  enter_build_gateway "$@"
+  enter_build_gateway "$@" || return $?
+  if [ -z "${CARGO_TARGET_DIR:-}" ]; then export CARGO_TARGET_DIR="$(pwd -P)/src-tauri/target"; fi
+  ct_select_build_dir || return $?
   dev_build_phase gateway-enter.end
-  ct_configure_sccache
+  ct_configure_sccache || return $?
   dev_build_phase cache-setup.end
 }
 
