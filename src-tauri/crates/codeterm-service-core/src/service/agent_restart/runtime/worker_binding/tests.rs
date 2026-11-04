@@ -41,51 +41,53 @@ fn completed_current_session_generation_is_exact_for_the_own_pty_tab() {
 
 #[test]
 fn completed_history_requires_exact_authenticated_terminal_attempt() {
-    use crate::plan::TaskExecutionAttempt;
+    use crate::service::plan::RestartAttemptRead;
     let (mut mux, id) = MultiplexerState::new();
     let tab = mux.get_tab_mut(&id).unwrap();
     tab.agent_type = Some("source".into());
     tab.agent_session_id = Some("session".into());
     tab.session_binding_nonce = Some("nonce".into());
     tab.reported_session_binding_nonce = Some("nonce".into());
-    let exact = TaskExecutionAttempt {
+    let exact = RestartAttemptRead {
         executor_tab_id: id,
         provider: Some("source".into()),
         session_id: Some("session".into()),
         session_binding_nonce: Some("nonce".into()),
         acknowledged_at: Some(1),
         closed_at: Some(2),
-        ..Default::default()
+        id: "attempt".into(),
+        owner_epoch: 0,
+        retired_at: None,
     };
     assert!(super::completed_attempt_matches(
         tab, &exact, "source", "nonce"
     ));
     for invalid in [
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             executor_tab_id: "foreign".into(),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             provider: Some("foreign".into()),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             session_id: Some("foreign".into()),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             session_binding_nonce: Some("foreign".into()),
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             acknowledged_at: None,
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             closed_at: None,
             ..exact.clone()
         },
-        TaskExecutionAttempt {
+        RestartAttemptRead {
             retired_at: Some(3),
             ..exact.clone()
         },

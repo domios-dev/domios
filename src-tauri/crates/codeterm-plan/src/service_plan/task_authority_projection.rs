@@ -97,3 +97,9 @@ pub(super) mod startup;
 
 mod continuity;
 pub use continuity::{TaskContinuityDigest, TaskContinuityRead};
+
+mod restart;
+pub use restart::{
+    CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
+    TaskRestartQuery,
+};
