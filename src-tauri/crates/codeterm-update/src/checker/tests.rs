@@ -24,6 +24,35 @@ fn release_resolution_uses_published_asset_urls() {
     ]);
 }
 
+#[tokio::test]
+async fn discovery_uses_primary_then_fallback_only_on_failure() {
+    for primary_fails in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let mut calls = Vec::new();
+        let result = resolve_with(
+            &InstallMethod::Unknown,
+            super::super::Channel::Stable,
+            root.path().into(),
+            |url| {
+                calls.push(url.clone());
+                std::future::ready(if primary_fails && calls.len() == 1 {
+                    Err("offline".into())
+                } else {
+                    Ok(resolved("9.0.0").manifest)
+                })
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.manifest.version, "9.0.0");
+        assert!(calls[0].contains(UPDATE_REPOSITORIES[0]));
+        assert_eq!(calls.len(), if primary_fails { 2 } else { 1 });
+        if primary_fails {
+            assert!(calls[1].contains(UPDATE_REPOSITORIES[1]));
+        }
+    }
+}
+
 #[test]
 fn failed_refresh_preserves_manifest_and_reports_failure() {
     let cached = ResolvedManifest {
