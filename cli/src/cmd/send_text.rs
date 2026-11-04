@@ -85,7 +85,15 @@ pub fn analyze_send_text_response(value: &serde_json::Value) -> SendTextOutcome 
             .and_then(serde_json::Value::as_str)
             .map_or_else(
                 || message.clone(),
-                |id| format!("send_id={id}: {message}\ninspect: domios tab send-status {id}"),
+                |id| {
+                    let inspection =
+                        format!("send_id={id}: {message}\ninspect: domios tab send-status {id}");
+                    if id.starts_with("agent-pty:") {
+                        format!("{inspection}\ncancel held input: domios tab send-cancel {id}")
+                    } else {
+                        inspection
+                    }
+                },
             );
         return SendTextOutcome::Error {
             msg: message,
