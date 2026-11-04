@@ -2,8 +2,10 @@ use super::{PlanError, PlanStore};
 use crate::plan::{
     Goal, OrchestratorRef, PlanStatus, PlannerInboxEntry, PlannerRef, PlannerRequest,
 };
+pub(super) mod cleanup;
 mod coverage;
 mod manifest;
+mod regression;
 mod tags;
 
 #[derive(Debug, serde::Deserialize)]

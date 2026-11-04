@@ -162,3 +162,6 @@ fn document_metadata_in(
 
 mod manifest;
 mod tags;
+
+mod cleanup;
+mod regression;
