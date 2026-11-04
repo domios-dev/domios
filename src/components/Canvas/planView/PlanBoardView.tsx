@@ -1,3 +1,5 @@
+import type { PlanTaskView as Task } from "../planProjection";
+import type { Section } from "../types";
 import type { PlanView as Plan } from "../planProjection";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Tab } from "../../../lib/types";
@@ -7,7 +9,7 @@ import type { PlanViewSurfaceProps } from "../planViewSurfaceProps";
 import { archivePlan, deleteTask, fetchSpecSections, renamePlan, unarchivePlan } from "../plansApi";
 import type { PlanIndexEntry } from "../plansApi";
 import { fixtureSpecSectionsByPlan } from "../perfFixture";
-import { type PlanStatus, type PlanTaskBoardColumnKey, type PlanTaskBoardSummary, type Section, type Task } from "../types";
+import { type PlanStatus, type PlanTaskBoardColumnKey, type PlanTaskBoardSummary } from "../types";
 import { usePlanTaskBoard } from "../usePlans";
 import { collectTabChain } from "../planTabMatch";
 import {

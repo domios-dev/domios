@@ -140,6 +140,7 @@ impl PlanStore {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn commit_loaded_plan(&self, plan: Plan) -> Result<(), PlanError> {
         let turn = self.mutation_writer.enter();
         self.commit_loaded_plan_in_writer(&turn, plan)

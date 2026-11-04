@@ -1,9 +1,10 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useCallback, useEffect, useState } from "react";
 import type { ViewportBox, ViewportTransform } from "@codeterm/canvas-camera";
 import { CANVAS_MIN_SCALE, CANVAS_MAX_SCALE } from "@codeterm/canvas-camera";
 import { resolveFlyToNodeId } from "../flyToTarget";
 import type { SectionNavArgs } from "../nodeRegistry";
-import type { Plan } from "../types";
+
 import type { CanvasLookups } from "./models";
 import type { NavEntry, NavKind } from "./useCanvasNavHistory";
 

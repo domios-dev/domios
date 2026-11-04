@@ -35,7 +35,7 @@ fn permission_provider(id: &str, sandboxed: bool) -> crate::agent::test_provider
 }
 
 #[test]
-fn runtime_workers_default_to_full_access_independently_of_global_choice_and_intent() {
+fn runtime_agents_default_to_full_access_independently_of_global_choice_and_intent() {
     use crate::service::test_fixture::ServiceFixture;
 
     let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
@@ -45,71 +45,95 @@ fn runtime_workers_default_to_full_access_independently_of_global_choice_and_int
             .agent_registry
             .register_provider(Box::new(permission_provider(provider, sandboxed)));
         for choice in [None, Some(false), Some(true)] {
-            fixture
-                .service
-                .ext::<crate::config::ConfigState>()
-                .lock()
-                .agent
-                .full_access = choice;
-            for intent in [
-                crate::plan::ExecutionIntent::ReadOnly,
-                crate::plan::ExecutionIntent::Mutating,
+            fixture.set_agent_full_access_choice(choice);
+            use codeterm_types::agent::role_kind::builtins;
+            for (role, profile) in [
+                ("Manager", Some(builtins::ORCHESTRATOR)),
+                ("Manager", Some(builtins::PLANNER)),
+                ("Manager", Some(builtins::CURATOR)),
+                ("Manager", Some(builtins::GENERAL_AGENT)),
+                ("Worker", None),
+                ("Manager", Some("opaque-manager")),
             ] {
-                let params = SpawnAgentParams {
-                    role: Some("Worker".into()),
-                    execution_intent: Some(intent),
-                    ..Default::default()
-                };
-                let authorized = authorize(&fixture.service, &provider, Some(&params)).unwrap();
-                assert!(authorized.permission_bypass_requested(&provider));
-                assert_eq!(
-                    runtime_launch_mode(authorized.permission_bypass_requested(&provider)),
-                    "full-access"
-                );
-                assert!(crate::service::execution_sandbox::resolve_requested(
-                    &fixture.service.agent_registry,
-                    &provider,
-                    &authorized,
-                    true,
-                )
-                .unwrap()
-                .is_none());
-                let command = crate::service::orchestrator::build_agent_command(
-                    &provider,
-                    &authorized,
-                    None,
-                    None,
-                    &fixture.service.agent_registry,
-                );
-                assert!(!command.is_empty());
-                let flags = fixture
-                    .service
-                    .agent_registry
-                    .with_provider(&provider, |provider| provider.auto_approve_flags())
-                    .unwrap();
-                assert!(!flags.is_empty());
-                for flag in flags {
-                    assert!(command.contains(&flag));
-                }
-                assert!(!command.contains("--sandbox"));
-                assert!(!command.contains("workspace-write"));
-                assert!(!command.contains("read-only"));
-                for sandbox in ["read-only", "workspace-write"] {
-                    let confined = SpawnAgentParams {
-                        sandbox: Some(sandbox.into()),
-                        ..params.clone()
+                for intent in [
+                    crate::plan::ExecutionIntent::ReadOnly,
+                    crate::plan::ExecutionIntent::Mutating,
+                ] {
+                    let params = SpawnAgentParams {
+                        role: Some(role.into()),
+                        role_profile: profile.map(str::to_owned),
+                        execution_intent: Some(intent),
+                        ..Default::default()
                     };
-                    let authorized =
-                        authorize(&fixture.service, &provider, Some(&confined)).unwrap();
-                    assert!(!authorized.permission_bypass_requested(&provider));
-                }
-                let refused = SpawnAgentParams {
-                    skip_permissions: Some(false),
-                    ..params
-                };
-                assert!(!authorize(&fixture.service, &provider, Some(&refused))
+                    let pty_authorization = permission_policy::spawn_permission_bypass_for_launch(
+                        &fixture.service,
+                        &provider,
+                        role == "Worker",
+                        false,
+                        Some(&params),
+                    )
+                    .unwrap();
+                    assert!(pty_authorization.is_some(), "{role} {choice:?} {provider}");
+                    let authorized = authorize(&fixture.service, &provider, Some(&params)).unwrap();
+                    assert!(authorized.permission_bypass_requested(&provider));
+                    assert_eq!(
+                        runtime_launch_mode(authorized.permission_bypass_requested(&provider)),
+                        "full-access"
+                    );
+                    assert!(crate::service::execution_sandbox::resolve_requested(
+                        &fixture.service.agent_registry,
+                        &provider,
+                        &authorized,
+                        true,
+                    )
                     .unwrap()
-                    .permission_bypass_requested(&provider));
+                    .is_none());
+                    let command = crate::service::orchestrator::build_agent_command(
+                        &provider,
+                        &authorized,
+                        None,
+                        None,
+                        &fixture.service.agent_registry,
+                    );
+                    assert!(!command.is_empty());
+                    let flags = fixture
+                        .service
+                        .agent_registry
+                        .with_provider(&provider, |provider| provider.auto_approve_flags())
+                        .unwrap();
+                    assert!(!flags.is_empty());
+                    for flag in flags {
+                        assert!(command.contains(&flag));
+                    }
+                    assert!(!command.contains("--sandbox"));
+                    assert!(!command.contains("workspace-write"));
+                    assert!(!command.contains("read-only"));
+                    for sandbox in ["read-only", "workspace-write"] {
+                        let confined = SpawnAgentParams {
+                            sandbox: Some(sandbox.into()),
+                            ..params.clone()
+                        };
+                        let authorized =
+                            authorize(&fixture.service, &provider, Some(&confined)).unwrap();
+                        assert!(!authorized.permission_bypass_requested(&provider));
+                        assert!(permission_policy::spawn_permission_bypass_for_launch(
+                            &fixture.service,
+                            &provider,
+                            role == "Worker",
+                            true,
+                            Some(&confined),
+                        )
+                        .unwrap()
+                        .is_none());
+                    }
+                    let refused = SpawnAgentParams {
+                        skip_permissions: Some(false),
+                        ..params
+                    };
+                    assert!(!authorize(&fixture.service, &provider, Some(&refused))
+                        .unwrap()
+                        .permission_bypass_requested(&provider));
+                }
             }
         }
     }

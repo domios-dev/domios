@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "../Canvas/planProjection";
 export type { TeamTaskBucket } from "./teamTaskStatus";
 import { EMPTY_BUCKETS, deriveCardStatusCounts, deriveTeamTaskBuckets, type TeamTaskBucket } from "./teamTaskStatus";
 import { createNoticePublisher } from "../../lib/notices";
@@ -10,7 +11,7 @@ import type { ModelInfo, Tab, ProviderDescriptor, Team } from "../../lib/types";
 import type { TeamCloseInventory, TeamMemberRole } from "../../lib/teamActions";
 import { ProviderGlyph } from "../ProviderGlyph";
 import { groupOptionsByLabel } from "../../lib/optionGroups";
-import type { Plan } from "../Canvas/types";
+
 import { SidebarSectionHeader } from "./SidebarSectionHeader";
 import { AnchoredPopover } from "../shared/AnchoredPopover";
 import { ActivityDots } from "../shared/ActivityDots";

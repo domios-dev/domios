@@ -23,6 +23,31 @@ pub(super) fn start(
         selection,
     } = target;
     let session_id = ownership.select_session(session_id);
+    if session_id.is_none() {
+        if let Err(error) = crate::service::execution_sandbox::enforce_delegation_ceiling(
+            svc,
+            &crate::service::SpawnAgentParams::default(),
+            None,
+        ) {
+            fail_general_agent_start(svc, mux, &tab_id, &error);
+            return;
+        }
+    }
+    let permission_bypass = if session_id.is_some() {
+        match crate::service::permission_policy::permission_bypass_for_tab(
+            svc,
+            provider_name,
+            &tab_id,
+        ) {
+            Ok(authorization) => authorization.is_some(),
+            Err(error) => {
+                fail_general_agent_start(svc, mux, &tab_id, &error);
+                return;
+            }
+        }
+    } else {
+        permission_bypass
+    };
     let general_cwd = general_dir().to_string_lossy().to_string();
     let mut fresh_prompt = (ownership == LaunchOwnership::FreshSession).then(|| {
         instructions::render_system_prompt(

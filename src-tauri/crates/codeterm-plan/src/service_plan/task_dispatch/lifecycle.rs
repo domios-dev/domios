@@ -148,7 +148,7 @@ impl PlanStore {
             runtime_binding,
             enforce_runtime_binding,
         )?;
-        let Some((current_attempt, competitive)) = current.current(tab_id) else {
+        let Some((current_attempt, _)) = current.current(tab_id) else {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
                 "attempt no longer owns the acknowledging tab",

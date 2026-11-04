@@ -24,7 +24,7 @@ function record(value: unknown): Row | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Row : null;
 }
 
-function* publicAccountId(host: Host): HostIoSteps<string> {
+function* publicAccountId(): HostIoSteps<string> {
   let credential: Row | null = null;
   try {
     const raw = (yield* ioJson({ op: "credentialPublic", id: CODEX_AUTH_CREDENTIAL }, true));
@@ -59,7 +59,7 @@ export function createCodexCloudTransport(host: Host): CloudTaskTransport {
     const legacyRequest = path.startsWith("/wham/");
     const codexTaskRequest = isCodexTaskPath(method, path);
     if (accountRef !== CODEX_CLOUD_ACCOUNT_REF || (!settingsRequest && !legacyRequest && !codexTaskRequest)) throw new CloudTransportError();
-    const accountId = (yield* publicAccountId(host));
+    const accountId = (yield* publicAccountId());
     let result: unknown;
     try {
       result = JSON.parse((yield* ioEncoded(host.io.fetch({

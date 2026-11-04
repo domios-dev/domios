@@ -1,3 +1,4 @@
+import type { PlanView } from "./planProjection";
 import { TaskPriority, TaskStatus, type Plan, type Section } from "./types";
 import type { Tab } from "../../lib/types";
 import { milestone, plan, task } from "./layout/fixtures";
@@ -320,7 +321,7 @@ export function buildPerfFixturePlans(n: number): Plan[] {
   })];
 }
 
-export function buildPerfFixtureTabs(plans: Plan[]): Record<string, Tab> {
+export function buildPerfFixtureTabs(plans: PlanView[]): Record<string, Tab> {
   const tabs: Record<string, Tab> = {};
   const add = (id: string | null | undefined, title: string) => {
     const pid = id?.trim();

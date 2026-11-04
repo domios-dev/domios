@@ -886,3 +886,74 @@ fn terminal_worker_close_refuses_ambiguous_or_foreign_executor_identity() {
             .unwrap());
     }
 }
+
+#[test]
+fn normal_and_force_close_release_orphan_binding_after_plan_or_task_deletion() {
+    for deleted_plan in [false, true] {
+        for force in [false, true] {
+            for incomplete_attempt in [false, true] {
+                let (fixture, draft) = fixture();
+                let svc = &fixture.service;
+                let tab_id = &draft.source_attempt.executor_tab_id;
+                let workspace = svc.mux.read().find_workspace_for_tab(tab_id).unwrap();
+                {
+                    let mut mux = svc.mux.write();
+                    let tab = mux.get_tab_mut(tab_id).unwrap();
+                    tab.worker_id = Some("orphan-worker".into());
+                    if incomplete_attempt {
+                        tab.task_binding.as_mut().unwrap().attempt_id = None;
+                    }
+                }
+                if deleted_plan {
+                    svc.plan_store.delete("plan").unwrap();
+                } else {
+                    svc.plan_store
+                        .with_plan("plan", 2, |plan| {
+                            plan.tasks.clear();
+                            Ok(())
+                        })
+                        .unwrap();
+                }
+                let warnings = svc.close_tab_guarded(Some("owner"), tab_id, force).unwrap();
+                assert!(warnings.is_empty());
+                let mux = svc.mux.read();
+                assert!(mux.get_tab(tab_id).is_none());
+                assert!(!mux.all_tabs().any(|tab| tab
+                    .task_binding
+                    .as_ref()
+                    .is_some_and(|binding| binding.plan_id.as_deref() == Some("plan"))));
+                let closed = mux.list_recently_closed(&workspace);
+                let record = closed
+                    .iter()
+                    .find(|record| record.tab_id == *tab_id)
+                    .unwrap();
+                assert!(record.worker_id.is_none());
+                assert!(record.restorable_launch.worker_restart.is_none());
+                drop(mux);
+                if deleted_plan {
+                    assert!(svc.plan_store.get("plan").is_none());
+                } else {
+                    assert!(svc.plan_store.get("plan").unwrap().tasks.is_empty());
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn executor_close_releases_binding_when_plan_disappears_during_termination() {
+    let (fixture, draft) = fixture();
+    fixture
+        .service
+        .retire_respawn_executor_with(&draft, |_| {
+            fixture.service.plan_store.delete("plan").unwrap();
+            Ok(())
+        })
+        .unwrap();
+    let mux = fixture.service.mux.read();
+    assert!(mux.get_tab(&draft.source_attempt.executor_tab_id).is_none());
+    assert!(!mux.all_tabs().any(|tab| tab
+        .task_binding
+        .as_ref()
+        .is_some_and(|binding| binding.plan_id.as_deref() == Some("plan"))));
+}

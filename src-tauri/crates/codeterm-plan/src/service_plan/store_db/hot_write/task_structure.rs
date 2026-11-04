@@ -9,7 +9,7 @@ impl PlanDatabase {
         selector: Option<&str>,
         now: u64,
     ) -> Result<(Vec<String>, CommittedRows), PlanError> {
-        let mut ids = Vec::new();
+        let mut ids: Vec<String> = Vec::new();
         let receipt = self.hot_transaction(plan_id, now, |tx, receipt| {
             let selected = selector.map(|selector| resolve_task(tx, plan_id, selector, receipt)).transpose()?;
             let review: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND (?2 IS NULL OR task_id=?2) AND status='in_review')", params![plan_id, selected], |row| row.get(0)).map_err(db_error)?;

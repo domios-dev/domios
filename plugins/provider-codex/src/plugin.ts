@@ -5,7 +5,11 @@ import { sessionRecords, type SessionRecordInput } from "../../provider-shared/s
 import { buildCodexLaunchSpec, codexCommandFromSpec, CODEX_LAUNCH_CONFIG, hostOwnedCodexLaunchArgs } from "./launchSpec";
 import { cloudExports } from "./cloud/plugin";
 
-import { storedHistoryAvailable } from "./runtimeStoredHistory";
+import { runtimeStoredHistory, runtimeStoredRecords, storedHistoryAvailable } from "./runtimeStoredHistory";
+import { runtimePlan, runtimeResponse, runtimeReduce } from "./runtime";
+import { parseSessionObservations } from "./signals";
+import { updatePromptSafeChoice } from "../../provider-shared/updatePrompt";
+import { codexProfileInstanceId, codexProfileTabId, inspectCodexProfiles, sweepCodexProfiles } from "./profile-sweep";
 import { codexToolOutputText } from "./toolOutput";
 
 import type { LaunchParams, LaunchSessionDetection, LaunchSessionEvidence, ModelInfo, ParsedPrompt, PluginModule, ResumeParams, SessionDeltaContext, TabState } from "@codeterm/plugin-sdk";
@@ -383,7 +387,7 @@ const plugin = {
 
   // Codex 0.153 has no per-session JSONL transcript; keep the path capability honest.
   *sessionJsonlPath(cwd: string, sessionId: string): HostIoSteps<string | null> {
-    return (yield* this.sessionFilePath!(cwd, sessionId));
+    return (yield* resolveCodexSessionFilePath(cwd, sessionId));
   },
 
   // Duplicated by design across provider bundles (QuickJS, no imports) — parity guarded by provider-helper-parity.test.ts.

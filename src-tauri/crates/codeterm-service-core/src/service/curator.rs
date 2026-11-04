@@ -149,11 +149,16 @@ impl ServiceContext {
             .map_err(|error| error.to_string())?;
         let read = self
             .plan_store
-            .status_projection(plan_id, now)
+            .curator_schedule_projection(plan_id)
             .map_err(|error| error.to_string())?;
-        let plan = read.plan();
-        let mut state = plan.control_loop.clone();
-        state.suspended_reason = self.curator_suspended_reason(&plan);
+        let metadata = read.metadata();
+        let mut state = metadata.control_loop.clone();
+        state.suspended_reason = self.curator_suspended_reason_for_fields(
+            &metadata.mode,
+            &metadata.status,
+            &metadata.team_id,
+            read.complete(),
+        );
         if state.suspended_reason.is_some() {
             state.next_at = None;
         }

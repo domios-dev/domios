@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::collections::HashSet;
 
 use super::{PlanError, PlanStore};
-use crate::plan::{Plan, Section, Task};
+use crate::plan::{Section, Task};
 
 mod inputs;
 pub(super) use inputs::{SectionLinkInput, SectionLinkSource};

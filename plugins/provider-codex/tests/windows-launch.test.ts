@@ -27,7 +27,7 @@ if (process.platform !== "win32") {
         fs: { writeTempFile: () => taskPath }, shell: { quoteFor: quote },
       },
     };
-    vm.runInNewContext(ioTestContext(fs.readFileSync("plugins/provider-codex/plugin.js", "utf8")), context);
+    vm.runInNewContext(fs.readFileSync("plugins/provider-codex/plugin.js", "utf8"), ioTestContext(context));
     const provider = context.module.exports.default;
     const command = provider.buildLaunchCommand({ task: token, silent: true, instanceId: "instance-launch-test" });
     assert.equal((command.match(/-c check_for_update_on_startup=false/g) || []).length, 1);

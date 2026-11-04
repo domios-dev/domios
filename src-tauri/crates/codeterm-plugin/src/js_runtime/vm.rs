@@ -592,7 +592,7 @@ pub(super) fn call_in_operation<R: serde::de::DeserializeOwned>(
     context.check()?;
     let args = Arguments::prepare(method, args)
         .map_err(|error| VmError::ArgSerialize(method.into(), error))?;
-    call_prepared(vm, method, &args, false, context)
+    call_prepared_blocking(vm, method, &args, false, context)
 }
 
 pub(super) fn call_records<R: serde::de::DeserializeOwned>(
@@ -609,21 +609,12 @@ pub(super) fn call_records<R: serde::de::DeserializeOwned>(
 }
 
 fn blocking_dispatch<T>(work: impl FnOnce() -> Result<T, VmError>) -> Result<T, VmError> {
-    if tokio::runtime::Handle::try_current().is_err() {
-        return work();
-    }
-    // Blocking pool threads inherit handles; Tokio owns the blocking-entry check.
-    let entered = std::cell::Cell::new(false);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        tokio::task::block_in_place(|| {
-            entered.set(true);
-            work()
-        })
-    }));
-    match result {
-        Ok(result) => result,
-        Err(_) if !entered.get() => Err(VmError::OffRuntimeRequired),
-        Err(panic) => std::panic::resume_unwind(panic),
+    match tokio::runtime::Handle::try_current() {
+        Err(_) => work(),
+        Ok(runtime) if runtime.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            tokio::task::block_in_place(work)
+        }
+        Ok(_) => Err(VmError::OffRuntimeRequired),
     }
 }
 

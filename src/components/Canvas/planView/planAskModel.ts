@@ -1,7 +1,8 @@
+import type { PlanView as Plan } from "../planProjection";
 import { tabActivity } from "../../../lib/tabActivity";
 import type { Tab, TabStatus } from "../../../lib/types";
 import { ownerName, ownerTabId } from "../owner";
-import type { Plan } from "../types";
+
 import type { PlanAskReference } from "./planAskMapping";
 
 export interface PlanAskReadyOwner {
