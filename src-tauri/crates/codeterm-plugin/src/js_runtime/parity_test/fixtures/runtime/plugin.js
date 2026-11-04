@@ -6,7 +6,7 @@ module.exports = {
     return value.messages;
   },
   runtimePlan(ctx, op) {
-    if (ctx.providerSettings.localResume === true) return {action:{kind:"local"},state:null};
+    if (ctx.providerSettings && ctx.providerSettings.localResume === true) return {action:{kind:"local"},state:null};
     if (op.kind === 'control' && op.action === 'refuse') return {action:{kind:'refused',reason:op.value},state:null};
     if (op.kind === 'answerQuestion') return {action:{kind:'questionAnswer',input:{text:op.answers.flatMap(answer=>answer.values).join('\n'),attachments:[]}},state:null};
     if (op.kind === 'answer') return {action:{kind:'reply',requestId:op.requestId,result:{kind:'success',value:op.answer}},state:null};
