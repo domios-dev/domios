@@ -453,7 +453,8 @@ impl ServiceContext {
         let mirror = resolve_mirror(&tab)?;
         let mirror = self.available_mirror(mirror)?;
         let since = read.since();
-        let mut rows = std::collections::BTreeMap::new();
+        let mut rows: std::collections::BTreeMap<String, Vec<digest::Row>> =
+            std::collections::BTreeMap::new();
         let notices = super::movement_sources::capture_notices(self, &plan.team_id);
         let candidates = self.curator_save_candidates(&plan.id, &plan.team_id, now)?;
         for (id, episodes) in candidates
