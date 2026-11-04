@@ -17,6 +17,7 @@ pub use capture::close_inventory_error_data;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
 fn restore_plan_metadata(
     current: &mut crate::plan::Plan,
     saved: &crate::service::plan::PlanCloseRestoreRead,
@@ -340,10 +341,7 @@ impl ServiceContext {
     fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
         for saved in &resources.plans {
             self.plan_store
-                .edit_plan_fixture(&saved.id, super::team_core::now_ms(), |current| {
-                    restore_plan_metadata(current, saved);
-                    Ok(())
-                })
+                .restore_close_plan_metadata(saved, super::team_core::now_ms())
                 .map_err(|error| error.to_string())?;
             self.emit_plan_changed(&saved.id);
         }
