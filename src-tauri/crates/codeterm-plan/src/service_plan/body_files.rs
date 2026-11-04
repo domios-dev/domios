@@ -2,6 +2,11 @@ use crate::plan::{CanvasElement, Milestone, Plan, Section, Task};
 use serde::Serialize;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
+mod manifest;
+use manifest::{index_entries, IndexEntryRaw};
+pub use manifest::{
+    FileElementInput, FileManifestInput, FileMilestoneInput, FileSectionInput, FileTaskInput,
+};
 
 #[derive(Clone, Copy)]
 enum BodyKind {
@@ -12,7 +17,7 @@ enum BodyKind {
     Element,
 }
 
-const MARKDOWN_SIDECAR_MIN_CHARS: usize = 240;
+pub(super) const MARKDOWN_SIDECAR_MIN_BYTES: usize = 240;
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct PlanFileEntry {
@@ -292,8 +297,8 @@ pub fn body_paths(plan: &Plan) -> std::io::Result<Vec<PathBuf>> {
     Ok(paths)
 }
 
-pub fn file_manifest(plan: &Plan) -> std::io::Result<PlanFileManifest> {
-    let entries = index_entries(plan)?
+pub fn file_manifest(input: &FileManifestInput) -> PlanFileManifest {
+    let entries = index_entries(input)
         .into_iter()
         .map(|entry| PlanFileEntry {
             kind: entry.kind,
@@ -303,10 +308,10 @@ pub fn file_manifest(plan: &Plan) -> std::io::Result<PlanFileManifest> {
             path: display_path(&entry.path),
         })
         .collect();
-    Ok(PlanFileManifest {
-        index_path: display_path(&index_path(plan)?),
+    PlanFileManifest {
+        index_path: display_path(&input.directory.join("INDEX.md")),
         entries,
-    })
+    }
 }
 
 pub fn spec_markdown(plan: &Plan) -> String {
@@ -396,145 +401,9 @@ fn flatten_sections(sections: &[Section]) -> Vec<&Section> {
     out
 }
 
-struct IndexEntryRaw {
-    kind: &'static str,
-    title: String,
-    path: PathBuf,
-    index_link_path: String,
-    read_command: Option<String>,
-}
-
-fn index_entries(plan: &Plan) -> std::io::Result<Vec<IndexEntryRaw>> {
-    let mut entries = vec![];
-    if plan.goal.is_some() {
-        entries.push(IndexEntryRaw {
-            kind: "goal",
-            title: "Goal".into(),
-            path: goal_path(plan)?,
-            index_link_path: "goal.md".into(),
-            read_command: None,
-        });
-    }
-    collect_section_index_entries(plan, &plan.sections, &mut entries)?;
-    for task in &plan.tasks {
-        entries.push(task_index_entry(plan, task)?);
-        let stride_log_path = task_stride_log_path(plan, task)?;
-        if !task.milestones.is_empty() || stride_log_path.exists() {
-            entries.push(stride_log_index_entry(plan, task)?);
-        }
-        for milestone in &task.milestones {
-            let path = milestone_path(plan, task, milestone)?;
-            if should_externalize_markdown(&milestone.text) || path.exists() {
-                entries.push(milestone_index_entry(plan, task, milestone)?);
-            }
-        }
-    }
-    for element in plan
-        .elements
-        .iter()
-        .filter(|element| element.kind == "handoff")
-    {
-        entries.push(handoff_index_entry(plan, element)?);
-    }
-    for element in plan.elements.iter().filter(|element| {
-        element.kind != "handoff"
-            && (should_externalize_element(element)
-                || element_path(plan, element).is_ok_and(|path| path.exists()))
-    }) {
-        entries.push(element_index_entry(plan, element)?);
-    }
-    Ok(entries)
-}
-
-fn collect_section_index_entries(
-    plan: &Plan,
-    sections: &[Section],
-    entries: &mut Vec<IndexEntryRaw>,
-) -> std::io::Result<()> {
-    for section in sections {
-        let path = section_path(plan, &section.id)?;
-        entries.push(IndexEntryRaw {
-            kind: "section",
-            title: format!(
-                "{} ({})",
-                super::tag_model::section_handle(section),
-                section.title
-            ),
-            path,
-            index_link_path: format!("sections/{}.md", super::tag_model::section_handle(section)),
-            read_command: Some(format!(
-                "domios plan section show {} {}",
-                plan.id, section.id
-            )),
-        });
-        collect_section_index_entries(plan, &section.subsections, entries)?;
-    }
-    Ok(())
-}
-
-fn task_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> {
-    Ok(IndexEntryRaw {
-        kind: "task",
-        title: format!("{} ({})", super::tag_model::task_handle(task), task.name),
-        path: task_path(plan, &task.id)?,
-        index_link_path: format!("tasks/{}.md", super::tag_model::task_handle(task)),
-        read_command: Some(format!("domios plan task show {} {}", plan.id, task.id)),
-    })
-}
-
-fn stride_log_index_entry(plan: &Plan, task: &Task) -> std::io::Result<IndexEntryRaw> {
-    let task_handle = super::tag_model::task_handle(task);
-    Ok(IndexEntryRaw {
-        kind: "stride_log",
-        title: format!("{} strides", task_handle),
-        path: task_stride_log_path(plan, task)?,
-        index_link_path: format!("tasks/{}/strides.jsonl", task_handle),
-        read_command: None,
-    })
-}
-
-fn handoff_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<IndexEntryRaw> {
-    let seq = element
-        .content
-        .get("seq")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    Ok(IndexEntryRaw {
-        kind: "handoff",
-        title: format!("handoff #{} ({})", seq, element.id),
-        path: handoff_path(plan, &element.id)?,
-        index_link_path: format!("handoffs/{}.md", element.id),
-        read_command: None,
-    })
-}
-
-fn milestone_index_entry(
-    plan: &Plan,
-    task: &Task,
-    milestone: &Milestone,
-) -> std::io::Result<IndexEntryRaw> {
-    let task_handle = super::tag_model::task_handle(task);
-    Ok(IndexEntryRaw {
-        kind: "milestone",
-        title: format!("{} {} ({})", task_handle, milestone.kind, milestone.id),
-        path: milestone_path(plan, task, milestone)?,
-        index_link_path: format!("milestones/{}-{}.md", task_handle, milestone.id),
-        read_command: None,
-    })
-}
-
-fn element_index_entry(plan: &Plan, element: &CanvasElement) -> std::io::Result<IndexEntryRaw> {
-    Ok(IndexEntryRaw {
-        kind: "element",
-        title: format!("{} ({})", element.kind, element.id),
-        path: element_path(plan, element)?,
-        index_link_path: format!("elements/{}-{}.md", element.kind, element.id),
-        read_command: None,
-    })
-}
-
 fn write_index(plan: &Plan) -> std::io::Result<()> {
-    let entries = index_entries(plan)?;
+    let input = FileManifestInput::from_plan(plan)?;
+    let entries = index_entries(&input);
     let mut out = body_with_frontmatter(
         frontmatter(plan, "index", &plan.id, "index", Some(&plan.title), None),
         &[],
@@ -809,7 +678,7 @@ fn normalize_markdown_eof(body: &str) -> String {
 
 fn should_externalize_markdown(text: &str) -> bool {
     let trimmed = text.trim();
-    trimmed.len() >= MARKDOWN_SIDECAR_MIN_CHARS || trimmed.contains('\n')
+    trimmed.len() >= MARKDOWN_SIDECAR_MIN_BYTES || trimmed.contains('\n')
 }
 
 fn should_externalize_element(element: &CanvasElement) -> bool {

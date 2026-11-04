@@ -45,6 +45,10 @@ pub(super) struct TabAttemptOwnerRead {
 }
 
 impl PlanStore {
+    pub fn plan_work_facet_projection(&self, plan_id: &str) -> Result<bool, PlanError> {
+        self.database.plan_work_facet_projection(plan_id)
+    }
+
     pub fn task_name_projection(&self, task_ref: &str) -> Result<String, PlanError> {
         self.database.task_name_projection(task_ref)
     }
@@ -88,3 +92,20 @@ impl PlanStore {
 }
 
 pub(super) mod worker_transfer;
+
+pub(super) mod startup;
+
+mod continuity;
+pub use continuity::{TaskContinuityDigest, TaskContinuityRead};
+
+mod creation;
+mod restart;
+mod restoration;
+mod runtime_restore;
+pub use creation::{TaskCreationRead, TaskDescriptionRead};
+pub use restart::{
+    CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
+    TaskRestartQuery,
+};
+pub use restoration::{ReviewBindingRestoreRead, ReviewRestoreAttemptRead, TaskBindingRestoreRead};
+pub use runtime_restore::{RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead};

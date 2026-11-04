@@ -16,12 +16,7 @@ impl AccountMesh {
                 return inner.retry.deadline;
             }
             let membership_due = inner.membership_renewal_at();
-            let publication_due = inner
-                .published_endpoint
-                .as_ref()
-                .map(|_| inner.publication_refresh_after);
             if membership_due.is_none()
-                && publication_due.is_none()
                 && matches!(
                     result,
                     Err(AccountMeshRefusal::MachineLimit { .. }
@@ -43,7 +38,7 @@ impl AccountMesh {
             } else {
                 None
             };
-            [membership_due, publication_due, retry_due]
+            [membership_due, retry_due]
                 .into_iter()
                 .flatten()
                 .map(|due| {

@@ -352,7 +352,9 @@ fn late_dispatch_ready_for_a_retired_attempt_is_rejected() {
     let after = task_of(&store, &plan_id, &task_id);
     assert_ne!(after.status, TaskStatus::InProgress);
     assert!(after.interruption.owner_tab_id.is_none());
-    assert!(!store.worker_startup_attempt_owns(&plan_id, &task_id, GONE_TAB, &attempt_id, None));
+    assert!(!store
+        .worker_startup_attempt_owns(&plan_id, &task_id, GONE_TAB, &attempt_id, None)
+        .unwrap());
 }
 
 /// The widening is for the live Plan owner ONLY. Recovery adds no bypass to the

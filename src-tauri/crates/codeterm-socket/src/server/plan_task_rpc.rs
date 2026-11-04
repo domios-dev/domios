@@ -405,7 +405,13 @@ pub(super) fn dispatch(
                             .map(|s| s.to_string()),
                         execution_intent: execution_intent_field(
                             p,
-                            store.get(&id).map(|plan| plan.project_path).as_deref(),
+                            Some(
+                                store
+                                    .document_metadata(&id)
+                                    .map_err(plan_rpc_err)?
+                                    .project_path
+                                    .as_str(),
+                            ),
                         )?,
                         parent_task_id: p
                             .and_then(|x| x.get("parent"))
@@ -438,15 +444,13 @@ pub(super) fn dispatch(
                 )
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(svc, &id);
-            let linked = store
-                .get(&id)
-                .and_then(|plan| {
-                    plan.tasks
-                        .iter()
-                        .find(|task| task.id == tid)
-                        .map(|task| task.section_ids.clone())
-                })
-                .unwrap_or_default();
+            let (linked, key) = match store
+                .task_creation_projection(&id, &tid)
+                .map_err(plan_rpc_err)?
+            {
+                Some(read) => (read.section_ids, Some(read.key)),
+                None => (Vec::new(), None),
+            };
             let linked_has_sections = !linked.is_empty();
             let mut response_hints = hints::task_create_hints(
                 &id,
@@ -469,14 +473,13 @@ pub(super) fn dispatch(
                 .and_then(|v| v.as_str());
             let mut resp = json!({
                 "task_id": tid.clone(),
-                "key": store.task_display_key(&id, &tid),
+                "key": key,
                 "section_ids": linked,
                 "_hints": response_hints
             });
             if let Some(nudge) = store
-                .get(&id)
-                .as_ref()
-                .and_then(|plan| hints::planner_ownership_nudge(plan, caller_tab))
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
             {
                 resp["_planner_nudge"] = json!(nudge);
             }

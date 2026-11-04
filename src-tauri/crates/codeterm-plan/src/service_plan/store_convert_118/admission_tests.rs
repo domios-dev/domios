@@ -297,7 +297,7 @@ fn missing_unique_index_is_refused_without_mutation_for_v0_and_v1() {
 }
 
 #[test]
-fn legacy_nonunique_indexes_are_additive() {
+fn legacy_missing_nonunique_indexes_are_refused() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("plans.db");
     let connection = Connection::open(&path).unwrap();
@@ -310,6 +310,5 @@ fn legacy_nonunique_indexes_are_additive() {
         .execute_batch("DROP INDEX plans_status_updated; DROP INDEX plan_operations_state_id")
         .unwrap();
     drop(connection);
-    let database = PlanDatabase::open(path).unwrap();
-    super::super::store_db::release_upgrade_tests::assert_records(&database);
+    refuses_without_mutation(&path);
 }

@@ -11,6 +11,49 @@ use codeterm_service_core::service::test_fixture::ServiceFixture;
 use serde_json::json;
 use std::sync::Arc;
 
+#[tokio::test]
+async fn task_mutation_authority_storage_failure_is_internal_before_any_write() {
+    let (fixture, plan_id, task_id, _, _, owner) = update_fixture();
+    let headers = crate::auth::ActorHeaders::for_owner_test(owner_headers(&owner));
+    let before = full_task_record(&fixture, &plan_id, &task_id);
+    let service = Arc::new(fixture.service.clone());
+    let connection =
+        rusqlite::Connection::open(fixture.temp.path().join(".domios/plans.db")).unwrap();
+    connection
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.owner',42) WHERE id=?1",
+            [&plan_id],
+        )
+        .unwrap();
+    for kind in [
+        TaskMutationKind::Ordinary,
+        TaskMutationKind::Recovery,
+        TaskMutationKind::BlockDecision,
+    ] {
+        let (status, Json(body)) =
+            verify_task_mutation_owner(&service, &headers, &plan_id, &task_id, kind, None)
+                .await
+                .unwrap_err();
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(body["type"], "plan_authority_store_read_failed");
+    }
+    connection
+        .execute(
+            "UPDATE plans SET header_json=json_set(header_json,'$.owner',json(?1)) WHERE id=?2",
+            rusqlite::params![
+                serde_json::to_string(&OrchestratorRef {
+                    tab_id: Some(owner),
+                    session_id: Some("owner-session".into()),
+                    title: None
+                })
+                .unwrap(),
+                plan_id
+            ],
+        )
+        .unwrap();
+    assert_eq!(full_task_record(&fixture, &plan_id, &task_id), before);
+}
+
 #[test]
 fn task_board_page_rejects_incomplete_or_unsupported_selection() {
     let incomplete = TaskBoardPageQuery {

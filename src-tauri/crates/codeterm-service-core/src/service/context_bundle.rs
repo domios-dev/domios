@@ -125,8 +125,13 @@ pub(crate) fn prepare(
     };
     let detail = service
         .plan_store
-        .show_task(&authority.task_id)
-        .ok_or("task context task not found")?;
+        .task_context_files_projection(&authority.task_id)
+        .map_err(|error| match error {
+            crate::service::plan::PlanError::TaskNotFound => {
+                "task context task not found".to_owned()
+            }
+            error => error.to_string(),
+        })?;
     if detail.plan_id != authority.plan_id {
         return Err("task context plan does not match attempt".into());
     }
@@ -134,7 +139,7 @@ pub(crate) fn prepare(
         .plan_skill_manifest
         .as_deref()
         .ok_or("task context requires the captured attempt skill manifest")?;
-    validate_support(&detail.task.files, !manifest.is_empty(), capability)?;
+    validate_support(&detail.files, !manifest.is_empty(), capability)?;
     let files = resolve_files(
         Path::new(
             params
@@ -142,7 +147,7 @@ pub(crate) fn prepare(
                 .as_deref()
                 .ok_or("task context requires a Worker cwd")?,
         ),
-        detail.task.files,
+        detail.files,
     )?;
     let mut context = String::new();
     for entry in manifest {

@@ -242,23 +242,26 @@ fn metadata_update_preserves_startup_owner(
     svc: &ServiceState,
     plan_id: &str,
     task: &codeterm_service_core::plan::Task,
-) -> bool {
+) -> Result<bool, JsonRpcError> {
     // Dispatch records task ownership before the launch session is persisted.
     if task.interruption.owner_session_id.is_some() {
-        return false;
+        return Ok(false);
     }
     let Some(tab_id) = task.interruption.owner_tab_id.as_deref() else {
-        return false;
+        return Ok(false);
     };
     let Some(owner) = svc
         .plan_store
         .dispatch_startup_owner_candidate(plan_id, &task.id)
+        .map_err(super::plan::plan_rpc_err)?
         .filter(|owner| owner.tab_id == tab_id)
     else {
-        return false;
+        return Ok(false);
     };
-    svc.plan_store
+    Ok(svc
+        .plan_store
         .worker_startup_attempt_owns(plan_id, &task.id, tab_id, &owner.attempt_id, None)
+        .map_err(super::plan::plan_rpc_err)?
         && (svc.plan_store.task_dispatch_startup_reservation_owns(
             plan_id,
             &task.id,
@@ -266,7 +269,7 @@ fn metadata_update_preserves_startup_owner(
             tab_id,
         ) || super::plan_task_dispatch::dispatch_startup_owner_is_live(
             svc, plan_id, &task.id, tab_id,
-        ))
+        )))
 }
 
 fn lane_metadata_only_task_update(method: &str, params: &Option<Value>) -> bool {
@@ -457,7 +460,7 @@ pub(super) fn verify_owner_epoch_for_task_mutation(
         return Ok(());
     }
     let metadata_update_preserves_startup = lane_metadata_only_task_update(method, params)
-        && metadata_update_preserves_startup_owner(svc, &detail.plan_id, &detail.task);
+        && metadata_update_preserves_startup_owner(svc, &detail.plan_id, &detail.task)?;
     if plan_owner_may_recover(
         method,
         params,

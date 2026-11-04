@@ -151,11 +151,10 @@ pub(super) fn dispatch(
                 .map_err(plan_rpc_err)?;
             emit_plan_changed(svc, &id);
             let mut resp = json!({ "ok": true, "goal": goal });
-            if let Some(nudge) = store.get(&id).as_ref().and_then(|plan| {
-                codeterm_service_core::service::plan::hints::planner_ownership_nudge(
-                    plan, caller_tab,
-                )
-            }) {
+            if let Some(nudge) = store
+                .planner_nudge_projection(&id, caller_tab)
+                .map_err(plan_rpc_err)?
+            {
                 resp["_planner_nudge"] = json!(nudge);
             }
             if let Some(outcome) = created_team {
@@ -165,10 +164,8 @@ pub(super) fn dispatch(
         }
         "plan.goal.show" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
-            let plan = store
-                .get(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
-            Ok(json!({ "plan_id": id, "goal": plan.goal }))
+            let goal = store.goal_document(&id).map_err(plan_rpc_err)?;
+            Ok(json!({ "plan_id": id, "goal": goal }))
         }
         _ => Err(JsonRpcError {
             code: -32601,

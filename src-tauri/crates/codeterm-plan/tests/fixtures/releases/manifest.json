@@ -59,6 +59,33 @@
       ],
       "sha256": "b7e911fbad6efb3f76dad7201fb798dbda26477f3f6d41e29fd8bfd40f93202a",
       "schema_fingerprint": "349cd30fed3e43153f8a6399e5d3c9bed048bc9c2d847b9f61c9338e25c5810a"
+    },
+    {
+      "file": "forward-v2.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 2,
+      "sha256": "49dc9a7bcc8aa780a59e5ce0f91da077199ddfa9ae80e453cf9256f23480658c",
+      "schema_fingerprint": "a1c7165d4605c8ed7c635287c817ae7144b26b5f1243439e740ca25f95cafd82",
+      "application_id": 1146113102
+    },
+    {
+      "file": "forward-v3.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 3,
+      "sha256": "e43e16302e834127a840f8f37e4b644550e21ab342228ceaf28add037de7ad65",
+      "schema_fingerprint": "9a79811cc043fb352bea513f98cb1793a2178eb54a137957df89f2a793e64a17",
+      "application_id": 1146113102
+    },
+    {
+      "file": "forward-v4.sql",
+      "tag": "1.19-forward-contract",
+      "source_sha": "prospective",
+      "user_version": 4,
+      "sha256": "aef1c06ebde40faff3bc8195dbcfa7e4f9b2cc9441e94623041aee45971d1b38",
+      "schema_fingerprint": "5ce5f5193eb8684ff33e97ad98ea27d0b36c222bb723a3f7908db31edd943ece",
+      "application_id": 1146113102
     }
   ],
   "equivalent_releases": [

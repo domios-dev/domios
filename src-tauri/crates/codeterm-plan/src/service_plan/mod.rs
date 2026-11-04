@@ -16,13 +16,16 @@ pub mod curator;
 mod curator_projection;
 pub mod digest_rules;
 pub mod element_queries;
+mod export_projection;
 pub mod external_refs;
+pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
 mod header_projection;
 pub use header_projection::PlanIdentityRead;
 pub mod heartbeat;
 pub mod hints;
+mod index_projection;
 pub mod ingest;
 pub mod interruption;
 pub mod lane_cleanup;
@@ -105,7 +108,7 @@ pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
-pub use document_projection::PlanDocumentMetadata;
+pub use document_projection::{PlanDocumentMetadata, PlannerGateRead};
 
 #[cfg(test)]
 mod work_facet_tests;
@@ -338,6 +341,11 @@ impl PlanStore {
 }
 
 mod task_authority_projection;
+pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
 pub use task_authority_projection::{
-    PlanTaskAdmissionRead, TaskContextFilesRead, TaskOwnerEpochRead,
+    CompletedTaskRestartRead, PlanTaskAdmissionRead, RestartAttemptRead, ReviewBindingRestoreRead,
+    ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
+    TaskAttemptBindingRead, TaskBindingRestoreRead, TaskContextFilesRead, TaskContinuityDigest,
+    TaskContinuityRead, TaskCreationRead, TaskDescriptionRead, TaskOwnerEpochRead,
+    TaskRestartAuthorityRead, TaskRestartQuery,
 };

@@ -1,6 +1,7 @@
 //! SQL-only reads behind the light index and `list_index`: no plan row and no
 //! plan document is parsed in Rust.
 
+use super::read_projections::{column, record_query};
 use super::{db_error, PlanDatabase};
 use crate::plan::{OrchestratorRef, PlanStatus};
 use crate::service_plan::{IndexEntry, PlanError};
@@ -27,7 +28,7 @@ const FINISHED_TASK_STATUSES: &str = "('done', 'cancelled')";
 // A damaged header must not fail the listing: the guard keeps the JSON functions off it.
 const LIST_INDEX_SQL: &str = "
     SELECT p.id, p.status, p.team_id, p.title, p.updated_at, p.project_path,
-        CASE WHEN json_valid(p.header_json) THEN p.owner_tab_id END,
+        CASE WHEN json_valid(p.header_json) THEN json_extract(p.header_json, '$.owner.tab_id') END,
         CASE WHEN json_valid(p.header_json) THEN json_extract(p.header_json, '$.owner.session_id') END,
         CASE WHEN json_valid(p.header_json) THEN json_extract(p.header_json, '$.owner.title') END,
         CASE WHEN json_valid(p.header_json)
@@ -169,38 +170,7 @@ impl PlanDatabase {
         let mut statement = connection.prepare_cached(&sql).map_err(db_error)?;
         let path = self.path.clone();
         let rows = statement
-            .query_map([], |row| {
-                let id: String = row.get(0)?;
-                let status: String = row.get(1)?;
-                let project_path: String = row.get(5)?;
-                let canonical: Option<String> = row.get(9)?;
-                let orphaned: Option<String> = row.get(12)?;
-                Ok((
-                    status,
-                    IndexEntry {
-                        file_path: path.clone(),
-                        canonical_project_path: canonical.unwrap_or_else(|| project_path.clone()),
-                        owner: OrchestratorRef {
-                            tab_id: row.get(6)?,
-                            session_id: row.get(7)?,
-                            title: row.get(8)?,
-                        },
-                        team_id: row.get(2)?,
-                        title: row.get(3)?,
-                        status: PlanStatus::Active,
-                        updated_at: row.get::<_, i64>(4)? as u64,
-                        assigned_tab_ids: assigned.remove(&id).unwrap_or_default(),
-                        task_count: row.get::<_, i64>(13)? as usize,
-                        open_task_count: row.get::<_, i64>(14)? as usize,
-                        section_count: row.get::<_, i64>(15)? as usize,
-                        element_count: row.get::<_, i64>(16)? as usize,
-                        loop_count: row.get::<_, i64>(10)? as usize,
-                        has_goal: row.get::<_, i64>(11)? != 0,
-                        orphaned,
-                        plan_id: id,
-                    },
-                ))
-            })
+            .query_map([], |row| list_index_entry(row, &path, &mut assigned))
             .map_err(db_error)?
             .collect::<Result<Vec<_>, _>>()
             .map_err(db_error)?;
@@ -244,4 +214,141 @@ fn assigned_tab_ids(
         assigned.entry(plan_id).or_default().push(tab_id);
     }
     Ok(assigned)
+}
+
+fn list_index_entry(
+    row: &rusqlite::Row<'_>,
+    path: &std::path::Path,
+    assigned: &mut HashMap<String, Vec<String>>,
+) -> rusqlite::Result<(String, IndexEntry)> {
+    let id: String = column(row, 0)?;
+    let status: String = column(row, 1)?;
+    let project_path: String = column(row, 5)?;
+    let canonical: Option<String> = column(row, 9)?;
+    let orphaned: Option<String> = column(row, 12)?;
+    Ok((
+        status,
+        IndexEntry {
+            file_path: path.to_path_buf(),
+            canonical_project_path: canonical.unwrap_or_else(|| project_path.clone()),
+            owner: OrchestratorRef {
+                tab_id: column(row, 6)?,
+                session_id: column(row, 7)?,
+                title: column(row, 8)?,
+            },
+            team_id: column(row, 2)?,
+            title: column(row, 3)?,
+            status: PlanStatus::Active,
+            updated_at: column::<i64>(row, 4)? as u64,
+            assigned_tab_ids: assigned.remove(&id).unwrap_or_default(),
+            task_count: column::<i64>(row, 13)? as usize,
+            open_task_count: column::<i64>(row, 14)? as usize,
+            section_count: column::<i64>(row, 15)? as usize,
+            element_count: column::<i64>(row, 16)? as usize,
+            loop_count: column::<i64>(row, 10)? as usize,
+            has_goal: column::<i64>(row, 11)? != 0,
+            orphaned,
+            plan_id: id,
+        },
+    ))
+}
+
+const INDEX_FILTER: &str = "(?1 IS NULL OR p.project_path=?1)
+    AND (?2 IS NULL OR p.status=?2)
+    AND (?3=0 OR (CASE WHEN json_valid(p.header_json) THEN p.owner_tab_id END IS NULL
+        AND CASE WHEN json_valid(p.header_json) THEN json_extract(p.header_json,'$.owner.session_id') END IS NULL))
+    AND (?4 IS NULL OR CASE WHEN json_valid(p.header_json) THEN p.owner_tab_id END=?4
+        OR CASE WHEN json_valid(p.header_json) THEN json_extract(p.header_json,'$.owner.session_id') END=?4)";
+
+impl PlanDatabase {
+    pub(in crate::service_plan) fn plan_list_index(
+        &self,
+        project: Option<&str>,
+        status: Option<PlanStatus>,
+        unowned: bool,
+        owner: Option<&str>,
+    ) -> Result<Vec<IndexEntry>, PlanError> {
+        let status = status_filter(status.as_ref());
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction().map_err(db_error)?;
+        let mut assigned = HashMap::<String, Vec<String>>::new();
+        {
+            record_query();
+            let sql = format!(
+                "SELECT t.plan_id,trim(t.assigned_tab_id) FROM plans p
+                JOIN plan_tasks t ON t.plan_id=p.id WHERE {INDEX_FILTER}
+                AND t.assigned_tab_id IS NOT NULL AND t.status NOT IN {FINISHED_TASK_STATUSES}
+                AND trim(t.assigned_tab_id)<>'' ORDER BY t.plan_id,t.position"
+            );
+            let mut statement = transaction.prepare_cached(&sql).map_err(db_error)?;
+            let rows = statement
+                .query_map(params![project, status, unowned, owner], |row| {
+                    Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
+                })
+                .map_err(db_error)?;
+            for row in rows {
+                let (id, tab) = row.map_err(db_error)?;
+                assigned.entry(id).or_default().push(tab);
+            }
+        }
+        record_query();
+        let sql = format!("{LIST_INDEX_SQL} WHERE {INDEX_FILTER} ORDER BY p.rowid")
+            .replace("OPEN_TASKS", OPEN_TASK_STATUSES);
+        let path = self.path.clone();
+        let mut result = Vec::new();
+        {
+            let mut statement = transaction.prepare_cached(&sql).map_err(db_error)?;
+            let rows = statement
+                .query_map(params![project, status, unowned, owner], |row| {
+                    list_index_entry(row, &path, &mut assigned)
+                })
+                .map_err(db_error)?;
+            for row in rows {
+                let (status, mut entry) = row.map_err(db_error)?;
+                entry.status = parse_status(&status).ok_or_else(|| PlanError::Quarantined {
+                    plan_id: entry.plan_id.clone(),
+                    reason: format!("unknown plan status {status:?}"),
+                })?;
+                result.push(entry);
+            }
+        }
+        transaction.commit().map_err(db_error)?;
+        Ok(result)
+    }
+}
+
+pub(super) fn status_filter(status: Option<&PlanStatus>) -> Option<&'static str> {
+    status.map(|status| match status {
+        PlanStatus::Active => "active",
+        PlanStatus::Archived => "archived",
+    })
+}
+
+pub(super) fn filtered_plan_ids(
+    connection: &rusqlite::Connection,
+    project: Option<&str>,
+    status: Option<&str>,
+    unowned: bool,
+    owner: Option<&str>,
+) -> Result<Vec<String>, PlanError> {
+    record_query();
+    let mut statement = connection
+        .prepare_cached(&format!(
+            "SELECT p.id,p.status FROM plans p WHERE {INDEX_FILTER} ORDER BY p.rowid"
+        ))
+        .map_err(db_error)?;
+    let rows = statement
+        .query_map(params![project, status, unowned, owner], |row| {
+            Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
+        })
+        .map_err(db_error)?;
+    rows.map(|row| {
+        let (id, status) = row.map_err(db_error)?;
+        parse_status(&status).ok_or_else(|| PlanError::Quarantined {
+            plan_id: id.clone(),
+            reason: format!("unknown plan status {status:?}"),
+        })?;
+        Ok(id)
+    })
+    .collect()
 }

@@ -14,6 +14,18 @@ const FIXTURES: &[(&str, &str)] = &[
         include_str!("../../../tests/fixtures/releases/v1.18.7.sql"),
     ),
     (
+        "forward-v2.sql",
+        include_str!("../../../tests/fixtures/releases/forward-v2.sql"),
+    ),
+    (
+        "forward-v3.sql",
+        include_str!("../../../tests/fixtures/releases/forward-v3.sql"),
+    ),
+    (
+        "forward-v4.sql",
+        include_str!("../../../tests/fixtures/releases/forward-v4.sql"),
+    ),
+    (
         "supported-v0.sql",
         include_str!("../../../tests/fixtures/releases/supported-v0.sql"),
     ),

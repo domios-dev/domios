@@ -115,8 +115,12 @@ where
         .map_err(|error| invalid_dispatch(&format!("invalid --tag values: {error}")))?
         .unwrap_or_default();
     tags.push("unplanned".into());
+    let work_facet = svc
+        .plan_store
+        .plan_work_facet_projection(&plan_id)
+        .map_err(plan_rpc_err)?;
     let inferred_work = codeterm_types::plan::work_facet::infer_work_tag(
-        plan.tag_facets.iter().map(|facet| facet.key.as_str()),
+        work_facet.then_some("work"),
         &mut tags,
         &task_body,
     );
