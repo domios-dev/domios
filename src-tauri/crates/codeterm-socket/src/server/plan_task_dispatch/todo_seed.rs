@@ -1,6 +1,7 @@
 use super::{dispatch_failed, emit_plan_changed, roll_back_dispatch_attempt, JsonRpcError};
 use codeterm_service_core::multiplexer::types::AgentRole;
-use codeterm_service_core::plan::{PlanMode, Task, TaskExecutionAttempt};
+#[cfg(test)]
+use codeterm_service_core::plan::TaskExecutionAttempt;
 use codeterm_service_core::service::plan::PlanStore;
 use codeterm_service_core::service::{ProvisionedWorkerLane, ServiceState};
 
@@ -12,8 +13,8 @@ pub(crate) struct DispatchSeed<'a> {
     pub parent_tab_id: &'a str,
     pub tab_id: &'a str,
     pub attempt_id: &'a str,
-    pub original_task: &'a Task,
-    pub original_plan_mode: &'a PlanMode,
+    pub seed: &'a codeterm_service_core::service::plan::TaskDispatchSeedRead,
+    pub rollback: &'a codeterm_service_core::service::plan::DispatchUndo,
     pub provisioned_lane: Option<ProvisionedWorkerLane>,
     pub now: u64,
 }
@@ -29,13 +30,18 @@ pub(crate) fn seed_acceptance_or_rollback(
         parent_tab_id,
         tab_id,
         attempt_id,
-        original_task,
-        original_plan_mode,
+        seed,
+        rollback,
         provisioned_lane,
         now,
     } = seed;
-    let predecessors = predecessor_tab_ids(&original_task.execution_attempts, tab_id);
-    if original_task.acceptance_criteria.is_empty() && predecessors.is_empty() {
+    let predecessors = seed
+        .predecessor_tabs
+        .iter()
+        .filter(|tab| tab.as_str() != tab_id)
+        .cloned()
+        .collect::<Vec<_>>();
+    if seed.acceptance_criteria.is_empty() && predecessors.is_empty() {
         return Ok(provisioned_lane);
     }
     let placement = {
@@ -47,16 +53,14 @@ pub(crate) fn seed_acceptance_or_rollback(
             tab_id,
             parent_tab_id,
             &predecessors,
-            &original_task.acceptance_criteria,
+            &seed.acceptance_criteria,
         ))
         .map(|_| ())
     });
     if let Err(error) = seeded {
         let cleanup = roll_back_dispatch_attempt(
             store,
-            plan_id,
-            original_task,
-            original_plan_mode,
+            rollback,
             tab_id,
             attempt_id,
             provisioned_lane,
@@ -80,6 +84,7 @@ pub(crate) fn seed_acceptance_or_rollback(
 
 /// Finished local executors of the same task, newest first; their checklist
 /// carries over. Live and competition attempts keep their own lists.
+#[cfg(test)]
 fn predecessor_tab_ids(attempts: &[TaskExecutionAttempt], new_tab_id: &str) -> Vec<String> {
     let mut tab_ids: Vec<String> = Vec::new();
     for attempt in attempts.iter().rev().filter(|attempt| {

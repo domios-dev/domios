@@ -1,8 +1,31 @@
+mod agent_transition;
+mod curator_lifecycle;
+pub(in crate::service_plan) mod hierarchy;
+pub(in crate::service_plan) mod hierarchy_routing;
+pub(in crate::service_plan) mod runtime_identity;
+mod tab;
+pub(in crate::service_plan) mod transfer_authority;
 use super::{db_error, PlanDatabase};
 use crate::plan::Section;
 use crate::service_plan::PlanError;
 use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
+
+pub(in crate::service_plan) mod checkout;
+mod compete_preflight;
+pub(in crate::service_plan) mod competition_lane;
+mod executor_source;
+pub(in crate::service_plan) mod lane_clean;
+pub(in crate::service_plan) mod lane_readers;
+pub(in crate::service_plan) mod lane_settlement;
+pub(in crate::service_plan) mod lane_stats;
+pub(in crate::service_plan) mod lane_watchdog;
+pub(in crate::service_plan) mod lifecycle;
+pub(in crate::service_plan) mod provider_switch;
+mod respawn_remote_source;
+mod section_removal;
+pub(in crate::service_plan) mod task_drafts;
+pub(in crate::service_plan) mod team_readers;
 
 pub(super) const SECTION_ROWS: &str = "SELECT s.position, j.id AS traversal,
     json_extract(j.value, '$.id') AS id,

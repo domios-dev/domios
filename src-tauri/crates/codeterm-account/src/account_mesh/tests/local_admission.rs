@@ -110,10 +110,13 @@ async fn local_admission_refuses_expiry_forgery_scope_and_missing_signed_registr
         .mesh
         .with(|inner| inner.update(&harness.mesh.watch, |state| state.signed_registry = None));
     assert!(harness.mesh.verify_peer_membership(&token, START).is_err());
+    assert!(harness.state().current_membership(START).is_none());
+    let calls = count(&harness.log, "registry:");
     assert_eq!(
         harness.mesh.resolve_link_target(PEER).await.unwrap_err(),
-        AccountMeshRefusal::Unavailable
+        AccountMeshRefusal::Unauthenticated
     );
+    assert_eq!(count(&harness.log, "registry:"), calls);
 }
 
 #[tokio::test]

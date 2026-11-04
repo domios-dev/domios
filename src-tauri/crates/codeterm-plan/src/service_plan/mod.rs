@@ -23,6 +23,12 @@ pub mod external_refs;
 pub use export_projection::PlanExportEncoder;
 pub mod gates;
 pub mod handoff;
+pub use store_db::read_projections::hierarchy::HierarchyAuthorityRead;
+pub use store_db::read_projections::hierarchy_routing::{
+    GateAnswerNoticeRead, PlannerRehydrateGateRead, PlannerRehydrateRead, TaskReviewNoticeRead,
+};
+pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
+pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
 mod header_projection;
 pub use header_projection::{NoticeDeliveryTargetRead, PlanIdentityRead};
 pub mod heartbeat;
@@ -82,6 +88,13 @@ pub use status_projection::{
     CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
     PlanStatusRead,
 };
+pub use store_db::read_projections::lane_clean::{LaneCleanupPlanRead, LaneCleanupTaskRead};
+pub use store_db::read_projections::lane_readers::TaskLaneReferenceRead;
+pub use store_db::read_projections::lane_settlement::LaneSettlementRead;
+pub use store_db::read_projections::lane_stats::{LaneAttemptRead, LaneWatchRead};
+pub use store_db::read_projections::lane_watchdog::{LaneWatchdogRead, LaneWatchdogTaskRead};
+pub use store_db::read_projections::lifecycle::PlanLifecycleRead;
+pub use store_db::read_projections::team_readers::TeamExecutionRead;
 pub mod board_state;
 mod document_projection;
 mod store_index;
@@ -163,7 +176,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use plan_match::{AttemptMatch, AttemptState, PlanMatch, TaskMatch};
-pub use relink::relink_to_owner;
+pub use relink::{relink_selected_to_owner, relink_to_owner};
 pub use state::{
     build_plan_state_snapshot, planning_approval_blockers, HeartbeatSnapshot, LiveAgent,
     LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
@@ -172,9 +185,9 @@ pub use state::{
 pub use store_db::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
-    DispatchStartupOwner, LiveTabAttempt, TaskDispatchReservation, ACK_CAUSE_AMBIGUOUS_ATTEMPTS,
-    ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT, ACK_CAUSE_PLAN_NOT_ACTIVE,
-    ACK_CAUSE_TASK_NOT_OPEN,
+    DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, TaskDispatchReservation,
+    ACK_CAUSE_AMBIGUOUS_ATTEMPTS, ACK_CAUSE_ATTEMPT_SUPERSEDED, ACK_CAUSE_NO_LIVE_ATTEMPT,
+    ACK_CAUSE_PLAN_NOT_ACTIVE, ACK_CAUSE_TASK_NOT_OPEN,
 };
 pub use types::{
     IndexEntry, NewTask, OpenSubtask, PlanError, PlanIncident, ReconcileFixResult, SpecIndexEntry,
@@ -344,6 +357,10 @@ impl PlanStore {
 
 mod task_authority_projection;
 pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
+pub use store_db::read_projections::competition_lane::CompetitionLaneRead;
+pub use store_db::read_projections::provider_switch::{
+    ProviderSwitchTaskContextRead, ProviderSwitchTaskRead,
+};
 pub use task_authority_projection::{
     BatchTaskRefusalRead, CanonicalWriterHoldRead, CompletedTaskRestartRead, LaneIntegrationRead,
     PlanTaskAdmissionRead, ProviderRecoveryRead, RemoteRecoveryAttemptRead,
@@ -353,5 +370,8 @@ pub use task_authority_projection::{
     TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
     TaskCreationRead, TaskDescriptionRead, TaskInterruptionRead, TaskLaneAdmissionRead,
     TaskLaneOwnerRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
-    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead,
+    TaskRuntimeSessionRead, TaskSelectorRead, TaskSplitDefaultsRead, WorkerLossRead,
+    WorkerLossRecoveryRead, WorkerLossReplacementRead,
 };
+
+pub use task_authority_projection::{TaskDispatchSeedRead, TaskLaunchRead};

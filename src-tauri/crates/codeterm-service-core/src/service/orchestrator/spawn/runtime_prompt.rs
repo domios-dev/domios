@@ -162,7 +162,7 @@ pub fn compose_runtime_system_prompt(params: &mut SpawnAgentParams) -> Option<St
 pub(crate) fn prepare_runtime_identity(
     service: &crate::service::ServiceContext,
     params: &mut SpawnAgentParams,
-) {
+) -> Result<(), String> {
     let resolved =
         codeterm_types::agent::restore_role(params.role.as_deref(), params.role_profile.as_deref());
     let Some(preset) = crate::service::persona::resolve_ambient(
@@ -172,17 +172,21 @@ pub(crate) fn prepare_runtime_identity(
             .and_then(|role| role.role_profile.as_deref()),
         None,
     ) else {
-        return;
+        return Ok(());
     };
     if preset.role != AgentRole::Manager
         || preset.kind_id == codeterm_types::agent::role_kind::builtins::GENERAL_AGENT
     {
-        return;
+        return Ok(());
     }
-    let plan = params
-        .plan_id
-        .as_deref()
-        .and_then(|id| service.plan_store.get(id));
+    let plan = match params.plan_id.as_deref() {
+        Some(id) => match service.plan_store.runtime_plan_identity_projection(id) {
+            Ok(plan) => Some(plan),
+            Err(crate::service::plan::PlanError::NotFound) => None,
+            Err(error) => return Err(error.to_string()),
+        },
+        None => None,
+    };
     if params.manager_bootstrap.is_none() {
         let team_id = params
             .team_id
@@ -226,6 +230,7 @@ pub(crate) fn prepare_runtime_identity(
             });
         }
     }
+    Ok(())
 }
 
 // A Manager identity is recomposed from its role and Plan; appending the saved
@@ -247,22 +252,10 @@ pub(crate) fn bound_plan_id(
     store: &crate::service::plan::PlanStore,
     tab_id: &str,
     team_id: Option<&str>,
-) -> Option<String> {
-    use crate::service::plan::PlanMatch;
-    let mut bound = vec![
-        PlanMatch::owner(tab_id),
-        PlanMatch::Planner(tab_id.to_string()),
-    ];
-    bound.extend(team_id.map(PlanMatch::team));
+) -> Result<Option<String>, String> {
     store
-        .plans_matching(&PlanMatch::Any(bound))
-        .into_iter()
-        .find(|plan| {
-            plan.owner.tab_id.as_deref() == Some(tab_id)
-                || matches!(plan.planner.as_ref(), Some(crate::plan::PlannerRef::Tab { tab_id: planner, .. }) if planner == tab_id)
-                || (team_id.is_some() && plan.team_id.as_deref() == team_id)
-        })
-        .map(|plan| plan.id)
+        .runtime_bound_plan_projection(tab_id, team_id)
+        .map_err(|error| error.to_string())
 }
 
 pub fn ensure_tab_runtime_prompt(
@@ -320,9 +313,9 @@ pub fn ensure_tab_runtime_prompt(
         ..Default::default()
     };
     if params.plan_id.is_none() {
-        params.plan_id = bound_plan_id(&service.plan_store, tab_id, tab.team_id.as_deref());
+        params.plan_id = bound_plan_id(&service.plan_store, tab_id, tab.team_id.as_deref())?;
     }
-    prepare_runtime_identity(service, &mut params);
+    prepare_runtime_identity(service, &mut params)?;
     // A restored thread receives its identity, never a new onboarding turn.
     params.task = None;
     let prompt = if general {

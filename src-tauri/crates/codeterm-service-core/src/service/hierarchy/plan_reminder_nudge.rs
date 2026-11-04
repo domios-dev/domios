@@ -655,10 +655,10 @@ impl ServiceContext {
             cfg.nudge_interval_secs,
             |tab_id, target| {
                 if matches!(target, PlanReminderTarget::Worker) {
-                    self.report_worker_losses(self.worker_losses_for_tab(
-                        tab_id,
-                        crate::service::worker_loss::WorkerLossCause::AgentUnavailable,
-                    ));
+                    match self.worker_losses_for_tab(tab_id,crate::service::worker_loss::WorkerLossCause::AgentUnavailable) {
+                        Ok(losses)=>self.report_worker_losses(losses),
+                        Err(error)=>log::error!("[worker-lost] assignment read failed before reminder loss report: {error}"),
+                    }
                 }
             },
         );

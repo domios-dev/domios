@@ -51,7 +51,7 @@ impl ServiceContext {
         nonce: &str,
     ) -> Result<(), PlanBindingFailure> {
         self.restore_runtime_attempt_binding(tab_id)?;
-        self.bind_planner_session(tab_id);
+        self.bind_planner_session(tab_id)?;
         if self.carry_authorized_runtime_restart_binding(tab_id, thread, nonce)? {
             return Ok(());
         }

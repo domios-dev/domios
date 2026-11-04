@@ -196,6 +196,32 @@ fn agent_close_of_busy_worker_needs_force() {
     assert_eq!(worker_lost_events(&mut receiver).len(), 1);
 }
 
+#[test]
+fn worker_loss_storage_failure_refuses_close_before_tab_or_task_changes() {
+    let busy = seed_busy_worker();
+    let mut receiver = busy.fx.service.events.subscribe();
+    let connection =
+        rusqlite::Connection::open(busy.fx.temp.path().join(".domios/plans.db")).unwrap();
+    connection.execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.name',42) WHERE plan_id=?1 AND task_id=?2",rusqlite::params![busy.plan_id,busy.task_id]).unwrap();
+    for force in [false, true] {
+        assert!(busy
+            .fx
+            .service
+            .close_tab_guarded(Some(&busy.orchestrator), &busy.worker, force)
+            .is_err());
+        assert!(busy.fx.service.mux.read().get_tab(&busy.worker).is_some());
+    }
+    let status: String = connection
+        .query_row(
+            "SELECT status FROM plan_tasks WHERE plan_id=?1 AND task_id=?2",
+            rusqlite::params![busy.plan_id, busy.task_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(status, "in_progress");
+    assert!(worker_lost_events(&mut receiver).is_empty());
+}
+
 fn plan_with_task(status: TaskStatus, owner: &str, worker: &str) -> (Plan, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = crate::service::plan::PlanStore::new_for_test(dir.path());
@@ -397,12 +423,32 @@ fn agentless_orchestrator_withholds_losses_and_replays_each_once() {
     assert_eq!(pending.lock().pending_for("orch-tab").len(), 2);
     assert!(pending.lock().alert_open("orch-tab"));
 
-    assert!(replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| loss).is_empty());
+    assert!(
+        replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| Ok(
+            loss.clone()
+        ))
+        .is_empty()
+    );
     assert_eq!(pending.lock().pending_for("orch-tab").len(), 2);
 
     seam.refuse.set(false);
-    let replayed = replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| loss);
-    let again = replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| loss);
+    let failed = replay_losses(&gateway, &seam, &pending, "orch-tab", |_| {
+        Err("selected SQL read failed".into())
+    });
+    assert_eq!(failed.len(), 2);
+    assert!(failed
+        .iter()
+        .all(|(_, route)| matches!(route, LossRoute::Failed(_))));
+    assert!(seam.delivered.borrow().is_empty());
+    assert_eq!(pending.lock().pending_for("orch-tab").len(), 2);
+    assert!(pending.lock().alert_open("orch-tab"));
+    assert!(!claimed(&first) && !claimed(&second));
+    let replayed = replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| {
+        Ok(loss.clone())
+    });
+    let again = replay_losses(&gateway, &seam, &pending, "orch-tab", |loss| {
+        Ok(loss.clone())
+    });
 
     assert_eq!(replayed.len(), 2);
     assert!(replayed

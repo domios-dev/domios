@@ -18074,6 +18074,24 @@
           "subcommands": []
         },
         {
+          "name": "send-cancel",
+          "about": "Cancel a held agent send before its payload is claimed for writing",
+          "aliases": [],
+          "args": [
+            {
+              "name": "send_id",
+              "positional": true,
+              "required": true,
+              "value_name": "SEND_ID",
+              "possible_values": [],
+              "default": null,
+              "help": null,
+              "aliases": []
+            }
+          ],
+          "subcommands": []
+        },
+        {
           "name": "send-status",
           "about": "Inspect one retained send without resending its payload",
           "aliases": [],

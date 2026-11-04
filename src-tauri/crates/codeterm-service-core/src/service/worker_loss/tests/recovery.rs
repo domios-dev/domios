@@ -86,6 +86,7 @@ fn tab_gone_notice_advised_respawn_succeeds_once_and_refuses_replay() {
             &busy.worker,
             WorkerLossCause::TabGone,
         )
+        .unwrap()
         .unwrap();
     assert!(loss.recovery.contains(&replacement));
     assert!(loss.recovery.contains("next"));
@@ -157,7 +158,12 @@ fn delayed_loss_notice_uses_latest_closed_replacement_as_recovery_source() {
         &seam,
         pending_worker_losses(),
         &busy.orchestrator,
-        |loss| busy.fx.service.refresh_worker_loss_recovery(loss),
+        |loss| {
+            busy.fx
+                .service
+                .refresh_worker_loss_recovery(loss)
+                .map_err(|error| error.to_string())
+        },
     );
     assert_eq!(replayed.len(), 1);
     let (loss, route) = &replayed[0];
@@ -195,7 +201,12 @@ fn delayed_loss_notice_names_live_replacement_without_advising_respawn() {
         &NoticeSeam::default(),
         pending_worker_losses(),
         &busy.orchestrator,
-        |loss| busy.fx.service.refresh_worker_loss_recovery(loss),
+        |loss| {
+            busy.fx
+                .service
+                .refresh_worker_loss_recovery(loss)
+                .map_err(|error| error.to_string())
+        },
     );
     assert_eq!(replayed.len(), 1);
     let (loss, route) = &replayed[0];

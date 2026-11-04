@@ -258,7 +258,11 @@ fn superseded_attempt_for_tab_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let superseded = store.superseded_attempt_for_tab("old-tab").unwrap();
+    let superseded = store
+        .superseded_attempt_for_tab("old-tab")
+        .unwrap()
+        .unwrap();
+    assert!(store.plan_loads_for_test().is_empty());
     assert_eq!(superseded.0, matched);
     assert_never_loaded(&store, &[&unmatched]);
 }

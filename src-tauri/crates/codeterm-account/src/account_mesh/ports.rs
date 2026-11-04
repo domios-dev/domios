@@ -65,6 +65,17 @@ pub trait EndpointSource: Send + Sync {
 /// Transport-side effects the account lifecycle triggers but never performs itself.
 #[async_trait]
 pub trait MeshTransport: Send + Sync {
+    fn peers_reachable(&self) -> bool {
+        false
+    }
+    async fn endpoint_changed(
+        &self,
+        _endpoint: Option<MeshEndpoint>,
+        _sequence: u64,
+        _membership: &str,
+    ) -> bool {
+        false
+    }
     async fn registry_changed(&self, _snapshot: &codeterm_entitlements::DetachedGrant) {}
     async fn apply(&self, state: &LifecycleState);
     async fn installation_revoked(&self, installation_id: &str);

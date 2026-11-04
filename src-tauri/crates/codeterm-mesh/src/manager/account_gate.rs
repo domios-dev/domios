@@ -42,6 +42,7 @@ impl MeshManager {
         }
         if state.signed_in_account() != self.account.signed_in_account() {
             self.signed_registry = None;
+            self.endpoint_records.records.clear();
         }
         self.account = state;
         self.account_ready = true;
@@ -153,15 +154,12 @@ impl MeshManager {
 
     pub fn set_network_transport(
         &mut self,
-        status: crate::network_transport::TransportStatus,
+        mut status: crate::network_transport::TransportStatus,
     ) -> bool {
+        crate::network_transport::normalize_addresses(&mut status);
         if self.network_transport.as_ref() != Some(&status) {
-            self.tailscale_ip =
-                crate::network_transport::listener_addresses(&status, true, self.api_port)
-                    .iter()
-                    .map(|address| address.ip())
-                    .find(|ip| ip.is_ipv4())
-                    .map(|ip| ip.to_string());
+            self.tailscale_ip = crate::network_transport::preferred_ip(&status, self.api_port)
+                .map(|ip| ip.to_string());
             self.network_transport = Some(status);
             self.bump_gate();
             return true;
@@ -169,7 +167,9 @@ impl MeshManager {
         false
     }
 
-    pub fn set_ready_listeners(&mut self, ready: Vec<std::net::SocketAddr>) -> bool {
+    pub fn set_ready_listeners(&mut self, mut ready: Vec<std::net::SocketAddr>) -> bool {
+        ready.sort_unstable();
+        ready.dedup();
         let changed = self.ready_listeners != ready;
         self.ready_listeners = ready;
         if changed {

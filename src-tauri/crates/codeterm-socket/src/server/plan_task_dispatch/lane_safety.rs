@@ -42,7 +42,19 @@ pub(crate) fn refuse_unsafe_mutating_write(
     if intent != ExecutionIntent::Mutating {
         return Ok(());
     }
-    match classify_mutating_lane(plan, task_id, resolved_worktree) {
+    refuse_unsafe_mutating_lane(
+        &plan.id,
+        task_id,
+        classify_mutating_lane(plan, task_id, resolved_worktree),
+    )
+}
+
+pub(crate) fn refuse_unsafe_mutating_lane(
+    plan_id: &str,
+    task_id: &str,
+    verdict: Option<UnsafeMutatingLane>,
+) -> Result<(), JsonRpcError> {
+    match verdict {
         None => Ok(()),
         Some(UnsafeMutatingLane::Canonical { canonical }) => Err(refusal(
             REFUSAL_MUTATING_WRITE_IN_CANONICAL,
@@ -50,7 +62,7 @@ pub(crate) fn refuse_unsafe_mutating_write(
                 "dispatch refused: a mutating Worker for task '{task_id}' would write in the \
                  canonical checkout '{canonical}'. No Worker was spawned."
             ),
-            isolated_lane_update_command(&plan.id, task_id),
+            isolated_lane_update_command(plan_id, task_id),
         )),
         Some(UnsafeMutatingLane::ForeignLane { worktree, owner }) => Err(refusal(
             REFUSAL_MUTATING_WRITE_IN_FOREIGN_LANE,
@@ -59,7 +71,7 @@ pub(crate) fn refuse_unsafe_mutating_write(
                  '{worktree}', the lane recorded for task '{owner}'. No Worker was \
                  spawned."
             ),
-            isolated_lane_update_command(&plan.id, task_id),
+            isolated_lane_update_command(plan_id, task_id),
         )),
     }
 }

@@ -411,15 +411,7 @@ pub(super) fn create_router_with_preview_admission(
         )
         .route("/api/events/stream", get(web_routes::events_stream))
         .route("/api/output/stream", get(output_stream::output_stream))
-        .route("/api/stream-mux", get(stream_mux::stream_mux_open))
-        .route(
-            "/api/stream-mux/{session}/channels",
-            post(stream_mux::stream_mux_open_channel),
-        )
-        .route(
-            "/api/stream-mux/{session}/channels/{channel}",
-            axum::routing::delete(stream_mux::stream_mux_close_channel),
-        )
+        .merge(stream_mux::router())
         .route("/api/transcribe-voice", post(web_routes::transcribe_voice))
         .route(
             "/api/tabs/{id}/chat-raw/start",
@@ -973,6 +965,7 @@ pub(super) fn create_router_with_preview_admission(
 }
 
 pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Router {
+    let dispatch_service = state.svc.clone();
     let frontend_origins = codeterm_service_core::startup::frontend_shell_declared_frontend_origins(
         &state.config.lock().api,
         state.frontend_dev_url.as_ref(),
@@ -994,7 +987,7 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
     let router = router.layer(middleware::from_fn(super::cors_diagnostics::record));
     #[cfg(debug_assertions)]
     let router = router.layer(middleware::from_fn(super::request_census::record));
-    router
+    let router = router
         .layer(middleware::from_fn(super::request_activity::record))
         .layer(middleware::from_fn(
             super::plan_quota_status::typed_plan_refusal,
@@ -1003,7 +996,8 @@ pub(super) fn apply_middleware(router: Router<AppState>, state: AppState) -> Rou
         .layer(middleware::from_fn(
             mem_routes::decision::supporter_error_envelope,
         ))
-        .with_state(state)
+        .with_state(state);
+    stream_mux::dispatch::install(router, dispatch_service)
 }
 
 #[derive(serde::Deserialize)]

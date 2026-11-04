@@ -312,7 +312,8 @@ fn bind_worker_task_to_tab(
             false,
             now_ms,
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| error.to_string())?
+        .attempt_id;
     if let Err(error) =
         store.set_attempt_plan_skill_manifest(&plan_id, &task_id, &attempt_id, manifest, now_ms)
     {

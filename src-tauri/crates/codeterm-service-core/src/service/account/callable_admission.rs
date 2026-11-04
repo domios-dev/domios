@@ -1,16 +1,18 @@
 use crate::service::{account::AccountCell, ServiceContext};
 use codeterm_account::{account_mesh::callable::CallableGuard, Session};
 
-pub(crate) struct Changes(pub tokio::sync::watch::Sender<u64>);
+pub(crate) struct Changes(pub std::sync::Arc<tokio::sync::watch::Sender<u64>>);
 
 impl Default for Changes {
     fn default() -> Self {
-        Self(tokio::sync::watch::channel(0).0)
+        Self(std::sync::Arc::new(tokio::sync::watch::channel(0).0))
     }
 }
 
 impl ServiceContext {
-    pub(crate) fn callable_admission_changes(&self) -> tokio::sync::watch::Sender<u64> {
+    pub(crate) fn callable_admission_changes(
+        &self,
+    ) -> std::sync::Arc<tokio::sync::watch::Sender<u64>> {
         self.extensions.get_or_init(Changes::default).0.clone()
     }
     pub(crate) fn retire_callable_waiters(&self) {

@@ -46,7 +46,7 @@ pub(super) fn dispatch(
                 .into_iter()
                 .map(|team| team.id)
                 .collect();
-            let plans = active_team_plans(svc, team_ids);
+            let plans = active_team_plans(svc, team_ids)?;
             let mux = mux.read();
             let teams = mux
                 .list_teams()
@@ -60,7 +60,7 @@ pub(super) fn dispatch(
         }
         "team.show" => {
             let team_id = get_string_param(params, "team_id")?;
-            let plans = active_team_plans(svc, vec![team_id.clone()]);
+            let plans = active_team_plans(svc, vec![team_id.clone()])?;
             let mux = mux.read();
             let mut team = mux.get_team(&team_id).cloned().ok_or(JsonRpcError {
                 code: -32602,
@@ -227,38 +227,34 @@ pub(super) fn dispatch(
     }
 }
 
-/// Only active plans bound to these Teams can make a Team's lifecycle active.
 fn active_team_plans(
     svc: &ServiceState,
     team_ids: Vec<String>,
-) -> Vec<codeterm_service_core::plan::Plan> {
-    use codeterm_service_core::service::plan::PlanMatch;
+) -> Result<Vec<codeterm_service_core::service::plan::TeamExecutionRead>, JsonRpcError> {
     svc.plan_store
-        .plans_matching(&PlanMatch::active().and(PlanMatch::Teams(team_ids)))
+        .team_execution_projection(&team_ids)
+        .map_err(|error| JsonRpcError {
+            code: -32603,
+            message: error.to_string(),
+            data: None,
+        })
 }
 
 fn lifecycle_for_team(
     team: &codeterm_types::team::Team,
-    plans: &[codeterm_service_core::plan::Plan],
+    plans: &[codeterm_service_core::service::plan::TeamExecutionRead],
 ) -> codeterm_types::team::TeamLifecycle {
     use codeterm_types::team::TeamLifecycle;
     if team.lifecycle == TeamLifecycle::Closing {
         return TeamLifecycle::Closing;
     }
     let has_execution = plans.iter().any(|plan| {
-        plan.team_id.as_deref() == Some(team.id.as_str())
-            && plan.status == codeterm_service_core::plan::PlanStatus::Active
+        plan.team_id == team.id
             && (matches!(
                 plan.mode,
                 codeterm_service_core::plan::PlanMode::Approved
                     | codeterm_service_core::plan::PlanMode::Execution
-            ) || plan.tasks.iter().any(|task| {
-                matches!(
-                    task.status,
-                    codeterm_service_core::plan::TaskStatus::InProgress
-                        | codeterm_service_core::plan::TaskStatus::InReview
-                )
-            }))
+            ) || plan.has_running_tasks)
     });
     if has_execution {
         TeamLifecycle::Active

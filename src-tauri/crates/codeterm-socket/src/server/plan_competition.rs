@@ -2,6 +2,7 @@ use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
 use codeterm_service_core::plan::TaskCompetitionMetadata;
+use codeterm_service_core::service::plan::CompetitionLaneRead;
 use codeterm_service_core::service::{ServiceState, SpawnIdentityProvenance};
 
 use super::plan::{emit_plan_changed, plan_rpc_err};
@@ -53,31 +54,14 @@ fn preflight_compete_review_capacity(
     plan_id: &str,
     task_id: &str,
 ) -> Result<(), codeterm_service_core::service::plan::PlanError> {
-    let plan = store
-        .get(plan_id)
-        .ok_or(codeterm_service_core::service::plan::PlanError::NotFound)?;
-    let task = plan
-        .tasks
-        .iter()
-        .find(|task| task.id == task_id)
-        .ok_or(codeterm_service_core::service::plan::PlanError::TaskNotFound)?;
-    if task.status == codeterm_service_core::plan::TaskStatus::Pending {
-        codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(
-            &plan, task,
-        )?;
-    }
-    Ok(())
+    store.compete_review_capacity_projection(plan_id, task_id)
 }
 
 /// Only a Mutating task gets per-competitor lanes. Any other intent — including
 /// the `Unspecified` default of a never-dispatched task — keeps today's path.
-pub(super) fn mutating_competition(
-    plan: &codeterm_service_core::plan::Plan,
-    task_id: &str,
-) -> bool {
-    codeterm_service_core::plan::task_key::find_task(&plan.tasks, task_id).is_some_and(|task| {
-        task.interruption.execution_intent == codeterm_service_core::plan::ExecutionIntent::Mutating
-    })
+pub(super) fn mutating_competition(plan: &CompetitionLaneRead, task_id: &str) -> bool {
+    plan.task_id == task_id
+        && plan.dispatch_intent == codeterm_service_core::plan::ExecutionIntent::Mutating
 }
 
 fn lane_provision_failed(reason: String) -> JsonRpcError {
@@ -95,12 +79,12 @@ fn lane_provision_failed(reason: String) -> JsonRpcError {
 /// Give this competitor its own worktree/branch/base off canonical, then prove
 /// the result is neither canonical nor a lane another task owns — before spawn.
 fn provision_competitor_lane(
-    plan: &codeterm_service_core::plan::Plan,
+    plan: &CompetitionLaneRead,
     task_id: &str,
     draft: &mut codeterm_service_core::service::plan::task_attempts::TaskCompeteDraft,
     lane_settings: &[codeterm_service_core::agent::provider::WorkerLaneSetting],
 ) -> Result<codeterm_service_core::service::ProvisionedWorkerLane, JsonRpcError> {
-    let canonical = super::plan_task_dispatch::lane_safety::canonical_path_of(plan).to_string();
+    let canonical = plan.canonical_path.clone();
     let label = format!("{}-{}-c{}", plan.id, task_id, draft.lane);
     let lane =
         codeterm_service_core::service::provision_isolated_lane(&canonical, &label, lane_settings)
@@ -114,11 +98,15 @@ fn provision_competitor_lane(
             ))
         }
     };
-    if let Err(refusal) = super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_write(
-        plan,
-        task_id,
+    let verdict = codeterm_service_core::service::task_lane_guard::classify_lane_facts(
+        &plan.canonical_path,
         &provenance.worktree_path,
-        codeterm_service_core::plan::ExecutionIntent::Mutating,
+        plan.foreign_lanes
+            .iter()
+            .map(|lane| (lane.task_id.as_str(), lane.worktree_path.as_str())),
+    );
+    if let Err(refusal) = super::plan_task_dispatch::lane_safety::refuse_unsafe_mutating_lane(
+        &plan.id, task_id, verdict,
     ) {
         return Err(release_unowned_lanes(vec![lane], refusal));
     }
@@ -169,7 +157,7 @@ fn release_unowned_lanes(
 type CompetitorLanes = Vec<Option<codeterm_service_core::service::ProvisionedWorkerLane>>;
 
 fn provision_all_competitor_lanes(
-    plan: &codeterm_service_core::plan::Plan,
+    plan: &CompetitionLaneRead,
     task_id: &str,
     mut drafts: Vec<codeterm_service_core::service::plan::task_attempts::TaskCompeteDraft>,
     lane_settings: &[codeterm_service_core::agent::provider::WorkerLaneSetting],
@@ -420,8 +408,8 @@ pub(super) fn compete(
         .build_task_compete_drafts(&id, &tid, request)
         .map_err(plan_rpc_err)?;
     let plan = store
-        .get(&id)
-        .ok_or_else(|| plan_rpc_err(codeterm_service_core::service::plan::PlanError::NotFound))?;
+        .competition_lane_projection(&id, &tid)
+        .map_err(plan_rpc_err)?;
     // Phase 1 — provision and verify EVERY mutating lane before the first spawn,
     // so a provisioning failure can never delete underneath a running competitor.
     let (mut drafts, mut lanes) =
@@ -435,7 +423,7 @@ pub(super) fn compete(
         let parent_tab_id = match draft
             .parent_tab_id
             .clone()
-            .or_else(|| plan.owner.tab_id.clone())
+            .or_else(|| plan.owner_tab_id.clone())
         {
             Some(parent_tab_id) => parent_tab_id,
             None => {

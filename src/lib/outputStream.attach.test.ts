@@ -346,13 +346,19 @@ it.each(["local", "mesh"])("delivers captured terminal bytes through the multipl
   const channelPaths: string[] = [];
   const fetch = vi.fn<typeof globalThis.fetch>(async (input, init) => {
     if (new URL(String(input)).pathname === "/api/stream-mux") {
-      return new Response(new ReadableStream<Uint8Array>({ start(controller) { pushWire = (bytes) => controller.enqueue(bytes); } }));
+      return new Response(new ReadableStream<Uint8Array>({ start(controller) { pushWire = (bytes) => controller.enqueue(bytes); } }), { headers: { "Content-Type": "text/event-stream" } });
     }
     const opened = JSON.parse(String(init?.body)) as { channel: string; path: string };
     channelPaths.push(opened.path);
-    const wire = new TextEncoder().encode(`data: ${JSON.stringify({ channel: opened.channel, data: frame })}\n\n`);
+    const head = { channel: opened.channel, open: true, status: 200, headers: [["content-type", "text/event-stream"]] };
+    const body = { channel: opened.channel, chunk: `data: ${JSON.stringify(frame)}
+
+`, enc: "utf8" };
+    const wire = new TextEncoder().encode([head, body].map((value) => `data: ${JSON.stringify(value)}
+
+`).join(""));
     for (let index = 0; index < wire.length; index += 17) pushWire(wire.slice(index, index + 17));
-    return Response.json({ ok: true });
+    return Response.json({ accepted: true }, { status: 202 });
   });
   vi.stubGlobal("fetch", fetch);
   const client = configureDaemonTransport({ origin: window.location.origin, token: "fixture-token" });

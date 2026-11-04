@@ -25,6 +25,16 @@ pub struct ListWindowQuery {
     pub status: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct ReferenceProjection {
+    pub title: String,
+    pub status: crate::plan::PlanStatus,
+    pub owner: crate::plan::OrchestratorRef,
+    pub canonical_project_path: String,
+    pub tasks: Vec<crate::plan::Task>,
+    pub sections: Vec<crate::plan::Section>,
+}
+
 impl PlanStore {
     pub fn task_reference(
         &self,
@@ -59,11 +69,11 @@ impl PlanStore {
     pub fn reference_projection(
         &self,
         plan_id: &str,
-        task_ref: Option<&str>,
-        section_ref: Option<&str>,
-    ) -> Result<crate::plan::Plan, PlanError> {
+        task_refs: &[String],
+        section_refs: &[String],
+    ) -> Result<ReferenceProjection, PlanError> {
         self.database
-            .reference_projection(plan_id, task_ref, section_ref)
+            .reference_projection(plan_id, task_refs, section_refs)
     }
 
     pub fn ui_plan_projection(

@@ -274,15 +274,25 @@ impl super::ServiceContext {
             log::error!("[worker-interruption] fence failed: {error}");
             return Err(error);
         }
-        if request.event == WorkerInterruptionEvent::ProcessExited {
-            let loss = self.worker_loss_for_task(
+        let loss_read_error = if request.event == WorkerInterruptionEvent::ProcessExited {
+            match self.worker_loss_for_task(
                 &request.plan_id,
                 &request.task_id,
                 tab_id,
                 crate::service::worker_loss::WorkerLossCause::ProcessExited,
-            );
-            self.report_worker_losses(loss.into_iter().collect());
-        }
+            ) {
+                Ok(loss) => {
+                    self.report_worker_losses(loss.into_iter().collect());
+                    None
+                }
+                Err(error) => {
+                    log::error!("[worker-lost] fenced interruption recovery read failed: {error}");
+                    Some(error)
+                }
+            }
+        } else {
+            None
+        };
         let svc = self.clone();
         let pending_tab_id = tab_id.to_string();
         crate::async_runtime::spawn(async move {
@@ -302,7 +312,10 @@ impl super::ServiceContext {
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .remove(&pending_tab_id);
         });
-        Ok(true)
+        match loss_read_error {
+            Some(error) => Err(error),
+            None => Ok(true),
+        }
     }
 
     pub async fn interrupt_worker_attempt(

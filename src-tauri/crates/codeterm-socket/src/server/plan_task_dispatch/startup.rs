@@ -92,9 +92,7 @@ pub(crate) fn run_startup(
         || {
             roll_back_dispatch_attempt(
                 &this.svc.plan_store,
-                &this.plan_id,
-                &this.original_task,
-                &this.original_plan_mode,
+                &this.rollback,
                 &this.tab_id,
                 &this.attempt_id,
                 provisioned_lane,
@@ -117,14 +115,22 @@ pub(crate) fn run_startup(
                 this.spawn_command.clone(),
             );
             emit_plan_changed(&this.svc, &this.plan_id);
-            let nudges = this
+            let lane = match this
                 .svc
                 .plan_store
-                .show_task(&this.task_id)
-                .map(|detail| {
-                    dispatch_safety_nudges(&this.plan_id, &this.task_id, &detail.task.lane)
-                })
-                .unwrap_or_default();
+                .task_lane_metadata_projection(&this.plan_id, &this.task_id)
+            {
+                Ok(lane) => lane,
+                Err(error) => {
+                    log::warn!(
+                        "[task-dispatch] ready metadata read failed plan={} task={}: {error}",
+                        this.plan_id,
+                        this.task_id
+                    );
+                    return;
+                }
+            };
+            let nudges = dispatch_safety_nudges(&this.plan_id, &this.task_id, &lane);
             publish_startup_report(
                 &this.svc,
                 &this.parent_tab_id,

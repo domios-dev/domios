@@ -8,7 +8,7 @@ pub(crate) fn send_id(tab_id: &str, id: &str) -> String {
     format!("agent-pty:{}:{id}", URL_SAFE_NO_PAD.encode(tab_id))
 }
 
-fn parse_send_id(value: &str) -> Option<(String, String)> {
+pub(crate) fn parse_send_id(value: &str) -> Option<(String, String)> {
     if value.len() > 512 {
         return None;
     }
@@ -117,7 +117,7 @@ impl AgentDeliveryStore {
         tab: &AgentDeliveryTab,
         record: &AgentDeliveryRecord,
         written: bool,
-    ) {
+    ) -> Result<(), String> {
         self.prune_inspection(tab);
         let receipt = status(
             &tab.tab_id,
@@ -136,9 +136,13 @@ impl AgentDeliveryStore {
             }),
         );
         if let Err(error) = publish_inspection(tab, &receipt) {
+            if !written {
+                return Err(error);
+            }
             log::debug!("[agent-delivery] inspection receipt publication failed: {error}");
         }
         self.prune_inspection(tab);
+        Ok(())
     }
 
     pub(crate) fn inspect(&self, public_id: &str) -> Result<Option<ChatSendStatus>, String> {
@@ -202,13 +206,22 @@ impl AgentDeliveryStore {
             } else {
                 ChatSendState::Unknown
             };
-            return Ok(Some(status(
+            let mut receipt = status(
                 tab_id,
                 id,
                 record.sequence,
                 state,
                 record.terminal_failure.clone(),
-            )));
+            );
+            if receipt.state == ChatSendState::Pending {
+                receipt.pending_reason = Some(format!(
+                    "{} {} Cancel before write with domios tab send-cancel {public_id}.",
+                    record.pending_reason.as_deref().unwrap_or("Waiting for exact own-session initial readiness; binding the current recipient launch releases queued sends in order."),
+                    record.ready_deadline_ms.map(|deadline| format!("Refuses without writing at Unix millisecond {deadline} if still held.")).unwrap_or_else(|| "The durable delivery TTL bounds this hold.".into()),
+                    public_id = send_id(tab_id, id),
+                ));
+            }
+            return Ok(Some(receipt));
         }
         let path = tab.dir.join("inspection").join(format!("{id}.json"));
         if !path.try_exists().map_err(|error| error.to_string())? {

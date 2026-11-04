@@ -14,7 +14,7 @@ Each side verifies current signed membership and possession of both the installa
 
 ## Web access and endpoints
 
-When Tailscale is connected and both the API and Mesh are enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic, withdraws the tailnet web listeners and stops their health proofs. Signed-in machines publish their health-proven endpoint to the account.
+When Tailscale is connected and both the API and Mesh are enabled, the local web UI/API listens on assigned Tailscale IPv4 and IPv6 addresses, including while the account is signed out. Native address changes update the listener set. The Mesh UI card offers QR, Open and Copy only for health-proven listeners; Open carries the instance API token in a URL fragment. Browser API access requires that token. Account mesh peer requests and handshakes remain blocked while signed out or revoked, and disabling Mesh blocks peer traffic, withdraws the tailnet web listeners and stops their health proofs. Signed-in machines send health-proven endpoints peer-to-peer as installation-signed records. Each record is checked against the publisher's signed membership and current registry key, generation and slot. Higher sequences win; signed withdrawals remove endpoints. Sequence fences survive restart. A separate server publish happens only for cold start when no peer is reachable. Daily enrollment and renewal include the current endpoint in their existing request.
 
 Verified HTTP works without Tailscale Serve HTTPS. The card prefers verified HTTPS, tailnet HTTP, then LAN HTTP, and labels the route; HTTPS-dependent browser features still need HTTPS. Loopback offers **Open on this machine**, without QR or Copy. After Tailscale or Serve setup, run `domios mesh refresh --json` to re-detect transport, reconcile Serve, verify and publish endpoints, and resync the card. Read `transport.state` and `web_ui.endpoints` there or in `domios mesh status --json` (cached local state, available while signed out). Confirm Open, Copy and QR for the proven endpoint before reporting completion. **Permission needed** distinguishes access denial from stopped or missing Tailscale.
 
@@ -67,7 +67,7 @@ The command is local-only and permits the local user/General Agent, the tab itse
 
 ## Web UI discovery and relay
 
-Every live announce carries `relay_protocol_version` and an optional typed `web_ui` capability. Endpoints are limited to verified Tailscale HTTPS, Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes `/api/health` and matches the running build before advertising an origin; the receiver validates and reorders the typed endpoints before storing them.
+Every live announce carries `relay_protocol_version` and an optional typed `web_ui` capability. Endpoints are limited to verified Tailscale HTTPS, Tailscale IPv4 HTTP, and private-LAN HTTP origins. The producer probes `/api/health` and matches the running build before advertising an origin. It reuses that proof only while the configured route, build, ready listeners and local health remain unchanged. Address and endpoint sets are sorted and deduplicated; enumeration order alone never triggers an announce. Address-change broadcasts coalesce to the latest snapshot, and peer sends have independent deadlines outside the manager lock. The receiver validates and reorders the typed endpoints before storing them.
 
 The default **Open** action never sends a remote daemon token to the browser. It opens the local Web UI entry origin with the local token in a URL fragment and a connected peer ID. The browser removes that fragment from history, resolves the peer name from the authenticated local peer list, and sends API traffic through the signed Mesh relay. Relay authorization uses the same policy as a direct signed peer request. REST config responses redact `api.token`, and `/api/secrets/*` cannot be relayed even with Full access.
 
@@ -156,4 +156,4 @@ Inventory opens as a full-screen searchable List beside the existing Mesh networ
 |---|---|---|---|
 | POST | `/api/mesh/account-presence` | `{metadata_revision}` | Triggers one rate-limited registry refresh. |
 
-<!-- revision: 76 -->
+<!-- revision: 77 -->

@@ -17,8 +17,8 @@ fn lane_cleanup_preview_and_other_routes_do_not_wait_for_running_deletion() {
         .lock()
         .jobs
         .insert("deleting".into(), deleting.clone());
-    assert!(start(&svc, plan.clone(), true, false, true).is_err());
-    let preview = start(&svc, plan, false, false, false).unwrap();
+    assert!(start(&svc, (&plan).into(), true, false, true).is_err());
+    let preview = start(&svc, (&plan).into(), false, false, false).unwrap();
     assert_eq!(preview["dry_run"], true);
     assert_eq!(preview["lanes"], json!([]));
     assert!(deleting.state.lock().result.is_none());

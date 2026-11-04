@@ -125,8 +125,9 @@ fn final_orchestrator_unlink_retains_team_and_plan_for_replacement() {
         &prepared.expected_profile,
     )
     .unwrap();
-    let takeover =
-        crate::team::take_over_team_plan(&mut mux, &store, &team_id, &replacement, 5).unwrap();
+    let takeover = crate::team::take_over_team_plan(&mut mux, &store, &team_id, &replacement, 5)
+        .unwrap()
+        .unwrap();
 
     assert_eq!(takeover.error, None);
     assert_eq!(takeover.plan_id, plan.id);

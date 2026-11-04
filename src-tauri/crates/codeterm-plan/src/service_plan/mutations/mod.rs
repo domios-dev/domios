@@ -131,26 +131,6 @@ pub(super) fn rm_section_tree(sections: &mut Vec<Section>, id: &str) -> bool {
         .any(|s| rm_section_tree(&mut s.subsections, id))
 }
 
-fn collect_section_tree_ids(sections: &[Section], id: &str, out: &mut Vec<String>) -> bool {
-    for section in sections {
-        if section.id == id || section.handle.as_deref() == Some(id) {
-            collect_all_section_ids(section, out);
-            return true;
-        }
-        if collect_section_tree_ids(&section.subsections, id, out) {
-            return true;
-        }
-    }
-    false
-}
-
-fn collect_all_section_ids(section: &Section, out: &mut Vec<String>) {
-    out.push(section.id.clone());
-    for subsection in &section.subsections {
-        collect_all_section_ids(subsection, out);
-    }
-}
-
 pub(super) fn has_section(sections: &[Section], id: &str) -> bool {
     sections.iter().any(|section| {
         section.id == id

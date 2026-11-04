@@ -1,5 +1,5 @@
 import { ExpandableReader } from "./ExpandableReader";
-import { MarkdownPlanLinksContext, MarkdownPlanRef, rehypePlanRefs, type MarkdownPlanLinks } from "./MarkdownPlanRefs";
+import { MarkdownPlanLinksContext, MarkdownPlanRef, rehypePlanRefs, remarkReferenceMarkers, type MarkdownPlanLinks } from "./MarkdownPlanRefs";
 import { localArtifactOpeningAvailable, openLocalArtifact } from "./localArtifactLoader";
 import { boundedMessageLayout } from "./boundedMessageModel";
 import { BoundedMessageContent } from "./BoundedMessageContent";
@@ -391,7 +391,7 @@ function MarkdownProse({
   return <InteractivePreviewsContext.Provider value={interactivePreviews}><MarkdownPlanLinksContext.Provider value={planLinks ?? {}}><MarkdownFenceContext.Provider value={{ fences, pending: pendingFence, original: normalized.start }}>{rendered}</MarkdownFenceContext.Provider></MarkdownPlanLinksContext.Provider></InteractivePreviewsContext.Provider>;
 }
 
-const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata];
+const REMARK_PLUGINS = [remarkGfm, remarkCachedParse, remarkBareDomains, remarkCodeMetadata, remarkReferenceMarkers];
 const MARKDOWN_RENDER_CACHE_ENTRIES = 3000;
 const MARKDOWN_RENDER_CACHE_CHARS = 500_000;
 const markdownRenderCache = new Map<string, { element: React.ReactElement; chars: number }>();

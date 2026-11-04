@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readReloadCredentials, validateDaemonOrigin } from "./daemonBootstrap";
+import { muxMockFetch } from "./muxMockFetch.testdata";
 
-afterEach(() => { vi.unstubAllGlobals(); vi.resetModules(); });
+afterEach(async () => { (await import("./streamMux")).__resetStreamMuxesForTest(); vi.unstubAllGlobals(); vi.resetModules(); });
 
 it("installs the web diagnostic global and listeners only in dev and sends authenticated metadata", async () => {
   vi.resetModules();
@@ -15,7 +16,7 @@ it("installs the web diagnostic global and listeners only in dev and sends authe
     received();
     return Response.json({ ok: true });
   });
-  vi.stubGlobal("fetch", fetch);
+  vi.stubGlobal("fetch", muxMockFetch((input, init) => fetch(input, init ?? {})));
   const shell = { location: { origin: "https://gateway.example" }, sessionStorage: { getItem: () => null },
     localStorage: { getItem: () => "web-token" }, dispatchEvent: vi.fn(), addEventListener: (name: string, handler: (event: unknown) => void) => handlers.set(name, handler),
     __CODETERM_SHELL_DIAGNOSTIC__: undefined as Window["__CODETERM_SHELL_DIAGNOSTIC__"] };
@@ -137,10 +138,11 @@ it("boots the real native runtime graph from Vite and acknowledges readiness onl
   };
   vi.stubGlobal("window", shell);
   const requests: { url: string; init?: RequestInit }[] = [];
-  vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+  vi.stubGlobal("fetch", muxMockFetch(async (input, init) => {
+    const url = String(input);
     requests.push({ url, init });
     return new Response(JSON.stringify(url.endsWith("/bootstrap") ? { generation: 7 } : true), { headers: { "Content-Type": "application/json" } });
-  });
+  }));
   const { ensureDaemonRuntime } = await import("./daemonRuntime");
   for (let access = 0; access < 102; access++) ensureDaemonRuntime();
   const { invoke } = await import("./bridge");

@@ -118,6 +118,25 @@ pub fn membership_refusal(refusal: MembershipRefusal) -> mesh::AdmissionRefusal 
 }
 
 impl mesh::AccountMeshAuthority for AccountAuthority {
+    fn accept_endpoint_sequence<'a>(
+        &'a self,
+        membership: &'a mesh::VerifiedMembership,
+        sequence: u64,
+        digest: [u8; 32],
+    ) -> mesh::BoxFuture<'a, Result<bool, mesh::AdmissionRefusal>> {
+        Box::pin(async move {
+            self.0
+                .accept_endpoint_sequence(
+                    &membership.account_id,
+                    &membership.installation_id,
+                    sequence,
+                    digest,
+                )
+                .await
+                .map_err(admission_refusal)
+        })
+    }
+
     fn receive_registry_snapshot<'a>(
         &'a self,
         snapshot: &'a codeterm_entitlements::DetachedGrant,
