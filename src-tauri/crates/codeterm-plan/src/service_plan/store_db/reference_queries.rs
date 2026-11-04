@@ -54,9 +54,12 @@ impl PlanDatabase {
             "WITH requested AS (SELECT key AS request,value FROM json_each(?2)),
              exact AS MATERIALIZED (SELECT r.request,t.task_id FROM requested r JOIN plan_tasks t ON t.plan_id=?1 AND t.task_id=r.value),
              named_requests AS MATERIALIZED (SELECT r.request,r.value FROM requested r WHERE NOT EXISTS(SELECT 1 FROM exact e WHERE e.request=r.request)),
+             named_tasks AS MATERIALIZED (SELECT task_id,json_extract(row_json,'$.handle') AS handle,
+                json_extract(row_json,'$.key') AS key FROM plan_tasks WHERE plan_id=?1
+                AND EXISTS(SELECT 1 FROM named_requests)),
              ranked AS MATERIALIZED (SELECT request,task_id,0 AS tier FROM exact UNION ALL SELECT r.request,t.task_id,
-                domios_task_ref_rank(t.task_id,json_extract(t.row_json,'$.handle'),json_extract(t.row_json,'$.key'),r.value) AS tier
-                FROM named_requests r JOIN plan_tasks t ON t.plan_id=?1),
+                domios_task_ref_rank(t.task_id,t.handle,t.key,r.value) AS tier
+                FROM named_requests r CROSS JOIN named_tasks t),
              best AS (SELECT request,min(tier) AS tier FROM ranked WHERE tier IN (0,1) GROUP BY request),
              chosen AS (SELECT r.request,r.task_id FROM ranked r JOIN best b USING(request,tier)),
              requested_tasks AS (SELECT request,min(task_id) AS task_id FROM chosen GROUP BY request HAVING count(*)=1)

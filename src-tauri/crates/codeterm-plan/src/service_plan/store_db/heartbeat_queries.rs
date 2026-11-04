@@ -5,6 +5,13 @@ use crate::service_plan::{PlanError, PlanMatch};
 use rusqlite::{functions::FunctionFlags, Connection, OptionalExtension};
 use serde::Deserialize;
 
+pub(super) const LEARNING_WINDOW: &str = "WITH learning_rows AS MATERIALIZED (
+    SELECT l.key,l.value,json_extract(l.value,'$.tag') AS tag,json_extract(l.value,'$.id') AS id
+    FROM plan_heartbeat h,json_each(h.row_json,'$.learnings') l WHERE h.plan_id=?1
+), recent_learnings AS MATERIALIZED (
+    SELECT key FROM learning_rows WHERE coalesce(tag,'')<>'owner' ORDER BY key DESC LIMIT 50
+)";
+
 pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanError> {
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
     connection
@@ -44,10 +51,9 @@ impl PlanDatabase {
             super::curator_notice_queries::heartbeat_display_snapshot(&connection, id, now)?;
         record_query();
         let document:Option<String>=connection.query_row(
-            "SELECT json_object('learnings',json((SELECT json_group_array(json(value)) FROM (
-                SELECT key,value FROM json_each(h.row_json,'$.learnings') WHERE json_extract(value,'$.tag')='owner'
-                    OR key IN (SELECT key FROM json_each(h.row_json,'$.learnings') WHERE coalesce(json_extract(value,'$.tag'),'')<>'owner' ORDER BY key DESC LIMIT 50)
-                ORDER BY key)))) FROM plan_heartbeat h WHERE plan_id=?1",
+            &format!("{LEARNING_WINDOW} SELECT json_object('learnings',json((SELECT json_group_array(json(value)) FROM (
+                SELECT key,value FROM learning_rows WHERE tag='owner' OR key IN (SELECT key FROM recent_learnings)
+                ORDER BY key)))) FROM plan_heartbeat h WHERE plan_id=?1"),
             [id],|row|column(row,0)).optional().map_err(db_error)?;
         let heartbeat: crate::plan::OrchestratorHeartbeat = match document {
             Some(document) => decode(id, &document)?,

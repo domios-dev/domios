@@ -11,6 +11,7 @@ mod binding_context_tests;
 mod binding_tests;
 mod bundle_tests;
 mod chat_header_tests;
+mod close_inventory_tests;
 mod curator_digest_tests;
 mod curator_lifecycle_tests;
 mod curator_notice_tests;
@@ -43,6 +44,7 @@ mod selector_error_tests;
 mod status_tests;
 mod tab_tests;
 mod task_key_reader_tests;
+mod team_close_tests;
 mod transfer_authority_tests;
 mod worker_read_tests;
 

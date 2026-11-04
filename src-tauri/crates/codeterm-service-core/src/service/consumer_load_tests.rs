@@ -619,10 +619,10 @@ fn close_inventory_plans_never_loads_unmatched_plans() {
     start(store);
 
     let teams: HashSet<&str> = ["team-closing"].into_iter().collect();
-    let plans = crate::service::close_history::close_inventory_plans(store, &teams);
+    let plans = crate::service::close_history::close_inventory_plans(store, &teams).unwrap();
     assert_eq!(
         plans.into_iter().map(|plan| plan.id).collect::<Vec<_>>(),
-        vec![closing]
+        vec![closing.clone()]
     );
-    assert_never_loaded(store, &[&staying]);
+    assert_never_loaded(store, &[&closing, &staying]);
 }

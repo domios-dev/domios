@@ -23,14 +23,13 @@ impl PlanStore {
     ) -> Result<TeamPlanArchive, PlanError> {
         let writer_turn = self.mutation_writer.enter();
         let tabs: HashSet<_> = member_tab_ids.iter().map(String::as_str).collect();
-        let mut ids: Vec<_> = self
-            .team_close_plans(team_id, member_tab_ids)
-            .into_iter()
-            .filter(|plan| has_team_close_work(plan, team_id, &tabs))
-            .map(|plan| plan.id)
-            .collect();
-        ids.sort();
-        let originals: Vec<_> = ids.iter().filter_map(|id| self.get(id)).collect();
+        let mut originals = self.plans_for_update_in_writer(
+            &writer_turn,
+            &super::super::store_queries::team_close_candidates(team_id, member_tab_ids),
+        )?;
+        originals.retain(|plan| has_team_close_work(plan, team_id, &tabs));
+        originals.sort_by(|left, right| left.id.cmp(&right.id));
+        let ids: Vec<_> = originals.iter().map(|plan| plan.id.clone()).collect();
         for id in &ids {
             if let Err(error) = self.with_plan_in_writer(&writer_turn, id, now_ms, |plan| {
                 let team_bound = plan.team_id.as_deref() == Some(team_id);

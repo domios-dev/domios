@@ -97,12 +97,14 @@ pub use status_projection::{
     CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
     PlanStatusRead,
 };
+pub use store_db::read_projections::close_inventory::PlanCloseRestoreRead;
 pub use store_db::read_projections::lane_clean::{LaneCleanupPlanRead, LaneCleanupTaskRead};
 pub use store_db::read_projections::lane_readers::TaskLaneReferenceRead;
 pub use store_db::read_projections::lane_settlement::LaneSettlementRead;
 pub use store_db::read_projections::lane_stats::{LaneAttemptRead, LaneWatchRead};
 pub use store_db::read_projections::lane_watchdog::{LaneWatchdogRead, LaneWatchdogTaskRead};
 pub use store_db::read_projections::lifecycle::PlanLifecycleRead;
+pub use store_db::read_projections::team_close::{TeamClosePlanRead, TeamCloseTaskRead};
 pub use store_db::read_projections::team_readers::TeamExecutionRead;
 pub mod board_state;
 mod document_projection;

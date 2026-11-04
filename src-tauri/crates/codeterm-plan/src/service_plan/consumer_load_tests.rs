@@ -792,13 +792,14 @@ fn team_close_plans_never_loads_unmatched_plans() {
     start(&store);
 
     let mut ids: Vec<_> = store
-        .team_close_plans("team-closing", &["member-tab".into()])
+        .team_close_projection("team-closing", &["member-tab".into()])
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
     ids.sort();
-    let mut expected = vec![laned, assigned];
+    let mut expected = vec![laned.clone(), assigned.clone()];
     expected.sort();
     assert_eq!(ids, expected);
-    assert_never_loaded(&store, &[&other]);
+    assert_never_loaded(&store, &[&laned, &assigned, &other]);
 }
