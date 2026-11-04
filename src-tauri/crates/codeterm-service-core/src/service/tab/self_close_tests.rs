@@ -15,6 +15,8 @@ fn unattributed_close_of_coordinator_reports_missing_attribution() {
 
     assert!(error.starts_with(UNATTRIBUTED_CLOSE_REFUSAL_PREFIX));
     assert!(!error.starts_with(SELF_CLOSE_REFUSAL_PREFIX));
+    // A Team-less coordinator has no Team close, so the refusal names its exit.
+    assert!(error.contains(&format!("domios agent unlink --tab {coordinator}")));
     assert!(fixture.service.mux.read().get_tab(&coordinator).is_some());
 }
 
