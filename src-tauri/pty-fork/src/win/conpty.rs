@@ -40,7 +40,7 @@ pub struct ConPtySystem {}
 
 impl PtySystem for ConPtySystem {
     fn openpty(&self, size: PtySize) -> anyhow::Result<PtyPair> {
-        let stdin = Pipe::new()?;
+        let (stdin, writer) = super::cancellable::pipe()?;
         // Use pipe with small buffer to force immediate flush from ConPTY
         let stdout = create_small_buffer_pipe()?;
 
@@ -49,7 +49,7 @@ impl PtySystem for ConPtySystem {
                 X: size.cols as i16,
                 Y: size.rows as i16,
             },
-            stdin.read,
+            stdin,
             stdout.write,
         )?;
 
@@ -57,7 +57,7 @@ impl PtySystem for ConPtySystem {
             inner: Arc::new(Mutex::new(Inner {
                 con,
                 readable: stdout.read,
-                writable: Some(stdin.write),
+                writable: Some(writer),
                 size,
             })),
         };
@@ -76,7 +76,7 @@ impl PtySystem for ConPtySystem {
 struct Inner {
     con: PsuedoCon,
     readable: FileDescriptor,
-    writable: Option<FileDescriptor>,
+    writable: Option<crate::CancellableWriter>,
     size: PtySize,
 }
 
@@ -132,14 +132,16 @@ impl MasterPty for ConPtyMasterPty {
     }
 
     fn take_writer(&self) -> anyhow::Result<Box<dyn std::io::Write + Send>> {
-        Ok(Box::new(
-            self.inner
-                .lock()
-                .unwrap()
-                .writable
-                .take()
-                .ok_or_else(|| anyhow::anyhow!("writer already taken"))?,
-        ))
+        Ok(self.take_cancellable_writer()?.writer)
+    }
+
+    fn take_cancellable_writer(&self) -> anyhow::Result<crate::CancellableWriter> {
+        self.inner
+            .lock()
+            .unwrap()
+            .writable
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("writer already taken"))
     }
 }
 

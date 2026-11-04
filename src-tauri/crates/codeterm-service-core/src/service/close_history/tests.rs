@@ -34,13 +34,14 @@ fn plan_restore_recovers_pairing_without_reviving_finalized_tasks_or_lanes() {
     current.owner = Default::default();
     current.planner = None;
     let finalized_tasks = current.tasks.clone();
-    restore_plan_metadata(&mut current, &saved);
+    let saved_read = serde_json::from_value(serde_json::to_value(&saved).unwrap()).unwrap();
+    restore_plan_metadata(&mut current, &saved_read);
     assert_eq!(current.team_id, saved.team_id);
     assert_eq!(current.owner, saved.owner);
     assert_eq!(current.planner, saved.planner);
     assert_eq!(current.tasks, finalized_tasks);
     let once = current.clone();
-    restore_plan_metadata(&mut current, &saved);
+    restore_plan_metadata(&mut current, &saved_read);
     assert_eq!(current, once);
 }
 

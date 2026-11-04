@@ -11,12 +11,20 @@ const WEDGED: Duration = Duration::from_secs(1);
 const SOURCE: &str = r#"
 let lockId = null;
 let rememberedJob = null;
+let callbackEntries = 0;
 module.exports = {
   health() { return "healthy"; },
   remembered(request) { rememberedJob = JSON.parse(host.ioStart(JSON.stringify(request))).jobId; return host.awaitJob(rememberedJob, function() { return "owned"; }); },
   steal() { return host.awaitJob(rememberedJob, function() { return "stolen"; }); },
   range(path) { return host.io.run((function*() { try { yield* host.io.fs.readFileHead(path, 2097152); } catch(error) { return error instanceof RangeError; } return false; })()); },
   query(db, sql) { return host.io({op:"sqliteQuery",db:db,sql:sql,params:[]}, function(rows) { return rows; }); },
+  nullableQuery(db, sql) { return host.io({op:"sqliteQuery",db:db,sql:sql,params:[],nullable:true}, function(rows) { return rows; }); },
+  generatorCallback(path) { return host.io({op:"readFile",path:path}, function*(text) {
+    callbackEntries++;
+    yield* host.io.fs.writeFile(path + ".result", text + String(callbackEntries));
+    return callbackEntries;
+  }); },
+  nestedGenerator(path) { return host.io.run((function*() { return (function*() { return yield* host.io.fs.readFile(path); })(); })()); },
   legacy(path) { return host.readFile(path); },
   pause(request) { return host.io(request, function() { return "resumed"; }); },
   read(path) { return host.io.run((function*() { return yield* host.io.fs.readFile(path); })()); },
@@ -402,6 +410,62 @@ fn owner_enforces_file_bounds_and_preserves_read_only_sqlite() {
     assert_eq!(
         call_json::<Value>(&vm, "query", &[json!(db), json!("DELETE FROM entries")]).unwrap(),
         json!([])
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT value FROM entries", [], |row| row
+                .get::<_, String>(0))
+            .unwrap(),
+        "retained"
+    );
+}
+
+#[test]
+fn generator_callbacks_resume_once_and_nested_programs_finish() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("callback.txt");
+    std::fs::write(&path, "once-").unwrap();
+    let vm = vm("io-generator-callback", Some(root.path()));
+    assert_eq!(
+        call_json::<Value>(&vm, "generatorCallback", &[json!(path)]).unwrap(),
+        json!(1)
+    );
+    assert_eq!(
+        std::fs::read_to_string(path.with_extension("txt.result")).unwrap(),
+        "once-1"
+    );
+    assert_eq!(
+        call_json::<Value>(&vm, "nestedGenerator", &[json!(path)]).unwrap(),
+        json!("once-")
+    );
+}
+
+#[test]
+fn nullable_sqlite_preserves_unknown_without_authorizing_writes() {
+    let root = tempfile::tempdir().unwrap();
+    let db = root.path().join("nullable.sqlite");
+    let connection = rusqlite::Connection::open(&db).unwrap();
+    connection
+        .execute_batch("CREATE TABLE entries(value TEXT); INSERT INTO entries VALUES('retained');")
+        .unwrap();
+    let vm = vm("io-nullable-sqlite", Some(root.path()));
+    assert_eq!(
+        call_json::<Value>(
+            &vm,
+            "nullableQuery",
+            &[json!(db), json!("SELECT value FROM entries WHERE 0")]
+        )
+        .unwrap(),
+        json!([])
+    );
+    assert_eq!(
+        call_json::<Value>(
+            &vm,
+            "nullableQuery",
+            &[json!(db), json!("DELETE FROM entries")]
+        )
+        .unwrap(),
+        Value::Null
     );
     assert_eq!(
         connection

@@ -50,9 +50,17 @@ pub(super) fn query_value(
     db: &str,
     sql: &str,
     params_json: Option<&str>,
+    nullable: bool,
 ) -> Result<serde_json::Value, String> {
+    let unavailable = || {
+        if nullable {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::Array(Vec::new())
+        }
+    };
     if !query_allowed(sandbox, observation, db) {
-        return Ok(serde_json::Value::Array(Vec::new()));
+        return Ok(unavailable());
     }
     let rows = POOL.query(
         sandbox.plugin_id(),
@@ -63,7 +71,7 @@ pub(super) fn query_value(
     )?;
     Ok(rows
         .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_else(|| serde_json::Value::Array(Vec::new())))
+        .unwrap_or_else(unavailable))
 }
 
 /// The same gate as `host_query`, applied before the job starts; the query

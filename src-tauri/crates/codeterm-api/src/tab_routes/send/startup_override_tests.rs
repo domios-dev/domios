@@ -82,11 +82,13 @@ fn startup_override_route_requires_authenticated_owner_and_rejected_callers_have
             })
         }),
     );
-    fixture
+    let gate = fixture
         .service
         .pty
         .lock()
-        .invalidate_guarded_input(authority.pty_id().unwrap());
+        .guarded_input_gate(authority.pty_id().unwrap())
+        .unwrap();
+    gate.invalidate();
     let bare = Router::new()
         .route("/api/tabs/{id}/chat-send", post(chat_send_text))
         .with_state(state.clone());

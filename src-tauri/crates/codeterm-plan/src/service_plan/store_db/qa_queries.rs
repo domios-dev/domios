@@ -78,11 +78,14 @@ impl PlanDatabase {
         let tx = connection.transaction().map_err(db_error)?;
         record_query();
         let document: String=tx.query_row(
-            "SELECT json_object('tasks',json('[]'),'task_groups',json((SELECT json_group_array(json(document)) FROM (
+            "WITH qa_groups AS MATERIALIZED (
+                SELECT DISTINCT json_extract(row_json,'$.group') AS group_key FROM plan_tasks
+                WHERE plan_id=?1 AND status='in_review' AND json_extract(row_json,'$.review_stage')='qa'
+             ) SELECT json_object('tasks',json('[]'),'task_groups',json((SELECT json_group_array(json(document)) FROM (
                     SELECT json_object('key',json_extract(g.value,'$.key'),'label',json_extract(g.value,'$.label')) AS document
-                    FROM json_each(p.header_json,'$.task_groups') g WHERE EXISTS(SELECT 1 FROM plan_tasks t WHERE t.plan_id=p.id
-                        AND t.status='in_review' AND json_extract(t.row_json,'$.review_stage')='qa'
-                        AND json_extract(t.row_json,'$.group')=json_extract(g.value,'$.key')) ORDER BY g.key)))) FROM plans p WHERE id=?1",
+                    FROM json_each(p.header_json,'$.task_groups') g
+                    WHERE json_extract(g.value,'$.key') IN (SELECT group_key FROM qa_groups)
+                    ORDER BY g.key)))) FROM plans p WHERE id=?1",
             [id],|row|column(row,0),
         ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
         let mut plan: QaWaveInput = decode(id, &document)?;

@@ -168,3 +168,30 @@ fn prepared_lifecycle_cas_commits_once_and_rejects_a_second_stale_candidate() {
     assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
     assert_matches_sql(&store);
 }
+
+#[test]
+fn prepared_unarchive_cas_preserves_newer_plan_and_refuses_another_active_team_plan() {
+    let (_directory, store) = fixture();
+    let mut plan = store.get("pl_a").unwrap();
+    plan.team_id = Some("team".into());
+    plan.status = PlanStatus::Archived;
+    store.save(&mut plan, 2).unwrap();
+    let (prepared, team) = store.prepare_team_plan_unarchive("pl_a", 3).unwrap();
+    assert_eq!(team, "team");
+    plan.title = "concurrent title".into();
+    store.save(&mut plan, 4).unwrap();
+    assert!(store
+        .commit_prepared_agent_lifecycle_changes(prepared)
+        .unwrap_err()
+        .to_string()
+        .contains("conflict"));
+    assert_eq!(store.get("pl_a").unwrap(), plan);
+    let mut other = store.get("pl_b").unwrap();
+    other.team_id = Some("team".into());
+    store.save(&mut other, 5).unwrap();
+    assert!(matches!(
+        store.prepare_team_plan_unarchive("pl_a", 6),
+        Err(PlanError::TeamAlreadyHasActivePlan { .. })
+    ));
+    assert_matches_sql(&store);
+}

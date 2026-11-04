@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
@@ -27,7 +28,7 @@ function load(platform = "linux", version: string | null = "0.159.0"): Provider 
     },
     module: { exports: {} as { default: Provider } }, exports: {},
   };
-  new vm.Script(source).runInNewContext(context);
+  new vm.Script(source).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 function plain<T>(value: T): T { return JSON.parse(JSON.stringify(value)); }

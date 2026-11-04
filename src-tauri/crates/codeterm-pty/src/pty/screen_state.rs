@@ -269,10 +269,15 @@ impl PtyScreen {
     pub fn bracketed_paste_mode(&self) -> Option<bool> {
         self.parser
             .as_ref()
-            .map(|parser| parser.screen().bracketed_paste())
+            .map(|_| self.input_mode.bracketed_paste())
+    }
+
+    pub fn filter_terminal_reports(&self, data: &[u8]) -> Vec<u8> {
+        self.input_mode.filter_terminal_reports(data)
     }
 
     pub fn reset_input_modes(&mut self) -> bool {
+        self.input_mode.reset_application_modes();
         let Some(parser) = &mut self.parser else {
             return false;
         };

@@ -305,9 +305,9 @@ async fn predispatch_refusals_bind_owner_reject_recursion_duplicates_unknown_and
 fn binary_and_escaped_text_frames_respect_wire_cap_and_filter_authority_headers() {
     let id = "c".repeat(64);
     let bytes = Bytes::from(vec![0xff; spool::IO_CHUNK]);
-    let binary = frames::encode_chunk(&id, &bytes, false);
+    let binary = frames::encode_chunk(&id, &bytes, false, 0);
     assert!(binary.len() <= scheduler::model::FRAME_CAP);
-    let text = frames::encode_chunk(&id, &vec![0; 8 * 1024], true);
+    let text = frames::encode_chunk(&id, &vec![0; 8 * 1024], true, 0);
     assert!(text.len() <= scheduler::model::FRAME_CAP);
     assert_eq!(spool::UPLOAD_LIMIT, 151 * 1024 * 1024);
     let head = frames::encode_head(

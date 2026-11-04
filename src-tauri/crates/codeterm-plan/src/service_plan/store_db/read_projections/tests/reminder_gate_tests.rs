@@ -100,7 +100,7 @@ fn reminder_owner_composition_matches_the_held_plan_oracle_for_directives_and_mo
         plan.mode = mode;
         let database = fixtures::database(directory.path(), &plan);
         let snapshot = database.reminder_read_snapshot(excerpt).unwrap();
-        let read = snapshot.plan(&plan.id).unwrap().unwrap();
+        let read = snapshot.composition(&plan.id).unwrap().unwrap();
         for directive in ["directive pending", "\n\n", &"overflow\n".repeat(1000)] {
             let digests = vec!["digest pending".into()];
             let selection = Some(["first".to_string(), "second".to_string()]);
@@ -180,28 +180,46 @@ fn reminder_gate_fingerprints_and_context_preserve_original_order_with_bounded_p
             .collect::<BTreeMap<_, _>>();
         let database = fixtures::database(directory.path(), &plan);
         fixtures::audit(&database);
-        take_metrics();
-        super::super::super::super::store_sync::take_decoded_row_bytes();
-        super::super::super::super::store_rows::take_serialized_row_bytes();
-        let snapshot = database.reminder_read_snapshot(excerpt).unwrap();
-        let read = snapshot
+        let reference = database
+            .reminder_read_snapshot(excerpt)
+            .unwrap()
             .plan(&plan.id)
             .unwrap()
             .unwrap()
             .with_gate_facts()
             .unwrap();
-        assert_eq!(read.projection, expected);
         assert_eq!(
-            read.tasks[1].blocked_fingerprint,
+            reference.tasks[1].blocked_fingerprint,
             Some(hash(&(
                 "task_blocked",
                 plan.tasks[1].pause_reason.as_deref().unwrap().trim()
             )))
         );
         assert_eq!(
-            read.tasks[0].attempts[0].interruption_fingerprint,
+            reference.tasks[0].attempts[0].interruption_fingerprint,
             Some(hash(&("machine_hold", payload.as_str())))
         );
+        take_metrics();
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        let snapshot = database.reminder_read_snapshot(excerpt).unwrap();
+        let read = snapshot
+            .admission(&plan.id)
+            .unwrap()
+            .unwrap()
+            .with_gate_facts()
+            .unwrap();
+        assert_eq!(read.projection, expected);
+        assert!(
+            read.tasks.is_empty(),
+            "owner reads carry no redundant task presentation or attempt metadata"
+        );
+        let blockers = read.blocker_facts(Some(&plan.tasks[1].id)).unwrap();
+        assert!(blockers.iter().any(|blocker| blocker.identity
+            == hash(&(
+                "task_blocked",
+                plan.tasks[1].pause_reason.as_deref().unwrap().trim()
+            ))));
         let (selected, truncated) = read.delta_context(&read.projection, 32).unwrap();
         assert_eq!(selected, expected_context);
         assert!(truncated);
@@ -210,6 +228,7 @@ fn reminder_gate_fingerprints_and_context_preserve_original_order_with_bounded_p
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
         let response = serde_json::to_vec(&(&read, &selected)).unwrap().len();
         assert_eq!(serialized, 0);
+        assert!(metrics.materialized_bytes <= response + 4096);
         assert!(fixtures::audit_counts(&database).is_empty());
         println!("fixture={} consumers=reminder_gate_fingerprints,reminder_gate_context,reminder_blocked_notice tasks={} evidence_payload_growth={extra} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded, response);
@@ -233,13 +252,21 @@ fn worker_reminder_evidence_ignores_unrelated_attempt_and_stride_growth() {
         super::super::super::super::store_rows::take_serialized_row_bytes();
         let snapshot = database.reminder_read_snapshot(excerpt).unwrap();
         let read = snapshot
-            .plan(&plan.id)
+            .admission(&plan.id)
             .unwrap()
             .unwrap()
             .with_worker_gate_facts(&plan.tasks[0].id)
             .unwrap();
         assert_eq!(read.tasks[0].attempts.len(), 1);
-        assert!(read.tasks[1].attempts.is_empty());
+        assert_eq!(
+            read.tasks.len(),
+            1,
+            "only the scoped worker task is returned"
+        );
+        assert!(read.projection.keys().all(|key| key == "mode"
+            || key == &format!("task:{}", plan.tasks[0].id)
+            || key == &format!("review:{}", plan.tasks[0].id)
+            || key == "attempt:current"));
         let blockers = read.blocker_facts(Some(&plan.tasks[0].id)).unwrap();
         assert!(blockers.is_empty());
         let metrics = take_metrics();
@@ -247,6 +274,7 @@ fn worker_reminder_evidence_ignores_unrelated_attempt_and_stride_growth() {
         let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
         let response = serde_json::to_vec(&read).unwrap().len();
         assert_eq!(serialized, 0);
+        assert!(metrics.materialized_bytes <= response + 4096);
         assert!(fixtures::audit_counts(&database).is_empty());
         println!("fixture={} consumers=worker_reminder_scoped_gate tasks={} old_strides={history} unrelated_attempts={attempts} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,metrics.queries,metrics.materialized_bytes);
         let measured = (metrics, decoded, response);
@@ -254,5 +282,113 @@ fn worker_reminder_evidence_ignores_unrelated_attempt_and_stride_growth() {
             assert_eq!(&measured, previous);
         }
         baseline = Some(measured);
+    }
+}
+
+#[test]
+fn owner_gate_rows_preserve_hard_fact_order_without_closed_attempt_metadata() {
+    use crate::service_plan::ReminderOwnerRowRead;
+    let directory = tempfile::tempdir().unwrap();
+    let mut plan = fixtures::fixture(directory.path(), 1, 1);
+    plan.tasks.truncate(5);
+    plan.tasks[0].status = TaskStatus::InProgress;
+    plan.tasks[1].status = TaskStatus::Done;
+    plan.tasks[2].status = TaskStatus::Blocked;
+    plan.tasks[1].execution_attempts[0].interruption.reason = Some("closed hold".into());
+    plan.tasks[1].execution_attempts[0].report = Some(TaskExecutionReportSnapshot {
+        id: "closed-report".into(),
+        ..Default::default()
+    });
+    let database = fixtures::database(directory.path(), &plan);
+    let snapshot = database.reminder_read_snapshot(excerpt).unwrap();
+    let reference = snapshot
+        .plan(&plan.id)
+        .unwrap()
+        .unwrap()
+        .with_gate_facts()
+        .unwrap();
+    let read = snapshot
+        .admission(&plan.id)
+        .unwrap()
+        .unwrap()
+        .with_gate_facts()
+        .unwrap();
+    assert_eq!(read.projection, reference.projection);
+    for delta in [BTreeMap::new(), read.projection.clone()] {
+        let mut expected = Vec::new();
+        for task in &reference.tasks {
+            if delta.contains_key(&format!("task:{}", task.id)) {
+                expected.push((
+                    match task.status {
+                        TaskStatus::Done | TaskStatus::Cancelled => "task_closed",
+                        TaskStatus::Blocked => "task_blocked",
+                        _ => "task_state",
+                    }
+                    .into(),
+                    task.id.clone(),
+                ));
+            }
+            if delta.contains_key(&format!("review:{}", task.id)) {
+                if let Some(review) = task
+                    .last_review
+                    .as_ref()
+                    .filter(|review| review.verdict == ReviewVerdict::Bounce)
+                {
+                    expected.push(("failed_gate".into(), review.id.clone()));
+                }
+            }
+            for attempt in &task.attempts {
+                if attempt.interruption_fingerprint.is_some()
+                    && (!attempt.closed || delta.contains_key(&format!("attempt:{}", attempt.id)))
+                {
+                    expected.push((
+                        "incident".into(),
+                        format!("dispatch_or_worker_failure:{}", attempt.id),
+                    ));
+                }
+                if let Some(report) = &attempt.report_id {
+                    if delta.contains_key(&format!("report:{report}")) {
+                        expected.push(("new_report".into(), report.clone()));
+                    }
+                }
+            }
+            if !task.status.counts_as_open_work() {
+                continue;
+            }
+            if task.status == TaskStatus::Pending
+                && task.assigned_tab_id.is_none()
+                && task.projection.needs_orchestrator_action()
+            {
+                expected.push(("incident".into(), format!("dispatch_required:{}", task.id)));
+            }
+            if task.attempts.iter().any(|attempt| !attempt.closed) {
+                expected.push(("worker".into(), task.id.clone()));
+            }
+            if task.status == TaskStatus::InProgress
+                && task.attempts.iter().all(|attempt| attempt.closed)
+            {
+                expected.push(("incident".into(), format!("dispatch_missing:{}", task.id)));
+            }
+            if task.handoff_required {
+                expected.push(("incident".into(), format!("task_interruption:{}", task.id)));
+            }
+        }
+        let actual = read
+            .owner_rows(&delta)
+            .unwrap()
+            .into_iter()
+            .map(|row| match row {
+                ReminderOwnerRowRead::Wake { event, id } => (event, id),
+                ReminderOwnerRowRead::Worker { task } => {
+                    assert!(task.attempts.iter().all(|attempt| !attempt.closed));
+                    ("worker".into(), task.id)
+                }
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected);
+        assert_eq!(
+            read.delta_context(&delta, 32).unwrap(),
+            reference.delta_context(&delta, 32).unwrap()
+        );
     }
 }

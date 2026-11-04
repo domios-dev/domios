@@ -1,6 +1,8 @@
+import { ioTestExport } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
-import { claudeProjectKey, claudeTrustRecord } from "../src/preTrust";
+import { claudeProjectKey, claudeTrustRecord as ioSource_claudeTrustRecord } from "../src/preTrust";
 import type { Host, PreTrustOutcome } from "@codeterm/plugin-sdk";
+const claudeTrustRecord = ioTestExport(ioSource_claudeTrustRecord);
 
 assert.equal(claudeProjectKey("/private/tmp/trustprobe.d1AhFE", false), "/private/tmp/trustprobe.d1AhFE");
 assert.equal(claudeProjectKey("c:\\Users\\alex\\src\\demo", true), "C:/Users/alex/src/demo");

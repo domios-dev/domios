@@ -2,13 +2,13 @@ use super::*;
 use axum::extract::{Path, Query, State};
 use futures_util::FutureExt;
 
-struct HeldDependency {
+pub(super) struct HeldDependency {
     release: Option<std::sync::mpsc::Sender<()>>,
     holder: Option<std::thread::JoinHandle<()>>,
 }
 
 impl HeldDependency {
-    async fn new(
+    pub(super) async fn new(
         hold: impl FnOnce(tokio::sync::oneshot::Sender<()>, std::sync::mpsc::Receiver<()>)
             + Send
             + 'static,
@@ -496,3 +496,9 @@ async fn acknowledged_dispatch_binding_keeps_mux_and_startup_registry_free_while
         &completed
     );
 }
+
+mod restoration;
+
+mod checkpoint_adoption;
+
+mod team_recovery;

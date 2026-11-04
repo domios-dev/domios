@@ -76,22 +76,29 @@ impl PlanDatabase {
             }
         }
         record_query();
-        let group_close: Option<String> = connection.query_row(
-            "WITH completed_groups AS (
-                SELECT max(domios_schedule_timestamp(coalesce(t.row_json->'$.status_changed_at','0'))) AS ts
-                FROM plan_tasks t JOIN plans p ON p.id=t.plan_id WHERE t.plan_id=?1
-                    AND EXISTS(SELECT 1 FROM json_each(p.header_json,'$.task_groups') g
-                        WHERE domios_schedule_group_key(g.value->'$.key')=
-                            domios_schedule_task_group(t.row_json->'$.group'))
-                GROUP BY json_extract(t.row_json,'$.group')
-                HAVING sum(t.status NOT IN ('done','cancelled'))=0 AND sum(t.status='done')>0
+        let group_close: Option<String> = connection
+            .query_row(
+                "WITH declared AS MATERIALIZED (
+                SELECT domios_schedule_group_key(g.value->'$.key') AS group_key
+                FROM plans p,json_each(p.header_json,'$.task_groups') g WHERE p.id=?1
+             ), task_groups AS MATERIALIZED (
+                SELECT status,domios_schedule_task_group(row_json->'$.group') AS group_key,
+                    coalesce(row_json->'$.status_changed_at','0') AS changed
+                FROM plan_tasks WHERE plan_id=?1
+             ), completed_groups AS (
+                SELECT max(domios_schedule_timestamp(changed)) AS ts
+                FROM task_groups WHERE group_key IN (SELECT group_key FROM declared)
+                GROUP BY group_key
+                HAVING sum(status NOT IN ('done','cancelled'))=0 AND sum(status='done')>0
              ), closes AS (
                 SELECT ts FROM completed_groups UNION ALL
                 SELECT domios_schedule_timestamp(row_json->'$.ts') FROM plan_strides
                     WHERE plan_id=?1 AND json_extract(row_json,'$.kind')='group_close')
              SELECT max(ts) FROM closes",
-            [plan_id],|row| column(row,0),
-        ).map_err(db_error)?;
+                [plan_id],
+                |row| column(row, 0),
+            )
+            .map_err(db_error)?;
         let group_close = group_close
             .map(|value| value.parse::<u64>())
             .transpose()

@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Codex hook ownership and reconciliation over its real event set.
  * Run: npx tsx plugins/provider-codex/tests/hook-ownership.test.ts
@@ -93,7 +94,7 @@ function loadCodex(files: Map<string, string>) {
   };
   const source = fs.readFileSync(bundle, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: bundle }).runInNewContext(context);
+  new vm.Script(source, { filename: bundle }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

@@ -195,6 +195,13 @@ impl ScreenState {
             .unwrap_or_default()
     }
 
+    pub fn filter_terminal_reports(&self, pty_id: &str, data: &[u8]) -> Vec<u8> {
+        self.with_existing(pty_id, |screen| screen.filter_terminal_reports(data))
+            .unwrap_or_else(|| {
+                super::super::input_mode::InputMode::default().filter_terminal_reports(data)
+            })
+    }
+
     pub fn native_prompt_input(
         &self,
         pty_id: &str,

@@ -379,7 +379,7 @@ impl ServiceContext {
             crate::pty::manager::PtySpawnGate,
         ) -> Result<crate::pty::manager::BuiltSession, String>,
     ) -> Result<String, String> {
-        let claim = self.pty_ownership.acquire(tab_id);
+        let claim = self.pty_ownership.acquire(tab_id)?;
         if let Ok(pty_id) = self.resolve_pty_id(tab_id) {
             return Ok(pty_id);
         }

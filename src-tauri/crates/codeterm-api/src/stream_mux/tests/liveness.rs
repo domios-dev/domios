@@ -61,7 +61,7 @@ async fn held_stream_mux_sessions_do_not_block_rest_worker() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn held_stream_mux_scheduler_does_not_block_rest_worker_and_frame_is_conserved() {
     let (_fixture, state) = fixture();
-    let scheduler = Scheduler::new();
+    let (scheduler, mut receiver) = Scheduler::new();
     assert!(scheduler.register("held".into(), Traffic::Interactive, false));
     let blocked = scheduler.clone();
     let held = Held::new(move |entered, release| {
@@ -75,13 +75,14 @@ async fn held_stream_mux_scheduler_does_not_block_rest_worker_and_frame_is_conse
         "held",
         Bytes::from_static(b"opaque-frame"),
         scheduler::Kind::Data,
+        0,
     ));
     assert!(sending.as_mut().now_or_never().is_none());
     crate::rest_liveness_tests::assert_health_list_send_respond(state).await;
     assert!(sending.as_mut().now_or_never().is_none());
     drop(held);
     sending.await.unwrap();
-    assert_eq!(scheduler.recv().await.unwrap(), "opaque-frame");
+    assert_eq!(receiver.recv().await.unwrap(), "opaque-frame");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -116,13 +117,14 @@ async fn held_stream_mux_entry_does_not_block_rest_worker_and_cancel_settles() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn cancelled_contended_receive_conserves_the_queued_frame() {
-    let scheduler = Scheduler::new();
+    let (scheduler, mut receiver) = Scheduler::new();
     assert!(scheduler.register("conserved".into(), Traffic::Interactive, false));
     scheduler
         .send(
             "conserved",
             Bytes::from_static(b"conserved-frame"),
             scheduler::Kind::Data,
+            0,
         )
         .await
         .unwrap();
@@ -134,7 +136,7 @@ async fn cancelled_contended_receive_conserves_the_queued_frame() {
         });
     })
     .await;
-    let mut receiving = Box::pin(scheduler.recv());
+    let mut receiving = Box::pin(receiver.recv());
     assert!(receiving.as_mut().now_or_never().is_none());
     drop(receiving);
     drop(held);
@@ -144,11 +146,11 @@ async fn cancelled_contended_receive_conserves_the_queued_frame() {
     )
     .await
     .expect("cancelled receive's blocking rendezvous must settle");
-    let frame = tokio::time::timeout(Duration::from_secs(1), scheduler.recv())
+    let frame = tokio::time::timeout(Duration::from_secs(1), receiver.recv())
         .await
         .expect("cancelled receive must not consume its frame")
         .unwrap();
     assert_eq!(frame, "conserved-frame");
     scheduler.close();
-    assert_eq!(scheduler.recv().await, None);
+    assert_eq!(receiver.recv().await, None);
 }
