@@ -124,8 +124,15 @@ pub async fn task_respawn(
     );
     let verify_draft = draft.clone();
     let verify_canonical_cwd = canonical_cwd.clone();
-    let verify_task = original_task.clone();
+    let verify_store = state.svc.plan_store.clone();
     let provenance = tokio::task::spawn_blocking(move || {
+        let verify_task = verify_store
+            .task_launch_projection(
+                &verify_draft.plan_id,
+                &verify_draft.task_id,
+                Some(&verify_draft.source_attempt.id),
+            )
+            .map_err(|error| error.to_string())?;
         codeterm_service_core::service::plan::respawn_lane_verify_respawn_lane(
             &verify_canonical_cwd,
             &verify_task,

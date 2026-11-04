@@ -452,6 +452,9 @@ where
     let plan = store
         .get(&plan_id)
         .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+    let seed = store
+        .task_dispatch_seed_projection(&plan_id, &task_id, "")
+        .map_err(plan_rpc_err)?;
     refuse_live_dispatch_startup_owner(store, svc, &plan_id, &task_id)?;
     let regression_warning = regression_dispatch_warning(regression_dispatch_decision(&plan));
     // Same frontier policy for the review WIP gate: decide before any tab
@@ -859,7 +862,6 @@ where
         }
         return Err(refusal);
     }
-    let original_task = detail.task.clone();
     let mut lane_for_commit = detail.task.lane.clone();
     if replaces_recorded_lane {
         lane_commit::clear_replaced_lane_routing_fields(&mut lane_for_commit);
@@ -956,7 +958,7 @@ where
         parent_tab_id: &parent_tab_id,
         tab_id: &reserved_tab_id,
         attempt_id: &attempt_id,
-        original_task: &original_task,
+        seed: &seed,
         rollback: &rollback,
         provisioned_lane,
         now,

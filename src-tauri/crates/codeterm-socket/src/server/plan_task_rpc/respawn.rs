@@ -70,7 +70,12 @@ pub(super) fn respawn(
     let mut draft = store
         .build_task_respawn_draft(&id, &tid, request)
         .map_err(plan_rpc_err)?;
-    let original_task = task.clone();
+    let seed = store
+        .task_dispatch_seed_projection(&id, &tid, "")
+        .map_err(plan_rpc_err)?;
+    let launch = store
+        .task_launch_projection(&id, &tid, Some(&draft.source_attempt.id))
+        .map_err(plan_rpc_err)?;
     let canonical_cwd = if plan.canonical_project_path.trim().is_empty() {
         plan.project_path.clone()
     } else {
@@ -81,7 +86,7 @@ pub(super) fn respawn(
     );
     let provenance = codeterm_service_core::service::plan::respawn_lane::verify_respawn_lane(
         &canonical_cwd,
-        task,
+        &launch,
         &draft,
     )
     .map_err(|error| JsonRpcError {
@@ -159,7 +164,7 @@ pub(super) fn respawn(
             parent_tab_id: &parent_tab_id,
             tab_id: &spawn.tab_id,
             attempt_id: &created.attempt.id,
-            original_task: &original_task,
+            seed: &seed,
             rollback: &rollback,
             provisioned_lane: None,
             now,

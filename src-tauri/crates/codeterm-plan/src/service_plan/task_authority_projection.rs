@@ -177,3 +177,6 @@ pub use worker_loss::{WorkerLossRead, WorkerLossRecoveryRead, WorkerLossReplacem
 
 mod ack;
 pub(super) use ack::{acknowledging_binding_matches, TaskAckAuthorityRead};
+
+mod launch;
+pub use launch::{TaskDispatchSeedRead, TaskLaunchRead};
