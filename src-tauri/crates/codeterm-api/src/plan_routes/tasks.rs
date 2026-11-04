@@ -563,10 +563,8 @@ fn task_update_core_with_lane_cleanup_check(
 ) -> PlanRouteResult {
     let previous_name = service
         .plan_store
-        .show_task(tid)
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?
-        .task
-        .name;
+        .task_name_projection(tid)
+        .map_err(plan_err)?;
     codeterm_service_core::plan::task_update_fields::validate_task_update_fields(
         &body,
         codeterm_service_core::plan::task_update_fields::TaskUpdateSeam::Rest,
@@ -783,9 +781,8 @@ fn task_update_core_with_lane_cleanup_check(
     // (orchestrator) directly, so a separate `agent report` isn't needed.
     let updated_task = service
         .plan_store
-        .show_task(tid)
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?
-        .task;
+        .task_description_projection(tid)
+        .map_err(plan_err)?;
     if previous_name != updated_task.name {
         if let Some(tab_id) = updated_task.assigned_tab_id.as_deref() {
             let description =
@@ -838,9 +835,9 @@ pub async fn task_close(
         let owner_epoch = state
             .svc
             .plan_store
-            .show_task(&tid)
-            .map(|detail| detail.task.interruption.owner_epoch)
-            .unwrap_or(0);
+            .task_owner_epoch_projection(&tid)
+            .map_err(plan_err)?
+            .owner_epoch;
         if owner_epoch > 0 {
             let authority = rest_task_mutation_authority(&headers)?;
             let mux = state.svc.mux.read();
@@ -935,9 +932,9 @@ pub async fn task_assign(
         let owner_epoch = state
             .svc
             .plan_store
-            .show_task(&tid)
-            .map(|detail| detail.task.interruption.owner_epoch)
-            .unwrap_or(0);
+            .task_owner_epoch_projection(&tid)
+            .map_err(plan_err)?
+            .owner_epoch;
         let authority = if owner_epoch > 0 {
             Some(rest_task_mutation_authority(&headers)?)
         } else {
@@ -965,11 +962,12 @@ pub async fn task_assign(
         )
         .map_err(plan_err)?;
         if body.peer.is_none() {
-            let detail = state.svc.plan_store.show_task(&tid).ok_or_else(|| {
-                plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound)
-            })?;
-            let description =
-                codeterm_service_core::service::task_tab_description(&detail.task.name, None);
+            let name = state
+                .svc
+                .plan_store
+                .task_name_projection(&tid)
+                .map_err(plan_err)?;
+            let description = codeterm_service_core::service::task_tab_description(&name, None);
             state
                 .svc
                 .assign_task_tab_description(&body.tab, &description)
@@ -1098,15 +1096,20 @@ pub async fn task_adopt_checkpoint(
     let task = tid.clone();
     let plan = id.clone();
     let detail = crate::plan_routes::run_blocking(move || {
-        store
-            .show_task(&task)
-            .filter(|detail| detail.plan_id == plan)
-            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))
+        let detail = store
+            .task_authority_target_projection(&task)
+            .map_err(plan_err)?;
+        if detail.plan_id != plan {
+            return Err(plan_err(
+                codeterm_service_core::service::plan::PlanError::TaskNotFound,
+            ));
+        }
+        Ok(detail)
     })
     .await?;
     let (owner_epoch, attempt_id) = state
         .svc
-        .adopt_worker_checkpoint(&detail.task.id, tab_id, &session_id, epoch_ms())
+        .adopt_worker_checkpoint(&detail.task_id, tab_id, &session_id, epoch_ms())
         .await
         .map_err(|error| text_err(axum::http::StatusCode::CONFLICT, error))?;
     emit_plan_changed(&state, &id);

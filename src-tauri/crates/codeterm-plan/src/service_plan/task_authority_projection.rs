@@ -98,9 +98,11 @@ pub(super) mod startup;
 mod continuity;
 pub use continuity::{TaskContinuityDigest, TaskContinuityRead};
 
+mod creation;
 mod restart;
 mod restoration;
 mod runtime_restore;
+pub use creation::{TaskCreationRead, TaskDescriptionRead};
 pub use restart::{
     CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
     TaskRestartQuery,
