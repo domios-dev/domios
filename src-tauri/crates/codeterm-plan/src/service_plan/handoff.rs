@@ -6,8 +6,6 @@ use serde_json::{json, Value};
 use super::batch::{BatchOp, BatchRequest};
 use super::{heartbeat, PlanError, PlanStore};
 use crate::plan::AgentRef;
-#[cfg(test)]
-use crate::plan::Plan;
 use codeterm_util::process_util;
 
 #[derive(Debug, Clone, Default, Deserialize)]
