@@ -152,7 +152,9 @@ impl ServiceContext {
             .curator_schedule_projection(plan_id)
             .map_err(|error| error.to_string())?;
         let metadata = read.metadata();
-        let mut state = metadata.control_loop.clone();
+        let mut state = read
+            .control_loop_window()
+            .map_err(|error| error.to_string())?;
         state.suspended_reason = self.curator_suspended_reason_for_fields(
             &metadata.mode,
             &metadata.status,

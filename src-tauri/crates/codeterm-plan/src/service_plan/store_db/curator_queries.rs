@@ -86,6 +86,26 @@ impl PlanDatabase {
 }
 
 impl CuratorScheduleRead {
+    pub fn control_loop_window(&self) -> Result<ControlLoop, PlanError> {
+        let mut state = self.metadata.control_loop.clone();
+        record_query();
+        let mut statement = self
+            .connection
+            .prepare_cached(
+                "SELECT value FROM (SELECT CAST(r.key AS INTEGER) AS position,r.value
+             FROM plans p,json_each(p.header_json,'$.control_loop.rounds') r
+             WHERE p.id=?1 ORDER BY position DESC LIMIT 20) ORDER BY position",
+            )
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([&self.metadata.id], |row| column::<String>(row, 0))
+            .map_err(db_error)?;
+        state.rounds = rows
+            .map(|row| decode::<CuratorRound>(&self.metadata.id, &row.map_err(db_error)?))
+            .collect::<Result<_, PlanError>>()?;
+        Ok(state)
+    }
+
     /// Applies scheduler metadata only if the complete original control loop still matches.
     /// Keep this read alive for one synchronous preparation, never across an await.
     pub fn apply_control_loop(
