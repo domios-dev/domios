@@ -160,13 +160,13 @@ function usage(value) {
 var object2 = (value) => value !== null && typeof value === "object" && !Array.isArray(value) ? value : {};
 function label(value) {
   if (typeof value !== "string" || !value.length || value.length > 256 || /[\u0000-\u001f\u007f-\u009f]/.test(value)) return false;
-  let bytes = 0;
+  let bytes2 = 0;
   for (const character of value) {
     const point = character.codePointAt(0);
     if (point >= 55296 && point <= 57343) return false;
-    bytes += point <= 127 ? 1 : point <= 2047 ? 2 : point <= 65535 ? 3 : 4;
+    bytes2 += point <= 127 ? 1 : point <= 2047 ? 2 : point <= 65535 ? 3 : 4;
   }
-  return bytes <= 256;
+  return bytes2 <= 256;
 }
 function list(value, limit) {
   return Array.isArray(value) && value.length <= limit ? value.map(object2) : [];
@@ -226,6 +226,92 @@ function sessionSettings(value) {
 }
 function authentication(methods2, authenticated, required) {
   return { state: authenticationState(methods2, { authenticated, required }), methods: methods2.map((method) => ({ id: method.id, name: method.name, available: method.type === "agent" })) };
+}
+
+// plugins/provider-acp/src/runtimeReduceBudget.ts
+var MAX_BYTES = 4 * 1024 * 1024;
+var MAX_EVENTS = 1024;
+var MAX_STATE_BYTES = 256 * 1024;
+var marker = "\n[ACP row truncated: runtime reduction byte limit]";
+var bytes = (value) => {
+  let size2 = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0);
+    size2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+  }
+  return size2;
+};
+var size = (value) => bytes(JSON.stringify(value));
+function body(event) {
+  if (event.kind === "chatItemAppend") return { id: event.itemId, content: event.content };
+  if (event.kind === "chatItem" && ["user", "assistant", "thinking"].includes(event.item.type)) return event.item;
+}
+function replace(event, content) {
+  return event.kind === "chatItem" ? { ...event, item: { ...event.item, content } } : { ...event, content };
+}
+function prefix(value, budget) {
+  let length = 0;
+  for (const char of value) {
+    const code = char.codePointAt(0);
+    const cost = code < 32 || char === '"' || char === "\\" ? size(char) - 2 : bytes(char);
+    if (cost > budget) break;
+    budget -= cost;
+    length += char.length;
+  }
+  return value.slice(0, length);
+}
+function shift(state, events, index, id, removed) {
+  for (let next = index + 1; next < events.length; next++) {
+    const event = events[next];
+    if (event.kind === "chatItemAppend" && event.itemId === id) events[next] = { ...event, offset: event.offset - removed };
+  }
+  const cursor = state;
+  if (cursor.chunk?.id === id) {
+    cursor.chunk = { ...cursor.chunk, offset: cursor.chunk.offset - removed };
+    delete cursor.chunk.echo;
+  }
+  const previous = cursor.offsetById?.[id];
+  if (previous) {
+    cursor.offsetById[id] = { ...previous, offset: previous.offset - removed };
+    delete cursor.offsetById[id].echo;
+  }
+}
+function fitTextReduction(state, source) {
+  const reduction = { state, events: source };
+  const eventBytes = size(source);
+  if (source.length <= MAX_EVENTS && (eventBytes + MAX_STATE_BYTES + 32 <= MAX_BYTES || size(reduction) <= MAX_BYTES)) return reduction;
+  const events = [...source];
+  const bounded = { state, events };
+  if (events.length > MAX_EVENTS) {
+    let thread;
+    for (let index = events.length - 1; index >= 0 && events.length >= MAX_EVENTS; index--) {
+      const text2 = body(events[index]);
+      if (!text2) continue;
+      const event = events[index];
+      if ("threadId" in event) thread = event.threadId;
+      shift(state, events, index, text2.id, bytes(text2.content));
+      events.splice(index, 1);
+    }
+    if (thread) events.push({ kind: "notice", threadId: thread, message: "ACP text omitted: runtime reduction event limit" });
+  }
+  let excess = size(bounded) - MAX_BYTES;
+  while (excess > 0) {
+    let index = -1, largest = 0;
+    for (let next = 0; next < events.length; next++) {
+      const text3 = body(events[next]);
+      if (text3 && size(text3.content) > largest) {
+        index = next;
+        largest = size(text3.content);
+      }
+    }
+    if (index < 0 || largest <= size(marker)) break;
+    const text2 = body(events[index]);
+    const content = prefix(text2.content, Math.max(0, largest - 2 - excess - (size(marker) - 2) - 64)) + marker;
+    events[index] = replace(events[index], content);
+    shift(state, events, index, text2.id, bytes(text2.content) - bytes(content));
+    excess = size(bounded) - MAX_BYTES;
+  }
+  return bounded;
 }
 
 // plugins/provider-acp/src/runtimeReduce.ts
@@ -320,15 +406,15 @@ function emit(state, events, row, patch = false) {
   if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== void 0 || row.toolResult !== void 0 || row.fileDiffs !== void 0 || row.toolInterrupted) events.push({ kind: patch ? "chatItemPatch" : "chatItem", threadId: state.sessionId, item: row });
 }
 function admitToolIdentity(state, retained) {
-  let bytes = utf8Length(JSON.stringify(state.items)) + utf8Length(JSON.stringify({ [retained.id]: retained })) - 1;
+  let bytes2 = utf8Length(JSON.stringify(state.items)) + utf8Length(JSON.stringify({ [retained.id]: retained })) - 1;
   const submittedId = `${state.sessionId}:turn:${state.turn}:item:1`;
   for (const [id, row] of Object.entries(state.items)) {
-    if (bytes <= 16384) break;
+    if (bytes2 <= 16384) break;
     if (row.toolStatus === "running" || id === state.chunk?.id || id === submittedId) continue;
-    bytes -= utf8Length(JSON.stringify({ [id]: row })) - 1;
+    bytes2 -= utf8Length(JSON.stringify({ [id]: row })) - 1;
     delete state.items[id];
   }
-  return bytes <= 16384;
+  return bytes2 <= 16384;
 }
 function rememberControl(state, kind, update) {
   const encoded = JSON.stringify(update);
@@ -442,12 +528,11 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
       }
       chunk.chars += content.text.length;
       const type = kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
-      const value = content.text.length > 16384 ? Array.from(content.text).slice(0, 8192).join("") + "\n[ACP row truncated: oversized text update]" : content.text;
       const previous = state.items[chunk.id];
-      const row = { id: chunk.id, seq: previous?.seq ?? ++state.seq, type, content: value, ...type === "thinking" ? { collapsed: true } : {} };
-      events.push(chunk.offset ? { kind: "chatItemAppend", threadId: state.sessionId, itemId: row.id, content: value, offset: chunk.offset } : { kind: "chatItem", threadId: state.sessionId, item: row });
-      state.items[row.id] = { ...row, content: "" };
-      chunk.offset += utf8Length(value);
+      const row = { id: chunk.id, seq: previous?.seq ?? ++state.seq, type, content: "", ...type === "thinking" ? { collapsed: true } : {} };
+      events.push(chunk.offset ? { kind: "chatItemAppend", threadId: state.sessionId, itemId: row.id, content: content.text, offset: chunk.offset } : { kind: "chatItem", threadId: state.sessionId, item: { ...row, content: content.text } });
+      chunk.offset += utf8Length(content.text);
+      state.items[row.id] = row;
       if (explicit) state.offsetById[chunk.id] = { offset: chunk.offset, chars: chunk.chars, ...chunk.echo ? { echo: chunk.echo } : {} };
       if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({ kind: "turnState", threadId: ctx.threadId, turnId: ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`, state: "working" });
       continue;
@@ -510,32 +595,32 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
     } else warn(state, events, kind);
   }
   boundState(state);
-  return { state: json(state), events };
+  return fitTextReduction(json(state), events);
 }
 function utf8Length(value) {
-  let bytes = 0;
+  let bytes2 = 0;
   for (const character of value) {
     const code = character.codePointAt(0);
-    bytes += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
+    bytes2 += code <= 127 ? 1 : code <= 2047 ? 2 : code <= 65535 ? 3 : 4;
   }
-  return bytes;
+  return bytes2;
 }
 function boundState(state) {
   for (const key of ["evidenced", "compacted", "seenItems"]) state[key] = state[key].slice(-32);
-  let bytes = utf8Length(JSON.stringify(state));
+  let bytes2 = utf8Length(JSON.stringify(state));
   for (const key of ["items", "controls", "warnings"]) {
     for (const id of Object.keys(state[key])) {
-      if (bytes <= 47e3) break;
+      if (bytes2 <= 47e3) break;
       const value = state[key][id];
       if (id === state.chunk?.id || key === "items" && object(value).toolStatus === "running") continue;
-      bytes -= utf8Length(JSON.stringify({ [id]: value })) - 1;
+      bytes2 -= utf8Length(JSON.stringify({ [id]: value })) - 1;
       delete state[key][id];
     }
   }
   for (const key of ["evidenced", "compacted", "seenItems"]) {
-    while (bytes > 47e3 && state[key].length) {
+    while (bytes2 > 47e3 && state[key].length) {
       const removed = state[key].shift();
-      bytes -= utf8Length(JSON.stringify(removed)) + 1;
+      bytes2 -= utf8Length(JSON.stringify(removed)) + 1;
     }
   }
 }
@@ -939,7 +1024,6 @@ function runtimeReduce(ctx, raw, frames) {
     events.push(...reduced.events);
   }
   const reduction = { state: projection, events };
-  state.projection = projection;
   for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings = { ...state.settings, ...event.settings };
     if (event.settings.configOptions) {
@@ -948,7 +1032,9 @@ function runtimeReduce(ctx, raw, frames) {
       if (model) state.settings.model = model;
     }
   }
-  return { ...reduction, events: [...reduction.events, ...prompts] };
+  const bounded = fitTextReduction(projection, [...reduction.events, ...prompts]);
+  state.projection = bounded.state;
+  return bounded;
 }
 
 // plugins/provider-acp/src/registry.ts
@@ -1014,13 +1100,13 @@ function distribution(value) {
   return result;
 }
 function utf8Bytes(value) {
-  let size = 0;
+  let size2 = 0;
   for (const character of value) {
     const point = character.codePointAt(0);
-    size += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
-    if (size > registryBounds.bytes) invalid();
+    size2 += point < 128 ? 1 : point < 2048 ? 2 : point < 65536 ? 3 : 4;
+    if (size2 > registryBounds.bytes) invalid();
   }
-  return size;
+  return size2;
 }
 function decodeRegistry(text2) {
   if (text2.length > registryBounds.bytes || utf8Bytes(text2) > registryBounds.bytes) invalid();

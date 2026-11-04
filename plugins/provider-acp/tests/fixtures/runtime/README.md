@@ -116,8 +116,15 @@ a second failure refuses visibly. Environment credentials use placeholders only.
 chunk shape to 128 chunks totaling 512 KiB, including non-ASCII text to pin UTF-8
 append offsets. Cancellation sends session/cancel while session/prompt is
 outstanding, then settles only on its cancelled response. `oversize-single-frame`
-projects a visible truncation marker for a 500,000-character frame and retains
-the subsequent healthy chunk. These synthetic stress fixtures share the capture
+retains a 500,000-character frame and its subsequent chunk in full.
+`large-single-update` delivers over 200 KiB in one update; `large-multi-update`
+delivers multiple large updates ending in a sentinel. Each text update emits one
+row event, including the astral boundary case in `oversize-astral-cut`.
+`batch-text-1024` restores a mixed drain of small and 8–16 KiB text updates.
+Native replay validates the entire reduction against the host event and byte limits.
+Text is retained in full within those limits; byte-limit degradation uses a visible
+marker and preserves subsequent append offsets. Reducer state retains only identity
+and offsets. These synthetic stress fixtures share the capture
 limitations above; they are not live receipts. Both JS and native replay discover
 them through runtime-manifest.json. Native host folding replays their row events
 twice to prove exact final content and stable row count.
@@ -130,7 +137,7 @@ active until its stopReason, then starts and settles the queued prompt exactly
 once, without changing either send's delivery evidence. tool-output-retention
 keeps three large tool results and original card identities through a late
 completion and interruption of the remaining running cards. Tests also cover an
-early queued reply and code-point truncation at an astral boundary. Existing
+early queued reply and code-point splitting at an astral boundary. Existing
 agent_thought_chunk fixtures remain collapsed thinking rows; the semantic origin
 of Clifive's reasoning-like passage remains unverified by the run-5 receipts.
 

@@ -6,6 +6,7 @@ import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
 import { clientRequest, reduceStream, settleStream, type StreamCursor } from "./runtimeReduce";
 import { usage } from "./runtimeReducePlan";
+import { fitTextReduction } from "./runtimeReduceBudget";
 import { runtimePrompt, runtimeAnswer } from "./runtimePrompts";
 import { authentication, sessionSettings, modelOption, label } from "./runtimeControls";
 
@@ -387,7 +388,6 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
     projection=reduced.state;events.push(...reduced.events);
   }
   const reduction={state:projection,events};
-  state.projection=projection;
   for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings={...state.settings,...event.settings};
     if (event.settings.configOptions) {
@@ -396,5 +396,7 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
       if (model) state.settings.model=model;
     }
   }
-  return {...reduction,events:[...reduction.events,...prompts]};
+  const bounded=fitTextReduction(projection,[...reduction.events,...prompts]);
+  state.projection=bounded.state;
+  return bounded;
 }

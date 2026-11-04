@@ -14,7 +14,7 @@ module.exports = {
   runtimeResponse(ctx, op, state, reply) {
     if (op.kind === 'interrupt') return {kind:'complete',result:{kind:'done'}};
     if (reply.kind === 'error') return {kind:'refused',reason:{code:'provider_refused',message:reply.error.message},beforeAcceptance:false};
-    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'},events:[{kind:'turnState',threadId:op.threadId,turnId:'turn',state:'idle',detail:reply.value.stopReason === 'cancelled' ? 'interrupted' : undefined}]};
+    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'},events:[{kind:'turnState',threadId:op.threadId,turnId:'turn',state:'idle',...(reply.value.stopReason === 'cancelled' ? {detail:'interrupted'} : {})}]};
   },
   runtimeReduce(ctx, state, frames) { return {state,events:[]}; }
 };
@@ -181,7 +181,7 @@ async fn process_exit_with_a_pending_turn_reply_settles_failed_visibly() {
 
 #[tokio::test]
 async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
-    let (_fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let session = engine::for_tab(&tab).unwrap();
     let context = session.context.lock().clone();
     let witness = Arc::new(rpc::WriteWitness::default());
@@ -189,6 +189,9 @@ async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
         context,
         send_id: "send".into(),
         settled: AtomicBool::new(false),
+        started_at: 1000,
+        order: 1,
+        activity: tokio::sync::OnceCell::new(),
         turn: "turn".into(),
         witness: witness.clone(),
         outcome: watch::channel(None).0,
@@ -214,6 +217,43 @@ async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
         assert_eq!(after.frame_sequences, vec![1]);
         assert_eq!(after.turn_requests[0].after_sequence, Some(0));
         assert!(after.turn_requests[0].written);
+        let context = session.context.lock().clone();
+        for (state, at) in [
+            (RuntimeTurnState::Working, 123961),
+            (RuntimeTurnState::Idle, 124000),
+        ] {
+            subscriber::publish_events(
+                &fixture.service,
+                &session,
+                context.epoch,
+                vec![AgentRuntimeEvent::TurnState {
+                    thread_id: "own-thread".into(),
+                    turn_id: Some("turn".into()),
+                    parent_thread_id: None,
+                    state,
+                    detail: None,
+                    status_line: None,
+                    started_at: None,
+                    completed_at: None,
+                }],
+                at,
+            )
+            .await
+            .unwrap();
+        }
+        assert_eq!(
+            session.state.lock().last_turn_duration_ms,
+            Some(123000),
+            "duration includes the wait before the first own update"
+        );
+        let pending = session.turn_requests.lock().get("send").cloned().unwrap();
+        publish_written_activity(&fixture.service, &session, &pending)
+            .await
+            .unwrap();
+        assert!(
+            session.context.lock().active_turn_id.is_none(),
+            "a late write observer cannot reopen a completed turn"
+        );
         let request: Value = serde_json::from_str(&line).unwrap();
         let response = json!({"id":request["id"],"result":{}});
         peer.get_mut()
@@ -235,6 +275,9 @@ async fn completion_waits_for_prior_ingress_projection() {
         context: session.context.lock().clone(),
         send_id: "send".into(),
         settled: AtomicBool::new(false),
+        started_at: now(),
+        order: 1,
+        activity: tokio::sync::OnceCell::new(),
         turn: "turn".into(),
         witness: Arc::new(rpc::WriteWitness::default()),
         outcome: watch::channel(None).0,
@@ -318,6 +361,17 @@ fn silent_written_submit_releases_transport_gate_and_interrupts() {
             .unwrap()
             .state,
         crate::service::chat_send_transaction::ChatSendState::Unknown
+    );
+    assert_eq!(
+        session.context.lock().active_turn_id.as_deref(),
+        Some("turn"),
+        "written prompts are interruptible before any own update"
+    );
+    let context = session.context.lock().clone();
+    let request_start = started_at(&session, &context, Some("turn")).unwrap();
+    assert_eq!(
+        session.state.lock().active_turn_started_at_ms,
+        Some(request_start)
     );
     assert!(super::super::controls::interrupt(&fixture.service, &tab).unwrap());
     assert!(session.context.lock().active_turn_id.is_none());
@@ -532,4 +586,83 @@ fn silent_written_reply_confirms_only_success_and_clears_its_claim() {
         }
         let _peer = crate::async_runtime::block_on(server).unwrap();
     }
+}
+
+#[tokio::test]
+async fn queued_written_prompt_starts_after_active_turn_settles_without_updates() {
+    let source = SOURCE.replace("turnId:'turn'", "turnId:op.sendId");
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(&source);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let (release_a, wait_a) = tokio::sync::oneshot::channel::<()>();
+    let (release_b, wait_b) = tokio::sync::oneshot::channel::<()>();
+    let server = async move {
+        let mut peer = BufReader::new(peer);
+        let mut requests = Vec::new();
+        for _ in 0..2 {
+            let mut line = String::new();
+            peer.read_line(&mut line).await.unwrap();
+            requests.push(serde_json::from_str::<Value>(&line).unwrap());
+        }
+        for (request, release) in requests.iter().zip([wait_a, wait_b]) {
+            release.await.unwrap();
+            let reply = json!({"id":request["id"],"result":{"stopReason":"end_turn"}});
+            peer.get_mut()
+                .write_all(format!("{reply}\n").as_bytes())
+                .await
+                .unwrap();
+        }
+        peer
+    };
+    let exercise = async {
+        for send in ["a", "b"] {
+            let context = session.context.lock().clone();
+            let mut op = operation(&context);
+            if let RuntimeOperation::SubmitTurn {
+                send_id,
+                active_turn_id,
+                ..
+            } = &mut op
+            {
+                *send_id = send.into();
+                *active_turn_id = context.active_turn_id.clone();
+            }
+            let (result, written) =
+                engine::run_submit(&fixture.service, &session, &process, op).await;
+            assert!(written);
+            assert!(matches!(
+                result,
+                Err(RuntimeFailure::WrittenAwaitingEvidence)
+            ));
+            assert_eq!(session.context.lock().active_turn_id.as_deref(), Some("a"));
+        }
+        assert!(
+            session.turn_requests.lock()["b"].activity.get().is_none(),
+            "deferred activity does not consume the OnceCell"
+        );
+        let mut changes = session.control_changes.subscribe();
+        release_a.send(()).unwrap();
+        loop {
+            changes.borrow_and_update();
+            if session.context.lock().active_turn_id.as_deref() == Some("b") {
+                break;
+            }
+            changes.changed().await.unwrap();
+        }
+        assert!(session.completions.lock().contains("own-thread", "a"));
+        release_b.send(()).unwrap();
+        loop {
+            changes.borrow_and_update();
+            if session.completions.lock().contains("own-thread", "b") {
+                break;
+            }
+            changes.changed().await.unwrap();
+        }
+        assert!(session.context.lock().active_turn_id.is_none());
+    };
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let ((), _peer) = tokio::join!(exercise, server);
+    })
+    .await
+    .expect("queued written activity must follow active-turn settlement");
 }

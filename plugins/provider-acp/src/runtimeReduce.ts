@@ -2,6 +2,7 @@ import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, Runt
 import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, usage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
+import { fitTextReduction } from "./runtimeReduceBudget";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
 interface TextCursor { offset:number; chars:number; echo?:string }
@@ -164,13 +165,12 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       }
       chunk.chars+=content.text.length;
       const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
-      const value=content.text.length > 16384 ? Array.from(content.text).slice(0,8192).join("")+"\n[ACP row truncated: oversized text update]" : content.text;
       const previous=state.items[chunk.id];
-      const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:value,...(type === "thinking" ? {collapsed:true} : {})};
-      events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:value,offset:chunk.offset}
-        : {kind:"chatItem",threadId:state.sessionId,item:row});
-      state.items[row.id]={...row,content:""};
-      chunk.offset+=utf8Length(value);
+      const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:"",...(type === "thinking" ? {collapsed:true} : {})};
+      events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:content.text,offset:chunk.offset}
+        : {kind:"chatItem",threadId:state.sessionId,item:{...row,content:content.text}});
+      chunk.offset+=utf8Length(content.text);
+      state.items[row.id]=row;
       if (explicit) state.offsetById[chunk.id]={offset:chunk.offset,chars:chunk.chars,...(chunk.echo ? {echo:chunk.echo} : {})};
       if (!state.loading && !state.started && kind === "agent_message_chunk") events.push({kind:"turnState",threadId:ctx.threadId,turnId:ctx.activeTurnId ?? `${ctx.threadId}:turn:${state.turn}`,state:"working"});
       continue;
@@ -219,7 +219,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     else warn(state,events,kind);
   }
   boundState(state);
-  return {state:json(state),events};
+  return fitTextReduction(json(state),events);
 }
 
 function utf8Length(value:string):number {
