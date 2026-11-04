@@ -5,6 +5,28 @@ use codeterm_update::update_state::AvailabilitySnapshot;
 
 static LAST: parking_lot::Mutex<Option<AvailabilitySnapshot>> = parking_lot::Mutex::new(None);
 
+mod background;
+static BACKGROUND: background::Refresh = background::Refresh::new();
+
+pub fn cached_snapshot() -> AvailabilitySnapshot {
+    let mut cached = LAST.lock().clone().unwrap_or_default();
+    ensure_app(&mut cached);
+    cached
+}
+
+pub fn refresh_in_background(
+    ui: Arc<dyn codeterm_service_core::ports::host::UiEvents>,
+    state: codeterm_update::UpdateStateHandle,
+    bundles: Option<Arc<codeterm_frontend_bundle::FrontendBundles>>,
+    force: bool,
+) {
+    let _ = BACKGROUND.start(async move {
+        if let Err(error) = check(&ui, &state, bundles, force).await {
+            log::debug!("[update-discovery] background check failed: {error}");
+        }
+    });
+}
+
 pub async fn check(
     ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,
     state: &codeterm_update::UpdateStateHandle,
