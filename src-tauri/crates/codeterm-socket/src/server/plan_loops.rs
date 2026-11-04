@@ -28,16 +28,12 @@ fn emit_plan_changed(svc: &ServiceState, plan_id: &str) {
     svc.emit_committed_plan_changed(&plan_id);
 }
 
-fn emit_loop_plan_changed(svc: &ServiceState, lid: &str) {
+fn emit_loop_plan_changed(svc: &ServiceState, lid: &str) -> Result<(), JsonRpcError> {
     let store = &svc.plan_store;
-    if let Some(plan_id) = store.list_index().iter().find_map(|e| {
-        store
-            .get(&e.plan_id)
-            .filter(|pl| pl.loops.iter().any(|l| l.id == lid))
-            .map(|pl| pl.id)
-    }) {
+    if let Some(plan_id) = store.loop_plan_id(lid).map_err(plan_rpc_err)? {
         emit_plan_changed(svc, &plan_id);
     }
+    Ok(())
 }
 
 pub(super) fn handles(method: &str) -> bool {
@@ -153,15 +149,13 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_loop_plan_changed(svc, &lid);
+            emit_loop_plan_changed(svc, &lid)?;
             Ok(json!({ "ok": true, "loop_id": lid }))
         }
 
         "plan.loop.status" => {
             let lid = super::plan_refs::resolve_loop(store, params)?;
-            let spec = store
-                .loop_status(&lid)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            let spec = store.loop_status(&lid).map_err(plan_rpc_err)?;
             Ok(serde_json::to_value(spec).unwrap_or_default())
         }
 
@@ -179,14 +173,14 @@ pub(super) fn dispatch(
                     now,
                 )
                 .map_err(plan_rpc_err)?;
-            emit_loop_plan_changed(svc, &lid);
+            emit_loop_plan_changed(svc, &lid)?;
             Ok(serde_json::to_value(result).unwrap_or_default())
         }
 
         "plan.loop.stop" => {
             let lid = super::plan_refs::resolve_loop(store, params)?;
             store.stop_loop(&lid, now).map_err(plan_rpc_err)?;
-            emit_loop_plan_changed(svc, &lid);
+            emit_loop_plan_changed(svc, &lid)?;
             Ok(json!({ "ok": true, "loop_id": lid }))
         }
 

@@ -334,12 +334,9 @@ impl PlanStore {
         let turn = self.mutation_writer.enter();
         let spec = self.get_spec(spec_id).ok_or(PlanError::NotFound)?;
         // Scrub references from every plan that points at this spec.
-        let referencing: Vec<String> = self
-            .plans_matching(&super::PlanMatch::SpecRef(spec_id.to_string()))
-            .into_iter()
-            .filter(|plan| plan.spec_refs.iter().any(|r| r == spec_id))
-            .map(|plan| plan.id)
-            .collect();
+        let referencing = self
+            .database
+            .plan_ids_matching(&super::PlanMatch::SpecRef(spec_id.to_string()))?;
         for plan_id in referencing {
             self.with_plan_in_writer(&turn, &plan_id, now_ms, |plan| {
                 plan.spec_refs.retain(|r| r != spec_id);
@@ -381,18 +378,8 @@ impl PlanStore {
         Ok(())
     }
 
-    pub fn list_spec_links(&self, spec_id: &str) -> Vec<(String, SpecLink)> {
-        self.plans_matching(&super::PlanMatch::SpecLink(spec_id.to_string()))
-            .into_iter()
-            .flat_map(|plan| {
-                plan.spec_links
-                    .iter()
-                    .filter(|link| link.spec_id == spec_id)
-                    .cloned()
-                    .map(|link| (plan.id.clone(), link))
-                    .collect::<Vec<_>>()
-            })
-            .collect()
+    pub fn list_spec_links(&self, spec_id: &str) -> Result<Vec<(String, SpecLink)>, PlanError> {
+        self.database.spec_links(spec_id)
     }
 
     pub fn link_effort(
@@ -554,7 +541,7 @@ mod tests {
             .link_spec_section(&plan.id, &spec.id, &linked, &plan_sec, 16)
             .unwrap();
 
-        let report = store.spec_coverage_report(&spec.id).unwrap();
+        let report = store.spec_coverage_report(&spec.id).unwrap().unwrap();
         assert_eq!(report.unplanned, vec!["Unplanned".to_string()]);
         assert_eq!(report.sections[0].status, "done");
         assert_eq!(report.sections[1].status, "unplanned");

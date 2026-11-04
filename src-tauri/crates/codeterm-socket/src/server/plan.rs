@@ -681,6 +681,7 @@ pub(super) fn dispatch(
             let id = plan_refs::resolve_plan(store, params)?;
             let report = store
                 .coverage_report(&id)
+                .map_err(plan_rpc_err)?
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
             Ok(serde_json::to_value(report).unwrap_or_default())
         }

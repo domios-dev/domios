@@ -5,7 +5,7 @@ use super::references::path_key;
 use crate::html_preview::checked_path;
 
 pub struct PreviewPolicy {
-    references: HashSet<String>,
+    references: std::sync::Arc<HashSet<String>>,
     denied: Vec<String>,
     uploads: Vec<PathBuf>,
     upload_denied: Vec<String>,
@@ -50,7 +50,7 @@ impl PreviewPolicy {
             }
         }
         Ok(Self {
-            references,
+            references: references.into(),
             denied: roots,
             uploads: Vec::new(),
             upload_denied: Vec::new(),
@@ -59,6 +59,11 @@ impl PreviewPolicy {
             own_pad: None,
             pad_denied: Vec::new(),
         })
+    }
+
+    pub fn with_reference_inventory(mut self, references: std::sync::Arc<HashSet<String>>) -> Self {
+        self.references = references;
+        self
     }
 
     pub fn with_uploads(mut self, uploads: &Path, denied: &[PathBuf]) -> Result<Self, String> {

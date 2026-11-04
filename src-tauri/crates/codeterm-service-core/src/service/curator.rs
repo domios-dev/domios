@@ -201,26 +201,35 @@ impl ServiceContext {
         plan: &Plan,
         complete: bool,
     ) -> Option<CuratorSuspension> {
+        self.curator_suspended_reason_for_fields(&plan.mode, &plan.status, &plan.team_id, complete)
+    }
+
+    pub(super) fn curator_suspended_reason_for_fields(
+        &self,
+        mode: &PlanMode,
+        status: &PlanStatus,
+        team_id: &Option<String>,
+        complete: bool,
+    ) -> Option<CuratorSuspension> {
         if !self.configuration().orchestration.plan_reminders {
             Some(CuratorSuspension::RemindersDisabled)
-        } else if plan.mode == PlanMode::Paused {
+        } else if *mode == PlanMode::Paused {
             Some(CuratorSuspension::Paused)
-        } else if plan.mode == PlanMode::Complete || plan.status == PlanStatus::Archived || complete
-        {
+        } else if *mode == PlanMode::Complete || *status == PlanStatus::Archived || complete {
             Some(CuratorSuspension::Complete)
-        } else if self.curator_human_wait(plan) {
+        } else if self.curator_human_wait(team_id) {
             Some(CuratorSuspension::WaitingOnHuman)
         } else {
             None
         }
     }
 
-    fn curator_human_wait(&self, plan: &Plan) -> bool {
+    fn curator_human_wait(&self, team_id: &Option<String>) -> bool {
         let team_tabs: Vec<_> = self
             .mux
             .read()
             .all_tabs()
-            .filter(|tab| tab.team_id == plan.team_id)
+            .filter(|tab| &tab.team_id == team_id)
             .map(|tab| tab.id.clone())
             .collect();
         self.notif.lock().list(false).iter().any(|n| {

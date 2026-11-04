@@ -2,15 +2,6 @@ use super::{db_error, PlanError};
 use rusqlite::Connection;
 
 type Schema = Vec<(String, String, String, Option<String>)>;
-const MANAGED_ADDITIVE_INDEXES: &[&str] = &[
-    "plan_tasks_board_cursor",
-    "plan_tasks_status_summary",
-    "plan_tasks_bound_tabs",
-    "plan_tasks_handle_order",
-    "plan_milestones_id",
-    "plan_strides_id",
-    "plan_attempts_id",
-];
 
 pub(in crate::service_plan) fn schema(connection: &Connection) -> rusqlite::Result<Schema> {
     let mut statement = connection.prepare(
@@ -29,34 +20,20 @@ pub(in crate::service_plan) fn validate(
     expected: &Connection,
 ) -> Result<(), PlanError> {
     let actual = schema(connection).map_err(db_error)?;
+    let mut statement = expected
+        .prepare("SELECT il.name FROM sqlite_schema AS s, pragma_index_list(s.name) AS il WHERE s.type = 'table' AND il.\"unique\" = 0")
+        .map_err(db_error)?;
+    let additive = statement
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<rusqlite::Result<std::collections::HashSet<_>>>()
+        .map_err(db_error)?;
     let expected = schema(expected).map_err(db_error)?;
-    let is_managed_index = |entry: &&(String, String, String, Option<String>)| {
-        entry.0 == "index" && MANAGED_ADDITIVE_INDEXES.contains(&entry.1.as_str())
+    let admissible = |expected: &(String, String, String, Option<String>)| {
+        (expected.0 == "index" && additive.contains(&expected.1)) || actual.contains(expected)
     };
-    let actual_without_managed: Vec<_> = actual
-        .iter()
-        .filter(|entry| !is_managed_index(entry))
-        .collect();
-    let expected_without_managed: Vec<_> = expected
-        .iter()
-        .filter(|entry| !is_managed_index(entry))
-        .collect();
-    let managed_index_matches = MANAGED_ADDITIVE_INDEXES.iter().all(|name| {
-        match (
-            actual
-                .iter()
-                .find(|entry| entry.0 == "index" && entry.1 == *name),
-            expected
-                .iter()
-                .find(|entry| entry.0 == "index" && entry.1 == *name),
-        ) {
-            (Some(actual), Some(expected)) => actual == expected,
-            (None, Some(_)) | (None, None) => true,
-            (Some(_), None) => false,
-        }
-    });
-
-    if actual_without_managed != expected_without_managed || !managed_index_matches {
+    let declared = actual.iter().all(|entry| expected.contains(entry));
+    if !declared || !expected.iter().all(admissible) {
         return Err(PlanError::Io(
             "unrecognized, partial or mixed plan database schema".into(),
         ));

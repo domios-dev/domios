@@ -103,6 +103,7 @@ fn supervise(binary_override: Option<&str>, once: bool) -> Result<serde_json::Va
     let bin = resolve_app_binary(binary_override)?;
     let _lock = SupervisorLock::acquire()?;
     let mut launches = 0u32;
+    let mut observed_crashes = Vec::new();
 
     if supervisor_is_disabled() {
         return supervisor_result("disabled", launches, None);
@@ -155,7 +156,9 @@ fn supervise(binary_override: Option<&str>, once: bool) -> Result<serde_json::Va
         if crash.is_none() {
             return supervisor_result("clean_shutdown", launches, Some(pid));
         }
-        let crash = crash.expect("checked above");
+        let mut crash = crash.expect("checked above");
+        bound_observed_restarts(&mut observed_crashes, &mut crash);
+        write_json(&pending_crash_path(), &crash)?;
         if supervisor_is_disabled() {
             return supervisor_result("disabled", launches, Some(pid));
         }
@@ -166,6 +169,15 @@ fn supervise(binary_override: Option<&str>, once: bool) -> Result<serde_json::Va
             return supervisor_result("once", launches, Some(pid));
         }
     }
+}
+
+fn bound_observed_restarts(observed: &mut Vec<i64>, crash: &mut PendingCrashRecord) {
+    observed.retain(|at| crash.detected_at.saturating_sub(*at) <= LOOP_WINDOW_SECS);
+    observed.push(crash.detected_at);
+    let action = &mut crash.supervisor_action;
+    action.crash_count_in_window = action.crash_count_in_window.max(observed.len() as u32);
+    action.loop_protected |= action.crash_count_in_window >= LOOP_THRESHOLD;
+    action.backoff_ms = bounded_backoff_ms(action.crash_count_in_window);
 }
 
 fn launch_codeterm(bin: &std::path::Path) -> Result<std::process::Child, String> {

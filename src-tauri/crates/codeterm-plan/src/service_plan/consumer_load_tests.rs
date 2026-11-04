@@ -56,7 +56,7 @@ fn spec_coverage_report_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert!(store.spec_coverage_report(&spec.id).is_some());
+    assert!(store.spec_coverage_report(&spec.id).unwrap().is_some());
     assert_never_loaded(&store, &[&other]);
 }
 
@@ -72,7 +72,7 @@ fn list_spec_links_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    let links = store.list_spec_links("sp_audit");
+    let links = store.list_spec_links("sp_audit").unwrap();
     assert_eq!(links.len(), 1);
     assert_eq!(links[0].0, linked);
     assert_never_loaded(&store, &[&other]);

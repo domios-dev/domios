@@ -74,9 +74,11 @@ pub use curator_projection::CuratorDigestRead;
 mod store_convert_118;
 mod store_db;
 pub use status_projection::{
-    CuratorAuthorityRead, CuratorScheduleRead, PlanNoticeRead, PlanStatusRead,
+    CuratorAuthorityRead, CuratorScheduleMetadata, CuratorScheduleRead, PlanNoticeRead,
+    PlanStatusRead,
 };
 pub mod board_state;
+mod document_projection;
 mod store_index;
 mod store_persist;
 mod store_queries;
@@ -103,6 +105,7 @@ pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
+pub use document_projection::PlanDocumentMetadata;
 
 #[cfg(test)]
 mod work_facet_tests;
@@ -247,8 +250,8 @@ impl Drop for MutationWriterTurn<'_> {
 }
 
 impl PlanStore {
-    pub fn new() -> Self {
-        Self::open(paths::global_plan_database_path()).expect("open global PlanStore database")
+    pub fn new() -> Result<Self, PlanError> {
+        Self::open(paths::global_plan_database_path())
     }
 
     #[cfg(any(test, feature = "test-support"))]

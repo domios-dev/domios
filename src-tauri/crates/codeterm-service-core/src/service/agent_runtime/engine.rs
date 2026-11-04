@@ -382,6 +382,9 @@ async fn ensure_with_fork(
     }
     let mut retired_cli = false;
     let session = {
+        let mux = svc.mux.read();
+        mux.ensure_tab_membership_mutable(tab)
+            .map_err(RuntimeFailure::Refused)?;
         let mut sessions = SESSIONS.lock();
         if sessions.get(tab).is_some_and(|session| {
             session.context.lock().binding_nonce != nonce || session.provider != provider

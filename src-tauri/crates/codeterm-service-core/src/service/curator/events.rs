@@ -140,7 +140,7 @@ impl ServiceContext {
             Err(crate::service::plan::PlanError::NotFound) => return Ok(()),
             Err(error) => return Err(error),
         };
-        let plan = read.plan();
+        let plan = read.metadata();
         #[cfg(test)]
         super::reconciliation::test_boundary::observe(self, id, true);
         if let Some(index) = self.extensions.try_get::<CuratorTabs>() {
