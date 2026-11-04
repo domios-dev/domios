@@ -416,7 +416,8 @@ async fn run_inner(
                             ) = (&operation, &result, event)
                             {
                                 if thread_id == notice_thread {
-                                    session.state.lock().pending_load_notice = Some(message.clone());
+                                    session.state.lock().pending_load_notice =
+                                        Some(message.clone());
                                     return false;
                                 }
                             }
