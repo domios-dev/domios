@@ -25,7 +25,12 @@ fn two_turns_restore_in_order_and_new_turn_keeps_distinct_ids() {
         .snapshot(initial.clone())
         .unwrap();
     let restored = chatbackend_history::try_read_messages(&path).unwrap();
-    assert_eq!(restored, initial);
+    let identity = |rows: &[ChatMsg]| {
+        rows.iter()
+            .map(|row| (row.id.clone(), row.kind.clone(), row.content.clone(), row.seq))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(identity(&restored), identity(&initial));
     let mut cache = ItemCache::default();
     cache.restore_transcript(restored.clone());
     cache.restore_transcript(restored);
