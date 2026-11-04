@@ -338,7 +338,7 @@ fn task_queries_exclude_archived_plans() {
     });
 
     assert!(tasks.is_empty());
-    assert!(store.coverage_report(&id).is_none());
+    assert!(store.coverage_report(&id).unwrap().is_none());
 }
 
 #[test]

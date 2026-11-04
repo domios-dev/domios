@@ -153,6 +153,7 @@ pub(super) fn dispatch(
             if p.and_then(|x| x.get("full")).and_then(|v| v.as_bool()) == Some(true) {
                 return store
                     .spec_full(&id)
+                    .map_err(plan_rpc_err)?
                     .ok_or_else(|| plan_rpc_err(PlanError::NotFound));
             }
             let spec = store
@@ -268,12 +269,13 @@ pub(super) fn dispatch(
         }
         "spec.link.list" => {
             let spec_id = super::plan_refs::resolve_spec(store, params)?;
-            Ok(json!({ "links": store.list_spec_links(&spec_id) }))
+            Ok(json!({ "links": store.list_spec_links(&spec_id).map_err(plan_rpc_err)? }))
         }
         "effort.show" => {
             let plan_id = super::plan_refs::resolve_plan(store, params)?;
             store
                 .effort_bundle(&plan_id)
+                .map_err(plan_rpc_err)?
                 .ok_or_else(|| plan_rpc_err(PlanError::NotFound))
         }
         "effort.link" => {

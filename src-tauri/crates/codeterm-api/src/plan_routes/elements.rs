@@ -200,6 +200,7 @@ pub async fn coverage(
             .svc
             .plan_store
             .coverage_report(&id)
+            .map_err(plan_err)?
             .ok_or_else(|| plan_err(PlanError::NotFound))?;
         Ok(Json(serde_json::to_value(report).unwrap_or_default()))
     })
