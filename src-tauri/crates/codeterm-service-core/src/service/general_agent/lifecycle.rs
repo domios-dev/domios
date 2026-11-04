@@ -263,17 +263,14 @@ fn start_general_agent_inner(
         crate::config::provider_config_from(&config.lock(), provider_name)
             .resume_sessions
             .unwrap_or(true);
-    let permission_bypass = match general_agent_permission_bypass(
-        &svc.agent_registry,
-        provider_name,
-        config.lock().agent.full_access,
-    ) {
-        Ok(value) => value,
-        Err(error) => {
-            log::warn!("[general-agent] Start blocked: {error}");
-            return;
-        }
-    };
+    let permission_bypass =
+        match general_agent_permission_bypass(&svc.agent_registry, provider_name) {
+            Ok(value) => value,
+            Err(error) => {
+                log::warn!("[general-agent] Start blocked: {error}");
+                return;
+            }
+        };
 
     log::info!("[general-agent] Starting (provider={})", provider_name);
     if !instructions_prepared {
@@ -834,16 +831,10 @@ fn terminate_pty_before_relaunch(
 fn general_agent_permission_bypass(
     registry: &crate::agent::registry::AgentRegistry,
     provider: &str,
-    choice: Option<bool>,
 ) -> Result<bool, String> {
-    let full_access = crate::service::permission_policy::require_full_access_choice(choice)?;
     Ok(
-        crate::service::permission_policy::authorize_permission_bypass(
-            registry,
-            provider,
-            full_access,
-        )
-        .is_some(),
+        crate::service::permission_policy::authorize_permission_bypass(registry, provider, true)
+            .is_some(),
     )
 }
 

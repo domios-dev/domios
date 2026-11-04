@@ -193,10 +193,6 @@ export const Sidebar = memo(function Sidebar({
         detail: spawnErrorMessage(error),
         severity: "Error" });
     };
-    if (config?.agent.full_access === undefined) {
-      setSessionPicker({ workspaceId, workspaceCwd, initialProviderId: agentId });
-      return;
-    }
     let folder: string | null = workspaceCwd;
     if (!folder) {
       const provider = getPlugin(agentId);
@@ -224,7 +220,7 @@ export const Sidebar = memo(function Sidebar({
       if (!folder) return;
     }
     void spawnAgentTab(workspaceId, agentId, folder).catch(reportFailure);
-  }, [config?.agent.full_access, spawnAgentTab, state.workspaces, upsertToast]);
+  }, [spawnAgentTab, state.workspaces, upsertToast]);
 
   const handleOrchestrationConfirm = useCallback((result: OrchestrationCreateResult) => {
     if (!orchestrationModal) return;
@@ -915,7 +911,6 @@ export const Sidebar = memo(function Sidebar({
           workspaceId={sessionPicker.workspaceId}
           workspaceCwd={sessionPicker.workspaceCwd}
           agentsConfig={agentsConfig}
-          agentConfig={config?.agent}
           initialProviderId={sessionPicker.initialProviderId}
           section={sessionPicker.section ?? (state.workspaces.find((workspace) => workspace.id === sessionPicker.workspaceId)?.protected ? "general" : "workspace")}
           onClose={() => setSessionPicker(null)}
