@@ -570,6 +570,7 @@ fn json_error(error: serde_json::Error) -> PlanError {
 pub(super) mod admission;
 mod attachment_queries;
 mod auxiliary_queries;
+mod binding_context_queries;
 mod binding_queries;
 mod change_feed;
 mod charter_queries;

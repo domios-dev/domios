@@ -46,8 +46,11 @@ pub(super) fn resolve_plan(
         .filter(|s| !s.is_empty())
         .unwrap_or("");
 
-    if let Some((plan_id, _)) = store.task_binding_for_tab(caller_tab) {
-        return Ok(plan_id);
+    if let Some(binding) = store
+        .assigned_task_binding_projection(caller_tab)
+        .map_err(super::plan::plan_rpc_err)?
+    {
+        return Ok(binding.plan_id);
     }
     if let Some(plan_id) = store
         .active_owned_plan_with_open_work_for_tab(caller_tab)
@@ -99,11 +102,12 @@ pub(super) fn task_binding(
 ) -> Result<Value, JsonRpcError> {
     let tab_id = get_string_param(params, "tab_id")?;
     let binding = store
-        .task_binding_for_tab(&tab_id)
-        .map(|(plan_id, task_id)| {
+        .assigned_task_binding_projection(&tab_id)
+        .map_err(super::plan::plan_rpc_err)?
+        .map(|binding| {
             serde_json::json!({
-                "plan_id": plan_id,
-                "task_id": task_id,
+                "plan_id": binding.plan_id,
+                "task_id": binding.task_id,
             })
         })
         .or_else(|| {
