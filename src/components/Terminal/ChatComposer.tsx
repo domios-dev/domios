@@ -275,7 +275,9 @@ function ChatComposerImpl({
   const [composing, setComposing] = useState(false);
   const capsulesActive = !composing && hasCapsuleTokens(input);
   const attachInline = async (paths: string[]) => capsules.insert(await classifyAttachmentPaths(paths));
-  const commands = useMuxSelector(useLatestCallback(state => cachedSlashCommands(state.tabs[tabId]?.provider_signals?.capabilities), [tabId]), slashCommandsEqual);
+  const commands = useMuxSelector(useLatestCallback(state => state.tabs[tabId]?.agent_runtime_state?.controls?.commands !== undefined
+    ? (state.tabs[tabId]?.agent_runtime_state?.controls?.commands ?? []).map(command => ({name:`/${command.name}`,description:command.description,argumentHint:command.argumentHint}))
+    : cachedSlashCommands(state.tabs[tabId]?.provider_signals?.capabilities ?? (state.tabs[tabId]?.backing?.kind === "chat_backend" ? {status:"unavailable",reason:"Commands not declared"} : undefined)), [tabId]), slashCommandsEqual);
   const firstLine = input.split("\n")[0] || "";
   const suggestions = useMemo(
     () => filterSlashCommands(firstLine, commands),

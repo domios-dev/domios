@@ -87,11 +87,28 @@
           "kind": "complete",
           "result": {
             "kind": "initialized"
-          }
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
         }
       }
     ],
-    "events": [],
+    "events": [
+      {
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
+        }
+      }
+    ],
     "planErrors": [
       {
         "operation": 1,

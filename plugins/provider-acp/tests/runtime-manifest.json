@@ -50,7 +50,12 @@
       "interrupt": [
         "session/cancel"
       ],
-      "control": ["initialize", "authenticate"],
+      "control": [
+        "initialize",
+        "authenticate",
+        "session/set_mode",
+        "session/set_config_option"
+      ],
       "answer": []
     },
     "notificationMethods": [
@@ -78,6 +83,8 @@
     "stream-message-thought-chunks.json",
     "tool-call-lifecycle.json",
     "unknown-update-kind.json",
-    "unsupported-version.json"
+    "unsupported-version.json",
+    "controls-selection.json",
+    "declared-auth.json"
   ]
 }

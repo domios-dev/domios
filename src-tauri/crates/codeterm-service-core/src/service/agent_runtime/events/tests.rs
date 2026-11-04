@@ -169,3 +169,41 @@ fn runtime_evidence_without_item_identity_survives_translation_and_fold() {
         Some(("own-thread".into(), "turn".into(), None))
     );
 }
+
+#[test]
+fn declared_notices_never_enter_the_runtime_item_cache() {
+    let mut maps = RuntimeMaps::default();
+    for message in ["first", "replacement"] {
+        let event = translate(&AgentRuntimeEvent::Notice {
+            thread_id: "own".into(),
+            message: message.into(),
+        });
+        fold(&mut maps, 1, &event);
+    }
+    assert!(maps.items.is_empty());
+}
+
+#[test]
+fn authentication_declarations_are_cleared_with_the_runtime_epoch() {
+    let mut maps = RuntimeMaps::default();
+    let authentication = codeterm_plugin::agent_runtime::RuntimeAuthentication {
+        state: codeterm_plugin::agent_runtime::RuntimeAuthenticationState::Unknown,
+        methods: vec![
+            codeterm_plugin::agent_runtime::RuntimeAuthenticationMethod {
+                id: "own-method".into(),
+                name: "Sign in".into(),
+                available: true,
+            },
+        ],
+    };
+    fold(
+        &mut maps,
+        1,
+        &translate(&AgentRuntimeEvent::Authentication {
+            authentication: authentication.clone(),
+        }),
+    );
+    assert_eq!(maps.authentication, Some(authentication));
+    maps.reset(2);
+    assert!(maps.authentication.is_none());
+}

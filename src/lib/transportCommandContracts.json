@@ -1289,6 +1289,9 @@
         "/api/tabs/tab/agent/runtime/thread-history"
       ]
     ],
+    "agent_runtime_controls": [
+      ["POST", "/api/tabs/tab/agent/runtime/controls"]
+    ],
     "agent_runtime_login": [
       [
         "POST",

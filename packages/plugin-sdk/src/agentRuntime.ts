@@ -13,7 +13,10 @@ export type RuntimeFrame =
 
 export interface RuntimeServiceTier { id:string; name:string; description:string; unavailableReason?:string }
 export interface RuntimeServiceTierSelection { id:string|null }
-export interface RuntimeSettings { serviceTier?:RuntimeServiceTierSelection; serviceTierAvailability?:Record<string,readonly RuntimeServiceTier[]>; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
+export interface RuntimeCommand { name:string; description:string; argumentHint?:string }
+export interface RuntimeConfigOption { id:string; name:string; currentValue:string; options:readonly {value:string; name:string}[] }
+export interface RuntimeAuthentication { state:"authenticated"|"needs_auth"|"unavailable"|"unknown"; methods:readonly {id:string; name:string; available:boolean}[] }
+export interface RuntimeSettings { commands?:readonly RuntimeCommand[]; configOptions?:readonly RuntimeConfigOption[]; modes?:readonly {id:string; name:string}[]; serviceTier?:RuntimeServiceTierSelection; serviceTierAvailability?:Record<string,readonly RuntimeServiceTier[]>; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
 export interface TurnInput { text:string; attachments:readonly ChatAttachment[] }
 export type PromptAnswer =
   | {kind:"choice"; values:readonly string[]}
@@ -40,7 +43,7 @@ export interface OpenItem { turnId:string; item:ChatMsg }
 export type RuntimeFailureCode =
   | "unsupported" | "invalid_schema" | "size_limit" | "hook_failed"
   | "method_not_allowed" | "binding_mismatch" | "deadline"
-  | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
+  | "authentication_required" | "process_unavailable" | "protocol_error" | "provider_refused" | "thread_not_found";
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeContext {
   restrictedCli?:RestrictedCliPolicy;
@@ -109,6 +112,8 @@ export type RuntimeStep =
   | {kind:"complete"; result:OperationResult; notification?:RpcCall; events?:readonly AgentEvent[]}
   | {kind:"refused"; reason:RuntimeFailure; beforeAcceptance:boolean};
 export type AgentEvent =
+  | {kind:"authentication"; authentication:RuntimeAuthentication}
+  | {kind:"notice"; threadId:string; message:string}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]}
   | {kind:"chatItem"; threadId:string; item:ChatMsg}
   | {kind:"turnState"; threadId:string; turnId?:string; state:"working"|"idle"|"needs_input"; detail?:RuntimeTurnDetail; statusLine?:string; startedAt?:number; completedAt?:number; parentThreadId?:string}

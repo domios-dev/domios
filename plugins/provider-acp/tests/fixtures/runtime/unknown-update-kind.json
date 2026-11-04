@@ -288,7 +288,16 @@
           "kind": "complete",
           "result": {
             "kind": "initialized"
-          }
+          },
+          "events": [
+            {
+              "kind": "authentication",
+              "authentication": {
+                "state": "unknown",
+                "methods": []
+              }
+            }
+          ]
         }
       },
       {
@@ -298,7 +307,11 @@
           "result": {
             "kind": "threadLoaded",
             "threadId": "session-fixture",
-            "settings": {}
+            "settings": {
+              "commands": [],
+              "configOptions": [],
+              "modes": []
+            }
           }
         }
       },
@@ -323,22 +336,23 @@
     ],
     "events": [
       {
-        "kind": "chatItem",
-        "threadId": "session-fixture",
-        "item": {
-          "id": "session-fixture:unknown:1:future_update",
-          "seq": 1,
-          "type": "system",
-          "content": "Ignored unknown ACP session update: future_update",
-          "systemSubtype": "runtime_warning"
+        "kind": "authentication",
+        "authentication": {
+          "state": "unknown",
+          "methods": []
         }
+      },
+      {
+        "kind": "notice",
+        "threadId": "session-fixture",
+        "message": "Ignored unknown ACP session update: future_update"
       },
       {
         "kind": "chatItem",
         "threadId": "session-fixture",
         "item": {
           "id": "session-fixture:turn:1:item:1",
-          "seq": 2,
+          "seq": 1,
           "type": "assistant",
           "content": "Continues"
         }

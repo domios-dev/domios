@@ -254,6 +254,18 @@ fn apply(
     }
     let owned = |thread: &str| context.thread_id.as_deref() == Some(thread);
     match event {
+        RuntimeEvent::AuthenticationDeclared { authentication } => {
+            use codeterm_plugin::agent_runtime::RuntimeAuthenticationState;
+            *session.auth.lock() = match authentication.state {
+                RuntimeAuthenticationState::Authenticated => RuntimeAuthState::SignedIn,
+                RuntimeAuthenticationState::NeedsAuth => RuntimeAuthState::SignedOut,
+                _ => RuntimeAuthState::Unknown,
+            };
+            engine::publish(svc, &context.tab_id, session);
+        }
+        RuntimeEvent::Notice { thread_id, message } if owned(&thread_id) => {
+            super::super::declared_controls::notice(svc, &context, message);
+        }
         RuntimeEvent::SessionUpdated {
             login: Some(login), ..
         } => super::super::login::apply(svc, session, epoch, login),

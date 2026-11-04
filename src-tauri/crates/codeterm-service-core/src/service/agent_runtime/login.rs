@@ -34,6 +34,8 @@ pub struct LoginRequest {
     pub account: Option<String>,
     #[serde(default)]
     pub code: Option<String>,
+    #[serde(default)]
+    pub method_id: Option<String>,
     pub method: Option<RuntimeLoginMethod>,
     #[serde(default)]
     pub api_key: Option<String>,
@@ -101,6 +103,12 @@ pub async fn operate(
         }
     };
     engine::validate_binding(svc, &session).map_err(|error| error.to_string())?;
+    if let Some(method) = request.method_id.as_deref() {
+        if request.action.is_some() || request.method.is_some() || request.api_key.is_some() {
+            return Err("Invalid declared sign-in request".into());
+        }
+        return super::declared_controls::authenticate(svc, tab, &session, method).await;
+    }
     let capability = session
         .adapter
         .lock()

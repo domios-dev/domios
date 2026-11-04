@@ -52,10 +52,10 @@ through session/load, with identical final row identities and content.
 `tool-call-lifecycle` carries structured oldText/newText diff content and an
 explicit result; `cancel-mid-tool` retains and interrupts the active tool card.
 `plan-updates` replaces one plan row. `commands-modes-config-usage` retains bounded
-command/config/session information in reducer state, confirms the existing mode
-setting and maps matching usage and compaction facts. Transient notices and the
-command/config control surface remain deferred. `unknown-update-kind` emits one
-bounded system warning per kind and epoch, then continues the turn.
+command/config/session information in reducer state, publishes the command and
+configuration declarations, confirms the mode setting and maps usage and compaction
+facts. Notices use the transient runtime event. `unknown-update-kind` emits one
+transient warning per kind and epoch, then continues the turn.
 
 `lost-stream` is only the recorded transcript prefix before transport loss. ACP
 has no pipe-loss notification, so this fixture intentionally contains no invented
@@ -63,3 +63,9 @@ wire frame or successful completion. It proves preservation of the partial row
 and absence of a synthesized prompt. Native process exit, visible failure and
 bounded recovery require the host process/subscriber tests; JS replay alone does
 not establish them.
+
+`controls-selection` derives mode/config request shapes from the same v1 schema
+and proves local refusal of unadvertised commands, methods and values.
+`declared-auth` proves that only the declared agent method reaches authenticate,
+terminal methods stay unavailable, and only a successful authenticate response
+can change unknown authentication to authenticated. These remain derived fixtures.

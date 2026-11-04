@@ -62,7 +62,9 @@
         ],
         "control": [
           "initialize",
-          "authenticate"
+          "authenticate",
+          "session/set_mode",
+          "session/set_config_option"
         ],
         "answer": []
       },
