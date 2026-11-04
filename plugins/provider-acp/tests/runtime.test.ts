@@ -33,6 +33,7 @@ function assertPlanRefusal(plan:RuntimePlan):void {
 const plain = <T>(value:T):T => JSON.parse(JSON.stringify(value));
 const descriptor = JSON.parse(fs.readFileSync(new URL("./runtime-manifest.json",import.meta.url),"utf8")) as {agentRuntime:StdioAgentRuntimeCapability; scenarios:string[]};
 const declaration = JSON.parse(fs.readFileSync(new URL("../plugin.json",import.meta.url),"utf8"));
+assert.equal(declaration.capabilities.agentRuntime.envelope,"jsonrpc2");
 assert.deepEqual(descriptor.agentRuntime, declaration.capabilities.agentRuntime);
 const root = new URL("./fixtures/runtime/",import.meta.url);
 const names = fs.readdirSync(root).filter(name=>name.endsWith(".json")).sort();

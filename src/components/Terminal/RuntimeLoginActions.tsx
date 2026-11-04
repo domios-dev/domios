@@ -46,6 +46,7 @@ export function RuntimeLoginActions({ tabId, state, iconSvg, onCheck, providerId
         <h3 className="text-sm font-semibold text-[var(--ct-fg)]">{title}</h3>
         <p className="mt-0.5 text-sm text-[var(--ct-muted-fg)]">{hint}</p>
 
+        {state.requiredSecrets?.length ? <p role="status" aria-label="Required credentials">Add {state.requiredSecrets.join(", ")} in Settings Secrets, then retry.</p> : null}
         {state.authentication && <output aria-label="Authentication state">{state.authentication.state}</output>}
         {pending && login.userCode && <div className="mt-3 flex items-center gap-2">
           <output aria-label="Device code" className="select-all rounded-md border border-[var(--ct-border)] bg-[var(--ct-bg)] px-3 py-1.5 font-mono text-xl font-semibold tracking-[0.18em] text-[var(--ct-fg)]">{login.userCode}</output>

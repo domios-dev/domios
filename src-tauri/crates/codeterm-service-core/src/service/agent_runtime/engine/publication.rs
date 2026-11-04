@@ -38,7 +38,41 @@ fn publish_state(svc: &ServiceContext, tab: &str, session: &Session, lifecycle: 
             serde_json::to_value(history).unwrap_or(Value::Null),
         );
         snapshot.insert("historyPages".into(), Value::from(pages));
-        if let Some(adapter) = session.adapter.lock().as_ref() {
+        let adapter = session.adapter.lock().clone();
+        if let Some(adapter) = adapter {
+            if matches!(session.state.lock().phase, RuntimePhase::LoginPending)
+                && !session
+                    .process
+                    .lock()
+                    .as_ref()
+                    .is_some_and(|process| process.ended.borrow().is_none())
+            {
+                let profile = svc.mux.read().get_tab(tab).and_then(|target| {
+                    target
+                        .agent_runtime_config
+                        .as_ref()?
+                        .get("launchProfile")?
+                        .as_str()
+                        .map(str::to_owned)
+                });
+                if let Some(profile) = adapter
+                    .agent_runtime()
+                    .and_then(|runtime| runtime.launch_profiles?.get(profile.as_deref()?).cloned())
+                    .filter(|profile| !profile.secret_env.is_empty())
+                {
+                    snapshot.insert(
+                        "requiredSecrets".into(),
+                        serde_json::json!(profile
+                            .secret_env
+                            .values()
+                            .collect::<std::collections::BTreeSet<_>>()),
+                    );
+                    snapshot.insert(
+                        "loginProviderName".into(),
+                        Value::String(adapter.display_name().into()),
+                    );
+                }
+            }
             if let Some(login) = adapter.agent_runtime().and_then(|runtime| runtime.login) {
                 snapshot.insert(
                     "loginMethods".into(),

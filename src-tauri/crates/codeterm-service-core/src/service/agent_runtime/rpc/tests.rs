@@ -263,3 +263,122 @@ async fn responsiveness_disabled_observer_keeps_ingress_order_and_payload() {
     }
     client.close(RuntimeFailure::PipeEof);
 }
+
+#[test]
+fn null_id_errors_preserve_agent_failure_and_reject_other_null_ids() {
+    assert!(matches!(
+        decode(r#"{"jsonrpc":"2.0","id":null,"error":{"code":-32600,"message":"Invalid request"}}"#),
+        Err(RuntimeFailure::ProtocolError { code: -32600, message }) if message == "Invalid request"
+    ));
+    for frame in [
+        json!({"id":null,"result":null}),
+        json!({"id":null,"method":"request"}),
+        json!({"id":null,"error":{},"result":null}),
+        json!({"id":false,"error":{"code":-32600,"message":"invalid"}}),
+        json!({"id":1.5,"result":null}),
+        json!({"id":[],"result":null}),
+        json!({"id":{},"result":null}),
+    ] {
+        assert!(matches!(
+            decode(&frame.to_string()),
+            Err(RuntimeFailure::InvalidFrame(_))
+        ));
+    }
+    let frame = json!({"id":null,"error":{"code":-32700,"message":"x".repeat(10000)}});
+    assert!(
+        matches!(decode(&frame.to_string()), Err(RuntimeFailure::ProtocolError { message, .. }) if message.len() <= 4096)
+    );
+}
+
+#[tokio::test]
+async fn declared_envelope_covers_requests_notifications_and_replies_without_changing_default_bytes(
+) {
+    for envelope in [
+        None,
+        Some(codeterm_plugin::agent_runtime::AgentRuntimeEnvelope::Jsonrpc2),
+    ] {
+        let (host, peer) = tokio::io::duplex(4096);
+        let (read, write) = tokio::io::split(host);
+        let client = Client::attach_with_envelope(read, write, envelope.clone());
+        let call = RpcCall {
+            target: None,
+            method: "fixture".into(),
+            params: json!({}),
+        };
+        let server = async {
+            let mut peer = BufReader::new(peer);
+            for expected in [
+                json!({"id":1,"method":"fixture","params":{}}),
+                json!({"method":"fixture","params":{}}),
+                json!({"id":"reply","result":{}}),
+                json!({"id":"reply","error":{"code":-1,"message":"denied"}}),
+            ] {
+                let mut line = String::new();
+                peer.read_line(&mut line).await.unwrap();
+                let mut expected = expected;
+                if envelope.is_some() {
+                    expected["jsonrpc"] = json!("2.0");
+                }
+                assert_eq!(line, format!("{expected}\n"));
+                if expected.get("method").is_some() && expected.get("id").is_some() {
+                    peer.get_mut()
+                        .write_all(b"{\"id\":1,\"result\":{}}\n")
+                        .await
+                        .unwrap();
+                }
+            }
+        };
+        let writes = async {
+            client.request_guarded(&call, None).await.unwrap().unwrap();
+            client.notify(&call).await.unwrap();
+            client
+                .reply(&RpcId::String("reply".into()), Ok(json!({})))
+                .await
+                .unwrap();
+            client
+                .reply(
+                    &RpcId::String("reply".into()),
+                    Err(serde_json::from_value(json!({"code":-1,"message":"denied"})).unwrap()),
+                )
+                .await
+                .unwrap();
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::join!(writes, server)
+        })
+        .await
+        .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn unattributable_agent_error_closes_epoch_and_all_pending_requests() {
+    let (host, peer) = tokio::io::duplex(4096);
+    let (read, write) = tokio::io::split(host);
+    let client = Client::attach(read, write);
+    let mut ended = client.ended();
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        peer.get_mut().write_all(b"{\"jsonrpc\":\"2.0\",\"id\":null,\"error\":{\"code\":-32600,\"message\":\"Invalid request\"}}\n").await.unwrap();
+        ended.changed().await.unwrap();
+    };
+    let call = RpcCall {
+        target: None,
+        method: "initialize".into(),
+        params: json!({}),
+    };
+    let (result, ()) = tokio::time::timeout(Duration::from_secs(5), async {
+        tokio::join!(client.request_guarded(&call, None), server)
+    })
+    .await
+    .unwrap();
+    let failure = RuntimeFailure::ProtocolError {
+        code: -32600,
+        message: "Invalid request".into(),
+    };
+    assert_eq!(result, Err(failure.clone()));
+    assert_eq!(*client.ended().borrow(), Some(failure));
+    assert!(client.0.state.lock().pending.is_empty());
+}

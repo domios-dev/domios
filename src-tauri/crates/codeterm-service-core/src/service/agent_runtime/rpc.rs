@@ -1,5 +1,7 @@
 use super::model::RuntimeFailure;
-use codeterm_plugin::agent_runtime::{RpcCall, RpcFailure, RpcId, RuntimeFrame};
+use codeterm_plugin::agent_runtime::{
+    AgentRuntimeEnvelope, RpcCall, RpcFailure, RpcId, RuntimeFrame,
+};
 use parking_lot::Mutex;
 use serde_json::{json, Value};
 use std::{
@@ -36,6 +38,7 @@ struct State {
     pending: HashMap<RpcId, Pending>,
 }
 struct Inner {
+    envelope: Option<AgentRuntimeEnvelope>,
     trace_bound: AtomicBool,
     state: Mutex<State>,
     next_id: AtomicI64,
@@ -49,7 +52,20 @@ struct Inner {
 pub struct Client(Arc<Inner>);
 
 impl Client {
-    pub fn attach<R, W>(reader: R, mut writer: W) -> Self
+    #[cfg(test)]
+    pub fn attach<R, W>(reader: R, writer: W) -> Self
+    where
+        R: AsyncRead + Unpin + Send + 'static,
+        W: AsyncWrite + Unpin + Send + 'static,
+    {
+        Self::attach_with_envelope(reader, writer, None)
+    }
+
+    pub fn attach_with_envelope<R, W>(
+        reader: R,
+        mut writer: W,
+        envelope: Option<AgentRuntimeEnvelope>,
+    ) -> Self
     where
         R: AsyncRead + Unpin + Send + 'static,
         W: AsyncWrite + Unpin + Send + 'static,
@@ -58,6 +74,7 @@ impl Client {
         let (events, initial_events) = broadcast::channel(EVENT_BUFFER);
         let (ended, _) = watch::channel(None);
         let client = Self(Arc::new(Inner {
+            envelope,
             trace_bound: AtomicBool::new(false),
             state: Mutex::new(State {
                 closed: None,
@@ -222,11 +239,14 @@ impl Client {
     }
     async fn queue_guarded(
         &self,
-        frame: Value,
+        mut frame: Value,
         guard: Option<PrewriteGuard>,
     ) -> Result<(), RuntimeFailure> {
         if let Some(reason) = self.0.state.lock().closed.clone() {
             return Err(reason);
+        }
+        if self.0.envelope == Some(AgentRuntimeEnvelope::Jsonrpc2) {
+            frame["jsonrpc"] = json!("2.0");
         }
         let text = frame.to_string();
         if text.len() > FRAME_LIMIT {
@@ -312,6 +332,20 @@ fn decode(text: &str) -> Result<WireFrame, RuntimeFailure> {
     let value = parsed
         .as_object()
         .ok_or_else(|| RuntimeFailure::InvalidFrame("Frame must be an object".into()))?;
+    if value.get("id") == Some(&Value::Null)
+        && !value.contains_key("method")
+        && !value.contains_key("result")
+        && value.get("jsonrpc").is_none_or(|version| version == "2.0")
+    {
+        if let Some(error) = value.get("error") {
+            let error: RpcFailure = serde_json::from_value(error.clone())
+                .map_err(|error| RuntimeFailure::InvalidFrame(error.to_string()))?;
+            return Err(RuntimeFailure::ProtocolError {
+                code: error.code,
+                message: error.message.chars().take(1024).collect(),
+            });
+        }
+    }
     let id = value
         .get("id")
         .map(|id| serde_json::from_value(id.clone()))

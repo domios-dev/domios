@@ -46,6 +46,12 @@ pub(super) struct RestartClaim {
     tab_id: String,
 }
 
+impl RestartClaim {
+    fn release_cooldown(&self) {
+        self.tracker.lock().last_restart.remove(&self.tab_id);
+    }
+}
+
 impl Drop for RestartClaim {
     fn drop(&mut self) {
         let mut tracker = self.tracker.lock();

@@ -146,6 +146,7 @@ export interface RuntimeLaunchProfile {
   ownerConfigured?:boolean;
 }
 export interface StdioAgentRuntimeCapability {
+  envelope?:"jsonrpc2";
   interrupt?:{beforeFirstTurn:boolean};
   clientBridges?:RuntimeClientBridges;
   launchProfiles?:Readonly<Record<string,RuntimeLaunchProfile>>;

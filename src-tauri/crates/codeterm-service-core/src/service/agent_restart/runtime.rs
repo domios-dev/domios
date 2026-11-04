@@ -44,7 +44,6 @@ impl ServiceContext {
             return Err(AgentRestartError::BadRequest(refusal.to_string()).into());
         }
         self.require_background_work_safe(tab_id, force)?;
-        let _claim = self.claim_restart(tab_id, false)?;
         let tab = self
             .mux
             .read()
@@ -62,7 +61,16 @@ impl ServiceContext {
         {
             return Err(AgentRestartError::BadRequest("Runtime backing changed".into()).into());
         }
-        if !fresh && tab.agent_session_id.as_deref().is_none_or(str::is_empty) {
+        let unbound_login = agent_runtime::engine::for_tab(tab_id).is_some_and(|session| {
+            agent_runtime::engine::validate_binding(self, &session).is_ok()
+                && matches!(session.state.lock().phase, agent_runtime::model::RuntimePhase::LoginPending)
+                && session.state.lock().thread_id.is_none()
+                && session.context.lock().thread_id.is_none()
+                && tab.reported_session_binding_nonce.is_none()
+                && !tab.restored_from_snapshot
+                && matches!(&tab.backing, TabBacking::ChatBackend {session_id, ..} if session_id.is_empty())
+        });
+        if !fresh && !unbound_login && tab.agent_session_id.as_deref().is_none_or(str::is_empty) {
             return Err(AgentRestartError::BadRequest(
                 "Runtime thread identity missing; an explicit --fresh action is required".into(),
             )
@@ -92,6 +100,7 @@ impl ServiceContext {
             )
             .into());
         }
+        let claim = self.claim_restart(tab_id, false)?;
         self.authorize_runtime_restart_binding(tab_id, &provider, &nonce, fresh)
             .map_err(AgentRestartError::BadRequest)?;
         let mut outcome = RestartOutcome::accepted(&snap, fresh, force);
@@ -107,6 +116,7 @@ impl ServiceContext {
                 agent_runtime::model::RuntimePhase::LoginPending
             )
         }) {
+            claim.release_cooldown();
             self.schedule_session_persist_debounced();
             self.emit_state_changed(MuxEmitCause::AgentRestart);
             return Ok(outcome);

@@ -10,6 +10,12 @@ pub enum AgentRuntimeProtocol {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum AgentRuntimeEnvelope {
+    Jsonrpc2,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AgentRuntimeCommand {
     pub binary: String,
@@ -50,6 +56,8 @@ pub struct RuntimeProfileDetection {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AgentRuntimeCapability {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<AgentRuntimeEnvelope>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub interrupt: Option<RuntimeInterruptCapability>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

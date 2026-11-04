@@ -36,6 +36,10 @@ pub enum RuntimeFailure {
         reason: String,
     },
     InvalidFrame(String),
+    ProtocolError {
+        code: i64,
+        message: String,
+    },
     Deadline,
     HookFailed(String),
     Refused(String),
@@ -77,6 +81,7 @@ impl std::fmt::Display for RuntimeFailure {
             Self::InvalidFrame(reason) => {
                 write!(formatter, "Runtime sent an invalid response: {reason}")
             }
+            Self::ProtocolError { code, message } => write!(formatter, "Agent protocol error {code}: {message}"),
             Self::Deadline => formatter.write_str("Runtime did not respond in time"),
             Self::HookFailed(reason) => write!(formatter, "Provider operation failed: {reason}"),
             Self::Refused(reason) => write!(formatter, "Provider refused: {reason}"),

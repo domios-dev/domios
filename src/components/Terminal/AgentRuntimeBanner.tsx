@@ -12,7 +12,7 @@ import { useStartNewSession } from "./useStartNewSession";
 
 export function AgentRuntimeBanner({ state, onRetry, tabId, iconSvg, startupOwned = false }: { tabId?: string; state: AgentRuntimeState | null; onRetry: () => void; iconSvg?: string | null; startupOwned?: boolean }) {
   const hasControls = Boolean(state?.notice || state?.controls?.configOptions?.length || state?.controls?.modes?.length);
-  if (tabId && state && ((state.authentication && state.authentication.state !== "authenticated") || (state.auth === "signedOut" && state.loginMethods?.length))) {
+  if (tabId && state && (state.state === "loginPending" || (state.authentication && state.authentication.state !== "authenticated") || (state.auth === "signedOut" && state.loginMethods?.length))) {
     return <>
       {tabId && state && hasControls && <RuntimeDeclaredControls tabId={tabId} state={state} />}
       <RuntimeLoginActions key={`${tabId}:${state.epoch}`} tabId={tabId} state={state} iconSvg={iconSvg} onCheck={onRetry} />

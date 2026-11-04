@@ -73,3 +73,18 @@ it("offers one fresh-conversation action for a missing saved rollout", async () 
     expect(retry).not.toHaveBeenCalled();
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
+
+it("shows the sign-in card for a launch blocked on a profile secret before an agent reports auth", async () => {
+  const host = document.createElement("div"); document.body.append(host);
+  const root = createRoot(host); const retry = vi.fn();
+  try {
+    await act(async () => root.render(<AgentRuntimeBanner tabId="owned" state={{state:"loginPending",epoch:1,auth:"unknown",loginProviderName:"Fixture",requiredSecrets:["domios:provider:fixture:key"]}} onRetry={retry} />));
+    const card = host.querySelector('[role="group"][aria-label="Sign in to Fixture"]');
+    expect(card).not.toBeNull();
+    expect(host.querySelector('[role="status"][aria-label="Required credentials"]')?.textContent).toContain("domios:provider:fixture:key");
+    const check = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "I already signed in");
+    expect(check).toBeDefined();
+    await act(async () => check!.click()); expect(retry).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('button[aria-label="Agent runtime unavailable"]')).toBeNull();
+  } finally {await act(async () => root.unmount()); host.remove();}
+});
