@@ -35,6 +35,8 @@ pub fn list_agent_provider_values(
             cache_started.elapsed().as_micros(),
             started.elapsed().as_micros()
         );
+        let mut values = values;
+        super::profile_readiness::refresh_values(registry, &mut values);
         return values;
     }
     let cache_us = cache_started.elapsed().as_micros();
@@ -59,6 +61,11 @@ pub fn list_agent_provider_values(
             );
             let stub_replay = crate::agent::stub_launch::provider_stub_replay(&descriptor.id);
             let mut value = serde_json::to_value(descriptor).ok()?;
+            if let Some(status) = &status {
+                if status.launch_profiles.is_some() {
+                    value["availability"] = serde_json::to_value(status.availability).ok()?;
+                }
+            }
             value["cli_status"] = serde_json::to_value(status).ok()?;
             if let Some(stubbed) = stub_replay {
                 value["stub_replay"] = stubbed.into();

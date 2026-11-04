@@ -98,6 +98,10 @@ async fn publish_with_origin(
         if !append {
             events::fold(&mut session.maps.lock(), epoch, &runtime);
         }
+        session
+            .maps
+            .lock()
+            .project_routed_item(&mut runtime, &evidence);
         if let RuntimeEvent::RequestUpdated {
             thread_id,
             item_id: Some(item_id),

@@ -1,6 +1,7 @@
 //! Unified provider surface — one registry fronting PTY agents and chat backends.
 
 mod catalogue_cache;
+mod profile_readiness;
 mod registry;
 pub(crate) mod values;
 pub use values::list_agent_provider_metadata;

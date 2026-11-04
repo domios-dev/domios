@@ -411,7 +411,8 @@ function reduceStream(ctx, raw, frames, cursor, submitted) {
       const content = object(update.content);
       if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
       if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
-      const explicit = text(update.messageId);
+      const messageId = text(update.messageId);
+      const explicit = messageId ? `${kind}:${messageId}` : void 0;
       if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
         closeChunk(ctx, state, events);
         if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) {

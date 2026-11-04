@@ -140,6 +140,7 @@
     "self-send-overlapping-prompts.json",
     "tool-output-retention.json",
     "oversize-astral-cut.json",
-    "many-turns-tool-admission.json"
+    "many-turns-tool-admission.json",
+    "dsh-shared-message-id.json"
   ]
 }

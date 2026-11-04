@@ -122,7 +122,7 @@ impl ItemCache {
                 landed += 1;
                 continue;
             }
-            item.refresh_segments();
+            item = item.with_segments();
             match block.iter_mut().find(|row| row.id == item.id) {
                 Some(row) => *row = item,
                 None => block.push(item),
@@ -163,7 +163,7 @@ impl ItemCache {
         self.reconcile(item)
     }
     pub fn reconcile(&mut self, mut item: ChatMsg) -> ChatMsg {
-        item.refresh_segments();
+        item = item.with_segments();
         if let Some(index) = self.index(&item.id) {
             item.seq = self.items[index].seq;
             if self.rereadable {

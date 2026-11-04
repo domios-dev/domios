@@ -139,7 +139,8 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       const content=object(update.content);
       if (content.type !== "text" || typeof content.text !== "string" || state.settled && !state.loading) continue;
       if (kind === "user_message_chunk" && submitted && state.evidenced.includes(submitted.sendId)) continue;
-      const explicit=text(update.messageId);
+      const messageId=text(update.messageId);
+      const explicit=messageId ? `${kind}:${messageId}` : undefined;
       if (!state.chunk || state.chunk.kind !== kind || explicit && state.chunk.id !== `${state.sessionId}:turn:${state.turn}:message:${explicit}`) {
         closeChunk(ctx,state,events);
         if (kind === "user_message_chunk" && state.loading && state.ordinal > 0) { state.turn++;state.ordinal=0;state.seenItems=[]; }

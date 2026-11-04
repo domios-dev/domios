@@ -469,3 +469,89 @@ fn binding_change_between_restore_steps_preserves_new_cache_and_maps() {
         }
     }
 }
+
+#[test]
+fn runtime_routed_inbound_reuses_chatbackend_metadata_without_trusting_human_frames() {
+    let fixtures: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("fixtures/routed-inbound.json")).unwrap();
+    for fixture in fixtures {
+        let wire = fixture["wire"].as_str().unwrap();
+        let frame = crate::service::messenger::Messenger::restore_framed_delivery(wire).unwrap();
+        let mut maps = RuntimeMaps::default();
+        maps.ensure_epoch(1);
+        maps.remember_routed_input("send", "thread", &frame)
+            .unwrap();
+        let source = AgentRuntimeEvent::ChatItem {
+            thread_id: "thread".into(),
+            item: ChatMsg {
+                id: "user".into(),
+                kind: "user".into(),
+                content: wire.into(),
+                ..Default::default()
+            },
+        };
+        let evidence = HashSet::from([("send".into(), Some("user".into()))]);
+        let mut projected = translate_with_items(&source, &mut maps, false).unwrap();
+        maps.project_routed_item(&mut projected, &evidence);
+        let RuntimeEvent::ItemUpdated { item, .. } = projected else {
+            panic!()
+        };
+        let actual = serde_json::to_value(&item).unwrap();
+        for key in [
+            "content",
+            "inboundKind",
+            "fromLabel",
+            "fromTab",
+            "fromModel",
+            "fromPurpose",
+            "fromContext",
+            "fromMesh",
+        ] {
+            assert_eq!(actual.get(key), fixture.get(key), "{key}");
+        }
+        assert_eq!(item.id, "user");
+        let mut cache = super::super::model::ItemCache::default();
+        let retained = cache.reconcile(item.clone());
+        assert_eq!(retained.content, fixture["content"].as_str().unwrap());
+        assert_eq!(retained.segments, item.segments);
+        let mut unsupported = translate_with_items(&source, &mut maps, false).unwrap();
+        maps.project_routed_item(&mut unsupported, &HashSet::new());
+        let RuntimeEvent::ItemUpdated { item, .. } = unsupported else {
+            panic!()
+        };
+        assert_eq!(item.content, wire);
+        assert!(item.inbound_kind.is_none());
+        let mut untrusted = RuntimeMaps::default();
+        let mut projected = translate_with_items(&source, &mut untrusted, false).unwrap();
+        untrusted.project_routed_item(&mut projected, &evidence);
+        let RuntimeEvent::ItemUpdated { item, .. } = projected else {
+            panic!()
+        };
+        assert_eq!(item.content, wire);
+        assert!(item.inbound_kind.is_none());
+        let foreign = AgentRuntimeEvent::ChatItem {
+            thread_id: "foreign".into(),
+            item: ChatMsg {
+                id: "user".into(),
+                kind: "user".into(),
+                content: wire.into(),
+                ..Default::default()
+            },
+        };
+        let mut projected = translate_with_items(&foreign, &mut maps, false).unwrap();
+        maps.project_routed_item(&mut projected, &evidence);
+        let RuntimeEvent::ItemUpdated { item, .. } = projected else {
+            panic!()
+        };
+        assert_eq!(item.content, wire);
+        assert!(item.inbound_kind.is_none());
+        maps.reset(2);
+        let mut projected = translate_with_items(&source, &mut maps, false).unwrap();
+        maps.project_routed_item(&mut projected, &evidence);
+        let RuntimeEvent::ItemUpdated { item, .. } = projected else {
+            panic!()
+        };
+        assert_eq!(item.content, wire);
+        assert!(item.inbound_kind.is_none());
+    }
+}
