@@ -35,86 +35,105 @@ impl PlanDatabase {
     ) -> Result<CuratorNoticeRead, PlanError> {
         let mut guard = self.connection.lock();
         let connection = guard.transaction().map_err(db_error)?;
-        record_query();
-        let encoded:Option<String>=connection.query_row(
-            "SELECT json_object('id',json_extract(header_json,'$.id'),
-                'role',domios_notice_role(json_extract(header_json,'$.id'),CASE WHEN json_type(header_json,'$.title')='text' THEN json_extract(header_json,'$.title') ELSE json('invalid notice title') END,CASE WHEN json_type(header_json,'$.team_id') IS NULL OR json_type(header_json,'$.team_id')='null' THEN NULL WHEN json_type(header_json,'$.team_id')='text' THEN json_extract(header_json,'$.team_id') ELSE json('invalid notice team') END),
-                'owner_tab_id',CASE WHEN json_type(header_json,'$.owner')='object' THEN json_extract(header_json,'$.owner.tab_id') ELSE json('invalid notice owner') END,
-                'mode',CASE WHEN json_type(header_json,'$.mode') IS NULL THEN 'planning' ELSE json_extract(header_json,'$.mode') END,
-                'status',json_extract(header_json,'$.status'),
-                'orphaned_active',json(CASE WHEN json_extract(header_json,'$.status')='active' AND json_extract(header_json,'$.team_id') IS NULL
-                    AND json_type(header_json,'$.orphaned') IS NOT NULL AND json_type(header_json,'$.orphaned')<>'null' THEN 'true' ELSE 'false' END))
-             FROM plans WHERE id=?1",[id],|row|column(row,0),
-        ).optional().map_err(db_error)?;
-        let header: Header = decode(id, &encoded.ok_or(PlanError::NotFound)?)?;
-        if header.id != id {
-            return Err(PlanError::Quarantined {
-                plan_id: id.into(),
-                reason: "notice header id differs from row key".into(),
-            });
-        }
-        let mut render = Render {
-            connection: &connection,
-            id,
-            output: RenderOutput::Reminder(ReminderComposer::with_header(id, header.role.clone())),
-            labels: HashMap::new(),
-            action_ids: Vec::new(),
-            orphaned_active: header.orphaned_active,
-        };
-        let groups = action_groups(&connection, id)?;
-        let (parked, pending) = decision_counts(&connection, id)?;
-        let mut ready = render.append(&composition::render_action_groups(groups))?;
-        if ready && parked > 0 {
-            ready = render.append(&format!("{parked} tasks parked for later groups."))?;
-        }
-        if ready && !matches!(header.mode, PlanMode::Paused | PlanMode::Complete) {
-            let counts = task_counts(&connection, id)?;
-            if counts.total == 0 || counts.done + counts.cancelled != counts.total {
-                ready = render.append(&crate::service_plan::heartbeat::view::state_header(
-                    id, &counts, pending,
-                ))?;
-                if ready {
-                    ready = render.actions(false)?;
-                }
-                if ready && !render.orphaned_active {
-                    ready = sections::loops(&mut render)?;
-                }
-                if ready {
-                    ready = render.actions(true)?;
-                }
-                if ready {
-                    ready = sections::learnings(&mut render, None)?;
-                }
-                if ready {
-                    ready = sections::regression(&mut render)?;
-                }
-                if ready {
-                    ready = sections::competition(&mut render)?;
-                }
-                if ready {
-                    ready = sections::gates(&mut render, now)?;
-                }
-                if ready {
-                    ready = sections::control(&mut render)?;
-                }
-                if ready {
-                    ready = sections::skills(&mut render, &header.status)?;
-                }
-                if ready {
-                    render.append(&format!(
-                        "{}\n</codeterm-orchestrator-heartbeat>",
-                        crate::service_plan::heartbeat::HEARTBEAT_MORE
-                    ))?;
+        let read = bounded_notice(&connection, id, now, None, &[])?;
+        connection.commit().map_err(db_error)?;
+        Ok(read)
+    }
+}
+
+pub(super) fn bounded_notice(
+    connection: &Connection,
+    id: &str,
+    now: u64,
+    selection: Option<&[String]>,
+    digests: &[String],
+) -> Result<CuratorNoticeRead, PlanError> {
+    record_query();
+    let encoded:Option<String>=connection.query_row(
+        "SELECT json_object('id',json_extract(header_json,'$.id'),
+            'role',domios_notice_role(json_extract(header_json,'$.id'),CASE WHEN json_type(header_json,'$.title')='text' THEN json_extract(header_json,'$.title') ELSE json('invalid notice title') END,CASE WHEN json_type(header_json,'$.team_id') IS NULL OR json_type(header_json,'$.team_id')='null' THEN NULL WHEN json_type(header_json,'$.team_id')='text' THEN json_extract(header_json,'$.team_id') ELSE json('invalid notice team') END),
+            'owner_tab_id',CASE WHEN json_type(header_json,'$.owner')='object' THEN json_extract(header_json,'$.owner.tab_id') ELSE json('invalid notice owner') END,
+            'mode',CASE WHEN json_type(header_json,'$.mode') IS NULL THEN 'planning' ELSE json_extract(header_json,'$.mode') END,
+            'status',json_extract(header_json,'$.status'),
+            'orphaned_active',json(CASE WHEN json_extract(header_json,'$.status')='active' AND json_extract(header_json,'$.team_id') IS NULL
+                AND json_type(header_json,'$.orphaned') IS NOT NULL AND json_type(header_json,'$.orphaned')<>'null' THEN 'true' ELSE 'false' END))
+         FROM plans WHERE id=?1",[id],|row|column(row,0),
+    ).optional().map_err(db_error)?;
+    let header: Header = decode(id, &encoded.ok_or(PlanError::NotFound)?)?;
+    if header.id != id {
+        return Err(PlanError::Quarantined {
+            plan_id: id.into(),
+            reason: "notice header id differs from row key".into(),
+        });
+    }
+    let mut render = Render {
+        connection,
+        id,
+        output: RenderOutput::Reminder(ReminderComposer::with_header(id, header.role.clone())),
+        labels: HashMap::new(),
+        action_ids: Vec::new(),
+        orphaned_active: header.orphaned_active,
+    };
+    let groups = action_groups(connection, id)?;
+    let (parked, pending) = decision_counts(connection, id)?;
+    let mut ready = render.append(&composition::render_action_groups(groups))?;
+    if ready && parked > 0 {
+        ready = render.append(&format!("{parked} tasks parked for later groups."))?;
+    }
+    if ready && !matches!(header.mode, PlanMode::Paused | PlanMode::Complete) {
+        let counts = task_counts(connection, id)?;
+        if counts.total == 0 || counts.done + counts.cancelled != counts.total {
+            ready = render.append(&crate::service_plan::heartbeat::view::state_header(
+                id, &counts, pending,
+            ))?;
+            if ready {
+                ready = render.actions(false)?;
+            }
+            if ready && !render.orphaned_active {
+                ready = sections::loops(&mut render)?;
+            }
+            if ready {
+                ready = render.actions(true)?;
+            }
+            if ready {
+                ready = sections::learnings(&mut render, selection)?;
+            }
+            if ready {
+                ready = sections::regression(&mut render)?;
+            }
+            if ready {
+                ready = sections::competition(&mut render)?;
+            }
+            if ready {
+                ready = sections::gates(&mut render, now)?;
+            }
+            if ready {
+                for line in digests.iter().filter(|line| !line.trim().is_empty()) {
+                    ready = render.append(&format!("- {}\n", line.trim()))?;
+                    if !ready {
+                        break;
+                    }
                 }
             }
+            if ready {
+                ready = sections::control(&mut render)?;
+            }
+            if ready {
+                ready = sections::skills(&mut render, &header.status)?;
+            }
+            if ready {
+                render.append(&format!(
+                    "{}\n</codeterm-orchestrator-heartbeat>",
+                    crate::service_plan::heartbeat::HEARTBEAT_MORE
+                ))?;
+            }
         }
-        let body = render.finish();
-        connection.commit().map_err(db_error)?;
-        Ok(CuratorNoticeRead {
-            owner_tab_id: header.owner_tab_id,
-            body,
-        })
     }
+    let body = render.finish();
+    Ok(CuratorNoticeRead {
+        owner_tab_id: header.owner_tab_id,
+        body,
+    })
 }
 
 fn action_groups(connection: &Connection, id: &str) -> Result<[ActionGroup; 3], PlanError> {

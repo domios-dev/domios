@@ -115,6 +115,35 @@ fn curator_notice_uses_shared_decisions_labels_and_composition_for_all_modes() {
         assert_eq!(actual.body, reference(&plan, 10_000), "mode case {index}");
         assert_eq!(actual.owner_tab_id, plan.owner.tab_id);
         assert!(actual.body.len() <= reminders::composition::MAX_REMINDER_BYTES);
+        let choices = [None, Some(vec!["fourth".to_string(), "first".to_string()])];
+        for selection in &choices {
+            for digests in [
+                vec!["opaque digest".into(), "pending".into(), " ".into()],
+                vec!["opaque digest ".repeat(10); 64],
+            ] {
+                let heartbeat = heartbeat::view::HeartbeatView::from_plan_at(&plan, 10_000)
+                    .prepend("", &digests, selection.as_deref());
+                let expected = reminders::composition::compose(
+                    &plan,
+                    &[
+                        &reminders::composition::action_groups(&plan),
+                        &reminders::parked_later_group_summary(&plan),
+                        &heartbeat,
+                    ],
+                );
+                let connection = database.connection.lock();
+                let scoped = super::super::super::curator_notice_queries::bounded_notice(
+                    &connection,
+                    &plan.id,
+                    10_000,
+                    selection.as_deref(),
+                    &digests,
+                )
+                .unwrap();
+                assert_eq!(scoped.body, expected);
+                assert!(scoped.body.len() <= reminders::composition::MAX_REMINDER_BYTES);
+            }
+        }
     }
     for complete in [false, true] {
         let case = tempfile::tempdir().unwrap();

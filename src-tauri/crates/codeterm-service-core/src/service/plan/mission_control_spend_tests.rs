@@ -298,7 +298,8 @@ fn mission_control_spend_charges_orchestrator_and_planner_tabs_to_their_active_p
             fixture
                 .service
                 .plan_store
-                .taskless_plan_context_candidates_for_tab(tab),
+                .taskless_plan_bindings_projection(tab)
+                .unwrap(),
             vec![plan.id.clone()],
             "the stored owner/planner binding is what carries context here"
         );
@@ -357,7 +358,8 @@ fn mission_control_spend_leaves_unbound_and_ambiguous_tabs_unassigned() {
         fixture
             .service
             .plan_store
-            .taskless_plan_context_candidates_for_tab(&ambiguous)
+            .taskless_plan_bindings_projection(&ambiguous)
+            .unwrap()
             .len(),
         2,
         "two active plans claim this tab; the store reports both rather than picking"
@@ -430,7 +432,8 @@ fn mission_control_spend_charges_the_owner_of_a_fully_paused_plan() {
         fixture
             .service
             .plan_store
-            .taskless_plan_context_candidates_for_tab(&orchestrator),
+            .taskless_plan_bindings_projection(&orchestrator)
+            .unwrap(),
         vec![plan.id.clone()],
         "no task counts as open work, yet the owner still belongs to this plan"
     );
