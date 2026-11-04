@@ -8,6 +8,7 @@ mod attachment_charter_tests;
 mod auxiliary_tests;
 mod binding_context_tests;
 mod binding_tests;
+mod bundle_tests;
 mod chat_header_tests;
 mod curator_digest_tests;
 mod curator_schedule_tests;

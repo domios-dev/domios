@@ -1,7 +1,7 @@
 use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
 use crate::plan::{
-    CanvasElement, Milestone, OrchestratorHeartbeat, PlanStatus, Section, Task,
+    CanvasElement, Milestone, OrchestratorHeartbeat, PlanStatus, Section, Spec, Task,
     TaskExecutionAttempt,
 };
 use crate::service_plan::export_projection::header::PlanDocumentHeader;
@@ -13,6 +13,51 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn spec_full(&self, id: &str) -> Result<Option<Value>, PlanError> {
+        self.export_snapshot(|connection| {
+            let Some(spec) = spec_document(connection, id)? else {
+                return Ok(None);
+            };
+            let coverage = spec_coverage(connection, id)?;
+            let links = super::coverage_queries::spec_links(connection, id)?;
+            Ok(Some(
+                serde_json::json!({"spec":spec,"coverage":coverage,"links":links}),
+            ))
+        })
+    }
+
+    pub(in crate::service_plan) fn effort_bundle(
+        &self,
+        id: &str,
+    ) -> Result<Option<Value>, PlanError> {
+        self.export_snapshot(|connection| {
+            let plan = match document(connection, id, &JsonPlanExport) {
+                Ok(plan) => plan,
+                Err(PlanError::NotFound) => return Ok(None),
+                Err(error) => return Err(error),
+            };
+            let references = plan["spec_refs"]
+                .as_array()
+                .ok_or_else(|| corrupt(id, "exported spec references are not an array"))?;
+            let mut specs = Vec::new();
+            let mut coverage = Vec::new();
+            for reference in references {
+                let reference = reference
+                    .as_str()
+                    .ok_or_else(|| corrupt(id, "exported spec reference is not a string"))?;
+                let Some(spec) = spec_document(connection, reference)? else {
+                    continue;
+                };
+                let report = spec_coverage(connection, reference)?;
+                coverage.push(serde_json::json!({"spec_id":spec.id,"coverage":report}));
+                specs.push(spec);
+            }
+            Ok(Some(
+                serde_json::json!({"plan":plan,"specs":specs,"spec_coverage":coverage}),
+            ))
+        })
+    }
+
     pub(in crate::service_plan) fn export_plan_document(
         &self,
         id: &str,
@@ -95,6 +140,30 @@ impl PlanDatabase {
         transaction.commit().map_err(db_error)?;
         Ok(result)
     }
+}
+
+fn spec_document(connection: &Connection, id: &str) -> Result<Option<Spec>, PlanError> {
+    record_query();
+    let row: Option<String> = connection
+        .query_row("SELECT row_json FROM specs WHERE id=?1", [id], |row| {
+            column(row, 0)
+        })
+        .optional()
+        .map_err(db_error)?;
+    let spec: Option<Spec> = row.map(|row| decode(id, &row)).transpose()?;
+    if spec.as_ref().is_some_and(|spec| spec.id != id) {
+        return Err(corrupt(id, "spec id differs from its row key"));
+    }
+    Ok(spec)
+}
+
+fn spec_coverage(
+    connection: &Connection,
+    id: &str,
+) -> Result<Option<crate::plan::coverage::SpecCoverageReport>, PlanError> {
+    super::coverage_queries::spec_coverage_input(connection, id).map(|input| {
+        input.map(|(spec, plans)| crate::plan::coverage::compute_spec_coverage_report(spec, &plans))
+    })
 }
 
 fn document(
