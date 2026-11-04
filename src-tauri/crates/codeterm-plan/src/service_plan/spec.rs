@@ -389,13 +389,12 @@ impl PlanStore {
         rel: EffortLinkRel,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(from, now_ms, |plan| {
-            let link = EffortLink { to: to.into(), rel };
-            if !plan.lineage.iter().any(|existing| existing == &link) {
-                plan.lineage.push(link);
-            }
-            Ok(())
-        })
+        self.commit_header_change(
+            from,
+            super::store_db::hot_write::HeaderChange::Effort(EffortLink { to: to.into(), rel }),
+            now_ms,
+        )
+        .map(|_| ())
     }
 }
 

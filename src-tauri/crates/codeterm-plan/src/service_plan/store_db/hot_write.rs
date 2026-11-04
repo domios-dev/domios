@@ -7,11 +7,22 @@ use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
 mod batch_rows;
 pub(in crate::service_plan) mod handoff;
+mod gate_rows;
+mod header_edits;
+mod loop_rows;
 mod milestones;
+mod plan_audit;
+mod plan_fields;
+mod plan_state;
 mod review_rows;
 pub(in crate::service_plan) mod runtime;
 mod task_fields;
 mod task_structure;
+pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
+pub(in crate::service_plan) use header_edits::HeaderChange;
+pub(in crate::service_plan) use loop_rows::LoopChange;
+pub(in crate::service_plan) use plan_audit::PlanAudit;
+pub(in crate::service_plan) use plan_state::PlanEdit;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
 pub(in crate::service_plan) use task_fields::TaskFields;
 
@@ -81,6 +92,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub projected_text_bytes: usize,
     pub hashed_bytes: usize,
     pub index_root: Option<std::path::PathBuf>,
+    pub plan_metadata: Option<super::PlanIndexRow>,
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
     pub removed_tasks: Vec<(String, Vec<String>)>,
