@@ -13,6 +13,14 @@ pub struct TaskOwnerEpochRead {
     pub handoff_required: bool,
 }
 
+impl TaskOwnerEpochRead {
+    pub fn matches_owner_epoch(&self, tab_id: &str, owner_epoch: u64) -> bool {
+        !self.handoff_required
+            && self.owner_epoch == owner_epoch
+            && self.owner_tab_id.as_deref() == Some(tab_id)
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct TaskContextFilesRead {
     pub plan_id: String,
