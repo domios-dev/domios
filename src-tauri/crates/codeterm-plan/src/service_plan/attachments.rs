@@ -175,29 +175,33 @@ impl PlanStore {
     ) -> Result<AttachmentRef, PlanError> {
         let mut attached = None;
         let plan_root = self.plan_data_dir(plan_id);
-        self.with_plan(plan_id, now_ms, |plan| {
-            let pos = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[pos].attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
-                return Err(PlanError::Io(format!(
-                    "task attachment cap is {}",
-                    MAX_ATTACHMENTS_PER_RECORD
-                )));
-            }
-            let canonical_task_id = plan.tasks[pos].id.clone();
-            let attachment = copy_attachment(
-                &plan_root,
-                AttachmentTarget::Task,
-                &canonical_task_id,
-                source,
-                now_ms,
-            )?;
-            let task = plan.tasks.get_mut(pos).ok_or(PlanError::TaskNotFound)?;
-            task.attachments.push(attachment.clone());
-            task.updated_at = now_ms;
-            attached = Some(attachment);
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.attachments.len() >= MAX_ATTACHMENTS_PER_RECORD {
+                    return Err(PlanError::Io(format!(
+                        "task attachment cap is {}",
+                        MAX_ATTACHMENTS_PER_RECORD
+                    )));
+                }
+                let canonical_task_id = task.id.clone();
+                let attachment = copy_attachment(
+                    &plan_root,
+                    AttachmentTarget::Task,
+                    &canonical_task_id,
+                    source,
+                    now_ms,
+                )?;
+                task.attachments.push(attachment.clone());
+                task.updated_at = now_ms;
+                attached = Some(attachment);
+                Ok(())
+            },
+        )?;
         attached.ok_or_else(|| PlanError::Io("attachment was not recorded".into()))
     }
 

@@ -32,6 +32,7 @@ pub(in crate::service_plan) struct TaskRowEdit {
     pub terminal_check: bool,
     pub close_all_live: bool,
     pub created_tasks: Vec<Task>,
+    pub removed_attempts: Vec<String>,
 }
 
 impl PlanDatabase {
@@ -233,6 +234,7 @@ pub(super) fn edit_task_rows<T>(
         terminal_check: false,
         close_all_live: false,
         created_tasks: Vec::new(),
+        removed_attempts: Vec::new(),
     };
     let result = change(&mut edit)?;
     super::dispatch_rows::finish(
@@ -253,13 +255,33 @@ pub(super) fn edit_task_rows<T>(
             "task row edit changed an immutable history prefix".into(),
         ));
     }
+    for id in &edit.removed_attempts {
+        if attempts
+            .iter()
+            .filter(|(_, attempt)| &attempt.id == id)
+            .count()
+            != 1
+        {
+            return Err(PlanError::Io(
+                "attempt removal conflict: exact row identity is ambiguous".into(),
+            ));
+        }
+    }
     for ((position, previous), next) in attempts.iter().zip(&edit.task.execution_attempts) {
         if previous.id != next.id {
             return Err(PlanError::Io(
                 "task row edit changed an immutable attempt identity".into(),
             ));
         }
-        if previous != next {
+        if edit.removed_attempts.contains(&previous.id) {
+            tx.execute(
+                "DELETE FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND position=?3",
+                params![plan_id, edit.task.id, position],
+            )
+            .map_err(db_error)?;
+            receipt.attempts += 1;
+            receipt.tasks.insert(edit.task.id.clone());
+        } else if previous != next {
             let json = encode(next, receipt)?;
             tx.execute("UPDATE plan_task_attempts SET row_json=?4, content_hash=?5 WHERE plan_id=?1 AND task_id=?2 AND position=?3", params![plan_id, edit.task.id, position, json, store_rows::row_hash(&json)]).map_err(db_error)?;
             receipt.attempts += 1;
