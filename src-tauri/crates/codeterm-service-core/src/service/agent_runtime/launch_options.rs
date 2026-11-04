@@ -231,12 +231,6 @@ pub(super) fn restore(svc: &ServiceContext, tab_id: &str) -> Result<RuntimeSetti
         )
     };
     svc.require_neighbor_restore_grant(tab_id, requested)?;
-    let independently_authorized = svc.mux.read().get_tab(tab_id).is_some_and(|tab| {
-        tab.role == Some(crate::multiplexer::types::AgentRole::Worker)
-            || tab.neighbor_authority.is_some()
-    });
-    let requested = requested
-        && (independently_authorized || permission_policy::configured_full_access_for(&svc)?);
     let sandbox = svc.mux.read().get_tab(tab_id).and_then(|tab| {
         tab.restorable_launch
             .execution_sandbox

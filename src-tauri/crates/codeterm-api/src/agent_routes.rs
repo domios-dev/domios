@@ -904,7 +904,6 @@ pub async fn restart_general_agent_tab(
 #[derive(serde::Deserialize)]
 pub struct CompleteFirstRunBody {
     pub provider_id: String,
-    pub full_access: bool,
 }
 
 /// Web-mirror twin of `complete_general_agent_first_run`.
@@ -918,7 +917,6 @@ pub async fn complete_general_agent_first_run(
             &state.svc,
             &state.config,
             &body.provider_id,
-            body.full_access,
         )
     })
     .await

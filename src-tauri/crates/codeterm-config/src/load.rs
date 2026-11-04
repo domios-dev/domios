@@ -52,7 +52,7 @@ fn validate_config(text: &str) -> Result<(), String> {
 }
 
 fn reject_legacy_token(contents: &str) -> Result<(), String> {
-    if salvaged_critical_values(contents).0.is_some()
+    if salvaged_token(contents).is_some()
         || contents
             .parse::<toml::Table>()
             .ok()
@@ -272,15 +272,7 @@ pub(super) fn mark_salvaged_config(contents: &str) -> String {
 }
 
 fn salvage_config(raw: &str) -> Option<(AppConfig, String)> {
-    let mut tables = salvage_tables(raw);
-    let (_, full_access) = salvaged_critical_values(raw);
-    if let Some(full_access) = full_access {
-        insert_nested_value(
-            &mut tables,
-            &["agent", "full_access"],
-            toml::Value::Boolean(full_access),
-        );
-    }
+    let tables = salvage_tables(raw);
     let body = toml::to_string_pretty(&toml::Value::Table(tables)).ok()?;
     let contents = mark_salvaged_config(&body);
     let config = parse_config(&contents).ok()?.0;
@@ -370,10 +362,9 @@ fn insert_nested_value(tables: &mut toml::Table, keys: &[&str], value: toml::Val
     }
 }
 
-pub(super) fn salvaged_critical_values(raw: &str) -> (Option<String>, Option<bool>) {
+pub(super) fn salvaged_token(raw: &str) -> Option<String> {
     let mut section = String::new();
     let mut token = None;
-    let mut full_access = None;
     for line in raw.lines() {
         let trimmed = line.trim();
         if is_table_header(trimmed) {
@@ -396,13 +387,8 @@ pub(super) fn salvaged_critical_values(raw: &str) -> (Option<String>, Option<boo
                 token = Some(value.to_string());
             }
         }
-        if let Some(value) =
-            lookup(&parsed, &["agent", "full_access"]).and_then(toml::Value::as_bool)
-        {
-            full_access = Some(value);
-        }
     }
-    (token, full_access)
+    token
 }
 
 fn lookup<'a>(table: &'a toml::Table, keys: &[&str]) -> Option<&'a toml::Value> {

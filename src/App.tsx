@@ -645,14 +645,6 @@ function AppInner() {
           const wsId = stateRef.current.active_workspace_id ?? stateRef.current.workspaces[0]?.id;
           if (!wsId || precheckFreeLimit(["agent.tabs"])) return;
           const workspace = stateRef.current.workspaces.find((candidate) => candidate.id === wsId);
-          if (config.agent.full_access === undefined) {
-            openNewSessionPicker({
-              workspaceId: wsId,
-              workspaceCwd: workspace?.cwd ?? null,
-              initialProviderId: defaultSpawnProviderId(),
-            });
-            return;
-          }
           const folder = workspace?.cwd || await pickFolder("Choose project folder", workspace?.cwd);
           if (folder) spawnClaudeTab(wsId, folder);
         },
@@ -667,7 +659,6 @@ function AppInner() {
       handleNewWorkspace,
       openSettings,
       showBell,
-      config.agent.full_access,
       config.keybindings,
       pickFolder,
       spawnClaudeTab,

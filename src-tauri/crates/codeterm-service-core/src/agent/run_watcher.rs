@@ -787,10 +787,8 @@ fn resume_hidden_run(
         );
         return;
     };
-    let full_access = match crate::service::permission_policy::configured_permission_bypass_for(
-        &svc,
-        &svc.agent_registry,
-        &provider,
+    let full_access = match crate::service::permission_policy::permission_bypass_for_tab(
+        svc, &provider, tab_id,
     ) {
         Ok(authorization) => authorization.is_some(),
         Err(error) => {

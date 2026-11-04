@@ -322,11 +322,15 @@ impl ServiceFixture {
     }
 
     pub fn set_agent_full_access(&self, full_access: bool) {
-        self.service
-            .ext::<crate::config::ConfigState>()
-            .lock()
-            .agent
-            .full_access = Some(full_access);
+        self.set_agent_full_access_choice(Some(full_access));
+    }
+
+    pub fn set_agent_full_access_choice(&self, full_access: Option<bool>) {
+        let state = self.service.ext::<crate::config::ConfigState>();
+        let mut config = state.lock();
+        let mut value = serde_json::to_value(&*config).unwrap();
+        value["agent"]["full_access"] = serde_json::json!(full_access);
+        *config = serde_json::from_value(value).unwrap();
     }
 
     pub fn new(mux: MultiplexerState) -> Self {
@@ -386,8 +390,7 @@ impl ServiceFixture {
                 mux.attach_closed_store(store);
             }
         }
-        let mut config = crate::config::schema::AppConfig::default();
-        config.agent.full_access = Some(false);
+        let config = crate::config::schema::AppConfig::default();
         let config: crate::config::ConfigState = Arc::new(Mutex::new(config));
         let agent_registry = Arc::new(crate::agent::registry::AgentRegistry::new());
         let chatbackend_registry = Arc::new(crate::chatbackend::ChatBackendRegistry::new());
