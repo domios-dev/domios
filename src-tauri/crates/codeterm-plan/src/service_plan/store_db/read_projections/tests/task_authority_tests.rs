@@ -56,7 +56,7 @@ fn unplanned_work_facet_read_selects_only_exact_declared_key() {
         .connection
         .lock()
         .execute(
-            "UPDATE plans SET header_json='broken' WHERE id=?1",
+            "UPDATE plans SET header_json=json_set(header_json,'$.tag_facets',json('[\"broken\"]')) WHERE id=?1",
             [&plan.id],
         )
         .unwrap();
