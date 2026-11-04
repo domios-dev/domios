@@ -44,7 +44,6 @@ struct StartupFields {
 
 #[derive(Clone, Debug)]
 struct AttemptUndo {
-    position: usize,
     id: String,
     before_closed: Option<u64>,
     after_closed: Option<u64>,
@@ -134,13 +133,11 @@ impl DispatchUndo {
             attempts: task
                 .execution_attempts
                 .iter()
-                .enumerate()
-                .filter(|(_, attempt)| {
+                .filter(|attempt| {
                     (attempt.closed_at.is_none() && attempt.competition_group_id.is_none())
                         || respawn_source == Some(attempt.id.as_str())
                 })
-                .map(|(position, attempt)| AttemptUndo {
-                    position,
+                .map(|attempt| AttemptUndo {
                     id: attempt.id.clone(),
                     before_closed: attempt.closed_at,
                     after_closed: attempt.closed_at,
@@ -158,13 +155,19 @@ impl DispatchUndo {
         for undo in &mut self.attempts {
             if let Some(attempt) = task
                 .execution_attempts
-                .get(undo.position)
-                .filter(|attempt| attempt.id == undo.id)
+                .iter()
+                .find(|attempt| attempt.id == undo.id)
             {
                 undo.after_closed = attempt.closed_at;
                 undo.after_retired = attempt.retired_at;
             }
         }
+    }
+
+    pub(super) fn row_attempt_ids(&self) -> Vec<String> {
+        std::iter::once(self.attempt_id.clone())
+            .chain(self.attempts.iter().map(|attempt| attempt.id.clone()))
+            .collect()
     }
 
     pub(super) fn apply(&self, task: &mut Task) {
@@ -177,8 +180,8 @@ impl DispatchUndo {
         for undo in &self.attempts {
             if let Some(attempt) = task
                 .execution_attempts
-                .get_mut(undo.position)
-                .filter(|attempt| attempt.id == undo.id)
+                .iter_mut()
+                .find(|attempt| attempt.id == undo.id)
             {
                 revert(
                     &mut attempt.closed_at,

@@ -6,6 +6,7 @@ use crate::service_plan::{store_rows, text_bounds, PlanError};
 use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
 mod batch_rows;
+mod dispatch_rows;
 mod milestones;
 mod review_rows;
 mod task_fields;

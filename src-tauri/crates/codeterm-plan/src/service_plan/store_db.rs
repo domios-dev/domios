@@ -457,7 +457,7 @@ fn write_plan_rows_at_revision(
         .query_row(
             "SELECT title, status, project_path,
                     coalesce(json_extract(header_json, '$.canonical_project_path'), ''),
-                    stride_count, stride_digest
+                    stride_count, stride_digest, coalesce(json_extract(header_json,'$._stride_digest_invalid'),0)
              FROM plans WHERE id = ?1",
             [&plan.id],
             |row| {
@@ -467,6 +467,7 @@ fn write_plan_rows_at_revision(
                     row.get(2)?,
                     row.get(3)?,
                     StoredStrides {
+                        invalid: row.get(6)?,
                         count: row.get::<_, i64>(4)? as usize,
                         digest: row.get(5)?,
                     },

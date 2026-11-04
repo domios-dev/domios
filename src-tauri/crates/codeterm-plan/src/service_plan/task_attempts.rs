@@ -785,39 +785,38 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut created = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task_index = crate::plan::task_key::find_task_index(&plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if plan.tasks[task_index].status == TaskStatus::Pending {
-                super::review_gate::validate_dispatch_review_capacity(
-                    plan,
-                    &plan.tasks[task_index],
-                )?;
-            }
-            let task = &mut plan.tasks[task_index];
-            task.status_label = Some("competitive".into());
-            task.updated_at = now_ms;
-            let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
-            attempt.provider = Some(draft.provider.clone());
-            attempt.agent_type = Some(draft.provider.clone());
-            attempt.model = draft.model.clone();
-            attempt.provider_resolved_model = draft.model.clone();
-            attempt.reasoning_effort = draft.reasoning_effort.clone();
-            attempt.executor_title = draft.title.clone();
-            attempt.parent_tab_id = draft.parent_tab_id.clone();
-            attempt.competition_group_id = Some(draft.competition_group_id.clone());
-            attempt.competition_lane = Some(draft.lane);
-            attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
-            if draft.branch.is_some() {
-                attempt.worktree_path = Some(draft.cwd.clone());
-                attempt.branch = draft.branch.clone();
-                attempt.base = draft.base.clone();
-                attempt.destination = draft.destination.clone();
-            }
-            task.execution_attempts.push(attempt.clone());
-            created = Some(attempt);
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::LiveAndReported,
+            now_ms,
+            |edit| {
+                edit.warn_dispatch = edit.task.status == TaskStatus::Pending;
+                let task = &mut edit.task;
+                task.status_label = Some("competitive".into());
+                task.updated_at = now_ms;
+                let mut attempt = new_assignment_attempt(task, tab_id, None, role, now_ms);
+                attempt.provider = Some(draft.provider.clone());
+                attempt.agent_type = Some(draft.provider.clone());
+                attempt.model = draft.model.clone();
+                attempt.provider_resolved_model = draft.model.clone();
+                attempt.reasoning_effort = draft.reasoning_effort.clone();
+                attempt.executor_title = draft.title.clone();
+                attempt.parent_tab_id = draft.parent_tab_id.clone();
+                attempt.competition_group_id = Some(draft.competition_group_id.clone());
+                attempt.competition_lane = Some(draft.lane);
+                attempt.plan_skill_manifest = draft.plan_skill_manifest.clone();
+                if draft.branch.is_some() {
+                    attempt.worktree_path = Some(draft.cwd.clone());
+                    attempt.branch = draft.branch.clone();
+                    attempt.base = draft.base.clone();
+                    attempt.destination = draft.destination.clone();
+                }
+                task.execution_attempts.push(attempt.clone());
+                created = Some(attempt);
+                Ok(())
+            },
+        )?;
         Ok(TaskAttemptCreated {
             plan_id: plan_id.into(),
             task_id: task_id.into(),
