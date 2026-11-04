@@ -488,13 +488,25 @@ run_nextest_scope() {
   local filter_args=() run_ignored_args=()
 
   case "$scope:$filterset" in
-    workspace:*|app:*|codeterm:*|service-core:*|codeterm-service-core:*|shell:*|*rdeps\(*)
+    workspace:*|app:*|codeterm:*|service-core:*|codeterm-service-core:*|shell:*|*,*:*|*rdeps\(*)
       prepare_dev_frontend_dist "$(pwd -P)"
       prepare_bundle_stubs
       ;;
   esac
 
   case "$scope" in
+    *,*)
+      local batch_packages=() batch_package
+      IFS=',' read -r -a batch_packages <<< "$scope"
+      for batch_package in "${batch_packages[@]}"; do
+        case "$batch_package" in
+          codeterm|domios-server|codeterm-*) ;;
+          *) echo "Batch nextest scopes require package names: $batch_package" >&2; return 2 ;;
+        esac
+        targets+=(-p "$batch_package")
+      done
+      targets+=(--tests)
+      ;;
     workspace)
       # One feature resolution for every crate, so shared dependencies compile once.
       local lane_args cli_args=() arg
