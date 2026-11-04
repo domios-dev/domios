@@ -384,7 +384,10 @@ pub(super) fn dispatch(
             if note(p).trim().is_empty() {
                 return Err(plan_rpc_err(PlanError::QaNoteRequired));
             }
-            if let Some(continuation) = store.closed_review_continuation(&plan_id, &task_id) {
+            if let Some(continuation) = store
+                .closed_review_continuation(&plan_id, &task_id)
+                .map_err(plan_rpc_err)?
+            {
                 if !executor_tab_is_absent_local(
                     svc,
                     &continuation.executor_tab_id,
