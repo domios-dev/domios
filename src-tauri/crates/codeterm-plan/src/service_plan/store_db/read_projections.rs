@@ -5,7 +5,9 @@ use rusqlite::{params, OptionalExtension};
 use serde_json::{json, Value};
 
 pub(in crate::service_plan) mod checkout;
+mod compete_preflight;
 mod executor_source;
+pub(in crate::service_plan) mod provider_switch;
 mod section_removal;
 
 pub(super) const SECTION_ROWS: &str = "SELECT s.position, j.id AS traversal,

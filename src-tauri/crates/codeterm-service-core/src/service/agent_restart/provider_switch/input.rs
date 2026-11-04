@@ -44,7 +44,13 @@ impl ServiceContext {
             .task_binding
             .as_ref()
             .and_then(|binding| binding.task_id.as_deref())
-            .and_then(|task| self.plan_store.show_task(task));
+            .map(|task| {
+                self.plan_store
+                    .provider_switch_task_context_projection(task)
+            })
+            .transpose()
+            .map_err(|error| error.to_string())?
+            .flatten();
         let context = serde_json::json!({
             "tab_id": tab.id, "title": tab.title, "description": tab.description,
             "role": tab.role, "role_profile": tab.role_profile,
