@@ -2,7 +2,7 @@ use super::*;
 use std::path::Path;
 use tokio::io::{AsyncBufReadExt, BufReader};
 
-fn context(root: &Path) -> RuntimeContext {
+pub(super) fn context(root: &Path) -> RuntimeContext {
     RuntimeContext {
         tab_id: uuid::Uuid::new_v4().to_string(),
         epoch: 3,
@@ -13,17 +13,28 @@ fn context(root: &Path) -> RuntimeContext {
         ..Default::default()
     }
 }
-fn capabilities() -> RuntimeClientBridges {
+pub(super) fn capabilities() -> RuntimeClientBridges {
     RuntimeClientBridges {
         fs_read: true,
         fs_write: true,
         terminal: true,
     }
 }
-fn root() -> (tempfile::TempDir, PathBuf) {
+pub(super) fn root() -> (tempfile::TempDir, PathBuf) {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().canonicalize().unwrap();
     (temp, path)
+}
+
+fn open_root(root: &Path) -> std::fs::File {
+    #[cfg(unix)]
+    {
+        codeterm_blueprint_types::code_source::open_directory_no_follow(root).unwrap()
+    }
+    #[cfg(windows)]
+    {
+        fs::windows::open_root(root).unwrap()
+    }
 }
 
 #[test]
@@ -58,7 +69,7 @@ fn symlink_in_root_and_escaping_and_nonregular_files_are_denied() {
     std::fs::write(outside.join("regular"), "outside").unwrap();
     std::os::unix::fs::symlink(root.join("regular"), root.join("internal-link")).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("external-link")).unwrap();
-    let handle = codeterm_blueprint_types::code_source::open_directory_no_follow(&root).unwrap();
+    let handle = open_root(&root);
     std::os::unix::fs::symlink(&root, root.join("self-link")).unwrap();
     for path in [
         "internal-link",
@@ -95,11 +106,11 @@ fn symlink_in_root_and_escaping_and_nonregular_files_are_denied() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn oversized_reads_and_writes_refused_and_lines_honored() {
     let (_temp, root) = root();
-    let handle = codeterm_blueprint_types::code_source::open_directory_no_follow(&root).unwrap();
+    let handle = open_root(&root);
     std::fs::write(root.join("large"), vec![b'x'; fs::MAX_BYTES + 1]).unwrap();
     assert!(fs::read(&root, &handle, Path::new("large"), None, None).is_err());
     assert!(fs::write(
@@ -128,7 +139,7 @@ fn oversized_reads_and_writes_refused_and_lines_honored() {
 fn atomic_write_preserves_open_old_file_and_rejects_replaced_root() {
     use std::io::Read;
     let (_temp, root) = root();
-    let handle = codeterm_blueprint_types::code_source::open_directory_no_follow(&root).unwrap();
+    let handle = open_root(&root);
     std::fs::write(root.join("file"), "old").unwrap();
     let mut old = std::fs::File::open(root.join("file")).unwrap();
     fs::write(&root, &handle, Path::new("file"), "new", |commit| commit()).unwrap();
@@ -183,7 +194,7 @@ fn terminal_environment_refuses_secrets_and_strips_inherited_credentials() {
     assert!(!env.contains_key("PATH"));
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn foreign_session_epoch_and_nonce_refused_before_approval() {
     let (_temp, root) = root();
@@ -214,7 +225,7 @@ fn foreign_session_epoch_and_nonce_refused_before_approval() {
     BRIDGES.lock().remove(&ctx.tab_id);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn secret_read_asks_oversized_write_never_asks_and_unapproved_write_refused() {
     crate::async_runtime::block_on(async {
@@ -300,7 +311,7 @@ fn secret_read_asks_oversized_write_never_asks_and_unapproved_write_refused() {
     });
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn approved_write_commits_once_and_expired_turn_cannot_commit() {
     crate::async_runtime::block_on(async {
@@ -396,7 +407,7 @@ fn approved_write_commits_once_and_expired_turn_cannot_commit() {
     });
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn terminal_argv_mismatch_is_refused_without_spawning() {
     crate::async_runtime::block_on(async {
@@ -454,7 +465,7 @@ fn terminal_argv_mismatch_is_refused_without_spawning() {
     });
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 async fn live_terminal(
     fixture: &crate::service::test_fixture::ServiceFixture,
     session: &Arc<Session>,
@@ -465,7 +476,10 @@ async fn live_terminal(
     let context = session.context.lock().clone();
     std::fs::write(root.join("output"), vec![b'x'; fs::MAX_BYTES + 8192]).unwrap();
     let id = RpcId::Number(30);
+    #[cfg(unix)]
     let params = json!({"sessionId":context.thread_id,"command":"/usr/bin/tail","args":["-c","+1","-f",root.join("output").to_str().unwrap()],"outputByteLimit":fs::MAX_BYTES});
+    #[cfg(windows)]
+    let params = json!({"sessionId":context.thread_id,"command":std::env::current_exe().unwrap(),"args":["--exact","service::agent_runtime::client_bridge::windows_tests::windows_terminal_process_fixture","--ignored","--nocapture","--test-threads=1"],"outputByteLimit":fs::MAX_BYTES});
     handle(
         &fixture.service,
         session,
@@ -517,7 +531,7 @@ async fn live_terminal(
     (terminal, reader)
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn terminal_killed_on_cancel_with_exit_evidence_and_handles_released() {
     crate::async_runtime::block_on(async {
@@ -533,10 +547,19 @@ fn terminal_killed_on_cancel_with_exit_evidence_and_handles_released() {
         install(&context, Some(capabilities())).unwrap();
         let process = session.process.lock().clone().unwrap();
         let (terminal, _reader) = live_terminal(&fixture, &session, &process, peer, &root).await;
+        #[cfg(windows)]
+        let descendant = super::windows_tests::retain_descendant(&root);
         cancel(&fixture.service, &session, &process, false)
             .await
             .unwrap();
-        assert!(terminal.wait().await.unwrap()["signal"].is_string());
+        let status = terminal.wait().await.unwrap();
+        #[cfg(unix)]
+        assert!(status["signal"].is_string());
+        #[cfg(windows)]
+        {
+            assert!(status["exitCode"].is_number());
+            super::windows_tests::assert_descendant_exited(&descendant);
+        }
         assert!(bridge(&context).unwrap().state.lock().terminals.is_empty());
         cancel(&fixture.service, &session, &process, true)
             .await
@@ -545,7 +568,7 @@ fn terminal_killed_on_cancel_with_exit_evidence_and_handles_released() {
     });
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn terminal_killed_on_tab_close_with_exit_evidence() {
     crate::async_runtime::block_on(async {
@@ -561,8 +584,17 @@ fn terminal_killed_on_tab_close_with_exit_evidence() {
         install(&context, Some(capabilities())).unwrap();
         let process = session.process.lock().clone().unwrap();
         let (terminal, _reader) = live_terminal(&fixture, &session, &process, peer, &root).await;
+        #[cfg(windows)]
+        let descendant = super::windows_tests::retain_descendant(&root);
         fixture.service.close_tab_async(&tab).await.unwrap();
-        assert!(terminal.wait().await.unwrap()["signal"].is_string());
+        let status = terminal.wait().await.unwrap();
+        #[cfg(unix)]
+        assert!(status["signal"].is_string());
+        #[cfg(windows)]
+        {
+            assert!(status["exitCode"].is_number());
+            super::windows_tests::assert_descendant_exited(&descendant);
+        }
         assert!(bridge(&context).is_err());
     });
 }
@@ -575,7 +607,7 @@ fn atomic_commit_rechecks_parent_after_approval_without_following_replacement_li
     std::fs::create_dir(root.join("parent")).unwrap();
     std::fs::write(root.join("parent/file"), "old").unwrap();
     std::fs::write(outside.join("file"), "outside").unwrap();
-    let handle = codeterm_blueprint_types::code_source::open_directory_no_follow(&root).unwrap();
+    let handle = open_root(&root);
     let result = fs::write(&root, &handle, Path::new("parent/file"), "new", |commit| {
         std::fs::rename(root.join("parent"), root.join("retired")).unwrap();
         std::os::unix::fs::symlink(&outside, root.join("parent")).unwrap();
@@ -593,7 +625,7 @@ fn atomic_commit_rechecks_parent_after_approval_without_following_replacement_li
     assert_eq!(std::fs::read_dir(root.join("retired")).unwrap().count(), 1);
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[test]
 fn secret_read_returns_content_only_after_its_scoped_approval() {
     crate::async_runtime::block_on(async {
@@ -673,7 +705,7 @@ fn secret_read_returns_content_only_after_its_scoped_approval() {
     });
 }
 
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 #[test]
 fn unavailable_platform_installs_no_bridge_or_host_powers() {
     let (_temp, root) = root();
@@ -682,7 +714,7 @@ fn unavailable_platform_installs_no_bridge_or_host_powers() {
     assert!(bridge(&context).is_err());
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 #[tokio::test(flavor = "current_thread")]
 async fn owner_approval_async_preserves_scope_without_entering_a_nested_runtime() {
     use crate::service::tab::RespondPromptOutcome;

@@ -92,6 +92,14 @@ impl Terminal {
         directory: std::fs::File,
         env: &BTreeMap<String, String>,
     ) -> Result<Arc<Self>, String> {
+        #[cfg(windows)]
+        if !Path::new(&spec.command).is_absolute()
+            || !Path::new(&spec.command)
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
+        {
+            return Err("Windows terminals require an absolute .exe path".into());
+        }
         let mut command = tokio::process::Command::new(&spec.command);
         command
             .args(&spec.args)
@@ -102,6 +110,12 @@ impl Terminal {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        #[cfg(windows)]
+        let pinned_cwd = super::fs::windows::pinned(_cwd)?;
+        #[cfg(windows)]
+        super::fs::windows::same(pinned_cwd.last().ok_or("Missing terminal cwd")?, &directory)?;
+        #[cfg(windows)]
+        command.current_dir(super::fs::windows::final_path(&directory)?);
         #[cfg(windows)]
         crate::process_util::no_window_tokio_suspended(&mut command);
         #[cfg(unix)]
@@ -118,11 +132,9 @@ impl Terminal {
                 }
             });
         }
-        #[cfg(not(unix))]
-        {
-            let _ = directory;
-        }
         let mut child = command.spawn().map_err(|error| error.to_string())?;
+        #[cfg(windows)]
+        drop((pinned_cwd, directory));
         let pid = child.id().ok_or("Terminal PID unavailable")?;
         #[cfg(windows)]
         let job = Arc::new(crate::service::windows_job::Job::contain(&child)?);

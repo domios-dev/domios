@@ -2,6 +2,8 @@ mod fs;
 mod terminal;
 #[cfg(test)]
 mod tests;
+#[cfg(all(test, windows))]
+mod windows_tests;
 
 use super::{
     engine::{self, Session},
@@ -119,16 +121,24 @@ pub(super) fn install(
     let Some(capability) = declared else {
         return Ok(None);
     };
-    if cfg!(not(unix)) {
+    if cfg!(not(any(unix, windows))) {
         return Ok(None);
     }
+    #[cfg(windows)]
+    let root_chain = fs::windows::pinned(std::path::Path::new(&context.cwd))?;
+    #[cfg(windows)]
+    let root_handle = root_chain
+        .last()
+        .ok_or("Missing workspace root")?
+        .try_clone()
+        .map_err(|error| error.to_string())?;
     let root = codeterm_util::project_roots::canonical_root(&context.cwd)?;
     #[cfg(unix)]
     let root_handle = codeterm_blueprint_types::code_source::open_directory_no_follow(
         std::path::Path::new(&context.cwd),
     )
     .map_err(str::to_string)?;
-    #[cfg(not(unix))]
+    #[cfg(not(any(unix, windows)))]
     let root_handle =
         codeterm_blueprint_types::code_source::open_directory(&root).map_err(str::to_string)?;
     if dirs::home_dir().is_some_and(|home| home.canonicalize().ok().as_ref() == Some(&root)) {
@@ -303,6 +313,7 @@ fn prepare(
     let prompt = question.map(|question| serde_json::from_value(json!({"question":question,"options":[{"label":"Allow once","value":"allow_once"},{"label":"Reject","value":"reject_once"}]})).map_err(|error|error.to_string())).transpose()?;
     Ok((prompt, env))
 }
+#[cfg(not(windows))]
 fn terminal_cwd(bridge: &Bridge, command: &terminal::Command) -> Result<PathBuf, String> {
     let cwd = command
         .cwd
@@ -729,4 +740,18 @@ pub(super) async fn cancel_all(
     let bridges = cancel(svc, session, process, close).await;
     let permissions = super::prompt_answers::cancel_pending(svc, session, process).await;
     bridges.and(permissions)
+}
+
+#[cfg(windows)]
+fn terminal_cwd(bridge: &Bridge, command: &terminal::Command) -> Result<PathBuf, String> {
+    fs::root_matches(&bridge.root, &bridge.root_handle)?;
+    let Some(cwd) = command.cwd.as_deref() else {
+        return Ok(bridge.root.clone());
+    };
+    if std::path::Path::new(cwd) == bridge.root {
+        return Ok(bridge.root.clone());
+    }
+    let relative = fs::windows::relative_directory(&bridge.root, cwd)?;
+    fs::directory(&bridge.root_handle, &relative)?;
+    Ok(bridge.root.join(relative))
 }
