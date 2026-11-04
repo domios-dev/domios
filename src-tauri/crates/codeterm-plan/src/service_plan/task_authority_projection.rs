@@ -193,3 +193,34 @@ mod dispatch_preflight;
 pub use dispatch_preflight::{
     DispatchCheckoutOccupantRead, RemoteLaneIntegrationRead, TaskDispatchPreflightRead,
 };
+
+pub(super) fn current_skill_from_rows(
+    rows: &[TabAttemptOwnerRead],
+    tab: &str,
+    session: &str,
+    nonce: &str,
+) -> Result<Option<(String, String, String)>, PlanError> {
+    if tab.trim().is_empty() || session.trim().is_empty() || nonce.trim().is_empty() {
+        return Err(PlanError::Io(
+            "plan skill caller identity is incomplete".into(),
+        ));
+    }
+    let mut current = None;
+    for row in rows {
+        let attempt = row
+            .attempt_id
+            .clone()
+            .ok_or_else(|| PlanError::Io("plan skill assignment has no current attempt".into()))?;
+        if current.is_some()
+            || (row.competition_group.is_none() && row.assigned_tab.as_deref() != Some(tab))
+            || row.session_id.as_deref() != Some(session)
+            || row.nonce.as_deref() != Some(nonce)
+        {
+            return Err(PlanError::Io(
+                "plan skill caller does not identify exactly one current attempt".into(),
+            ));
+        }
+        current = Some((row.plan_id.clone(), row.task_id.clone(), attempt));
+    }
+    Ok(current)
+}

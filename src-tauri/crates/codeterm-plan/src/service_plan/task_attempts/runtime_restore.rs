@@ -28,6 +28,9 @@ impl PlanStore {
             now_ms,
             |edit| {
                 let task = &mut edit.task;
+                if task.id != request.task_id {
+                    return Err(PlanError::TaskNotFound);
+                }
                 if request.thread.trim().is_empty()
                     || request.nonce.trim().is_empty()
                     || task.assigned_tab_id.as_deref() != Some(request.executor_tab_id.as_str())

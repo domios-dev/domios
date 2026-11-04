@@ -4,6 +4,7 @@ use super::*;
 pub(in crate::service_plan) enum TaskHistory {
     Core,
     Attempt(String),
+    Binding { attempt: String, tab: String },
     LiveAndTarget(String),
     LiveAndReported,
     Attempts,
@@ -13,6 +14,10 @@ pub(in crate::service_plan) enum TaskHistory {
 pub(in crate::service_plan) struct TaskRowEdit {
     pub task: Task,
     pub owner_tab: Option<String>,
+    pub tab_owners: Vec<crate::service_plan::task_authority_projection::TabAttemptOwnerRead>,
+    pub superseded: bool,
+    pub plan_status: String,
+    pub team_id: Option<String>,
     pub review_credit: i64,
     pub terminal_check: bool,
     pub close_all_live: bool,
@@ -167,17 +172,39 @@ pub(super) fn edit_task_rows<T>(
             .collect::<Result<_, _>>()?;
     }
     let milestone_count = task.milestones.len();
-    let owner_tab: Option<String> = tx
+    let (owner_tab, plan_status, team_id): (Option<String>, String, Option<String>) = tx
         .query_row(
-            "SELECT owner_tab_id FROM plans WHERE id=?1",
+            "SELECT owner_tab_id, status, team_id FROM plans WHERE id=?1",
             [plan_id],
-            |row| row.get(0),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(db_error)?;
-    receipt.projected_text_bytes += owner_tab.as_ref().map_or(0, String::len);
+    receipt.projected_text_bytes += owner_tab.as_ref().map_or(0, String::len)
+        + plan_status.len()
+        + team_id.as_ref().map_or(0, String::len);
+    let (tab_owners, superseded) = if let TaskHistory::Binding { attempt, tab } = &history {
+        let owners = super::super::task_authority_queries::tab_attempt_owners(tx, tab)?;
+        for owner in &owners {
+            receipt.projected_text_bytes += owner.plan_id.len()
+                + owner.task_id.len()
+                + owner.attempt_id.as_ref().map_or(0, String::len)
+                + owner.assigned_tab.as_ref().map_or(0, String::len)
+                + owner.competition_group.as_ref().map_or(0, String::len)
+                + owner.session_id.as_ref().map_or(0, String::len)
+                + owner.nonce.as_ref().map_or(0, String::len);
+        }
+        let superseded = tx.query_row("SELECT EXISTS(SELECT 1 FROM plan_task_attempts prior JOIN plan_task_attempts current ON current.plan_id=prior.plan_id AND current.task_id=prior.task_id WHERE current.plan_id=?1 AND current.task_id=?2 AND current.attempt_id=?3 AND prior.position<current.position AND (prior.executor_tab_id=?4 OR coalesce(json_extract(prior.row_json,'$.interruption.owner_epoch'),0)<coalesce(json_extract(current.row_json,'$.interruption.owner_epoch'),0)))", params![plan_id, task.id, attempt, tab], |row| row.get(0)).map_err(db_error)?;
+        (owners, superseded)
+    } else {
+        (Vec::new(), false)
+    };
     let mut edit = TaskRowEdit {
         task,
         owner_tab,
+        tab_owners,
+        superseded,
+        plan_status,
+        team_id,
         review_credit: 0,
         terminal_check: false,
         close_all_live: false,
@@ -259,7 +286,7 @@ fn read_attempts(
     }
     let (sql, target) = match history {
         TaskHistory::Attempt(id) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND attempt_id=?3 ORDER BY position", Some(id)),
-        TaskHistory::LiveAndTarget(id) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (attempt_id=?3 OR json_extract(row_json,'$.closed_at') IS NULL) ORDER BY position", Some(id)),
+        TaskHistory::LiveAndTarget(id) | TaskHistory::Binding { attempt: id, .. } => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (attempt_id=?3 OR json_extract(row_json,'$.closed_at') IS NULL) ORDER BY position", Some(id)),
         TaskHistory::Review | TaskHistory::Attempts => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (?3 IS NULL) ORDER BY position", None),
         _ => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (?3 IS NULL) AND (json_extract(row_json,'$.closed_at') IS NULL OR position=(SELECT max(position) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND json_extract(row_json,'$.mesh_peer') IS NOT NULL AND json_extract(row_json,'$.remote_dispatch_state')='reported')) ORDER BY position", None),
     };

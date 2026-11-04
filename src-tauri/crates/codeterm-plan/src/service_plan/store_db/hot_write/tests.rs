@@ -741,3 +741,5 @@ mod remote_attempts;
 mod task_structure;
 
 mod qa_reconcile;
+
+mod binding_rows;

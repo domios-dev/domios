@@ -105,6 +105,9 @@ impl PlanStore {
             now_ms,
             |edit| {
                 let task = &mut edit.task;
+                if task.id != request.task_id {
+                    return Err(PlanError::TaskNotFound);
+                }
                 if task.assigned_tab_id.as_deref() != Some(request.executor_tab_id.as_str())
                     || task.interruption.owner_epoch != request.owner_epoch
                     || task.interruption.owner_tab_id.as_deref()
