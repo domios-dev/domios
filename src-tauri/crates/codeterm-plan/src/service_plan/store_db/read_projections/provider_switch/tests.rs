@@ -35,6 +35,17 @@ fn provider_switch_context_selects_aliases_completed_status_and_propagates_sql_e
         .is_none());
     plan.status = crate::plan::PlanStatus::Active;
     database.persist_plan_rows(&plan, None).unwrap();
+    for field in ["$.body", "$.acceptance_criteria", "$.files", "$.lane"] {
+        database.persist_plan_rows(&plan, None).unwrap();
+        database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,?1,json('null')) WHERE task_id='task_0000'",[field]).unwrap();
+        assert!(
+            database
+                .provider_switch_task_context_projection("task_0000")
+                .is_err(),
+            "{field}"
+        );
+    }
+    database.persist_plan_rows(&plan, None).unwrap();
     database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.name',42) WHERE task_id='task_0000'",[]).unwrap();
     assert!(database
         .provider_switch_task_context_projection("task_0000")

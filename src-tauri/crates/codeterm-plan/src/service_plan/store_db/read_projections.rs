@@ -9,6 +9,7 @@ mod compete_preflight;
 pub(in crate::service_plan) mod competition_lane;
 mod executor_source;
 pub(in crate::service_plan) mod provider_switch;
+mod respawn_remote_source;
 mod section_removal;
 pub(in crate::service_plan) mod task_drafts;
 
