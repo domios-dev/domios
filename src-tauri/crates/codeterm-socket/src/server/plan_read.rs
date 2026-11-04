@@ -66,9 +66,7 @@ pub(super) fn dispatch(
         }
         "plan.spec" => {
             let id = super::plan_refs::resolve_plan(store, params)?;
-            let spec = store
-                .spec_markdown(&id)
-                .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
+            let spec = store.spec_markdown(&id).map_err(plan_rpc_err)?;
             Ok(json!({ "plan_id": id, "spec": spec }))
         }
         "plan.locate" => {

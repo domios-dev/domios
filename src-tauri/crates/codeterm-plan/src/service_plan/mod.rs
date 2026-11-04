@@ -77,6 +77,7 @@ pub use status_projection::{
     CuratorAuthorityRead, CuratorScheduleRead, PlanNoticeRead, PlanStatusRead,
 };
 pub mod board_state;
+mod document_projection;
 mod store_index;
 mod store_persist;
 mod store_queries;
@@ -103,6 +104,7 @@ pub mod ui_projections;
 pub mod usage_digest;
 pub mod worker_charter;
 pub mod worker_identity;
+pub use document_projection::PlanDocumentMetadata;
 
 #[cfg(test)]
 mod work_facet_tests;

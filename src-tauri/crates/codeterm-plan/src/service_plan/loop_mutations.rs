@@ -78,10 +78,8 @@ impl PlanStore {
         })
     }
 
-    pub fn loop_status(&self, loop_id: &str) -> Option<LoopSpec> {
-        let plan_id = self.find_plan_with_loop(loop_id)?;
-        self.get(&plan_id)
-            .and_then(|p| p.loops.iter().find(|l| l.id == loop_id).cloned())
+    pub fn loop_status(&self, loop_id: &str) -> Result<LoopSpec, PlanError> {
+        self.database.loop_status(loop_id)
     }
 
     pub fn stop_loop(&self, loop_id: &str, now_ms: u64) -> Result<(), PlanError> {
@@ -108,12 +106,13 @@ impl PlanStore {
         let plan_id = self
             .find_plan_with_loop(loop_id)
             .ok_or(PlanError::NotFound)?;
-        let goal_vector = self
-            .get(&plan_id)
-            .and_then(|p| p.goal.map(|g| g.vector))
-            .unwrap_or_default();
         let mut updated = None;
         self.with_plan(&plan_id, now_ms, |p| {
+            let goal_vector = p
+                .goal
+                .as_ref()
+                .map(|g| g.vector.clone())
+                .unwrap_or_default();
             let lp = p
                 .loops
                 .iter_mut()
