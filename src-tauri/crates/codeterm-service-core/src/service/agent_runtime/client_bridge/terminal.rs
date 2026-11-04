@@ -96,7 +96,9 @@ impl Terminal {
         env: &BTreeMap<String, String>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(windows)]
-        let program = windows::program(&spec.command, env)?;
+        let resolved_program = windows::program(&spec.command, env)?;
+        #[cfg(windows)]
+        let program = &resolved_program.path;
         #[cfg(not(windows))]
         let program = &spec.command;
         let mut command = tokio::process::Command::new(program);
@@ -133,7 +135,7 @@ impl Terminal {
         }
         let mut child = command.spawn().map_err(|error| error.to_string())?;
         #[cfg(windows)]
-        drop((pinned_cwd, directory));
+        drop((resolved_program, pinned_cwd, directory));
         let pid = child.id().ok_or("Terminal PID unavailable")?;
         #[cfg(windows)]
         let job = Arc::new(crate::service::windows_job::Job::contain(&child)?);

@@ -33,25 +33,18 @@ fn windows_resolved_secret_policy_refuses_alias_classification_changes() {
 
 #[test]
 fn windows_short_names_never_bypass_sensitive_file_approval_or_machine_denial() {
-    use std::os::windows::ffi::{OsStrExt, OsStringExt};
-    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
-    fn short_leaf(path: &Path) -> std::ffi::OsString {
-        let input: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
-        let mut output = vec![0u16; 32768];
-        let length =
-            unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) };
-        assert!(length > 0 && (length as usize) < output.len());
-        PathBuf::from(std::ffi::OsString::from_wide(&output[..length as usize]))
-            .file_name()
-            .unwrap()
-            .to_owned()
-    }
     let (_temp, root) = tests::root();
     std::fs::write(root.join(".env"), "protected").unwrap();
     std::fs::create_dir(root.join(".ssh")).unwrap();
     std::fs::write(root.join(".ssh/id_rsa"), "machine-protected").unwrap();
-    let env_alias = short_leaf(&root.join(".env"));
-    let ssh_alias = short_leaf(&root.join(".ssh"));
+    let env_alias = short_path(&root.join(".env"))
+        .file_name()
+        .unwrap()
+        .to_owned();
+    let ssh_alias = short_path(&root.join(".ssh"))
+        .file_name()
+        .unwrap()
+        .to_owned();
     assert_ne!(
         env_alias, ".env",
         "Windows peer must generate 8.3 aliases for this denial proof"
@@ -163,20 +156,32 @@ fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors()
         assert!(terminal::windows::program(command, &env).is_err());
     }
     assert_eq!(
-        terminal::windows::program("where", &env).unwrap(),
-        tools.join("where.exe")
+        terminal::windows::program("where", &env)
+            .unwrap()
+            .path
+            .canonicalize()
+            .unwrap(),
+        tools.join("where.exe").canonicalize().unwrap()
     );
     std::fs::write(tools.join("utility.com"), "native-com").unwrap();
     assert_eq!(
-        terminal::windows::program("utility", &env).unwrap(),
-        tools.join("utility.com")
+        terminal::windows::program("utility", &env)
+            .unwrap()
+            .path
+            .canonicalize()
+            .unwrap(),
+        tools.join("utility.com").canonicalize().unwrap()
     );
     let system = std::env::var_os("SystemRoot").unwrap();
     let system = PathBuf::from(system).join("System32");
     let env = BTreeMap::from([("PATH".into(), system.to_string_lossy().into_owned())]);
     assert_eq!(
-        terminal::windows::program("cmd", &env).unwrap(),
-        system.join("cmd.exe")
+        terminal::windows::program("cmd", &env)
+            .unwrap()
+            .path
+            .canonicalize()
+            .unwrap(),
+        system.join("cmd.exe").canonicalize().unwrap()
     );
 }
 
@@ -463,4 +468,63 @@ fn windows_terminal_handle_bound_refuses_ninth_and_release_reclaims_slots() {
             .await
             .unwrap();
     });
+}
+
+fn short_path(path: &Path) -> PathBuf {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+    let input: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut output = vec![0u16; 32768];
+    let length =
+        unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) };
+    assert!(length > 0 && (length as usize) < output.len());
+    PathBuf::from(std::ffi::OsString::from_wide(&output[..length as usize]))
+}
+
+#[test]
+fn windows_host_short_paths_do_not_relax_agent_name_denials() {
+    let (_temp, root) = tests::root();
+    let workspace = root.join("runner profile");
+    std::fs::create_dir(&workspace).unwrap();
+    let tools = workspace.join("program files");
+    std::fs::create_dir(&tools).unwrap();
+    std::fs::write(tools.join("utility.exe"), "native fixture").unwrap();
+    assert!(fs::relative(&workspace, workspace.join("backup~2").to_str().unwrap()).is_err());
+    let short_workspace = short_path(&workspace);
+    let short_tools = short_path(&tools);
+    assert_ne!(
+        short_workspace.file_name(),
+        workspace.file_name(),
+        "Windows peer must generate short aliases"
+    );
+    let context = tests::context(&short_workspace);
+    install(&context, Some(tests::capabilities())).unwrap();
+    let installed = bridge(&context).unwrap();
+    assert_eq!(
+        installed.root.canonicalize().unwrap(),
+        workspace.canonicalize().unwrap()
+    );
+    let env = BTreeMap::from([("PATH".into(), short_tools.to_string_lossy().into_owned())]);
+    let program = terminal::windows::program("utility", &env).unwrap();
+    assert_eq!(
+        program.path.canonicalize().unwrap(),
+        tools.join("utility.exe").canonicalize().unwrap()
+    );
+    BRIDGES.lock().remove(&context.tab_id);
+}
+
+#[test]
+fn windows_program_holds_parent_and_leaf_pins_until_spawn_boundary() {
+    let (_temp, root) = tests::root();
+    let tools = root.join("tools");
+    std::fs::create_dir(&tools).unwrap();
+    let file = tools.join("utility.exe");
+    std::fs::write(&file, "native fixture").unwrap();
+    let env = BTreeMap::from([("PATH".into(), tools.to_string_lossy().into_owned())]);
+    let program = terminal::windows::program("utility", &env).unwrap();
+    assert!(std::fs::rename(&file, tools.join("replaced.exe")).is_err());
+    assert!(std::fs::write(&file, "mutated").is_err());
+    assert!(std::fs::rename(&tools, root.join("moved")).is_err());
+    drop(program);
+    std::fs::rename(&file, tools.join("replaced.exe")).unwrap();
 }

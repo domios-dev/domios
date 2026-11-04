@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeMap,
+    fs::File,
     path::{Component, Path, PathBuf},
 };
 
@@ -9,27 +10,40 @@ fn native_extension(path: &Path) -> bool {
     })
 }
 
-fn executable(path: &Path) -> Result<PathBuf, String> {
-    let path = super::super::fs::windows::disk_path(path)?;
+pub(in super::super) struct Program {
+    pub(in super::super) path: PathBuf,
+    _parents: Vec<File>,
+    _file: File,
+}
+
+fn executable(path: &Path, host_parent: bool) -> Result<Program, String> {
+    use super::super::fs::windows as fs;
+    let path = if host_parent {
+        fs::host_disk_path(path)?
+    } else {
+        fs::disk_path(path)?
+    };
     if !native_extension(&path) {
         return Err("Windows shell dispatch denied".into());
     }
-    let _parents =
-        super::super::fs::windows::pinned(path.parent().ok_or("Missing program parent")?)?;
-    let _file = super::super::fs::windows::read(
-        _parents.last().ok_or("Missing program parent")?,
-        Path::new(path.file_name().ok_or("Missing program filename")?),
-    )?;
-    Ok(path)
+    let parents = fs::pinned(path.parent().ok_or("Missing program parent")?)?;
+    let parent = parents.last().ok_or("Missing program parent")?;
+    let file = fs::pin_program(parent, path.file_name().ok_or("Missing program filename")?)?;
+    let path = fs::host_disk_path(&fs::final_path(&file)?)?;
+    Ok(Program {
+        path,
+        _parents: parents,
+        _file: file,
+    })
 }
 
 pub(in super::super) fn program(
     command: &str,
     env: &BTreeMap<String, String>,
-) -> Result<PathBuf, String> {
+) -> Result<Program, String> {
     let path = Path::new(command);
     if path.is_absolute() {
-        return executable(path);
+        return executable(path, false);
     }
     if command.contains(['/', '\\', ':'])
         || !matches!(path.components().next(), Some(Component::Normal(_)))
@@ -53,7 +67,7 @@ pub(in super::super) fn program(
             continue;
         }
         for name in &names {
-            if let Ok(program) = executable(&directory.join(name)) {
+            if let Ok(program) = executable(&directory.join(name), true) {
                 return Ok(program);
             }
         }

@@ -132,6 +132,9 @@ pub(super) fn install(
         .ok_or("Missing workspace root")?
         .try_clone()
         .map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    let root = fs::windows::final_path(&root_handle)?;
+    #[cfg(not(windows))]
     let root = codeterm_util::project_roots::canonical_root(&context.cwd)?;
     #[cfg(unix)]
     let root_handle = codeterm_blueprint_types::code_source::open_directory_no_follow(
