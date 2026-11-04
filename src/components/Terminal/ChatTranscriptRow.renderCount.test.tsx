@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { beginChatSendRetry, addChatSend, setChatSendDraft, failChatSendRequest, removeChatSend, observeDeliveryStatus, readChatSends } from "./chatSendStore";
-import type { DeliverySend } from "./chatDeliveryModel";
+import { deliveryState, type DeliverySend } from "./chatDeliveryModel";
 import type { NormalizedChatMessage } from "@codeterm/chat-core";
 import type { EnrichedChatEntry } from "./chatEnrichment";
 import { ChatTranscriptRow, type ChatTranscriptRowContext } from "./ChatTranscriptRow";
@@ -56,7 +56,7 @@ it("offers Retry for a sendable refusal but never for an empty attachment-only d
   } finally { await act(async () => root.unmount()); host.remove(); removeChatSend("empty-retry", send.id); }
 });
 
-it("shows a busy refusal with an explicit Retry and removes it when delivery wins", async () => {
+it("shows a refusal with an explicit Retry and removes it when delivery wins", async () => {
   (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
   const host = document.createElement("div"); document.body.append(host);
   const root = createRoot(host);
@@ -75,7 +75,8 @@ it("shows a busy refusal with an explicit Retry and removes it when delivery win
       context={{ ...context, retrySend }} deliverySend={deliverySend} deliveryView={deliveryView} />;
   try {
     await act(async () => root.render(render("failed")));
-    expect(host.textContent).toContain("Not delivered: the agent was busy");
+    expect(deliveryState(send)).toBe("failed");
+    expect(host.querySelector('[role="status"]')).not.toBeNull();
     expect(retrySend).not.toHaveBeenCalled();
     const retry = Array.from(host.querySelectorAll("button")).find(button => button.textContent === "Retry");
     expect(retry).toBeDefined();

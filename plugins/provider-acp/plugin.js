@@ -946,6 +946,25 @@ function runtimePlan(ctx, op) {
       return refusePlan(`ACP operation is unavailable: ${op.kind}`);
   }
 }
+function promoteQueued(ctx, state) {
+  const sessionId = ownSession(ctx, state);
+  const events = [];
+  for (let queued = state.queued?.shift(); queued; queued = state.queued?.shift()) {
+    state.cursor.prompt = queued.prompt;
+    state.promptSend = { sendId: queued.sendId };
+    state.inFlight = true;
+    const next = reduceStream(ctx, state.projection ?? null, [], state.cursor);
+    state.projection = { ...object4(next.state), started: true };
+    events.push({ kind: "turnState", threadId: sessionId, turnId: `${sessionId}:turn:${queued.prompt}`, state: "working" });
+    if (!queued.completed) break;
+    const settledQueued = settleStream(ctx, state.projection, queued.completed.cancelled ? "cancelled" : "end_turn");
+    state.projection = settledQueued.state;
+    state.inFlight = false;
+    if (queued.completed.usage) events.push({ kind: "usage", threadId: sessionId, usage: queued.completed.usage });
+    events.push(...settledQueued.events);
+  }
+  return events;
+}
 function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
   const method = object4(raw).method;
@@ -958,6 +977,9 @@ function runtimeResponse(ctx, op, raw, reply) {
       if (state2.cursor.prompt === turn && state2.promptSend?.sendId === op.sendId) {
         state2.inFlight = false;
         delete state2.promptSend;
+        const projected = reduceStream(ctx, state2.projection ?? null, [], state2.cursor).state;
+        state2.projection = settleStream(ctx, projected, "error").state;
+        promoteQueued(ctx, state2);
       }
     }
     if (sessionOperation && ![-32e3, -32002, -32601].includes(reply.error.code) && state2 && !state2.sessionActive && object4(raw).mcpOffered === true && ctx.hostMcp) {
@@ -1089,20 +1111,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     state.projection = settled.state;
     const mapped = usage(value.usage);
     const events = [...mapped ? [{ kind: "usage", threadId: sessionId, usage: mapped }] : [], ...settled.events];
-    for (let queued = state.queued?.shift(); queued; queued = state.queued?.shift()) {
-      state.cursor.prompt = queued.prompt;
-      state.promptSend = { sendId: queued.sendId };
-      state.inFlight = true;
-      const next = reduceStream(ctx, state.projection, [], state.cursor);
-      state.projection = { ...object4(next.state), started: true };
-      events.push({ kind: "turnState", threadId: sessionId, turnId: `${sessionId}:turn:${queued.prompt}`, state: "working" });
-      if (!queued.completed) break;
-      const settledQueued = settleStream(ctx, state.projection, queued.completed.cancelled ? "cancelled" : "end_turn");
-      state.projection = settledQueued.state;
-      state.inFlight = false;
-      if (queued.completed.usage) events.push({ kind: "usage", threadId: sessionId, usage: queued.completed.usage });
-      events.push(...settledQueued.events);
-    }
+    events.push(...promoteQueued(ctx, state));
     return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events };
   }
   return refused("unsupported", "ACP response is unavailable");

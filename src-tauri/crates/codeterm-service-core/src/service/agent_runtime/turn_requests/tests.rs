@@ -820,3 +820,75 @@ async fn concurrent_rpc_refusal_preserves_active_turn_and_late_delivery_wins() {
     .await
     .expect("correlated refusal must settle independently without replay");
 }
+
+#[tokio::test]
+async fn refused_claim_survives_its_own_idle_and_expires_at_next_other_settlement() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let context = session.context.lock().clone();
+    let thread = context.thread_id.clone().unwrap();
+    for send in ["refused", "unrelated"] {
+        session.context.lock().claimed_sends.push(ClaimedSend {
+            send_id: send.into(),
+            thread_id: thread.clone(),
+            input: TurnInput {
+                text: format!("opaque-{send}"),
+                attachments: vec![],
+            },
+        });
+    }
+    session.maps.lock().ensure_epoch(context.epoch);
+    session
+        .maps
+        .lock()
+        .remember_refused_claim(context.epoch, "refused", "refused-turn");
+    let transition = |turn: &str, state| AgentRuntimeEvent::TurnState {
+        thread_id: thread.clone(),
+        turn_id: Some(turn.into()),
+        parent_thread_id: None,
+        state,
+        detail: None,
+        status_line: None,
+        started_at: None,
+        completed_at: None,
+    };
+    subscriber::publish_events(
+        &fixture.service,
+        &session,
+        context.epoch,
+        vec![
+            transition("refused-turn", RuntimeTurnState::Working),
+            transition("refused-turn", RuntimeTurnState::Idle),
+        ],
+        now(),
+    )
+    .await
+    .unwrap();
+    assert!(session
+        .context
+        .lock()
+        .claimed_sends
+        .iter()
+        .any(|claim| claim.send_id == "refused"));
+    subscriber::publish_events(
+        &fixture.service,
+        &session,
+        context.epoch,
+        vec![
+            transition("next-turn", RuntimeTurnState::Working),
+            transition("next-turn", RuntimeTurnState::Idle),
+        ],
+        now(),
+    )
+    .await
+    .unwrap();
+    let current = session.context.lock();
+    assert!(!current
+        .claimed_sends
+        .iter()
+        .any(|claim| claim.send_id == "refused"));
+    assert!(current
+        .claimed_sends
+        .iter()
+        .any(|claim| claim.send_id == "unrelated"));
+}

@@ -131,6 +131,7 @@ pub struct RuntimeMaps {
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
     evidence: HashMap<String, (String, String, Option<String>)>,
+    refused_claims: HashMap<String, String>,
     routed_inputs: HashMap<String, (String, ChatMsg)>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
@@ -194,7 +195,32 @@ impl RuntimeMaps {
         };
     }
 
+    pub fn remember_refused_claim(&mut self, epoch: u64, send: &str, turn: &str) {
+        if self.epoch == epoch {
+            self.refused_claims.insert(send.into(), turn.into());
+        }
+    }
+
+    pub fn settle_refused_claims(&mut self, epoch: u64, turn: Option<&str>) -> Vec<String> {
+        if self.epoch != epoch {
+            return Vec::new();
+        }
+        let expired = self
+            .refused_claims
+            .iter()
+            .filter(|(_, refused_turn)| Some(refused_turn.as_str()) != turn)
+            .map(|(send, _)| send.clone())
+            .collect::<Vec<_>>();
+        for send in &expired {
+            self.refused_claims.remove(send);
+            self.routed_inputs.remove(send);
+            self.evidence.remove(send);
+        }
+        expired
+    }
+
     pub fn take_evidence(&mut self, send_id: &str) -> Option<(String, String, Option<String>)> {
+        self.refused_claims.remove(send_id);
         self.evidence.remove(send_id)
     }
 }

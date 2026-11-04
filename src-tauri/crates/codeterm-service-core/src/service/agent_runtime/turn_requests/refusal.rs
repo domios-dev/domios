@@ -58,6 +58,11 @@ pub(super) async fn apply(
     ) else {
         return Ok(());
     };
+    session.maps.lock().remember_refused_claim(
+        pending.context.epoch,
+        &pending.send_id,
+        &pending.turn,
+    );
     pending.refused.store(true, Ordering::Release);
     pending.settled.store(true, Ordering::Release);
     svc.ui.emit(

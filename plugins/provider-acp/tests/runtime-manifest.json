@@ -148,6 +148,7 @@
     "batch-byte-limit.json",
     "batch-event-limit.json",
     "batch-row-determinism.json",
-    "concurrent-rpc-refusal.json"
+    "concurrent-rpc-refusal.json",
+    "active-error-queued-prompt.json"
   ]
 }
