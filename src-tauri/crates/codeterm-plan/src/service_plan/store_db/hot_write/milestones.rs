@@ -10,6 +10,35 @@ pub(super) fn edit(
     remove: bool,
     receipt: &mut CommittedRows,
 ) -> Result<(), PlanError> {
+    edit_selected(
+        tx,
+        plan_id,
+        task_id,
+        milestone_id,
+        remove,
+        receipt,
+        |milestone, receipt| {
+            if let Some(kind) = kind {
+                declare_kind(tx, plan_id, kind, false, receipt)?;
+                milestone.kind = kind.into();
+            }
+            if let Some(text) = text {
+                milestone.text = text.into();
+            }
+            Ok(())
+        },
+    )
+}
+
+pub(super) fn edit_selected(
+    tx: &Transaction<'_>,
+    plan_id: &str,
+    task_id: &str,
+    milestone_id: &str,
+    remove: bool,
+    receipt: &mut CommittedRows,
+    change: impl FnOnce(&mut Milestone, &mut CommittedRows) -> Result<(), PlanError>,
+) -> Result<(), PlanError> {
     if !tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND task_id=?2)",
@@ -30,13 +59,7 @@ pub(super) fn edit(
         )
         .map_err(db_error)?;
     } else {
-        if let Some(kind) = kind {
-            declare_kind(tx, plan_id, kind, false, receipt)?;
-            milestone.kind = kind.into();
-        }
-        if let Some(text) = text {
-            milestone.text = text.into();
-        }
+        change(&mut milestone, receipt)?;
         let json = encode(&milestone, receipt)?;
         tx.execute("UPDATE plan_task_milestones SET row_json=?4 WHERE plan_id=?1 AND task_id=?2 AND seq=?3", params![plan_id, task_id, seq, json]).map_err(db_error)?;
     }

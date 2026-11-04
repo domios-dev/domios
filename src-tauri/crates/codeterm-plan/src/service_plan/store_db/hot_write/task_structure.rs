@@ -64,38 +64,12 @@ impl PlanDatabase {
         now: u64,
     ) -> Result<CommittedRows, PlanError> {
         self.hot_transaction(plan_id, now, |tx, receipt| {
-            if split_parent.is_some() {
-                let allowed: bool = tx.query_row("SELECT status!='archived' AND coalesce(json_extract(header_json,'$.mode'),'planning') NOT IN ('paused','complete') FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
-                if !allowed { return Err(PlanError::BadMode); }
-            }
-            let section_input = super::super::section_link_queries::section_link_input(tx, plan_id, false)?;
-            let mut created_ids = Vec::new();
-            for mut task in tasks {
-                if let Some(parent_id) = task.parent_task_id.as_deref() {
-                    let parent = read_task(tx, plan_id, parent_id, receipt)?;
-                    if parent.id != parent_id { return Err(PlanError::TaskNotFound); }
-                    validate_parent(&parent)?;
-                    if split_parent.is_some() {
-                        task.tags = crate::service_plan::tag_model::inherit_parent_tags(&parent.tags, &task.tags);
-                    }
-                }
-                task.depends_on = resolve_dependencies(tx, plan_id, &task.id, &task.depends_on, receipt)?;
-                if let Some(group) = task.group.as_deref() { task_fields::declare_group(tx, plan_id, group, receipt)?; }
-                if task.section_ids.is_empty() { task.section_ids = section_links::auto_section_ids_for_task(&section_input, &task); }
-                task_fields::insert_task(tx, plan_id, &task, receipt)?;
-                created_ids.push(task.id);
-            }
-            task_fields::normalize_handles(tx, plan_id, receipt)?;
-            for id in created_ids {
-                let task = read_task(tx, plan_id, &id, receipt)?;
-                task_fields::queue_task_index(tx, plan_id, &task, false, false, receipt)?;
-            }
-            Ok(())
+            insert_task_rows(tx, plan_id, tasks, split_parent, receipt)
         })
     }
 }
 
-fn validate_parent(parent: &Task) -> Result<(), PlanError> {
+pub(super) fn validate_parent(parent: &Task) -> Result<(), PlanError> {
     if parent.parent_task_id.is_some() {
         return Err(PlanError::InvalidSplitParent {
             reason: SplitParentReason::ChildParent,
@@ -109,7 +83,7 @@ fn validate_parent(parent: &Task) -> Result<(), PlanError> {
     Ok(())
 }
 
-fn resolve_dependencies(
+pub(super) fn resolve_dependencies(
     tx: &Transaction<'_>,
     plan_id: &str,
     task_id: &str,
@@ -137,4 +111,49 @@ fn resolve_dependencies(
         }
     }
     Ok(resolved)
+}
+
+pub(super) fn insert_task_rows(
+    tx: &Transaction<'_>,
+    plan_id: &str,
+    tasks: Vec<Task>,
+    split_parent: Option<&str>,
+    receipt: &mut CommittedRows,
+) -> Result<(), PlanError> {
+    if split_parent.is_some() {
+        let allowed: bool = tx.query_row("SELECT status!='archived' AND coalesce(json_extract(header_json,'$.mode'),'planning') NOT IN ('paused','complete') FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
+        if !allowed {
+            return Err(PlanError::BadMode);
+        }
+    }
+    let section_input = super::super::section_link_queries::section_link_input(tx, plan_id, false)?;
+    let mut created_ids = Vec::new();
+    for mut task in tasks {
+        if let Some(parent_id) = task.parent_task_id.as_deref() {
+            let parent = read_task(tx, plan_id, parent_id, receipt)?;
+            if parent.id != parent_id {
+                return Err(PlanError::TaskNotFound);
+            }
+            validate_parent(&parent)?;
+            if split_parent.is_some() {
+                task.tags =
+                    crate::service_plan::tag_model::inherit_parent_tags(&parent.tags, &task.tags);
+            }
+        }
+        task.depends_on = resolve_dependencies(tx, plan_id, &task.id, &task.depends_on, receipt)?;
+        if let Some(group) = task.group.as_deref() {
+            task_fields::declare_group(tx, plan_id, group, receipt)?;
+        }
+        if task.section_ids.is_empty() {
+            task.section_ids = section_links::auto_section_ids_for_task(&section_input, &task);
+        }
+        task_fields::insert_task(tx, plan_id, &task, receipt)?;
+        created_ids.push(task.id);
+    }
+    task_fields::normalize_handles(tx, plan_id, receipt)?;
+    for id in created_ids {
+        let task = read_task(tx, plan_id, &id, receipt)?;
+        task_fields::queue_task_index(tx, plan_id, &task, false, false, receipt)?;
+    }
+    Ok(())
 }

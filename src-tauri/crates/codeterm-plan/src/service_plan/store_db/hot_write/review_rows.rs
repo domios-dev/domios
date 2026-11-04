@@ -3,6 +3,8 @@ use super::*;
 #[derive(Clone)]
 pub(in crate::service_plan) enum TaskHistory {
     Core,
+    Selected(Vec<String>),
+    Respawn(String),
     Attempt(String),
     Binding { attempt: String, tab: String },
     LiveAndTarget(String),
@@ -13,6 +15,14 @@ pub(in crate::service_plan) enum TaskHistory {
 
 pub(in crate::service_plan) struct TaskRowEdit {
     pub task: Task,
+    pub mode: crate::plan::PlanMode,
+    pub canonical_checkout: String,
+    pub owner: crate::plan::OrchestratorRef,
+    pub strides: Vec<Milestone>,
+    pub progression: Option<(crate::plan::TaskStatus, bool)>,
+    pub warn_dispatch: bool,
+    pub rollback_unblock: Option<String>,
+    pub legacy_dispatch_rollback: bool,
     pub owner_tab: Option<String>,
     pub tab_owners: Vec<crate::service_plan::task_authority_projection::TabAttemptOwnerRead>,
     pub superseded: bool,
@@ -198,8 +208,22 @@ pub(super) fn edit_task_rows<T>(
     } else {
         (Vec::new(), false)
     };
+    let (mode_json, owner_json, canonical_checkout): (String, String, String) = tx.query_row("SELECT json_quote(coalesce(json_extract(header_json,'$.mode'),'planning')), coalesce(json_extract(header_json,'$.owner'),'{}'), CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [plan_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?))).map_err(db_error)?;
+    receipt.decoded_bytes += mode_json.len() + owner_json.len();
+    receipt.projected_text_bytes += canonical_checkout.len();
+    let mode: crate::plan::PlanMode = serde_json::from_str(&mode_json).map_err(json_error)?;
+    let original_mode = mode.clone();
+    let owner = serde_json::from_str(&owner_json).map_err(json_error)?;
     let mut edit = TaskRowEdit {
         task,
+        mode,
+        canonical_checkout,
+        owner,
+        strides: Vec::new(),
+        progression: None,
+        warn_dispatch: false,
+        rollback_unblock: None,
+        legacy_dispatch_rollback: false,
         owner_tab,
         tab_owners,
         superseded,
@@ -211,6 +235,14 @@ pub(super) fn edit_task_rows<T>(
         created_tasks: Vec::new(),
     };
     let result = change(&mut edit)?;
+    super::dispatch_rows::finish(
+        tx,
+        plan_id,
+        &original_core,
+        &original_mode,
+        &mut edit,
+        receipt,
+    )?;
     if edit.terminal_check {
         task_fields::reject_open_subtasks(tx, plan_id, &edit.task.id)?;
     }
@@ -222,6 +254,11 @@ pub(super) fn edit_task_rows<T>(
         ));
     }
     for ((position, previous), next) in attempts.iter().zip(&edit.task.execution_attempts) {
+        if previous.id != next.id {
+            return Err(PlanError::Io(
+                "task row edit changed an immutable attempt identity".into(),
+            ));
+        }
         if previous != next {
             let json = encode(next, receipt)?;
             tx.execute("UPDATE plan_task_attempts SET row_json=?4, content_hash=?5 WHERE plan_id=?1 AND task_id=?2 AND position=?3", params![plan_id, edit.task.id, position, json, store_rows::row_hash(&json)]).map_err(db_error)?;
@@ -284,9 +321,15 @@ fn read_attempts(
     if matches!(history, TaskHistory::Core) {
         return Ok(Vec::new());
     }
+    let selected_json = match history {
+        TaskHistory::Selected(ids) => Some(serde_json::to_string(ids).map_err(json_error)?),
+        _ => None,
+    };
     let (sql, target) = match history {
-        TaskHistory::Attempt(id) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND attempt_id=?3 ORDER BY position", Some(id)),
-        TaskHistory::LiveAndTarget(id) | TaskHistory::Binding { attempt: id, .. } => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (attempt_id=?3 OR json_extract(row_json,'$.closed_at') IS NULL) ORDER BY position", Some(id)),
+        TaskHistory::Selected(_) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (attempt_id IN (SELECT value FROM json_each(?3)) OR json_extract(row_json,'$.closed_at') IS NULL) ORDER BY position", selected_json.as_deref()),
+        TaskHistory::Respawn(id) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (attempt_id=?3 OR json_extract(row_json,'$.closed_at') IS NULL OR position=(SELECT max(position) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2)) ORDER BY position", Some(id.as_str())),
+        TaskHistory::Attempt(id) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND attempt_id=?3 ORDER BY position", Some(id.as_str())),
+        TaskHistory::LiveAndTarget(id) | TaskHistory::Binding { attempt: id, .. } => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (attempt_id=?3 OR json_extract(row_json,'$.closed_at') IS NULL) ORDER BY position", Some(id.as_str())),
         TaskHistory::Review | TaskHistory::Attempts => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (?3 IS NULL) ORDER BY position", None),
         _ => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (?3 IS NULL) AND (json_extract(row_json,'$.closed_at') IS NULL OR position=(SELECT max(position) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND json_extract(row_json,'$.mesh_peer') IS NOT NULL AND json_extract(row_json,'$.remote_dispatch_state')='reported')) ORDER BY position", None),
     };
