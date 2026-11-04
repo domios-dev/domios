@@ -33,6 +33,20 @@ pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanErro
 }
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn heartbeat_projection(
+        &self,
+        id: &str,
+        now: u64,
+        selection: Option<&[String]>,
+    ) -> Result<crate::service_plan::heartbeat::view::HeartbeatRead, PlanError> {
+        let mut connection = self.connection.lock();
+        let transaction = connection.transaction().map_err(db_error)?;
+        let read =
+            super::curator_notice_queries::heartbeat_snapshot(&transaction, id, now, selection)?;
+        transaction.commit().map_err(db_error)?;
+        Ok(read)
+    }
+
     pub(in crate::service_plan) fn resolve_heartbeat_plan(
         &self,
         plan_id: Option<&str>,

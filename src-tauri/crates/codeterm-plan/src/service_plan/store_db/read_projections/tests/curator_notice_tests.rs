@@ -14,7 +14,7 @@ fn reference(plan: &Plan, now: u64) -> String {
     )
 }
 
-fn decisions(root: &std::path::Path) -> Plan {
+pub(super) fn decisions(root: &std::path::Path) -> Plan {
     let mut plan = Plan::new(
         "Typed notice α".into(),
         root.display().to_string(),
@@ -69,6 +69,11 @@ fn decisions(root: &std::path::Path) -> Plan {
     plan.tasks[1].execution_attempts = (0..2)
         .map(|index| crate::service_plan::load_audit::attempt(&format!("review-{index}"), "worker"))
         .collect();
+    plan.tasks[3].execution_attempts = (0..2)
+        .map(|index| {
+            crate::service_plan::load_audit::attempt(&format!("qa-running-{index}"), "worker")
+        })
+        .collect();
     plan.task_groups=serde_json::from_value(json!([
         {"key":"current","label":"Current","color":null},{"key":"later","label":"Later","color":null},
         {"key":"current","label":"Duplicate declaration","color":null}
@@ -110,6 +115,35 @@ fn curator_notice_uses_shared_decisions_labels_and_composition_for_all_modes() {
         assert_eq!(actual.body, reference(&plan, 10_000), "mode case {index}");
         assert_eq!(actual.owner_tab_id, plan.owner.tab_id);
         assert!(actual.body.len() <= reminders::composition::MAX_REMINDER_BYTES);
+        let choices = [None, Some(vec!["fourth".to_string(), "first".to_string()])];
+        for selection in &choices {
+            for digests in [
+                vec!["opaque digest".into(), "pending".into(), " ".into()],
+                vec!["opaque digest ".repeat(10); 64],
+            ] {
+                let heartbeat = heartbeat::view::HeartbeatView::from_plan_at(&plan, 10_000)
+                    .prepend("", &digests, selection.as_deref());
+                let expected = reminders::composition::compose(
+                    &plan,
+                    &[
+                        &reminders::composition::action_groups(&plan),
+                        &reminders::parked_later_group_summary(&plan),
+                        &heartbeat,
+                    ],
+                );
+                let connection = database.connection.lock();
+                let scoped = super::super::super::curator_notice_queries::bounded_notice(
+                    &connection,
+                    &plan.id,
+                    10_000,
+                    selection.as_deref(),
+                    &digests,
+                )
+                .unwrap();
+                assert_eq!(scoped.body, expected);
+                assert!(scoped.body.len() <= reminders::composition::MAX_REMINDER_BYTES);
+            }
+        }
     }
     for complete in [false, true] {
         let case = tempfile::tempdir().unwrap();
@@ -218,6 +252,12 @@ fn curator_notice_owner_body_and_decisions_share_one_snapshot_and_errors_stay_lo
         TaskStatus::Pending,
         None,
     )];
+    plan.loops = serde_json::from_value(
+        json!([{"id":"A","target":"fixed","status":"running","count":1,"budget":1}]),
+    )
+    .unwrap();
+    plan.heartbeat.learnings =
+        serde_json::from_value(json!([{"id":"rule","text":"A","tag":"owner","ts":1}])).unwrap();
     let database = fixtures::database(directory.path(), &plan);
     let id = plan.id.clone();
     let path = database.path();
@@ -235,7 +275,8 @@ fn curator_notice_owner_body_and_decisions_share_one_snapshot_and_errors_stay_lo
                 ("A", "owner-a")
             };
             let tx = connection.transaction().unwrap();
-            tx.execute("UPDATE plans SET header_json=json_set(header_json,'$.title',?2,'$.owner.tab_id',?3) WHERE id=?1",params![id,title,owner]).unwrap();
+            tx.execute("UPDATE plans SET header_json=json_set(header_json,'$.title',?2,'$.owner.tab_id',?3,'$.loops[0].id',?2) WHERE id=?1",params![id,title,owner]).unwrap();
+            tx.execute("UPDATE plan_heartbeat SET row_json=json_set(row_json,'$.learnings[0].text',?2) WHERE plan_id=?1",params![id,title]).unwrap();
             writer_barrier.wait();
             tx.commit().unwrap();
             writer_barrier.wait();
@@ -249,6 +290,14 @@ fn curator_notice_owner_body_and_decisions_share_one_snapshot_and_errors_stay_lo
         assert_eq!(
             notice.body.contains("(B)"),
             notice.owner_tab_id.as_deref() == Some("owner-b")
+        );
+        let heartbeat = database
+            .heartbeat_projection(&plan.id, 10_000, None)
+            .unwrap()
+            .prepend("fixed", &[]);
+        assert_eq!(
+            heartbeat.contains("loop B nearly exhausted"),
+            heartbeat.contains("- B\n")
         );
         barrier.wait();
     }
