@@ -52,6 +52,16 @@ fn missing_command_or_start_remains_unknown() {
 }
 
 #[test]
+fn stray_prefix_cannot_confirm_the_expected_shell_command_even_after_failure() {
+    for prefix in ["mm ", "[201~mmmm "] {
+        let mut model = model();
+        model.observe(&start(Some(&format!("{prefix}target"))));
+        assert!(!model.started);
+        assert_eq!(model.observe(&finish(Some(1))), None);
+    }
+}
+
+#[test]
 fn intervening_command_invalidates_target_start() {
     let mut model = model();
     model.observe(&start(Some("target")));
