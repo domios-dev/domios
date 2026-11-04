@@ -350,7 +350,9 @@ impl Messenger {
         let trace_id = crate::paths::is_dev_instance()
             .then(|| envelope.id.clone())
             .flatten();
-        let flow = crate::flow_trace::envelope_flow(svc, to_tab, &envelope);
+        let flow = crate::flow_trace::diagnostic_flow(crate::flow_trace::envelope_flow(
+            svc, to_tab, &envelope,
+        ));
         let provider = if trace_id.is_some() {
             svc.mux
                 .read()
@@ -506,10 +508,12 @@ impl Messenger {
                             svc.deliver_agent_payload(
                                 &resolved_target,
                                 AgentDeliveryPayload {
-                                    trace_id: crate::flow_trace::envelope_flow(
-                                        svc,
-                                        &resolved_target,
-                                        &envelope,
+                                    trace_id: crate::flow_trace::diagnostic_flow(
+                                        crate::flow_trace::envelope_flow(
+                                            svc,
+                                            &resolved_target,
+                                            &envelope,
+                                        ),
                                     ),
                                     durable_delivery: envelope.durable_delivery.clone(),
                                     transport,
@@ -613,7 +617,11 @@ impl Messenger {
             let text = frame.to_message();
             let pty_id = svc.resolve_pty_id(to_tab)?;
             let payload = AgentDeliveryPayload {
-                trace_id: crate::flow_trace::envelope_flow(svc, to_tab, &messenger.envelope),
+                trace_id: crate::flow_trace::diagnostic_flow(crate::flow_trace::envelope_flow(
+                    svc,
+                    to_tab,
+                    &messenger.envelope,
+                )),
                 durable_delivery: messenger.envelope.durable_delivery.clone(),
                 transport: frame,
                 observer,
@@ -713,7 +721,9 @@ impl Messenger {
             );
         }
         let (msg, marked) = build_chatbackend_inbound(&envelope, body, message_id.clone());
-        let trace_id = crate::flow_trace::envelope_flow(svc, to_tab, &envelope);
+        let trace_id = crate::flow_trace::diagnostic_flow(crate::flow_trace::envelope_flow(
+            svc, to_tab, &envelope,
+        ));
 
         let inserted = crate::service::tab_chat::chatbackend_history::ChatBackendHistory::shared(
             plugin_id, session_id,

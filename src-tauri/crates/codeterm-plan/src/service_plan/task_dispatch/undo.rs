@@ -10,6 +10,7 @@ pub struct DispatchUndo {
     before: StartupFields,
     respawn: bool,
     after_owner_epoch: u64,
+    after_destination: Option<String>,
     attempts: Vec<AttemptUndo>,
 }
 
@@ -28,6 +29,7 @@ struct StartupFields {
     taken_by_role: Option<String>,
     peer: Option<String>,
     lane_tab: Option<String>,
+    destination: Option<String>,
     workspace_id: Option<String>,
     workspace_name: Option<String>,
     worktree_path: Option<String>,
@@ -66,6 +68,7 @@ impl StartupFields {
             taken_by_role: task.taken_by_role.clone(),
             peer: task.peer.clone(),
             lane_tab: task.lane.tab_id.clone(),
+            destination: task.lane.destination.clone(),
             workspace_id: task.lane.workspace_id.clone(),
             workspace_name: task.lane.workspace_name.clone(),
             worktree_path: task.lane.worktree_path.clone(),
@@ -127,6 +130,7 @@ impl DispatchUndo {
             before: fields,
             respawn: respawn_source.is_some(),
             after_owner_epoch: task.interruption.owner_epoch,
+            after_destination: task.lane.destination.clone(),
             attempts: task
                 .execution_attempts
                 .iter()
@@ -150,6 +154,7 @@ impl DispatchUndo {
     pub(in crate::service_plan) fn finish(&mut self, mode: &PlanMode, task: &Task) {
         self.after_mode = mode.clone();
         self.after_owner_epoch = task.interruption.owner_epoch;
+        self.after_destination = task.lane.destination.clone();
         for undo in &mut self.attempts {
             if let Some(attempt) = task
                 .execution_attempts
@@ -164,6 +169,11 @@ impl DispatchUndo {
 
     pub(super) fn apply(&self, task: &mut Task) {
         self.before.restore(task, self.respawn);
+        revert(
+            &mut task.lane.destination,
+            &self.before.destination,
+            &self.after_destination,
+        );
         for undo in &self.attempts {
             if let Some(attempt) = task
                 .execution_attempts

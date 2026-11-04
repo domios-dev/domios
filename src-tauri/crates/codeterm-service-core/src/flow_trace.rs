@@ -23,44 +23,61 @@ pub(crate) fn enabled() -> bool {
     SENDER.get().is_some()
 }
 
-pub(crate) fn tab_flow(service: &crate::service::ServiceContext, tab: &str) -> Option<String> {
+pub(crate) fn tab_flow(
+    service: &crate::service::ServiceContext,
+    tab: &str,
+) -> Result<Option<String>, crate::service::plan::PlanError> {
     if SENDER.get().is_none() {
-        return None;
+        return Ok(None);
     }
     let mut bindings = service
         .plan_store
-        .live_task_attempts_for_tab(tab)
+        .live_task_attempts_for_tab(tab)?
         .into_iter()
         .filter(|binding| binding.plan_active && binding.attempt.retired_at.is_none());
     if let Some(binding) = bindings.next() {
         if bindings.next().is_none() {
-            return Some(binding.attempt.id);
+            return Ok(Some(binding.attempt.id));
         }
     }
-    service
+    Ok(service
         .try_ext::<crate::CronState>()
-        .and_then(|state| state.lock().get_tab_owner(tab).map(|(_, run)| run.clone()))
+        .and_then(|state| state.lock().get_tab_owner(tab).map(|(_, run)| run.clone())))
 }
 
 pub(crate) fn envelope_flow(
     service: &crate::service::ServiceContext,
     target: &str,
     envelope: &crate::service::messenger::MessageEnvelope,
-) -> Option<String> {
+) -> Result<Option<String>, crate::service::plan::PlanError> {
     if SENDER.get().is_none() {
-        return None;
+        return Ok(None);
     }
     if let Some(id) = envelope.trace_id.as_ref() {
-        return Some(id.clone());
+        return Ok(Some(id.clone()));
     }
-    match envelope.delivery_observer.as_ref() {
-        Some(crate::service::messenger::DeliveryWriteObserver::Report {
-            attempt_id: Some(id),
-            ..
-        }) => Some(id.clone()),
-        _ => tab_flow(service, target)
-            .or_else(|| tab_flow(service, &envelope.from_tab))
-            .or_else(|| envelope.id.clone()),
+    if let Some(crate::service::messenger::DeliveryWriteObserver::Report {
+        attempt_id: Some(id),
+        ..
+    }) = envelope.delivery_observer.as_ref()
+    {
+        return Ok(Some(id.clone()));
+    }
+    if let Some(flow) = tab_flow(service, target)? {
+        return Ok(Some(flow));
+    }
+    Ok(tab_flow(service, &envelope.from_tab)?.or_else(|| envelope.id.clone()))
+}
+
+pub(crate) fn diagnostic_flow(
+    result: Result<Option<String>, crate::service::plan::PlanError>,
+) -> Option<String> {
+    match result {
+        Ok(flow) => flow,
+        Err(error) => {
+            log::warn!("[flow-trace] binding read failed: {error}");
+            None
+        }
     }
 }
 

@@ -194,7 +194,16 @@ impl ServiceContext {
     }
 
     pub(super) fn retain_spawn_worker_brief(&self, target: &str, sender: &str, brief: &str) {
-        let Some(task) = self.reply_relay_task_binding(target) else {
+        let task = match self.reply_relay_task_binding(target) {
+            Ok(task) => task,
+            Err(error) => {
+                log::warn!(
+                    "[tool-less-restart] brief retention read failed target={target}: {error}"
+                );
+                return;
+            }
+        };
+        let Some(task) = task else {
             return;
         };
         {
@@ -282,7 +291,7 @@ impl ServiceContext {
             .current_reply_relay_binding(target)
             .ok_or("restored Worker binding unavailable")?;
         let task = self
-            .reply_relay_task_binding(target)
+            .reply_relay_task_binding(target)?
             .ok_or("restored Worker attempt unavailable")?;
         let state = self
             .mux
@@ -398,7 +407,7 @@ impl ServiceContext {
         self.record_bound_reply_relay(target, pending.clone())?;
         if decision == BriefRestoreDecision::Submit {
             if self.current_reply_relay_binding(target).as_ref() != Some(&binding)
-                || self.reply_relay_task_binding(target).as_ref() != Some(&task)
+                || self.reply_relay_task_binding(target)?.as_ref() != Some(&task)
             {
                 return Err("restored attempt changed before brief write".into());
             }
