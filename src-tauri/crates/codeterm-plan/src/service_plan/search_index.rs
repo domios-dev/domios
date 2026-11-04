@@ -785,7 +785,7 @@ fn plan_header_units(plan: &Plan, scope: &str) -> Vec<Unit> {
         status: &plan_status,
     };
     let mut units = vec![parent.header(&section_titles(&plan.sections), plan.updated_at)];
-    let total = count_sections(&plan.sections);
+    let total = count_sections(&plan.sections, |section| &section.subsections);
     let mut ordinal = 0usize;
     collect_plan_sections(
         plan,
@@ -819,7 +819,7 @@ fn spec_units(spec: &Spec, scope: &str) -> Vec<Unit> {
         status: Some(spec_status.clone()),
         updated_at: spec.updated_at,
     }];
-    let total = count_sections(&spec.sections);
+    let total = count_sections(&spec.sections, |section| &section.subsections);
     let mut ordinal = 0usize;
     collect_spec_sections(
         spec,
@@ -958,12 +958,11 @@ fn stable_id(parent_id: &str, kind: &str, unit_id: &str) -> String {
     format!("planunit_{parent_id}_{kind}_{unit_id}")
 }
 
-fn count_sections(sections: &[Section]) -> usize {
+fn count_sections<T>(sections: &[T], children: fn(&T) -> &[T]) -> usize {
     sections
         .iter()
-        .map(|s| 1 + count_sections(&s.subsections))
-        .sum::<usize>()
-        .max(1)
+        .map(|section| 1 + count_sections(children(section), children))
+        .sum()
 }
 
 fn section_titles(sections: &[Section]) -> String {
