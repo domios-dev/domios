@@ -88,6 +88,7 @@ impl AccountMesh {
             return;
         };
         let mesh = Arc::downgrade(self);
+        let mut closed = self.closed.subscribe();
         if matches!(result, Err(AccountMeshRefusal::EnrollmentBudget { .. })) {
             let remaining = due.saturating_sub(self.now());
             let Some(deadline) =
@@ -96,7 +97,10 @@ impl AccountMesh {
                 return;
             };
             tokio::spawn(async move {
-                tokio::time::sleep_until(deadline).await;
+                tokio::select! {
+                    _ = closed.changed() => return,
+                    _ = tokio::time::sleep_until(deadline) => {}
+                }
                 let Some(mesh) = mesh.upgrade() else {
                     return;
                 };
@@ -129,7 +133,10 @@ impl AccountMesh {
                 }
                 // A local drift check bounds suspend recovery without contacting the registry before due.
                 drop(mesh);
-                tokio::time::sleep(Duration::from_secs(remaining.min(60))).await;
+                tokio::select! {
+                    _ = closed.changed() => return,
+                    _ = tokio::time::sleep(Duration::from_secs(remaining.min(60))) => {}
+                }
             }
         });
     }

@@ -137,7 +137,7 @@ pub trait IdentityProvider: Send + Sync {
 }
 #[async_trait]
 pub trait CredentialStore: Send + Sync {
-    fn session_only(&self, _provider: &str) -> bool {
+    async fn session_only(&self, _provider: &str) -> bool {
         false
     }
     async fn load(&self, provider: &str) -> Result<Option<Secret>>;

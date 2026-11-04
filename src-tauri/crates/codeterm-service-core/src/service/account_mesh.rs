@@ -54,8 +54,8 @@ impl AccountMeshService {
 }
 
 struct AccountSessions(
-    Arc<OnceCell<Arc<codeterm_account::Account>>>,
-    watch::Sender<u64>,
+    Weak<OnceCell<Arc<codeterm_account::Account>>>,
+    watch::WeakSender<u64>,
 );
 fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
     match error {
@@ -66,12 +66,14 @@ fn session_refusal(error: codeterm_account::Error) -> AccountMeshRefusal {
 #[async_trait]
 impl SessionSource for AccountSessions {
     async fn session(&self) -> Result<Option<Session>, AccountMeshRefusal> {
-        let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
+        let owner = self.0.upgrade().ok_or(AccountMeshRefusal::Unavailable)?;
+        let account = owner.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
         account.current_session().await.map_err(session_refusal)
     }
 
     async fn refresh(&self) -> Result<Option<Session>, AccountMeshRefusal> {
-        let account = self.0.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
+        let owner = self.0.upgrade().ok_or(AccountMeshRefusal::Unavailable)?;
+        let account = owner.get().ok_or(AccountMeshRefusal::Unauthenticated)?;
         account.fresh_session().await.map_err(session_refusal)
     }
 }
@@ -79,7 +81,11 @@ impl SessionSource for AccountSessions {
 #[async_trait]
 impl codeterm_account::account_mesh::callable::CallableSessionValidator for AccountSessions {
     async fn retired(&self, expected: &Session) {
-        let mut changes = self.1.subscribe();
+        let Some(owner) = self.1.upgrade() else {
+            return;
+        };
+        let mut changes = owner.subscribe();
+        drop(owner);
         loop {
             if !codeterm_account::account_mesh::callable::CallableSessionValidator::current(
                 self, expected,
@@ -95,7 +101,10 @@ impl codeterm_account::account_mesh::callable::CallableSessionValidator for Acco
     }
 
     async fn current(&self, expected: &Session) -> bool {
-        let Some(account) = self.0.get() else {
+        let Some(owner) = self.0.upgrade() else {
+            return false;
+        };
+        let Some(account) = owner.get() else {
             return false;
         };
         account.session().await.is_some_and(|session| {
@@ -259,8 +268,8 @@ impl ServiceContext {
             Some(Ok(transport)) => Arc::new(
                 CallableRegistry::new(transport)
                     .with_validator(Arc::new(AccountSessions(
-                        self.ext::<AccountCell>().0.clone(),
-                        self.callable_admission_changes(),
+                        Arc::downgrade(&self.ext::<AccountCell>().0),
+                        self.callable_admission_changes().downgrade(),
                     )))
                     .with_revocations(self.session_revocations()),
             ),
@@ -290,8 +299,8 @@ impl ServiceContext {
                     AccountMeshPorts {
                         registry: self.registry(),
                         sessions: Arc::new(AccountSessions(
-                            self.ext::<AccountCell>().0.clone(),
-                            self.callable_admission_changes(),
+                            Arc::downgrade(&self.ext::<AccountCell>().0),
+                            self.callable_admission_changes().downgrade(),
                         )),
                         keys: self.account_credentials().await?,
                         store: Arc::new(FileAccountMeshStore::new(self.account_data_root()?)),
