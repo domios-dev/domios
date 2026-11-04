@@ -1,5 +1,6 @@
 import type { TransportOptions } from "./transportClient";
 import { muxRequestPolicy } from "./streamMuxRequestModel";
+import { __streamMuxesBusyForTest, __streamMuxesIdleForTest } from "./streamMux";
 
 type FetchPort = NonNullable<TransportOptions["fetch"]>;
 
@@ -21,7 +22,7 @@ async function asResponse(value: unknown): Promise<Response> {
 }
 
 export function muxMockFetch(domain: DaemonFake): FetchPort {
-  const jobs = new Map<string, { aborter: AbortController; detached: boolean; cancellable: boolean }>();
+  const jobs = new Map<string, { aborter: AbortController; detached: boolean; cancellable: boolean; reader?: ReadableStreamDefaultReader<Uint8Array> }>();
   const encoder = new TextEncoder();
   function emit(session: string, frame: unknown) {
     try { sessions.get(session)?.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`)); } catch {}
@@ -44,7 +45,7 @@ export function muxMockFetch(domain: DaemonFake): FetchPort {
     const session = parts[3];
     if (init.method === "DELETE") {
       const job = jobs.get(parts[5]);
-      if (job) { job.detached = true; if (job.cancellable) job.aborter.abort(); }
+      if (job) { job.detached = true; if (job.cancellable) { job.aborter.abort(); void job.reader?.cancel().catch(() => {}); } }
       return Response.json({ accepted: true });
     }
     const headers = new Headers(init.headers);
@@ -54,7 +55,7 @@ export function muxMockFetch(domain: DaemonFake): FetchPort {
     const method = stream ? "GET" : headers.get("X-Domios-Mux-Method")!;
     const path = channel?.path ?? headers.get("X-Domios-Mux-Path")!;
     for (const key of [...headers.keys()]) if (key.startsWith("x-domios-mux-")) headers.delete(key);
-    const job = { aborter: new AbortController(), detached: false, cancellable: stream || muxRequestPolicy(method, path, init.body).cancellable };
+    const job: { aborter: AbortController; detached: boolean; cancellable: boolean; reader?: ReadableStreamDefaultReader<Uint8Array> } = { aborter: new AbortController(), detached: false, cancellable: stream || muxRequestPolicy(method, path, init.body).cancellable };
     jobs.set(id, job);
     void (async () => {
       try {
@@ -62,6 +63,7 @@ export function muxMockFetch(domain: DaemonFake): FetchPort {
         if (job.detached) return;
         emit(session, { channel: id, open: true, status: response.status, headers: [...response.headers.entries()] });
         const reader = response.body?.getReader();
+        job.reader = reader;
         if (reader) {
           try {
             for (;;) {
@@ -84,4 +86,16 @@ export function muxMockFetch(domain: DaemonFake): FetchPort {
     get: (target, key) => (key in domain && !(key in Function.prototype) ? Reflect.get(domain, key) : Reflect.get(target, key)),
     has: (target, key) => key in domain || key in target,
   });
+}
+
+/**
+ * Settles the UI against the fake daemon: waits until the carrier has no request in flight, then lets the
+ * callers' promise continuations run (setImmediate follows the microtask queue), and repeats while they
+ * issued follow-up requests. Every wait is a carrier acknowledgement, never a guessed number of turns.
+ */
+export async function settleDaemon(): Promise<void> {
+  do {
+    await __streamMuxesIdleForTest();
+    await new Promise(resolve => setImmediate(resolve));
+  } while (__streamMuxesBusyForTest());
 }

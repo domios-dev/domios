@@ -58,7 +58,7 @@ interface Pending {
   reject: (error: unknown) => void;
 }
 
-export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void }
+export interface StreamMux { fetch: FetchPort; close: () => void; wake: () => void; idle: () => Promise<void>; busy: () => boolean }
 
 export function createStreamMux(transport: () => TransportClient, fetcher: FetchPort): StreamMux {
   const pending = new Map<string, Pending>();
@@ -98,7 +98,13 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
     if (!pending.size && !live && current) {
       const close = closeStream; current = null; closeStream = null; close?.();
     }
+    // After the caller's drain, so an idle waiter sees complete bodies.
+    queueMicrotask(notifyIdle);
   }
+
+  const idleWaiters: Array<() => void> = [];
+  function requestsInFlight(): boolean { return [...pending.values()].some(entry => !entry.stream); }
+  function notifyIdle(): void { if (!requestsInFlight()) for (const waiter of idleWaiters.splice(0)) waiter(); }
 
   function failure(entry: Pending, error?: unknown): void {
     if (!pending.has(entry.id)) return;
@@ -404,6 +410,10 @@ export function createStreamMux(transport: () => TransportClient, fetcher: Fetch
         void prepare(entry);
       });
     },
+    busy: requestsInFlight,
+    idle() {
+      return requestsInFlight() ? new Promise<void>(resolve => { idleWaiters.push(resolve); }) : Promise.resolve();
+    },
     // A wake (network back, page visible, explicit retry) skips the remaining backoff once.
     wake() {
       if (closed || current || !retry) return;
@@ -439,6 +449,15 @@ export function withStreamMux(options: TransportOptions): TransportClient {
 
 export function wakeStreamMuxes(): void {
   for (const holder of muxesByOrigin.values()) holder.mux.wake();
+}
+
+/** Resolves once no carrier request is in flight and every finished response body is complete. */
+export async function __streamMuxesIdleForTest(): Promise<void> {
+  await Promise.all([...muxesByOrigin.values()].map(holder => holder.mux.idle()));
+}
+
+export function __streamMuxesBusyForTest(): boolean {
+  return [...muxesByOrigin.values()].some(holder => holder.mux.busy());
 }
 
 export function __resetStreamMuxesForTest(): void {
