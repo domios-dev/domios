@@ -307,6 +307,7 @@ pub(super) use continuity::register_functions;
 
 mod checkpoint;
 mod creation;
+mod gates;
 mod restart;
 mod restoration;
 mod runtime_restore;

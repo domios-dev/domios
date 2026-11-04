@@ -850,6 +850,7 @@ fn startup_owner_and_status_queries_ignore_unselected_history_and_bodies() {
 mod checkpoint;
 mod continuity;
 mod creation;
+mod gates;
 mod restart;
 mod restoration;
 mod runtime_restore;

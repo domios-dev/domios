@@ -540,7 +540,9 @@ pub(super) fn dispatch(
             emit_plan_changed(svc, &id);
             let mut response_hints = Vec::new();
             if matches!(
-                store.resolve_planner_tab(&id, |pid| svc.tab_probe(pid)),
+                store
+                    .resolve_planner_tab(&id, |pid| svc.tab_probe(pid))
+                    .map_err(plan_rpc_err)?,
                 codeterm_service_core::plan::peer::PeerResolution::Unbound
             ) {
                 let spawn_cmd =
