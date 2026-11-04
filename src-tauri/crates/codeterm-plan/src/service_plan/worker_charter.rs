@@ -1,6 +1,23 @@
 use super::prompts_plan;
 use super::PlanStore;
-use crate::plan::LoopSpec;
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct LoopCharterRead {
+    pub id: String,
+    pub budget: u32,
+    pub count: u32,
+    pub stop_when: Option<String>,
+}
+
+impl From<&crate::plan::LoopSpec> for LoopCharterRead {
+    fn from(loop_spec: &crate::plan::LoopSpec) -> Self {
+        Self {
+            id: loop_spec.id.clone(),
+            budget: loop_spec.budget,
+            count: loop_spec.count,
+            stop_when: loop_spec.stop_when.clone(),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 struct WorkerAssignmentContext {
@@ -9,12 +26,12 @@ struct WorkerAssignmentContext {
     personality: Option<String>,
     role_guidance: Option<String>,
     strides: Option<String>,
-    loop_spec: Option<LoopSpec>,
+    loop_spec: Option<LoopCharterRead>,
     live_attempt_count: usize,
     skill_count: usize,
 }
 
-fn loop_stop_when_text(loop_spec: &LoopSpec) -> &str {
+fn loop_stop_when_text(loop_spec: &LoopCharterRead) -> &str {
     loop_spec
         .stop_when
         .as_deref()
@@ -23,15 +40,15 @@ fn loop_stop_when_text(loop_spec: &LoopSpec) -> &str {
         .unwrap_or("(none recorded)")
 }
 
-pub(super) fn loop_id_line(loop_spec: &LoopSpec) -> String {
+pub(super) fn loop_id_line(loop_spec: &LoopCharterRead) -> String {
     format!("- loop_id: {}", loop_spec.id)
 }
 
-pub(super) fn loop_iteration_line(loop_spec: &LoopSpec) -> String {
+pub(super) fn loop_iteration_line(loop_spec: &LoopCharterRead) -> String {
     format!("- iteration: {}/{}", loop_spec.count, loop_spec.budget)
 }
 
-pub(super) fn loop_stop_when_line(loop_spec: &LoopSpec) -> String {
+pub(super) fn loop_stop_when_line(loop_spec: &LoopCharterRead) -> String {
     format!("- stop_when: {}", loop_stop_when_text(loop_spec))
 }
 
@@ -39,7 +56,7 @@ pub(super) fn competitive_attempt_count_line(live_attempt_count: usize) -> Strin
     format!("- this task currently has {live_attempt_count} live attempts.")
 }
 
-fn render_loop_context(loop_spec: &LoopSpec) -> String {
+fn render_loop_context(loop_spec: &LoopCharterRead) -> String {
     format!(
         "{}\n{}\n{}\n{}\n- {}\n",
         prompts_plan::WORKER_LOOP_CONTEXT_TITLE,
@@ -69,7 +86,7 @@ fn render_competitive_context(live_attempt_count: usize) -> String {
 pub fn render_worker_charter(
     task_id: &str,
     identity: Option<&str>,
-    loop_spec: Option<&LoopSpec>,
+    loop_spec: Option<&LoopCharterRead>,
     live_attempt_count: usize,
     skill_count: usize,
 ) -> String {
@@ -109,7 +126,7 @@ pub(super) struct WorkerAssignmentRead {
     pub(super) personality: Option<String>,
     pub(super) role_guidance: Option<String>,
     pub(super) milestones: Vec<crate::plan::Milestone>,
-    pub(super) loop_spec: Option<LoopSpec>,
+    pub(super) loop_spec: Option<LoopCharterRead>,
     pub(super) live_attempt_count: usize,
 }
 

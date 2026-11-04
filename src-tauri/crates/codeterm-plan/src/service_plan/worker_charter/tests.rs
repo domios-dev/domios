@@ -125,9 +125,9 @@ fn prepends_loop_context_for_loop_targeted_assignment() {
         deviation: None,
         last_iteration_at: None,
     };
-    assert!(out.contains(&loop_id_line(&loop_spec)));
-    assert!(out.contains(&loop_iteration_line(&loop_spec)));
-    assert!(out.contains(&loop_stop_when_line(&loop_spec)));
+    assert!(out.contains(&loop_id_line(&LoopCharterRead::from(&loop_spec))));
+    assert!(out.contains(&loop_iteration_line(&LoopCharterRead::from(&loop_spec))));
+    assert!(out.contains(&loop_stop_when_line(&LoopCharterRead::from(&loop_spec))));
 }
 
 #[test]
