@@ -1,7 +1,7 @@
 use super::super::lane_metadata::normalize_lane_metadata;
 use super::super::readback::pending_after_verified;
 use super::super::task_authority_projection::acknowledging_binding_matches;
-use super::super::{AttemptMatch, AttemptState, PlanError, PlanStore};
+use super::super::{PlanError, PlanStore};
 use super::{
     ambiguous_subject_cause, progression_authority, startup_attempt, startup_status_allows,
     superseded_subject_cause, unresolved_subject_cause, LiveTabAttempt,
@@ -309,30 +309,11 @@ impl PlanStore {
 
     /// Every live attempt this tab executes, whatever the plan or task state.
     /// Callers apply their own acceptance rule and report what they rejected.
-    pub fn live_task_attempts_for_tab(&self, tab_id: &str) -> Vec<LiveTabAttempt> {
-        let candidates = AttemptMatch::executor(tab_id, AttemptState::Unclosed).into_match();
-        self.plans_matching(&candidates)
-            .into_iter()
-            .flat_map(|plan| {
-                let plan_id = plan.id.clone();
-                let plan_active = plan.status == crate::plan::PlanStatus::Active;
-                plan.tasks.into_iter().filter_map(move |task| {
-                    task.execution_attempts
-                        .iter()
-                        .rfind(|attempt| {
-                            attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                        })
-                        .map(|attempt| LiveTabAttempt {
-                            plan_id: plan_id.clone(),
-                            task_id: task.id.clone(),
-                            task_handle: task.handle.clone(),
-                            plan_active,
-                            task_status: task.status.clone(),
-                            attempt: attempt.clone(),
-                        })
-                })
-            })
-            .collect()
+    pub fn live_task_attempts_for_tab(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<LiveTabAttempt>, PlanError> {
+        self.database.live_task_attempts_projection(tab_id)
     }
 
     /// A closed attempt this tab owned on a task that is live on another tab.
@@ -386,7 +367,7 @@ impl PlanStore {
         enforce_runtime_binding: bool,
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
-        let bound = self.live_task_attempts_for_tab(tab_id);
+        let bound = self.live_task_attempts_for_tab(tab_id)?;
         let acknowledgeable = bound
             .iter()
             .filter(|candidate| {

@@ -182,3 +182,14 @@ mod launch;
 pub use launch::{TaskDispatchSeedRead, TaskLaunchRead};
 
 mod deadline;
+
+mod spawn_binding;
+pub use spawn_binding::{SpawnAttemptBindingRead, TaskSpawnBindingRead};
+
+mod worker_preparation;
+pub use worker_preparation::{TaskBriefStrideRead, WorkerTaskBriefRead, WorkerTaskPreparationRead};
+
+mod dispatch_preflight;
+pub use dispatch_preflight::{
+    DispatchCheckoutOccupantRead, RemoteLaneIntegrationRead, TaskDispatchPreflightRead,
+};

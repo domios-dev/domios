@@ -121,6 +121,27 @@ impl From<PlanAuthorityError> for String {
     }
 }
 
+#[derive(Debug)]
+pub enum PlanOperationError {
+    Authority(PlanAuthorityError),
+    Store(PlanError),
+}
+
+impl From<PlanAuthorityError> for PlanOperationError {
+    fn from(error: PlanAuthorityError) -> Self {
+        Self::Authority(error)
+    }
+}
+
+impl std::fmt::Display for PlanOperationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Authority(error) => write!(f, "{error}"),
+            Self::Store(error) => write!(f, "{error}"),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RebindOutcome {
     pub tab_id: String,
@@ -132,6 +153,7 @@ pub struct RebindOutcome {
 
 #[derive(Debug)]
 pub enum OrchestratorLearningError {
+    PlanningAuthority(PlanAuthorityError),
     Authority(String),
     Store(PlanError),
 }
@@ -189,15 +211,6 @@ pub fn launch_binding_is_pending(tab: &Tab) -> bool {
 
 impl ServiceContext {
     pub fn authorize_plan_orchestrator(
-        &self,
-        plan_id: &str,
-        caller: &AuthenticatedPlanCaller,
-    ) -> Result<(), String> {
-        self.authorize_plan_orchestrator_typed(plan_id, caller)
-            .map_err(String::from)
-    }
-
-    pub(crate) fn authorize_plan_orchestrator_typed(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
@@ -326,7 +339,7 @@ impl ServiceContext {
                 .map_err(OrchestratorLearningError::Store);
         }
         self.authorize_plan_orchestrator(plan_id, caller)
-            .map_err(OrchestratorLearningError::Authority)?;
+            .map_err(OrchestratorLearningError::PlanningAuthority)?;
         self.plan_store
             .add_heartbeat_learning(
                 Some(plan_id),
@@ -587,11 +600,8 @@ impl ServiceContext {
         caller: &AuthenticatedPlanCaller,
         note: Option<&str>,
         now_ms: u64,
-    ) -> Result<(), String> {
-        self.authorize_plan_orchestrator(plan_id, caller)
-            .map_err(|_| {
-                "only the live Plan Orchestrator may approve and activate drafts".to_string()
-            })?;
+    ) -> Result<(), PlanOperationError> {
+        self.authorize_plan_orchestrator(plan_id, caller)?;
         self.plan_store
             .set_planning_state(
                 plan_id,
@@ -600,21 +610,21 @@ impl ServiceContext {
                 note,
                 now_ms,
             )
-            .map_err(|error| error.to_string())
+            .map_err(PlanOperationError::Store)
     }
 
     pub fn authorize_execution_action(
         &self,
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
-    ) -> Result<(), String> {
+    ) -> Result<(), PlanAuthorityError> {
         self.authorize_plan_orchestrator(plan_id, caller)?;
         let plan = self
             .plan_store
             .plan_task_admission_projection(plan_id)
-            .map_err(|error| error.to_string())?;
+            .map_err(authority_read_error)?;
         if plan.planning_state != PlanningState::Approved {
-            return Err("the Plan graph must be approved before execution actions".into());
+            return Err(PlanAuthorityError::PlanNotApproved);
         }
         Ok(())
     }
@@ -643,11 +653,11 @@ impl ServiceContext {
         &self,
         task_id: &str,
         caller: &AuthenticatedPlanCaller,
-    ) -> Result<(String, String), String> {
+    ) -> Result<(String, String), PlanAuthorityError> {
         let target = self
             .plan_store
             .task_authority_target_projection(task_id)
-            .map_err(|error| error.to_string())?;
+            .map_err(authority_read_error)?;
         self.authorize_execution_action(&target.plan_id, caller)?;
         Ok((target.plan_id, target.task_id))
     }
@@ -674,11 +684,11 @@ impl ServiceContext {
         plan_id: &str,
         caller: &AuthenticatedPlanCaller,
         now_ms: u64,
-    ) -> Result<(), String> {
+    ) -> Result<(), PlanOperationError> {
         self.authorize_execution_action(plan_id, caller)?;
         self.plan_store
             .set_mode(plan_id, PlanMode::Execution, now_ms)
-            .map_err(|error| error.to_string())
+            .map_err(PlanOperationError::Store)
     }
 
     #[allow(dead_code)]

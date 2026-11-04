@@ -50,6 +50,7 @@ pub async fn check(
 
 static FLIGHT: cache::SingleFlight<AvailabilitySnapshot> = cache::SingleFlight::new();
 mod cache;
+pub mod lifecycle;
 
 async fn refresh(
     ui: &Arc<dyn codeterm_service_core::ports::host::UiEvents>,

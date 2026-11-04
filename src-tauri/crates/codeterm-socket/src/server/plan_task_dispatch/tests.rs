@@ -5,9 +5,9 @@ use super::{
     build_brief_with_personality, checkout_required, cleanup_succeeded,
     complete_dispatch_transaction, dispatch_authorized_gates, dispatch_ready_event,
     dispatch_startup_failed_event, dispatch_worker_identity, lane_metadata_for_dispatch,
-    preflight_dispatch_task_status, preflight_review_capacity, regression_dispatch_warning,
-    resolve_dispatch_lane, roll_back_dispatch_attempt, rollback_failed_dispatch,
-    set_dispatch_task_brief, startup_wait_is_recoverable, task_launch_authority_for_dispatch,
+    preflight_dispatch_task_status, regression_dispatch_warning, resolve_dispatch_lane,
+    roll_back_dispatch_attempt, rollback_failed_dispatch, set_dispatch_task_brief,
+    startup_wait_is_recoverable, task_launch_authority_for_dispatch,
     verify_dispatched_task_binding, worker_ack_timeout_event, DispatchEvidence,
     DispatchFailureDisposition, DispatchWaitFailure,
 };
@@ -1161,4 +1161,26 @@ fn launch_delivery_failure_restores_startup_fields_and_keeps_failed_attempt() {
 
 fn task(value: serde_json::Value) -> Task {
     serde_json::from_value(value).expect("task fixture")
+}
+
+fn preflight_facts(task: &Task) -> codeterm_service_core::service::plan::TaskDispatchPreflightRead {
+    codeterm_service_core::service::plan::TaskDispatchPreflightRead {
+        plan_id: String::new(),
+        project_path: String::new(),
+        canonical_project_path: String::new(),
+        owner_tab_id: None,
+        model: task.model.clone(),
+        lane: task.lane.clone(),
+        files: task.files.clone(),
+        kind: task.kind.clone(),
+        build_breaking: task.tags.iter().any(|tag| tag == "build-breaking"),
+        id: task.id.clone(),
+        name: task.name.clone(),
+        status: task.status.clone(),
+        pause_reason: task.pause_reason.clone(),
+        status_label: task.status_label.clone(),
+        execution_intent: task.execution_intent,
+        is_unplanned_work: task.kind == "unplanned"
+            && task.tags.iter().any(|tag| tag == "unplanned"),
+    }
 }

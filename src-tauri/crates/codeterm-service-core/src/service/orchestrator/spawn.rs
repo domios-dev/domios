@@ -1036,7 +1036,9 @@ impl ServiceContext {
 
     /// Origin frame for a spawned agent's first task, derived from its recorded spawner.
     pub(crate) fn spawn_task_message(&self, target_tab: &str, body: &str) -> Option<String> {
-        if let Some(id) = crate::flow_trace::tab_flow(self, target_tab) {
+        if let Some(id) =
+            crate::flow_trace::diagnostic_flow(crate::flow_trace::tab_flow(self, target_tab))
+        {
             crate::flow_trace::record(&id, "spawn.task", target_tab, "", "prepared", None);
         }
         let friend = self.neighbor_spawn_friend_name(target_tab);

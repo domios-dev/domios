@@ -97,6 +97,10 @@ fn relevant_with_case(event: &Event, roots: &[PathBuf], case: PathCase) -> bool 
 
 impl FileEvents {
     pub(super) fn new(roots: Vec<PathBuf>) -> notify::Result<Self> {
+        let roots = roots
+            .iter()
+            .map(|root| canonical_root(root).map_err(notify::Error::io))
+            .collect::<notify::Result<Vec<_>>>()?;
         let (sender, receiver) = mpsc::sync_channel(1);
         let state = EventState {
             roots: Arc::new(roots),
@@ -165,6 +169,26 @@ impl FileEvents {
         self.watched = desired;
         Ok(())
     }
+}
+
+fn canonical_root(root: &Path) -> std::io::Result<PathBuf> {
+    let absolute = std::path::absolute(root)?;
+    for ancestor in absolute.ancestors() {
+        match ancestor.canonicalize() {
+            Ok(canonical) => {
+                let suffix = absolute
+                    .strip_prefix(ancestor)
+                    .map_err(std::io::Error::other)?;
+                return Ok(canonical.join(suffix));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        }
+    }
+    Err(std::io::Error::new(
+        std::io::ErrorKind::NotFound,
+        "Plugin watch root has no existing ancestor",
+    ))
 }
 
 fn desired_watches(roots: &[PathBuf]) -> notify::Result<HashMap<PathBuf, RecursiveMode>> {

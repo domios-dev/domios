@@ -11,7 +11,7 @@ pub struct PreviewPolicy {
     upload_denied: Vec<String>,
     referenced_uploads: Vec<PathBuf>,
     referenced_upload_denied: Vec<String>,
-    own_pad: Option<String>,
+    own_pad: Option<PathBuf>,
     pad_denied: Vec<String>,
 }
 
@@ -88,12 +88,11 @@ impl PreviewPolicy {
         Ok(self)
     }
 
-    pub fn with_own_pad(
-        mut self,
-        canonical_root: &Path,
-        denied: &[PathBuf],
-    ) -> Result<Self, String> {
-        self.own_pad = Some(denial_key(canonical_root));
+    pub fn with_own_pad(mut self, root: &Path, denied: &[PathBuf]) -> Result<Self, String> {
+        let canonical = root
+            .canonicalize()
+            .map_err(|_| "Unable to resolve preview pad")?;
+        self.own_pad = Some(canonical);
         self.pad_denied = Self::new(HashSet::new(), denied)?.denied;
         Ok(self)
     }
@@ -101,18 +100,21 @@ impl PreviewPolicy {
     pub fn authorize(&self, requested: &Path, canonical: Option<&Path>) -> Result<(), String> {
         if self.references.contains(&path_key(requested)) {
             if let Some(root) = &self.own_pad {
-                let safe = std::iter::once(requested).chain(canonical).all(|path| {
-                    let key = denial_key(path);
-                    let Some(relative) = key
-                        .strip_prefix(root)
-                        .and_then(|rest| rest.strip_prefix('/'))
-                    else {
+                let resolved = canonical
+                    .map(Path::to_path_buf)
+                    .or_else(|| requested.canonicalize().ok());
+                let safe = resolved.as_deref().is_some_and(|path| {
+                    let Ok(relative) = path.strip_prefix(root) else {
                         return false;
                     };
-                    !relative
-                        .split('/')
-                        .any(|part| part == "." || part == ".." || secret_component(part))
-                        && !self.pad_denied.iter().any(|denied| within(&key, denied))
+                    !relative.as_os_str().is_empty()
+                        && !relative
+                            .components()
+                            .any(|part| secret_component(&part.as_os_str().to_string_lossy()))
+                        && !self
+                            .pad_denied
+                            .iter()
+                            .any(|denied| within(&denial_key(path), denied))
                 });
                 if safe {
                     return Ok(());

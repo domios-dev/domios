@@ -778,3 +778,111 @@ fn assert_close_persists_termination(status: crate::plan::TaskStatus, guarded: b
     assert_eq!(replacement.attempt.executor_tab_id, "replacement-tab");
     assert_eq!(replacement.attempt.executor_termination, None);
 }
+#[test]
+fn terminal_worker_close_resolves_missing_attempt_after_accept_or_close() {
+    for accepted in [false, true] {
+        let (fixture, draft) = fixture();
+        let svc = &fixture.service;
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        svc.mux
+            .write()
+            .get_tab_mut(tab_id)
+            .unwrap()
+            .task_binding
+            .as_mut()
+            .unwrap()
+            .attempt_id = None;
+        if accepted {
+            svc.plan_store
+                .with_plan("plan", 2, |plan| {
+                    plan.tasks[0].status = crate::plan::TaskStatus::InReview;
+                    Ok(())
+                })
+                .unwrap();
+            svc.plan_store
+                .record_task_attempt_report(
+                    "plan",
+                    "task",
+                    &crate::plan::AgentRef::from_tab(tab_id),
+                    "opaque-completed-work",
+                    Some(codeterm_types::agent::ReportStatus::InReview),
+                    3,
+                )
+                .unwrap();
+            svc.plan_store
+                .accept_review(
+                    "plan",
+                    "task",
+                    "opaque-acceptance",
+                    true,
+                    true,
+                    None,
+                    crate::plan::AgentRef::from_tab("owner"),
+                    4,
+                )
+                .unwrap();
+        } else {
+            svc.plan_store
+                .close_task(
+                    "plan",
+                    "task",
+                    Some("opaque-owner-close"),
+                    crate::plan::AgentRef::from_tab("owner"),
+                    4,
+                )
+                .unwrap();
+        }
+        assert!(
+            svc.plan_store.get("plan").unwrap().tasks[0].execution_attempts[0]
+                .closed_at
+                .is_some()
+        );
+        svc.close_tab_guarded(Some("owner"), tab_id, false).unwrap();
+        assert!(svc.mux.read().get_tab(tab_id).is_none());
+        assert!(svc
+            .plan_store
+            .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+            .unwrap());
+    }
+}
+
+#[test]
+fn terminal_worker_close_refuses_ambiguous_or_foreign_executor_identity() {
+    for defect in ["ambiguous", "session", "nonce"] {
+        let (fixture, draft) = fixture();
+        let svc = &fixture.service;
+        let tab_id = &draft.source_attempt.executor_tab_id;
+        {
+            let mut mux = svc.mux.write();
+            let tab = mux.get_tab_mut(tab_id).unwrap();
+            tab.task_binding.as_mut().unwrap().attempt_id = None;
+            if defect == "session" {
+                tab.agent_session_id = Some("foreign".into());
+            }
+            if defect == "nonce" {
+                tab.session_binding_nonce = Some("foreign".into());
+            }
+        }
+        svc.plan_store
+            .with_plan("plan", 2, |plan| {
+                plan.tasks[0].status = crate::plan::TaskStatus::Done;
+                plan.tasks[0].execution_attempts[0].closed_at = Some(2);
+                if defect == "ambiguous" {
+                    let mut other = plan.tasks[0].execution_attempts[0].clone();
+                    other.id = "other-attempt".into();
+                    plan.tasks[0].execution_attempts.push(other);
+                }
+                Ok(())
+            })
+            .unwrap();
+        assert!(
+            svc.close_tab_guarded(Some("owner"), tab_id, true).is_err(),
+            "{defect}"
+        );
+        assert!(svc.mux.read().get_tab(tab_id).is_some());
+        assert!(!svc
+            .plan_store
+            .task_executor_termination_confirmed("plan", "task", &draft.source_attempt)
+            .unwrap());
+    }
+}

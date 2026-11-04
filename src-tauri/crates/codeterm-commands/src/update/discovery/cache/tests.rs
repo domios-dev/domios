@@ -40,7 +40,7 @@ async fn stale_concurrent_checks_share_success_and_failure() {
 #[test]
 fn cache_age_bounds_success_and_failure_attempts() {
     assert!(!fresh(None, 100_000));
-    assert!(fresh(Some(70_001), 100_000));
-    assert!(!fresh(Some(70_000), 100_000));
+    assert!(fresh(Some(40_001), 100_000));
+    assert!(!fresh(Some(40_000), 100_000));
     assert!(!fresh(Some(100_001), 100_000));
 }

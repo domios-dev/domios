@@ -1,5 +1,146 @@
 use super::*;
 
+fn permission_provider(id: &str, sandboxed: bool) -> crate::agent::test_provider::MockProvider {
+    use codeterm_plugin::provider::{ExecutionSandboxCapability, ExecutionSandboxMode};
+    let sandbox = if sandboxed {
+        ExecutionSandboxCapability {
+            platforms: vec!["windows".into(), "linux".into(), "macos".into()],
+            read_only: Some(ExecutionSandboxMode {
+                launch_args: vec!["--sandbox".into(), "read-only".into()],
+                runtime_mode: Some("read-only".into()),
+            }),
+            mutating: Some(ExecutionSandboxMode {
+                launch_args: vec!["--sandbox".into(), "workspace-write".into()],
+                runtime_mode: Some("workspace-write".into()),
+            }),
+            ..Default::default()
+        }
+    } else {
+        ExecutionSandboxCapability {
+            unsupported_reason: Some("Fixture provider has no enforcing sandbox".into()),
+            ..Default::default()
+        }
+    };
+    let flags = if sandboxed {
+        vec![
+            "--fixture-bypass-sandbox".into(),
+            "--fixture-bypass-trust".into(),
+        ]
+    } else {
+        vec!["--fixture-bypass-permissions".into()]
+    };
+    crate::agent::test_provider::MockProvider::with_chat_ui(id)
+        .with_auto_approve_flags(flags)
+        .with_execution_sandbox(sandbox)
+}
+
+#[test]
+fn runtime_workers_default_to_full_access_independently_of_global_choice_and_intent() {
+    use crate::service::test_fixture::ServiceFixture;
+
+    let fixture = ServiceFixture::new(crate::multiplexer::state::MultiplexerState::new().0);
+    for (provider, sandboxed) in [("fixture-enforcing", true), ("fixture-unconfined", false)] {
+        fixture
+            .service
+            .agent_registry
+            .register_provider(Box::new(permission_provider(provider, sandboxed)));
+        for choice in [None, Some(false), Some(true)] {
+            fixture
+                .service
+                .ext::<crate::config::ConfigState>()
+                .lock()
+                .agent
+                .full_access = choice;
+            for intent in [
+                crate::plan::ExecutionIntent::ReadOnly,
+                crate::plan::ExecutionIntent::Mutating,
+            ] {
+                let params = SpawnAgentParams {
+                    role: Some("Worker".into()),
+                    execution_intent: Some(intent),
+                    ..Default::default()
+                };
+                let authorized = authorize(&fixture.service, &provider, Some(&params)).unwrap();
+                assert!(authorized.permission_bypass_requested(&provider));
+                assert_eq!(
+                    runtime_launch_mode(authorized.permission_bypass_requested(&provider)),
+                    "full-access"
+                );
+                assert!(crate::service::execution_sandbox::resolve_requested(
+                    &fixture.service.agent_registry,
+                    &provider,
+                    &authorized,
+                    true,
+                )
+                .unwrap()
+                .is_none());
+                let command = crate::service::orchestrator::build_agent_command(
+                    &provider,
+                    &authorized,
+                    None,
+                    None,
+                    &fixture.service.agent_registry,
+                );
+                assert!(!command.is_empty());
+                let flags = fixture
+                    .service
+                    .agent_registry
+                    .with_provider(&provider, |provider| provider.auto_approve_flags())
+                    .unwrap();
+                assert!(!flags.is_empty());
+                for flag in flags {
+                    assert!(command.contains(&flag));
+                }
+                assert!(!command.contains("--sandbox"));
+                assert!(!command.contains("workspace-write"));
+                assert!(!command.contains("read-only"));
+                for sandbox in ["read-only", "workspace-write"] {
+                    let confined = SpawnAgentParams {
+                        sandbox: Some(sandbox.into()),
+                        ..params.clone()
+                    };
+                    let authorized =
+                        authorize(&fixture.service, &provider, Some(&confined)).unwrap();
+                    assert!(!authorized.permission_bypass_requested(&provider));
+                }
+                let refused = SpawnAgentParams {
+                    skip_permissions: Some(false),
+                    ..params
+                };
+                assert!(!authorize(&fixture.service, &provider, Some(&refused))
+                    .unwrap()
+                    .permission_bypass_requested(&provider));
+            }
+        }
+    }
+}
+
+#[test]
+fn runtime_worker_neighbor_authority_cannot_acquire_an_independent_full_access_grant() {
+    let fixture = crate::service::test_fixture::ServiceFixture::new(
+        crate::multiplexer::state::MultiplexerState::new().0,
+    );
+    fixture.set_agent_full_access(true);
+    fixture
+        .service
+        .agent_registry
+        .register_provider(Box::new(permission_provider("fixture-neighbor", false)));
+    let params = SpawnAgentParams {
+        role: Some("Worker".into()),
+        neighbor_authority: Some(crate::multiplexer::types::NeighborAuthority {
+            uid: "opaque-owner".into(),
+            friendship_id: "a".repeat(64),
+            root_tab_id: None,
+        }),
+        ..Default::default()
+    };
+    assert!(
+        !authorize(&fixture.service, "fixture-neighbor", Some(&params))
+            .unwrap()
+            .permission_bypass_requested("fixture-neighbor")
+    );
+}
+
 #[test]
 fn permission_bypass_requires_authorization_and_defaults_only_when_unspecified() {
     assert!(!permission_request(Some(false), true));

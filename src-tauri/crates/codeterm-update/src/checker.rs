@@ -2,7 +2,7 @@ use super::InstallMethod;
 use crate::update_state::UpdateInfo;
 
 // Anonymous public endpoints only; never bake updater tokens into shipped binaries.
-// From 1.16.0 releases publish to the public repository; the newest version across both wins.
+// The second repository is a fallback when the primary feed cannot be fetched.
 pub const UPDATE_REPOSITORIES: [&str; 2] = ["domios-dev/domios", "rollacode/codeterm-releases"];
 pub(super) const GITHUB_REPO: &str = UPDATE_REPOSITORIES[0];
 
@@ -76,14 +76,17 @@ where
             semver::Version::parse(&manifest.version).map_err(|e| e.to_string())?;
             Ok(manifest)
         }) {
-            Ok(manifest) => found.push(ResolvedManifest {
-                release: LatestRelease {
-                    repository,
-                    tag: format!("v{}", manifest.version),
-                },
-                manifest,
-                refresh_error: None,
-            }),
+            Ok(manifest) => {
+                found.push(ResolvedManifest {
+                    release: LatestRelease {
+                        repository,
+                        tag: format!("v{}", manifest.version),
+                    },
+                    manifest,
+                    refresh_error: None,
+                });
+                break;
+            }
             Err(error) => errors.push(format!("{repository}: {error}")),
         }
     }

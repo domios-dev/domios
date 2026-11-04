@@ -11,6 +11,7 @@ import { isSend } from "./codeterm/templates";
 import { CommandCard } from "./toolcard/CommandCard";
 import { CommandGroupCard } from "./toolcard/CommandGroupCard";
 import { EditCard } from "./toolcard/EditCard";
+import { EditRunCard } from "./toolcard/EditRunCard";
 import { FetchCard } from "./toolcard/FetchCard";
 import { FileDiffCards } from "./toolcard/FileDiffCards";
 import { GenericCard } from "./toolcard/GenericCard";
@@ -77,6 +78,7 @@ function ToolCallBubbleContent({
   if (event.agents) return <AgentActivityCard event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
   if (event.stream) return <ToolActivityStream event={event} expanded={expanded} onToggle={onToggle} renderAction={renderAction} />;
 
+  if (event.editRun?.length) return <EditRunCard event={event} expanded={expanded} onToggle={onToggle} />;
   // A structured source diff is the truthful record of the edit, so it replaces the old/new-string card.
   if (event.fileDiffs?.length) return <FileDiffCards event={event} initiallyExpanded={openDiffs} />;
 

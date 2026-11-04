@@ -182,15 +182,12 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     let lane = provision_lane_for_test(project.to_str().unwrap(), "current-attempt").unwrap();
     let provenance = lane.verify().unwrap();
     let worktree_path = provenance.worktree_path.clone();
+    let startup_lane =
+        lane_metadata_for_dispatch(&original.lane, &provenance, project.to_str().unwrap());
+    assert!(original.lane.destination.is_none());
+    assert!(startup_lane.destination.is_some());
     let started = store
-        .begin_task_dispatch_with_undo(
-            &plan_id,
-            &original.id,
-            STALE_TAB,
-            "Ada",
-            lane_metadata_for_dispatch(&original.lane, &provenance, project.to_str().unwrap()),
-            4,
-        )
+        .begin_task_dispatch_with_undo(&plan_id, &original.id, STALE_TAB, "Ada", startup_lane, 4)
         .unwrap();
     let attempt = started.attempt_id;
     let undo = started.undo;
@@ -219,6 +216,10 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     assert_eq!(restored.lane, original.lane);
     assert_eq!(restored.execution_attempts.len(), 1);
     assert_eq!(restored.execution_attempts[0].id, attempt);
+    assert_eq!(
+        restored.execution_attempts[0].destination,
+        original.lane.destination
+    );
     assert!(restored.execution_attempts[0].closed_at.is_some());
     assert_eq!(store.get(&plan_id).unwrap().mode, PlanMode::Approved);
 }
