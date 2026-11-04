@@ -41,7 +41,7 @@ impl StoredHistoryFailure {
         }
     }
 
-    fn error(self, detail: impl std::fmt::Display) -> String {
+    pub(super) fn error(self, detail: impl std::fmt::Display) -> String {
         format!("{}: {detail}", self.tag())
     }
 }
@@ -219,9 +219,12 @@ fn read_stored_window(
     {
         return Ok(None);
     }
-    let path = provider.session_file_path(cwd, session).ok_or_else(|| {
-        StoredHistoryFailure::Missing.error("Provider has no recorded runtime session")
-    })?;
+    let path = provider
+        .session_file_path_checked(cwd, session)
+        .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
+        .ok_or_else(|| {
+            StoredHistoryFailure::Missing.error("Provider has no recorded runtime session")
+        })?;
     if !path
         .try_exists()
         .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
@@ -300,7 +303,8 @@ pub(super) fn archived_window(
     }
     let Some(window) = read_stored_window(provider.as_ref(), cwd, session, None, false)? else {
         let present = provider
-            .session_file_path(cwd, session)
+            .session_file_path_checked(cwd, session)
+            .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
             .map(|path| path.try_exists())
             .transpose()
             .map_err(|error| StoredHistoryFailure::Unavailable.error(error))?
