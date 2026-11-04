@@ -76,7 +76,7 @@ impl ServiceContext {
                 .extensions
                 .try_get::<events::CuratorTabs>()
                 .and_then(|index| index.0.read().get(&tab_id).cloned());
-            let Some(plan) = plan_id.and_then(|id| service.plan_store.get(&id)) else {
+            let Some(plan_id) = plan_id else {
                 return;
             };
             let tokens = service
@@ -90,7 +90,7 @@ impl ServiceContext {
                     return;
                 }
             };
-            let result = service.plan_store.with_plan(&plan.id, now, |plan| {
+            let result = service.plan_store.with_plan(&plan_id, now, |plan| {
                 let Some(run) = plan
                     .control_loop
                     .running
@@ -137,7 +137,7 @@ impl ServiceContext {
             });
             match result {
                 Ok(Some(round)) => {
-                    service.journal_curator(&plan.id, &round);
+                    service.journal_curator(&plan_id, &round);
                     if let Err(error) = service.close_tab_with_reason(
                         &tab_id,
                         crate::multiplexer::types::TabCloseReason::AgentRunEnded,
@@ -243,8 +243,9 @@ impl ServiceContext {
         let identity = self.authenticate_curator(caller)?;
         let run = self
             .plan_store
-            .get(&identity.plan_id)
-            .and_then(|plan| plan.control_loop.running)
+            .curator_authority_projection(&identity.plan_id)
+            .map_err(|error| error.to_string())?
+            .running
             .ok_or("Curator round is no longer active")?;
         let note = note::parse_for_round(text, next_secs, run.synthesis)?;
         if run.asked == (note.asked == codeterm_types::plan::CuratorAsked::None) {
@@ -255,12 +256,16 @@ impl ServiceContext {
             .finish_curator_round(&identity.plan_id, identity.number, &note, now)
             .map_err(|e| e.to_string())?;
         self.journal_curator(&identity.plan_id, &round);
+        let owner = self.plan_store.plan_identity_projection(&identity.plan_id);
         let mut result_delivery_error = None;
-        if let Some(owner) = self
-            .plan_store
-            .get(&identity.plan_id)
-            .and_then(|plan| plan.owner.tab_id)
-        {
+        let owner = match owner {
+            Ok(plan) => plan.owner.tab_id,
+            Err(error) => {
+                result_delivery_error = Some(error.to_string());
+                None
+            }
+        };
+        if let Some(owner) = owner {
             let body = format!(
                 "Curator round {} {}. MOVE: {}",
                 round.number, round.outcome, round.summary
@@ -293,7 +298,13 @@ impl ServiceContext {
     }
 
     pub(crate) fn journal_curator(&self, plan: &str, round: &CuratorRound) {
-        let team = self.plan_store.get(plan).and_then(|p| p.team_id);
+        let team = match self.plan_store.plan_identity_projection(plan) {
+            Ok(plan) => plan.team_id,
+            Err(error) => {
+                log::debug!("[curator] journal plan lookup failed: {error}");
+                return;
+            }
+        };
         let event = json!({"kind":"curator","label":round.outcome,"reason":"curator_round","plan_id":plan,"team_id":team,"time":round.ended_at,"action":"cron","round":round.number,"next_delay_secs":round.next_delay_secs,"learnings":round.learnings});
         if let Err(error) =
             crate::service::supporter::runtime_with_notifications(self).heartbeat_event(event)

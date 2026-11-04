@@ -140,7 +140,10 @@ impl RolePolicy for CuratorPolicy {
         if identity.plan_id != plan_id || !matches!(tag, Some("curator" | "curator:next")) {
             return Err("Curator learnings require this round's plan and curator tag".into());
         }
-        let plan = service.plan_store.get(plan_id).ok_or("plan absent")?;
+        let plan = service
+            .plan_store
+            .plan_identity_projection(plan_id)
+            .map_err(|error| error.to_string())?;
         Ok((plan.owner.tab_id, plan.owner.session_id))
     }
 }

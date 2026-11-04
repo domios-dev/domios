@@ -163,12 +163,14 @@ impl ServiceContext {
         {
             let missing = { self.mux.read().get_tab(tab).is_none() };
             if missing {
+                let tab = tab.to_string();
+                drop(read);
                 return self
-                    .settle_closed_curator_tab(tab)
+                    .settle_closed_curator_tab(&tab)
                     .map_err(crate::service::plan::PlanError::Io);
             }
         }
-        self.reconcile_curator_plan(cron, plan, now)
+        self.reconcile_curator_plan(cron, &read, now)
             .map_err(crate::service::plan::PlanError::Io)
     }
 }

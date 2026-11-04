@@ -17,6 +17,8 @@ pub mod element_queries;
 pub mod external_refs;
 pub mod gates;
 pub mod handoff;
+mod header_projection;
+pub use header_projection::PlanIdentityRead;
 pub mod heartbeat;
 pub mod hints;
 pub mod ingest;
@@ -69,7 +71,9 @@ mod status_projection;
 pub use curator_projection::CuratorDigestRead;
 mod store_convert_118;
 mod store_db;
-pub use status_projection::{CuratorScheduleRead, PlanNoticeRead, PlanStatusRead};
+pub use status_projection::{
+    CuratorAuthorityRead, CuratorScheduleRead, PlanNoticeRead, PlanStatusRead,
+};
 pub mod board_state;
 mod store_index;
 mod store_persist;

@@ -38,8 +38,9 @@ impl ServiceContext {
         };
         let before = self
             .plan_store
-            .get(&plan_id)
-            .and_then(|plan| plan.control_loop.running);
+            .curator_authority_projection(&plan_id)
+            .map_err(|error| error.to_string())?
+            .running;
         self.authenticate_curator(&caller)?;
         if before.is_some_and(|run| run.session_id.is_none() || run.binding_nonce.is_none()) {
             self.emit_committed_plan_changed(&plan_id);
@@ -70,14 +71,17 @@ impl ServiceContext {
             session_id: tab.agent_session_id,
             binding_nonce: tab.session_binding_nonce,
         })?;
-        let plan = self
+        let now = self.curator_now()?;
+        let read = self
             .plan_store
-            .get(&identity.plan_id)
-            .ok_or("plan absent")?;
+            .notice_projection(&identity.plan_id, now, &[])
+            .map_err(|error| error.to_string())?;
+        let plan = read.plan();
         if plan.owner.tab_id.as_deref() != Some(target) {
             return Err("Curator may message only its Orchestrator".into());
         }
-        let now = self.curator_now()?;
+        let prefix = self.curator_heartbeat_body(plan);
+        drop(read);
         self.plan_store
             .with_plan(&identity.plan_id, now, |plan| {
                 let run = plan.control_loop.running.as_mut().ok_or_else(|| {
@@ -91,7 +95,6 @@ impl ServiceContext {
                 Ok(())
             })
             .map_err(|e| e.to_string())?;
-        let prefix = self.curator_heartbeat_body(&plan);
         Ok(Some(format!("{prefix}\n\n{body}")))
     }
 
@@ -217,8 +220,11 @@ impl ServiceContext {
             .try_get::<super::events::CuratorTabs>()
             .and_then(|index| index.0.read().get(tab_id).cloned())
             .ok_or("no active Curator round for this tab")?;
-        let plan = self.plan_store.get(&plan_id).ok_or("plan absent")?;
-        let run = plan.control_loop.running.as_ref().ok_or("round ended")?;
+        let plan = self
+            .plan_store
+            .curator_authority_projection(&plan_id)
+            .map_err(|error| error.to_string())?;
+        let run = plan.running.as_ref().ok_or("round ended")?;
         if run.tab_id.as_deref() != Some(tab_id)
             || run
                 .session_id
@@ -247,10 +253,9 @@ impl ServiceContext {
         let identity = self.curator_identity(caller)?;
         let plan = self
             .plan_store
-            .get(&identity.plan_id)
-            .ok_or("plan absent")?;
+            .curator_authority_projection(&identity.plan_id)
+            .map_err(|error| error.to_string())?;
         if plan
-            .control_loop
             .running
             .as_ref()
             .is_some_and(|run| run.session_id.is_some() && run.binding_nonce.is_some())
@@ -387,10 +392,9 @@ impl ServiceContext {
         let identity = self.authenticate_curator(caller)?;
         let plan = self
             .plan_store
-            .get(&identity.plan_id)
-            .ok_or("plan absent")?;
+            .curator_authority_projection(&identity.plan_id)
+            .map_err(|error| error.to_string())?;
         let grant = plan
-            .control_loop
             .running
             .and_then(|r| r.grant)
             .ok_or("Curator grant required")?;
@@ -412,9 +416,11 @@ impl ServiceContext {
         if identity.plan_id != plan_id {
             return Err("Curator plan skill belongs to another plan".into());
         }
-        let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
+        let plan = self
+            .plan_store
+            .curator_authority_projection(plan_id)
+            .map_err(|error| error.to_string())?;
         let grant = plan
-            .control_loop
             .running
             .and_then(|r| r.grant)
             .ok_or("Curator plan-skill grant required")?;

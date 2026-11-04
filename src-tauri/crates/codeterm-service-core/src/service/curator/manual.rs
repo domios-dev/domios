@@ -29,6 +29,7 @@ impl ServiceContext {
             self.configuration().orchestration.plan_reminders,
             self.curator_suspended_reason(&plan).is_some(),
         );
+        drop(read);
         self.plan_store
             .with_plan(plan_id, now, |plan| {
                 curator::request_round(&mut plan.control_loop, eligible, now)
