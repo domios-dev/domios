@@ -2,7 +2,6 @@ use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
 use crate::plan::{Plan, Section, Task};
 use crate::service_plan::plan_match::{self, PlanMatch};
-use crate::service_plan::task_queries::{include_task, TaskListFilter};
 use crate::service_plan::PlanError;
 use rusqlite::{params, Connection, OptionalExtension};
 
@@ -26,28 +25,6 @@ const TASK_METADATA: &str = "json_object(
     'qa_state',json_extract(row_json,'$.qa_state'))";
 
 impl PlanDatabase {
-    pub(in crate::service_plan) fn task_list_snapshot(
-        &self,
-        predicate: &PlanMatch,
-        filter: &TaskListFilter,
-    ) -> Result<Vec<Plan>, PlanError> {
-        let mut connection = self.connection.lock();
-        let transaction = connection.transaction().map_err(db_error)?;
-        let mut plans = task_contexts(&transaction, predicate)?;
-        for plan in &mut plans {
-            if !super::super::task_queries::plan_in_scope(filter, plan) {
-                continue;
-            }
-            for task in &mut plan.tasks {
-                if include_task(filter, task) {
-                    *task = selected_task(&transaction, &plan.id, &task.id, true)?;
-                }
-            }
-        }
-        transaction.commit().map_err(db_error)?;
-        Ok(plans)
-    }
-
     pub(in crate::service_plan) fn task_detail_snapshot(
         &self,
         predicate: &PlanMatch,
