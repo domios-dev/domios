@@ -530,19 +530,17 @@ async fn session_start(
             let transcript_path = reported_transcript_path(&body)
                 .map(std::path::PathBuf::from)
                 .or_else(|| {
+                    let cwd = state
+                        .svc
+                        .mux
+                        .read()
+                        .get_tab(&tab_id)
+                        .and_then(|tab| tab.cwd.clone())
+                        .unwrap_or_default();
                     state
                         .svc
                         .agent_registry
-                        .with_provider(&provider_id, |provider| {
-                            let cwd = state
-                                .svc
-                                .mux
-                                .read()
-                                .get_tab(&tab_id)
-                                .and_then(|tab| tab.cwd.clone())
-                                .unwrap_or_default();
-                            provider.session_file_path(&cwd, &sid)
-                        })
+                        .with_provider(&provider_id, |provider| provider.session_file_path(&cwd, &sid))
                         .flatten()
                 });
             let Some(transcript_path) = transcript_path else {
