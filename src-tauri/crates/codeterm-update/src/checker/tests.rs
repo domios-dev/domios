@@ -18,15 +18,15 @@ fn package_manager_commands_select_domios_desktop_packages() {
 
 #[test]
 fn release_resolution_uses_published_asset_urls() {
-    assert_eq!(super::super::channel::default_endpoints(super::super::Channel::Stable), vec![
-        "https://github.com/domios-dev/domios/releases/latest/download/domios-latest.json",
-        "https://github.com/rollacode/codeterm-releases/releases/latest/download/domios-latest.json",
-    ]);
+    assert_eq!(
+        super::super::channel::default_endpoint(super::super::Channel::Stable),
+        "https://github.com/domios-dev/domios/releases/latest/download/domios-latest.json"
+    );
 }
 
 #[tokio::test]
-async fn discovery_uses_primary_then_fallback_only_on_failure() {
-    for primary_fails in [false, true] {
+async fn discovery_reads_only_the_main_repository() {
+    for feed_fails in [false, true] {
         let root = tempfile::tempdir().unwrap();
         let mut calls = Vec::new();
         let result = resolve_with(
@@ -35,20 +35,30 @@ async fn discovery_uses_primary_then_fallback_only_on_failure() {
             root.path().into(),
             |url| {
                 calls.push(url.clone());
-                std::future::ready(if primary_fails && calls.len() == 1 {
+                std::future::ready(if feed_fails {
                     Err("offline".into())
                 } else {
                     Ok(resolved("9.0.0").manifest)
                 })
             },
         )
-        .await
-        .unwrap();
-        assert_eq!(result.manifest.version, "9.0.0");
-        assert!(calls[0].contains(UPDATE_REPOSITORIES[0]));
-        assert_eq!(calls.len(), if primary_fails { 2 } else { 1 });
-        if primary_fails {
-            assert!(calls[1].contains(UPDATE_REPOSITORIES[1]));
+        .await;
+        assert_eq!(
+            calls,
+            vec![
+                "https://github.com/domios-dev/domios/releases/latest/download/domios-latest.json"
+            ]
+        );
+        match result {
+            Ok(result) => {
+                assert!(!feed_fails);
+                assert_eq!(result.release.repository, UPDATE_REPOSITORY);
+                assert_eq!(result.manifest.version, "9.0.0");
+            }
+            Err(error) => {
+                assert!(feed_fails);
+                assert!(error.contains(UPDATE_REPOSITORY));
+            }
         }
     }
 }
@@ -57,7 +67,7 @@ async fn discovery_uses_primary_then_fallback_only_on_failure() {
 fn failed_refresh_preserves_manifest_and_reports_failure() {
     let cached = ResolvedManifest {
         release: LatestRelease {
-            repository: GITHUB_REPO,
+            repository: UPDATE_REPOSITORY,
             tag: "v9.0.0".into(),
         },
         manifest: serde_json::from_value(serde_json::json!({
@@ -116,7 +126,7 @@ fn manifest_url_override_requires_https_except_explicit_local_test_builds() {
 fn resolved(version: &str) -> ResolvedManifest {
     ResolvedManifest {
         release: LatestRelease {
-            repository: GITHUB_REPO,
+            repository: UPDATE_REPOSITORY,
             tag: format!("v{version}"),
         },
         manifest: serde_json::from_value(serde_json::json!({
@@ -227,69 +237,76 @@ fn cache_contention_refuses_without_waiting() {
 }
 
 #[tokio::test]
-async fn release_discovery_preserves_channel_and_newest_mirror_when_offline() {
+async fn release_discovery_preserves_channel_and_newest_known_release_when_offline() {
     for channel in [
         crate::Channel::Stable,
         crate::Channel::Rc,
         crate::Channel::Nightly,
     ] {
         let root = tempfile::tempdir().unwrap();
-        let mut endpoints = crate::channel::default_endpoints(channel).into_iter();
+        let expected = crate::channel::default_endpoint(channel);
         let fresh = resolve_with(
             &InstallMethod::Unknown,
             channel,
             root.path().into(),
             |endpoint| {
-                assert_eq!(Some(endpoint.clone()), endpoints.next());
-                std::future::ready(if endpoint.contains(UPDATE_REPOSITORIES[0]) {
-                    Err("primary offline".into())
-                } else {
-                    Ok(resolved("9.0.0").manifest)
-                })
+                assert_eq!(endpoint, expected);
+                std::future::ready(Ok(resolved("9.0.0").manifest))
             },
         )
         .await
         .unwrap();
-        assert!(endpoints.next().is_none());
-        assert_eq!(fresh.release.repository, UPDATE_REPOSITORIES[1]);
+        assert_eq!(fresh.release.repository, UPDATE_REPOSITORY);
         assert_eq!(fresh.release.tag, "v9.0.0");
-        let mut endpoints = crate::channel::default_endpoints(channel).into_iter();
         let older = resolve_with(
             &InstallMethod::Unknown,
             channel,
             root.path().into(),
             |endpoint| {
-                assert_eq!(Some(endpoint), endpoints.next());
+                assert_eq!(endpoint, expected);
                 std::future::ready(Ok(resolved("8.0.0").manifest))
             },
         )
         .await
         .unwrap();
-        assert_eq!(
-            endpoints.next(),
-            crate::channel::default_endpoints(channel)
-                .into_iter()
-                .nth(1)
-        );
-        assert!(endpoints.next().is_none());
         assert_eq!(older.release, fresh.release);
         assert_eq!(older.manifest, fresh.manifest);
         assert!(older.refresh_error.is_some());
-        let mut endpoints = crate::channel::default_endpoints(channel).into_iter();
         let cached = resolve_with(
             &InstallMethod::Unknown,
             channel,
             root.path().into(),
             |endpoint| {
-                assert_eq!(Some(endpoint), endpoints.next());
+                assert_eq!(endpoint, expected);
                 std::future::ready(Err("offline".into()))
             },
         )
         .await
         .unwrap();
-        assert!(endpoints.next().is_none());
         assert_eq!(cached.release, fresh.release);
         assert_eq!(cached.manifest, fresh.manifest);
         assert!(cached.refresh_error.is_some());
     }
+}
+
+#[tokio::test]
+async fn offline_discovery_never_restores_a_manifest_cached_from_another_repository() {
+    let root = tempfile::tempdir().unwrap();
+    let foreign = serde_json::json!({
+        "repository": "rollacode/codeterm-releases",
+        "manifest": serde_json::to_value(resolved("9.0.0").manifest).unwrap(),
+    });
+    std::fs::write(
+        root.path().join("domios-latest.json"),
+        serde_json::to_vec(&foreign).unwrap(),
+    )
+    .unwrap();
+    assert!(resolve_with(
+        &InstallMethod::Unknown,
+        super::super::Channel::Stable,
+        root.path().into(),
+        |_| std::future::ready(Err("offline".into()))
+    )
+    .await
+    .is_err());
 }

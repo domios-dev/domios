@@ -183,7 +183,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
           PROMOTE_RUN_ID: ${{ needs.qualified-source.outputs.promote_run_id || inputs.promote_run_id }}
           EVENT_NAME: ${{ github.event_name }}
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           SOURCE_REPO: ${{ github.repository }}
         shell: bash
         run: |
@@ -238,7 +238,7 @@ jobs:
             tag="v$version"; published_repo="$SOURCE_REPO"
           else
             committed=$(node -p "require('./frontend-release-contract.json').version")
-            tag="frontend-v$version"; published_repo=rollacode/codeterm-releases
+            tag="frontend-v$version"; published_repo="$SOURCE_REPO"
           fi
           echo "::notice::release/$version is a $kind release (changes since ${previous:-the start})"
           if [ "$committed" != "$version" ]; then
@@ -275,7 +275,7 @@ jobs:
       - name: Create draft releases before parallel uploads
         if: steps.release.outputs.dry_run != 'true' && steps.release.outputs.published != 'true' && steps.release.outputs.kind == 'app'
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           SOURCE_REPO: ${{ github.repository }}
           TAG: ${{ steps.release.outputs.tag }}
@@ -290,6 +290,7 @@ jobs:
           fi
           node scripts/release-clear-wedged-assets.mjs "$SOURCE_REPO" "$TAG"
 
+          # 1.19 transition mirror: rollacode/codeterm-releases draft; delete after 1.19 ships.
           if [ "$PUBLISH_MIRROR" = true ]; then
             export GH_TOKEN="$MIRROR_TOKEN"
             if ! gh release view "$TAG" --repo rollacode/codeterm-releases >/dev/null 2>&1; then
@@ -505,7 +506,8 @@ jobs:
         run: node scripts/ci-runner-paths.mjs receipt
       - name: Re-verify retained evidence and publish it to the drafts
         env:
-          GH_TOKEN: ${{ secrets.GH_RELEASE_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          # 1.19 transition mirror: rollacode/codeterm-releases write; delete after 1.19 ships.
           MIRROR_TOKEN: ${{ secrets.PACKAGE_REPOS_TOKEN }}
           PUBLISH_MIRROR: ${{ needs.prepare.outputs.mirror }}
           TAG: ${{ needs.prepare.outputs.tag }}
