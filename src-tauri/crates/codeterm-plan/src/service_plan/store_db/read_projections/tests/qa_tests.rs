@@ -1,6 +1,9 @@
 use super::*;
 use crate::plan::{QaState, ReviewStage, TaskStatus};
-use crate::service_plan::{qa::qa_queue_for, review_gate};
+use crate::service_plan::{
+    qa::{qa_queue_for, qa_queue_from_facts},
+    review_gate,
+};
 
 fn decorate(plan: &mut Plan) {
     plan.review_policy.wip_limit = 3;
@@ -27,9 +30,9 @@ fn decorate(plan: &mut Plan) {
 }
 
 fn response(database: &super::super::super::PlanDatabase, plan: &Plan) -> serde_json::Value {
-    let queue = qa_queue_for(&plan.id, &database.qa_queue_tasks(&plan.id).unwrap(), 50);
+    let queue = qa_queue_from_facts(&plan.id, &database.qa_queue_tasks(&plan.id).unwrap(), 50);
     let gate = database.review_gate_projection(&plan.id).unwrap();
-    let waves = review_gate::qa_waves(&database.qa_wave_projection(&plan.id).unwrap());
+    let waves = review_gate::qa_waves(database.qa_wave_projection(&plan.id).unwrap());
     assert_eq!(queue, qa_queue_for(&plan.id, &plan.tasks, 50));
     assert_eq!(gate, review_gate::review_gate_status(plan));
     assert_eq!(waves, review_gate::qa_waves(plan));
@@ -163,7 +166,7 @@ fn qa_waves_keep_task_group_and_label_from_the_same_committed_transaction() {
     for _ in 0..16 {
         barrier.wait();
         let projected = database.qa_wave_projection(&plan.id).unwrap();
-        let wave = review_gate::qa_waves(&projected).remove(0);
+        let wave = review_gate::qa_waves(projected).remove(0);
         assert_eq!(wave.group_key, wave.label);
         barrier.wait();
     }

@@ -155,7 +155,7 @@ fn id_taken_reports_all_entity_kinds() {
     let store = store_with(dir.path());
     let plan = mk_plan(&store, dir.path(), "P");
     let task = add_task(&store, &plan, "T", "alpha");
-    assert!(store.id_taken(&plan));
-    assert!(store.id_taken(&task));
-    assert!(!store.id_taken("task_notreal"));
+    assert!(store.id_taken(&plan).unwrap());
+    assert!(store.id_taken(&task).unwrap());
+    assert!(!store.id_taken("task_notreal").unwrap());
 }

@@ -29,7 +29,7 @@ pub use store_db::read_projections::hierarchy_routing::{
 };
 pub use store_db::read_projections::launch_restore::{LaunchLaneRead, TabLaunchTaskRead};
 pub use store_db::read_projections::reminder::{
-    ReminderPlanRead, ReminderReadSnapshot, ReminderTaskRead,
+    ReminderAttemptRead, ReminderPlanRead, ReminderReadSnapshot, ReminderTaskRead,
 };
 pub use store_db::read_projections::runtime_identity::RuntimePlanIdentityRead;
 pub use store_db::read_projections::transfer_authority::TransferTaskAuthorityRead;
@@ -50,6 +50,11 @@ pub mod loop_mutations;
 pub mod milestone_gates;
 pub mod mutations;
 pub mod next_actions;
+mod notice_digest_projection;
+pub use notice_digest_projection::{
+    NoticeCartographyRead, NoticeClosedGroup, NoticeDigestInput, NoticeFinishedBinding,
+    NoticeInventoryTargets, NoticeQueueRead,
+};
 pub mod paths;
 pub mod pause;
 pub mod pause_operation;
@@ -186,7 +191,7 @@ pub use state::{
     LoopSnapshot, OpenLane, PlanStateSnapshot, PlanningReadiness, StrideSnapshot, TaskCounts,
     TaskPresentation,
 };
-pub use store_db::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
+pub use store_db::{AttemptFieldRow, SectionRefRow};
 pub use task_dispatch::{
     ambiguous_subject_cause, superseded_subject_cause, unresolved_subject_cause, DispatchRollback,
     DispatchStart, DispatchStartupOwner, DispatchUndo, LiveTabAttempt, LiveTaskAttemptRead,

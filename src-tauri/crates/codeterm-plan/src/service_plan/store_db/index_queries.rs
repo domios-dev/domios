@@ -88,15 +88,6 @@ fn finish_index_row(id: String, status: &str, columns: PlanIndexColumns) -> Opti
 }
 
 impl PlanDatabase {
-    pub(in crate::service_plan) fn task_key_scope(
-        &self,
-        plan_id: &str,
-    ) -> Result<Option<crate::service_plan::ports::TaskKeyScope>, PlanError> {
-        let connection = self.connection.lock();
-        connection.query_row("SELECT id, team_id, project_path, coalesce(json_extract(header_json,'$.canonical_project_path'),'') FROM plans WHERE id=?1", [plan_id], |row| Ok(crate::service_plan::ports::TaskKeyScope { plan_id: row.get(0)?, team_id: row.get(1)?, project_path: row.get(2)?, canonical_project_path: row.get(3)? })).optional().map_err(db_error)
-    }
-
-    /// One `SELECT` over plain `plans` columns: the startup index of every plan.
     pub(in crate::service_plan) fn load_index_rows(&self) -> Result<Vec<PlanIndexRow>, PlanError> {
         let connection = self.connection.lock();
         let mut statement = connection

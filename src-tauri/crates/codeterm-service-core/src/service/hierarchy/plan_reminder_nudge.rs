@@ -1,13 +1,11 @@
-use crate::plan::{Plan, PlanMode, PlanStatus, Task, TaskStatus};
+use crate::plan::{PlanMode, PlanStatus, TaskStatus};
 use crate::service::hierarchy::heartbeat_gate::{
     self, Decision, Gate, HardWake, Observation, ReminderKind, Scope, Snapshot, TickFact,
 };
-use crate::service::plan::heartbeat::is_plan_complete;
 use crate::service::plan::reminders::{NudgeKind, TurnCounter};
 use crate::service::{ServiceContext, ServiceState};
-use codeterm_plan::service_plan::state::{
-    orchestrator_actionable_task_ids, task_projection, DependencyWait, TaskPresentation,
-};
+use codeterm_plan::service_plan::state::TaskPresentation;
+use codeterm_plan::service_plan::{ReminderPlanRead as Plan, ReminderTaskRead as Task};
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -237,10 +235,16 @@ fn deliver_target(
     }
     let state_key = match target {
         PlanReminderTarget::Owner { plan_id } => host
-            .plan(plan_id)
-            .map(|plan| plan_reminder_state_key(plan_id, kind, &plan))
-            .unwrap_or_else(|| format!("owner:{plan_id}:{kind:?}")),
-        PlanReminderTarget::Worker => format!("worker:{tab_id}:{kind:?}"),
+            .plan(plan_id)?
+            .map(|plan| plan_reminder_state_key(&plan))
+            .unwrap_or_else(|| {
+                crate::service::supporter::criteria_hash(
+                    format!("owner:{plan_id}:{kind:?}").as_bytes(),
+                )
+            }),
+        PlanReminderTarget::Worker => {
+            crate::service::supporter::criteria_hash(format!("worker:{tab_id}:{kind:?}").as_bytes())
+        }
     };
     if matches!(target, PlanReminderTarget::Worker)
         && !counter.reminder_content_due(tab_id, &state_key, now)
@@ -312,71 +316,25 @@ fn ensure_routable(host: &impl ReminderHost, tab_id: &str) -> Result<(), String>
     }
 }
 
-fn blocked_notices(plan: &Plan, scope: &Scope, snapshot: &Snapshot) -> Vec<BlockedNotice> {
-    let mut blockers = BTreeMap::<String, BlockerGroup>::new();
-    for task in &plan.tasks {
-        let projection = task_projection(plan, task);
-        if task.status == TaskStatus::Blocked {
-            let reason = non_empty(task.pause_reason.as_deref())
-                .or_else(|| non_empty(task.status_label.as_deref()))
-                .unwrap_or(&task.id);
-            record_blocker(
-                &mut blockers,
-                ("task_blocked", reason),
-                &task.id,
-                &format!("Task {} is blocked", task.id),
-            );
-        }
-        for wait in &projection.dependency_waits {
-            record_blocker(
-                &mut blockers,
-                (
-                    "dependency",
-                    wait.task_id.as_str(),
-                    wait.status
-                        .as_ref()
-                        .map(TaskStatus::key)
-                        .unwrap_or("missing"),
-                ),
-                &task.id,
-                &format!("Dependency {} is not ready", wait.task_id),
-            );
-        }
-        if task.interruption.handoff_required {
-            record_blocker(
-                &mut blockers,
-                ("handoff", task.id.as_str()),
-                &task.id,
-                &format!("Task {} needs a handoff", task.id),
-            );
-        }
-        if crate::plan::reconcile::active_review_hold_note(task).is_some() {
-            let hold_id = task
-                .review_evidence
-                .last()
-                .map(|evidence| evidence.id.as_str())
-                .unwrap_or("");
-            record_blocker(
-                &mut blockers,
-                ("review_hold", task.id.as_str(), hold_id),
-                &task.id,
-                &format!("Task {} is held for review", task.id),
-            );
-        }
-        for attempt in &task.execution_attempts {
-            if let Some(reason) = attempt.interruption.reason.as_deref() {
-                record_blocker(
-                    &mut blockers,
-                    ("machine_hold", reason),
-                    &task.id,
-                    &format!("Worker on task {} is interrupted", task.id),
-                );
-            }
-        }
-    }
-    if let Some(task_id) = scope.task_id.as_deref() {
-        blockers.retain(|_, blocker| blocker.task_ids.contains(task_id));
-    }
+fn blocked_notices(
+    plan: &Plan,
+    scope: &Scope,
+    snapshot: &Snapshot,
+) -> Result<Vec<BlockedNotice>, String> {
+    let mut blockers = plan
+        .blocker_facts(scope.task_id.as_deref())
+        .map_err(|error| error.to_string())?
+        .into_iter()
+        .map(|blocker| {
+            (
+                blocker.identity,
+                BlockerGroup {
+                    summary: blocker.summary,
+                    task_ids: blocker.task_ids,
+                },
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     if blockers.is_empty() {
         let task_id = scope.task_id.as_deref().unwrap_or("");
         let recipient_state = if task_id.is_empty() {
@@ -416,8 +374,8 @@ fn blocked_notices(plan: &Plan, scope: &Scope, snapshot: &Snapshot) -> Vec<Block
             },
         );
     }
-    let actionable: HashSet<_> = orchestrator_actionable_task_ids(plan).into_iter().collect();
-    blockers
+    let actionable: HashSet<_> = plan.actionable_task_ids().into_iter().collect();
+    Ok(blockers
         .into_iter()
         .map(|(identity, blocker)| {
             let pause_plan =
@@ -431,29 +389,13 @@ fn blocked_notices(plan: &Plan, scope: &Scope, snapshot: &Snapshot) -> Vec<Block
                 actions: blocked_notice_actions(),
             }
         })
-        .collect()
+        .collect())
 }
 
 #[derive(Default)]
 struct BlockerGroup {
     summary: String,
     task_ids: BTreeSet<String>,
-}
-
-fn record_blocker(
-    blockers: &mut BTreeMap<String, BlockerGroup>,
-    identity: impl serde::Serialize,
-    task_id: &str,
-    summary: &str,
-) {
-    let key = crate::service::supporter::criteria_hash(
-        &serde_json::to_vec(&identity).unwrap_or_default(),
-    );
-    let blocker = blockers.entry(key).or_insert_with(|| BlockerGroup {
-        summary: summary.into(),
-        ..Default::default()
-    });
-    blocker.task_ids.insert(task_id.into());
 }
 
 fn blocked_notice_actions() -> Vec<codeterm_notification_core::contract::CallerAction> {
@@ -470,7 +412,6 @@ fn blocked_notice_actions() -> Vec<codeterm_notification_core::contract::CallerA
 struct LiveHost<'a> {
     svc: &'a ServiceContext,
     interval: u64,
-    plans: Option<&'a [Plan]>,
 }
 
 impl ReminderHost for LiveHost<'_> {
@@ -487,15 +428,24 @@ impl ReminderHost for LiveHost<'_> {
         self.interval
     }
 
-    fn plan(&self, plan_id: &str) -> Option<Plan> {
-        self.svc.plan_store.get(plan_id)
+    fn plan(&self, plan_id: &str) -> Result<Option<Plan>, String> {
+        self.svc
+            .plan_store
+            .reminder_read_snapshot(heartbeat_gate::scrubbed)
+            .and_then(|read| read.plan(plan_id))
+            .map_err(|error| error.to_string())
     }
 
-    fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> R {
-        match self.plans {
-            Some(plans) => read(plans),
-            None => read(&self.svc.plan_store.reminder_candidate_plans()),
-        }
+    fn with_plans<R>(&self, read: impl FnOnce(&[Plan]) -> R) -> Result<R, String> {
+        let snapshot = self
+            .svc
+            .plan_store
+            .reminder_read_snapshot(heartbeat_gate::scrubbed)
+            .map_err(|error| error.to_string())?;
+        let plans = snapshot
+            .candidates(None)
+            .map_err(|error| error.to_string())?;
+        Ok(read(&plans))
     }
 
     fn recipient(&self, tab_id: &str) -> Option<Recipient> {
@@ -513,7 +463,7 @@ impl ReminderHost for LiveHost<'_> {
         tab_id: &str,
         previous: &Observation,
         now: u64,
-    ) -> (Snapshot, Observation) {
+    ) -> Result<(Snapshot, Observation), String> {
         heartbeat_gate::collect(self.svc, plan, tab_id, previous, now)
     }
 
@@ -523,9 +473,9 @@ impl ReminderHost for LiveHost<'_> {
         scope: &Scope,
         previous: &Observation,
         _: u64,
-    ) -> (Snapshot, Observation) {
+    ) -> Result<(Snapshot, Observation), String> {
         let (mut snapshot, mut observed) =
-            heartbeat_gate::collect_worker_scope(plan, scope, previous);
+            heartbeat_gate::collect_worker_scope(plan, scope, previous)?;
         snapshot.hard = heartbeat_gate::actionable_pending(&previous.pending_hard);
         let (_, owner_observation) =
             heartbeat_gate::collect_owner_messages(self.svc, &scope.tab_id, previous);
@@ -535,7 +485,7 @@ impl ReminderHost for LiveHost<'_> {
                 .insert(scope.tab_id.clone(), owner_observation);
         }
         observed.pending_hard = snapshot.hard.clone();
-        (snapshot, observed)
+        Ok((snapshot, observed))
     }
 
     fn compose(
@@ -557,6 +507,10 @@ impl ReminderHost for LiveHost<'_> {
         observer: Option<crate::service::messenger::DeliveryWriteObserver>,
     ) -> Result<bool, String> {
         let tab_id = scope.tab_id.as_str();
+        crate::service::orchestrator_digests::apply_digest_rate_marks(
+            self.svc,
+            &emission.digest_rate_marks,
+        );
         self.svc
             .ext::<std::sync::Arc<crate::service::hierarchy::heartbeat_gate::Gate>>()
             .remember_body(tab_id, plan_id, &emission.text);
@@ -641,12 +595,24 @@ impl ServiceContext {
             self.plan_turn_counter.clear_time_reminders();
             return;
         }
-        let plans = self.plan_store.reminder_candidate_plans();
+        let mut plans = match self
+            .plan_store
+            .reminder_read_snapshot(heartbeat_gate::scrubbed)
+            .and_then(|read| read.candidates(None))
+        {
+            Ok(plans) => plans,
+            Err(error) => {
+                log::error!("[plan-reminder] candidate read failed: {error}");
+                return;
+            }
+        };
         let host = LiveHost {
             svc: self,
             interval: cfg.nudge_interval_secs,
-            plans: Some(&plans),
         };
+        for plan in &mut plans {
+            plan.release_snapshot();
+        }
         run_reminder_tick(
             &host,
             &plans,
@@ -668,7 +634,17 @@ impl ServiceContext {
     /// ineligible (paused, complete, parked/closed with no open work, or
     /// archived). Active execution owners keep their original deadline.
     pub fn reconcile_time_reminder_eligibility(&self) {
-        let plans = self.plan_store.reminder_candidate_plans();
+        let plans = match self
+            .plan_store
+            .reminder_read_snapshot(heartbeat_gate::scrubbed)
+            .and_then(|read| read.candidates(None))
+        {
+            Ok(plans) => plans,
+            Err(error) => {
+                log::error!("[plan-reminder] candidate read failed: {error}");
+                return;
+            }
+        };
         let counter = &self.plan_turn_counter;
         counter.retain_time_reminders(&deadline_tabs(&plans, counter));
     }
@@ -685,9 +661,8 @@ impl ServiceContext {
         let tab_id = scope.tab_id.as_str();
         Ok(match scope.kind {
             ReminderKind::Worker => {
-                let mut text = self
-                    .plan_store
-                    .prepend_worker_charter_for_tab(
+                let mut text = plan
+                    .compose_worker(
                         tab_id,
                         &crate::service::plan::reminders::worker_nudge_text(),
                     )
@@ -702,6 +677,7 @@ impl ServiceContext {
                 Emission {
                     text,
                     transport: Transport::Automated,
+                    digest_rate_marks: Vec::new(),
                 }
             }
             ReminderKind::Owner => {
@@ -714,9 +690,8 @@ impl ServiceContext {
                 text.push_str("\n\n");
                 text.push_str(&decision.next_step_text());
                 if !plain {
-                    let resolution = self
-                        .plan_store
-                        .resolve_planner_tab(&plan.id, |pid| self.tab_probe(pid))
+                    let resolution = plan
+                        .planner_resolution(|pid| self.tab_probe(pid))
                         .map_err(|error| error.to_string())?;
                     if let Some(prefix) =
                         crate::service::plan::peer_mandate::reminder_planner_prefix(&resolution)
@@ -733,29 +708,37 @@ impl ServiceContext {
                         text = format!("{defer}\n\n{text}");
                     }
                 }
-                let digests = crate::service::orchestrator_digests::collect_digest_lines(
+                let inventory = crate::service::orchestrator_digests::snapshot_notice_inventory(
                     self,
-                    plan,
+                    &plan.id,
+                    plan.team_id.as_deref(),
+                    plan.owner_tab_id.as_deref(),
+                );
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64;
+                let input = plan
+                    .digest_input(now, &inventory.targets())
+                    .map_err(|error| error.to_string())?;
+                let digests = crate::service::orchestrator_digests::prepare_digest_lines_for_input(
+                    self,
+                    &input,
+                    &inventory,
                     if preview { None } else { Some(tab_id) },
                 );
-                let heartbeat = if plain {
-                    String::new()
-                } else {
-                    crate::service::plan::heartbeat::prepend_plan_heartbeat_with_selection(
-                        plan,
-                        "",
-                        &digests,
+                let text = plan
+                    .compose_owner(
+                        &text,
+                        &digests.lines,
                         decision.learning_ids.as_deref(),
+                        plain,
+                        now,
                     )
-                };
-                let actions = crate::service::plan::reminders::composition::action_groups(plan);
-                let parked = crate::service::plan::reminders::parked_later_group_summary(plan);
-                let text = crate::service::plan::reminders::composition::compose(
-                    plan,
-                    &[&actions, &text, &parked, &heartbeat],
-                );
+                    .map_err(|error| error.to_string())?;
                 Emission {
                     text,
+                    digest_rate_marks: digests.rate_marks,
                     transport: Transport::Heartbeat {
                         learning_ids: decision.learning_ids.clone(),
                         plain,
@@ -829,36 +812,8 @@ pub(crate) fn deliver_tab_todo_recitation(
     .map(|delivery| delivery.is_written())
 }
 
-fn plan_reminder_state_key(plan_id: &str, kind: NudgeKind, plan: &Plan) -> String {
-    let tasks = plan
-        .tasks
-        .iter()
-        .map(|task| {
-            let projection = task_projection(plan, task);
-            let waits = projection
-                .dependency_waits
-                .iter()
-                .map(dependency_wait_key)
-                .collect::<Vec<_>>()
-                .join("|");
-            format!(
-                "{}:{:?}:{:?}:{waits}",
-                task.id, projection.presentation, task.status_label
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(",");
-    format!(
-        "owner:{plan_id}:{kind:?}:{:?}:{:?}:{tasks}",
-        plan.status, plan.mode
-    )
-}
-
-fn dependency_wait_key(wait: &DependencyWait) -> String {
-    match wait.status.as_ref() {
-        Some(status) => format!("{}:{}", wait.task_id, task_status_text(status)),
-        None => format!("{}:missing", wait.task_id),
-    }
+fn plan_reminder_state_key(plan: &Plan) -> String {
+    plan.state_key_digest.clone()
 }
 
 impl PlanReminderTarget {
@@ -888,7 +843,7 @@ fn active_execution(plan: &Plan) -> bool {
     plan.status == PlanStatus::Active
         && plan.mode == PlanMode::Execution
         && plan.control_loop.mode != crate::plan::ControlLoopMode::Off
-        && !is_plan_complete(plan)
+        && !plan.complete()
 }
 
 fn owner_reminder_eligible(plan: &Plan) -> bool {
@@ -910,7 +865,7 @@ fn worker_reminder_eligible(plan: &Plan, task: &Task) -> bool {
         return false;
     }
     !matches!(
-        task_projection(plan, task).presentation,
+        task.projection.clone().presentation,
         TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
     )
 }
@@ -918,7 +873,7 @@ fn worker_reminder_eligible(plan: &Plan, task: &Task) -> bool {
 pub fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarget> {
     let mut targets = BTreeMap::<(String, String), PlanReminderTarget>::new();
     for plan in plans.iter().filter(|plan| owner_reminder_eligible(plan)) {
-        if let Some(tab_id) = non_empty(plan.owner.tab_id.as_deref()) {
+        if let Some(tab_id) = non_empty(plan.owner_tab_id.as_deref()) {
             targets.insert(
                 (tab_id.to_string(), plan.id.clone()),
                 PlanReminderTarget::Owner {
@@ -952,18 +907,6 @@ pub fn timed_plan_reminder_targets(plans: &[Plan]) -> Vec<TimedPlanReminderTarge
 fn non_empty(value: Option<&str>) -> Option<&str> {
     let value = value?.trim();
     (!value.is_empty()).then_some(value)
-}
-
-fn task_status_text(status: &TaskStatus) -> &'static str {
-    match status {
-        TaskStatus::Pending => "pending",
-        TaskStatus::InProgress => "in_progress",
-        TaskStatus::InReview => "in_review",
-        TaskStatus::Blocked => "blocked",
-        TaskStatus::Paused => "paused",
-        TaskStatus::Done => "done",
-        TaskStatus::Cancelled => "cancelled",
-    }
 }
 
 fn deadline_tabs(plans: &[Plan], _counter: &TurnCounter) -> HashSet<String> {

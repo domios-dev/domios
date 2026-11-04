@@ -300,7 +300,7 @@ impl PlanStore {
         }
         let mut result = None;
         let mut recorded = false;
-        let milestone_id = self.mint_id("ms");
+        let milestone_id = self.mint_id("ms")?;
         self.with_task_rows(
             plan_id,
             task_id,

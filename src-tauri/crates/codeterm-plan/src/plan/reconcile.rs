@@ -53,10 +53,7 @@ pub fn aged_open_tasks(plan: &Plan, now_ms: u64) -> Vec<AgedOpenTask> {
         .filter(|task| task.status.counts_as_open_work() && active_review_hold_note(task).is_none())
         .filter_map(|task| {
             let projection = task_projection(plan, task);
-            if matches!(
-                projection.presentation,
-                TaskPresentation::WaitingOnDependencies | TaskPresentation::ParkedForLaterGroup
-            ) {
+            if !projection.can_age() {
                 return None;
             }
             let threshold = stale_threshold_ms(&task.status)?;

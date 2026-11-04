@@ -142,7 +142,7 @@ fn strategy_warning_resets_on_accept_changed_surface_or_distinct_oracle() {
         changed_executable_surfaces: false,
         distinct_oracle: false,
     };
-    let mut task = store.show_task(&task_id).unwrap().task;
+    let mut task = store.inspect_task_for_test(&task_id).unwrap().task;
     task.review_round = 4;
     task.review_evidence = vec![base.clone(), base.clone(), base.clone()];
     assert!(strategy_warning(&task).is_some());

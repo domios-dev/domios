@@ -24,12 +24,12 @@ fn pending_task() -> (tempfile::TempDir, PlanStore, String, Task) {
             2,
         )
         .unwrap();
-    let original = store.show_task(&task_id).unwrap().task;
+    let original = store.inspect_task_for_test(&task_id).unwrap().task;
     (dir, store, plan.id, original)
 }
 
 fn task_of(store: &PlanStore, task_id: &str) -> Task {
-    store.show_task(task_id).unwrap().task
+    store.inspect_task_for_test(task_id).unwrap().task
 }
 
 fn begin(store: &PlanStore, plan_id: &str, task_id: &str, tab_id: &str, now: u64) -> String {

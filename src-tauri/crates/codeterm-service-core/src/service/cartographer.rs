@@ -5,7 +5,9 @@
 
 use std::path::Path;
 
+#[cfg(test)]
 use crate::plan::Plan;
+#[cfg(test)]
 use crate::service::plan::{heartbeat, milestone_gates};
 
 /// Milestone kinds that disarm a boundary. The Orchestrator records
@@ -13,6 +15,7 @@ use crate::service::plan::{heartbeat, milestone_gates};
 /// `map_generated`. Either is enough, so a dispatched Cartographer is never
 /// offered a second time while it works.
 pub(crate) const MAP_REQUESTED_KIND: &str = "map_requested";
+#[cfg(test)]
 pub(crate) const MAP_GENERATED_KIND: &str = "map_generated";
 
 /// Source essences the map is generated from. A workspace without them has no
@@ -67,6 +70,7 @@ pub(crate) fn availability(enabled: bool, root: &Path) -> MapAvailability {
     }
 }
 
+#[cfg(test)]
 fn latest_cartography_ts(plan: &Plan) -> u64 {
     plan.strides
         .iter()
@@ -79,6 +83,7 @@ fn latest_cartography_ts(plan: &Plan) -> u64 {
         .unwrap_or(0)
 }
 
+#[cfg(test)]
 fn release_boundary_ts(plan: &Plan) -> Option<u64> {
     if !heartbeat::is_plan_complete(plan) {
         return None;
@@ -86,6 +91,7 @@ fn release_boundary_ts(plan: &Plan) -> Option<u64> {
     plan.tasks.iter().map(|task| task.status_changed_at).max()
 }
 
+#[cfg(test)]
 fn group_keys(plan: &Plan) -> Vec<String> {
     let mut keys: Vec<String> = Vec::new();
     for key in plan
@@ -101,6 +107,7 @@ fn group_keys(plan: &Plan) -> Vec<String> {
     keys
 }
 
+#[cfg(test)]
 fn group_label(plan: &Plan, key: &str) -> String {
     plan.task_groups
         .iter()
@@ -111,30 +118,55 @@ fn group_label(plan: &Plan, key: &str) -> String {
 
 /// The one boundary this plan currently offers, or none. At most one: a
 /// boundary is a place to run the Cartographer once, not a recurring cadence.
+#[cfg(test)]
 pub(crate) fn pending_boundary(plan: &Plan, availability: MapAvailability) -> Option<Boundary> {
     if !availability.is_enabled() {
         return None;
     }
-    let since = latest_cartography_ts(plan);
-    if release_boundary_ts(plan).is_some_and(|ts| ts > since) {
+    pending_boundary_from(&cartography_facts(plan), availability)
+}
+
+#[cfg(test)]
+pub(crate) fn cartography_facts(plan: &Plan) -> codeterm_plan::service_plan::NoticeCartographyRead {
+    let closed_group = group_keys(plan)
+        .into_iter()
+        .filter_map(|key| milestone_gates::group_completion(plan, &key).map(|at| (at, key)))
+        .max_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)))
+        .map(
+            |(closed_at, key)| codeterm_plan::service_plan::NoticeClosedGroup {
+                label: group_label(plan, &key),
+                key,
+                closed_at,
+            },
+        );
+    codeterm_plan::service_plan::NoticeCartographyRead {
+        latest_map_at: latest_cartography_ts(plan),
+        release_at: release_boundary_ts(plan),
+        closed_group,
+    }
+}
+
+fn pending_boundary_from(
+    facts: &codeterm_plan::service_plan::NoticeCartographyRead,
+    availability: MapAvailability,
+) -> Option<Boundary> {
+    if !availability.is_enabled() {
+        return None;
+    }
+    if facts.release_at.is_some_and(|at| at > facts.latest_map_at) {
         return Some(Boundary::Release);
     }
-    group_keys(plan)
-        .into_iter()
-        .filter_map(|key| {
-            milestone_gates::group_completion(plan, &key)
-                .filter(|closed_at| *closed_at > since)
-                .map(|closed_at| (closed_at, key))
-        })
-        .max_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(&right.1)))
-        .map(|(_, key)| Boundary::WaveClose {
-            label: group_label(plan, &key),
-            key,
+    facts
+        .closed_group
+        .as_ref()
+        .filter(|group| group.closed_at > facts.latest_map_at)
+        .map(|group| Boundary::WaveClose {
+            key: group.key.clone(),
+            label: group.label.clone(),
         })
 }
 
-fn boundary_line(plan: &Plan, boundary: &Boundary) -> String {
-    let plan_id = &plan.id;
+fn boundary_line(plan_id: &str, boundary: &Boundary) -> String {
     let record = format!(
         "record it on that task with `domios plan record {plan_id} --task <task> --step {MAP_REQUESTED_KIND}:<boundary>`"
     );
@@ -152,25 +184,32 @@ fn boundary_line(plan: &Plan, boundary: &Boundary) -> String {
 
 /// The heartbeat contribution: one line when a boundary is open, nothing
 /// otherwise.
+#[cfg(test)]
 pub(crate) fn boundary_digest_lines(plan: &Plan, availability: MapAvailability) -> Vec<String> {
     pending_boundary(plan, availability)
-        .map(|boundary| vec![boundary_line(plan, &boundary)])
+        .map(|boundary| vec![boundary_line(&plan.id, &boundary)])
         .into_iter()
         .flatten()
         .collect()
 }
 
-/// The same contribution, resolved against the owner's config and the plan's
-/// own project root.
-pub(crate) fn digest_lines(plan: &Plan, enabled: bool) -> Vec<String> {
-    let root = if plan.canonical_project_path.is_empty() {
-        plan.project_path.as_str()
-    } else {
-        plan.canonical_project_path.as_str()
-    };
-    boundary_digest_lines(plan, availability(enabled, Path::new(root)))
-}
-
 #[cfg(test)]
 #[path = "cartographer/tests.rs"]
 mod tests;
+
+pub(crate) fn digest_lines_from_input(
+    input: &codeterm_plan::service_plan::NoticeDigestInput,
+    enabled: bool,
+) -> Vec<String> {
+    let available = availability(enabled, Path::new(&input.project_root));
+    boundary_digest_lines_from_input(input, available)
+}
+
+pub(crate) fn boundary_digest_lines_from_input(
+    input: &codeterm_plan::service_plan::NoticeDigestInput,
+    available: MapAvailability,
+) -> Vec<String> {
+    pending_boundary_from(&input.cartography, available)
+        .map(|boundary| vec![boundary_line(&input.plan_id, &boundary)])
+        .unwrap_or_default()
+}

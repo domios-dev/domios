@@ -138,23 +138,22 @@ pub(super) fn milestone_unit(
     scope: &str,
     plan_status: &str,
 ) -> Unit {
-    Unit {
-        id: stable_id(plan_id, "stride", &stride.id),
-        kind: "stride",
-        title: format!("{} stride {}", task_name, stride.kind),
-        body: format!(
-            "Plan \"{}\" · task \"{}\" · stride({}): {}",
-            plan_title, task_name, stride.kind, stride.text
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan_id.into()),
-        spec_id: None,
-        unit_id: stride.id.clone(),
-        unit_title: stride.kind.clone(),
-        parent_title: task_name.into(),
-        status: Some(format!("{plan_status}:{task_status}")),
-        updated_at: stride.ts,
+    super::unit_inputs::UnitParent {
+        id: plan_id,
+        title: plan_title,
+        scope,
+        status: plan_status,
     }
+    .stride(
+        task_name,
+        task_status,
+        super::unit_inputs::StrideUnitInput {
+            id: &stride.id,
+            kind: &stride.kind,
+            text: &stride.text,
+            ts: stride.ts,
+        },
+    )
 }
 
 pub(super) fn mirror_unit(root: &Path, unit: &Unit) -> Result<Vec<Unit>, String> {
@@ -214,30 +213,25 @@ pub(super) fn task_unit(
     scope: &str,
     plan_status: &str,
 ) -> Unit {
-    let acceptance_criteria = task.acceptance_criteria.join("\n");
-    let external_refs = task
-        .external_refs
-        .iter()
-        .map(|external_ref| external_ref.canonical_url.as_str())
-        .collect::<Vec<_>>()
-        .join("\n");
-    Unit {
-        id: stable_id(plan_id, "task", &task.id),
-        kind: "task",
-        title: format!("{} task {}", plan_title, task.name),
-        body: format!(
-            "Plan \"{}\" · task: {}\n{}\n{}\n{}",
-            plan_title, task.name, acceptance_criteria, external_refs, task.body
-        ),
-        scope: scope.to_string(),
-        plan_id: Some(plan_id.into()),
-        spec_id: None,
-        unit_id: task.id.clone(),
-        unit_title: task.name.clone(),
-        parent_title: plan_title.into(),
-        status: Some(format!("{plan_status}:{}", task_status_text(task))),
-        updated_at: task.updated_at,
+    super::unit_inputs::UnitParent {
+        id: plan_id,
+        title: plan_title,
+        scope,
+        status: plan_status,
     }
+    .task(super::unit_inputs::TaskUnitInput {
+        id: &task.id,
+        name: &task.name,
+        status: &task.status,
+        updated_at: task.updated_at,
+        body: &task.body,
+        acceptance_criteria: &task.acceptance_criteria,
+        external_refs: task
+            .external_refs
+            .iter()
+            .map(|reference| reference.canonical_url.as_str())
+            .collect(),
+    })
 }
 
 pub(super) fn delete_unit(root: &Path, id: &str) -> Result<(), String> {

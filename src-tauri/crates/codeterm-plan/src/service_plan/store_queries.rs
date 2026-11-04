@@ -304,16 +304,6 @@ impl PlanStore {
         })
     }
 
-    /// One text field (a JSON path such as `$.lane.worktree_path`) of every task row holding it.
-    pub fn task_field_values(&self, path: &str) -> Vec<TaskFieldRow> {
-        self.database
-            .task_field_values(path)
-            .unwrap_or_else(|error| {
-                log::warn!("[plan.store] task field query failed: {error}");
-                Vec::new()
-            })
-    }
-
     /// One text field of every attempt row holding it.
     pub fn attempt_field_values(&self, path: &str) -> Vec<AttemptFieldRow> {
         self.database
@@ -330,22 +320,6 @@ impl PlanStore {
 
     pub(super) fn loop_rows(&self) -> Result<Vec<(String, String, String)>, PlanError> {
         self.database.loop_rows()
-    }
-
-    /// Active execution plans with unfinished work: the only plans reminder ticks act on.
-    pub fn reminder_candidate_plans(&self) -> Vec<Plan> {
-        self.plans_matching(&reminder_candidates())
-    }
-
-    /// Reminder candidates this tab owns or holds an assignment in.
-    pub fn reminder_candidate_plans_for_tab(&self, tab_id: &str) -> Vec<Plan> {
-        if tab_id.trim().is_empty() {
-            return Vec::new();
-        }
-        self.plans_matching(&reminder_candidates().and(PlanMatch::Any(vec![
-            PlanMatch::owner(tab_id),
-            TaskMatch::assigned(tab_id, &plan_match::NON_TERMINAL_TASK_STATUSES),
-        ])))
     }
 
     /// Plans bound to the Team or holding work of one of its member tabs.
@@ -450,17 +424,6 @@ impl PlanStore {
             self.spec_index.write().remove(&spec_id);
         }
     }
-}
-
-fn reminder_candidates() -> PlanMatch {
-    PlanMatch::active()
-        .and(PlanMatch::Mode(PlanMode::Execution))
-        .and(TaskMatch::with_status(&[
-            TaskStatus::Pending,
-            TaskStatus::InProgress,
-            TaskStatus::InReview,
-            TaskStatus::Blocked,
-        ]))
 }
 
 pub(super) fn team_close_candidates(team_id: &str, member_tab_ids: &[String]) -> PlanMatch {

@@ -190,7 +190,7 @@ fn dispatch_of_blocked_task_unblocks_atomically_and_ack_succeeds() {
         })
         .unwrap();
 
-    let lane = store.show_task(&task_id).unwrap().task.lane;
+    let lane = store.inspect_task_for_test(&task_id).unwrap().task.lane;
     let attempt_id = store
         .begin_task_dispatch(&plan_id, &task_id, "worker-next", "Worker", lane.clone(), 5)
         .unwrap();
@@ -478,7 +478,7 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
         )
         .unwrap());
 
-    let reported = store.show_task(&task_id).unwrap().task;
+    let reported = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(reported.status, TaskStatus::Pending);
     let old_attempt_id = reported.execution_attempts[0].id.clone();
     let old_reported_at = reported.execution_attempts[0].reported_at;
@@ -498,7 +498,7 @@ fn partial_report_then_redispatch_reuses_its_own_lane() {
             6,
         )
         .unwrap();
-    let redispatched = store.show_task(&task_id).unwrap().task;
+    let redispatched = store.inspect_task_for_test(&task_id).unwrap().task;
     let old_attempt = redispatched
         .execution_attempts
         .iter()
@@ -985,7 +985,7 @@ fn a_live_dispatch_refuses_a_second_start_without_superseding() {
     assert_eq!(attempt_id, live_attempt);
     assert_eq!(tab_id, "winner-tab");
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     let open: Vec<_> = task
         .execution_attempts
         .iter()
@@ -1032,7 +1032,7 @@ fn assign_then_dispatch_keeps_the_existing_supersede_semantics() {
             4,
         )
         .expect("an assignment without a dispatched startup remains redispatchable");
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.execution_attempts.len(), 2);
     assert_eq!(task.execution_attempts[0].closed_at, Some(4));
     assert_eq!(task.execution_attempts[1].id, replacement_id);
@@ -1090,7 +1090,7 @@ fn concurrent_dispatch_reservations_allow_exactly_one_live_attempt() {
         "the refusal must name the live attempt and tab"
     );
 
-    let task = store.show_task(&task_id).unwrap().task;
+    let task = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(task.assigned_tab_id.as_deref(), Some(winner_tab.as_str()));
     let open: Vec<_> = task
         .execution_attempts

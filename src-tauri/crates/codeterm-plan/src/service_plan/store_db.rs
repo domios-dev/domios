@@ -98,6 +98,7 @@ impl PlanDatabase {
         status_queries::register_functions(&connection)?;
         heartbeat_queries::register_functions(&connection)?;
         reference_resolver_queries::register_functions(&connection)?;
+        task_key_queries::register_functions(&connection)?;
         curator_notice_queries::register_functions(&connection)?;
         auxiliary_queries::register_functions(&connection)?;
         worker_read_queries::register_functions(&connection)?;
@@ -601,6 +602,7 @@ mod reference_resolver_queries;
 mod related_queries;
 mod search_queries;
 mod section_link_queries;
+mod task_key_queries;
 mod worker_read_queries;
 pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
@@ -614,7 +616,7 @@ mod task_history_queries;
 mod task_list_queries;
 mod task_read_queries;
 mod ui_projections;
-pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};
+pub use match_queries::{AttemptFieldRow, SectionRefRow};
 #[cfg(test)]
 mod schema_tests;
 #[cfg(test)]

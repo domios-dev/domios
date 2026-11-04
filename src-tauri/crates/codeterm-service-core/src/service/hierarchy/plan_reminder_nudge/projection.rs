@@ -1,5 +1,6 @@
-use crate::plan::{Plan, TaskStatus};
+use crate::plan::TaskStatus;
 use crate::service::hierarchy::heartbeat_gate::DeliveryTick;
+use codeterm_plan::service_plan::ReminderPlanRead as Plan;
 
 use super::{timed_plan_reminder_targets, PlanReminderTarget};
 
@@ -124,7 +125,7 @@ fn in_progress_ids(plan: &Plan, tab_id: Option<&str>) -> Vec<String> {
                 .unwrap_or(true)
         })
         .take(5)
-        .map(crate::service::plan::reminders::composition::task_label)
+        .map(|task| task.label.clone())
         .collect()
 }
 

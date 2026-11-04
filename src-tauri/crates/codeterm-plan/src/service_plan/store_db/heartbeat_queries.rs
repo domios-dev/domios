@@ -1,4 +1,4 @@
-use super::read_projections::{column, record_query};
+use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
 use crate::plan::PlanMode;
 use crate::service_plan::{PlanError, PlanMatch};
@@ -33,6 +33,39 @@ pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanErro
 }
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn heartbeat_show_projection(
+        &self,
+        id: &str,
+        now: u64,
+    ) -> Result<crate::service_plan::heartbeat::HeartbeatShowResult, PlanError> {
+        let mut guard = self.connection.lock();
+        let connection = guard.transaction().map_err(db_error)?;
+        let parts =
+            super::curator_notice_queries::heartbeat_display_snapshot(&connection, id, now)?;
+        record_query();
+        let document:Option<String>=connection.query_row(
+            "SELECT json_object('learnings',json((SELECT json_group_array(json(value)) FROM (
+                SELECT key,value FROM json_each(h.row_json,'$.learnings') WHERE json_extract(value,'$.tag')='owner'
+                    OR key IN (SELECT key FROM json_each(h.row_json,'$.learnings') WHERE coalesce(json_extract(value,'$.tag'),'')<>'owner' ORDER BY key DESC LIMIT 50)
+                ORDER BY key)))) FROM plan_heartbeat h WHERE plan_id=?1",
+            [id],|row|column(row,0)).optional().map_err(db_error)?;
+        let heartbeat: crate::plan::OrchestratorHeartbeat = match document {
+            Some(document) => decode(id, &document)?,
+            None => Default::default(),
+        };
+        let reinjection = parts.render_block(
+            &crate::service_plan::heartbeat::view::learning_lines(&heartbeat),
+            &[],
+        );
+        let read = crate::service_plan::heartbeat::HeartbeatShowResult {
+            plan_id: id.into(),
+            heartbeat,
+            reinjection,
+            blocked_or_gated_count: parts.blocked_or_gated_count,
+        };
+        connection.commit().map_err(db_error)?;
+        Ok(read)
+    }
     pub(in crate::service_plan) fn heartbeat_projection(
         &self,
         id: &str,

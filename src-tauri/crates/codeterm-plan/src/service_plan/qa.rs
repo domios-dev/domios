@@ -10,6 +10,16 @@ use crate::plan::{
 
 pub const QA_MILESTONE_KIND: &str = "qa";
 
+#[derive(serde::Deserialize)]
+pub(super) struct QaQueueTaskRead {
+    pub id: String,
+    pub name: String,
+    pub qa_state: Option<QaState>,
+    pub status_changed_at: u64,
+    pub assigned_tab_id: Option<String>,
+    pub qa_plan: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct QaQueueEntry {
     pub task_id: String,
@@ -98,7 +108,7 @@ fn effective_qa_plan(task: &Task) -> Option<String> {
     task.qa_plan.clone().or_else(|| task.test_plan.clone())
 }
 
-fn qa_entry(task: &Task, position: Option<usize>, now_ms: u64) -> QaQueueEntry {
+fn qa_entry(task: &QaQueueTaskRead, position: Option<usize>, now_ms: u64) -> QaQueueEntry {
     let started_at = (task.qa_state == Some(QaState::Running)).then_some(task.status_changed_at);
     QaQueueEntry {
         task_id: task.id.clone(),
@@ -108,7 +118,7 @@ fn qa_entry(task: &Task, position: Option<usize>, now_ms: u64) -> QaQueueEntry {
         started_at,
         age_ms: started_at.map(|ts| now_ms.saturating_sub(ts)),
         assigned_tab_id: task.assigned_tab_id.clone(),
-        test_plan: effective_qa_plan(task),
+        test_plan: task.qa_plan.clone(),
     }
 }
 
@@ -213,7 +223,7 @@ fn require_current_claimed_attempt(task: &Task, claimed_index: usize) -> Result<
 impl PlanStore {
     pub fn qa_queue(&self, plan_id: &str, now_ms: u64) -> Result<QaQueue, PlanError> {
         let tasks = self.database.qa_queue_tasks(plan_id)?;
-        Ok(qa_queue_for(plan_id, &tasks, now_ms))
+        Ok(qa_queue_from_facts(plan_id, &tasks, now_ms))
     }
 
     pub fn enqueue_qa(
@@ -438,13 +448,31 @@ impl PlanStore {
     }
 }
 
+#[cfg(test)]
 pub(super) fn qa_queue_for(plan_id: &str, tasks: &[Task], now_ms: u64) -> QaQueue {
-    let mut queued = Vec::new();
-    let mut running = Vec::new();
-    for task in tasks
+    let facts = tasks
         .iter()
         .filter(|task| task.status == TaskStatus::InReview && task.review_stage == ReviewStage::Qa)
-    {
+        .map(|task| QaQueueTaskRead {
+            id: task.id.clone(),
+            name: task.name.clone(),
+            qa_state: task.qa_state.clone(),
+            status_changed_at: task.status_changed_at,
+            assigned_tab_id: task.assigned_tab_id.clone(),
+            qa_plan: effective_qa_plan(task),
+        })
+        .collect::<Vec<_>>();
+    qa_queue_from_facts(plan_id, &facts, now_ms)
+}
+
+pub(super) fn qa_queue_from_facts(
+    plan_id: &str,
+    tasks: &[QaQueueTaskRead],
+    now_ms: u64,
+) -> QaQueue {
+    let mut queued = Vec::new();
+    let mut running = Vec::new();
+    for task in tasks {
         match task.qa_state {
             Some(QaState::Running) => running.push(qa_entry(task, None, now_ms)),
             Some(QaState::Queued) | None => {

@@ -1,5 +1,7 @@
 use super::{PlanError, PlanStore};
-use crate::plan::{Plan, Task, TaskFiles, WorkerPlacement};
+#[cfg(test)]
+use crate::plan::{Plan, Task};
+use crate::plan::{TaskFiles, WorkerPlacement};
 mod inspection;
 mod report;
 pub use super::store_db::read_projections::checkout::{
@@ -8,6 +10,7 @@ pub use super::store_db::read_projections::checkout::{
 pub(crate) use inspection::{SharedDispatchInspection, SharedReportInspection};
 pub use report::{shared_checkout_head, validate_shared_report};
 
+#[cfg(test)]
 fn canonical(plan: &Plan) -> String {
     let path = if plan.canonical_project_path.trim().is_empty() {
         &plan.project_path
@@ -28,14 +31,7 @@ pub(in crate::service_plan) fn canonical_path(path: &str) -> String {
     )
 }
 
-pub fn live_shared(task: &Task) -> bool {
-    task.execution_attempts.iter().any(|attempt| {
-        attempt.closed_at.is_none()
-            && attempt.retired_at.is_none()
-            && attempt.placement == WorkerPlacement::Shared
-    })
-}
-
+#[cfg(test)]
 pub fn validate_exclusive_checkout(
     plans: &[CheckoutPeerRead],
     plan: &Plan,
@@ -73,6 +69,7 @@ pub(crate) fn validate_exclusive_checkout_at(
     Ok(())
 }
 
+#[cfg(test)]
 pub fn validate_shared_files(
     plans: &[CheckoutPeerRead],
     plan: &Plan,
@@ -232,9 +229,6 @@ pub fn choose_placement_facts(
 }
 
 impl PlanStore {
-    pub fn checkout_peer_plans(&self, plan: &Plan) -> Result<Vec<CheckoutPeerRead>, PlanError> {
-        self.checkout_peer_facts(&canonical(plan))
-    }
     pub fn extend_task_edit_files(
         &self,
         plan_id: &str,

@@ -159,8 +159,11 @@ fn show_task_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert_eq!(store.show_task("task_shown").unwrap().plan_id, holder);
-    assert_never_loaded(&store, &[&other]);
+    assert_eq!(
+        store.show_task_window("task_shown").unwrap().plan_id,
+        holder
+    );
+    assert_never_loaded(&store, &[&holder, &other]);
 }
 
 #[test]
@@ -212,7 +215,7 @@ fn task_key_high_water_never_loads_unmatched_plans() {
     );
     start(&store);
 
-    assert_eq!(store.task_key_high_water().get("AUD"), Some(&7));
+    assert_eq!(store.task_key_high_water().unwrap().get("AUD"), Some(&7));
     assert!(
         store.plan_loads_for_test().is_empty(),
         "keys come from the task rows"
@@ -546,18 +549,24 @@ fn reminder_candidate_plans_never_loads_unmatched_plans() {
     start(&store);
 
     let ids: Vec<_> = store
-        .reminder_candidate_plans()
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidates(None)
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
     assert_eq!(ids, vec![working.clone()]);
     let for_tab: Vec<_> = store
-        .reminder_candidate_plans_for_tab("w1")
+        .reminder_read_snapshot(str::to_string)
+        .unwrap()
+        .candidates(Some("w1"))
+        .unwrap()
         .into_iter()
         .map(|plan| plan.id)
         .collect();
-    assert_eq!(for_tab, vec![working]);
-    assert_never_loaded(&store, &[&archived, &finished]);
+    assert_eq!(for_tab, vec![working.clone()]);
+    assert_never_loaded(&store, &[&working, &archived, &finished]);
 }
 
 #[test]

@@ -525,7 +525,7 @@ mod model_refresh_tests {
         let attempt_id = fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .execution_attempts[0]
@@ -557,7 +557,7 @@ mod model_refresh_tests {
             fixture
                 .service
                 .plan_store
-                .show_task(&task_id)
+                .inspect_task_for_test(&task_id)
                 .unwrap()
                 .task
                 .execution_attempts
@@ -824,7 +824,7 @@ mod model_refresh_tests {
         let attempt_id = fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .execution_attempts[0]
@@ -838,7 +838,7 @@ mod model_refresh_tests {
             fixture
                 .service
                 .plan_store
-                .show_task(&task_id)
+                .inspect_task_for_test(&task_id)
                 .unwrap()
                 .task
                 .execution_attempts[0]
@@ -859,7 +859,7 @@ mod model_refresh_tests {
         let attempt = fixture
             .service
             .plan_store
-            .show_task(&task_id)
+            .inspect_task_for_test(&task_id)
             .unwrap()
             .task
             .execution_attempts
