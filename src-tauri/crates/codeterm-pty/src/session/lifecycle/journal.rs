@@ -76,6 +76,7 @@ struct WriteCursor {
 /// Append-only tab lifecycle journal. One file, one monotonic sequence.
 pub struct TabLifecycleJournal {
     path: PathBuf,
+    writer: TimedMutex<()>,
     cursor: TimedMutex<WriteCursor>,
     read_index: ArcSwap<JournalReadIndex>,
 }
@@ -113,6 +114,7 @@ impl TabLifecycleJournal {
         }
         Self {
             path,
+            writer: TimedMutex::new("lifecycle_journal_writer", ()),
             read_index: ArcSwap::from_pointee(JournalReadIndex::from_records(&load.records)),
             cursor: TimedMutex::new(
                 "lifecycle_journal",
@@ -147,8 +149,8 @@ impl TabLifecycleJournal {
         key: LifecycleKey,
         transition: LifecycleTransition,
     ) -> Result<JournalSeq, String> {
-        let mut cursor = self.cursor.lock();
-        let seq = cursor.last_seq.saturating_add(1);
+        let writer = self.writer.lock();
+        let seq = self.cursor.lock().last_seq.saturating_add(1);
         let tab_id = key.tab_id.clone();
         let epoch = key.epoch;
         let record = JournalRecord::Transition {
@@ -161,6 +163,7 @@ impl TabLifecycleJournal {
         };
         append_line(&self.path, &record)?;
         self.publish_read_record(&record);
+        let mut cursor = self.cursor.lock();
         cursor.last_seq = seq;
         cursor.records += 1;
         cursor
@@ -170,6 +173,7 @@ impl TabLifecycleJournal {
             .or_insert(epoch);
         let unbounded = cursor.records >= cursor.compact_at_records;
         drop(cursor);
+        drop(writer);
         if unbounded {
             if let Err(error) = self.compact_if_due() {
                 log::warn!("[tab-lifecycle] compaction failed: {error}");
@@ -204,7 +208,7 @@ impl TabLifecycleJournal {
         {
             return Ok(());
         }
-        let mut cursor = self.cursor.lock();
+        let writer = self.writer.lock();
         if self
             .read_index
             .load()
@@ -212,7 +216,7 @@ impl TabLifecycleJournal {
         {
             return Ok(());
         }
-        let seq = cursor.last_seq.saturating_add(1);
+        let seq = self.cursor.lock().last_seq.saturating_add(1);
         let record = JournalRecord::Transition {
             entry: LifecycleEntry {
                 seq,
@@ -225,8 +229,25 @@ impl TabLifecycleJournal {
         };
         append_line(&self.path, &record)?;
         self.publish_read_record(&record);
+        let mut cursor = self.cursor.lock();
         cursor.last_seq = seq;
         cursor.records += 1;
+        let JournalRecord::Transition { entry } = &record else {
+            unreachable!()
+        };
+        cursor
+            .last_epoch_by_tab
+            .entry(entry.key.tab_id.clone())
+            .and_modify(|last| *last = (*last).max(entry.key.epoch))
+            .or_insert(entry.key.epoch);
+        let unbounded = cursor.records >= cursor.compact_at_records;
+        drop(cursor);
+        drop(writer);
+        if unbounded {
+            if let Err(error) = self.compact_if_due() {
+                log::warn!("[tab-lifecycle] compaction failed: {error}");
+            }
+        }
         Ok(())
     }
 
@@ -241,23 +262,55 @@ impl TabLifecycleJournal {
     }
 
     fn compact_inner(&self, force: bool) -> Result<usize, String> {
-        let mut cursor = self.cursor.lock();
-        if !force && cursor.records < cursor.compact_at_records {
-            return Ok(cursor.records);
-        }
-        // Retained history may exceed the budget; only new growth triggers another rewrite.
-        cursor.compact_at_records = cursor.records.saturating_add(COMPACT_AT_RECORDS);
+        let (seq, records) = {
+            let cursor = self.cursor.lock();
+            if !force && cursor.records < cursor.compact_at_records {
+                return Ok(cursor.records);
+            }
+            (cursor.last_seq, cursor.records)
+        };
         let load = read_journal(&self.path);
-        quarantine_refused_tail(&self.path, &load)?;
+        if !load.tail.is_intact() {
+            return Err("journal tail changed; reopen to quarantine before compaction".into());
+        }
         let compacted = super::reduce::compact_records(&load.records);
         let written = compacted.len();
-        write_all_records(&self.path, &compacted)?;
-        if load.duplicate_seqs > 0 {
+        let temporary = codeterm_util::atomic_write::unique_tmp_path(&self.path);
+        let result = (|| {
+            write_all_records(&temporary, &compacted)?;
+            self.commit_compaction(&temporary, seq, records, written)
+        })();
+        let _ = fs::remove_file(&temporary);
+        if result.is_ok() && load.duplicate_seqs > 0 {
             log::warn!(
                 "[tab-lifecycle] repaired {} duplicate sequence number(s) while compacting",
                 load.duplicate_seqs
             );
         }
+        result
+    }
+
+    fn commit_compaction(
+        &self,
+        temporary: &Path,
+        seq: JournalSeq,
+        records: usize,
+        written: usize,
+    ) -> Result<usize, String> {
+        // Append order is owned by this writer; readers never wait for file work.
+        let _writer = self.writer.lock();
+        {
+            let cursor = self.cursor.lock();
+            if cursor.last_seq != seq || cursor.records != records {
+                return Err(
+                    "journal compaction conflict: history changed while preparing replacement"
+                        .into(),
+                );
+            }
+        }
+        fs::rename(temporary, &self.path)
+            .map_err(|error| format!("replace {}: {error}", self.path.display()))?;
+        let mut cursor = self.cursor.lock();
         cursor.records = written;
         cursor.compact_at_records = written.saturating_add(COMPACT_AT_RECORDS);
         Ok(written)
