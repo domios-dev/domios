@@ -303,7 +303,10 @@ mod worker_transfer;
 mod startup;
 
 mod continuity;
-pub(super) use continuity::register_functions;
+pub(super) fn register_functions(connection: &rusqlite::Connection) -> Result<(), PlanError> {
+    continuity::register_functions(connection)?;
+    ack::register(connection)
+}
 
 mod checkpoint;
 mod creation;
@@ -332,3 +335,5 @@ mod plan_metadata;
 mod respawn_source;
 
 mod worker_loss;
+
+mod ack;

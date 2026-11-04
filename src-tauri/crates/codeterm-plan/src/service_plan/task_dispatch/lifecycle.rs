@@ -1,5 +1,6 @@
 use super::super::lane_metadata::normalize_lane_metadata;
 use super::super::readback::pending_after_verified;
+use super::super::task_authority_projection::acknowledging_binding_matches;
 use super::super::{AttemptMatch, AttemptState, PlanError, PlanMatch, PlanStore};
 use super::{
     ambiguous_subject_cause, progression_authority, startup_attempt, startup_status_allows,
@@ -172,19 +173,23 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<super::super::task_attempts::TaskAttemptAcknowledgement, PlanError> {
         let writer_turn = self.mutation_writer.enter();
-        let current_plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let current_task = crate::plan::task_key::find_task(&current_plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        let Some((current_attempt, competitive)) =
-            startup_attempt(current_task, tab_id, attempt_id)
-        else {
+        let mut current = self.database.task_ack_authority_projection(
+            plan_id,
+            task_id,
+            tab_id,
+            attempt_id,
+            runtime_binding,
+            enforce_runtime_binding,
+        )?;
+        let Some((current_attempt, competitive)) = current.current(tab_id) else {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
                 "attempt no longer owns the acknowledging tab",
             ));
         };
-        if !attempt_matches_acknowledging_binding(
-            current_attempt,
+        if !acknowledging_binding_matches(
+            current_attempt.session.as_deref(),
+            current_attempt.nonce.as_deref(),
             runtime_binding,
             enforce_runtime_binding,
         ) {
@@ -193,16 +198,21 @@ impl PlanStore {
                 "attempt session binding differs from the acknowledging tab",
             ));
         }
-        if current_attempt.acknowledged_at.is_some() {
-            let attempt = current_attempt.clone();
+        if current_attempt.acknowledged {
+            let attempt = current.response_attempt.take().ok_or_else(|| {
+                Self::task_readback_error(
+                    "task_dispatch_ack",
+                    "retained acknowledgement response missing",
+                )
+            })?;
             return Ok(super::super::task_attempts::TaskAttemptAcknowledgement {
-                plan_id: plan_id.to_string(),
-                task_id: current_task.id.clone(),
+                plan_id: plan_id.into(),
+                task_id: current.task_id,
                 attempt,
                 already_acknowledged: true,
             });
         }
-        if !startup_status_allows(current_task) {
+        if !startup_status_allows(&current.status) {
             return Err(Self::task_readback_error(
                 "task_dispatch_ack",
                 "only a live startup assignment can be acknowledged",
@@ -219,7 +229,7 @@ impl PlanStore {
                 .ok_or(PlanError::TaskNotFound)?;
             let authority = startup_attempt(&plan.tasks[task_index], tab_id, attempt_id);
             let competitive = authority.is_some_and(|(_, competitive)| competitive);
-            if authority.is_none() || !startup_status_allows(&plan.tasks[task_index]) {
+            if authority.is_none() || !startup_status_allows(&plan.tasks[task_index].status) {
                 return Err(Self::task_readback_error(
                     "task_dispatch_ack",
                     "attempt no longer owns the acknowledging tab",
@@ -694,20 +704,10 @@ fn attempt_matches_acknowledging_binding(
     runtime_binding: Option<(&str, &str)>,
     enforce_runtime_binding: bool,
 ) -> bool {
-    if !enforce_runtime_binding {
-        return true;
-    }
-    match (
+    acknowledging_binding_matches(
         attempt.session_id.as_deref(),
         attempt.session_binding_nonce.as_deref(),
         runtime_binding,
-    ) {
-        (None, None, _) => true,
-        (Some(session), Some(nonce), Some((current_session, current_nonce))) => {
-            session == current_session && nonce == current_nonce
-        }
-        (Some(session), None, Some((current_session, _))) => session == current_session,
-        (None, Some(nonce), Some((_, current_nonce))) => nonce == current_nonce,
-        _ => false,
-    }
+        enforce_runtime_binding,
+    )
 }

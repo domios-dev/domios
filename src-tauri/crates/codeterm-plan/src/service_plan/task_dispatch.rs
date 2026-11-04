@@ -46,29 +46,30 @@ pub(super) fn startup_attempt<'a>(
             && attempt.closed_at.is_none()
             && attempt.retired_at.is_none()
     })?;
-    if let Some(group_id) = attempt.competition_group_id.as_deref() {
-        if attempt
-            .session_id
-            .as_deref()
-            .is_none_or(|session_id| session_id.trim().is_empty())
-        {
-            return None;
-        }
-        let current_group = task
-            .execution_attempts
-            .iter()
-            .rev()
-            .find(|attempt| attempt.closed_at.is_none() && attempt.competition_group_id.is_some())
-            .and_then(|attempt| attempt.competition_group_id.as_deref());
-        return (current_group == Some(group_id)).then_some((attempt, true));
-    }
-    let current = task
+    use super::task_authority_projection::startup::{startup_subject_current, StartupSubject};
+    let latest_unclosed = task
         .execution_attempts
         .iter()
-        .rfind(|attempt| attempt.closed_at.is_none());
-    (task.assigned_tab_id.as_deref() == Some(tab_id)
-        && current.is_some_and(|current| current.id == attempt_id))
-    .then_some((attempt, false))
+        .rfind(|attempt| attempt.closed_at.is_none())
+        .map(|attempt| attempt.id.as_str());
+    let latest_group = task
+        .execution_attempts
+        .iter()
+        .rfind(|attempt| attempt.closed_at.is_none() && attempt.competition_group_id.is_some())
+        .and_then(|attempt| attempt.competition_group_id.as_deref());
+    startup_subject_current(
+        tab_id,
+        task.assigned_tab_id.as_deref(),
+        StartupSubject {
+            id: &attempt.id,
+            executor: &attempt.executor_tab_id,
+            session: attempt.session_id.as_deref(),
+            group: attempt.competition_group_id.as_deref(),
+        },
+        latest_unclosed,
+        latest_group,
+    )
+    .then_some((attempt, attempt.competition_group_id.is_some()))
 }
 
 /// Entering `in_progress` needs a persisted executor: a competitive task proves
@@ -101,9 +102,9 @@ fn progression_authority(
 
 /// A validated startup attempt is already proven to be the task's live executor,
 /// so an in-progress task is that owner respawning, never a foreign claim.
-fn startup_status_allows(task: &crate::plan::Task) -> bool {
+fn startup_status_allows(status: &crate::plan::TaskStatus) -> bool {
     matches!(
-        task.status,
+        status,
         crate::plan::TaskStatus::Pending | crate::plan::TaskStatus::InProgress
     )
 }
@@ -122,7 +123,7 @@ pub(super) fn current_dispatch_startup_owner(
         || attempt.reported_at.is_some()
         || attempt.report.is_some()
         || attempt.competition_group_id.is_some()
-        || !startup_status_allows(task)
+        || !startup_status_allows(&task.status)
         || startup_attempt(task, tab_id, &attempt.id).is_none()
     {
         return None;
@@ -211,7 +212,7 @@ impl PlanStore {
             };
             let authority = startup_attempt(task, tab_id, attempt_id);
             let owns_startup = authority.is_some_and(|(attempt, _)| {
-                startup_status_allows(task) && attempt.acknowledged_at.is_none()
+                startup_status_allows(&task.status) && attempt.acknowledged_at.is_none()
             });
             if !owns_startup {
                 return Ok(false);
