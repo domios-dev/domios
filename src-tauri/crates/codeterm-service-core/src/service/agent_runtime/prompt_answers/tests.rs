@@ -106,7 +106,10 @@ fn pending_requests_cancelled_before_interrupt_and_prompts_resolved() {
     use tokio::io::{AsyncBufReadExt, BufReader};
     crate::async_runtime::block_on(async {
         let source = r#"module.exports = {
-            runtimePlan(ctx, op) { return {action:{kind:'reply',requestId:op.requestId,result:{kind:'success',value:{outcome:{outcome:'cancelled'}}}},state:null}; },
+            runtimePlan(ctx, op) {
+                if (op.kind !== 'answer' || op.answer.kind !== 'cancel' || ctx.pendingRequest.requestId !== op.requestId) throw new Error('Expected exact pending cancellation');
+                return {action:{kind:'reply',requestId:op.requestId,result:{kind:'success',value:{outcome:{outcome:'cancelled'}}}},state:null};
+            },
             runtimeResponse() { return {kind:'complete',result:{kind:'done'}}; },
             runtimeReduce(ctx,state,frames) { return {state:null,events:[]}; }
         };"#;
