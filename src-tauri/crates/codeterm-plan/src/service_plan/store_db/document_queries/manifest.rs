@@ -85,12 +85,14 @@ impl PlanDatabase {
         record_query();
         {
             let sql = format!(
-                "WITH source AS (
-                    SELECT m.task_id,m.seq,m.row_json AS raw,t.position AS task_position,
-                        coalesce(json_extract(t.row_json,'$.handle'),json_extract(t.row_json,'$.id')) AS handle,
+                "WITH task_facts AS MATERIALIZED (
+                    SELECT plan_id,task_id,position,coalesce(json_extract(row_json,'$.handle'),json_extract(row_json,'$.id')) AS handle
+                    FROM plan_tasks WHERE plan_id=?1
+                 ), source AS (
+                    SELECT m.task_id,m.seq,m.row_json AS raw,t.position AS task_position,t.handle,
                         CASE WHEN json_type(m.row_json,'$.text')='text' THEN json_extract(m.row_json,'$.text')
                              ELSE json('invalid milestone markdown') END AS markdown
-                    FROM plan_task_milestones m JOIN plan_tasks t USING(plan_id,task_id) WHERE m.plan_id=?1),
+                    FROM plan_task_milestones m JOIN task_facts t USING(plan_id,task_id) WHERE m.plan_id=?1),
                  eligible AS (SELECT *,handle||'-'||json_extract(raw,'$.id')||'.md' AS filename,{} AS externalize FROM source)
                  SELECT task_id,json_object('id',json_extract(raw,'$.id'),'kind',json_extract(raw,'$.kind'),
                     'externalize',json(CASE WHEN externalize THEN 'true' ELSE 'false' END))

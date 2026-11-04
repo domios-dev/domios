@@ -19,9 +19,10 @@ pub struct AttemptLanePathRead {
 }
 
 // Mirrors `paths::plan_sidecar_root`: a blank canonical path falls back to the project path.
-pub(super) const ROOT: &str = "coalesce(CASE WHEN json_valid(header_json)
-    AND trim(coalesce(json_extract(header_json, '$.canonical_project_path'), '')) <> ''
-    THEN json_extract(header_json, '$.canonical_project_path') END, project_path)";
+pub(super) const ROOT: &str = "CASE WHEN json_type(header_json,'$.canonical_project_path') IS NULL THEN project_path
+    WHEN json_type(header_json,'$.canonical_project_path')='text' THEN CASE
+        WHEN trim(json_extract(header_json,'$.canonical_project_path'))<>'' THEN json_extract(header_json,'$.canonical_project_path') ELSE project_path END
+    ELSE json('invalid canonical project path') END";
 
 impl PlanDatabase {
     pub(in crate::service_plan) fn curator_bootstrap_plan_ids(
@@ -94,11 +95,10 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         let mut statement = connection
             .prepare_cached(
-                "SELECT s.plan_id, json_extract(j.value, '$.id'), json_extract(j.value, '$.handle'),
-                    coalesce(json_extract(j.value, '$.title'), '')
+                "SELECT s.plan_id, CASE WHEN json_type(j.value,'$.id')='text' THEN json_extract(j.value,'$.id') ELSE json('invalid section reference id') END, CASE WHEN json_type(j.value,'$.handle') IS NULL OR json_type(j.value,'$.handle')='null' THEN NULL WHEN json_type(j.value,'$.handle')='text' THEN json_extract(j.value,'$.handle') ELSE json('invalid section reference handle') END,
+                    CASE WHEN json_type(j.value,'$.title')='text' THEN json_extract(j.value,'$.title') ELSE json('invalid section reference title') END
                  FROM plan_sections s, json_tree(s.row_json) j
-                 WHERE j.type = 'object' AND (j.fullkey = '$' OR j.path LIKE '%.subsections')
-                   AND json_type(j.value, '$.id') = 'text'
+                 WHERE j.fullkey = '$' OR j.path LIKE '%.subsections'
                  ORDER BY s.plan_id, s.position, j.id",
             )
             .map_err(db_error)?;
@@ -122,9 +122,9 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         let mut statement = connection
             .prepare_cached(
-                "SELECT p.id, json_extract(l.value, '$.id'), coalesce(json_extract(l.value, '$.target'), '')
-                 FROM plans p, json_each(CASE WHEN json_valid(p.header_json) THEN p.header_json END, '$.loops') l
-                 WHERE json_type(l.value, '$.id') = 'text'
+                "SELECT p.id, CASE WHEN json_type(l.value,'$.id')='text' THEN json_extract(l.value,'$.id') ELSE json('invalid loop reference id') END,
+                    CASE WHEN json_type(l.value,'$.target') IS NULL THEN '' WHEN json_type(l.value,'$.target')='text' THEN json_extract(l.value,'$.target') ELSE json('invalid loop target') END
+                 FROM plans p, json_each(CASE WHEN json_type(p.header_json,'$.loops') IS NULL THEN '[]' WHEN json_type(p.header_json,'$.loops')='array' THEN p.header_json->'$.loops' ELSE json('invalid plan loops') END) l
                  ORDER BY p.id, l.key",
             )
             .map_err(db_error)?;

@@ -112,7 +112,14 @@ pub async fn list_tabs(
                 (StatusCode::INTERNAL_SERVER_ERROR, "Failed to list Tabs")
             }
         })?;
-    let mut local = result.into_json();
+    let mut local = tokio::task::spawn_blocking(move || result.into_json())
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Tabs projection worker failed",
+            )
+        })?;
     if let crate::auth::CallerIdentity::Tab(caller) = crate::auth::caller_identity(&state, &headers)
         .map_err(|_| (StatusCode::FORBIDDEN, "Invalid caller credential"))?
     {
@@ -132,7 +139,10 @@ pub async fn list_tabs(
     if query.local_only || isolated_peer.is_some() {
         return Ok(Json(local));
     }
-    let local = local.as_array().cloned().unwrap_or_default();
+    let local = match local {
+        serde_json::Value::Array(rows) => rows,
+        _ => Vec::new(),
+    };
     Ok(Json(serde_json::Value::Array(
         codeterm_service_core::service::remote_tabs::ordinary_tab_projection(
             &state.mesh,
@@ -193,83 +203,7 @@ pub struct TabListQuery {
 }
 
 #[cfg(test)]
-mod explicit_address_scope_tests {
-    #[test]
-    fn explicit_address_scope_mesh_all_workspaces_matches_the_peer_workspace_list() {
-        let (mut state, _) = codeterm_service_core::multiplexer::state::MultiplexerState::new();
-        state.set_limit_gate(codeterm_entitlements::LimitGate::dormant());
-        let second = state.create_workspace("second".into(), None);
-        state.create_tab(&second.id).unwrap();
-        let third = state.create_workspace("third".into(), None);
-        state.create_tab(&third.id).unwrap();
-        let snapshot = state.snapshot();
-        let expected = snapshot
-            .workspaces
-            .iter()
-            .flat_map(|workspace| workspace.tabs.iter().cloned())
-            .collect::<std::collections::HashSet<_>>();
-
-        let actual = codeterm_service_core::dispatch::build_tab_summary_json(
-            &snapshot, None, None, false, false,
-        )
-        .into_iter()
-        .filter_map(|tab| tab["id"].as_str().map(str::to_owned))
-        .collect::<std::collections::HashSet<_>>();
-
-        assert_eq!(actual, expected);
-    }
-}
-
-#[cfg(test)]
-mod default_scope_contract_tests {
-    use super::TabListQuery;
-    use codeterm_service_core::dispatch::build_tab_summary_json;
-    use codeterm_service_core::multiplexer::state::MultiplexerState;
-
-    #[test]
-    fn tabs_default_to_all_workspaces() {
-        let query = TabListQuery::default();
-        let (mut state, _) = MultiplexerState::new();
-        let second = state.create_workspace("second".into(), None);
-        state.create_tab(&second.id).unwrap();
-
-        let tabs = build_tab_summary_json(
-            &state.snapshot(),
-            query.workspace_id.as_deref(),
-            None,
-            !query.all_workspaces && query.focused_workspace,
-            query.agents,
-        );
-
-        assert_eq!(tabs.len(), 2);
-        assert!(tabs.iter().all(|tab| tab["scope"] == "all_workspaces"));
-    }
-
-    #[test]
-    fn tabs_explicit_workspace_scope() {
-        let (mut state, _) = MultiplexerState::new();
-        let first = state.snapshot().workspaces[0].id.clone();
-        let second = state.create_workspace("second".into(), None);
-        state.create_tab(&second.id).unwrap();
-        let query = TabListQuery {
-            workspace_id: Some(first.clone()),
-            ..TabListQuery::default()
-        };
-
-        let tabs = build_tab_summary_json(
-            &state.snapshot(),
-            query.workspace_id.as_deref(),
-            None,
-            !query.all_workspaces && query.focused_workspace,
-            query.agents,
-        );
-
-        assert_eq!(tabs.len(), 1);
-        assert_eq!(tabs[0]["scope"], "workspace");
-        assert_eq!(tabs[0]["scope_workspace_id"], first);
-        assert_eq!(tabs[0]["other_workspace_tab_count"], 1);
-    }
-}
+mod list_scope_tests;
 
 #[derive(Deserialize)]
 pub struct TabInspectQuery {
@@ -530,7 +464,15 @@ pub async fn get_tab_output(
     let result = codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone())
         .await
         .map_err(|_| (StatusCode::NOT_FOUND, "Tab not found or has no PTY"))?;
-    Ok(Json(result.into_json()))
+    let value = tokio::task::spawn_blocking(move || result.into_json())
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Output projection worker failed",
+            )
+        })?;
+    Ok(Json(value))
 }
 
 #[derive(Deserialize, Default)]
@@ -1003,13 +945,20 @@ pub async fn get_tab_text(
         formatted: query.formatted,
     };
     match codeterm_service_core::dispatch::dispatch_blocking(cmd, state.svc.clone()).await {
-        Ok(r) => {
+        Ok(r) => tokio::task::spawn_blocking(move || {
             let mut v = r.into_json();
             if let Some(obj) = v.as_object_mut() {
                 obj.insert("tab_id".to_string(), serde_json::json!(tab_id));
             }
             Ok(Json(v))
-        }
+        })
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Text projection worker failed",
+            )
+        })?,
         Err(_) => Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY")),
     }
 }

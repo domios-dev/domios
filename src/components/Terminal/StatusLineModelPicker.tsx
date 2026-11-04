@@ -28,6 +28,7 @@ import {
   pickerSelection,
   statusLineSwitchGate,
   statusLineModelName,
+  runtimeStatusLineIdentity,
   type PickerSelection,
   type StatusLineTabFacts,
 } from "./statusLinePickerModel";
@@ -159,7 +160,11 @@ export function StatusLineModelPicker({
     || selection.model;
   const afterTurn = Boolean(pendingSelection);
   const confirmedModelName = declaredModels ? descriptor?.available_models.find(model => model.id === currentModel)?.display_name ?? currentModel : modelName;
-  const displayedLabel = tabMetaParts(confirmedModelName, serviceTierLabel(descriptor, currentServiceTier), selection.effort, pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined, runtimeIdentity).join(" · ");
+  const tierLabel = serviceTierLabel(descriptor, currentServiceTier);
+  const selectionStatus = pendingSelection?.confirmation_pending ? "Switch sent; confirms when this turn ends" : afterTurn ? "after this turn" : undefined;
+  const displayedLabel = declaredModels
+    ? runtimeStatusLineIdentity({ ...runtimeIdentity, controls: runtimeControls }, tierLabel, selection.effort, selectionStatus)
+    : tabMetaParts(confirmedModelName, tierLabel, selection.effort, selectionStatus, runtimeIdentity).join(" · ");
   const harnessName = descriptor?.display_name ?? label.split(" · ")[0];
   const glyph = descriptor ? (
     <span aria-hidden="true" className="ct-status-identity__glyph" data-testid="status-harness-glyph" title={harnessName}>
@@ -169,7 +174,7 @@ export function StatusLineModelPicker({
 
   if (declaredModels && !runtimeControls?.configOptions) return (
     <span className="ct-status-identity ct-status-identity--static" title="Model controls are unavailable">
-      {tabMetaParts(undefined, undefined, undefined, undefined, runtimeIdentity).join(" · ") || descriptor?.display_name || "Agent"}
+      {runtimeStatusLineIdentity(runtimeIdentity) || descriptor?.display_name || "Agent"}
     </span>
   );
 

@@ -1,3 +1,4 @@
+#[cfg(any(test, feature = "test-support"))]
 use super::ReminderPlanRead;
 use crate::plan::{QaState, ReviewStage, TaskStatus};
 use crate::service_plan::state::{project_task_facts, DependencyWait};
@@ -153,6 +154,7 @@ impl Aggregate<State, String> for StateDigest {
     }
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn state_key(
     connection: &Connection,
     read: &ReminderPlanRead,

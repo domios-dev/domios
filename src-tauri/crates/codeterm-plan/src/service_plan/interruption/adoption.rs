@@ -106,7 +106,7 @@ impl PlanStore {
                     return Err(PlanError::Io("checkpoint digest or base changed".into()));
                 }
                 let before = AdoptionFields::read(task);
-                let epoch = task.interruption.owner_epoch.saturating_add(1);
+                let epoch = super::next_owner_epoch(task.interruption.owner_epoch)?;
                 let mut attempt = super::super::task_attempts::new_assignment_attempt(
                     task,
                     new_tab_id,

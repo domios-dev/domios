@@ -473,7 +473,7 @@ impl ServiceContext {
             agent_cmd,
             params,
         )?;
-        self.validate_launch_profile(agent_cmd, params.launch_profile.as_deref())?;
+        self.validate_spawn_options(agent_cmd, params)?;
         if params.launch_profile.is_some()
             && params
                 .execution_mode

@@ -709,8 +709,8 @@ where
         task: None,
         ..Default::default()
     };
-    svc.validate_launch_profile(&resolved_provider, spawn_params.launch_profile.as_deref())
-        .map_err(super::model_errors::launch_profile_rpc_error)?;
+    svc.validate_spawn_options(&resolved_provider, &spawn_params)
+        .map_err(super::model_errors::spawn_target_rpc_error)?;
     let launch_profile = spawn_params.launch_profile.clone();
     let spawn_params_speed = spawn_params.speed.clone();
     set_dispatch_task_brief(&mut spawn_params, brief, &manifest);

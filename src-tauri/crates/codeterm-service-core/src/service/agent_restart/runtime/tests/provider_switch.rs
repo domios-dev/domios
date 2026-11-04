@@ -593,7 +593,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         .get_tab(&fixture.tab)
         .cloned()
         .unwrap();
-    for invalid in [
+    for (case_index, invalid) in [
         "plan",
         "task",
         "attempt",
@@ -617,7 +617,11 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         "empty_pty",
         "lifecycle_epoch",
         "sleeping",
-    ] {
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let restored_at = 5 + (case_index as u64) * 2;
         clear_switch_cooldown(&fixture);
         *fixture
             .service
@@ -628,7 +632,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         fixture
             .service
             .plan_store
-            .edit_plan_fixture(&detail.plan_id, 5, |plan| {
+            .edit_plan_fixture(&detail.plan_id, restored_at, |plan| {
                 *plan
                     .tasks
                     .iter_mut()
@@ -637,6 +641,16 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
                 Ok(())
             })
             .unwrap();
+        assert_eq!(
+            fixture
+                .service
+                .plan_store
+                .inspect_task_for_test(&task_id)
+                .unwrap()
+                .task,
+            detail.task,
+            "{invalid}: fixture must restore the baseline before applying one defect"
+        );
         match invalid {
             "plan" | "task" | "attempt" | "partial" | "session" | "nonce" | "unverified"
             | "pty_id" | "empty_pty" | "lifecycle_epoch" | "sleeping" => {
@@ -665,7 +679,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             _ => fixture
                 .service
                 .plan_store
-                .edit_plan_fixture(&detail.plan_id, 6, |plan| {
+                .edit_plan_fixture(&detail.plan_id, restored_at + 1, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()

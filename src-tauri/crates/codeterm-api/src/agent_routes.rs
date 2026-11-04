@@ -335,12 +335,7 @@ pub async fn spawn_agent(
         provider_id,
         params.model.as_deref(),
     )?;
-    spawn_rejection::validate_spawn_profile(
-        &state.svc,
-        provider_id,
-        params.launch_profile.as_deref(),
-    )
-    .await?;
+    spawn_rejection::validate_spawn_options(&state.svc, provider_id, &params).await?;
     let plan_task = params.plan_task.clone();
     let (ready_tx, ready_rx) = if require_delivery_ack {
         let (tx, rx) = tokio::sync::oneshot::channel();

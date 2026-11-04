@@ -219,6 +219,21 @@ fn higher_installation_falls_back_only_after_one_interval() {
 }
 
 #[test]
+fn connectivity_events_never_postpone_the_fallback_dial() {
+    let mut state = Reconciliation::default();
+    state.observe(1, &[row("a")]);
+    assert!(!state.dial_due("z", "a", 100));
+    for now in (101..130).step_by(2) {
+        state.network_changed();
+        state.observe(1, &[row("a")]);
+        assert!(!state.dial_due("z", "a", now));
+        assert_eq!(state.deadline(now, true), Some(130));
+    }
+    state.network_changed();
+    assert!(state.dial_due("z", "a", 130));
+}
+
+#[test]
 fn publication_emits_only_changed_pairs_or_registry_content() {
     use codeterm_account::account_mesh::RegistryObservation;
     use codeterm_mesh::account_mesh::protocol::AccountMeshPair;
