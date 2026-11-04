@@ -103,19 +103,23 @@ impl Dispatcher {
             .try_ext::<codeterm_service_core::ports::rest::LocalApiRouter>()
             .map(|published| published.0.clone())
             .unwrap_or_else(|| self.router.clone());
-        let method = request.method().to_string();
-        let route = request.uri().path().to_owned();
         #[cfg(debug_assertions)]
-        let _timing = codeterm_service_core::startup::runtime_diagnostics::RequestTiming::start(
-            &method, &route,
-        );
-        match codeterm_service_core::startup::runtime_diagnostics::observe_polls(
-            &method,
-            &route,
-            router.oneshot(request),
-        )
-        .await
-        {
+        let result = {
+            let method = request.method().to_string();
+            let route = request.uri().path().to_owned();
+            let _timing = codeterm_service_core::startup::runtime_diagnostics::RequestTiming::start(
+                &method, &route,
+            );
+            codeterm_service_core::startup::runtime_diagnostics::observe_polls(
+                &method,
+                &route,
+                router.oneshot(request),
+            )
+            .await
+        };
+        #[cfg(not(debug_assertions))]
+        let result = router.oneshot(request).await;
+        match result {
             Ok(response) => response,
             Err(never) => match never {},
         }

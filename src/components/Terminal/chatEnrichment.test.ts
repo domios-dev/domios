@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import type { MessageSegment, NormalizedChatMessage, TimelineItem } from "@codeterm/chat-core";
 import claudePlugin from "../../../plugins/provider-claude/src/plugin";
+import { installTestIo } from "../../../plugins/provider-shared/tests/hostIo";
 import { enrichTimelineItems } from "./chatEnrichment";
+
+(globalThis as { host?: unknown }).host = installTestIo({ manifestJson: () => "null", log: () => undefined });
 
 const fixtures = JSON.parse(readFileSync(new URL("../../../tests/fixtures/message-envelope.json", import.meta.url), "utf8")) as Array<{ name: string; raw: string; segments: MessageSegment[] }>;
 const item = (message: NormalizedChatMessage): TimelineItem => ({ kind: "message", message });

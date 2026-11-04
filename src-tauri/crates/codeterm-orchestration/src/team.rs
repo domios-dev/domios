@@ -616,7 +616,7 @@ pub fn adopt_plan_for_team(
     svc.transition_agent_prepared_at(
         now_ms,
         |mux, store| {
-            adopt_plan_request(mux, store, team_id, plan_id, caller)
+            adopt_plan_request(mux, store, team_id, plan_id, caller.clone())
                 .map_err(|error| format!("{error:?}"))
         },
         codeterm_service_core::service::agent_transition::TransitionFailurePoint::None,
@@ -686,9 +686,9 @@ pub fn transfer_team_plan(
                 mux,
                 store,
                 plan_id,
-                to,
+                to.clone(),
                 reason,
-                TeamMutationCaller::AgentTab(caller_tab_id),
+                TeamMutationCaller::AgentTab(caller_tab_id.clone()),
             )
             .map_err(|error| format!("{error:?}"))
         },

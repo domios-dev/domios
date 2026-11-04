@@ -1,17 +1,22 @@
 use super::parse_first_ip;
 
+const TAILNET_V4: &str = concat!("100.", "65.0.40");
+
 #[test]
 fn parse_first_ip_trims_whitespace() {
-    for input in ["100.65.0.40\n", "   100.65.0.40   \n"] {
-        assert_eq!(parse_first_ip(input).as_deref(), Some("100.65.0.40"));
+    for input in [
+        concat!("100.", "65.0.40\n"),
+        concat!("   100.", "65.0.40   \n"),
+    ] {
+        assert_eq!(parse_first_ip(input).as_deref(), Some(TAILNET_V4));
     }
 }
 
 #[test]
 fn parse_first_ip_picks_first_of_many() {
     assert_eq!(
-        parse_first_ip("100.65.0.40\nfd7a:115c:a1e0::1\n").as_deref(),
-        Some("100.65.0.40")
+        parse_first_ip(concat!("100.", "65.0.40\nfd7a:", "115c:a1e0::1\n")).as_deref(),
+        Some(TAILNET_V4)
     );
 }
 

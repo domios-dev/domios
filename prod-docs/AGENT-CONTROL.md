@@ -44,7 +44,7 @@ Domios has a 2-level role hierarchy: Orchestrator (depth 1) -> Worker (depth 2).
 
 Backward-compat alias: `Conductor` -> `Orchestrator`.
 
-**Placement rules.** The backend refuses a parent for an Orchestrator (`Orchestrator cannot have a parent`), requires a Worker's `--parent-tab` to be a spawning parent such as its Orchestrator, and refuses to make a tab that already has a parent an Orchestrator (`already in a hierarchy`). There is no middle coordinator: a sub-task that needs its own tree goes to a fresh Orchestrator spawned with `--workspace` in its own workspace, which owns the whole sub-request; a concrete leaf goes to a Worker under you. Workers fan out in parallel, one task each.
+**Placement rules.** The backend refuses a parent for an Orchestrator (`Orchestrator cannot have a parent`), requires a Worker's `--parent-tab` to be a spawning parent such as its Orchestrator, and refuses to make a tab that already has a parent an Orchestrator (`already in a hierarchy`). There is no middle coordinator: a sub-task that needs its own tree goes to a fresh Orchestrator spawned with `--workspace` in its own workspace, which owns the whole sub-request; a concrete leaf goes to a Worker under you. Workers fan out in parallel, one task each. A spawned Orchestrator starts without a Team (`team_id: null`); its Team forms when it creates its Team Plan, or when the host promotes it with Make Orchestrator, which onboards it into a new Team or refuses with `orchestrator_team_unavailable`. A coordinator without a Team cannot be closed unattributed; release it with `domios agent unlink --tab <id>` first.
 
 A live roleless agent outside any Team can promote itself with `domios agent set-orchestrator`. Its own authenticated tab credential is required. Workers, Planners, concierges, Neighbor agents, remote-controlled tabs, and Team members cannot use this self-promotion path; targeting another tab is refused. Success uses the same promotion and onboarding as the tab menu's Make Orchestrator action.
 
@@ -171,4 +171,4 @@ Domios tracks and restores terminal state across sessions:
 - **Already-bound sessions**: `sessions resume` reuses a tab only while its bound agent is ready. A degraded, failed or unverified tab returns a conflict with `domios agent restart --tab ID` as its recovery command. For an `agentRuntime` Chat tab rebound to another session, that restart stops the old runtime and resumes the recorded session and its own history.
 - **Auto-save**: Session state is persisted every 30 seconds.
 
-<!-- revision: 33 -->
+<!-- revision: 34 -->
