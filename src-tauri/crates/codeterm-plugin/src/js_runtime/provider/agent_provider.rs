@@ -548,6 +548,14 @@ impl AgentProvider for JsProvider {
         self.js_session_file_path(cwd, session_id)
     }
 
+    fn session_file_path_checked(
+        &self,
+        cwd: &str,
+        session_id: &str,
+    ) -> Result<Option<PathBuf>, String> {
+        self.js_session_file_path_checked(cwd, session_id)
+    }
+
     fn additional_usage_sources(&self, session_file: &Path, session_id: &str) -> Vec<PathBuf> {
         self.js_additional_usage_sources(session_file, session_id)
     }

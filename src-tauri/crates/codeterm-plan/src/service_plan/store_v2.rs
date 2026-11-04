@@ -47,6 +47,7 @@ pub fn goal_yaml_path(plan_dir: &Path) -> PathBuf {
 
 /// The plan-own view: everything except the entities that own their own files.
 /// Tasks and goal are stripped; sections stay inline (they are plan-own).
+#[cfg(any(test, feature = "test-support"))]
 fn plan_meta(plan: &Plan) -> Plan {
     let mut meta = plan.clone();
     meta.tasks.clear();
@@ -54,6 +55,7 @@ fn plan_meta(plan: &Plan) -> Plan {
     meta
 }
 
+#[cfg(any(test, feature = "test-support"))]
 fn to_yaml<T: serde::Serialize>(value: &T) -> io::Result<String> {
     serde_yaml::to_string(value).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
 }
@@ -64,6 +66,7 @@ fn from_yaml<T: serde::de::DeserializeOwned>(text: &str) -> io::Result<T> {
 
 /// Write only if the on-disk content differs — the property that keeps
 /// untouched files out of git and off the disk.
+#[cfg(any(test, feature = "test-support"))]
 fn write_if_changed(path: &Path, content: &str) -> io::Result<bool> {
     if matches!(std::fs::read_to_string(path), Ok(existing) if existing == content) {
         return Ok(false);
@@ -76,6 +79,7 @@ fn write_if_changed(path: &Path, content: &str) -> io::Result<bool> {
 }
 
 /// Persist a single task — the per-entity write. Touches exactly one file.
+#[cfg(any(test, feature = "test-support"))]
 pub fn write_task(plan_dir: &Path, task: &Task) -> io::Result<bool> {
     write_if_changed(&task_yaml_path(plan_dir, task), &to_yaml(task)?)
 }
@@ -83,6 +87,7 @@ pub fn write_task(plan_dir: &Path, task: &Task) -> io::Result<bool> {
 /// Persist the whole plan as separate files. Still one call, but each file
 /// is write-if-changed, so a save after a single-field mutation rewrites
 /// only the affected file(s).
+#[cfg(any(test, feature = "test-support"))]
 pub fn write_plan(plan_dir: &Path, plan: &Plan) -> io::Result<()> {
     std::fs::create_dir_all(tasks_dir(plan_dir))?;
     write_if_changed(&plan_yaml_path(plan_dir), &to_yaml(&plan_meta(plan))?)?;
@@ -101,6 +106,7 @@ pub fn write_plan(plan_dir: &Path, plan: &Plan) -> io::Result<()> {
 
 /// Remove task yaml files no longer backed by a live task (renamed handle,
 /// deleted task). Never touches the sibling .jsonl (history is preserved).
+#[cfg(any(test, feature = "test-support"))]
 fn prune_stale_tasks(
     plan_dir: &Path,
     keep: &std::collections::BTreeSet<PathBuf>,

@@ -106,6 +106,12 @@ fn optional_header_matches_param(
     expected == actual
 }
 
+fn result_body(value: serde_json::Value) -> serde_json::Value {
+    let mut object = serde_json::Map::new();
+    object.insert("result".into(), value);
+    serde_json::Value::Object(object)
+}
+
 pub(crate) async fn dispatch(
     State(state): State<AppState>,
     ConnectInfo(remote): ConnectInfo<SocketAddr>,
@@ -163,7 +169,7 @@ pub(crate) async fn dispatch(
             request.params.as_ref(),
         )
         .await
-        .map(|value| Json(serde_json::json!({"result":value})))
+        .map(|value| Json(result_body(value)))
         .map_err(|message| {
             (
                 StatusCode::FORBIDDEN,
@@ -177,7 +183,7 @@ pub(crate) async fn dispatch(
             Json(serde_json::json!({"error":{"code":-32602,"message":format!("Invalid neighbor save: {error}")}})),
         ))?;
         return crate::mem_routes::neighbor_save::save(State(state), headers, Json(body)).await
-            .map(|Json(value)| Json(serde_json::json!({"result":value})))
+            .map(|Json(value)| Json(result_body(value)))
             .map_err(|(status, Json(error))| (status, Json(serde_json::json!({"error":{"code":-32003,"message":error["message"],"data":{"reason":error["code"]}}}))));
     }
     if let Some(value) = state
@@ -191,7 +197,7 @@ pub(crate) async fn dispatch(
             )
         })?
     {
-        return Ok(Json(serde_json::json!({"result":value})));
+        return Ok(Json(result_body(value)));
     }
     if matches!(
         request.method.as_str(),
@@ -236,7 +242,7 @@ pub(crate) async fn dispatch(
     })
     .await;
     match result {
-        Ok(Ok(Ok(value))) => Ok(Json(serde_json::json!({"result": value}))),
+        Ok(Ok(Ok(value))) => Ok(Json(result_body(value))),
         Ok(Ok(Err(error))) => Err((
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
