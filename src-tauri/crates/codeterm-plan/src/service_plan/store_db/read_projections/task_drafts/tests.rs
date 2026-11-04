@@ -101,6 +101,22 @@ fn draft_projection_preserves_prompt_fields_latest_report_and_status_before_sour
     assert!(database
         .task_draft_projection(&plan.id, "task_0000", None)
         .is_ok());
+    for field in [
+        "$.body",
+        "$.acceptance_criteria",
+        "$.lane",
+        "$.interruption.execution_intent",
+    ] {
+        database.persist_plan_rows(&plan, None).unwrap();
+        database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,?1,json('null')) WHERE task_id='task_0000'",[field]).unwrap();
+        assert!(
+            database
+                .task_draft_projection(&plan.id, "task_0000", None)
+                .is_err(),
+            "{field}"
+        );
+    }
+    database.persist_plan_rows(&plan, None).unwrap();
     database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.name',42) WHERE task_id='task_0000'",[]).unwrap();
     assert!(database
         .task_draft_projection(&plan.id, "task_0000", None)

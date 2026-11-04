@@ -38,7 +38,7 @@ impl PlanDatabase {
             "{selected} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),(SELECT json_object('id',p.id,'task_id',t.task_id,
                 'canonical_path',CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?3)=''
                     THEN p.project_path ELSE json_extract(p.header_json,'$.canonical_project_path') END,
-                'dispatch_intent',coalesce(json_extract(t.row_json,'$.interruption.execution_intent'),'unspecified'),
+                'dispatch_intent',CASE WHEN json_type(t.row_json,'$.interruption.execution_intent') IS NULL THEN 'unspecified' ELSE json_extract(t.row_json,'$.interruption.execution_intent') END,
                 'owner_tab_id',json_extract(p.header_json,'$.owner.tab_id'),
                 'foreign_lanes',json((SELECT json_group_array(json_object('task_id',task_id,'worktree_path',path)) FROM (
                     SELECT other.task_id,json_extract(other.row_json,'$.lane.worktree_path') AS path FROM plan_tasks other

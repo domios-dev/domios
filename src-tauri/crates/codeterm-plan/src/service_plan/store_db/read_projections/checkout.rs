@@ -66,14 +66,14 @@ impl PlanDatabase {
         record_query();
         let (exists, raw): (bool,Option<String>) = connection.query_row(&format!(
             "{selected} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
-                (SELECT json_object('id',t.task_id,'checkout',{root},'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')),
+                (SELECT json_object('id',t.task_id,'checkout',{root},'files',json(CASE WHEN json_type(t.row_json,'$.files') IS NULL THEN '{{}}' ELSE t.row_json->'$.files' END),
                     'live_shared',json(CASE WHEN EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                         AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
                         AND json_extract(a.row_json,'$.placement')='shared') THEN 'true' ELSE 'false' END))
                  FROM selected_task t JOIN plans p ON p.id=t.plan_id WHERE NOT ?3 OR t.task_id=?2)",
             selected=super::super::task_authority_queries::SELECTED_TASK_IN_PLAN,
-            root=super::super::match_queries::ROOT
-        ),params![plan,task,exact],|row| Ok((column(row,0)?,column(row,1)?))).map_err(db_error)?;
+            root="CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?4)='' THEN p.project_path ELSE json_extract(p.header_json,'$.canonical_project_path') END"
+        ),params![plan,task,exact,super::super::status_queries::WHITESPACE],|row| Ok((column(row,0)?,column(row,1)?))).map_err(db_error)?;
         if !exists {
             return Err(PlanError::NotFound);
         }
@@ -103,10 +103,10 @@ impl PlanDatabase {
                 AND EXISTS(SELECT 1 FROM plan_task_attempts a WHERE a.plan_id=p.id AND a.open
                     AND json_extract(a.row_json,'$.placement') IN ('shared','canonical_writer')))
             SELECT p.id,{root},json_object('id',p.id,'checkout',{root},'tasks',json((SELECT json_group_array(json(task)) FROM (
-                SELECT json_object('id',t.task_id,'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')),
+                SELECT json_object('id',t.task_id,'files',json(CASE WHEN json_type(t.row_json,'$.files') IS NULL THEN '{{}}' ELSE t.row_json->'$.files' END),
                     'execution_attempts',json((SELECT json_group_array(json(attempt)) FROM (
                         SELECT json_object('id',json_extract(a.row_json,'$.id'),
-                            'placement',coalesce(json_extract(a.row_json,'$.placement'),'isolated_lane')) AS attempt
+                            'placement',CASE WHEN json_type(a.row_json,'$.placement') IS NULL THEN 'isolated_lane' ELSE json_extract(a.row_json,'$.placement') END) AS attempt
                         FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
                             AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.retired_at') IS NULL
                         ORDER BY a.position)))) AS task

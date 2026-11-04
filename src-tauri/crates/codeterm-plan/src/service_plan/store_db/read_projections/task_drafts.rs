@@ -64,15 +64,15 @@ impl PlanDatabase {
             "{selected} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),(SELECT json_object(
                 'plan_id',p.id,'project_path',p.project_path,'owner_tab_id',json_extract(p.header_json,'$.owner.tab_id'),
                 'task',json_object('id',t.task_id,'name',json_extract(t.row_json,'$.name'),'status',json_extract(t.row_json,'$.status'),
-                    'body',coalesce(json_extract(t.row_json,'$.body'),''),
-                    'execution_intent',coalesce(json_extract(t.row_json,'$.interruption.execution_intent'),'unspecified'),
+                    'body',CASE WHEN json_type(t.row_json,'$.body') IS NULL THEN '' ELSE json_extract(t.row_json,'$.body') END,
+                    'execution_intent',CASE WHEN json_type(t.row_json,'$.interruption.execution_intent') IS NULL THEN 'unspecified' ELSE json_extract(t.row_json,'$.interruption.execution_intent') END,
                     'model',json_extract(t.row_json,'$.model'),'speed',json_extract(t.row_json,'$.speed'),
                     'personality',json_extract(t.row_json,'$.personality'),'role_guidance',json_extract(t.row_json,'$.role_guidance'),
                     'executor_role',json_extract(t.row_json,'$.executor_role'),'intent',json_extract(t.row_json,'$.intent'),
                     'correctness',json_extract(t.row_json,'$.correctness'),'test_plan',json_extract(t.row_json,'$.test_plan'),
-                    'acceptance_criteria',json(coalesce(json_extract(t.row_json,'$.acceptance_criteria'),'[]')),
-                    'competition',json(json_extract(t.row_json,'$.competition')),
-                    'lane',json(coalesce(json_extract(t.row_json,'$.lane'),'{{}}'))))
+                    'acceptance_criteria',json(CASE WHEN json_type(t.row_json,'$.acceptance_criteria') IS NULL THEN '[]' ELSE t.row_json->'$.acceptance_criteria' END),
+                    'competition',json(t.row_json->'$.competition'),
+                    'lane',json(CASE WHEN json_type(t.row_json,'$.lane') IS NULL THEN '{{}}' ELSE t.row_json->'$.lane' END)))
                 FROM selected_task t JOIN plans p ON p.id=t.plan_id)",
             selected=super::super::task_authority_queries::SELECTED_TASK_IN_PLAN
         ),params![plan,task],|row|Ok((column(row,0)?,column(row,1)?))).map_err(db_error)?;
