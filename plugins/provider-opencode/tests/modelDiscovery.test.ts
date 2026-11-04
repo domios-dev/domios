@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
@@ -37,7 +38,7 @@ function fixture(platform = "linux") {
     },
   };
   const context = { host, module: { exports: {} as { default?: Record<string, (...args: unknown[]) => unknown> } } };
-  new Script(readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(context);
+  new Script(readFileSync(new URL("../plugin.js", import.meta.url), "utf8")).runInNewContext(ioTestContext(context));
   const plugin = context.module.exports.default!;
   return {
     plugin,
@@ -123,7 +124,6 @@ test("Supporter retries a null cold catalogue after its TTL while a valid empty 
   assert.deepEqual(JSON.parse(JSON.stringify(empty.plugin.models("empty-fingerprint"))), []);
   assert.equal(empty.starts(), 1);
 });
-
 
 test("add update remove and account changes immediately rediscover at the same clock and binary", () => {
   const f = fixture();

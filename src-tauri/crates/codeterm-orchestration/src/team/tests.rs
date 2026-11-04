@@ -340,6 +340,7 @@ fn close_team_archives_and_detaches_bound_plan() {
     assert_eq!(retired.to, OrchestratorRef::default());
     assert!(plan_store
         .list_index()
+        .unwrap()
         .iter()
         .any(|entry| { entry.plan_id == plan.id && entry.status == PlanStatus::Archived }));
 }
@@ -557,7 +558,7 @@ fn adopt_plan_pairs_the_teams_live_planner() {
             title: Some(planner_title),
         })
     );
-    let transfer = adopted.owner_history.last().unwrap();
+    let transfer = adopted.latest_owner_transfer.as_ref().unwrap();
     assert_eq!(
         transfer.from.tab_id.as_deref(),
         Some(retired_owner.as_str())
@@ -644,8 +645,8 @@ fn transfer_requires_source_team_manager_before_atomic_owner_change() {
     );
     assert_eq!(
         transferred
-            .owner_history
-            .last()
+            .latest_owner_transfer
+            .as_ref()
             .unwrap()
             .from
             .tab_id

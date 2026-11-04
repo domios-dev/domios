@@ -20,101 +20,76 @@ impl PlanStore {
                 .transpose()
                 .map_err(PlanError::InvalidExecutorName)?;
             child.parent_task_id = Some(parent_id.to_string());
-            prepared.push((self.mint_id("task"), child));
+            prepared.push((self.mint_id("task")?, child));
         }
-        let keys = self.issue_task_keys(plan_id, prepared.len());
-        self.with_plan(plan_id, now_ms, |plan| {
-            let parent = plan
-                .tasks
-                .iter()
-                .find(|task| task.id == parent_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if parent.parent_task_id.is_some() {
-                return Err(PlanError::InvalidSplitParent {
-                    reason: super::SplitParentReason::ChildParent,
-                });
-            }
-            if matches!(&parent.status, TaskStatus::Done | TaskStatus::Cancelled) {
-                return Err(PlanError::InvalidSplitParent {
-                    reason: super::SplitParentReason::TerminalParent,
-                });
-            }
-            if plan.status == PlanStatus::Archived
-                || matches!(&plan.mode, PlanMode::Paused | PlanMode::Complete)
-            {
-                return Err(PlanError::BadMode);
-            }
-            let parent_tags = parent.tags.clone();
-            let mut tasks = Vec::with_capacity(prepared.len());
-            let keys = keys.into_iter().map(Some).chain(std::iter::repeat(None));
-            for ((id, child), key) in prepared.into_iter().zip(keys) {
-                let depends_on = validate_task_dependencies(plan, &id, &child.depends_on)?;
-                let mut task = Task {
-                    files: child
-                        .files
-                        .validated()
-                        .map_err(PlanError::InvalidPlanText)?,
-                    id,
-                    name: child.name,
-                    kind: child.kind,
-                    model: child.model,
-                    speed: None,
-                    model_rationale: child.model_rationale,
-                    acceptance_criteria: child.acceptance_criteria,
-                    external_refs: vec![],
-                    test_plan: child.test_plan,
-                    qa_plan: child.qa_plan,
-                    correctness: child.correctness,
-                    status: TaskStatus::Pending,
-                    review_stage: Default::default(),
-                    qa_state: None,
-                    review_round: 0,
-                    review_oracle: None,
-                    review_evidence: vec![],
-                    key,
-                    review_override: None,
-                    review_audit: vec![],
-                    status_label: None,
-                    priority: child.priority.unwrap_or_default(),
-                    created_at: now_ms,
-                    updated_at: now_ms,
-                    status_changed_at: now_ms,
-                    handle: child.handle,
-                    tags: crate::service_plan::tag_model::inherit_parent_tags(
-                        &parent_tags,
-                        &child.tags,
-                    ),
-                    section_ids: child.section_ids,
-                    body: child.body,
-                    role_guidance: child.role_guidance,
-                    executor_role: child.executor_role,
-                    personality: child.personality,
-                    personality_provenance: child.personality_provenance,
-                    competition: child.competition,
-                    intent: child.intent,
-                    execution_intent: child.execution_intent,
-                    parent_task_id: Some(parent_id.to_string()),
-                    depends_on,
-                    assigned_tab_id: None,
-                    lane: Default::default(),
-                    taken_by_role: None,
-                    peer: None,
-                    group: child.group,
-                    canvas: Default::default(),
-                    milestones: vec![],
-                    execution_attempts: vec![],
-                    pause_reason: None,
-                    interruption: Default::default(),
-                    attachments: vec![],
-                };
-                if task.section_ids.is_empty() {
-                    task.section_ids = super::section_links::auto_section_ids_for_task(plan, &task);
-                }
-                tasks.push(task);
-            }
-            let ids = tasks.iter().map(|task| task.id.clone()).collect();
-            plan.tasks.extend(tasks);
-            Ok(ids)
-        })
+        let keys = self.issue_task_keys(plan_id, prepared.len())?;
+        let mut tasks = Vec::with_capacity(prepared.len());
+        let keys = keys.into_iter().map(Some).chain(std::iter::repeat(None));
+        for ((id, child), key) in prepared.into_iter().zip(keys) {
+            let depends_on = normalized_dependency_ids(&child.depends_on);
+            let task = Task {
+                files: child
+                    .files
+                    .validated()
+                    .map_err(PlanError::InvalidPlanText)?,
+                id,
+                name: child.name,
+                kind: child.kind,
+                model: child.model,
+                speed: None,
+                model_rationale: child.model_rationale,
+                acceptance_criteria: child.acceptance_criteria,
+                external_refs: vec![],
+                test_plan: child.test_plan,
+                qa_plan: child.qa_plan,
+                correctness: child.correctness,
+                status: TaskStatus::Pending,
+                review_stage: Default::default(),
+                qa_state: None,
+                review_round: 0,
+                review_oracle: None,
+                review_evidence: vec![],
+                key,
+                review_override: None,
+                review_audit: vec![],
+                status_label: None,
+                priority: child.priority.unwrap_or_default(),
+                created_at: now_ms,
+                updated_at: now_ms,
+                status_changed_at: now_ms,
+                handle: child.handle,
+                tags: child.tags,
+                section_ids: child.section_ids,
+                body: child.body,
+                role_guidance: child.role_guidance,
+                executor_role: child.executor_role,
+                personality: child.personality,
+                personality_provenance: child.personality_provenance,
+                competition: child.competition,
+                intent: child.intent,
+                execution_intent: child.execution_intent,
+                parent_task_id: Some(parent_id.to_string()),
+                depends_on,
+                assigned_tab_id: None,
+                lane: Default::default(),
+                taken_by_role: None,
+                peer: None,
+                group: child.group,
+                canvas: Default::default(),
+                milestones: vec![],
+                execution_attempts: vec![],
+                pause_reason: None,
+                interruption: Default::default(),
+                attachments: vec![],
+            };
+            tasks.push(task);
+        }
+        let ids = tasks.iter().map(|task| task.id.clone()).collect();
+        let turn = self.mutation_writer.enter();
+        let receipt = self
+            .database
+            .insert_tasks(plan_id, tasks, Some(parent_id), now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(ids)
     }
 }

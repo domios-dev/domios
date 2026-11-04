@@ -2557,6 +2557,7 @@ dependencies = [
  "codeterm-plugins",
  "codeterm-process-identity",
  "codeterm-types",
+ "httpdate",
  "libc",
  "log",
  "minisign-verify 0.2.5",

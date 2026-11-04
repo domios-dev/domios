@@ -39,6 +39,7 @@ fn assert_matches_sql(store: &PlanStore) {
         );
         let listed = store
             .list_index()
+            .unwrap()
             .into_iter()
             .find(|entry| entry.plan_id == id)
             .unwrap();
@@ -53,9 +54,8 @@ fn partial_restore(warm: bool) {
     let transaction = store.apply_agent_lifecycle_change(change(), 2).unwrap();
     assert_eq!(transaction.changed_plan_ids(), ["pl_a", "pl_b"]);
     let retained = if warm {
-        Some(store.plan_arc_for_test("pl_a"))
+        Some(store.get("pl_a").unwrap())
     } else {
-        store.clear_plan_cache_for_test();
         None
     };
     let connection = Connection::open(store.database_path_for_test()).unwrap();
@@ -73,10 +73,10 @@ fn partial_restore(warm: bool) {
     connection
         .execute_batch("DROP TRIGGER refuse_restore")
         .unwrap();
-    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Active);
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
     assert_eq!(store.get("pl_b").unwrap().status, PlanStatus::Archived);
     if let Some(handle) = retained {
-        assert_eq!(handle.lock().status, PlanStatus::Active);
+        assert_eq!(handle.status, PlanStatus::Archived);
     }
     assert_matches_sql(&store);
 }
@@ -93,9 +93,7 @@ fn partial_restore_refreshes_every_evicted_plan_and_index() {
 
 fn forward_restore_failure(warm: bool) {
     let (_directory, store) = fixture();
-    if !warm {
-        store.clear_plan_cache_for_test();
-    }
+    if !warm {}
     let connection = Connection::open(store.database_path_for_test()).unwrap();
     connection
         .execute_batch(
@@ -106,11 +104,14 @@ fn forward_restore_failure(warm: bool) {
         )
         .unwrap();
     let error = store.apply_agent_lifecycle_change(change(), 2).unwrap_err();
-    assert!(error.to_string().contains("restore pl_a"), "{error}");
+    assert!(
+        error.to_string().contains("injected batch failure"),
+        "{error}"
+    );
     connection
         .execute_batch("DROP TRIGGER refuse_forward_or_restore")
         .unwrap();
-    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Active);
     assert_eq!(store.get("pl_b").unwrap().status, PlanStatus::Active);
     assert_matches_sql(&store);
 }
@@ -123,4 +124,75 @@ fn forward_restore_failure_refreshes_every_warm_plan_and_index() {
 #[test]
 fn forward_restore_failure_refreshes_every_evicted_plan_and_index() {
     forward_restore_failure(false);
+}
+
+#[test]
+fn prepared_lifecycle_cas_refuses_concurrent_plan_edit_without_restoring_stale_data() {
+    let (_directory, store) = fixture();
+    let prepared = store
+        .prepare_agent_lifecycle_changes(vec![change()], 2)
+        .unwrap();
+    let mut newer = store.get("pl_a").unwrap();
+    newer.title = "concurrent edit".into();
+    store.save(&mut newer, 3).unwrap();
+    assert!(store
+        .commit_prepared_agent_lifecycle_changes(prepared)
+        .unwrap_err()
+        .to_string()
+        .contains("lifecycle conflict"));
+    assert_eq!(store.get("pl_a").unwrap(), newer);
+    assert_eq!(
+        store.get("pl_b").unwrap().owner.tab_id.as_deref(),
+        Some("owner")
+    );
+    assert_matches_sql(&store);
+}
+
+#[test]
+fn prepared_lifecycle_cas_commits_once_and_rejects_a_second_stale_candidate() {
+    let (_directory, store) = fixture();
+    let first = store
+        .prepare_agent_lifecycle_changes(vec![change()], 2)
+        .unwrap();
+    let stale = store
+        .prepare_agent_lifecycle_changes(vec![change()], 2)
+        .unwrap();
+    assert_eq!(
+        store
+            .commit_prepared_agent_lifecycle_changes(first)
+            .unwrap(),
+        ["pl_a", "pl_b"]
+    );
+    assert!(store
+        .commit_prepared_agent_lifecycle_changes(stale)
+        .is_err());
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
+    assert_matches_sql(&store);
+}
+
+#[test]
+fn prepared_unarchive_cas_preserves_newer_plan_and_refuses_another_active_team_plan() {
+    let (_directory, store) = fixture();
+    let mut plan = store.get("pl_a").unwrap();
+    plan.team_id = Some("team".into());
+    plan.status = PlanStatus::Archived;
+    store.save(&mut plan, 2).unwrap();
+    let (prepared, team) = store.prepare_team_plan_unarchive("pl_a", 3).unwrap();
+    assert_eq!(team, "team");
+    plan.title = "concurrent title".into();
+    store.save(&mut plan, 4).unwrap();
+    assert!(store
+        .commit_prepared_agent_lifecycle_changes(prepared)
+        .unwrap_err()
+        .to_string()
+        .contains("conflict"));
+    assert_eq!(store.get("pl_a").unwrap(), plan);
+    let mut other = store.get("pl_b").unwrap();
+    other.team_id = Some("team".into());
+    store.save(&mut other, 5).unwrap();
+    assert!(matches!(
+        store.prepare_team_plan_unarchive("pl_a", 6),
+        Err(PlanError::TeamAlreadyHasActivePlan { .. })
+    ));
+    assert_matches_sql(&store);
 }

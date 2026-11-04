@@ -25,6 +25,7 @@ pub fn test_shell_binary() -> &'static str {
 
 pub struct MockProvider {
     id: String,
+    auto_approve_flags: Vec<String>,
     launch_binary: Option<String>,
     supports_chat_ui: bool,
     tool_less: bool,
@@ -74,6 +75,11 @@ pub struct MockProvider {
 }
 
 impl MockProvider {
+    pub fn with_auto_approve_flags(mut self, flags: Vec<String>) -> Self {
+        self.auto_approve_flags = flags;
+        self
+    }
+
     pub fn with_execution_sandbox(
         mut self,
         capability: codeterm_plugin::provider::ExecutionSandboxCapability,
@@ -90,6 +96,7 @@ impl MockProvider {
         Self {
             execution_sandbox: None,
             id: id.to_string(),
+            auto_approve_flags: Vec::new(),
             launch_binary: None,
             supports_chat_ui: false,
             tool_less: false,
@@ -445,6 +452,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn auto_approve_flags(&self) -> Vec<String> {
+        self.auto_approve_flags.clone()
+    }
+
     fn execution_sandbox_capability(
         &self,
     ) -> Option<codeterm_plugin::provider::ExecutionSandboxCapability> {
@@ -497,6 +508,12 @@ impl AgentProvider for MockProvider {
             return String::new();
         }
         let mut cmd = format!("{}-cli", self.id);
+        if params.skip_permissions {
+            for flag in &self.auto_approve_flags {
+                cmd.push(' ');
+                cmd.push_str(flag);
+            }
+        }
         if let Some(args) = &params.args {
             for a in args {
                 cmd.push(' ');

@@ -1,8 +1,8 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import { useMemo, useState } from "react";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { milestoneColorMap } from "../milestoneColors";
 import { resolveTaskExecutionAttempts, attemptTabId, attemptTabTitle } from "../taskExecutorHistory";
-import type { Plan, Task } from "../types";
 import { laneTurnStatsLabel } from "../taskTurnStats";
 import { AttachmentGallery } from "./attachments";
 import { ActivityLogRow } from "./ActivityLogRow";
@@ -80,7 +80,7 @@ function TaskActivityTimelineBody({
   const attempts = useMemo(() => resolveTaskExecutionAttempts(task, tabs), [task, tabs]);
   const colors = useMemo(() => (plan ? milestoneColorMap(plan) : new Map<string, string>()), [plan]);
   const { visible, hiddenCount } = useMemo(
-    () => visibleMilestones(task.milestones, expanded),
+    () => visibleMilestones(task.milestones ?? [], expanded),
     [task.milestones, expanded],
   );
 
@@ -105,7 +105,7 @@ function TaskActivityTimelineBody({
           {task.lane.cleanup_hints?.[0] && <code>{task.lane.cleanup_hints[0]}</code>}
         </div>
       )}
-      {task.milestones.length > 0 && (
+      {(task.milestones?.length ?? 0) > 0 && (
         <div
           className={`plan-task-activity-timeline${expanded ? " plan-task-activity-timeline--expanded" : ""}`}
           data-testid="plan-task-activity-timeline"
@@ -140,10 +140,10 @@ function TaskActivityTimelineBody({
               data-testid="plan-task-activity-show-all"
               onClick={() => setExpanded(true)}
             >
-              Show all {task.milestones.length} strides
+              Show all {(task.milestones?.length ?? 0)} strides
             </button>
           )}
-          {expanded && task.milestones.length > VISIBLE_MILESTONE_COLLAPSE && (
+          {expanded && (task.milestones?.length ?? 0) > VISIBLE_MILESTONE_COLLAPSE && (
             <button
               type="button"
               className="plan-task-activity-show-all"

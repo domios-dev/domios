@@ -377,12 +377,9 @@ impl ServiceContext {
             .complete_planner_request(plan_id, request_id, epoch_ms())
             .map_err(|error| error.to_string())?;
         self.plan_store
-            .get(plan_id)
-            .and_then(|plan| {
-                plan.planner_requests
-                    .into_iter()
-                    .find(|request| request.request_id == request_id)
-            })
+            .planner_gate_context(plan_id, Some(request_id))
+            .map_err(|error| error.to_string())?
+            .and_then(|context| context.request)
             .ok_or_else(|| "planner request not found".into())
     }
     pub fn set_can_spawn(&self, tab_id: &str, can_spawn: bool) -> Result<(), String> {
@@ -823,10 +820,9 @@ impl ServiceContext {
                 report_outcome,
             );
         self.report_store.lock().claim(&report.id);
-        let trace_flow = report
-            .attempt_id
-            .clone()
-            .or_else(|| crate::flow_trace::tab_flow(self, tab_id));
+        let trace_flow = report.attempt_id.clone().or_else(|| {
+            crate::flow_trace::diagnostic_flow(crate::flow_trace::tab_flow(self, tab_id))
+        });
         crate::flow_trace::record_flow(
             &report.id,
             "report.emitted",

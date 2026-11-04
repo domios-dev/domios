@@ -1,7 +1,8 @@
+import type { PlanView as Plan, PlanTaskView as Task } from "./planProjection";
 import type { Tab } from "../../lib/types";
 import { presenceColor, type PresenceAgent } from "./presence/identity";
 import { isActiveTaskStatus } from "./tabCurrentTask";
-import type { AgentRef, Milestone, Plan, Task } from "./types";
+import type { AgentRef, Milestone } from "./types";
 
 export interface TaskPresenceLatest {
   authorLabel: string;
@@ -40,7 +41,7 @@ function agentLabel(agent: AgentRef, tabs: Record<string, Tab>): string | null {
 }
 
 function latestMilestone(task: Task): Milestone | null {
-  return task.milestones.reduce<Milestone | null>((latest, m) => (!latest || m.ts > latest.ts ? m : latest), null);
+  return (task.milestones ?? []).reduce<Milestone | null>((latest, m) => (!latest || m.ts > latest.ts ? m : latest), null);
 }
 
 function kindLabel(kind: string): string {

@@ -148,7 +148,7 @@ fn source_archive_failure_releases_authority_and_fences_the_attempt() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -200,7 +200,7 @@ fn source_archive_failure_releases_authority_and_fences_the_attempt() {
         .contains("tab closed after source retirement"));
     rx.recv_timeout(std::time::Duration::from_secs(5)).unwrap();
     fixture.ui.unlisten(listener);
-    let fenced = store.show_task(&task).unwrap().task;
+    let fenced = store.inspect_task_for_test(&task).unwrap().task;
     assert!(fenced.interruption.handoff_required);
     assert!(fenced.execution_attempts[0].closed_at.is_some());
     assert_eq!(
@@ -321,7 +321,11 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     fixture
@@ -345,7 +349,12 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
         )
         .unwrap();
     let acknowledged_at = acknowledgement.attempt.acknowledged_at;
-    let original_lane = store.show_task(&task_id).unwrap().task.lane.clone();
+    let original_lane = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .lane
+        .clone();
 
     let authority = fixture
         .service
@@ -402,7 +411,7 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
         .finalize_authorized_runtime_restart_binding(&tab_id, "target-thread", "target-nonce")
         .unwrap());
 
-    let rebound = store.show_task(&task_id).unwrap().task;
+    let rebound = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(rebound.execution_attempts.len(), 1);
     assert_eq!(rebound.execution_attempts[0].id, attempt_id);
     assert_eq!(rebound.lane, original_lane);
@@ -453,9 +462,10 @@ fn provider_switch_restores_plan_attempt_for_acknowledgement_and_report() {
             },
             6,
         )
-        .unwrap();
+        .unwrap()
+        .committed_review;
     assert!(accepted_report);
-    let reported = store.show_task(&task_id).unwrap().task;
+    let reported = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(reported.execution_attempts[0].id, attempt_id);
     assert_eq!(
         reported.execution_attempts[0]
@@ -520,7 +530,11 @@ fn provider_switch_refuses_an_attempt_owned_by_another_tab_before_mutation() {
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     fixture
@@ -554,7 +568,11 @@ fn provider_switch_refuses_an_attempt_owned_by_another_tab_before_mutation() {
     assert_eq!(tab.agent_type.as_deref(), Some("source-provider"));
     assert_eq!(tab.agent_session_id.as_deref(), Some("foreign-thread"));
     assert_eq!(tab.session_binding_nonce.as_deref(), Some("foreign-nonce"));
-    let attempt = &store.show_task(&task_id).unwrap().task.execution_attempts[0];
+    let attempt = &store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0];
     assert_eq!(attempt.session_id.as_deref(), Some("source-thread"));
     assert_eq!(
         attempt.session_binding_nonce.as_deref(),

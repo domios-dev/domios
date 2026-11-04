@@ -357,7 +357,10 @@ impl ServiceContext {
         if mode == RestartMode::Fresh {
             self.require_fresh_restart_allowed(&snap, force)?;
         }
-        let pty_claim = self.pty_ownership.acquire(&snap.tab_id);
+        let pty_claim = self
+            .pty_ownership
+            .acquire(&snap.tab_id)
+            .map_err(AgentRestartError::BadRequest)?;
         {
             let mux = self.mux.read();
             let tab = mux.get_tab(&snap.tab_id).ok_or_else(|| {

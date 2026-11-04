@@ -103,7 +103,7 @@ fn pair_role_placement_preserves_reserved_team_and_launch_identity() {
 fn pair_spawn_creates_no_plan_until_first_goal() {
     let (_root, store) = store_for_test();
     assert!(
-        store.list_index().is_empty(),
+        store.list_index().unwrap().is_empty(),
         "pair spawn must not create a placeholder plan"
     );
 
@@ -129,7 +129,7 @@ fn pair_spawn_creates_no_plan_until_first_goal() {
         )
         .unwrap();
 
-    let plans = store.list_index();
+    let plans = store.list_index().unwrap();
     assert_eq!(plans.len(), 1, "first goal creates exactly one plan");
     let bound = store.get(&plan.id).unwrap();
     assert_eq!(bound.owner.tab_id.as_deref(), Some("orch-1"));
@@ -665,7 +665,7 @@ fn pair_leaf_call_is_refused_with_registered_providers_before_reservation() {
     let mux = fixture.service.mux.read();
     assert_eq!(mux.snapshot().tabs.len(), tabs_before);
     assert_eq!(mux.team_count(), teams_before);
-    assert!(fixture.service.plan_store.list_index().is_empty());
+    assert!(fixture.service.plan_store.list_index().unwrap().is_empty());
 }
 
 // an unknown Planner must not strand the otherwise valid Orchestrator Tab.
@@ -702,7 +702,7 @@ fn team_pair_with_unknown_provider_creates_no_tab() {
     let mux = fixture.service.mux.read();
     assert_eq!(mux.snapshot().tabs.len(), tabs_before);
     assert_eq!(mux.team_count(), teams_before);
-    assert!(fixture.service.plan_store.list_index().is_empty());
+    assert!(fixture.service.plan_store.list_index().unwrap().is_empty());
 }
 
 // provider readiness for PTY launch commands does not apply to chat backends.
@@ -815,7 +815,7 @@ fn pair_orchestrator_launch_failure_leaves_no_pair_tabs() {
     let mux = fixture.service.mux.read();
     assert_eq!(mux.snapshot().tabs.len(), tabs_before);
     assert_eq!(mux.team_count(), teams_before);
-    assert!(fixture.service.plan_store.list_index().is_empty());
+    assert!(fixture.service.plan_store.list_index().unwrap().is_empty());
 }
 
 // the pair rollback owns restoring the pre-claim state after spawn returns an error.
@@ -874,7 +874,7 @@ fn pair_orchestrator_launch_failure_preserves_claimed_tab() {
         serde_json::to_value(restored).unwrap(),
         serde_json::to_value(&picker_before).unwrap()
     );
-    assert!(fixture.service.plan_store.list_index().is_empty());
+    assert!(fixture.service.plan_store.list_index().unwrap().is_empty());
 }
 
 // rollback owns the new pair member but must preserve a Tab supplied by the user.
@@ -935,7 +935,7 @@ fn pair_planner_launch_failure_preserves_claimed_tab_and_removes_created_tab() {
     assert_eq!(restored.team_id, picker_before.team_id);
     assert_eq!(restored.agent_booting, picker_before.agent_booting);
     assert_eq!(restored.boot_stage, picker_before.boot_stage);
-    assert!(fixture.service.plan_store.list_index().is_empty());
+    assert!(fixture.service.plan_store.list_index().unwrap().is_empty());
 }
 
 #[test]

@@ -44,25 +44,46 @@ pub async fn list_tabs(
     Query(query): Query<TabListQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     let focused_workspace = !query.all_workspaces && query.focused_workspace;
-    let requested_workspace = query
-        .workspace_id
-        .as_deref()
-        .map(|selector| {
-            let snapshot = state.svc.mux.read().snapshot();
-            codeterm_service_core::dispatch::resolve_workspace_selector(&snapshot, selector)
-        })
-        .transpose()
-        .map_err(|error| {
-            if error.starts_with("Ambiguous workspace id prefix") {
-                (StatusCode::BAD_REQUEST, "Ambiguous workspace id prefix")
-            } else {
-                (StatusCode::NOT_FOUND, "Workspace not found")
-            }
-        })?;
+    let requested_workspace = if let Some(selector) = query.workspace_id.clone() {
+        let service = state.svc.clone();
+        Some(
+            tokio::task::spawn_blocking(move || {
+                let snapshot = service.mux.read().snapshot();
+                codeterm_service_core::dispatch::resolve_workspace_selector(&snapshot, &selector)
+            })
+            .await
+            .map_err(|_| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Workspace resolution task failed",
+                )
+            })?
+            .map_err(|error| {
+                if error.starts_with("Ambiguous workspace id prefix") {
+                    (StatusCode::BAD_REQUEST, "Ambiguous workspace id prefix")
+                } else {
+                    (StatusCode::NOT_FOUND, "Workspace not found")
+                }
+            })?,
+        )
+    } else {
+        None
+    };
     let caller_tab_id = if focused_workspace {
-        let actor = crate::auth::ActorHeaders::authenticate(&state, headers.clone())
-            .map_err(|(status, _)| (status, "Authenticated local actor or owner required"))?;
-        caller_tab_header(&actor)
+        let state = state.clone();
+        let headers = headers.clone();
+        tokio::task::spawn_blocking(move || {
+            let actor = crate::auth::ActorHeaders::authenticate(&state, headers)
+                .map_err(|(status, _)| (status, "Authenticated local actor or owner required"))?;
+            Ok::<_, (StatusCode, &'static str)>(caller_tab_header(&actor))
+        })
+        .await
+        .map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Caller resolution task failed",
+            )
+        })??
     } else {
         None
     };
@@ -1119,7 +1140,12 @@ pub async fn link_pty(
     Json(body): Json<LinkPtyBody>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
     tokio::task::spawn_blocking(move || {
-        let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id);
+        let selected_pty_id = state.svc.link_pty(&tab_id, body.pty_id).map_err(|_| {
+            (
+                StatusCode::TOO_MANY_REQUESTS,
+                "tab activation capacity reached",
+            )
+        })?;
         Ok(Json(
             serde_json::json!({"ok": true, "pty_id": selected_pty_id}),
         ))

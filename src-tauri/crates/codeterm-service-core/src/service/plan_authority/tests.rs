@@ -385,7 +385,10 @@ fn planner_cannot_add_orchestrator_heartbeat_learning() {
 
     assert!(matches!(
         result,
-        Err(OrchestratorLearningError::Authority(_))
+        Err(OrchestratorLearningError::Authority(_)
+            | OrchestratorLearningError::PlanningAuthority(
+                PlanAuthorityError::OrchestratorRequired
+            ))
     ));
     assert!(fixture
         .service
@@ -976,6 +979,47 @@ async fn authority_storage_failures_do_not_become_missing_plans_or_role_denials(
     assert_eq!(
         fixture.service.classify_planning_caller(&plan_id, &owner),
         Err(PlanAuthorityError::StoreReadFailed)
+    );
+    assert_eq!(
+        fixture
+            .service
+            .authorize_plan_orchestrator(&plan_id, &owner),
+        Err(PlanAuthorityError::StoreReadFailed)
+    );
+    assert_eq!(
+        fixture.service.authorize_execution_action(&plan_id, &owner),
+        Err(PlanAuthorityError::StoreReadFailed)
+    );
+    assert_eq!(
+        fixture
+            .service
+            .authorize_plan_lane_cleanup(&plan_id, &owner),
+        Err(PlanAuthorityError::StoreReadFailed)
+    );
+    assert!(matches!(
+        fixture
+            .service
+            .approve_and_activate_plan(&plan_id, &owner, None, 3),
+        Err(PlanOperationError::Authority(
+            PlanAuthorityError::StoreReadFailed
+        ))
+    ));
+    assert!(matches!(
+        fixture.service.enter_execution_mode(&plan_id, &owner, 3),
+        Err(PlanOperationError::Authority(
+            PlanAuthorityError::StoreReadFailed
+        ))
+    ));
+    let persisted: String = connection
+        .query_row(
+            "SELECT header_json FROM plans WHERE id=?1",
+            [&plan_id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(
+        serde_json::from_str::<serde_json::Value>(&persisted).unwrap()["owner"],
+        42
     );
     assert_eq!(
         fixture

@@ -23,7 +23,11 @@ fn session_model_detected_before_binding_is_replayed_when_attempt_becomes_eligib
     store
         .assign_task(&plan.id, &task_id, "worker-tab", None, 3)
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
 
@@ -78,7 +82,7 @@ fn session_model_detected_before_binding_is_replayed_when_attempt_becomes_eligib
         .unwrap());
 
     let attempt = store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .execution_attempts
@@ -111,7 +115,11 @@ fn attempt_model_identity_is_visible_in_inspection() {
     store
         .assign_task(&plan.id, &task_id, "worker-tab", None, 3)
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store

@@ -7,7 +7,7 @@ fn third_trailing_stagnant_bounce_returns_strategy_warning_atomically() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -57,7 +57,7 @@ fn strategy_warning_carries_decisions_selected_by_stride_kind() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -142,7 +142,7 @@ fn strategy_warning_resets_on_accept_changed_surface_or_distinct_oracle() {
         changed_executable_surfaces: false,
         distinct_oracle: false,
     };
-    let mut task = store.show_task(&task_id).unwrap().task;
+    let mut task = store.inspect_task_for_test(&task_id).unwrap().task;
     task.review_round = 4;
     task.review_evidence = vec![base.clone(), base.clone(), base.clone()];
     assert!(strategy_warning(&task).is_some());

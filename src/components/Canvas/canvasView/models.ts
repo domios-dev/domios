@@ -1,5 +1,6 @@
+import type { PlanSectionView as Section, PlanTaskView as Task } from "../planProjection";
 import type { LaidOutNode } from "../layout";
-import type { CanvasElement, DriftItem, Section, TagFacet, Task } from "../types";
+import type { CanvasElement, DriftItem, TagFacet } from "../types";
 import type { TaskPresence } from "../taskPresence";
 import type { HistoricalExecutorView } from "../taskExecutorHistory";
 

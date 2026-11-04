@@ -623,16 +623,8 @@ fn load_column(
         substr(json_extract(row_json, '$.qa_state'), 1, 32),
         substr(json_extract(row_json, '$.status_label'), 1, 240),
         substr(json_extract(row_json, '$.group'), 1, 96),
-        (SELECT substr(json_extract(task_group.value, '$.label'), 1, 128)
-         FROM plans AS board_plan, json_each(board_plan.header_json, '$.task_groups') AS task_group
-         WHERE board_plan.id = plan_tasks.plan_id
-           AND json_extract(task_group.value, '$.key') = json_extract(plan_tasks.row_json, '$.group')
-         LIMIT 1),
-        (SELECT substr(json_extract(task_group.value, '$.color'), 1, 32)
-         FROM plans AS board_plan, json_each(board_plan.header_json, '$.task_groups') AS task_group
-         WHERE board_plan.id = plan_tasks.plan_id
-           AND json_extract(task_group.value, '$.key') = json_extract(plan_tasks.row_json, '$.group')
-         LIMIT 1),
+        (SELECT label FROM board_groups WHERE group_key=(SELECT group_key FROM selected_groups WHERE task_id=plan_tasks.task_id) ORDER BY position LIMIT 1),
+        (SELECT color FROM board_groups WHERE group_key=(SELECT group_key FROM selected_groups WHERE task_id=plan_tasks.task_id) ORDER BY position LIMIT 1),
         (SELECT substr(json_extract(section.row_json, '$.title'), 1, 160)
          FROM plan_sections AS section
          WHERE section.plan_id = plan_tasks.plan_id
@@ -688,12 +680,7 @@ fn load_column(
         CASE WHEN status = 'in_review'
                   AND json_extract(row_json, '$.review_stage') = 'qa'
                   AND json_extract(row_json, '$.qa_state') = 'queued'
-             THEN (SELECT COUNT(*) FROM plan_tasks AS queued
-                   WHERE queued.plan_id = plan_tasks.plan_id
-                     AND CASE WHEN queued.status IN ('pending', 'paused') THEN 'pending' ELSE queued.status END = 'in_review'
-                     AND json_extract(queued.row_json, '$.review_stage') = 'qa'
-                     AND json_extract(queued.row_json, '$.qa_state') = 'queued'
-                     AND queued.position <= plan_tasks.position)
+             THEN (SELECT queue_position FROM qa_positions WHERE task_id=plan_tasks.task_id)
              ELSE 0 END,
         max(
             coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0),
@@ -706,16 +693,36 @@ fn load_column(
         )
         FROM plan_tasks WHERE plan_id = ?1 AND ";
     let created_at_expr = "coalesce(CAST(json_extract(row_json, '$.created_at') AS INTEGER), 0)";
+    let cursor = if after.is_some() {
+        format!("AND ({created_at_expr},position,task_id)>(?2,?3,?4)")
+    } else {
+        String::new()
+    };
+    let limit_parameter = if after.is_some() { "?5" } else { "?2" };
+    let lookups = format!("WITH board_groups AS MATERIALIZED (
+        SELECT CAST(g.key AS INTEGER) AS position,json_extract(g.value,'$.key') AS group_key,
+            substr(json_extract(g.value,'$.label'),1,128) AS label,
+            substr(json_extract(g.value,'$.color'),1,32) AS color
+        FROM plans p,json_each(p.header_json,'$.task_groups') g WHERE p.id=?1
+     ), qa_positions AS MATERIALIZED (
+        SELECT task_id,count(*) OVER(ORDER BY position RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS queue_position
+        FROM plan_tasks WHERE plan_id=?1 AND status='in_review'
+            AND json_extract(row_json,'$.review_stage')='qa' AND json_extract(row_json,'$.qa_state')='queued'
+     ), selected_groups AS MATERIALIZED (
+        SELECT task_id,json_extract(row_json,'$.group') AS group_key FROM plan_tasks
+        WHERE plan_id=?1 AND {predicate} {cursor}
+        ORDER BY {created_at_expr},position,task_id LIMIT {limit_parameter}
+     ) ");
     let sql = if after.is_some() {
         format!(
-            "{projection}{predicate}
+            "{lookups}{projection}{predicate}
              AND ({created_at_expr}, position, task_id) > (?2, ?3, ?4)
              ORDER BY {created_at_expr}, position, task_id
              LIMIT ?5"
         )
     } else {
         format!(
-            "{projection}{predicate}
+            "{lookups}{projection}{predicate}
              ORDER BY {created_at_expr}, position, task_id
              LIMIT ?2"
         )

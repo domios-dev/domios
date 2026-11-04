@@ -1,4 +1,4 @@
-use crate::plan::{TaskExecutionAttempt, TaskStatus};
+use crate::plan::TaskStatus;
 
 pub const ACK_CAUSE_NO_LIVE_ATTEMPT: &str = "worker_ack_no_live_attempt";
 pub const ACK_CAUSE_PLAN_NOT_ACTIVE: &str = "worker_ack_plan_not_active";
@@ -25,14 +25,25 @@ pub fn superseded_subject_cause(
 
 /// One live attempt reached through its executor tab. The tab binding is the
 /// authority; a caller-supplied plan/task subject only disambiguates.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
 pub struct LiveTabAttempt {
     pub plan_id: String,
     pub task_id: String,
     pub task_handle: Option<String>,
     pub plan_active: bool,
     pub task_status: TaskStatus,
-    pub attempt: TaskExecutionAttempt,
+    pub attempt: LiveTaskAttemptRead,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Deserialize, serde::Serialize)]
+pub struct LiveTaskAttemptRead {
+    pub id: String,
+    pub executor_tab_id: String,
+    pub acknowledged_at: Option<u64>,
+    pub retired_at: Option<u64>,
+    pub orchestrator_tab_id: Option<String>,
+    pub parent_tab_id: Option<String>,
+    pub owner_epoch: u64,
 }
 
 impl LiveTabAttempt {

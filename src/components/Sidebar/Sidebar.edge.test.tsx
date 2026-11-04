@@ -31,7 +31,7 @@ function Shell() {
   const sidebar = useSidebarViewport();
   return <>
     <Titlebar theme={{} as ThemeConfig} showSidebarToggle onToggleSidebar={sidebar.toggle} />
-    {sidebar.mounted && <Sidebar onCollapse={sidebar.close} config={{ general_agent: { first_run_complete: true }, agent: { full_access: false }, mesh: { enabled: false } } as AppConfig} />}
+    {sidebar.mounted && <Sidebar onCollapse={sidebar.close} config={{ general_agent: { first_run_complete: true }, agent: {}, mesh: { enabled: false } } as AppConfig} />}
   </>;
 }
 

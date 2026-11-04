@@ -220,11 +220,7 @@ pub(super) fn dispatch(
                     binding_nonce: optional_string(p, "session_binding_nonce"),
                 },
             )
-            .map_err(|message| JsonRpcError {
-                code: -32003,
-                message,
-                data: None,
-            })?;
+            .map_err(|error| super::plan_task_authority::execution_authority_error(error, None))?;
         }
         let plan = svc
             .plan_store
@@ -432,7 +428,7 @@ pub(super) fn dispatch(
                 } else {
                     None
                 };
-            let mut entries = store.list_index();
+            let mut entries = store.list_index().map_err(plan_rpc_err)?;
             if let Some(want) = &want {
                 let matching = store
                     .plan_project_ids_projection(want)
@@ -688,7 +684,17 @@ pub(super) fn dispatch(
 
         "plan.state" => {
             let id = plan_refs::resolve_plan(store, params)?;
-            let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
+            let window: codeterm_plan::service_plan::state::window::StateWindowRequest =
+                serde_json::from_value(p.cloned().unwrap_or_else(|| json!({}))).map_err(
+                    |error| JsonRpcError {
+                        code: -32602,
+                        message: format!("invalid state window: {error}"),
+                        data: None,
+                    },
+                )?;
+            let snapshot = svc
+                .build_plan_state_with_window(&id, now, window)
+                .map_err(plan_rpc_err)?;
             let mut value = serde_json::to_value(snapshot).unwrap_or_default();
             let tab_id = store
                 .plan_owner_tab_projection(&id)
@@ -706,12 +712,18 @@ pub(super) fn dispatch(
             if let Some(response) = archived_next_response(&id, status) {
                 return Ok(response);
             }
-            let snapshot = svc.build_plan_state(&id, now).map_err(plan_rpc_err)?;
-            Ok(json!({
-                "plan_id": id,
-                "next_actions": snapshot.next_actions,
-                "blocked_or_gated_count": snapshot.blocked_or_gated_count,
-            }))
+            let window: codeterm_plan::service_plan::state::window::StateWindowRequest =
+                serde_json::from_value(p.cloned().unwrap_or_else(|| json!({}))).map_err(
+                    |error| JsonRpcError {
+                        code: -32602,
+                        message: format!("invalid state window: {error}"),
+                        data: None,
+                    },
+                )?;
+            let snapshot = svc
+                .build_plan_state_with_window(&id, now, window)
+                .map_err(plan_rpc_err)?;
+            Ok(serde_json::to_value(snapshot.into_next_actions()).unwrap_or_default())
         }
 
         "plan.reconcile" => {

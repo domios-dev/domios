@@ -143,7 +143,7 @@ fn implicit_lane_update_still_fills_only_empty() {
 fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
     let (_dir, store, plan, task) = setup();
     store
-        .with_plan(&plan, 3, |plan| {
+        .edit_plan_fixture(&plan, 3, |plan| {
             let task_ref = plan
                 .tasks
                 .iter_mut()
@@ -164,7 +164,7 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
         3,
     );
     assert!(store
-        .show_task(&task)
+        .inspect_task_for_test(&task)
         .unwrap()
         .task
         .assigned_tab_id
@@ -185,7 +185,7 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
         .unwrap();
     assert_eq!(
         store
-            .show_task(&task)
+            .inspect_task_for_test(&task)
             .unwrap()
             .task
             .lane
@@ -201,7 +201,7 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
     };
 
     update_task_with_lane(&store, &plan, &task, startup_metadata, 4);
-    let starting = store.show_task(&task).unwrap().task;
+    let starting = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(starting.assigned_tab_id.as_deref(), Some("worker-tab"));
     assert_eq!(starting.lane.tab_id.as_deref(), Some("worker-tab"));
     assert_eq!(starting.execution_attempts.len(), 1);
@@ -244,7 +244,7 @@ fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
         )
         .unwrap();
 
-    let acknowledged = store.show_task(&task).unwrap().task;
+    let acknowledged = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(acknowledged.assigned_tab_id.as_deref(), Some("worker-tab"));
     assert_eq!(acknowledged.lane.tab_id.as_deref(), Some("worker-tab"));
     assert_eq!(acknowledged.execution_attempts.len(), 1);
@@ -284,7 +284,7 @@ fn dispatch_records_computed_destination_when_none_is_stored() {
             3,
         )
         .unwrap();
-    let starting = store.show_task(&task).unwrap().task;
+    let starting = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(
         starting.lane.destination.as_deref(),
         Some("release/computed")
@@ -304,7 +304,7 @@ fn dispatch_records_computed_destination_when_none_is_stored() {
             4,
         )
         .unwrap();
-    let ready = store.show_task(&task).unwrap().task;
+    let ready = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(ready.lane.destination.as_deref(), Some("release/computed"));
     assert_eq!(
         ready.execution_attempts[0].destination.as_deref(),
@@ -427,7 +427,7 @@ fn lane_and_in_progress_commit_as_one_plan_mutation() {
         )
         .unwrap();
 
-    let task = store.show_task(&task).unwrap().task;
+    let task = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(task.status, TaskStatus::InProgress);
     assert_eq!(task.lane.tab_id.as_deref(), Some("worker-tab"));
     assert_eq!(task.assigned_tab_id.as_deref(), Some("worker-tab"));
@@ -467,7 +467,7 @@ fn rejected_status_does_not_leave_a_half_applied_lane() {
         error,
         crate::service_plan::PlanError::BlockedRequiresLabel
     ));
-    let task = store.show_task(&task).unwrap().task;
+    let task = store.inspect_task_for_test(&task).unwrap().task;
     assert!(task.lane.tab_id.is_none());
     assert!(task.assigned_tab_id.is_none());
     assert_eq!(task.status, TaskStatus::Pending);
@@ -504,7 +504,7 @@ fn late_validation_failure_rolls_back_lane_and_status_together() {
         )
         .unwrap_err();
     assert!(matches!(error, crate::service_plan::PlanError::BadPriority));
-    let task = store.show_task(&task).unwrap().task;
+    let task = store.inspect_task_for_test(&task).unwrap().task;
     assert_eq!(task.status, TaskStatus::Pending);
     assert!(task.lane.tab_id.is_none());
     assert!(task.assigned_tab_id.is_none());
@@ -599,7 +599,7 @@ fn blocked_requires_label_invariant() {
         crate::service_plan::PlanError::BlockedRequiresLabel
     ));
     store
-        .with_plan(&plan, 5, |plan| {
+        .edit_plan_fixture(&plan, 5, |plan| {
             plan.tasks[0].status_label = Some("stale label".into());
             Ok(())
         })

@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Codex hook event roster + Stop hook config tests (DN-3 stage 2, S8).
  * Run: npx tsx plugins/provider-codex/tests/hook-events.test.ts
@@ -27,7 +28,7 @@ const pluginDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 function loadCodexWithHost(host: unknown) {
   const source = fs.readFileSync(path.join(pluginDir, "plugin.js"), "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: "plugin.js" }).runInNewContext(context);
+  new vm.Script(source, { filename: "plugin.js" }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

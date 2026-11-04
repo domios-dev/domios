@@ -49,7 +49,7 @@ export function useFirstRunStart(show: (target: TabRef) => Promise<void> | void,
       if (attempt.current !== current) return;
       transition("authenticated");
       setProgress("Starting General agent…");
-      await invoke("complete_general_agent_first_run", { providerId, fullAccess: true });
+      await invoke("complete_general_agent_first_run", { providerId });
       const state = await invoke<MultiplexerState>("mux_get_state");
       if (attempt.current !== current) return;
       target = firstRunGeneralTarget(state);

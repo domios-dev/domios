@@ -5,6 +5,7 @@
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { installTestIo } from "../../provider-shared/tests/hostIo";
 import { claudeFileDiffs } from "../src/fileDiffs";
 
 interface Block { kind: string; data: Record<string, unknown> }
@@ -12,6 +13,7 @@ interface Row { role: string; blocks: Block[] }
 interface Parser { parseSessionDelta(chunk: string): { messages: Row[] } }
 
 (globalThis as { host?: unknown }).host ??= { manifestJson: () => "null", log: () => undefined };
+installTestIo((globalThis as {host: object}).host);
 const parser = (await import("../src/plugin")).default as unknown as Parser;
 
 const raw = fs.readFileSync(new URL("./fixtures/file-diffs.jsonl", import.meta.url), "utf8");

@@ -1,5 +1,4 @@
-// A registry record binds only when its pid is in this tab's process tree and its
-// recorded start equals the live process start (mirrors agent_claude launch_session.rs).
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { LaunchSessionDetection, LaunchSessionEvidence } from "@codeterm/plugin-sdk";
 import { effectiveReadPath } from "../../provider-shared/readHome";
 
@@ -29,14 +28,14 @@ export function registrySessionId(raw: string, pid: number, startToken: string):
   return sessionId || null;
 }
 
-export function detectClaudeLaunchSession(evidence: LaunchSessionEvidence): LaunchSessionDetection | null {
+export function* detectClaudeLaunchSession(evidence: LaunchSessionEvidence): HostIoSteps<LaunchSessionDetection | null> {
   const dir = registryDir();
   if (!dir || !evidence || !Array.isArray(evidence.processes)) return null;
   const sep = host.platform() === "windows" ? "\\" : "/";
   const processes = evidence.processes.slice().sort((a, b) => (a.depth - b.depth) || (a.pid - b.pid));
   for (let i = 0; i < processes.length; i++) {
     const proc = processes[i];
-    const raw = host.fs.readFile(dir + sep + proc.pid + ".json");
+    const raw = (yield* host.io.fs.readFile(dir + sep + proc.pid + ".json"));
     if (typeof raw !== "string") continue;
     const sessionId = registrySessionId(raw, proc.pid, String(proc.startToken || ""));
     if (sessionId) return { sessionId, source: "pid_registry" };

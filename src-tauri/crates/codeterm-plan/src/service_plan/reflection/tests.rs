@@ -39,7 +39,7 @@ fn store_with_group() -> (TempDir, PlanStore, String, Vec<String>) {
 
 fn set_status(store: &PlanStore, pid: &str, tid: &str, status: TaskStatus, now: u64) {
     store
-        .with_plan(pid, now, |p| {
+        .edit_plan_fixture(pid, now, |p| {
             let t = p.tasks.iter_mut().find(|t| t.id == tid).unwrap();
             t.status = status.clone();
             t.status_changed_at = now;

@@ -128,7 +128,6 @@ pub(crate) async fn authorize_task_execution_action_http(
 fn plan_err(e: PlanError) -> (StatusCode, Json<Value>) {
     let status = match e {
         PlanError::NotFound | PlanError::TaskNotFound => StatusCode::NOT_FOUND,
-        PlanError::WritePending { .. } => StatusCode::SERVICE_UNAVAILABLE,
         PlanError::ReadbackMismatch { .. }
         | PlanError::RespawnAttemptNotCurrent { .. }
         | PlanError::ReviewHoldRequired => StatusCode::CONFLICT,

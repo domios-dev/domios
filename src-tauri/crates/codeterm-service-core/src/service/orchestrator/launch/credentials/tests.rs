@@ -12,7 +12,7 @@ fn restored_shell_gets_current_credential_after_server_restart_and_nonce_rotatio
     tab.agent_session_id = Some("saved-session".into());
     tab.boot_stage = Some(codeterm_types::pty::BootStage::AgentReady);
     let previous = ServiceFixture::new(mux);
-    let inherited = previous.service.frontend_pty_env(Some(&tab_id));
+    let inherited = previous.service.frontend_pty_env(Some(&tab_id)).unwrap();
     let old_token = inherited["CODETERM_API_TOKEN"].clone();
     let snapshot = previous.service.mux.read().to_session_snapshot();
     drop(previous);
@@ -27,7 +27,7 @@ fn restored_shell_gets_current_credential_after_server_restart_and_nonce_rotatio
         .service
         .identify_tab_credential(&old_token)
         .is_none());
-    let shell_env = restarted.service.frontend_pty_env(Some(&tab_id));
+    let shell_env = restarted.service.frontend_pty_env(Some(&tab_id)).unwrap();
     let nonce = restarted
         .service
         .reserve_agent_launch_binding_nonce(&tab_id, Some("saved-session"));

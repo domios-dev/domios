@@ -106,7 +106,12 @@ fn authorized_orchestrator_actor(
     // Runs before any mux guard of ours: it takes its own, and parking_lot reads
     // are not recursive.
     svc.authorize_plan_orchestrator(plan_id, &structural_caller(params))
-        .map_err(|message| unauthorized(&message))?;
+        .map_err(|error| {
+            super::plan_task_authority::execution_authority_error(
+                error,
+                Some("plan_orchestrator_authorization_required"),
+            )
+        })?;
     let mux = svc.mux.read();
     let tab = mux
         .get_tab(str_field(params, "caller_tab_id"))
@@ -396,13 +401,10 @@ pub(super) fn dispatch(
                     ));
                 }
             }
-            {
-                let mux = svc.mux.read();
-                codeterm_service_core::service::restore_review_attempt_binding_for_mux(
-                    store, &mux, &plan_id, &task_id, now,
-                )
-                .map_err(plan_rpc_err)?;
-            }
+            codeterm_service_core::service::restore_review_attempt_binding(
+                svc, &plan_id, &task_id, now,
+            )
+            .map_err(plan_rpc_err)?;
             todo_reopen::reopen_named_item(svc, p, &plan_id, &task_id, &from, note(p))?;
             let (mut result, recorded) = store
                 .bounce_review_with_recorded_status(

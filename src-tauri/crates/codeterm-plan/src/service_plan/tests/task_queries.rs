@@ -194,7 +194,7 @@ fn a_plan_in_another_project_reports_the_mismatch_reason() {
 fn a_plan_whose_tasks_are_all_inactive_reports_the_all_flag_reason() {
     let (store, plan_id, task_id) = store_with_task(&["status_update"]);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -410,7 +410,7 @@ fn active_task_query_excludes_paused_but_keeps_pending() {
         )
         .unwrap();
     store
-        .with_plan(&id, 3, |plan| {
+        .edit_plan_fixture(&id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -461,7 +461,9 @@ fn new_task_defaults_to_actionable_pending() {
         )
         .unwrap();
 
-    let detail = store.show_task(&task_id).expect("new task detail");
+    let detail = store
+        .inspect_task_for_test(&task_id)
+        .expect("new task detail");
     assert_eq!(detail.task.status, TaskStatus::Pending);
     assert_eq!(
         detail.presentation,
@@ -509,7 +511,9 @@ fn task_pause_status_preservation_dependency_wait() {
         )
         .unwrap();
 
-    let detail = store.show_task(&task_id).expect("dependent task detail");
+    let detail = store
+        .inspect_task_for_test(&task_id)
+        .expect("dependent task detail");
     assert_eq!(detail.task.status, TaskStatus::Pending);
     assert_eq!(
         detail.presentation,

@@ -22,7 +22,7 @@ vi.mock("../Neighbors/useConciergeStatus", () => ({ useConciergeStatus: () => ({
 vi.mock("../Neighbors/neighborStatusStore", () => ({ useNeighborStatus: () => null, resetNeighborStatus: vi.fn() }));
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
-const config = { general_agent: { first_run_complete: true }, agent: { full_access: false }, mesh: { enabled: false } } as AppConfig;
+const config = { general_agent: { first_run_complete: true }, agent: {}, mesh: { enabled: false } } as AppConfig;
 afterEach(() => { localStorage.clear(); vi.unstubAllGlobals(); });
 
 async function mount() {

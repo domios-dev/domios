@@ -2391,9 +2391,11 @@ Remove one lane worktree and its branch, refusing while a live tab's shell sits 
 
 Lane hygiene table: one row per open lane (task/status/tab/branch/worktree/cleanup)
 
+- `--all` — Return every detail row instead of one bounded page
 - `--clean` — Preview cleanup of merged, clean, unoccupied terminal/review lanes
 - `--confirm` — Execute cleanup instead of previewing it
 - `--fetch` — Fetch remote refs before assessing lanes (otherwise dry run is offline)
+- `--page` — Detail page (50 rows per list); counts and decisions cover the entire plan
 - `<plan_id>`
 - `--stale` — Only show stale lanes (dead tab / report-overdue / uncleaned)
 
@@ -2535,8 +2537,10 @@ Move a plan sidecar from another project or data dir into this project
 
 #### `domios plan next`
 
-Prioritized, advisory next-action guidance computed from plan state
+Prioritized next-action page computed from the entire plan
 
+- `--all` — Return every detail row instead of one bounded page
+- `--page` — Detail page (50 rows per list); counts and decisions cover the entire plan
 - `<plan_id>`
 
 #### `domios plan note`
@@ -2906,8 +2910,10 @@ Print only the plan's hydrated section prose (no goal, tasks, or metadata)
 
 #### `domios plan state`
 
-One read-only state snapshot (counts, coverage, drift, loops, lanes, strides)
+Read-only summary with bounded detail lists; use --page or --all for more
 
+- `--all` — Return every detail row instead of one bounded page
+- `--page` — Detail page (50 rows per list); counts and decisions cover the entire plan
 - `<plan_id>`
 
 #### `domios plan tags`

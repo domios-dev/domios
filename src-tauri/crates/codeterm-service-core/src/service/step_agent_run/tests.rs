@@ -117,7 +117,7 @@ fn step_run_unknown_and_foreign_operations_never_replay_or_cancel() {
 }
 
 #[test]
-fn step_run_access_follows_global_host_policy_and_confines_sandbox() {
+fn step_run_access_defaults_to_full_and_confines_explicit_sandbox() {
     struct PermissionFixture;
     impl crate::agent::provider::AgentProvider for PermissionFixture {
         fn id(&self) -> &str {
@@ -182,7 +182,7 @@ fn step_run_access_follows_global_host_policy_and_confines_sandbox() {
     assert!(
         step_permission_bypass(&fixture.service, "permission-fixture", false)
             .unwrap()
-            .is_none()
+            .is_some()
     );
     let wire = SpawnAgentParams::from_json(&serde_json::json!({"agent":"permission-fixture","skip_permissions":true,"permission_bypass_authorization":true})).unwrap();
     assert_eq!(wire.skip_permissions, None);
@@ -190,7 +190,7 @@ fn step_run_access_follows_global_host_policy_and_confines_sandbox() {
     assert!(
         step_permission_bypass(&fixture.service, "permission-fixture", false)
             .unwrap()
-            .is_none()
+            .is_some()
     );
 }
 

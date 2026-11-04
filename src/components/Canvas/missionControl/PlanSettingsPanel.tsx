@@ -1,3 +1,4 @@
+import type { PlanView as Plan } from "../planProjection";
 import { useState, type ReactNode } from "react";
 import { BookOpen, ChevronDown } from "lucide-react";
 import type { ApiConfig } from "../../../lib/types";
@@ -5,7 +6,7 @@ import { Chip } from "../../shared/Chip";
 import { DropdownSelect } from "../../shared/DropdownMenu";
 import { LiquidToggle } from "../../shared/LiquidToggle";
 import { PLAN_PAUSE_HINT, PlanModeControls } from "../planView/PlanModeControls";
-import type { Plan } from "../types";
+
 import { BoardPanel } from "./BoardPanel";
 import {
   HEARTBEAT_INTERVALS,

@@ -83,7 +83,11 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             3,
         )
         .unwrap();
-    let attempt_id = store.show_task(&task_id).unwrap().task.execution_attempts[0]
+    let attempt_id = store
+        .inspect_task_for_test(&task_id)
+        .unwrap()
+        .task
+        .execution_attempts[0]
         .id
         .clone();
     store
@@ -121,7 +125,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         .unwrap();
 
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             let attempt = &mut plan.tasks[0].execution_attempts[0];
             attempt.report = Some(codeterm_service_core::plan::TaskExecutionReportSnapshot {
                 id: "partial-report".into(),
@@ -142,7 +146,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         tab.reported_session_binding_nonce = Some(CURRENT_NONCE.into());
     }
     let owner_epoch = store
-        .show_task(&task_id)
+        .inspect_task_for_test(&task_id)
         .unwrap()
         .task
         .interruption
@@ -168,7 +172,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     assert!(failed_ack
         .message
         .contains("attempt session binding differs from the acknowledging tab"));
-    let before_role_and_team_refusals = store.show_task(&task_id).unwrap().task;
+    let before_role_and_team_refusals = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(before_role_and_team_refusals.interruption.owner_epoch, 1);
     assert_eq!(
         before_role_and_team_refusals.execution_attempts[0]
@@ -222,7 +226,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             .as_str()
             .is_some_and(|reason| !reason.is_empty()));
         assert_eq!(
-            store.show_task(&task_id).unwrap().task,
+            store.inspect_task_for_test(&task_id).unwrap().task,
             before_role_and_team_refusals
         );
         let mux = fixture.service.mux.read();
@@ -239,7 +243,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         tab.team_id = Some(team_id.clone());
     }
     store
-        .with_plan(&plan.id, 5, |stored_plan| {
+        .edit_plan_fixture(&plan.id, 5, |stored_plan| {
             stored_plan.team_id = Some("different-team".into());
             Ok(())
         })
@@ -255,7 +259,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         "attempt_binding_restore_refused"
     );
     assert_eq!(
-        store.show_task(&task_id).unwrap().task,
+        store.inspect_task_for_test(&task_id).unwrap().task,
         before_role_and_team_refusals
     );
     let mux = fixture.service.mux.read();
@@ -265,7 +269,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     );
     drop(mux);
     store
-        .with_plan(&plan.id, 5, |stored_plan| {
+        .edit_plan_fixture(&plan.id, 5, |stored_plan| {
             stored_plan.team_id = Some(team_id.clone());
             Ok(())
         })
@@ -276,22 +280,25 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         .expect_err("a stale owner epoch cannot restore an attempt");
     assert_eq!(stale.data.as_ref().unwrap()["kind"], "stale_task_epoch");
     assert_eq!(
-        store.show_task(&task_id).unwrap().task,
+        store.inspect_task_for_test(&task_id).unwrap().task,
         before_role_and_team_refusals
     );
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             plan.tasks[0].execution_attempts[0].retired_at = Some(5);
             Ok(())
         })
         .unwrap();
-    let retired_task = store.show_task(&task_id).unwrap().task;
+    let retired_task = store.inspect_task_for_test(&task_id).unwrap().task;
     let retired = super::super::dispatch("plan.session.rebind", &Some(caller.clone()), &service)
         .expect_err("retired attempts cannot regain authority");
     assert_eq!(retired.data.as_ref().unwrap()["kind"], "attempt_not_unique");
-    assert_eq!(store.show_task(&task_id).unwrap().task, retired_task);
+    assert_eq!(
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        retired_task
+    );
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             plan.tasks[0].execution_attempts[0].retired_at = None;
             Ok(())
         })
@@ -299,7 +306,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     let rebound = super::super::dispatch("plan.session.rebind", &Some(caller.clone()), &service)
         .expect("the existing rebind RPC should restore the exact acknowledged attempt");
 
-    let restored_task = store.show_task(&task_id).unwrap().task;
+    let restored_task = store.inspect_task_for_test(&task_id).unwrap().task;
     let mut expected = before_role_and_team_refusals.clone();
     expected.execution_attempts[0].session_binding_nonce = Some(CURRENT_NONCE.into());
     expected.execution_attempts[0].binding_restorations = restored_task.execution_attempts[0]
@@ -309,7 +316,10 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     let ack = crate::server::agent::dispatch("agent.ack", &ack_params, &service)
         .expect("same-session restored attempt must ACK without session env injection");
     assert_eq!(ack["attempt_id"], attempt_id);
-    assert_eq!(store.show_task(&task_id).unwrap().task, restored_task);
+    assert_eq!(
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        restored_task
+    );
 
     let read = crate::server::plan_skills_rpc::dispatch(
         "plan.skills.show",
@@ -331,7 +341,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     );
     let read = read.unwrap();
     assert_eq!(read["skill"]["slug"], skill.slug);
-    let before_refusal = store.show_task(&task_id).unwrap().task;
+    let before_refusal = store.inspect_task_for_test(&task_id).unwrap().task;
     for invalid_session in [json!(null), json!(""), json!(42)] {
         let mut invalid_caller = caller.clone();
         invalid_caller["session_id"] = invalid_session;
@@ -344,7 +354,10 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             refusal.data.as_ref().unwrap()["kind"],
             "caller_session_mismatch"
         );
-        assert_eq!(store.show_task(&task_id).unwrap().task, before_refusal);
+        assert_eq!(
+            store.inspect_task_for_test(&task_id).unwrap().task,
+            before_refusal
+        );
     }
 
     for (field, invalid) in [
@@ -360,7 +373,10 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
             refusal.data.as_ref().unwrap()["type"],
             "attempt_binding_restore_refused"
         );
-        assert_eq!(store.show_task(&task_id).unwrap().task, before_refusal);
+        assert_eq!(
+            store.inspect_task_for_test(&task_id).unwrap().task,
+            before_refusal
+        );
     }
     {
         let mut mux = fixture.service.mux.write();
@@ -374,7 +390,10 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         refusal.data.as_ref().unwrap()["type"],
         "attempt_binding_restore_refused"
     );
-    assert_eq!(store.show_task(&task_id).unwrap().task, before_refusal);
+    assert_eq!(
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        before_refusal
+    );
     {
         let mut mux = fixture.service.mux.write();
         mux.get_tab_mut(&tab_id)
@@ -395,7 +414,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     assert_eq!(rebound["task_id"], task_id);
     assert_eq!(rebound["attempt_id"], attempt_id);
     assert!(rebound.get("session_binding_nonce").is_none());
-    let after_restore = store.show_task(&task_id).unwrap().task;
+    let after_restore = store.inspect_task_for_test(&task_id).unwrap().task;
     assert_eq!(
         after_restore.execution_attempts[0]
             .binding_restorations
@@ -414,9 +433,16 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     let replay = super::super::dispatch("plan.session.rebind", &Some(caller), &service)
         .expect("the exact current binding should be idempotent");
     assert_eq!(replay["status"], "already_current");
-    assert_eq!(store.show_task(&task_id).unwrap().task, after_restore);
     assert_eq!(
-        store.show_task(&task_id).unwrap().task.execution_attempts[0]
+        store.inspect_task_for_test(&task_id).unwrap().task,
+        after_restore
+    );
+    assert_eq!(
+        store
+            .inspect_task_for_test(&task_id)
+            .unwrap()
+            .task
+            .execution_attempts[0]
             .loaded_plan_skills
             .len(),
         1

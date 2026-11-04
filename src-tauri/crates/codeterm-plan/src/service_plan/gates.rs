@@ -1,84 +1,10 @@
-use crate::plan::gates::{DecisionGate, GateAnswer, GateStatus, STALE_GATE_MS};
-use crate::plan::ids::mint_id;
-use crate::plan::{
-    AgentRef, Milestone, PlannerDeliveryPhase, PlannerInboxEntry, PlannerRequest,
-    PlannerRequestState, TaskStatus,
-};
-
-use super::mutations::plan_contains_id;
+use super::store_db::hot_write::{GateAsk, GateChange};
 use super::{PlanError, PlanStore};
+#[cfg(test)]
+use crate::plan::gates::GateStatus;
+use crate::plan::gates::{DecisionGate, STALE_GATE_MS};
+use crate::plan::{PlannerRequest, TaskStatus};
 
-fn gate_id_taken(plan: &crate::plan::Plan, candidate: &str) -> bool {
-    plan_contains_id(plan, candidate) || plan.gates.iter().any(|g| g.id == candidate)
-}
-
-fn create_gate(
-    plan: &mut crate::plan::Plan,
-    question: &str,
-    context: &str,
-    blocking_task_ids: &[String],
-    routed_to_tab_id: Option<String>,
-    asked_by_tab_id: Option<&str>,
-    now_ms: u64,
-) -> Result<DecisionGate, PlanError> {
-    if blocking_task_ids.iter().any(|task_id| {
-        crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .is_some_and(|task| task.status == TaskStatus::InReview)
-    }) {
-        return Err(PlanError::TransitionDenied {
-            from: TaskStatus::InReview,
-            to: TaskStatus::Paused,
-        });
-    }
-    let gid = mint_id("gate", |candidate| gate_id_taken(plan, candidate));
-    let pause_reason = format!(
-        "gate:{gid}: {}",
-        question.chars().take(80).collect::<String>()
-    );
-    for task_id in blocking_task_ids {
-        let milestone_id = mint_id("ms", |candidate| plan_contains_id(plan, candidate));
-        if let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id) {
-            if !task.status.is_terminal() {
-                task.status = TaskStatus::Paused;
-                task.pause_reason = Some(pause_reason.clone());
-                task.status_changed_at = now_ms;
-                task.updated_at = now_ms;
-                task.milestones.push(Milestone {
-                    id: milestone_id,
-                    from: AgentRef::from_tab(asked_by_tab_id.unwrap_or("orchestrator")),
-                    kind: "decision".into(),
-                    text: format!("paused: {pause_reason}"),
-                    ts: now_ms,
-                    links: vec![],
-                    loop_id: None,
-                    iteration: None,
-                    canvas: Default::default(),
-                    attachments: vec![],
-                });
-            }
-        }
-    }
-
-    let gate = DecisionGate {
-        id: gid,
-        question: question.to_string(),
-        context: context.trim().to_string(),
-        blocking_task_ids: blocking_task_ids.to_vec(),
-        routed_to_tab_id,
-        asked_by_tab_id: asked_by_tab_id.map(str::to_string),
-        asked_at: now_ms,
-        status: GateStatus::Open,
-        answer: None,
-        escalated_at: None,
-        escalation_note: None,
-    };
-    plan.gates.push(gate.clone());
-    Ok(gate)
-}
-
-/// Create a decision gate, pause all `blocking_task_ids`, and return the gate.
-/// `routed_to_tab_id` is resolved by the caller via `resolve_planner_ref` before this call.
-/// Delivery to that tab is handled by `ServiceContext` after this returns.
 impl PlanStore {
     pub fn ask_gate(
         &self,
@@ -90,21 +16,18 @@ impl PlanStore {
         asked_by_tab_id: Option<&str>,
         now_ms: u64,
     ) -> Result<DecisionGate, PlanError> {
-        let question = question.trim();
-        if question.is_empty() {
-            return Err(PlanError::GateRequiresQuestion);
-        }
-        self.with_plan(plan_id, now_ms, |plan| {
-            create_gate(
-                plan,
-                question,
-                context,
-                blocking_task_ids,
-                routed_to_tab_id,
-                asked_by_tab_id,
-                now_ms,
-            )
-        })
+        self.commit_gate_ask(
+            plan_id,
+            question,
+            context,
+            blocking_task_ids,
+            routed_to_tab_id,
+            asked_by_tab_id,
+            None,
+            false,
+            now_ms,
+        )
+        .map(|(gate, _)| gate)
     }
 
     pub fn ask_gate_with_planner_request(
@@ -118,57 +41,54 @@ impl PlanStore {
         caller_session_id: Option<&str>,
         now_ms: u64,
     ) -> Result<(DecisionGate, PlannerRequest), PlanError> {
+        let (gate, request) = self.commit_gate_ask(
+            plan_id,
+            question,
+            context,
+            blocking_task_ids,
+            routed_to_tab_id,
+            asked_by_tab_id,
+            caller_session_id,
+            true,
+            now_ms,
+        )?;
+        Ok((gate, request.ok_or(PlanError::GateNotFound)?))
+    }
+
+    fn commit_gate_ask(
+        &self,
+        plan_id: &str,
+        question: &str,
+        context: &str,
+        blocking_task_ids: &[String],
+        routed_to_tab_id: Option<String>,
+        asked_by_tab_id: Option<&str>,
+        caller_session_id: Option<&str>,
+        planner_request: bool,
+        now_ms: u64,
+    ) -> Result<(DecisionGate, Option<PlannerRequest>), PlanError> {
         let question = question.trim();
         if question.is_empty() {
             return Err(PlanError::GateRequiresQuestion);
         }
-        self.with_plan(plan_id, now_ms, |plan| {
-            let gate = create_gate(
-                plan,
-                question,
-                context,
-                blocking_task_ids,
+        let turn = self.mutation_writer.enter();
+        let (gate, request, receipt) = self.database.ask_gate_rows(
+            plan_id,
+            GateAsk {
+                question: question.into(),
+                context: context.into(),
+                blocking_task_ids: blocking_task_ids.to_vec(),
                 routed_to_tab_id,
-                asked_by_tab_id,
-                now_ms,
-            )?;
-            let request = PlannerRequest {
-                request_id: format!("gate:{}", gate.id),
-                payload: format!(
-                    "[decision gate {}]\n{}\n{}\n\nAnswer with:\ncodeterm plan decision answer {} {} --answer \"<your answer>\"",
-                    gate.id, gate.question, context, plan_id, gate.id
-                ),
-                payload_blob: None,
-                caller_tab_id: asked_by_tab_id.map(str::to_string),
+                asked_by_tab_id: asked_by_tab_id.map(str::to_string),
                 caller_session_id: caller_session_id.map(str::to_string),
-                state: PlannerRequestState::Queued,
-                created_at: now_ms,
-                accepted_at: None,
-                lease_expires_at: None,
-                delivery_attempts: 0,
-                completed_at: None,
-                failed_at: None,
-                delivered_to_tab_id: None,
-                delivered_to_session_id: None,
-                delivered_with_binding_nonce: None,
-            };
-            plan.planner_requests.push(request.clone());
-            plan.planner_inbox.push(PlannerInboxEntry {
-                request_id: request.request_id.clone(),
-                phase: PlannerDeliveryPhase::PreSend,
-                tab_id: None,
-                session_id: None,
-                binding_nonce: None,
-                transport: None,
-                last_error: None,
-                updated_at: now_ms,
-            });
-            Ok((gate, request))
-        })
+                planner_request,
+            },
+            now_ms,
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok((gate, request))
     }
 
-    /// Record an answer, resume blocking tasks, return the updated gate.
-    /// Nudging the asker tab is handled by `ServiceContext`.
     pub fn answer_gate(
         &self,
         plan_id: &str,
@@ -177,58 +97,15 @@ impl PlanStore {
         answered_by_tab_id: Option<&str>,
         now_ms: u64,
     ) -> Result<DecisionGate, PlanError> {
-        let answer_text = answer_text.trim();
-        let mut out: Option<DecisionGate> = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let gate = plan
-                .gates
-                .iter_mut()
-                .find(|g| g.id == gate_id)
-                .ok_or(PlanError::GateNotFound)?;
-
-            if !gate.is_open() {
-                return Err(PlanError::GateAlreadyAnswered);
-            }
-
-            gate.answer = Some(GateAnswer {
-                text: answer_text.to_string(),
+        self.commit_gate_change(
+            plan_id,
+            gate_id,
+            GateChange::Answer {
+                text: answer_text.into(),
                 by_tab_id: answered_by_tab_id.map(str::to_string),
-                at: now_ms,
-            });
-            gate.status = GateStatus::Answered;
-
-            let blocking = gate.blocking_task_ids.clone();
-            let gid = gate.id.clone();
-            let gate_snapshot = gate.clone();
-            out = Some(gate_snapshot);
-
-            // Resume blocked tasks.
-            for tid in &blocking {
-                let mid = mint_id("ms", |c| plan_contains_id(plan, c));
-                if let Some(task) = crate::plan::task_key::find_task_mut(&mut plan.tasks, tid) {
-                    if task.status == TaskStatus::Paused {
-                        task.status = TaskStatus::Pending;
-                        task.status_changed_at = now_ms;
-                        task.pause_reason = None;
-                        task.updated_at = now_ms;
-                        task.milestones.push(Milestone {
-                            id: mid,
-                            from: AgentRef::from_tab(answered_by_tab_id.unwrap_or("planner")),
-                            kind: "decision".into(),
-                            text: format!("resumed: gate {gid} answered"),
-                            ts: now_ms,
-                            links: vec![gid.clone()],
-                            loop_id: None,
-                            iteration: None,
-                            canvas: Default::default(),
-                            attachments: vec![],
-                        });
-                    }
-                }
-            }
-            Ok(())
-        })?;
-        out.ok_or_else(|| PlanError::Io("answer_gate produced no result".into()))
+            },
+            now_ms,
+        )
     }
 
     pub fn list_gates(
@@ -247,7 +124,6 @@ impl PlanStore {
             .ok_or(PlanError::GateNotFound)
     }
 
-    /// Re-ping and optionally escalate a stale open gate. Returns updated gate.
     pub fn escalate_gate(
         &self,
         plan_id: &str,
@@ -255,28 +131,29 @@ impl PlanStore {
         note: Option<&str>,
         now_ms: u64,
     ) -> Result<DecisionGate, PlanError> {
-        let mut out: Option<DecisionGate> = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let gate = plan
-                .gates
-                .iter_mut()
-                .find(|g| g.id == gate_id)
-                .ok_or(PlanError::GateNotFound)?;
-            if !gate.is_open() {
-                return Err(PlanError::GateAlreadyAnswered);
-            }
-            gate.escalated_at = Some(now_ms);
-            gate.status = GateStatus::Escalated;
-            if let Some(n) = note {
-                let n = n.trim();
-                if !n.is_empty() {
-                    gate.escalation_note = Some(n.to_string());
-                }
-            }
-            out = Some(gate.clone());
-            Ok(())
-        })?;
-        out.ok_or_else(|| PlanError::Io("escalate_gate produced no result".into()))
+        self.commit_gate_change(
+            plan_id,
+            gate_id,
+            GateChange::Escalate {
+                note: note.map(str::to_string),
+            },
+            now_ms,
+        )
+    }
+
+    fn commit_gate_change(
+        &self,
+        plan_id: &str,
+        gate_id: &str,
+        change: GateChange,
+        now_ms: u64,
+    ) -> Result<DecisionGate, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (gate, receipt) = self
+            .database
+            .change_gate(plan_id, gate_id, change, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(gate)
     }
 }
 

@@ -1,4 +1,4 @@
-use super::mutations::plan_contains_id;
+use super::store_db::hot_write::runtime::PauseRows;
 use super::{PlanError, PlanStore};
 use crate::plan::{AgentRef, Milestone, PlanMode};
 
@@ -15,11 +15,11 @@ impl PlanStore {
             return Err(PlanError::PauseRequiresReason);
         }
         let mut mid = String::new();
-        self.with_plan(plan_id, now_ms, |p| {
+        self.with_runtime_rows::<PauseRows, _>(plan_id, now_ms, |p| {
             if p.mode == PlanMode::Paused {
                 return Ok(());
             }
-            mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
+            mid = crate::plan::ids::short_id("ms");
             p.paused_from_mode = Some(p.mode.clone());
             p.mode = PlanMode::Paused;
             p.strides.push(Milestone {
@@ -41,7 +41,7 @@ impl PlanStore {
 
     pub fn resume_plan(&self, plan_id: &str, now_ms: u64) -> Result<PlanMode, PlanError> {
         let mut mode = PlanMode::Planning;
-        self.with_plan(plan_id, now_ms, |p| {
+        self.with_runtime_rows::<PauseRows, _>(plan_id, now_ms, |p| {
             if p.team_id
                 .as_ref()
                 .is_none_or(|team_id| team_id.trim().is_empty())

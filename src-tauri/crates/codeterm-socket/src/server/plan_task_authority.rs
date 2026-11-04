@@ -708,3 +708,30 @@ pub(super) fn verify_remote_worker_binding(
         })
     }
 }
+
+pub(super) fn plan_operation_error(
+    error: codeterm_service_core::service::PlanOperationError,
+) -> JsonRpcError {
+    match error {
+        codeterm_service_core::service::PlanOperationError::Authority(error) => {
+            execution_authority_error(error, Some("plan_approval_authorization_required"))
+        }
+        codeterm_service_core::service::PlanOperationError::Store(error) => {
+            super::plan::plan_rpc_err(error)
+        }
+    }
+}
+
+pub(super) fn execution_authority_error(
+    error: codeterm_service_core::service::PlanAuthorityError,
+    diagnostic: Option<&str>,
+) -> JsonRpcError {
+    if error == codeterm_service_core::service::PlanAuthorityError::StoreReadFailed {
+        return planning_authority_error(error);
+    }
+    JsonRpcError {
+        code: -32003,
+        message: error.to_string(),
+        data: diagnostic.map(|diagnostic| serde_json::json!({"type": diagnostic})),
+    }
+}

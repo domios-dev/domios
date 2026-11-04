@@ -101,12 +101,22 @@ pub(super) fn spec_coverage_input(
     record_query();
     {
         let mut statement = connection.prepare_cached(
-                "SELECT t.plan_id,json_object('name','','status',t.status,
-                 'section_ids',json(CASE WHEN json_type(t.row_json,'$.section_ids') IS NULL THEN '[]' ELSE t.row_json->'$.section_ids' END))
-                 FROM plan_tasks t JOIN plans p ON p.id=t.plan_id WHERE EXISTS(
-                    SELECT 1 FROM json_each(p.header_json,'$.spec_links') l
-                    WHERE json_extract(l.value,'$.spec_id')=?1 AND EXISTS(
-                        SELECT 1 FROM json_each(t.row_json,'$.section_ids') sid WHERE sid.value=json_extract(l.value,'$.plan_section_id')))
+                "WITH links AS MATERIALIZED (
+                    SELECT p.id AS plan_id,json_extract(l.value,'$.plan_section_id') AS section_id
+                    FROM plans p,json_each(p.header_json,'$.spec_links') l
+                    WHERE json_extract(l.value,'$.spec_id')=?1
+                 ), task_facts AS MATERIALIZED (
+                    SELECT plan_id,task_id,position,status,
+                        CASE WHEN json_type(row_json,'$.section_ids') IS NULL THEN '[]'
+                        ELSE row_json->'$.section_ids' END AS section_ids
+                    FROM plan_tasks WHERE plan_id IN (SELECT plan_id FROM links)
+                 ), task_sections AS MATERIALIZED (
+                    SELECT t.plan_id,t.task_id,sid.value AS section_id
+                    FROM task_facts t,json_each(t.section_ids) sid
+                 ) SELECT t.plan_id,json_object('name','','status',t.status,'section_ids',json(t.section_ids))
+                 FROM task_facts t WHERE EXISTS(SELECT 1 FROM task_sections s JOIN links l
+                    ON l.plan_id=s.plan_id AND l.section_id=s.section_id
+                    WHERE s.plan_id=t.plan_id AND s.task_id=t.task_id)
                  ORDER BY t.plan_id,t.position"
             ).map_err(db_error)?;
         let rows = statement

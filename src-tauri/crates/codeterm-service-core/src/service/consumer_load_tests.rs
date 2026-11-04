@@ -523,7 +523,7 @@ fn curator_bootstrap_ids_never_loads_unmatched_plans() {
     let quiet = seed(store, quiet);
     start(store);
 
-    let ids = crate::service::curator::curator_bootstrap_ids(store);
+    let ids = crate::service::curator::curator_bootstrap_ids(store).unwrap();
     assert_eq!(ids, [active, scheduled].into_iter().collect());
     assert!(!ids.contains(&quiet));
     assert!(
@@ -619,10 +619,10 @@ fn close_inventory_plans_never_loads_unmatched_plans() {
     start(store);
 
     let teams: HashSet<&str> = ["team-closing"].into_iter().collect();
-    let plans = crate::service::close_history::close_inventory_plans(store, &teams);
+    let plans = crate::service::close_history::close_inventory_plans(store, &teams).unwrap();
     assert_eq!(
         plans.into_iter().map(|plan| plan.id).collect::<Vec<_>>(),
-        vec![closing]
+        vec![closing.clone()]
     );
-    assert_never_loaded(store, &[&staying]);
+    assert_never_loaded(store, &[&closing, &staying]);
 }

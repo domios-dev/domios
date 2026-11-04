@@ -1,3 +1,4 @@
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import { safeJson, OpencodePart } from "./helpers";
 
 export interface SessionContentQuery {
@@ -23,27 +24,20 @@ const CONTENT_SQL_HEAD =
 const CONTENT_SQL_TAIL = " ORDER BY p.time_created ASC, p.id ASC";
 const TOTAL_SQL = "SELECT SUM(octet_length(data)) AS total FROM part WHERE session_id = ?1";
 
-function queryRows<T>(db: string, sql: string, params: unknown[]): T[] | null {
-  const raw = host.sqliteQueryAllJson(db, sql, JSON.stringify(params));
-  if (raw === null || raw === undefined) return null;
-  const rows = safeJson(raw);
-  return Array.isArray(rows) ? (rows as T[]) : null;
+function* queryRows<T>(db: string, sql: string, params: unknown[]): HostIoSteps<T[] | null> {
+  return (yield* host.io.fs.sqliteQueryNullable<T>(db, sql, params));
 }
 
 function likePattern(term: string): string {
   return "%" + term.replace(/[\\%_]/g, "\\$&") + "%";
 }
 
-export function readOpencodeSessionContent(
-  db: string,
-  sessionId: string,
-  query: SessionContentQuery | null | undefined,
-): unknown {
+export function* readOpencodeSessionContent(db: string, sessionId: string, query: SessionContentQuery | null | undefined): HostIoSteps<unknown> {
   const maxBytes = Math.max(0, Math.floor(Number(query && query.maxBytes) || 0));
   const hints = query && Array.isArray(query.hintTerms)
     ? query.hintTerms.filter((term) => typeof term === "string" && term.length > 0)
     : [];
-  const totals = queryRows<{ total?: number | null }>(db, TOTAL_SQL, [sessionId]);
+  const totals = (yield* queryRows<{ total?: number | null }>(db, TOTAL_SQL, [sessionId]));
   if (!totals) return null;
   const total = Number(totals.length > 0 ? totals[0].total : 0) || 0;
 
@@ -53,7 +47,7 @@ export function readOpencodeSessionContent(
     params.push(likePattern(hints[i]));
     hintSql += " AND p.data LIKE ?" + String(params.length) + " ESCAPE '\\'";
   }
-  const rows = queryRows<ContentRow>(db, CONTENT_SQL_HEAD + hintSql + CONTENT_SQL_TAIL, params);
+  const rows = (yield* queryRows<ContentRow>(db, CONTENT_SQL_HEAD + hintSql + CONTENT_SQL_TAIL, params));
   if (!rows) return null;
 
   const messages: unknown[] = [];

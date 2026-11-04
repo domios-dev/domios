@@ -25,6 +25,7 @@ fn reference_labels_preserve_archived_unowned_stale_missing_and_permission_state
     let projection = |status: &str, owner: serde_json::Value| {
         Ok(serde_json::from_value(serde_json::json!({
             "title":"Selected plan", "status":status, "owner":owner,
+            "task_refs":{"task_a":"task_a"},
             "canonical_project_path":"/project", "tasks":[{"id":"task_a", "name":"Selected task", "type":"implement", "status":"pending", "key":"COD-1"}],
             "sections":[{"id":"sec_a", "title":"Selected section"}]
         })).unwrap())

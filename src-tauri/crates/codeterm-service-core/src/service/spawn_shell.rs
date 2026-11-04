@@ -314,7 +314,7 @@ impl ServiceContext {
         };
 
         let job_policy = self.shell_job_policy_for_tab(&tab_id);
-        let env_vars = self.tab_env(&tab_id);
+        let env_vars = self.tab_env(&tab_id)?;
 
         let pty_id = match self.link_hidden_shell_pty_with_builder(&tab_id, |gate| {
             crate::pty::manager::build_shell_session_with_policy(
@@ -379,7 +379,7 @@ impl ServiceContext {
             crate::pty::manager::PtySpawnGate,
         ) -> Result<crate::pty::manager::BuiltSession, String>,
     ) -> Result<String, String> {
-        let claim = self.pty_ownership.acquire(tab_id);
+        let claim = self.pty_ownership.acquire(tab_id)?;
         if let Ok(pty_id) = self.resolve_pty_id(tab_id) {
             return Ok(pty_id);
         }

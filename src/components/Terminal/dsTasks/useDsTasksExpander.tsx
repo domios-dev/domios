@@ -1,9 +1,9 @@
+import type { PlanView as Plan } from "../../Canvas/planProjection";
 import { memo, useCallback, useContext, useRef, type MutableRefObject } from "react";
 import { MuxStateStoreContext } from "../../../store/multiplexer/context";
 import { assertWebRequestContext, webRequestContext } from "../../../lib/webApi";
 import { fetchRequestedPlanTaskMetadata, fetchPlanProjection } from "../../Canvas/plansApi";
 import { usePlansApiOptional, useSidebarPlansOptional } from "../../Canvas/PlansProvider";
-import type { Plan } from "../../Canvas/types";
 import { expandDsTasksMention, parseDsTasksInputs, resolveDsTasksPlan, type DsTasksExpansion } from "./dsTasksModel";
 
 /** Renders nothing: it alone re-renders on plan events and leaves the latest plans in a ref. */

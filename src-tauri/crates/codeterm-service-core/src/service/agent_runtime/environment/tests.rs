@@ -17,7 +17,7 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
         session_id: "own-thread".into(),
     };
     let previous = ServiceFixture::new(mux);
-    let old_env = compose(&previous.service, &id, "fixture-runtime", "saved-nonce");
+    let old_env = compose(&previous.service, &id, "fixture-runtime", "saved-nonce").unwrap();
     let old_token = &old_env["CODETERM_API_TOKEN"];
     let restored = ServiceFixture::new(MultiplexerState::from_session_snapshot(
         &previous.service.mux.read().to_session_snapshot(),
@@ -31,7 +31,7 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
         .session_binding_nonce
         .clone()
         .unwrap();
-    let env = compose(&restored.service, &id, "fixture-runtime", &nonce);
+    let env = compose(&restored.service, &id, "fixture-runtime", &nonce).unwrap();
     let current_token = &env["CODETERM_API_TOKEN"];
     assert_ne!(current_token, old_token);
     assert!(restored
@@ -48,12 +48,12 @@ fn restored_chat_launch_environment_mints_current_credentials_and_rejects_the_pr
     assert_eq!(env["CODETERM_TAB_ID"], id);
     assert_eq!(env["CODETERM_SESSION_BINDING_NONCE"], nonce);
     assert_eq!(
-        compose(&restored.service, &id, "fixture-runtime", &nonce)["CODETERM_API_TOKEN"],
+        compose(&restored.service, &id, "fixture-runtime", &nonce).unwrap()["CODETERM_API_TOKEN"],
         *current_token
     );
 
     let next_nonce = restored.service.rotate_session_binding_nonce(&id);
-    let next_env = compose(&restored.service, &id, "fixture-runtime", &next_nonce);
+    let next_env = compose(&restored.service, &id, "fixture-runtime", &next_nonce).unwrap();
     assert!(restored
         .service
         .authenticate_local_credential(current_token)

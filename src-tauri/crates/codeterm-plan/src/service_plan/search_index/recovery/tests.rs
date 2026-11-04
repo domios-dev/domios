@@ -108,7 +108,7 @@ fn purge_failure_names_plan_index_and_storage_reason() {
         "/recovery-project".into(),
         OrchestratorRef::default(),
     );
-    queue.enqueue(IndexJob::PurgePlan(plan, vec![]));
+    queue.enqueue(IndexJob::PurgePlan(plan.into(), vec![]));
     let (key, project, _) = queue.take();
     queue.complete(key.clone(), project, true);
     assert!(queue.state.lock().needs_full.contains(&key));
@@ -123,17 +123,15 @@ fn queued_recovery_snapshot_forces_superseding_partial_plan_to_rebuild_all_units
     );
     let queue = IndexQueue::default();
     queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(&plan)));
-    queue.enqueue(IndexJob::Plan(
-        plan.clone(),
-        PlanIndexScope::Tasks(HashSet::new()),
-    ));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(
+        &plan.clone(),
+    )));
     let (key, project, job) = queue.take();
-    assert!(matches!(job, IndexJob::Plan(_, PlanIndexScope::Full)));
+    assert!(matches!(job, IndexJob::PlanSnapshot(_)));
     queue.complete(key, project, false);
-    queue.enqueue(IndexJob::Plan(
-        plan.clone(),
-        PlanIndexScope::Tasks(HashSet::new()),
-    ));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(
+        &plan.clone(),
+    )));
     queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(&plan)));
     let (_, _, job) = queue.take();
     assert!(matches!(job, IndexJob::PlanSnapshot(_)));

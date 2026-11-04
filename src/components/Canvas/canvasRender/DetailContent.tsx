@@ -1,10 +1,12 @@
+import type { PlanSectionView as Section } from "../planProjection";
+import type { PlanView as Plan, PlanTaskView as Task } from "../planProjection";
 import { RichMarkdown } from "@codeterm/chat-ui/MarkdownBody";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { ArrowUpRight, ChevronRight } from "lucide-react";
 import { AgentIcon } from "../../AgentIcon";
 import type { ApiConfig, Tab } from "../../../lib/types";
 import { TASK_STATUS_COLORS } from "../settings";
-import type { Plan, PlanTaskDetailContext, Section, Task, TaskLaneMetadata } from "../types";
+import type { PlanTaskDetailContext, TaskLaneMetadata } from "../types";
 import type { SectionNavArgs } from "../nodeRegistry";
 import type { PlanDetailKind } from "../planView/PlanDetailOverlay";
 import { canonicalTaskStatusLabel } from "../planView/taskStatusLabel";
