@@ -345,7 +345,8 @@ pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamP
 pub use task_authority_projection::{
     CompletedTaskRestartRead, PlanTaskAdmissionRead, RestartAttemptRead, ReviewBindingRestoreRead,
     ReviewRestoreAttemptRead, RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead,
-    TaskAttemptBindingRead, TaskBindingRestoreRead, TaskCheckpointAdoptionRead,
-    TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead, TaskCreationRead,
-    TaskDescriptionRead, TaskOwnerEpochRead, TaskRestartAuthorityRead, TaskRestartQuery,
+    RuntimeSessionAttemptRead, TaskAttemptBindingRead, TaskBindingRestoreRead,
+    TaskCheckpointAdoptionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
+    TaskCreationRead, TaskDescriptionRead, TaskOwnerEpochRead, TaskRestartAuthorityRead,
+    TaskRestartQuery, TaskRuntimeSessionRead,
 };
