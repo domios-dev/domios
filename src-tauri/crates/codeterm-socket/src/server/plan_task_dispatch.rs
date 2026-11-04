@@ -1111,7 +1111,7 @@ where
         lane_protection,
         spawn_command: format!("domios plan task dispatch {plan_id} {task_id}"),
     };
-    std::thread::spawn(move || self::startup::run_startup(startup, ready_rx));
+    self::startup::spawn_startup(svc, startup, ready_rx);
 
     let model_fallback = spawn.model_fallback.clone();
     let mut result = json!({

@@ -486,11 +486,8 @@ impl PlanStore {
             return Err(RadarError::AlreadyPulled(pull));
         }
         let plan = self
-            .index
-            .read()
-            .get(&request.plan_id)
-            .cloned()
-            .ok_or(RadarError::Plan(PlanError::NotFound))?;
+            .document_metadata(&request.plan_id)
+            .map_err(RadarError::Plan)?;
         if plan.status == PlanStatus::Archived {
             return Err(RadarError::Invalid(format!(
                 "plan {} is archived; pull into an active plan",

@@ -67,18 +67,20 @@ impl PlanDatabase {
                     row_number() OVER (PARTITION BY a.task_id,json_extract(a.row_json,'$.id') ORDER BY a.position DESC) AS rank
                 FROM plan_task_attempts a WHERE a.plan_id=?1 AND a.task_id=?2
                     AND json_extract(a.row_json,'$.closed_at') IS NULL AND json_extract(a.row_json,'$.competition_group_id') IS NULL
-                    AND json_extract(a.row_json,'$.reported_at') IS NOT NULL)
+                    AND json_extract(a.row_json,'$.reported_at') IS NOT NULL), checkout_root AS MATERIALIZED (
+                SELECT id,CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''),?5)<>''
+                    THEN json_extract(header_json,'$.canonical_project_path') ELSE json_extract(header_json,'$.project_path') END AS root
+                FROM plans WHERE id=?1)
             SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
             (SELECT json_object('task_id',t.task_id,'attempt_id',json_extract(a.row_json,'$.id'),'executor_tab_id',r.executor_tab_id)
-             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+             FROM checkout_root p JOIN plan_tasks t ON t.plan_id=p.id JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
              LEFT JOIN reported r ON r.task_id=t.task_id AND r.attempt_id=json_extract(a.row_json,'$.id') AND r.rank=1
              WHERE p.id=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL
                 AND (r.rank IS NULL OR EXISTS(SELECT 1 FROM json_each(?4) WHERE value=r.executor_tab_id))
                 AND domios_dispatch_checkout_path(?3)=domios_dispatch_checkout_path(
                     CASE WHEN trim(coalesce(json_extract(a.row_json,'$.worktree_path'),''),?5)<>''
                         THEN json_extract(a.row_json,'$.worktree_path')
-                        WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?5)<>''
-                        THEN json_extract(p.header_json,'$.canonical_project_path') ELSE json_extract(p.header_json,'$.project_path') END)
+                        ELSE p.root END)
              ORDER BY t.position,a.position LIMIT 1)",
              params![plan,task,checkout,statuses,super::super::status_queries::WHITESPACE],|row|Ok((column(row,0)?,column(row,1)?))).map_err(db_error)?;
         if !exists {

@@ -95,10 +95,12 @@ pub(super) fn load_context<R: RuntimeRows>(
     if R::SKILL_EPISODES {
         let mut statement = tx
             .prepare_cached(
-                "SELECT t.task_id, json_extract(s.value,'$.slug') FROM plan_tasks t
+                "WITH completed_tasks AS MATERIALIZED (
+                SELECT plan_id,task_id FROM plan_tasks WHERE plan_id=?1 AND status='done'
+             ) SELECT t.task_id, json_extract(s.value,'$.slug') FROM completed_tasks t
             JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id,
             json_each(a.row_json,'$.report.loaded_plan_skills') s
-            WHERE t.plan_id=?1 AND t.status='done' AND json_type(s.value,'$.slug')='text'",
+            WHERE json_type(s.value,'$.slug')='text'",
             )
             .map_err(db_error)?;
         let mut episodes = BTreeMap::<String, BTreeSet<String>>::new();

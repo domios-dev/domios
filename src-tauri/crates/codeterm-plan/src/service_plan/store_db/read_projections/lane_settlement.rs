@@ -63,8 +63,17 @@ pub(in crate::service_plan::store_db) fn lane_settlement_rows(
                         OR json_extract(h.row_json,'$.lane.tab_id')=?3
                         OR EXISTS(SELECT 1 FROM plan_task_attempts ha WHERE ha.plan_id=h.plan_id
                             AND ha.task_id=h.task_id AND ha.executor_tab_id=?3))
+             ), selected_lane_plans AS MATERIALIZED (
+                SELECT DISTINCT t.plan_id FROM plan_tasks t
+                WHERE (?1 IS NULL OR t.plan_id=?1) AND (?2 IS NULL OR t.task_id=?2)
+                    AND (?3 IS NULL OR t.plan_id IN (SELECT plan_id FROM eligible))
+                    AND t.status IN ('done','cancelled')
+                    AND (json_extract(t.row_json,'$.lane.worktree_path') IS NOT NULL OR json_extract(t.row_json,'$.lane.branch') IS NOT NULL)
+             ), plan_scope AS MATERIALIZED (
+                SELECT p.id,p.project_path,p.updated_at,coalesce(json_extract(p.header_json,'$.canonical_project_path'),'') AS canonical_project_path
+                FROM plans p WHERE p.id IN (SELECT plan_id FROM selected_lane_plans)
              ) SELECT p.id,json_object('plan_id',p.id,'project_path',p.project_path,
-                'canonical_project_path',coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),
+                'canonical_project_path',p.canonical_project_path,
                 'task_id',t.task_id,'status',t.status,
                 'bound_tabs',json((SELECT json_group_array(tab) FROM (
                     SELECT json_extract(t.row_json,'$.lane.tab_id') AS tab
@@ -77,7 +86,7 @@ pub(in crate::service_plan::store_db) fn lane_settlement_rows(
                 'branch',json_extract(t.row_json,'$.lane.branch'),
                 'destination',json_extract(t.row_json,'$.lane.destination'),
                 'cleanup_status',json_extract(t.row_json,'$.lane.cleanup_status'))
-             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+             FROM plan_scope p JOIN plan_tasks t ON t.plan_id=p.id
              WHERE (?1 IS NULL OR p.id=?1) AND (?2 IS NULL OR t.task_id=?2)
                 AND (?3 IS NULL OR p.id IN (SELECT plan_id FROM eligible))
                 AND t.status IN ('done','cancelled')

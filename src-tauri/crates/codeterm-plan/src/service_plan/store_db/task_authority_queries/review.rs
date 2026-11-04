@@ -85,18 +85,21 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         record_query();
         let (status,raw): (Option<String>,Option<String>) = connection.query_row(
-            &format!("{SELECTED_TASK_IN_PLAN}, matching AS (
+            &format!("{SELECTED_TASK_IN_PLAN}, selected_facts AS MATERIALIZED (
+                SELECT plan_id,task_id,assigned_tab_id,json_extract(row_json,'$.status') AS status,
+                    json_extract(row_json,'$.status_label') AS status_label FROM selected_task
+             ), matching AS (
                 SELECT a.plan_id,a.task_id,a.position,
                     json_extract(a.row_json,'$.closed_at') IS NULL AS unclosed
-                FROM plan_task_attempts a JOIN selected_task t ON t.plan_id=a.plan_id AND t.task_id=a.task_id
+                FROM plan_task_attempts a JOIN selected_facts t ON t.plan_id=a.plan_id AND t.task_id=a.task_id
                 WHERE json_extract(a.row_json,'$.acknowledged_at') IS NOT NULL
                     AND json_extract(a.row_json,'$.reported_at') IS NOT NULL
                     AND trim(coalesce(json_extract(a.row_json,'$.session_id'),''),?3)<>''
                     AND CASE WHEN json_extract(a.row_json,'$.competition_group_id') IS NOT NULL
                         THEN json_type(a.row_json,'$.winner')='true'
                         ELSE t.assigned_tab_id=a.executor_tab_id OR (
-                            json_extract(t.row_json,'$.status')='in_review'
-                            AND json_extract(t.row_json,'$.status_label')=?4 AND t.assigned_tab_id IS NULL
+                            t.status='in_review'
+                            AND t.status_label=?4 AND t.assigned_tab_id IS NULL
                             AND json_extract(a.row_json,'$.retired_at') IS NOT NULL) END)
              SELECT (SELECT json_quote(json_extract(row_json,'$.status')) FROM selected_task),
                 (SELECT json_object('attempt_id',json_extract(a.row_json,'$.id'),'executor_tab_id',json_extract(a.row_json,'$.executor_tab_id'),

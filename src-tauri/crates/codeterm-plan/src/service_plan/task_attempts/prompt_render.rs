@@ -14,6 +14,7 @@ fn lane_lines(lane: &TaskLaneMetadata) -> Vec<String> {
     .collect()
 }
 
+#[cfg(test)]
 pub(in crate::service_plan) fn build_prompt(
     plan_id: &str,
     task: &Task,
@@ -36,9 +37,9 @@ pub(in crate::service_plan) fn build_prompt(
     )
 }
 
-pub(in crate::service_plan) fn build_prompt_read(
+pub(in crate::service_plan) fn build_prompt_read<'a>(
     plan_id: &str,
-    task: &TaskDraftPromptRead,
+    task: impl Into<super::prompt_read::WorkerPrompt<'a>>,
     source: &TaskExecutionAttempt,
     provider: &str,
     model: Option<&str>,
@@ -46,13 +47,14 @@ pub(in crate::service_plan) fn build_prompt_read(
     manifest: &[crate::plan::PlanSkillManifestEntry],
     authorized_gates: &[String],
 ) -> String {
+    let task = task.into();
     let identity = super::super::worker_identity::compose_worker_identity_contract(
-        task.personality.as_deref(),
-        task.role_guidance.as_deref(),
-        task.executor_role.as_deref(),
-        &task.name,
+        task.personality,
+        task.role_guidance,
+        task.executor_role,
+        task.name,
     );
-    let (last_report, last_status, _) = last_report_for_milestones(&task.milestones, source);
+    let (last_report, last_status, _) = last_report_for_milestones(task.milestones, source);
     let mut out = String::new();
     out.push_str("You are a CodeTerm Worker respawned from a prior task attempt.\n");
     out.push_str(
@@ -71,7 +73,7 @@ pub(in crate::service_plan) fn build_prompt_read(
         out.push_str(&format!("/{model}"));
     }
     out.push('\n');
-    if let Some(strides) = super::super::stride_context::render_worker_strides(&task.milestones) {
+    if let Some(strides) = super::super::stride_context::render_worker_strides(task.milestones) {
         out.push('\n');
         out.push_str(&strides);
     }
@@ -82,14 +84,14 @@ pub(in crate::service_plan) fn build_prompt_read(
         out.push_str(task.body.trim());
         out.push('\n');
     }
-    if let Some(intent) = task.intent.as_deref().filter(|s| !s.trim().is_empty()) {
+    if let Some(intent) = task.intent.filter(|s| !s.trim().is_empty()) {
         out.push_str("\nIntent:\n");
         out.push_str(intent.trim());
         out.push('\n');
     }
     if !task.acceptance_criteria.is_empty() {
         out.push_str("\nAcceptance criteria:\n");
-        for criterion in &task.acceptance_criteria {
+        for criterion in task.acceptance_criteria {
             out.push_str("- ");
             out.push_str(criterion);
             out.push('\n');
@@ -97,7 +99,6 @@ pub(in crate::service_plan) fn build_prompt_read(
     }
     if let Some(correctness) = task
         .correctness
-        .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
@@ -107,7 +108,6 @@ pub(in crate::service_plan) fn build_prompt_read(
     }
     if let Some(test_plan) = task
         .test_plan
-        .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
     {
@@ -115,7 +115,7 @@ pub(in crate::service_plan) fn build_prompt_read(
         out.push_str(test_plan);
         out.push('\n');
     }
-    let lane = lane_lines(&task.lane);
+    let lane = lane_lines(task.lane);
     if !lane.is_empty() {
         out.push_str("\nBranch/worktree hints:\n");
         out.push_str(&lane.join("\n"));

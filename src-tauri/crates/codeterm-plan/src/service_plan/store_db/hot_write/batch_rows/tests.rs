@@ -29,6 +29,7 @@ fn handoff() -> BatchOp {
 
 #[test]
 fn mixed_batch_rows_and_bytes_ignore_unrelated_history_and_bodies() {
+    let _reminder_clock = crate::service_plan::hints::fixed_reminder_count(1);
     let mut prior = None;
     for (strides, attempts, body_bytes) in [(0, 0, 0), (2048, 0, 0), (0, 2048, 0), (0, 0, 32768)] {
         let root = tempfile::tempdir().unwrap();

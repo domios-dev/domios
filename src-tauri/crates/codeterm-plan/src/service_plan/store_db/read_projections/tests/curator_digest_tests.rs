@@ -256,7 +256,7 @@ fn curator_snapshot_allows_writer_callbacks_without_torn_digest_or_silent_decode
         let mut writer = database.connection.lock();
         let tx = writer.transaction().unwrap();
         tx.execute(
-            "UPDATE plans SET header_json=json_set(header_json,'$.title','B') WHERE id=?1",
+            "UPDATE plans SET title='B',header_json=json_set(header_json,'$.title','B') WHERE id=?1",
             [&plan.id],
         )
         .unwrap();

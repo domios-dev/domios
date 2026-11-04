@@ -4,8 +4,9 @@ use crate::service_plan::status_projection::PlanNoticeRead;
 use crate::service_plan::PlanError;
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension};
 
-const LANES: &str = "WITH eligible AS (
-    SELECT task_id,position,row_json,
+const LANES: &str = "WITH eligible AS MATERIALIZED (
+    SELECT task_id,position,json_extract(row_json,'$.peer') AS peer,
+        json_extract(row_json,'$.lane.worktree_path') AS path,
         coalesce(json_extract(row_json,'$.lane.cleanup_status'),'pending') AS safety,
         EXISTS(SELECT 1 FROM json_each(t.row_json,'$.lane.cleanup_hints')
             WHERE instr(lower(value),'dirty')>0 OR instr(lower(value),'unmerged')>0) AS unsafe_lane
@@ -14,7 +15,7 @@ const LANES: &str = "WITH eligible AS (
             NOT IN ('done','cleaned','released','complete')
     ), paths AS (
     SELECT position AS task_position,0 AS phase,0 AS seq,safety,unsafe_lane,
-        json_extract(row_json,'$.peer') AS peer,json_extract(row_json,'$.lane.worktree_path') AS path FROM eligible
+        peer,path FROM eligible
     UNION ALL
     SELECT t.position,1,a.position,t.safety,t.unsafe_lane,
         json_extract(a.row_json,'$.mesh_peer'),coalesce(json_extract(a.row_json,'$.remote_worktree_path'),json_extract(a.row_json,'$.worktree_path'))

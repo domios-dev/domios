@@ -223,7 +223,7 @@ pub(super) fn context(
 ) -> Result<(BTreeMap<String, serde_json::Value>, bool), PlanError> {
     let facts = super::super::super::super::curator_notice_queries::reminder_task_facts();
     let project="domios_reminder_projection(t.status,coalesce(json_extract(t.row_json,'$.review_stage'),'review'),json_extract(t.row_json,'$.qa_state'),
-        (SELECT json_group_array(json_object('task_id',dep.value,'name','', 'status',target.status,'missing',json(CASE WHEN target.task_id IS NULL THEN 'true' ELSE 'false' END))) FROM json_each(coalesce(t.row_json->'$.depends_on','[]')) dep LEFT JOIN plan_tasks target ON target.plan_id=t.plan_id AND target.task_id=dep.value WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
+        (SELECT json_group_array(json_object('task_id',dep.value,'name','', 'status',target.status,'missing',json(CASE WHEN target.task_id IS NULL THEN 'true' ELSE 'false' END))) FROM json_each(coalesce(t.row_json->'$.depends_on','[]')) dep LEFT JOIN dependency_targets target ON target.task_id=dep.value WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
         coalesce(json_extract(t.row_json,'$.interruption.handoff_required'),0),parent.parent_id IS NOT NULL,json_extract(f.decision,'$.parked'))";
     let rows = gate_rows::DELTA_CONTEXT
         .strip_prefix("WITH ")

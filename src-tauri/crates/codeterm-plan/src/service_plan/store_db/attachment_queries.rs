@@ -100,11 +100,13 @@ impl AttachmentReferenceRead {
             serde_json::to_string(candidates).map_err(|error| PlanError::Io(error.to_string()))?;
         record_query();
         let mut statement=self.connection.prepare_cached(
-            "SELECT CASE json_extract(c.value,'$[0]')
-                WHEN 'tasks' THEN EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1 AND json_extract(row_json,'$.id')=json_extract(c.value,'$[1]'))
-                WHEN 'sections' THEN EXISTS(SELECT 1 FROM plan_sections s,json_tree(s.row_json) j WHERE s.plan_id=?1 AND j.type='object'
-                    AND (j.fullkey='$' OR j.path LIKE '%.subsections') AND json_extract(j.value,'$.id')=json_extract(c.value,'$[1]'))
-                WHEN 'milestones' THEN EXISTS(SELECT 1 FROM plan_task_milestones WHERE plan_id=?1 AND json_extract(row_json,'$.id')=json_extract(c.value,'$[1]'))
+            "WITH known_targets(kind,id) AS MATERIALIZED (
+                SELECT 'tasks',json_extract(row_json,'$.id') FROM plan_tasks WHERE plan_id=?1
+                UNION ALL SELECT 'sections',json_extract(j.value,'$.id') FROM plan_sections s,json_tree(s.row_json) j
+                    WHERE s.plan_id=?1 AND j.type='object' AND (j.fullkey='$' OR j.path LIKE '%.subsections')
+                UNION ALL SELECT 'milestones',json_extract(row_json,'$.id') FROM plan_task_milestones WHERE plan_id=?1
+             ) SELECT CASE WHEN json_extract(c.value,'$[0]') IN ('tasks','sections','milestones')
+                THEN EXISTS(SELECT 1 FROM known_targets target WHERE target.kind=json_extract(c.value,'$[0]') AND target.id=json_extract(c.value,'$[1]'))
                 ELSE json('invalid attachment target') END FROM json_each(?2) c ORDER BY c.key"
         ).map_err(db_error)?;
         let rows = statement
