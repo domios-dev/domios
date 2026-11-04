@@ -27,12 +27,28 @@ pub(super) fn validate_loaded_settings(
     requested: &RuntimeSettings,
     reported: &RuntimeSettings,
     model_matches: impl Fn(&str, &str) -> bool,
-) -> Result<(), RuntimeFailure> {
-    for (name, requested, reported) in [
+) -> Result<Option<String>, RuntimeFailure> {
+    let mut notice = None;
+    for (name, requested_value, reported_value) in [
         ("model", &requested.model, &reported.model),
         ("effort", &requested.effort, &reported.effort),
     ] {
-        if let (Some(requested), Some(reported)) = (requested, reported) {
+        if name == "model"
+            && reported.config_options.as_ref().is_some_and(|options| {
+                options.iter().any(|option| {
+                    option.category.as_deref() == Some("model")
+                        && reported.model.as_deref() == Some(option.current_value.as_str())
+                })
+            })
+        {
+            if let (Some(requested), Some(reported)) = (requested_value, reported_value) {
+                if requested != reported {
+                    notice = Some(format!("Requested model {requested}, agent reports {reported}"));
+                }
+            }
+            continue;
+        }
+        if let (Some(requested), Some(reported)) = (requested_value, reported_value) {
             let matches = if name == "model" {
                 model_matches(requested, reported)
             } else {
@@ -45,7 +61,7 @@ pub(super) fn validate_loaded_settings(
             }
         }
     }
-    Ok(())
+    Ok(notice)
 }
 
 #[cfg(test)]

@@ -36,6 +36,9 @@ static USAGE: LazyLock<Mutex<HashMap<String, UsageProjection>>> =
 
 pub fn controls(svc: &ServiceContext, session: &Session, settings: RuntimeSettings) {
     let context = session.context.lock().clone();
+    if settings.model.is_some() && settings.model != context.settings.model {
+        session.state.lock().notice = None;
+    }
     svc.record_runtime_controls(&session.provider, &context, &settings);
     *session.controls_confirmation.lock() = Some(settings.clone());
     let settings = merge_settings(&context.settings, settings);

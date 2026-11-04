@@ -264,7 +264,7 @@ fn apply(
             engine::publish(svc, &context.tab_id, session);
         }
         RuntimeEvent::Notice { thread_id, message } if owned(&thread_id) => {
-            super::super::declared_controls::notice(svc, &context, message);
+            super::super::declared_controls::notice(svc, session, message);
         }
         RuntimeEvent::SessionUpdated {
             login: Some(login), ..

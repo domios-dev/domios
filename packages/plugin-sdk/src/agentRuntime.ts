@@ -14,7 +14,7 @@ export type RuntimeFrame =
 export interface RuntimeServiceTier { id:string; name:string; description:string; unavailableReason?:string }
 export interface RuntimeServiceTierSelection { id:string|null }
 export interface RuntimeCommand { name:string; description:string; argumentHint?:string }
-export interface RuntimeConfigOption { id:string; name:string; currentValue:string; options:readonly {value:string; name:string}[] }
+export interface RuntimeConfigOption { id:string; name:string; category?:string; currentValue:string; options:readonly {value:string; name:string}[] }
 export interface RuntimeAuthentication { state:"authenticated"|"needs_auth"|"unavailable"|"unknown"; methods:readonly {id:string; name:string; available:boolean}[] }
 export interface RuntimeSettings { commands?:readonly RuntimeCommand[]; configOptions?:readonly RuntimeConfigOption[]; modes?:readonly {id:string; name:string}[]; serviceTier?:RuntimeServiceTierSelection; serviceTierAvailability?:Record<string,readonly RuntimeServiceTier[]>; model?:string; effort?:string; mode?:string; additionalDirectories?:readonly string[]; networkAccess?:boolean }
 export interface TurnInput { text:string; attachments:readonly ChatAttachment[] }
@@ -100,7 +100,7 @@ export type OperationResult =
   | {kind:"goal"; threadId:string; intent:import("./gen/ChatSessionIntent").ChatSessionIntent|null}
   | {kind:"backgroundProcesses"; threadId:string; processes:readonly RuntimeBackgroundProcess[]; nextCursor:string|null}
   | {kind:"backgroundProcessTermination"; threadId:string; processId:string; acknowledged:boolean}
-  | {kind:"initialized"; binaryVersion?:string}
+  | {kind:"initialized"; binaryVersion?:string; agentName?:string}
   | {kind:"threadLoaded"; threadId:string; settings:RuntimeSettings}
   | {kind:"threadForked"; sourceThreadId:string; threadId:string; turnId:string}
   | {kind:"historyPage"; threadId:string; items:readonly ChatMsg[];

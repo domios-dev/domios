@@ -107,6 +107,8 @@ pub struct RuntimeCommand {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeConfigOption {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
     pub id: String,
     pub name: String,
     pub current_value: String,
@@ -413,6 +415,8 @@ pub enum RuntimeResult {
     Initialized {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         binary_version: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        agent_name: Option<String>,
     },
     ThreadLoaded {
         thread_id: String,

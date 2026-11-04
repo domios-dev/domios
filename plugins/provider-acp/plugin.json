@@ -49,11 +49,13 @@
           "initialize"
         ],
         "openThread": [
-          "session/new"
+          "session/new",
+          "session/set_config_option"
         ],
         "resumeThread": [
           "session/load",
-          "session/resume"
+          "session/resume",
+          "session/set_config_option"
         ],
         "submitTurn": [
           "session/prompt"

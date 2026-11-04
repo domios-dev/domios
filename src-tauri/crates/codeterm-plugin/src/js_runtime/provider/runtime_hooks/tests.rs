@@ -626,3 +626,18 @@ async fn local_runtime_action_only_resumes_the_exact_bound_thread() {
     ctx.epoch = 0;
     assert!(js.runtime_plan(&ctx, &resume).await.is_err());
 }
+
+
+#[test]
+fn open_thread_notice_must_name_the_exact_loaded_thread() {
+    let ctx = context();
+    let cap = provider("module.exports={}").agent_runtime().unwrap();
+    let op: RuntimeOperation = serde_json::from_value(json!({"kind":"openThread","instructions":"","settings":{}})).unwrap();
+    let reply: RpcReply = serde_json::from_value(json!({"kind":"success","value":null})).unwrap();
+    let step = |thread: &str| -> RuntimeStep {
+        serde_json::from_value(json!({"kind":"complete","result":{"kind":"threadLoaded","threadId":"loaded-thread","settings":{}},"events":[{"kind":"notice","threadId":thread,"message":"Requested model was not applied"}]})).unwrap()
+    };
+    assert!(validate_runtime_step(&cap, &ctx, &op, &reply, &step("loaded-thread")).is_ok());
+    let failure = validate_runtime_step(&cap, &ctx, &op, &reply, &step("foreign-thread")).unwrap_err();
+    assert_eq!(failure.code, RuntimeFailureCode::BindingMismatch);
+}

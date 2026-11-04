@@ -32,6 +32,7 @@ pub(super) fn validate_settings(settings: &RuntimeSettings) -> Result<(), Runtim
             || !unique(options.iter().map(|v| v.id.as_str()))
             || options.iter().any(|v| {
                 !text(&v.name)
+                    || v.category.as_ref().is_some_and(|value| !text(value))
                     || !text(&v.current_value)
                     || v.options.len() > 128
                     || !unique(v.options.iter().map(|v| v.value.as_str()))

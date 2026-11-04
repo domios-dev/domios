@@ -388,7 +388,24 @@ async fn run_inner(
                     let current = session.context.lock().clone();
                     let events = events
                         .into_iter()
-                        .filter(|event| model::accepts_response_event(&context, &current, event))
+                        .filter(|event| {
+                            if let (
+                                RuntimeOperation::OpenThread { .. }
+                                | RuntimeOperation::ResumeThread { .. },
+                                RuntimeResult::ThreadLoaded { thread_id, .. },
+                                AgentRuntimeEvent::Notice {
+                                    thread_id: notice_thread,
+                                    message,
+                                },
+                            ) = (&operation, &result, event)
+                            {
+                                if thread_id == notice_thread {
+                                    session.state.lock().pending_load_notice = Some(message.clone());
+                                    return false;
+                                }
+                            }
+                            model::accepts_response_event(&context, &current, event)
+                        })
                         .collect();
                     let at = chrono::Utc::now().timestamp_millis().max(0) as u64;
                     subscriber::publish_events(svc, session, context.epoch, events, at).await?;
