@@ -523,7 +523,9 @@ pub(crate) fn compose_observed(
     startup::reconcile_defaults(&service_state);
     let lane_watch_service = service_state.clone();
     codeterm_service_core::async_runtime::spawn_blocking(move || {
-        lane_watch_service.restore_lane_watches();
+        if let Err(error) = lane_watch_service.restore_lane_watches() {
+            log::error!("[lane-watch] cannot restore lane watches: {error}");
+        }
     });
     let search_seed_store = std::sync::Arc::clone(&service_state.plan_store);
     codeterm_service_core::async_runtime::spawn_blocking(move || {

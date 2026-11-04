@@ -604,7 +604,7 @@ pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
 mod list_window_queries;
 mod match_queries;
-mod read_projections;
+pub(super) mod read_projections;
 mod reference_queries;
 mod state_event_queries;
 mod status_queries;

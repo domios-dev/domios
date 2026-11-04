@@ -1,11 +1,11 @@
 use codeterm_types::plan::{
-    AgentRef, Plan, PlanMode, PlanPauseAgent, PlanPauseEffect, PlanPauseOperation, PlanPauseRole,
+    AgentRef, PlanMode, PlanPauseAgent, PlanPauseEffect, PlanPauseOperation, PlanPauseRole,
     PlanPauseSchedule, PlanPauseStepOutcome, PLAN_PAUSE_EFFECTS,
 };
 use serde::Serialize;
 
-use super::pause_operation::{open_pause_operation, PlanPauseBegin, PlanResumeBegin};
-use super::{PlanError, PlanStore};
+use super::pause_operation::{PlanPauseBegin, PlanResumeBegin};
+use super::{PlanError, PlanLifecycleRead, PlanStore};
 
 /// Side effects a plan pause or resume performs outside the plan record.
 pub trait PlanPausePorts {
@@ -79,7 +79,7 @@ fn preview_schedule(schedule: &PlanPauseSchedule) -> PlanLifecyclePreviewSchedul
 }
 
 pub fn pause_preview(
-    plan: &Plan,
+    plan: &PlanLifecycleRead,
     agents: &[PlanPauseAgent],
     schedules: &[PlanPauseSchedule],
 ) -> PlanLifecyclePreview {
@@ -91,7 +91,10 @@ pub fn pause_preview(
         mode: plan.mode.clone(),
         applicable,
         not_applicable_reason: (!applicable).then(|| "Plan is already paused".to_string()),
-        operation_id: open_pause_operation(plan).map(|operation| operation.id.clone()),
+        operation_id: plan
+            .operation
+            .as_ref()
+            .map(|operation| operation.id.clone()),
         restore_mode: None,
         agents: if applicable {
             agents
@@ -115,7 +118,7 @@ pub fn pause_preview(
 }
 
 pub fn resume_preview(
-    plan: &Plan,
+    plan: &PlanLifecycleRead,
     is_live: impl Fn(&PlanPauseAgent) -> bool,
 ) -> PlanLifecyclePreview {
     let reason = if plan.mode != PlanMode::Paused {
@@ -132,7 +135,7 @@ pub fn resume_preview(
         None
     };
     let applicable = reason.is_none();
-    let operation = open_pause_operation(plan).filter(|_| applicable);
+    let operation = plan.operation.as_ref().filter(|_| applicable);
     PlanLifecyclePreview {
         kind: PlanLifecycleKind::Resume,
         plan_id: plan.id.clone(),

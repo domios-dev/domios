@@ -12,6 +12,13 @@ pub(in crate::service_plan) mod provider_switch;
 mod respawn_remote_source;
 mod section_removal;
 pub(in crate::service_plan) mod task_drafts;
+pub(in crate::service_plan) mod lane_clean;
+pub(in crate::service_plan) mod lane_readers;
+pub(in crate::service_plan) mod lane_settlement;
+pub(in crate::service_plan) mod lane_stats;
+pub(in crate::service_plan) mod lane_watchdog;
+pub(in crate::service_plan) mod lifecycle;
+pub(in crate::service_plan) mod team_readers;
 
 pub(super) const SECTION_ROWS: &str = "SELECT s.position, j.id AS traversal,
     json_extract(j.value, '$.id') AS id,
