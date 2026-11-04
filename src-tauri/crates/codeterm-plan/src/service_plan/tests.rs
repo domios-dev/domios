@@ -233,7 +233,7 @@ fn plan_file_manifest_lists_index_and_body_paths() {
 }
 
 #[test]
-fn external_section_body_edit_reloads_into_full_plan() {
+fn external_section_body_edit_requires_explicit_import() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut plan = Plan::new(
@@ -245,13 +245,16 @@ fn external_section_body_edit_reloads_into_full_plan() {
     let _section_id = store
         .add_section(&plan.id, "Spec", "before", None, &[], None, None, 2)
         .unwrap();
+    store.export_sidecars_for_test(&plan.id);
     let plan_dir = store_v2::plan_state_dir(&store.get(&plan.id).unwrap()).unwrap();
     let plan_path = store_v2::plan_yaml_path(&plan_dir);
     let mut disk: Plan =
         serde_yaml::from_str(&std::fs::read_to_string(&plan_path).unwrap()).unwrap();
     disk.sections[0].body = "after direct edit".into();
     std::fs::write(&plan_path, serde_yaml::to_string(&disk).unwrap()).unwrap();
-    store.reload_from_disk(&plan.id).unwrap();
+    assert_eq!(store.get(&plan.id).unwrap().sections[0].body, "before");
+    let mut imported = store_v2::load_plan(&plan_dir).unwrap();
+    store.import_plan(&mut imported, 3).unwrap();
 
     let list_plan = store
         .all_plans_for_test()

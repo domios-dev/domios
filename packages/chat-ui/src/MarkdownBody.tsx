@@ -20,6 +20,7 @@ import { DsSegmentView } from "./blocks/DsSegmentView";
 import { DsText } from "./blocks/DsText";
 import { DsRenderContext } from "./blocks/DsRenderContext";
 import { useDsSegments } from "./blocks/useDsSegments";
+import { groupImageRuns } from "./blocks/groupImageRuns";
 import { useLocalArtifactTabId } from "./LocalArtifactScope";
 import { markdownMessageParts, normalizedMarkdown } from "./messageParts";
 import { MessagePartView, MessagePartsContext } from "./MessagePartsContext";
@@ -204,7 +205,8 @@ export function RichMarkdown(props: RichMarkdownProps) {
   const tab = useLocalArtifactTabId();
   const trusted = scope.trusted && props.interactivePreviews !== false;
   const sourceIdentity = props.sourceIdentity ?? inheritedContext?.id ?? instance;
-  const segments = useDsSegments(props.text, { id: `${scope.authority}:${tab ?? ""}:${sourceIdentity}`, trusted }, props.streaming ?? scope.streaming, props.cancelled ?? scope.cancelled);
+  const scanned = useDsSegments(props.text, { id: `${scope.authority}:${tab ?? ""}:${sourceIdentity}`, trusted }, props.streaming ?? scope.streaming, props.cancelled ?? scope.cancelled);
+  const segments = useMemo(() => props.localArtifacts === false ? scanned : groupImageRuns(scanned), [scanned, props.localArtifacts]);
   return <>{segments.map((segment) => {
     if (segment.type === "markdown") return <MarkdownProse key={segment.id} {...props} interactivePreviews={trusted} text={segment.text} sourceOffset={segment.start} fences={segment.fences} pendingFence={segment.pendingFence} />;
     if (props.localArtifacts === false && segment.type === "block" && segment.block.kind !== "html") {

@@ -105,6 +105,32 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
             let observed = exited.borrow().clone().or_else(|| ended.borrow().clone());
             let unexpected = unexpected_exit(observed.as_ref());
             let interrupted = session.context.lock().active_turn_id.is_some();
+            if unexpected {
+                let owner = svc.clone();
+                let context = session.context.lock().clone();
+                let reason = observed
+                    .as_ref()
+                    .unwrap_or(&RuntimeFailure::PipeEof)
+                    .to_string();
+                let recorded = tokio::task::spawn_blocking(move || {
+                    owner.record_runtime_interruption_for_tab(
+                        &context.tab_id,
+                        context.thread_id.as_deref().unwrap_or_default(),
+                        &context.binding_nonce,
+                        epoch,
+                        &reason,
+                    )
+                })
+                .await;
+                if let Err(error) = recorded
+                    .map_err(|error| error.to_string())
+                    .and_then(|result| result.map(|_| ()))
+                {
+                    log::error!(
+                        "[agent-runtime] cannot persist interruption before cleanup: {error}"
+                    );
+                }
+            }
             let permit = session.gate.try_acquire().ok();
             let bridge_cleanup =
                 super::client_bridge::cancel_all(&svc, &session, &process, true).await;
@@ -115,7 +141,7 @@ pub fn start(svc: ServiceContext, _provider: String, session: Arc<Session>, proc
                 &svc,
                 &session,
                 &process,
-                super::background::Mode::Shutdown,
+                super::background::Mode::Failure,
                 Vec::new(),
                 permit.is_some(),
             )

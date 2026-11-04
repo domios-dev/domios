@@ -66,24 +66,27 @@ pub fn checkpoint_digest(diff_artifact: &str) -> String {
 /// reset" and re-dispatch/recovery can tell a pause from an orphaned handoff.
 pub const PROVIDER_EXHAUSTED_LABEL: &str = "provider_exhausted";
 
-pub fn provider_allowance_preflight(
+/// Receipt warning for mutating work on a low or exhausted provider allowance.
+/// The allowance is advisory: work always proceeds.
+pub fn provider_allowance_warning(
     intent: &ExecutionIntent,
     allowance: Option<&ProviderAllowance>,
-    now_ms: u64,
-) -> Result<(), PlanError> {
-    if *intent != ExecutionIntent::Mutating {
-        return Ok(());
-    }
-    let Some(allowance) = allowance else {
-        return Ok(());
-    };
-    if allowance.permits(intent, now_ms) {
-        Ok(())
+    provider: &str,
+) -> Option<String> {
+    let allowance =
+        allowance.filter(|allowance| *intent == ExecutionIntent::Mutating && allowance.is_low())?;
+    let state = if allowance.remaining_pct <= 0.0 {
+        "exhausted"
     } else {
-        Err(PlanError::Io(
-            "mutating dispatch denied by below-reserve provider allowance".into(),
-        ))
-    }
+        "below its reserve"
+    };
+    let warning = format!(
+        "provider_allowance_low: provider {provider} allowance is {state} (remaining {:.1}%, \
+         reserve {:.1}%); the work proceeds and may consume paid credits",
+        allowance.remaining_pct, allowance.reserve_pct
+    );
+    log::warn!("[provider-allowance] {warning}");
+    Some(warning)
 }
 
 impl PlanStore {
@@ -131,7 +134,6 @@ impl PlanStore {
         allowance: Option<ProviderAllowance>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
         self.with_task_rows(
             plan_id,
             task_id,

@@ -9,9 +9,8 @@ use parking_lot::Mutex;
 use super::VmError;
 use crate::converter::ConversionCancellation;
 
-const MAX_OPERATIONS: usize = 32;
+pub(in crate::js_runtime) const MAX_OPERATIONS: usize = 32;
 const OPERATION_BOUND: Duration = Duration::from_secs(5);
-const FRAME_BOUND: Duration = Duration::from_millis(250);
 
 pub(in crate::js_runtime) struct Context {
     cancellation: ConversionCancellation,
@@ -19,8 +18,11 @@ pub(in crate::js_runtime) struct Context {
     effect_started: AtomicBool,
     jobs: AtomicUsize,
     unawaited: Mutex<HashSet<String>>,
+    revoke_hooks: Mutex<Option<Vec<RevokeHook>>>,
     pub(in crate::js_runtime) deadline: Instant,
 }
+
+pub(in crate::js_runtime) type RevokeHook = Box<dyn FnOnce() + Send>;
 
 impl Context {
     fn new(interrupt: Option<(ConversionCancellation, Instant)>) -> Self {
@@ -38,6 +40,7 @@ impl Context {
             effect_started: AtomicBool::new(false),
             jobs: AtomicUsize::new(0),
             unawaited: Mutex::new(HashSet::new()),
+            revoke_hooks: Mutex::new(Some(Vec::new())),
             deadline,
         }
     }
@@ -90,25 +93,31 @@ impl Context {
         Job(self.clone())
     }
 
-    pub(in crate::js_runtime) fn deadline_error(&self) -> VmError {
-        if self.effect_started.load(Ordering::Acquire) {
-            VmError::IoUnconfirmed
-        } else {
-            VmError::AsyncJobTimedOut
-        }
-    }
-
-    pub(in crate::js_runtime) fn frame_deadline(&self) -> Instant {
-        self.deadline.min(Instant::now() + FRAME_BOUND)
-    }
-
     pub(in crate::js_runtime) fn cancellation(&self) -> &ConversionCancellation {
         &self.cancellation
     }
 
     pub(in crate::js_runtime) fn revoke(&self) {
-        self.revoked.store(true, Ordering::Release);
+        let hooks = {
+            let mut hooks = self.revoke_hooks.lock();
+            self.revoked.store(true, Ordering::Release);
+            hooks.take()
+        };
         self.cancellation.notify_change();
+        for hook in hooks.into_iter().flatten() {
+            hook();
+        }
+    }
+
+    /// Runs `hook` once when this call is revoked, or now if it already was.
+    pub(in crate::js_runtime) fn on_revoke(&self, hook: RevokeHook) {
+        let mut hooks = self.revoke_hooks.lock();
+        if let Some(pending) = hooks.as_mut() {
+            pending.push(hook);
+            return;
+        }
+        drop(hooks);
+        hook();
     }
 }
 

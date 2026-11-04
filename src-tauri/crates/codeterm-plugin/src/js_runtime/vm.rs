@@ -2,7 +2,8 @@
 
 mod arguments;
 mod async_call;
-pub(super) use async_call::{call_json_async, spawn_blocking, with_blocking_operation};
+pub use async_call::spawn_blocking;
+pub(super) use async_call::{call_json_async, with_blocking_operation};
 mod call_mutex;
 mod connection;
 mod objects;
@@ -884,7 +885,6 @@ struct VmEntry<'a> {
     started: std::time::Instant,
     waited: std::time::Duration,
     operation: std::sync::Arc<operation::Context>,
-    deadline: std::time::Instant,
 }
 
 impl<'a> VmEntry<'a> {
@@ -901,11 +901,12 @@ impl<'a> VmEntry<'a> {
         let started = std::time::Instant::now();
         let previous = vm.holder.lock().clone();
         let inner = vm.inner.enter(operation)?;
-        let deadline = operation.frame_deadline();
+        // A frame shares its call's absolute deadline; a separate wall-clock frame
+        // cap killed bounded projections and completed native calls under load.
         let interrupt = operation.clone();
-        inner._rt.set_interrupt_handler(Some(Box::new(move || {
-            interrupt.check().is_err() || std::time::Instant::now() >= deadline
-        })));
+        inner
+            ._rt
+            .set_interrupt_handler(Some(Box::new(move || interrupt.check().is_err())));
         let waited = started.elapsed();
         let started = std::time::Instant::now();
         *vm.holder.lock() = Some((method.to_owned(), started));
@@ -926,17 +927,11 @@ impl<'a> VmEntry<'a> {
             started,
             waited,
             operation: operation.clone(),
-            deadline,
         })
     }
 
     fn check(&self) -> Result<(), VmError> {
-        self.operation.check()?;
-        if std::time::Instant::now() >= self.deadline {
-            Err(self.operation.deadline_error())
-        } else {
-            Ok(())
-        }
+        self.operation.check()
     }
 }
 

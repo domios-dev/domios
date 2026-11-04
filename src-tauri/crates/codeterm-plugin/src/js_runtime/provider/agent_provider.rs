@@ -734,7 +734,7 @@ impl AgentProvider for JsProvider {
         self.native().and_then(|n| n.find_session(session_id))
     }
 
-    fn parse_session_messages(&self, file_path: &Path) -> Vec<SessionMessage> {
+    fn parse_session_messages(&self, file_path: &Path) -> Result<Vec<SessionMessage>, String> {
         self.js_parse_session_messages(file_path)
     }
 

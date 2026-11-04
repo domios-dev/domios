@@ -14,14 +14,14 @@ use tokio::{io::AsyncReadExt, sync::watch};
 pub struct Process {
     pub client: Client,
     pub ended: watch::Receiver<Option<RuntimeFailure>>,
-    stop: watch::Sender<bool>,
+    stop: watch::Sender<Option<bool>>,
     turn_members: parking_lot::Mutex<Vec<super::process_boundary::Member>>,
     boundary: Option<Arc<super::process_boundary::Boundary>>,
 }
 impl Process {
     #[cfg(test)]
     pub(super) fn for_test(client: Client) -> Self {
-        let (stop, mut stopping) = watch::channel(false);
+        let (stop, mut stopping) = watch::channel(None::<bool>);
         let (ended, exit) = watch::channel(None);
         let dying = client.clone();
         crate::async_runtime::spawn(async move {
@@ -30,7 +30,7 @@ impl Process {
                 code: Some(0),
                 signal: None,
                 stderr: String::new(),
-                requested: true,
+                requested: stopping.borrow().unwrap_or(false),
             };
             dying.close(reason.clone());
             ended.send_replace(Some(reason));
@@ -83,10 +83,19 @@ impl Process {
     }
 
     pub fn stop(&self) {
-        self.stop.send_replace(true);
+        self.signal_stop(true);
+    }
+    fn signal_stop(&self, requested: bool) {
+        signal_stop(&self.stop, requested);
     }
     pub async fn finish(&self) -> Result<(), RuntimeFailure> {
-        self.stop();
+        self.finish_with_intent(true).await
+    }
+    pub(super) async fn finish_after_failure(&self) -> Result<(), RuntimeFailure> {
+        self.finish_with_intent(false).await
+    }
+    async fn finish_with_intent(&self, requested: bool) -> Result<(), RuntimeFailure> {
+        self.signal_stop(requested);
         let mut ended = self.ended.clone();
         tokio::time::timeout(Duration::from_secs(10), async {
             while ended.borrow_and_update().is_none() {
@@ -235,7 +244,7 @@ pub fn spawn(
     });
     let client = Client::attach_redacted(reader, writer, cap.envelope.clone(), credential.clone());
     let dying = client.clone();
-    let (stop, mut stopping) = watch::channel(false);
+    let (stop, mut stopping) = watch::channel(None::<bool>);
     let (ended, exit) = watch::channel(None);
     #[cfg(debug_assertions)]
     let process_tab = _tab.to_string();
@@ -257,14 +266,19 @@ pub fn spawn(
     let retiring = boundary.clone();
     crate::async_runtime::spawn(async move {
         #[cfg(unix)]
-        let retirement = {
-            tokio::select! {_=stopping.changed()=>{},_=&mut witnessed=>{}}
-            let owned = retiring.clone();
-            tokio::task::spawn_blocking(move || owned.retire()).await
+        let requested = tokio::select! {
+            biased;
+            _ = &mut witnessed => false,
+            _ = stopping.changed() => stopping.borrow().unwrap_or(false),
         };
         #[cfg(windows)]
+        let requested = tokio::select! {
+            biased;
+            _ = child.wait() => false,
+            _ = stopping.changed() => stopping.borrow().unwrap_or(false),
+        };
+        // Cleanup may request termination after pipe EOF; it cannot rewrite the observed cause.
         let retirement = {
-            tokio::select! {_=stopping.changed()=>{},_=child.wait()=>{}}
             let owned = retiring.clone();
             tokio::task::spawn_blocking(move || owned.retire()).await
         };
@@ -299,7 +313,7 @@ pub fn spawn(
                                 text.replace(&credential, "[redacted]")
                             }
                         },
-                        requested: *stopping.borrow(),
+                        requested,
                     }
                 }
                 Err(error) => RuntimeFailure::PipeFailure {
@@ -384,3 +398,13 @@ mod tests;
 
 #[cfg(test)]
 pub(crate) mod test_ports;
+
+fn signal_stop(stop: &watch::Sender<Option<bool>>, requested: bool) {
+    stop.send_if_modified(|intent| {
+        if intent.is_some() {
+            return false;
+        }
+        *intent = Some(requested);
+        true
+    });
+}

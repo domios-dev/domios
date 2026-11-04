@@ -67,14 +67,16 @@ export function shellFileOperationPreview(event: ToolEvent) {
   if (!hasCommand) return null;
   const { command, argv } = toolCommand(event);
   const analysis = shellFileOperations(command, argv);
-  if (analysis.operations.length === 0) return null;
+  // An operation with no resolved path and nothing to preview, such as a redirect into `$DIR/file`, says nothing useful.
+  const operations = analysis.operations.filter(operation => operation.path || operation.replacement || operation.content !== undefined);
+  if (operations.length === 0) return null;
   return (
     <ul aria-label="Intended file operations" className="m-0 list-none px-3 py-0.5 font-mono text-[11.5px]" style={{ color: "var(--ct-muted-fg)" }}>
-      {analysis.operations.map((operation, index) => (
+      {operations.map((operation, index) => (
         <li key={index} className="min-w-0">
           {operation.replacement || operation.content !== undefined ? <ReplacementPreview key={`${commandCallKey(event)}:${index}`} identity={`${commandCallKey(event)}:${index}`} operation={operation} /> : (
             <FloatingTooltip content={operation.path} disabled={!operation.path} className="block truncate">
-              {operation.action === "append" ? "Intended append" : "Intended write"}{": "}{operation.path ?? "unresolved target"}
+              {operation.action === "append" ? "Intended append" : "Intended write"}{": "}{operation.path}
             </FloatingTooltip>
           )}
         </li>

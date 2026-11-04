@@ -135,3 +135,23 @@ fn body_reaches_quickjs_exactly_and_absent_body_stays_optional() {
         assert_eq!(ctx, expected);
     }
 }
+
+#[test]
+fn an_overrunning_command_names_its_plugin_verb_and_call_deadline() {
+    let plugin = "agent-command-deadline";
+    super::super::host_exec::set_test_wait_bound(plugin, std::time::Duration::from_millis(50));
+    let vm = Arc::new(
+        PluginVm::from_source(
+            plugin,
+            "module.exports.default = { onAgentCommand() { while (true) {} } };".into(),
+        )
+        .unwrap(),
+    );
+    let error = JsAgentCommandHandler::new(vm, plugin, true)
+        .on_agent_command("session", "open", &[], None)
+        .unwrap_err();
+    assert_eq!(
+        error,
+        "plugin agent-command-deadline onAgentCommand open exceeded its 50 ms call deadline"
+    );
+}

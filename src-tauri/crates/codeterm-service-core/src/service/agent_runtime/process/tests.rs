@@ -389,6 +389,7 @@ async fn child_exit_reports_status_and_stderr() {
             None,
         )
         .await;
+    process.finish_after_failure().await.unwrap();
     let mut ended = process.ended.clone();
     tokio::time::timeout(Duration::from_secs(5), async {
         while ended.borrow_and_update().is_none() {
@@ -398,7 +399,7 @@ async fn child_exit_reports_status_and_stderr() {
     .await
     .unwrap();
     assert!(
-        matches!(&*ended.borrow(),Some(RuntimeFailure::ProcessExited{code:Some(23),stderr,..}) if stderr=="opaque fixture stderr")
+        matches!(&*ended.borrow(),Some(RuntimeFailure::ProcessExited{code:Some(23),stderr,requested:false,..}) if stderr=="opaque fixture stderr")
     );
 }
 
@@ -456,4 +457,16 @@ fn stderr_redacts_credentials_across_reads_and_tail_cuts_before_utf8_conversion(
             assert!(pending.is_empty());
         }
     }
+}
+
+#[test]
+fn failure_cleanup_and_later_stop_cannot_reclassify_the_first_exit_intent() {
+    let (stop, observed) = watch::channel(None);
+    signal_stop(&stop, false);
+    signal_stop(&stop, true);
+    assert_eq!(*observed.borrow(), Some(false));
+    let (stop, observed) = watch::channel(None);
+    signal_stop(&stop, true);
+    signal_stop(&stop, false);
+    assert_eq!(*observed.borrow(), Some(true));
 }

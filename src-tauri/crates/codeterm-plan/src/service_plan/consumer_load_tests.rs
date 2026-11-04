@@ -489,7 +489,7 @@ fn handoff(tab_id: &str) -> CanvasElement {
         "kind": "handoff",
         "content": {
             "reseed_state": "new_sent",
-            "reseed_pending": { "tab_id": tab_id, "source_session_id": "old-session" }
+            "reseed_pending": { "tab_id": tab_id, "source_session_id": "old-session", "state": "new_sent", "resume_prompt": "opaque-resume-payload" }
         }
     }))
     .expect("handoff fixture")
@@ -506,10 +506,30 @@ fn observe_handoff_session_start_never_loads_unmatched_plans() {
     let other = seed(&store, other);
     start(&store);
 
-    store
+    let resume = store
         .observe_handoff_session_start("tab-reseed", "new-session", 5)
-        .unwrap();
-    assert!(store.plan_loads_for_test().contains(&pending));
+        .unwrap()
+        .expect("the selected pending handoff observes its new session");
+    assert_eq!(resume.plan_id, pending);
+    assert_eq!(resume.handoff_id, "el_tab-reseed");
+    assert_eq!(resume.tab_id, "tab-reseed");
+    assert!(resume.text.contains("opaque-resume-payload"));
+    let selected = store.show_handoff(&pending, Some("el_tab-reseed")).unwrap();
+    assert_eq!(selected.content["reseed_pending"]["state"], "session_seen");
+    assert_eq!(
+        selected.content["reseed_pending"]["target_session_id"],
+        "new-session"
+    );
+    let unmatched = store.show_handoff(&other, Some("el_tab-else")).unwrap();
+    assert_eq!(unmatched.content["reseed_pending"]["state"], "new_sent");
+    assert!(unmatched.content["reseed_pending"]
+        .get("target_session_id")
+        .is_none());
+    assert!(store
+        .observe_handoff_session_start("tab-reseed", "new-session", 6)
+        .unwrap()
+        .is_none());
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 

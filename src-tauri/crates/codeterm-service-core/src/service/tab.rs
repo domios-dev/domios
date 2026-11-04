@@ -250,10 +250,23 @@ impl ServiceContext {
                     ));
                 }
                 None => {
+                    let teamless = self
+                        .mux
+                        .read()
+                        .get_tab(&canon_target)
+                        .is_some_and(|tab| tab.team_id.is_none());
+                    let route = if teamless {
+                        format!(
+                            "it has no Team, so release its role with `domios agent unlink --tab \
+                             {canon_target}` and close it again"
+                        )
+                    } else {
+                        "close it through its Team".to_string()
+                    };
                     return Err(format!(
                         "{UNATTRIBUTED_CLOSE_REFUSAL_PREFIX}: caller attribution is required to \
-                         close coordinator Tab ({canon_target}); close it through its Team or \
-                         provide an attributed caller Tab."
+                         close coordinator Tab ({canon_target}); {route} or provide an \
+                         attributed caller Tab."
                     ));
                 }
                 Some(_) => {}

@@ -76,7 +76,7 @@ impl AgentProvider for StoreStub {
     fn session_content_source(&self) -> SessionContentSource {
         SessionContentSource::SharedStore
     }
-    fn parse_session_messages(&self, _: &Path) -> Vec<SessionMessage> {
+    fn parse_session_messages(&self, _: &Path) -> Result<Vec<SessionMessage>, String> {
         panic!("a shared store is never parsed as a session file");
     }
     fn read_session_content(

@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../lib/muxMockFetch.testdata";
 import assert from "node:assert/strict";
 import { register } from "node:module";
 import { act, useLayoutEffect } from "react";
@@ -93,40 +94,8 @@ async function fixture(local = false) {
   let holdLocalBody = false;
   let bodyRelease: (() => void) | undefined;
   const bodyStarted = deferred<void>();
-  const muxes = new Map<string, { controller: ReadableStreamDefaultController<Uint8Array>; closed: boolean }>();
-  const releasedChannels = new Set<string>();
-  globalThis.fetch = async (input, init) => {
+  globalThis.fetch = muxMockFetch(async (input, init) => {
     const url = new URL(String(input));
-    if (url.pathname === "/api/stream-mux") {
-      const session = url.searchParams.get("session")!;
-      const body = new ReadableStream<Uint8Array>({
-        start(controller) { muxes.set(session, { controller, closed: false }); },
-        cancel() { muxes.get(session)!.closed = true; },
-      });
-      return new Response(body);
-    }
-    if (url.pathname.startsWith("/api/stream-mux/")) {
-      const [, , , session, , channel] = url.pathname.split("/");
-      if (init?.method === "DELETE") releasedChannels.add(channel);
-      else {
-        const opened = JSON.parse(String(init?.body)) as { channel: string; path: string };
-        const mux = muxes.get(session)!;
-        const controller = {
-          enqueue(bytes: Uint8Array) {
-            if (mux.closed || releasedChannels.has(opened.channel)) throw new TypeError("channel closed");
-            for (const block of new TextDecoder().decode(bytes).split("\n\n")) {
-              if (block.startsWith("data: ")) {
-                mux.controller.enqueue(new TextEncoder().encode(`data: {"channel":${JSON.stringify(opened.channel)},"data":${block.slice(6)}}\n\n`));
-              }
-            }
-          },
-          close() { releasedChannels.add(opened.channel); },
-        } as unknown as Stream["controller"];
-        const stream = { destination: new URL(opened.path, url).searchParams.get("peer") ?? A, controller };
-        streams.push(stream); allStreams.push(stream);
-      }
-      return Response.json({ ok: true });
-    }
     if (url.pathname.includes("stream")) {
       const destination = url.searchParams.get("peer") ?? A;
       let controller!: Stream["controller"];
@@ -184,7 +153,7 @@ async function fixture(local = false) {
     }
     const result = path === "/api/themes" ? { themes: ["github-dark", "dracula"] } : [];
     return Response.json(envelope ? { ok: true, status: 200, data: result, error: null } : result);
-  };
+  });
   let current!: ConfigHook;
   const snapshots: ConfigHook[] = [];
   function App() {
@@ -336,7 +305,8 @@ async function main() {
     const pending = await f.requests.next("A save accepted before switch");
     assert.equal(pending.destination, A); pending.accept();
     await f.switchTo(B);
-    assert(pending.signal.aborted);
+    // The carrier detaches a switched-away mutation instead of aborting its handler; the caller still sees it stale.
+    assert.equal(pending.signal.aborted, false);
     await f.release(pending);
     assert.equal(await outcome, "stale");
     await f.load();

@@ -22,23 +22,31 @@ interface HastNode {
 
 export function remarkReferenceMarkers() {
   interface Node { type: string; value?: string; children?: Node[] }
-  function visit(node: Node): void {
-    if (!node.children || ["code", "inlineCode", "link"].includes(node.type)) return;
-    node.children = node.children.flatMap((child): Node[] => {
-      if (child.type !== "html" || !child.value) { visit(child); return [child]; }
-      const nodes: Node[] = [];
-      let cursor = 0;
-      for (const marker of referenceMarkers(child.value)) {
-        if (marker.start > cursor) nodes.push({ type: "html", value: child.value.slice(cursor, marker.start) });
-        nodes.push({ type: "text", value: marker.text });
-        cursor = marker.end;
-      }
-      if (!cursor) return [child];
-      if (cursor < child.value.length) nodes.push({ type: "html", value: child.value.slice(cursor) });
-      return nodes;
-    });
+  function split(child: Node): Node[] {
+    if (child.type !== "html" || !child.value) return [walk(child)];
+    const nodes: Node[] = [];
+    let cursor = 0;
+    for (const marker of referenceMarkers(child.value)) {
+      if (marker.start > cursor) nodes.push({ type: "html", value: child.value.slice(cursor, marker.start) });
+      nodes.push({ type: "text", value: marker.text });
+      cursor = marker.end;
+    }
+    if (!cursor) return [child];
+    if (cursor < child.value.length) nodes.push({ type: "html", value: child.value.slice(cursor) });
+    return nodes;
   }
-  return visit;
+  // Parsed trees are shared between renders, so this copies the paths it changes instead of mutating them.
+  function walk(node: Node): Node {
+    if (!node.children || ["code", "inlineCode", "link"].includes(node.type)) return node;
+    let changed = false;
+    const children = node.children.flatMap((child) => {
+      const next = split(child);
+      if (next.length !== 1 || next[0] !== child) changed = true;
+      return next;
+    });
+    return changed ? { ...node, children } : node;
+  }
+  return (tree: Node) => walk(tree);
 }
 
 export function rehypePlanRefs() {

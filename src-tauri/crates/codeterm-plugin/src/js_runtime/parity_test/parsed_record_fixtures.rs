@@ -81,8 +81,8 @@ fn bundled_text_and_kernel_columns_match_every_transcript_fixture_and_offset() {
                 }
             }
             assert_eq!(
-                serde_json::to_value(kernel.parse_session_messages(file.path())).unwrap(),
-                serde_json::to_value(text.parse_session_messages(file.path())).unwrap(),
+                serde_json::to_value(kernel.parse_session_messages(file.path()).unwrap()).unwrap(),
+                serde_json::to_value(text.parse_session_messages(file.path()).unwrap()).unwrap(),
                 "{} search",
                 fixture.display()
             );

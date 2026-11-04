@@ -165,7 +165,7 @@ fn batch_role(
         can_spawn,
     )?;
     if becomes_anchor {
-        crate::maybe_deliver_orchestrator_promotion_onboarding(svc, &tab_id, was_orchestrator);
+        crate::maybe_deliver_orchestrator_promotion_onboarding(svc, &tab_id, was_orchestrator)?;
     }
     Ok(serde_json::json!({"ok": true}))
 }

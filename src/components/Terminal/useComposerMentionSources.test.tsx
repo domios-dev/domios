@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { harnessWindow } from "./ChatComposer.composition.harness";
 import assert from "node:assert/strict";
 import { act } from "react";
@@ -29,7 +30,7 @@ __setListenForTest(async (event, handler) => {
   if (event === "plan-changed") planListeners.add(changed);
   return () => { planListeners.delete(changed); };
 });
-globalThis.fetch = async (input) => { fetched.push(String(input)); return Response.json(String(input).includes("/fs/list-dir") ? { entries: [{ name: "cdp.mjs", path: "/repo/cdp.mjs" }] } : (String(input).includes("chat=1") || String(input).includes("view=summary")) ? { plans: [{ ...FIXTURE_PLAN, revision: String(renders + 1), project_path: "/repo", team_id: "team-a", title: `Update ${renders}` }] } : { plans: [] }); };
+globalThis.fetch = muxMockFetch(async (input) => { fetched.push(String(input)); return Response.json(String(input).includes("/fs/list-dir") ? { entries: [{ name: "cdp.mjs", path: "/repo/cdp.mjs" }] } : (String(input).includes("chat=1") || String(input).includes("view=summary")) ? { plans: [{ ...FIXTURE_PLAN, revision: String(renders + 1), project_path: "/repo", team_id: "team-a", title: `Update ${renders}` }] } : { plans: [] }); });
 configureDaemonTransport({ origin: harnessWindow.location.origin, token: "fixture" });
 const api = { enabled: true, host: "127.0.0.1", port: 7686, token: "fixture", cors: true };
 function Harness() { renders++; const feed = useSidebarPlansOptional(); currentPlanTitle = feed.plans[0]?.title; refetchPlans = feed.refetch; sources = useComposerMentionSources("t"); return null; }
