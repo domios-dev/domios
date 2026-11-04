@@ -8,8 +8,10 @@ export function isMuxStreamPath(path: string): boolean {
     || /^\/api\/surfaces\/[^/]+\/stream$/.test(pathname);
 }
 
-/** Cumulative credited bytes are posted every 256 KiB, a quarter of the daemon's 1 MiB bulk window. */
+/** Cumulative credited bytes are posted every 256 KiB, a sixteenth of the daemon's 4 MiB bulk window. */
 export const BULK_CREDIT_STEP = 256 * 1024;
+/** A lost cumulative credit is re-posted this many times before the session is left to its own loss handling. */
+export const CREDIT_ATTEMPTS = 3;
 
 export function bulkCreditDue(received: number, posted: number): number | null {
   return received - posted >= BULK_CREDIT_STEP ? received : null;

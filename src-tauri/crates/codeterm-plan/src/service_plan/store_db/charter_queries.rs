@@ -31,13 +31,27 @@ pub(in crate::service_plan::store_db) const WORKER_ASSIGNMENT_SQL: &str = "WITH 
                     'personality',json_extract(t.row_json,'$.personality'),'role_guidance',json_extract(t.row_json,'$.role_guidance')),
                 json_object('id',p.id,'status',p.status,'project_path',p.project_path,
                     'canonical_project_path',CASE WHEN json_type(p.header_json,'$.canonical_project_path') IS NULL THEN '' ELSE json_extract(p.header_json,'$.canonical_project_path') END),
-                (SELECT CASE WHEN json_type(l.value,'$.target')='text' THEN json_object('id',json_extract(l.value,'$.id'),'budget',json_extract(l.value,'$.budget'),
-                    'count',json_extract(l.value,'$.count'),'stop_when',json_extract(l.value,'$.stop_when')) ELSE json('invalid loop target') END
+                (SELECT json_object('id',json_extract(l.value,'$.id'),'budget',json_extract(l.value,'$.budget'),
+                    'count',json_extract(l.value,'$.count'),'stop_when',json_extract(l.value,'$.stop_when'),'target_type',json_type(l.value,'$.target'))
                     FROM json_each(p.header_json,'$.loops') l WHERE json_extract(l.value,'$.status')='running'
                     AND trim(json_extract(l.value,'$.target'),?2)=c.stored_id ORDER BY l.key LIMIT 1),
                 (SELECT COUNT(*) FROM plan_task_attempts a WHERE a.plan_id=p.id AND a.task_id=t.task_id AND json_extract(a.row_json,'$.closed_at') IS NULL)
 
              FROM identity_facts c JOIN plans p ON p.id=c.plan_id JOIN plan_tasks t ON t.plan_id=c.plan_id AND t.task_id=c.task_id";
+
+#[derive(serde::Deserialize)]
+struct LoopRead {
+    #[serde(flatten)]
+    context: crate::service_plan::worker_charter::LoopCharterRead,
+    #[serde(rename = "target_type")]
+    _target_type: TextTarget,
+}
+
+#[derive(serde::Deserialize)]
+enum TextTarget {
+    #[serde(rename = "text")]
+    Text,
+}
 
 #[derive(serde::Deserialize)]
 struct OwnerRead {
@@ -133,9 +147,7 @@ pub(super) fn worker_assignment(
     let mut milestones = Vec::new();
     let storage: super::auxiliary_queries::StorageMetadata = decode(&plan_id, &storage)?;
     let loop_spec = loop_spec
-        .map(|document| {
-            decode::<crate::service_plan::worker_charter::LoopCharterRead>(&plan_id, &document)
-        })
+        .map(|document| decode::<LoopRead>(&plan_id, &document).map(|read| read.context))
         .transpose()?;
     record_query();
     let mut statement=tx.prepare_cached(

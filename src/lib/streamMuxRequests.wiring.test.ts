@@ -7,7 +7,7 @@ interface Posted { id: string; session: string; path: string; method: string; in
 
 function fixture() {
   const posted: Posted[] = [], deleted: string[] = [], sessions: string[] = [], credits: Array<{ session: string; received: number }> = [];
-  let refuseMux = 0;
+  let refuseMux = 0, failCredits = 0;
   const waiting: Array<(post: Posted) => void> = [];
   const cancellations: Array<(id: string) => void> = [];
   let cursor = 0, deleteCursor = 0;
@@ -23,6 +23,7 @@ function fixture() {
     const parts = url.pathname.split("/");
     if (parts[4] === "credit") {
       credits.push({ session: parts[3], received: (JSON.parse(String(init.body)) as { received: number }).received });
+      if (failCredits > 0) { failCredits--; return new Response("busy", { status: 503 }); }
       return new Response(null, { status: 204 });
     }
     if (init.method === "DELETE") {
@@ -39,6 +40,7 @@ function fixture() {
   return {
     client, posted, deleted, sessions, credits, push,
     refuse(status: number) { refuseMux = status; },
+    failCredits(count: number) { failCredits = count; },
     head(post: Posted, status = 200, headers: [string, string][] = [["content-type", "application/json"]]) { push({ channel: post.id, open: true, status, headers }); },
     text(post: Posted, chunk: string) { push({ channel: post.id, chunk, enc: "utf8" }); },
     end(post: Posted) { push({ channel: post.id, end: { reason: "eof" } }); },
@@ -142,6 +144,18 @@ describe("mux bulk credit and credential refusal", () => {
     await (await response).arrayBuffer();
     await vi.waitFor(() => expect(f.credits.map(c => c.received)).toEqual([4 * cost, 8 * cost]));
     expect(new Set(f.credits.map(c => c.session))).toEqual(new Set([f.sessions[0]]));
+  });
+
+  it("re-posts a refused credit without waiting for another frame, so a closed window cannot wedge", async () => {
+    const f = fixture();
+    f.failCredits(1);
+    const response = f.client.request!("/api/fixture"); const post = await f.next();
+    f.head(post, 200, [["content-type", "application/octet-stream"]]);
+    const cost = 64 * 1024;
+    for (let i = 0; i < 4; i++) f.push({ channel: post.id, chunk: "AA==", enc: "base64", credit: cost });
+    await vi.waitFor(() => expect(f.credits.map(c => c.received)).toEqual([4 * cost, 4 * cost]));
+    f.end(post);
+    await (await response).arrayBuffer();
   });
 
   it("fails waiting requests with the 401 instead of reconnecting forever", async () => {
