@@ -20,6 +20,7 @@ pub struct AuthenticatedPlanCaller {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PlanAuthorityError {
     PlanNotFound,
+    StoreReadFailed,
     /// Live same-tab, same-session caller holding a pre-relaunch lineage nonce.
     /// Recoverable via `domios plan rebind` without a full agent restart.
     BindingStaleAfterRelaunch,
@@ -47,6 +48,7 @@ impl PlanAuthorityError {
     pub fn diagnostic_type(self) -> &'static str {
         match self {
             Self::PlanNotFound => "plan_not_found",
+            Self::StoreReadFailed => "plan_authority_store_read_failed",
             Self::BindingStaleAfterRelaunch => "plan_binding_stale_after_relaunch",
             Self::BindingForeign => "plan_binding_authorization_required",
             Self::SessionUnregistered => "plan_binding_session_unregistered",
@@ -65,6 +67,7 @@ impl PlanAuthorityError {
     pub fn message(self) -> &'static str {
         match self {
             Self::PlanNotFound => "plan not found",
+            Self::StoreReadFailed => "Plan authority storage read failed",
             Self::BindingStaleAfterRelaunch => {
                 "the live bound planning session is required; its binding nonce is stale after a relaunch — re-sync with `domios plan rebind <plan>`"
             }
@@ -94,6 +97,16 @@ impl PlanAuthorityError {
 impl std::fmt::Display for PlanAuthorityError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(self.message())
+    }
+}
+
+fn authority_read_error(error: PlanError) -> PlanAuthorityError {
+    match error {
+        PlanError::NotFound | PlanError::TaskNotFound => PlanAuthorityError::PlanNotFound,
+        error => {
+            log::error!("Plan authority storage read failed: {error}");
+            PlanAuthorityError::StoreReadFailed
+        }
     }
 }
 
@@ -405,8 +418,8 @@ impl ServiceContext {
     ) -> Result<PlanningAuthor, PlanAuthorityError> {
         let plan = self
             .plan_store
-            .get(plan_id)
-            .ok_or(PlanAuthorityError::PlanNotFound)?;
+            .plan_identity_projection(plan_id)
+            .map_err(authority_read_error)?;
         if plan.team_id.as_deref().is_some_and(|team| {
             self.item_write_lock(crate::service::billing::LimitKey::Teams, team)
                 .is_some()
@@ -571,7 +584,10 @@ impl ServiceContext {
         caller: &AuthenticatedPlanCaller,
     ) -> Result<(), String> {
         self.authorize_plan_orchestrator(plan_id, caller)?;
-        let plan = self.plan_store.get(plan_id).ok_or("plan not found")?;
+        let plan = self
+            .plan_store
+            .plan_task_admission_projection(plan_id)
+            .map_err(|error| error.to_string())?;
         if plan.planning_state != PlanningState::Approved {
             return Err("the Plan graph must be approved before execution actions".into());
         }
@@ -587,8 +603,8 @@ impl ServiceContext {
             .await?;
         let plan = self
             .plan_store
-            .get(plan_id)
-            .ok_or(PlanAuthorityError::PlanNotFound)?;
+            .plan_task_admission_projection(plan_id)
+            .map_err(authority_read_error)?;
         if plan.planning_state != PlanningState::Approved {
             return Err(PlanAuthorityError::PlanNotApproved);
         }
@@ -600,9 +616,12 @@ impl ServiceContext {
         task_id: &str,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<(String, String), String> {
-        let detail = self.plan_store.show_task(task_id).ok_or("task not found")?;
-        self.authorize_execution_action(&detail.plan_id, caller)?;
-        Ok((detail.plan_id, detail.task.id))
+        let target = self
+            .plan_store
+            .task_authority_target_projection(task_id)
+            .map_err(|error| error.to_string())?;
+        self.authorize_execution_action(&target.plan_id, caller)?;
+        Ok((target.plan_id, target.task_id))
     }
 
     pub async fn authorize_task_execution_action_async(
@@ -610,13 +629,13 @@ impl ServiceContext {
         task_id: &str,
         caller: &AuthenticatedPlanCaller,
     ) -> Result<(String, String), PlanAuthorityError> {
-        let detail = self
+        let target = self
             .plan_store
-            .show_task(task_id)
-            .ok_or(PlanAuthorityError::PlanNotFound)?;
-        self.authorize_execution_action_async(&detail.plan_id, caller)
+            .task_authority_target_projection(task_id)
+            .map_err(authority_read_error)?;
+        self.authorize_execution_action_async(&target.plan_id, caller)
             .await?;
-        Ok((detail.plan_id, detail.task.id))
+        Ok((target.plan_id, target.task_id))
     }
 
     pub fn enter_execution_mode(
@@ -633,7 +652,7 @@ impl ServiceContext {
 
     #[allow(dead_code)]
     pub(crate) fn ensure_task_dispatchable(&self, plan_id: &str) -> Result<(), PlanError> {
-        let plan = self.plan_store.get(plan_id).ok_or(PlanError::NotFound)?;
+        let plan = self.plan_store.plan_task_admission_projection(plan_id)?;
         if plan.execution_tasks_unlocked() {
             Ok(())
         } else {
