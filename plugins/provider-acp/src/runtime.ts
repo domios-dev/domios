@@ -81,13 +81,14 @@ function unappliedModelNotice(requested:string | undefined, settings:Negotiation
   return {events:[{kind:"notice" as const,threadId,message:`Requested model was not applied: ${reason}`}]};
 }
 
-function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, selectModel:boolean):RuntimeStep {
+function loadedThread(op:Extract<Operation,{kind:"openThread"|"resumeThread"}>, state:Negotiation, sessionId:string, selectModel:boolean, refusal?:string):RuntimeStep {
   const option=modelOption(state.settings);
   const requested=op.settings.model;
   if (selectModel && requested && requested !== option?.currentValue && option?.options.some(value=>value.value === requested))
     return {kind:"continue",plan:request("session/set_config_option",{sessionId,configId:option.id,value:requested})};
   return {kind:"complete",result:{kind:"threadLoaded",threadId:sessionId,settings:state.settings ?? {}},
-    ...unappliedModelNotice(requested,state.settings,sessionId)};
+    ...(refusal === undefined ? unappliedModelNotice(requested,state.settings,sessionId)
+      : {events:[{kind:"notice" as const,threadId:sessionId,message:`Requested model was not applied: ${Array.from(refusal).slice(0,1000).join("")}`}]})};
 }
 
 function clientCapabilities(ctx:RuntimeContext):JsonValue {
@@ -186,7 +187,14 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
 
 export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue, reply:RpcReply):RuntimeStep {
   binding(ctx, op);
+  const method = object(raw).method;
   if (reply.kind === "error") {
+    if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
+      const state=negotiated(ctx);
+      if (!state?.sessionActive || !state.sessionId || op.kind === "resumeThread" && state.sessionId !== op.threadId)
+        return refused("binding_mismatch","ACP session is not active in this runtime");
+      return loadedThread(op,state,state.sessionId,false,reply.error.message);
+    }
     if (reply.error.code === -32000) {
       const state=negotiated(ctx);
       if (state) {state.authenticated=false;state.required=true;}
@@ -195,7 +203,6 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     return refused("provider_refused", reply.error.message);
   }
   const value = object(reply.value);
-  const method = object(raw).method;
   if (op.kind === "control" && op.action === "login" && method === "authenticate") {
     const next = request(methods.initialize, {protocolVersion, clientCapabilities:clientCapabilities(ctx), clientInfo:{name:"domios",title:"Domios",version:ctx.hostVersion}});
     next.state = {method:methods.initialize, authenticated:true};
@@ -265,7 +272,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       const model=modelOption(settings)?.currentValue;
       if (model) state.settings.model=model;
     }
-    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings}]};
+    return {kind:"complete",result:{kind:"done"},events:[{kind:"controlsConfirmed",threadId:sessionId,settings:op.action === "settings" ? state.settings : settings}]};
   }
   if (op.kind === "answer" && method === "session/request_permission")
     return {kind:"complete",result:{kind:"done"},events:[{kind:"promptResolved",threadId:ownSession(ctx,state),requestId:op.requestId}]};

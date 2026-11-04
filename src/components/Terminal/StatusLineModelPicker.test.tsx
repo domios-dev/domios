@@ -689,3 +689,17 @@ test("catalogue-free runtime refuses model-name heuristics with a visible disabl
     assert.equal(view.picker(), null);
   } finally { await view.unmount(); }
 });
+
+
+test("catalogue-free runtime stays neutral while model controls are unavailable", async () => {
+  const provider = {...descriptor("unsupported"), available_models:[], agent_runtime:{}} as ProviderDescriptor;
+  for (const controls of [undefined, {model:"launch-only"}]) {
+    const view = await mount(provider, undefined, undefined, undefined, controls);
+    try {
+      assert.equal(view.trigger(), null);
+      assert.equal(view.host.textContent, controls ? "Wire Agent · 0.0.1" : "Vendor");
+      assert.doesNotMatch(view.host.textContent!, /declared no model|deep|high|launch-only/);
+      assert.equal(view.picker(), null);
+    } finally { await view.unmount(); }
+  }
+});

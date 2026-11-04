@@ -167,6 +167,12 @@ export function StatusLineModelPicker({
     </span>
   ) : null;
 
+  if (declaredModels && !runtimeControls?.configOptions) return (
+    <span className="ct-status-identity ct-status-identity--static" title="Model controls are unavailable">
+      {tabMetaParts(undefined, undefined, undefined, undefined, runtimeIdentity).join(" · ") || descriptor?.display_name || "Agent"}
+    </span>
+  );
+
   if (declaredModels && !modelOption?.options.length) return (
     <button type="button" disabled data-testid="status-model-trigger" title="This agent declared no model option" aria-label="This agent declared no model option">
       {displayedLabel && <span>{displayedLabel} · </span>}This agent declared no model option

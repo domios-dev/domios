@@ -33,7 +33,8 @@
         "threadId": "session-fixture",
         "action": "settings",
         "value": {
-          "model": "wire-two"
+          "model": "wire-two",
+          "mode": "code"
         }
       },
       "context": {
@@ -56,7 +57,8 @@
         "threadId": "session-fixture",
         "action": "settings",
         "value": {
-          "model": "not-declared"
+          "model": "not-declared",
+          "mode": "code"
         }
       },
       "context": {
@@ -79,7 +81,8 @@
         "threadId": "session-fixture",
         "action": "settings",
         "value": {
-          "model": "wire-two"
+          "model": "wire-two",
+          "mode": "code"
         }
       },
       "context": {
@@ -101,7 +104,9 @@
         "kind": "control",
         "threadId": "session-fixture",
         "action": "settings",
-        "value": {}
+        "value": {
+          "mode": "code"
+        }
       },
       "context": {
         "epoch": 1,
@@ -123,7 +128,8 @@
         "threadId": "session-fixture",
         "action": "settings",
         "value": {
-          "model": "wire-one"
+          "model": "wire-one",
+          "mode": "code"
         }
       },
       "context": {
@@ -262,7 +268,16 @@
                 }
               ]
             }
-          ]
+          ],
+          "modes": {
+            "currentModeId": "code",
+            "availableModes": [
+              {
+                "id": "code",
+                "name": "Code"
+              }
+            ]
+          }
         }
       }
     },
@@ -509,7 +524,16 @@
                 }
               ]
             }
-          ]
+          ],
+          "modes": {
+            "currentModeId": "code",
+            "availableModes": [
+              {
+                "id": "code",
+                "name": "Code"
+              }
+            ]
+          }
         }
       }
     },
@@ -604,8 +628,14 @@
                   ]
                 }
               ],
-              "modes": [],
-              "model": "wire-one"
+              "modes": [
+                {
+                  "id": "code",
+                  "name": "Code"
+                }
+              ],
+              "model": "wire-one",
+              "mode": "code"
             }
           },
           "events": [
@@ -647,7 +677,15 @@
                       }
                     ]
                   }
-                ]
+                ],
+                "mode": "code",
+                "modes": [
+                  {
+                    "id": "code",
+                    "name": "Code"
+                  }
+                ],
+                "commands": []
               }
             }
           ]
@@ -685,7 +723,13 @@
                     ]
                   }
                 ],
-                "modes": []
+                "modes": [
+                  {
+                    "id": "code",
+                    "name": "Code"
+                  }
+                ],
+                "mode": "code"
               }
             }
           ]
@@ -723,7 +767,13 @@
                     ]
                   }
                 ],
-                "modes": []
+                "modes": [
+                  {
+                    "id": "code",
+                    "name": "Code"
+                  }
+                ],
+                "mode": "code"
               }
             }
           ]
@@ -759,7 +809,15 @@
                     ]
                   }
                 ],
-                "model": "wire-two"
+                "model": "wire-two",
+                "mode": "code",
+                "modes": [
+                  {
+                    "id": "code",
+                    "name": "Code"
+                  }
+                ],
+                "commands": []
               }
             }
           ]
@@ -810,8 +868,14 @@
                   ]
                 }
               ],
-              "modes": [],
-              "model": "wire-two"
+              "modes": [
+                {
+                  "id": "code",
+                  "name": "Code"
+                }
+              ],
+              "model": "wire-two",
+              "mode": "code"
             }
           }
         }
@@ -852,7 +916,15 @@
                 }
               ]
             }
-          ]
+          ],
+          "mode": "code",
+          "modes": [
+            {
+              "id": "code",
+              "name": "Code"
+            }
+          ],
+          "commands": []
         }
       },
       {
@@ -879,7 +951,13 @@
               ]
             }
           ],
-          "modes": []
+          "modes": [
+            {
+              "id": "code",
+              "name": "Code"
+            }
+          ],
+          "mode": "code"
         }
       },
       {
@@ -906,7 +984,13 @@
               ]
             }
           ],
-          "modes": []
+          "modes": [
+            {
+              "id": "code",
+              "name": "Code"
+            }
+          ],
+          "mode": "code"
         }
       },
       {
@@ -931,7 +1015,15 @@
               ]
             }
           ],
-          "model": "wire-two"
+          "model": "wire-two",
+          "mode": "code",
+          "modes": [
+            {
+              "id": "code",
+              "name": "Code"
+            }
+          ],
+          "commands": []
         }
       },
       {

@@ -9,6 +9,7 @@ pub(super) fn project(session: &Session, snapshot: &mut Map<String, Value>) {
     let context = session.context.lock();
     snapshot.insert("controls".into(), json!(context.settings));
     drop(context);
+    snapshot.insert("notice".into(), json!(session.state.lock().notice.clone()));
     let maps = session.maps.lock();
     if let Some(authentication) = &maps.authentication {
         snapshot.insert("authentication".into(), json!(authentication));
@@ -161,18 +162,12 @@ pub(super) async fn authenticate(
 
 pub(super) fn notice(
     svc: &ServiceContext,
-    context: &codeterm_plugin::agent_runtime::RuntimeContext,
+    session: &Session,
     message: String,
 ) {
-    let state = svc
-        .mux
-        .read()
-        .get_tab(&context.tab_id)
-        .and_then(|tab| tab.agent_runtime_state.clone());
-    if let Some(mut state) = state {
-        state["notice"] = json!(message);
-        svc.notify_event("agent-runtime-state", json!({"tab_id":context.tab_id,"session_binding_nonce":context.binding_nonce,"state":state}));
-    }
+    let tab = session.context.lock().tab_id.clone();
+    session.state.lock().notice = Some(message);
+    engine::publish_controls(svc, &tab, session);
 }
 
 pub(super) fn require_authentication(svc: &ServiceContext, session: &Session) {

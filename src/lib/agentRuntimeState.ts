@@ -4,7 +4,7 @@ export interface AgentRuntimeState {
   binaryVersion?: string;
   controls?: import("@codeterm/plugin-sdk").RuntimeSettings;
   authentication?: import("@codeterm/plugin-sdk").RuntimeAuthentication;
-  notice?: string;
+  notice?: string | null;
   requiredSecrets?: string[];
   auth?: "signedIn"|"signedOut"|"unknown";
   loginCodeInput?: boolean;

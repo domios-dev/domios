@@ -27,7 +27,8 @@ pub(super) fn validate_loaded_settings(
     requested: &RuntimeSettings,
     reported: &RuntimeSettings,
     model_matches: impl Fn(&str, &str) -> bool,
-) -> Result<(), RuntimeFailure> {
+) -> Result<Option<String>, RuntimeFailure> {
+    let mut notice = None;
     for (name, requested_value, reported_value) in [
         ("model", &requested.model, &reported.model),
         ("effort", &requested.effort, &reported.effort),
@@ -40,6 +41,11 @@ pub(super) fn validate_loaded_settings(
                 })
             })
         {
+            if let (Some(requested), Some(reported)) = (requested_value, reported_value) {
+                if requested != reported {
+                    notice = Some(format!("Requested model {requested}, agent reports {reported}"));
+                }
+            }
             continue;
         }
         if let (Some(requested), Some(reported)) = (requested_value, reported_value) {
@@ -55,7 +61,7 @@ pub(super) fn validate_loaded_settings(
             }
         }
     }
-    Ok(())
+    Ok(notice)
 }
 
 #[cfg(test)]

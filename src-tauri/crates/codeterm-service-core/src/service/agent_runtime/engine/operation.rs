@@ -390,7 +390,8 @@ async fn run_inner(
                         .into_iter()
                         .filter(|event| {
                             if let (
-                                RuntimeOperation::OpenThread { .. },
+                                RuntimeOperation::OpenThread { .. }
+                                | RuntimeOperation::ResumeThread { .. },
                                 RuntimeResult::ThreadLoaded { thread_id, .. },
                                 AgentRuntimeEvent::Notice {
                                     thread_id: notice_thread,
@@ -399,7 +400,7 @@ async fn run_inner(
                             ) = (&operation, &result, event)
                             {
                                 if thread_id == notice_thread {
-                                    session.state.lock().notice = Some(message.clone());
+                                    session.state.lock().pending_load_notice = Some(message.clone());
                                     return false;
                                 }
                             }

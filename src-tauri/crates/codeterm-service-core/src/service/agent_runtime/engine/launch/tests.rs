@@ -67,3 +67,52 @@ fn runtime_launch_substitution_refuses_model_and_effort_before_binding() {
             .contains("no substitution reason supplied"));
     }
 }
+
+
+fn declared_model_settings() -> RuntimeSettings {
+    serde_json::from_value(serde_json::json!({
+        "model":"agent-model",
+        "configOptions":[{"id":"engine","name":"Engine","category":"model","currentValue":"agent-model","options":[]}]
+    })).unwrap()
+}
+
+#[test]
+fn declared_model_mismatch_is_accepted_with_a_host_notice() {
+    let requested = RuntimeSettings { model: Some("requested-model".into()), ..Default::default() };
+    let reported = declared_model_settings();
+    let notice = validate_loaded_settings(&requested, &reported, |a, b| a == b).unwrap();
+    let mut state = super::super::RuntimeState::unloaded(None);
+    state.finish_load_notice(notice);
+    assert_eq!(state.snapshot().notice.as_deref(), Some("Requested model requested-model, agent reports agent-model"));
+}
+
+#[test]
+fn model_option_without_category_still_refuses_substitution() {
+    let requested = RuntimeSettings { model: Some("requested-model".into()), ..Default::default() };
+    let mut reported = declared_model_settings();
+    reported.config_options.as_mut().unwrap()[0].category = None;
+    assert!(validate_loaded_settings(&requested, &reported, |a, b| a == b).is_err());
+}
+
+#[test]
+fn model_not_matching_the_declared_current_value_still_refuses_substitution() {
+    let requested = RuntimeSettings { model: Some("requested-model".into()), ..Default::default() };
+    let mut reported = declared_model_settings();
+    reported.model = Some("unconfirmed-model".into());
+    assert!(validate_loaded_settings(&requested, &reported, |a, b| a == b).is_err());
+}
+
+#[test]
+fn load_notice_preserves_the_agent_reason_and_clears_previous_epoch_messages() {
+    let mut state = super::super::RuntimeState::unloaded(None);
+    state.notice = Some("old notice".into());
+    state.pending_load_notice = Some("Requested model was not applied: Agent refusal".into());
+    state.finish_load_notice(Some("Requested model requested, agent reports actual".into()));
+    let notice = state.snapshot().notice.unwrap();
+    assert!(notice.contains("Agent refusal"));
+    assert!(notice.contains("agent reports actual"));
+    assert!(!notice.contains("old notice"));
+    assert!(state.pending_load_notice.is_none());
+    state.finish_load_notice(None);
+    assert!(state.snapshot().notice.is_none());
+}

@@ -779,9 +779,10 @@ async fn ensure_locked(
             },
         },
     };
+    session.state.lock().pending_load_notice = None;
     let result = resume::load(svc, provider, session, &process, operation).await?;
     let context = session.context.lock().clone();
-    let (thread_id, settings) = match (fork, result) {
+    let (thread_id, settings, load_notice) = match (fork, result) {
         (
             Some((expected_source, expected_turn)),
             RuntimeResult::ThreadForked {
@@ -793,7 +794,7 @@ async fn ensure_locked(
             && turn_id == *expected_turn
             && thread_id != *expected_source =>
         {
-            (thread_id, context.settings.clone())
+            (thread_id, context.settings.clone(), None)
         }
         (
             None,
@@ -821,15 +822,16 @@ async fn ensure_locked(
                     )
                 );
             }
-            validate_loaded_settings(&context.settings, &settings, |requested, reported| {
-                crate::service::session_model::session_model_matches(
-                    &svc.agent_registry,
-                    provider,
-                    requested,
-                    reported,
-                )
-            })?;
-            (thread_id, settings)
+            let notice =
+                validate_loaded_settings(&context.settings, &settings, |requested, reported| {
+                    crate::service::session_model::session_model_matches(
+                        &svc.agent_registry,
+                        provider,
+                        requested,
+                        reported,
+                    )
+                })?;
+            (thread_id, settings, notice)
         }
         _ => {
             return Err(RuntimeFailure::HookFailed(
@@ -859,6 +861,8 @@ async fn ensure_locked(
     )?;
     let settings = session.context.lock().settings.clone();
     super::projections::controls(svc, session, settings);
+    session.state.lock().finish_load_notice(load_notice);
+    publish_controls(svc, tab, session);
     if let Err(reason) = super::controls::refresh_service_tiers(svc, session).await {
         log::debug!("Runtime service tier catalogue unavailable: {reason}");
     }

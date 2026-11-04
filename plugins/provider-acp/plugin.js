@@ -509,7 +509,7 @@ function unappliedModelNotice(requested, settings, threadId) {
   const reason = !option ? "This agent declared no model option" : option.options.some((value) => value.value === requested) ? "Model was not applied by this agent" : "Model was not declared by this agent";
   return { events: [{ kind: "notice", threadId, message: `Requested model was not applied: ${reason}` }] };
 }
-function loadedThread(op, state, sessionId, selectModel) {
+function loadedThread(op, state, sessionId, selectModel, refusal) {
   const option = modelOption(state.settings);
   const requested = op.settings.model;
   if (selectModel && requested && requested !== option?.currentValue && option?.options.some((value) => value.value === requested))
@@ -517,7 +517,7 @@ function loadedThread(op, state, sessionId, selectModel) {
   return {
     kind: "complete",
     result: { kind: "threadLoaded", threadId: sessionId, settings: state.settings ?? {} },
-    ...unappliedModelNotice(requested, state.settings, sessionId)
+    ...refusal === void 0 ? unappliedModelNotice(requested, state.settings, sessionId) : { events: [{ kind: "notice", threadId: sessionId, message: `Requested model was not applied: ${Array.from(refusal).slice(0, 1e3).join("")}` }] }
   };
 }
 function clientCapabilities(ctx) {
@@ -618,7 +618,14 @@ function runtimePlan(ctx, op) {
 }
 function runtimeResponse(ctx, op, raw, reply) {
   binding(ctx, op);
+  const method = object4(raw).method;
   if (reply.kind === "error") {
+    if ((op.kind === "openThread" || op.kind === "resumeThread") && method === "session/set_config_option") {
+      const state2 = negotiated(ctx);
+      if (!state2?.sessionActive || !state2.sessionId || op.kind === "resumeThread" && state2.sessionId !== op.threadId)
+        return refused("binding_mismatch", "ACP session is not active in this runtime");
+      return loadedThread(op, state2, state2.sessionId, false, reply.error.message);
+    }
     if (reply.error.code === -32e3) {
       const state2 = negotiated(ctx);
       if (state2) {
@@ -630,7 +637,6 @@ function runtimeResponse(ctx, op, raw, reply) {
     return refused("provider_refused", reply.error.message);
   }
   const value = object4(reply.value);
-  const method = object4(raw).method;
   if (op.kind === "control" && op.action === "login" && method === "authenticate") {
     const next = request(methods.initialize, { protocolVersion, clientCapabilities: clientCapabilities(ctx), clientInfo: { name: "domios", title: "Domios", version: ctx.hostVersion } });
     next.state = { method: methods.initialize, authenticated: true };
@@ -714,7 +720,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       const model = modelOption(settings)?.currentValue;
       if (model) state.settings.model = model;
     }
-    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: sessionId, settings }] };
+    return { kind: "complete", result: { kind: "done" }, events: [{ kind: "controlsConfirmed", threadId: sessionId, settings: op.action === "settings" ? state.settings : settings }] };
   }
   if (op.kind === "answer" && method === "session/request_permission")
     return { kind: "complete", result: { kind: "done" }, events: [{ kind: "promptResolved", threadId: ownSession(ctx, state), requestId: op.requestId }] };

@@ -1,6 +1,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { confirmedTabServiceTier, serviceTierLabel, tabServiceTierAvailability, tabMetaParts } from "./tabMetaLabel";
+import { runtimeStateFromSnapshot } from "./agentRuntimeState";
 import type { ProviderDescriptor, Tab } from "./types";
 
 test("tab meta identity and confirmed service tier", () => {
@@ -20,4 +21,10 @@ test("tab meta identity and confirmed service tier", () => {
 
   assert.deepEqual(tabMetaParts(undefined, undefined, undefined, undefined, {agentName:"Wire Agent",binaryVersion:"0.0.1"}), ["Wire Agent","0.0.1"]);
   assert.deepEqual(tabMetaParts("confirmed", undefined, undefined, undefined, {agentName:"Wire Agent",binaryVersion:"0.0.1"}), ["Wire Agent","0.0.1","confirmed"]);
+});
+
+
+test("an explicit notice clear replaces the previous notice in the same epoch", () => {
+  const previous = {state:"loaded" as const,epoch:1,notice:"Requested model was not applied"};
+  assert.equal(runtimeStateFromSnapshot(previous,{state:"loaded",epoch:1,notice:null})?.notice, null);
 });

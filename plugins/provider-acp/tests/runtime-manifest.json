@@ -108,6 +108,7 @@
     "declared-auth.json",
     "model-option-undeclared-refused.json",
     "model-option-declared-selected.json",
-    "agent-info-identity.json"
+    "agent-info-identity.json",
+    "model-option-load-refused.json"
   ]
 }
