@@ -1,4 +1,5 @@
 use super::*;
+mod manifest_tag_tests;
 
 fn decorate(plan: &mut Plan) {
     plan.sections = sections();

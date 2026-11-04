@@ -110,11 +110,6 @@ impl PlanStore {
         })))
     }
 
-    pub fn file_manifest(&self, id: &str) -> Result<body_files::PlanFileManifest, PlanError> {
-        let plan = self.get(id).ok_or(PlanError::NotFound)?;
-        body_files::file_manifest(&plan).map_err(|e| PlanError::Io(e.to_string()))
-    }
-
     pub fn spec_document_markdown(&self, id: &str) -> Option<String> {
         self.get_spec(id)
             .map(|spec| spec_render::spec_markdown(&spec))

@@ -3,6 +3,8 @@ use crate::plan::{
     Goal, OrchestratorRef, PlanStatus, PlannerInboxEntry, PlannerRef, PlannerRequest,
 };
 mod coverage;
+mod manifest;
+mod tags;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PlanDocumentMetadata {
