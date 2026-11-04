@@ -53,9 +53,7 @@ impl PlanStore {
         stop_when: Option<Option<&str>>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let plan_id = self
-            .find_plan_with_loop(loop_id)
-            .ok_or(PlanError::NotFound)?;
+        let plan_id = self.loop_plan_id(loop_id)?.ok_or(PlanError::NotFound)?;
         self.with_plan(&plan_id, now_ms, |p| {
             let lp = p
                 .loops
@@ -83,9 +81,7 @@ impl PlanStore {
     }
 
     pub fn stop_loop(&self, loop_id: &str, now_ms: u64) -> Result<(), PlanError> {
-        let plan_id = self
-            .find_plan_with_loop(loop_id)
-            .ok_or(PlanError::NotFound)?;
+        let plan_id = self.loop_plan_id(loop_id)?.ok_or(PlanError::NotFound)?;
         self.with_plan(&plan_id, now_ms, |p| {
             let lp = p
                 .loops
@@ -103,9 +99,7 @@ impl PlanStore {
         made_progress: bool,
         now_ms: u64,
     ) -> Result<LoopSpec, PlanError> {
-        let plan_id = self
-            .find_plan_with_loop(loop_id)
-            .ok_or(PlanError::NotFound)?;
+        let plan_id = self.loop_plan_id(loop_id)?.ok_or(PlanError::NotFound)?;
         let mut updated = None;
         self.with_plan(&plan_id, now_ms, |p| {
             let goal_vector = p
@@ -141,9 +135,7 @@ impl PlanStore {
         preferred_task_id: Option<&str>,
         now_ms: u64,
     ) -> Result<LoopRecordResult, PlanError> {
-        let plan_id = self
-            .find_plan_with_loop(loop_id)
-            .ok_or(PlanError::NotFound)?;
+        let plan_id = self.loop_plan_id(loop_id)?.ok_or(PlanError::NotFound)?;
         let mut result = None;
         self.with_plan(&plan_id, now_ms, |p| {
             let loop_idx = p
@@ -202,13 +194,6 @@ impl PlanStore {
             Ok(())
         })?;
         result.ok_or(PlanError::NotFound)
-    }
-
-    /// The header rows name the plan; no plan is loaded.
-    fn find_plan_with_loop(&self, loop_id: &str) -> Option<String> {
-        self.plan_ids_matching(&super::PlanMatch::LoopId(loop_id.to_string()))
-            .into_iter()
-            .next()
     }
 }
 

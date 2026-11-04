@@ -173,6 +173,10 @@ impl PlanStore {
         self.spec_index.read().values().cloned().collect()
     }
 
+    pub fn curator_bootstrap_plan_ids(&self) -> Result<Vec<String>, PlanError> {
+        self.database.curator_bootstrap_plan_ids()
+    }
+
     /// Ids of the plans whose stored rows match, newest first; no plan is loaded.
     pub fn plan_ids_matching(&self, predicate: &PlanMatch) -> Vec<String> {
         self.database

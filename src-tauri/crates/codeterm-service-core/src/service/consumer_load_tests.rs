@@ -523,7 +523,7 @@ fn curator_bootstrap_ids_never_loads_unmatched_plans() {
     let quiet = seed(store, quiet);
     start(store);
 
-    let ids = crate::service::curator::curator_bootstrap_ids(store);
+    let ids = crate::service::curator::curator_bootstrap_ids(store).unwrap();
     assert_eq!(ids, [active, scheduled].into_iter().collect());
     assert!(!ids.contains(&quiet));
     assert!(

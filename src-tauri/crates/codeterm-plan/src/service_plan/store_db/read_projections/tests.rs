@@ -39,6 +39,7 @@ mod role_binding_tests;
 mod runtime_identity_tests;
 mod search_tests;
 mod section_link_tests;
+mod selector_error_tests;
 mod status_tests;
 mod tab_tests;
 mod task_key_reader_tests;
