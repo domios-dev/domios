@@ -132,7 +132,7 @@ fn heartbeat_lists_only_skills_referenced_by_actionable_work() {
         .unwrap()
         .contains(slug));
     store
-        .with_plan(&plan_id, 21, |plan| {
+        .edit_plan_fixture(&plan_id, 21, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == id)
@@ -193,7 +193,7 @@ fn heartbeat_renders_live_competitive_attempt_summary() {
         .reinjection
         .contains(super::prompts_plan::HEARTBEAT_COMPETITIVE_ATTEMPTS_TITLE));
     store
-        .with_plan(&plan_id, 23, |plan| {
+        .edit_plan_fixture(&plan_id, 23, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
@@ -229,7 +229,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
         )
         .unwrap();
     store
-        .with_plan(&stale.id, 11, |plan| {
+        .edit_plan_fixture(&stale.id, 11, |plan| {
             plan.heartbeat.current_focus = Some("old focus".into());
             Ok(())
         })
@@ -257,7 +257,7 @@ fn heartbeat_resolution_prefers_execution_plan_with_open_work() {
         .unwrap();
     store.set_mode(&live.id, PlanMode::Execution, 22).unwrap();
     store
-        .with_plan(&live.id, 23, |plan| {
+        .edit_plan_fixture(&live.id, 23, |plan| {
             plan.heartbeat.current_focus = Some("live focus".into());
             Ok(())
         })
@@ -540,7 +540,7 @@ fn is_plan_complete_rejects_paused_and_blocked_tasks() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -638,7 +638,7 @@ fn outstanding_work_is_one_shared_derivation_across_next_status_and_heartbeat() 
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 21, |plan| {
+        .edit_plan_fixture(&plan_id, 21, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|t| t.id == audit_id)
@@ -675,7 +675,7 @@ fn outstanding_work_is_one_shared_derivation_across_next_status_and_heartbeat() 
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 41, |plan| {
+        .edit_plan_fixture(&plan_id, 41, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|t| t.id == review_id)
@@ -697,7 +697,7 @@ fn outstanding_work_is_one_shared_derivation_across_next_status_and_heartbeat() 
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 43, |plan| {
+        .edit_plan_fixture(&plan_id, 43, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|t| t.id == blocked_id)

@@ -303,10 +303,6 @@ fn seed_missing_search_indexes_never_loads_unmatched_plans() {
 
     store.seed_missing_search_indexes();
     assert!(store.plan_loads_for_test().iter().all(|id| *id == missing));
-    assert!(
-        store.cached_plan_ids_for_test().is_empty(),
-        "seeding never fills the cache"
-    );
     assert_never_loaded(&store, &[&indexed]);
 }
 
@@ -728,7 +724,6 @@ fn export_all_plan_documents_never_loads_whole_plans_or_cache() {
     let mut expected = vec![first, second];
     expected.sort();
     assert_eq!(seen, expected);
-    assert!(store.cached_plan_ids_for_test().is_empty());
     assert!(store.plan_loads_for_test().is_empty());
 }
 

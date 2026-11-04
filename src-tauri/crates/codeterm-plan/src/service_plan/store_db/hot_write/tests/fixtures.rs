@@ -67,6 +67,7 @@ pub(in crate::service_plan::store_db) fn database(
     root: &std::path::Path,
     plan: &Plan,
 ) -> PlanDatabase {
+    crate::service_plan::paths::mark_test_project_root(root);
     let database = PlanDatabase::open(root.join("plans.db")).unwrap();
     database.persist_plan_rows(plan, None).unwrap();
     let mut spec = crate::plan::Spec::new("owned spec".into(), plan.project_path.clone());

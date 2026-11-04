@@ -27,7 +27,7 @@ fn owner_completes_each_open_status_with_a_persisted_result_and_retires_assignme
                 )
                 .unwrap();
             svc.plan_store
-                .with_plan(&plan_id, 3, |plan| {
+                .edit_plan_fixture(&plan_id, 3, |plan| {
                     let task = &mut plan.tasks[0];
                     task.status = status.clone();
                     task.assigned_tab_id = Some("opaque-worker".into());

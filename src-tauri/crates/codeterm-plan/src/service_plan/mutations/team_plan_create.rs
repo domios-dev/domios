@@ -80,7 +80,7 @@ pass an absolute path with --project, or omit --project to use the current worki
         }
         plan.team_id = Some(team_id);
         plan.milestone_kinds = kinds;
-        if let Err(error) = self.save_in_writer(&writer_turn, &mut plan, now_ms) {
+        if let Err(error) = self.import_payload_in_writer(&writer_turn, &mut plan, now_ms) {
             self.forget_plan(&plan.id);
             return Err(PlanError::Io(error.to_string()));
         }

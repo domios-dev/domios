@@ -235,6 +235,7 @@ pub(super) fn join_plan(mut plan: Value, tasks: Vec<StoredTask>) -> Result<Value
     Ok(plan)
 }
 
+#[cfg(any(test, feature = "test-support"))]
 pub(super) struct StoredPlanLevel {
     pub(super) sections: Vec<Value>,
     pub(super) elements: Vec<Value>,
@@ -243,6 +244,7 @@ pub(super) struct StoredPlanLevel {
 }
 
 /// Restores the section, element, stride and heartbeat rows into a plan document.
+#[cfg(any(test, feature = "test-support"))]
 pub(super) fn join_plan_level(mut plan: Value, level: StoredPlanLevel) -> Result<Value, String> {
     let fields = plan
         .as_object_mut()

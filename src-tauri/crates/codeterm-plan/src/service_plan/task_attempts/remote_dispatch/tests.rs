@@ -26,7 +26,7 @@ fn remote_attempt() -> (tempfile::TempDir, PlanStore, String, String, String) {
         .unwrap();
     let attempt_id = "attempt_remote".to_string();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

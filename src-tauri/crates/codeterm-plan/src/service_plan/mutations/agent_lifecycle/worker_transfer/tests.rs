@@ -30,7 +30,7 @@ fn fixture() -> (tempfile::TempDir, PlanStore, VerifiedWorkerTransferBinding) {
         .unwrap();
     let worktree_path = directory.path().join("worker-lane").display().to_string();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -112,7 +112,7 @@ fn second_plan_with_unrelated_lane(
     let plan_id = plan.id;
     let worktree_path = directory.path().join("other-lane").display().to_string();
     store
-        .with_plan(&plan_id, 7, |plan| {
+        .edit_plan_fixture(&plan_id, 7, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -152,7 +152,7 @@ fn assert_cross_plan_ownership_duplicate_refused(
     assert_eq!(store.get(&binding.plan_id).unwrap(), first_positive_record);
     assert_eq!(store.get(&second_plan_id).unwrap(), second_positive_record);
     store
-        .with_plan(&second_plan_id, 8, |plan| {
+        .edit_plan_fixture(&second_plan_id, 8, |plan| {
             mutate_second_task(plan, &binding, &second_task_id);
             Ok(())
         })
@@ -177,7 +177,7 @@ fn assert_fence_refusal_preserves_plan(
 ) {
     let (_directory, store, binding) = fixture();
     store
-        .with_plan(&binding.plan_id, 8, |plan| {
+        .edit_plan_fixture(&binding.plan_id, 8, |plan| {
             mutate_plan(plan, &binding);
             Ok(())
         })
@@ -363,7 +363,7 @@ fn transfer_fence_serializes_plan_writers_behind_its_mux_commit_callback() {
     let writer_plan_id = plan_id.clone();
     let writer = std::thread::spawn(move || {
         writer_store
-            .with_plan(&writer_plan_id, 8, |plan| {
+            .edit_plan_fixture(&writer_plan_id, 8, |plan| {
                 writer_entered_tx.send(()).unwrap();
                 plan.title = "after transfer fence".into();
                 Ok(())

@@ -61,7 +61,8 @@ pub mod paths;
 pub mod pause;
 pub mod pause_operation;
 pub mod peer_mandate;
-mod plan_cache;
+#[cfg(any(test, feature = "test-support"))]
+mod plan_fixture;
 pub mod plan_match;
 pub mod plan_skills;
 pub mod planner_replay;
@@ -72,7 +73,6 @@ pub mod project_paths;
 pub mod prompts_plan;
 pub mod qa;
 pub mod radar;
-mod readback;
 mod reconcile_fixes;
 pub mod reflection;
 mod relink;
@@ -163,8 +163,6 @@ mod goal_tests;
 #[cfg(test)]
 mod heartbeat_tests;
 #[cfg(test)]
-mod readback_tests;
-#[cfg(test)]
 mod reminder_tests;
 #[cfg(test)]
 mod review_gate_selection_tests;
@@ -215,7 +213,6 @@ pub use types::{
 
 pub struct PlanStore {
     product_observer: RwLock<Option<std::sync::Arc<dyn Fn() + Send + Sync>>>,
-    plan_cache: plan_cache::PlanCache,
     specs: RwLock<HashMap<String, Arc<Mutex<Spec>>>>,
     /// Id, status, team, project, title and update time of every plan row, read from SQL columns.
     index: RwLock<HashMap<String, store_db::PlanIndexRow>>,
@@ -229,7 +226,7 @@ pub struct PlanStore {
     database: Arc<store_db::PlanDatabase>,
     retention_day: Mutex<Option<u64>>,
     #[cfg(test)]
-    persistence_hook: RwLock<Option<Arc<dyn Fn(&Plan) + Send + Sync>>>,
+    persistence_hook: RwLock<Option<Arc<dyn Fn(&str) + Send + Sync>>>,
     #[cfg(any(test, feature = "test-support"))]
     plan_touches: Mutex<Vec<String>>,
     #[cfg(any(test, feature = "test-support"))]
@@ -306,7 +303,6 @@ impl PlanStore {
         let specs = database.load_specs()?;
         let store = Self {
             product_observer: RwLock::new(None),
-            plan_cache: plan_cache::PlanCache::new(plan_cache::PLAN_CACHE_CAPACITY),
             specs: RwLock::new(HashMap::new()),
             index: RwLock::new(
                 index_rows
@@ -358,7 +354,7 @@ impl PlanStore {
     /// Stands in for the Worker ACK that moves a pending task in progress.
     #[cfg(test)]
     pub(crate) fn start_task_for_test(&self, plan_id: &str, task_id: &str, now_ms: u64) {
-        self.with_plan(plan_id, now_ms, |plan| {
+        self.edit_plan_fixture(plan_id, now_ms, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

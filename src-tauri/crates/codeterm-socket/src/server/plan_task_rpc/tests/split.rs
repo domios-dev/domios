@@ -52,7 +52,7 @@ fn split_creates_children_with_parent_and_inherited_routing() {
     fixture
         .service
         .plan_store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let parent = plan
                 .tasks
                 .iter_mut()
@@ -172,7 +172,7 @@ fn split_rejects_terminal_and_child_parents() {
             fixture
                 .service
                 .plan_store
-                .with_plan(&plan_id, 6, |plan| {
+                .edit_plan_fixture(&plan_id, 6, |plan| {
                     plan.tasks
                         .iter_mut()
                         .find(|task| task.id == parent_id)

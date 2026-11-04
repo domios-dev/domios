@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::readback::pending_after_verified;
 use super::state::{DependencyWait, TaskPresentation};
 use super::{PlanError, PlanStore};
 use crate::plan::{OrchestratorRef, PlanMode, Task, TaskStatus};
@@ -158,7 +157,7 @@ impl PlanStore {
         let target = self.task_authority_target_projection(task_id)?;
         let plan_id = target.plan_id;
         let canonical_task_id = target.task_id;
-        let write = self.with_task_rows(
+        self.with_task_rows(
             &plan_id,
             &canonical_task_id,
             super::store_db::hot_write::TaskHistory::Core,
@@ -195,11 +194,6 @@ impl PlanStore {
                 task.updated_at = now_ms;
                 Ok(())
             },
-        );
-        pending_after_verified(
-            write,
-            self.verify_task_assignment(&plan_id, &canonical_task_id, tab_id, taken_by_role),
-            Some(canonical_task_id),
         )?;
         Ok(plan_id)
     }

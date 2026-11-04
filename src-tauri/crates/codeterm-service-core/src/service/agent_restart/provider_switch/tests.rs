@@ -148,7 +148,7 @@ fn source_archive_failure_releases_authority_and_fences_the_attempt() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

@@ -7,7 +7,7 @@ fn third_trailing_stagnant_bounce_returns_strategy_warning_atomically() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -57,7 +57,7 @@ fn strategy_warning_carries_decisions_selected_by_stride_kind() {
     dispatch(&store, &plan_id, &task_id, "tab_impl", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

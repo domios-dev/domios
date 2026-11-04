@@ -139,7 +139,7 @@ fn curator_launch_failure_clears_the_unbound_round() {
     fixture
         .service
         .plan_store
-        .with_plan(&id, 100, |plan| {
+        .edit_plan_fixture(&id, 100, |plan| {
             plan.control_loop.running = Some(CuratorRun {
                 number: 2,
                 started_at: 100,

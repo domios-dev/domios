@@ -191,6 +191,7 @@ impl PlanDatabase {
     }
 
     /// `Ok(None)` when no row exists; rows that do not parse are `PlanError::Quarantined`.
+    #[cfg(any(test, feature = "test-support"))]
     pub(super) fn load_plan(&self, id: &str) -> Result<Option<Plan>, PlanError> {
         let mut connection = self.connection.lock();
         let transaction = connection.transaction().map_err(db_error)?;
@@ -214,6 +215,7 @@ impl PlanDatabase {
         result
     }
 
+    #[cfg(test)]
     pub(super) fn delete_plan(&self, id: &str, now_ms: u64) -> Result<(), PlanError> {
         let mut connection = self.connection.lock();
         let operation_id = queue_operation(&connection, id, "delete_plan", now_ms)?;
@@ -260,6 +262,7 @@ impl PlanDatabase {
             .map(|_| self.path())
     }
 
+    #[cfg(test)]
     pub(super) fn persist_plan_rows(
         &self,
         plan: &Plan,

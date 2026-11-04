@@ -295,7 +295,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
 
     if matches!(case, CarryCase::Closed(_)) {
         store
-            .with_plan(&plan.id, 4, |plan| {
+            .edit_plan_fixture(&plan.id, 4, |plan| {
                 let attempt = &mut plan
                     .tasks
                     .iter_mut()
@@ -344,7 +344,7 @@ fn worker_attempt_carry(target: Option<&str>, omit_attempt: bool, case: CarryCas
         Some("opaque-spawn-metadata")
     );
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

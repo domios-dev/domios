@@ -112,7 +112,7 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
     let (fixture, plan_id, task_id, parent_id, _, owner) = update_fixture();
     let svc = &fixture.service;
     svc.plan_store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == parent_id)
@@ -159,7 +159,7 @@ fn committed_task_event_matches_scoped_snapshot_and_stale_team_binding_denies_re
         .unwrap()
         .contains("unrelated body sentinel"));
     svc.plan_store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             plan.team_id = Some("missing-team".into());
             Ok(())
         })
@@ -182,7 +182,7 @@ fn task_detail_resolves_scoped_id_handle_and_key_with_exact_id_precedence() {
     let (fixture, plan_id, task_id, parent_id, dependency_id, _) = update_fixture();
     let svc = &fixture.service;
     svc.plan_store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let selected = plan
                 .tasks
                 .iter_mut()
@@ -231,7 +231,7 @@ fn task_detail_resolves_scoped_id_handle_and_key_with_exact_id_precedence() {
     }
     assert!(svc.plan_store.plan_loads_for_test().is_empty());
     svc.plan_store
-        .with_plan(&plan_id, 7, |plan| {
+        .edit_plan_fixture(&plan_id, 7, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == dependency_id)

@@ -79,7 +79,6 @@ fn stored_legacy_control_bytes_do_not_block_later_writes() {
     let mut stored = store.get(&plan_id).unwrap();
     stored.tasks[0].test_plan = Some("\u{8}ash scripts/check".into());
     store.save(&mut stored, 2).unwrap();
-    store.clear_plan_cache_for_test();
     assert_eq!(
         store.get(&plan_id).unwrap().tasks[0].test_plan.as_deref(),
         Some("\u{8}ash scripts/check")
@@ -119,7 +118,6 @@ fn stored_legacy_control_bytes_do_not_block_later_writes() {
             4,
         )
         .unwrap();
-    store.clear_plan_cache_for_test();
     let plan = store.get(&plan_id).unwrap();
     assert_eq!(plan.tasks[0].group.as_deref(), Some("legacy-group"));
     assert_eq!(
@@ -152,7 +150,6 @@ fn a_long_lived_plan_with_many_stored_fields_still_accepts_writes() {
         stored.tasks.push(task);
     }
     store.save(&mut stored, 2).unwrap();
-    store.clear_plan_cache_for_test();
     assert_eq!(store.get(&plan_id).unwrap().tasks.len(), 81);
 
     store
@@ -166,7 +163,6 @@ fn a_long_lived_plan_with_many_stored_fields_still_accepts_writes() {
             3,
         )
         .unwrap();
-    store.clear_plan_cache_for_test();
     let plan = store.get(&plan_id).unwrap();
     assert_eq!(plan.tasks.len(), 81);
     assert_eq!(plan.tasks[0].milestones.last().unwrap().text, "plain text");

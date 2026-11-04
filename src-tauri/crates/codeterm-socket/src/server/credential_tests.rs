@@ -67,7 +67,7 @@ fn memory_diagnostics_requires_local_owner_and_exposes_sizes_without_payloads() 
             .unwrap()
             > 0
     );
-    assert_eq!(result["subsystems"]["plan_cache"]["count"], 0);
+    assert!(result["subsystems"].get("plan_cache").is_none());
     assert!(!result.to_string().contains("private-fixture-payload"));
 }
 

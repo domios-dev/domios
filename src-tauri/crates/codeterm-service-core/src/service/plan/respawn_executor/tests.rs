@@ -512,7 +512,7 @@ fn restored_bounced_worker_force_close_records_termination_before_retirement_and
     fixture
         .service
         .plan_store
-        .with_plan("plan", 2, |plan| {
+        .edit_plan_fixture("plan", 2, |plan| {
             plan.tasks[0].status = crate::plan::TaskStatus::InReview;
             plan.tasks[0].execution_attempts[0].provider = Some("source-provider".into());
             Ok(())
@@ -656,7 +656,7 @@ fn forced_close_resolves_missing_binding_but_refuses_conflicting_or_ambiguous_at
         }
         if field == "ambiguous" {
             svc.plan_store
-                .with_plan("plan", 2, |plan| {
+                .edit_plan_fixture("plan", 2, |plan| {
                     let mut second = plan.tasks[0].clone();
                     second.id = "other-task".into();
                     second.execution_attempts[0].id = "other-attempt".into();
@@ -689,7 +689,7 @@ fn termination_receipt_persistence_failure_retains_tab_and_unretired_attempt() {
     let svc = &fixture.service;
     let result = svc.retire_respawn_executor_with(&draft, |_| {
         svc.plan_store
-            .with_plan("plan", 2, |plan| {
+            .edit_plan_fixture("plan", 2, |plan| {
                 plan.tasks[0].execution_attempts[0].session_binding_nonce = Some("changed".into());
                 Ok(())
             })
@@ -716,7 +716,7 @@ fn assert_close_persists_termination(status: crate::plan::TaskStatus, guarded: b
     fixture
         .service
         .plan_store
-        .with_plan("plan", 2, |plan| {
+        .edit_plan_fixture("plan", 2, |plan| {
             plan.tasks[0].status = status.clone();
             Ok(())
         })
@@ -794,7 +794,7 @@ fn terminal_worker_close_resolves_missing_attempt_after_accept_or_close() {
             .attempt_id = None;
         if accepted {
             svc.plan_store
-                .with_plan("plan", 2, |plan| {
+                .edit_plan_fixture("plan", 2, |plan| {
                     plan.tasks[0].status = crate::plan::TaskStatus::InReview;
                     Ok(())
                 })
@@ -864,7 +864,7 @@ fn terminal_worker_close_refuses_ambiguous_or_foreign_executor_identity() {
             }
         }
         svc.plan_store
-            .with_plan("plan", 2, |plan| {
+            .edit_plan_fixture("plan", 2, |plan| {
                 plan.tasks[0].status = crate::plan::TaskStatus::Done;
                 plan.tasks[0].execution_attempts[0].closed_at = Some(2);
                 if defect == "ambiguous" {
@@ -908,7 +908,7 @@ fn normal_and_force_close_release_orphan_binding_after_plan_or_task_deletion() {
                     svc.plan_store.delete("plan").unwrap();
                 } else {
                     svc.plan_store
-                        .with_plan("plan", 2, |plan| {
+                        .edit_plan_fixture("plan", 2, |plan| {
                             plan.tasks.clear();
                             Ok(())
                         })

@@ -197,7 +197,6 @@ fn scoped_resolvers_keep_case_precedence_ambiguity_and_deletion() {
         "sec_b"
     );
     assert!(store.plan_loads_for_test().is_empty());
-    assert!(store.cached_plan_ids_for_test().is_empty());
     store.delete(&plan.id).unwrap();
     assert!(store.resolve_task_ref(Some(&plan.id), "NAMED").is_err());
     assert!(store.show_section(&plan.id, "nested").is_err());
@@ -360,7 +359,6 @@ fn task_detail_and_list_preserve_filters_graph_context_and_history_windows() {
         Some(TaskListEmptyReason::AllTasksInactive { hidden: 1 })
     ));
     assert!(store.plan_loads_for_test().is_empty());
-    assert!(store.cached_plan_ids_for_test().is_empty());
     store.database.connection.lock().execute("UPDATE plan_tasks SET row_json=json_set(row_json,'$.interruption',json('{\"handoff_required\":false}')) WHERE task_id='task_selected'",[]).unwrap();
     assert!(matches!(
         store.show_task_window("task_selected"),

@@ -84,7 +84,7 @@ impl AdoptPlanExt for PlanStore {
         }
         copy_dir_all(&source_dir, &target_dir).map_err(|e| PlanError::Io(e.to_string()))?;
         normalize_adopted_plan(&mut plan, &target_project, request.owner);
-        self.save(&mut plan, now_ms)
+        self.import_plan(&mut plan, now_ms)
             .map_err(|e| PlanError::Io(e.to_string()))?;
         self.reload_from_disk(&plan.id)?;
         if request.remove_source && source_dir != target_dir && source_dir.exists() {

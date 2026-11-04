@@ -204,7 +204,7 @@ fn scheduler_exact_cas_preserves_rounds_and_rejects_concurrent_append() {
     database.persist_plan(&plan, None).unwrap();
     let store = PlanStore::open(directory.path().join("plans.db")).unwrap();
     let applied = store
-        .with_plan(&plan.id, 99, |latest| {
+        .edit_plan_fixture(&plan.id, 99, |latest| {
             snapshot.apply_control_loop(&mut latest.control_loop, next.clone())
         })
         .unwrap();

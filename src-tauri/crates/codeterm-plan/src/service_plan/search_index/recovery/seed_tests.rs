@@ -143,7 +143,8 @@ fn seed_racing_mutation(action: &str) {
                 let mut loaded = plan;
                 loaded.title = "Loaded commit".into();
                 loaded.updated_at = 2;
-                mutation_store.commit_loaded_plan(loaded).unwrap();
+                let now = loaded.updated_at;
+                mutation_store.import_plan(&mut loaded, now).unwrap();
             }
             _ => unreachable!(),
         }

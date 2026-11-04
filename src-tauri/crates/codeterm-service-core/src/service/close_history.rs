@@ -340,7 +340,7 @@ impl ServiceContext {
     fn restore_history_plans(&self, resources: &Resources) -> Result<(), String> {
         for saved in &resources.plans {
             self.plan_store
-                .with_plan(&saved.id, super::team_core::now_ms(), |current| {
+                .edit_plan_fixture(&saved.id, super::team_core::now_ms(), |current| {
                     restore_plan_metadata(current, saved);
                     Ok(())
                 })

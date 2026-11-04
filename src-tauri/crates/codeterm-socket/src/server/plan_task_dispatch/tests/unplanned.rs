@@ -273,7 +273,7 @@ fn ease_unplanned_worker_keeps_explicit_work_tags_and_infers_missing_tags() {
             .fixture
             .service
             .plan_store
-            .with_plan(&harness.plan_id, 3, |plan| {
+            .edit_plan_fixture(&harness.plan_id, 3, |plan| {
                 plan.tag_facets.push(codeterm_service_core::plan::TagFacet {
                     key: "work".into(),
                     label: None,

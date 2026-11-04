@@ -92,7 +92,7 @@ fn external_ref_round_trips_and_survives_task_updates_without_duplicates() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             plan.tasks[0].external_refs[0].relationship = Some(ExternalRefRelationship::RelatesTo);
             Ok(())
         })

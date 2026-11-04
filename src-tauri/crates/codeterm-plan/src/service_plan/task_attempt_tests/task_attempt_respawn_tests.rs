@@ -15,7 +15,7 @@ fn attempt_model_fields_round_trip() {
         .attempt_id
         .clone();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -131,7 +131,7 @@ fn respawn_uses_source_resolved_model_instead_of_conflicting_task_model() {
         .id
         .clone();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -229,7 +229,7 @@ fn respawn_from_a_source_attempt_is_single_use_while_replacement_is_live() {
     );
 
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -299,7 +299,7 @@ fn replay_after_a_respawn_closes_refuses_the_retired_source_without_mutation() {
         .unwrap();
     drop(reservation);
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id).unwrap();
             task.execution_attempts
                 .iter_mut()
@@ -557,7 +557,7 @@ fn respawn_report_command_uses_attempt_base_not_task_lane_base() {
         .assign_task(&p.id, &task_id, "tab_old", None, 3)
         .unwrap();
     store
-        .with_plan(&p.id, 4, |plan| {
+        .edit_plan_fixture(&p.id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -770,7 +770,7 @@ fn compete_commit_preserves_admission_when_review_debt_changes() {
 
     phase.wait();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
             Ok(())
         })
@@ -872,7 +872,7 @@ fn respawn_commit_preserves_admission_when_review_backlog_changes() {
 
     phase.wait();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == blocker_id)

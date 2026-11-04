@@ -80,7 +80,7 @@ fn git_inspection_keeps_writer_free_and_report_refuses_files_changed_during_insp
     git(root.path(), &["commit", "-m", "own"]);
     let sha = git(root.path(), &["rev-parse", "HEAD"]);
     store
-        .with_plan(&plan, 4, |plan| {
+        .edit_plan_fixture(&plan, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

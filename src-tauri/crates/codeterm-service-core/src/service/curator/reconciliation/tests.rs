@@ -57,7 +57,7 @@ fn restored_orchestrator_recovers_unbound_fallback_only_while_runtime_is_live() 
     ] {
         service
             .plan_store
-            .with_plan(&id, NOW, |plan| {
+            .edit_plan_fixture(&id, NOW, |plan| {
                 plan.control_loop.fallback_reason = Some(reason);
                 Ok(())
             })
@@ -100,7 +100,7 @@ fn fixture(running_cron: bool) -> (ServiceFixture, String, crate::CronState) {
         .agent_session_model = Some("fixture-model".into());
     service
         .plan_store
-        .with_plan(&id, NOW, |plan| {
+        .edit_plan_fixture(&id, NOW, |plan| {
             plan.mode = PlanMode::Execution;
             Ok(())
         })
@@ -129,7 +129,7 @@ fn fixture(running_cron: bool) -> (ServiceFixture, String, crate::CronState) {
     }
     service
         .plan_store
-        .with_plan(&id, NOW, |plan| {
+        .edit_plan_fixture(&id, NOW, |plan| {
             plan.control_loop.cron_id = None;
             plan.control_loop.next_at = None;
             Ok(())

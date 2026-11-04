@@ -125,7 +125,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         .unwrap();
 
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             let attempt = &mut plan.tasks[0].execution_attempts[0];
             attempt.report = Some(codeterm_service_core::plan::TaskExecutionReportSnapshot {
                 id: "partial-report".into(),
@@ -243,7 +243,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         tab.team_id = Some(team_id.clone());
     }
     store
-        .with_plan(&plan.id, 5, |stored_plan| {
+        .edit_plan_fixture(&plan.id, 5, |stored_plan| {
             stored_plan.team_id = Some("different-team".into());
             Ok(())
         })
@@ -269,7 +269,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
     );
     drop(mux);
     store
-        .with_plan(&plan.id, 5, |stored_plan| {
+        .edit_plan_fixture(&plan.id, 5, |stored_plan| {
             stored_plan.team_id = Some(team_id.clone());
             Ok(())
         })
@@ -284,7 +284,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         before_role_and_team_refusals
     );
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             plan.tasks[0].execution_attempts[0].retired_at = Some(5);
             Ok(())
         })
@@ -298,7 +298,7 @@ fn attempt_binding_restore_restart_without_session_env_restores_ack_and_skill_au
         retired_task
     );
     store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             plan.tasks[0].execution_attempts[0].retired_at = None;
             Ok(())
         })

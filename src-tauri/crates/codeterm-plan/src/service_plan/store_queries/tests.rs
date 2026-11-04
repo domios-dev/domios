@@ -28,7 +28,7 @@ fn list_index_counts_come_from_sql_without_loading_plans() {
             .unwrap();
     }
     store
-        .with_plan(&plan.id, 10, |plan| {
+        .edit_plan_fixture(&plan.id, 10, |plan| {
             let assignments = [
                 (TaskStatus::Pending, " tab-a "),
                 (TaskStatus::InProgress, "tab-b"),

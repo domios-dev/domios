@@ -97,7 +97,7 @@ fn dispatch_runs_vanished_lane_placement_before_launch_failure() {
     fixture
         .service
         .plan_store
-        .with_plan(&plan.id, 5, |plan| {
+        .edit_plan_fixture(&plan.id, 5, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)
