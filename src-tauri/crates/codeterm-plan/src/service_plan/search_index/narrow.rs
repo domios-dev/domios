@@ -287,3 +287,22 @@ pub(super) fn delete_unit(root: &Path, id: &str) -> Result<(), String> {
         .map_err(|error| error.to_string())?;
     transaction.commit().map_err(|error| error.to_string())
 }
+
+pub(in crate::service_plan) fn enqueue_task_removal(
+    _turn: &MutationWriterTurn<'_>,
+    root: PathBuf,
+    plan_id: &str,
+    task_id: &str,
+    milestones: &[String],
+) {
+    index_queue().enqueue(IndexJob::DeleteUnit(
+        root.clone(),
+        stable_id(plan_id, "task", task_id),
+    ));
+    for id in milestones {
+        index_queue().enqueue(IndexJob::DeleteUnit(
+            root.clone(),
+            stable_id(plan_id, "stride", id),
+        ));
+    }
+}

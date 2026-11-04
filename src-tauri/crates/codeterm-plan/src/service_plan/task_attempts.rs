@@ -836,26 +836,31 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<TaskAttemptCreated, PlanError> {
         let mut judged = None;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            crate::service_plan::competition::set_attempt_judgement(
-                attempt, verdict, reason, winner, now_ms,
-            );
-            judged = Some(attempt.clone());
-            if winner {
-                task.status = TaskStatus::InReview;
-                task.status_label = Some("judging".into());
-                task.status_changed_at = now_ms;
-            }
-            task.updated_at = now_ms;
-            Ok(())
-        })?;
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .ok_or(PlanError::TaskNotFound)?;
+                crate::service_plan::competition::set_attempt_judgement(
+                    attempt, verdict, reason, winner, now_ms,
+                );
+                judged = Some(attempt.clone());
+                if winner {
+                    task.status = TaskStatus::InReview;
+                    task.status_label = Some("judging".into());
+                    task.status_changed_at = now_ms;
+                }
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )?;
         Ok(TaskAttemptCreated {
             plan_id: plan_id.into(),
             task_id: task_id.into(),

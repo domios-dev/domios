@@ -18,6 +18,7 @@ mod review_rows;
 mod section_rows;
 pub(in crate::service_plan) mod runtime;
 mod task_fields;
+mod task_structure;
 pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
 pub(in crate::service_plan) use header_edits::HeaderChange;
 pub(in crate::service_plan) use loop_rows::LoopChange;
@@ -97,6 +98,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub plan_metadata: Option<super::PlanIndexRow>,
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
+    pub removed_tasks: Vec<(String, Vec<String>)>,
     pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,
     pub section_search: Vec<crate::service_plan::search_index::SectionIndexDelta>,
 }

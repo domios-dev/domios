@@ -12,14 +12,6 @@ pub struct TaskMutationAuthority {
     pub owner_epoch: u64,
 }
 
-pub(crate) fn authorize_task_mutation(
-    plan: &crate::plan::Plan,
-    task: &crate::plan::Task,
-    authority: &TaskMutationAuthority,
-) -> Result<(), PlanError> {
-    authorize_task_mutation_for_owner(plan.owner.tab_id.as_deref(), task, authority)
-}
-
 pub(crate) fn authorize_task_mutation_for_owner(
     owner_tab: Option<&str>,
     task: &crate::plan::Task,
@@ -133,23 +125,28 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         provider_allowance_preflight(&intent, allowance.as_ref(), now_ms)?;
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id && attempt.closed_at.is_none())
-                .ok_or(PlanError::TaskNotFound)?;
-            task.interruption.execution_intent = intent;
-            task.interruption.allowance = allowance;
-            task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
-            task.interruption.owner_tab_id = Some(attempt.executor_tab_id.clone());
-            task.interruption.owner_session_id = attempt.session_id.clone();
-            attempt.interruption.owner_epoch = task.interruption.owner_epoch;
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id && attempt.closed_at.is_none())
+                    .ok_or(PlanError::TaskNotFound)?;
+                task.interruption.execution_intent = intent;
+                task.interruption.allowance = allowance;
+                task.interruption.owner_epoch = task.interruption.owner_epoch.max(1);
+                task.interruption.owner_tab_id = Some(attempt.executor_tab_id.clone());
+                task.interruption.owner_session_id = attempt.session_id.clone();
+                attempt.interruption.owner_epoch = task.interruption.owner_epoch;
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -164,39 +161,46 @@ impl PlanStore {
         reason: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if task.interruption.owner_epoch != owner_epoch
-                || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
-                || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
-            {
-                return Err(PlanError::Io("stale interruption owner".into()));
-            }
-            let task_status = task.status.clone();
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id)
-                .filter(|attempt| {
-                    attempt.closed_at.is_none()
-                        && Self::attempt_is_active_for_interruption(&task_status, attempt)
-                        && attempt.executor_tab_id == owner_tab_id
-                        && attempt.session_id.as_deref() == Some(owner_session_id)
-                        && attempt.interruption.owner_epoch == owner_epoch
-                })
-                .ok_or_else(|| PlanError::Io("interruption attempt authority changed".into()))?;
-            attempt.closed_at = Some(now_ms);
-            attempt.interruption.interrupted_at = Some(now_ms);
-            attempt.interruption.reason = Some(reason.to_string());
-            task.interruption.handoff_required = true;
-            task.interruption.checkpoint = None;
-            task.status_label = Some("checkpoint_sealing".into());
-            task.assigned_tab_id = None;
-            task.lane.tab_id = None;
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.interruption.owner_epoch != owner_epoch
+                    || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
+                    || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
+                {
+                    return Err(PlanError::Io("stale interruption owner".into()));
+                }
+                let task_status = task.status.clone();
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .filter(|attempt| {
+                        attempt.closed_at.is_none()
+                            && Self::attempt_is_active_for_interruption(&task_status, attempt)
+                            && attempt.executor_tab_id == owner_tab_id
+                            && attempt.session_id.as_deref() == Some(owner_session_id)
+                            && attempt.interruption.owner_epoch == owner_epoch
+                    })
+                    .ok_or_else(|| {
+                        PlanError::Io("interruption attempt authority changed".into())
+                    })?;
+                attempt.closed_at = Some(now_ms);
+                attempt.interruption.interrupted_at = Some(now_ms);
+                attempt.interruption.reason = Some(reason.to_string());
+                task.interruption.handoff_required = true;
+                task.interruption.checkpoint = None;
+                task.status_label = Some("checkpoint_sealing".into());
+                task.assigned_tab_id = None;
+                task.lane.tab_id = None;
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     /// Non-destructive quiesce for a provider-exhausted worker. Unlike
@@ -215,36 +219,43 @@ impl PlanStore {
         owner_epoch: u64,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if task.interruption.owner_epoch != owner_epoch
-                || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
-                || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
-            {
-                return Err(PlanError::Io("stale interruption owner".into()));
-            }
-            let task_status = task.status.clone();
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| attempt.id == attempt_id)
-                .filter(|attempt| {
-                    attempt.closed_at.is_none()
-                        && Self::attempt_is_active_for_interruption(&task_status, attempt)
-                        && attempt.executor_tab_id == owner_tab_id
-                        && attempt.session_id.as_deref() == Some(owner_session_id)
-                        && attempt.interruption.owner_epoch == owner_epoch
-                })
-                .ok_or_else(|| PlanError::Io("interruption attempt authority changed".into()))?;
-            // Preserve the attempt and owner: this is a pause, not a handoff.
-            attempt.interruption.reason = Some("provider_exhausted".into());
-            task.interruption.handoff_required = false;
-            task.status = TaskStatus::Paused;
-            task.status_label = Some(PROVIDER_EXHAUSTED_LABEL.into());
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.interruption.owner_epoch != owner_epoch
+                    || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
+                    || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
+                {
+                    return Err(PlanError::Io("stale interruption owner".into()));
+                }
+                let task_status = task.status.clone();
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| attempt.id == attempt_id)
+                    .filter(|attempt| {
+                        attempt.closed_at.is_none()
+                            && Self::attempt_is_active_for_interruption(&task_status, attempt)
+                            && attempt.executor_tab_id == owner_tab_id
+                            && attempt.session_id.as_deref() == Some(owner_session_id)
+                            && attempt.interruption.owner_epoch == owner_epoch
+                    })
+                    .ok_or_else(|| {
+                        PlanError::Io("interruption attempt authority changed".into())
+                    })?;
+                // Preserve the attempt and owner: this is a pause, not a handoff.
+                attempt.interruption.reason = Some("provider_exhausted".into());
+                task.interruption.handoff_required = false;
+                task.status = TaskStatus::Paused;
+                task.status_label = Some(PROVIDER_EXHAUSTED_LABEL.into());
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     /// Attach the resumable checkpoint sealed after a pause began. Best-effort
@@ -268,30 +279,35 @@ impl PlanStore {
                 "interruption checkpoint verification failed".into(),
             ));
         }
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL)
-                || task.interruption.owner_epoch != owner_epoch
-            {
-                return Err(PlanError::Io(
-                    "provider-exhaustion pause ownership changed".into(),
-                ));
-            }
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| {
-                    attempt.id == attempt_id
-                        && attempt.closed_at.is_none()
-                        && attempt.interruption.owner_epoch == owner_epoch
-                })
-                .ok_or_else(|| PlanError::Io("paused attempt changed".into()))?;
-            attempt.interruption.checkpoint_digest = Some(checkpoint.diff_sha256.clone());
-            task.interruption.checkpoint = Some(checkpoint);
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL)
+                    || task.interruption.owner_epoch != owner_epoch
+                {
+                    return Err(PlanError::Io(
+                        "provider-exhaustion pause ownership changed".into(),
+                    ));
+                }
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| {
+                        attempt.id == attempt_id
+                            && attempt.closed_at.is_none()
+                            && attempt.interruption.owner_epoch == owner_epoch
+                    })
+                    .ok_or_else(|| PlanError::Io("paused attempt changed".into()))?;
+                attempt.interruption.checkpoint_digest = Some(checkpoint.diff_sha256.clone());
+                task.interruption.checkpoint = Some(checkpoint);
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     /// Resume a paused provider-exhausted worker when quota returns. Same owner,
@@ -306,26 +322,31 @@ impl PlanStore {
         owner_epoch: u64,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL) {
-                return Err(PlanError::Io(
-                    "task is not provider-exhaustion paused".into(),
-                ));
-            }
-            if task.interruption.owner_epoch != owner_epoch
-                || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
-                || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
-            {
-                return Err(PlanError::Io("stale resume owner".into()));
-            }
-            task.interruption.checkpoint = None;
-            task.status = TaskStatus::InProgress;
-            task.status_label = None;
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if task.status_label.as_deref() != Some(PROVIDER_EXHAUSTED_LABEL) {
+                    return Err(PlanError::Io(
+                        "task is not provider-exhaustion paused".into(),
+                    ));
+                }
+                if task.interruption.owner_epoch != owner_epoch
+                    || task.interruption.owner_tab_id.as_deref() != Some(owner_tab_id)
+                    || task.interruption.owner_session_id.as_deref() != Some(owner_session_id)
+                {
+                    return Err(PlanError::Io("stale resume owner".into()));
+                }
+                task.interruption.checkpoint = None;
+                task.status = TaskStatus::InProgress;
+                task.status_label = None;
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -347,33 +368,38 @@ impl PlanStore {
                 "interruption checkpoint verification failed".into(),
             ));
         }
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if !task.interruption.handoff_required
-                || task.interruption.owner_epoch != owner_epoch
-                || task.status_label.as_deref() != Some("checkpoint_sealing")
-            {
-                return Err(PlanError::Io(
-                    "interruption checkpoint ownership changed".into(),
-                ));
-            }
-            let attempt = task
-                .execution_attempts
-                .iter_mut()
-                .find(|attempt| {
-                    attempt.id == attempt_id
-                        && attempt.closed_at.is_some()
-                        && attempt.interruption.interrupted_at.is_some()
-                        && attempt.interruption.owner_epoch == owner_epoch
-                })
-                .ok_or_else(|| PlanError::Io("interrupted attempt changed".into()))?;
-            attempt.interruption.checkpoint_digest = Some(checkpoint.diff_sha256.clone());
-            task.interruption.checkpoint = Some(checkpoint);
-            task.status_label = Some("handoff_required".into());
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                if !task.interruption.handoff_required
+                    || task.interruption.owner_epoch != owner_epoch
+                    || task.status_label.as_deref() != Some("checkpoint_sealing")
+                {
+                    return Err(PlanError::Io(
+                        "interruption checkpoint ownership changed".into(),
+                    ));
+                }
+                let attempt = task
+                    .execution_attempts
+                    .iter_mut()
+                    .find(|attempt| {
+                        attempt.id == attempt_id
+                            && attempt.closed_at.is_some()
+                            && attempt.interruption.interrupted_at.is_some()
+                            && attempt.interruption.owner_epoch == owner_epoch
+                    })
+                    .ok_or_else(|| PlanError::Io("interrupted attempt changed".into()))?;
+                attempt.interruption.checkpoint_digest = Some(checkpoint.diff_sha256.clone());
+                task.interruption.checkpoint = Some(checkpoint);
+                task.status_label = Some("handoff_required".into());
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     pub fn mark_interruption_checkpoint_failed(
@@ -384,23 +410,28 @@ impl PlanStore {
         owner_epoch: u64,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        self.with_plan(plan_id, now_ms, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            let exact = task.execution_attempts.iter().any(|attempt| {
-                attempt.id == attempt_id
-                    && attempt.interruption.owner_epoch == owner_epoch
-                    && attempt.interruption.interrupted_at.is_some()
-            });
-            if !exact || !task.interruption.handoff_required {
-                return Err(PlanError::Io(
-                    "interruption failure authority changed".into(),
-                ));
-            }
-            task.status_label = Some("handoff_checkpoint_failed".into());
-            task.updated_at = now_ms;
-            Ok(())
-        })
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempt(attempt_id.into()),
+            now_ms,
+            |edit| {
+                let task = &mut edit.task;
+                let exact = task.execution_attempts.iter().any(|attempt| {
+                    attempt.id == attempt_id
+                        && attempt.interruption.owner_epoch == owner_epoch
+                        && attempt.interruption.interrupted_at.is_some()
+                });
+                if !exact || !task.interruption.handoff_required {
+                    return Err(PlanError::Io(
+                        "interruption failure authority changed".into(),
+                    ));
+                }
+                task.status_label = Some("handoff_checkpoint_failed".into());
+                task.updated_at = now_ms;
+                Ok(())
+            },
+        )
     }
 
     #[allow(clippy::too_many_arguments)]

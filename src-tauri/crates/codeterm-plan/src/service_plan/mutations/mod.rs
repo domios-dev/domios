@@ -12,6 +12,7 @@ use crate::plan::{
 
 mod plan_writer;
 mod subtasks;
+mod task_add;
 mod task_files;
 
 pub(super) fn gen_id(prefix: &str) -> String {
@@ -179,75 +180,6 @@ pub(super) fn normalized_dependency_ids(ids: &[String]) -> Vec<String> {
         }
     }
     normalized
-}
-
-fn dependency_cycle_reaches(
-    plan: &Plan,
-    current: &str,
-    target: &str,
-    override_task_id: &str,
-    override_dependencies: &[String],
-    seen: &mut std::collections::HashSet<String>,
-) -> bool {
-    if current == target {
-        return true;
-    }
-    if !seen.insert(current.to_string()) {
-        return false;
-    }
-    let Some(task) = plan.tasks.iter().find(|task| task.id == current) else {
-        return false;
-    };
-    let next = if current == override_task_id {
-        override_dependencies
-    } else {
-        &task.depends_on
-    };
-    next.iter().any(|dep| {
-        dependency_cycle_reaches(
-            plan,
-            dep,
-            target,
-            override_task_id,
-            override_dependencies,
-            seen,
-        )
-    })
-}
-
-/// A dependency ref may name a task by full id, handle, or key.
-fn resolve_dependency_ref(plan: &Plan, reference: &str) -> Result<String, PlanError> {
-    crate::plan::task_key::find_task(&plan.tasks, reference)
-        .map(|task| task.id.clone())
-        .ok_or_else(|| PlanError::DependencyTaskNotFound {
-            task_id: reference.to_string(),
-        })
-}
-
-pub(super) fn validate_task_dependencies(
-    plan: &Plan,
-    task_id: &str,
-    depends_on: &[String],
-) -> Result<Vec<String>, PlanError> {
-    let normalized = normalized_dependency_ids(depends_on);
-    let mut resolved = Vec::new();
-    let mut seen_ids = std::collections::HashSet::new();
-    for dependency_ref in &normalized {
-        let dependency_id = resolve_dependency_ref(plan, dependency_ref)?;
-        if dependency_id == task_id {
-            return Err(PlanError::DependencySelfReference);
-        }
-        if seen_ids.insert(dependency_id.clone()) {
-            resolved.push(dependency_id);
-        }
-    }
-    for dependency_id in &resolved {
-        let mut seen = std::collections::HashSet::new();
-        if dependency_cycle_reaches(plan, dependency_id, task_id, task_id, &resolved, &mut seen) {
-            return Err(PlanError::DependencyCycle);
-        }
-    }
-    Ok(resolved)
 }
 
 pub(super) fn reject_terminal_with_open_subtasks(

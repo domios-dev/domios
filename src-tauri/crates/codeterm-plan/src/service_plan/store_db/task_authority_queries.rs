@@ -197,23 +197,9 @@ impl PlanDatabase {
         nonce: &str,
     ) -> Result<Option<(String, String, String)>, PlanError> {
         let rows = self.tab_attempt_owners_projection(tab)?;
-        let mut current = None;
-        for row in rows {
-            let attempt = row.attempt_id.ok_or_else(|| {
-                PlanError::Io("plan skill assignment has no current attempt".into())
-            })?;
-            if current.is_some()
-                || (row.competition_group.is_none() && row.assigned_tab.as_deref() != Some(tab))
-                || row.session_id.as_deref() != Some(session)
-                || row.nonce.as_deref() != Some(nonce)
-            {
-                return Err(PlanError::Io(
-                    "plan skill caller does not identify exactly one current attempt".into(),
-                ));
-            }
-            current = Some((row.plan_id, row.task_id, attempt));
-        }
-        Ok(current)
+        crate::service_plan::task_authority_projection::current_skill_from_rows(
+            &rows, tab, session, nonce,
+        )
     }
 
     pub(in crate::service_plan) fn tab_attempt_owners_projection(
@@ -221,32 +207,7 @@ impl PlanDatabase {
         tab: &str,
     ) -> Result<Vec<TabAttemptOwnerRead>, PlanError> {
         let connection = self.connection.lock();
-        record_query();
-        let mut statement = connection.prepare_cached(
-            "SELECT p.id,t.task_id,json_extract(a.row_json,'$.id'),t.assigned_tab_id,
-                json_extract(a.row_json,'$.competition_group_id'),a.session_id,a.session_binding_nonce
-             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
-             LEFT JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
-                AND a.executor_tab_id=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL
-                AND json_extract(a.row_json,'$.retired_at') IS NULL
-             WHERE p.status='active' AND t.status IN ('pending','in_progress','in_review','blocked','paused')
-                AND (a.attempt_id IS NOT NULL OR t.assigned_tab_id=?1)
-             ORDER BY p.updated_at DESC,p.id,t.position,a.position LIMIT 2"
-        ).map_err(db_error)?;
-        let rows = statement
-            .query_map([tab], |row| {
-                Ok(TabAttemptOwnerRead {
-                    plan_id: column(row, 0)?,
-                    task_id: column(row, 1)?,
-                    attempt_id: column(row, 2)?,
-                    assigned_tab: column(row, 3)?,
-                    competition_group: column(row, 4)?,
-                    session_id: column(row, 5)?,
-                    nonce: column(row, 6)?,
-                })
-            })
-            .map_err(db_error)?;
-        rows.collect::<Result<_, _>>().map_err(db_error)
+        tab_attempt_owners(&connection, tab)
     }
 
     pub(in crate::service_plan) fn executor_termination_confirmed(
@@ -350,3 +311,35 @@ mod spawn_binding;
 mod worker_preparation;
 
 mod dispatch_preflight;
+
+pub(super) fn tab_attempt_owners(
+    connection: &rusqlite::Connection,
+    tab: &str,
+) -> Result<Vec<TabAttemptOwnerRead>, PlanError> {
+    record_query();
+    let mut statement = connection.prepare_cached(
+            "SELECT p.id,t.task_id,json_extract(a.row_json,'$.id'),t.assigned_tab_id,
+                json_extract(a.row_json,'$.competition_group_id'),a.session_id,a.session_binding_nonce
+             FROM plans p JOIN plan_tasks t ON t.plan_id=p.id
+             LEFT JOIN plan_task_attempts a ON a.plan_id=t.plan_id AND a.task_id=t.task_id
+                AND a.executor_tab_id=?1 AND json_extract(a.row_json,'$.closed_at') IS NULL
+                AND json_extract(a.row_json,'$.retired_at') IS NULL
+             WHERE p.status='active' AND t.status IN ('pending','in_progress','in_review','blocked','paused')
+                AND (a.attempt_id IS NOT NULL OR t.assigned_tab_id=?1)
+             ORDER BY p.updated_at DESC,p.id,t.position,a.position LIMIT 2"
+        ).map_err(db_error)?;
+    let rows = statement
+        .query_map([tab], |row| {
+            Ok(TabAttemptOwnerRead {
+                plan_id: column(row, 0)?,
+                task_id: column(row, 1)?,
+                attempt_id: column(row, 2)?,
+                assigned_tab: column(row, 3)?,
+                competition_group: column(row, 4)?,
+                session_id: column(row, 5)?,
+                nonce: column(row, 6)?,
+            })
+        })
+        .map_err(db_error)?;
+    rows.collect::<Result<_, _>>().map_err(db_error)
+}

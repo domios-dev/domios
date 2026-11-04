@@ -52,6 +52,42 @@ impl PlanStore {
         self.publish_hot_receipt(&turn, receipt);
         Ok(result)
     }
+    pub(in crate::service_plan) fn with_task_rows_in_writer<T>(
+        &self,
+        turn: &MutationWriterTurn<'_>,
+        plan_id: &str,
+        selector: &str,
+        history: super::super::store_db::hot_write::TaskHistory,
+        now_ms: u64,
+        change: impl FnOnce(&mut super::super::store_db::hot_write::TaskRowEdit) -> Result<T, PlanError>,
+    ) -> Result<T, PlanError> {
+        turn.assert_store(self);
+        let (result, receipt) = self
+            .database
+            .with_task_rows(plan_id, selector, history, now_ms, change)?;
+        self.publish_hot_receipt(turn, receipt);
+        Ok(result)
+    }
+
+    pub(in crate::service_plan) fn with_task_rows_batch<T>(
+        &self,
+        plan_id: &str,
+        selectors: &[String],
+        history: super::super::store_db::hot_write::TaskHistory,
+        now_ms: u64,
+        change: impl FnMut(
+            usize,
+            &mut super::super::store_db::hot_write::TaskRowEdit,
+        ) -> Result<Option<T>, PlanError>,
+    ) -> Result<Vec<T>, PlanError> {
+        let turn = self.mutation_writer.enter();
+        let (result, receipt) = self
+            .database
+            .with_task_rows_batch(plan_id, selectors, history, now_ms, change)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(result)
+    }
+
     pub(in crate::service_plan) fn commit_hot_changes(
         &self,
         id: &str,
@@ -104,6 +140,15 @@ impl PlanStore {
             row.updated_at = receipt.updated_at;
         }
         if let Some(root) = receipt.index_root {
+            for (task_id, milestones) in receipt.removed_tasks {
+                super::super::search_index::enqueue_task_removal(
+                    turn,
+                    root.clone(),
+                    &receipt.plan_id,
+                    &task_id,
+                    &milestones,
+                );
+            }
             super::super::search_index::enqueue_plan_time(
                 turn,
                 root,

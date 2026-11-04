@@ -282,9 +282,13 @@ impl PlanStore {
         attached.ok_or_else(|| PlanError::Io("attachment was not recorded".into()))
     }
 
-    pub fn remove_task_attachment_dir(&self, plan: &Plan, task_id: &str) -> Result<(), PlanError> {
+    pub fn remove_task_attachment_dir(
+        &self,
+        plan_id: &str,
+        task_id: &str,
+    ) -> Result<(), PlanError> {
         remove_dir_if_exists(attachment_dir(
-            &self.plan_data_dir(&plan.id),
+            &self.plan_data_dir(plan_id),
             AttachmentTarget::Task,
             task_id,
         ))
