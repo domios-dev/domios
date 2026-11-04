@@ -202,8 +202,10 @@ const TASK_FACTS:&str="WITH declared AS MATERIALIZED (
     SELECT DISTINCT group_key FROM group_facts
 ), declared_positions AS MATERIALIZED (
     SELECT group_key,min(position) AS position FROM declared GROUP BY group_key
-), active AS (
+ ), active AS (
     SELECT min(d.position) AS position FROM declared d JOIN open_groups g USING(group_key)
+), dependency_targets AS MATERIALIZED (
+    SELECT task_id,status FROM plan_tasks WHERE plan_id=?1
 ), open_parents AS MATERIALIZED (
     SELECT DISTINCT CASE WHEN json_type(row_json,'$.parent_task_id')='text' THEN json_extract(row_json,'$.parent_task_id') ELSE json('invalid parent task id') END AS parent_id
     FROM plan_tasks WHERE plan_id=?1 AND status NOT IN ('done','cancelled')
@@ -211,10 +213,10 @@ const TASK_FACTS:&str="WITH declared AS MATERIALIZED (
 ), facts AS MATERIALIZED (
     SELECT t.task_id,t.position,t.status,
         domios_notice_decision(t.status,CASE WHEN json_type(t.row_json,'$.review_stage') IS NULL THEN 'review' WHEN json_type(t.row_json,'$.review_stage')='text' THEN json_extract(t.row_json,'$.review_stage') ELSE json('invalid review stage') END,json_extract(t.row_json,'$.qa_state'),
-            EXISTS(SELECT 1 FROM json_each(CASE WHEN json_type(t.row_json,'$.depends_on') IS NULL THEN '[]' WHEN json_type(t.row_json,'$.depends_on')='array' THEN t.row_json->'$.depends_on' ELSE json('invalid task dependencies') END) dep LEFT JOIN plan_tasks target
-                ON target.plan_id=t.plan_id AND target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
+            EXISTS(SELECT 1 FROM json_each(CASE WHEN json_type(t.row_json,'$.depends_on') IS NULL THEN '[]' WHEN json_type(t.row_json,'$.depends_on')='array' THEN t.row_json->'$.depends_on' ELSE json('invalid task dependencies') END) dep LEFT JOIN dependency_targets target
+                ON target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
             EXISTS(SELECT 1 FROM json_each(CASE WHEN json_type(t.row_json,'$.depends_on') IS NULL THEN '[]' WHEN json_type(t.row_json,'$.depends_on')='array' THEN t.row_json->'$.depends_on' ELSE json('invalid task dependencies') END) dep WHERE NOT EXISTS(
-                SELECT 1 FROM plan_tasks target WHERE target.plan_id=t.plan_id AND target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END)),
+                SELECT 1 FROM dependency_targets target WHERE target.task_id=CASE WHEN dep.type='text' THEN dep.value ELSE json('invalid task dependency') END)),
             CASE WHEN json_type(t.row_json,'$.interruption') IS NULL THEN 0
                 WHEN json_type(t.row_json,'$.interruption')<>'object' THEN json('invalid task interruption')
                 WHEN json_type(t.row_json,'$.interruption.handoff_required') IS NULL THEN 0

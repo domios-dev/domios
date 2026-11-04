@@ -3,7 +3,7 @@ use super::read_projections::{column, record_query};
 use crate::service_plan::state::mission_control::{EventLog, LinkedEventTask, PlanEvent};
 use crate::service_plan::PlanError;
 use rusqlite::{Connection, OptionalExtension};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 pub(super) const TASKS: &str = "SELECT coalesce(json_extract(row_json,'$.created_at'),0),1,position,-1,
     'task_created','',NULL,NULL,task_id,json_extract(row_json,'$.name'),json_extract(row_json,'$.name')
@@ -12,13 +12,13 @@ pub(super) const TASKS: &str = "SELECT coalesce(json_extract(row_json,'$.created
 
 pub(super) const STRIDES: &str = "SELECT coalesce(json_extract(row_json,'$.ts'),0),2,seq,0,
     json_extract(row_json,'$.kind'),NULL,json_extract(row_json,'$.from.tab_id'),json_extract(row_json,'$.from.title'),
-    NULL,NULL,coalesce(json_extract(row_json,'$.text'),'')
+    NULL,NULL,domios_event_text(json_extract(row_json,'$.kind'),coalesce(json_extract(row_json,'$.text'),''))
     FROM plan_strides INDEXED BY plan_strides_event_order WHERE plan_id=?1
     ORDER BY coalesce(json_extract(row_json,'$.ts'),0) DESC,seq DESC";
 
 pub(super) const MILESTONES: &str = "SELECT coalesce(json_extract(m.row_json,'$.ts'),0),1,t.position,m.seq,
     json_extract(m.row_json,'$.kind'),NULL,json_extract(m.row_json,'$.from.tab_id'),json_extract(m.row_json,'$.from.title'),
-    t.task_id,json_extract(t.row_json,'$.name'),coalesce(json_extract(m.row_json,'$.text'),'')
+    t.task_id,'',domios_event_text(json_extract(m.row_json,'$.kind'),coalesce(json_extract(m.row_json,'$.text'),''))
     FROM plan_task_milestones m INDEXED BY plan_milestones_event_order
     JOIN plan_tasks t ON t.plan_id=m.plan_id AND t.task_id=m.task_id WHERE m.plan_id=?1
     ORDER BY coalesce(json_extract(m.row_json,'$.ts'),0) DESC,t.position DESC,m.seq DESC";
@@ -31,7 +31,7 @@ const HEADER_EVENTS: &str = "SELECT coalesce(json_extract(l.value,'$.at'),0),0,C
     FROM plans p,json_each(p.header_json,'$.planning_log') l WHERE p.id=?1
     UNION ALL
     SELECT coalesce(json_extract(g.value,'$.asked_at'),0),3,CAST(g.key AS INTEGER),0,'gate',NULL,
-    json_extract(g.value,'$.asked_by_tab_id'),NULL,NULL,NULL,coalesce(json_extract(g.value,'$.question'),'')
+    json_extract(g.value,'$.asked_by_tab_id'),NULL,NULL,NULL,domios_event_text('gate',coalesce(json_extract(g.value,'$.question'),''))
     FROM plans p,json_each(p.header_json,'$.gates') g WHERE p.id=?1
     ORDER BY 1 DESC,2 DESC,3 DESC,4 DESC";
 
@@ -41,6 +41,32 @@ pub(super) const AUTHOR: &str = "SELECT (
       AND json_extract(a.row_json,'$.executor_title') IS NOT NULL ORDER BY a.position DESC LIMIT 1
     ) AS title FROM plan_tasks t INDEXED BY plan_tasks_handle_order
     WHERE t.plan_id=?1 AND title IS NOT NULL ORDER BY t.position DESC LIMIT 1";
+
+pub(super) fn register_functions(connection: &Connection) -> Result<(), PlanError> {
+    connection
+        .create_scalar_function(
+            "domios_event_text",
+            2,
+            rusqlite::functions::FunctionFlags::SQLITE_UTF8
+                | rusqlite::functions::FunctionFlags::SQLITE_DETERMINISTIC,
+            |context| {
+                let kind = context
+                    .get_raw(0)
+                    .as_str()
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+                let text = context
+                    .get_raw(1)
+                    .as_str()
+                    .map_err(|error| rusqlite::Error::UserFunctionError(Box::new(error)))?;
+                Ok(if matches!(kind, "task_created" | "planning") {
+                    text.to_string()
+                } else {
+                    crate::service_plan::state::mission_control::first_line(text)
+                })
+            },
+        )
+        .map_err(db_error)
+}
 
 type Order = (u64, i64, i64, i64);
 
@@ -54,18 +80,7 @@ struct SourceEvent {
 impl SourceEvent {
     fn read(row: &rusqlite::Row<'_>) -> rusqlite::Result<Self> {
         let kind: String = column(row, 4)?;
-        let text: String = column(row, 10)?;
-        let line = if kind == "task_created" || kind == "planning" {
-            text
-        } else {
-            let trim = |ch| super::status_queries::WHITESPACE.contains(ch);
-            text.trim_matches(trim)
-                .split('\n')
-                .next()
-                .unwrap_or_default()
-                .trim_matches(trim)
-                .to_string()
-        };
+        let line: String = column(row, 10)?;
         let ts = row.get(0)?;
         Ok(Self {
             order: (ts, row.get(1)?, row.get(2)?, row.get(3)?),
@@ -132,6 +147,64 @@ impl Authors<'_> {
             .or_else(|| source.event.author_tab_id.clone())
             .unwrap_or_default())
     }
+}
+
+fn resolve_task_names(
+    connection: &Connection,
+    plan_id: &str,
+    entries: &mut [PlanEvent],
+) -> Result<(), PlanError> {
+    let ids = entries
+        .iter()
+        .filter_map(|entry| {
+            entry
+                .task_id
+                .as_ref()
+                .filter(|_| entry.task_name.as_deref() == Some(""))
+        })
+        .chain(
+            entries
+                .iter()
+                .flat_map(|entry| entry.linked_tasks.iter().map(|task| &task.id)),
+        )
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let selected = serde_json::to_string(&ids).map_err(super::json_error)?;
+    record_query();
+    let mut statement=connection.prepare_cached("SELECT task_id,json_extract(row_json,'$.name') FROM plan_tasks WHERE plan_id=?1 AND task_id IN(SELECT value FROM json_each(?2))").map_err(db_error)?;
+    let names = statement
+        .query_map(rusqlite::params![plan_id, selected], |row| {
+            Ok((column::<String>(row, 0)?, column::<Option<String>>(row, 1)?))
+        })
+        .map_err(db_error)?
+        .collect::<Result<HashMap<_, _>, _>>()
+        .map_err(db_error)?;
+    if ids.iter().any(|id| !names.contains_key(id)) {
+        return Err(PlanError::Io(
+            "event task disappeared during its committed read".into(),
+        ));
+    }
+    for entry in entries {
+        if entry.task_name.as_deref() == Some("") {
+            if let Some(name) = entry.task_id.as_ref().and_then(|id| names.get(id)) {
+                entry.task_name = name.clone();
+            }
+        }
+        entry
+            .linked_tasks
+            .retain_mut(|task| match names.get(&task.id) {
+                Some(Some(name)) => {
+                    task.name = name.clone();
+                    true
+                }
+                Some(None) => false,
+                None => true,
+            });
+    }
+    Ok(())
 }
 
 fn collapses(newer: &PlanEvent, older: &PlanEvent) -> bool {
@@ -256,6 +329,7 @@ pub(super) fn event_window(
             result.entries.push(finished);
         }
     }
+    resolve_task_names(connection, plan_id, &mut result.entries)?;
     if !result.entries.is_empty() {
         record_query();
         result.recorded_events = connection

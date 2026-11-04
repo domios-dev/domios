@@ -451,7 +451,7 @@ fn author_titles(plan: &Plan) -> BTreeMap<String, String> {
     titles
 }
 
-fn first_line(text: &str) -> String {
+pub(in crate::service_plan) fn first_line(text: &str) -> String {
     text.trim().lines().next().unwrap_or("").trim().to_string()
 }
 

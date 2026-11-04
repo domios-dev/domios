@@ -30,7 +30,7 @@ pub(super) fn prefix() -> String {
         FROM plans p,json_each(p.header_json,'$.gates') g WHERE p.id=?1
      ), task_waits AS MATERIALIZED (
         SELECT t.task_id,d.value AS wait FROM task_meta t,json_each(t.dependencies) d
-            JOIN plan_tasks target ON target.plan_id=?1 AND target.task_id=d.value WHERE target.status NOT IN ('done','cancelled')
+            JOIN dependency_targets target ON target.task_id=d.value WHERE target.status NOT IN ('done','cancelled')
         UNION ALL SELECT b.value,g.id FROM gate_facts g,json_each(g.blocking) b WHERE domios_curator_gate_open(g.status)
      ), task_documents AS MATERIALIZED (
         SELECT domios_curator_task_rows(t.task_id,t.name,t.status,t.created,t.changed,
