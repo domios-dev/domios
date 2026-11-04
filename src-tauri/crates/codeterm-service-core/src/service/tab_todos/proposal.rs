@@ -14,16 +14,22 @@ impl ServiceContext {
             return Ok(());
         };
         self.todo_tab(actor)?;
-        let owner = target
-            .plan_id
-            .clone()
-            .or_else(|| {
-                self.plan_store
-                    .task_binding_for_tab(&target.id)
-                    .map(|(id, _)| id)
-            })
-            .and_then(|id| self.plan_store.get(&id))
-            .and_then(|plan| plan.owner.tab_id);
+        let plan_id = match target.plan_id.clone() {
+            Some(id) => Some(id),
+            None => self
+                .plan_store
+                .assigned_task_binding_projection(&target.id)
+                .map_err(|error| error.to_string())?
+                .map(|binding| binding.plan_id),
+        };
+        let owner = match plan_id {
+            Some(id) => match self.plan_store.plan_identity_projection(&id) {
+                Ok(plan) => plan.owner.tab_id,
+                Err(crate::service::plan::PlanError::NotFound) => None,
+                Err(error) => return Err(error.to_string()),
+            },
+            None => None,
+        };
         if codeterm_types::agent::can_review_tab_todo(
             actor,
             target.parent_tab_id.as_deref(),
@@ -242,19 +248,20 @@ impl ServiceContext {
         let kind = kind.to_owned();
         let label = label.to_owned();
         crate::service::blocking_run(move || {
-            let plan_id = target
-                .plan_id
-                .clone()
-                .or_else(|| {
-                    svc.plan_store
-                        .task_binding_for_tab(&target.id)
-                        .map(|(id, _)| id)
-                })
-                .or_else(|| {
-                    target.team_id.as_deref().and_then(|team| {
-                        svc.plan_store.active_plan_for_team(team).map(|(id, _)| id)
-                    })
-                });
+            let plan_id = match target.plan_id.clone() {
+                Some(id) => Some(id),
+                None => svc
+                    .plan_store
+                    .assigned_task_binding_projection(&target.id)
+                    .map_err(|error| error.to_string())?
+                    .map(|binding| binding.plan_id),
+            }
+            .or_else(|| {
+                target
+                    .team_id
+                    .as_deref()
+                    .and_then(|team| svc.plan_store.active_plan_for_team(team).map(|(id, _)| id))
+            });
             if let Some(plan_id) = plan_id {
                 svc.plan_store
                     .add_plan_stride(
