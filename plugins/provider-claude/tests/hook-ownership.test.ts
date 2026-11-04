@@ -1,3 +1,4 @@
+import { ioTestContext } from "../../provider-shared/tests/hostIo";
 /**
  * Claude hook ownership and reconciliation, against the hook forms observed on
  * real machines.
@@ -114,7 +115,7 @@ function loadClaude(files: Map<string, string>) {
   };
   const source = fs.readFileSync(bundle, "utf8");
   const context = { host, console, module: { exports: {} as { default?: any } }, exports: {} };
-  new vm.Script(source, { filename: bundle }).runInNewContext(context);
+  new vm.Script(source, { filename: bundle }).runInNewContext(ioTestContext(context));
   return context.module.exports.default;
 }
 

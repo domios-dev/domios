@@ -1,5 +1,4 @@
-// Hook-file artefacts CodeTerm owns in the user's global ~/.codex. Split out of
-// plugin.ts to keep that file under the repository's hard 1200-line limit.
+import { type HostIoSteps } from "@codeterm/plugin-sdk";
 import type { CodexHookEntry } from "./plugin";
 
 export const CODETERM_CODEX_HOOK_MARKER = "codeterm-codex-session-binding-v1";
@@ -151,7 +150,7 @@ export function isCurrentCodexHookScriptContent(text: string): boolean {
   return true;
 }
 
-export function isOwnedCodexWindowsHookScript(path: string): boolean {
-  const text = host.fs.readFile(path);
+export function* isOwnedCodexWindowsHookScript(path: string): HostIoSteps<boolean> {
+  const text = (yield* host.io.fs.readFile(path));
   return typeof text === "string" && isOwnedCodexHookScriptContent(text);
 }
