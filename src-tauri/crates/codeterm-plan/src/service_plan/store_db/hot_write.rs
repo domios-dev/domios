@@ -7,6 +7,7 @@ use rusqlite::{params, OptionalExtension, Transaction, TransactionBehavior};
 use std::collections::BTreeSet;
 mod batch_rows;
 mod milestones;
+mod plan_fields;
 mod review_rows;
 mod task_fields;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
@@ -295,7 +296,13 @@ impl PlanDatabase {
             receipt.revision =
                 super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
             change(&tx, &mut receipt)?;
-            if receipt.task_rows + receipt.milestones + receipt.attempts + receipt.strides > 0 {
+            if receipt.header_rows
+                + receipt.task_rows
+                + receipt.milestones
+                + receipt.attempts
+                + receipt.strides
+                > 0
+            {
                 tx.execute("UPDATE plans SET updated_at=?2, header_json=json_set(header_json, '$.updated_at', ?2, '$._revision', ?3, '$.canonical_project_path', CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END) WHERE id=?1", params![plan_id, now_ms, receipt.revision]).map_err(db_error)?;
                 receipt.header_rows += 1;
                 let root: String = tx.query_row("SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''))='' THEN project_path ELSE json_extract(header_json,'$.canonical_project_path') END FROM plans WHERE id=?1", [plan_id], |row| row.get(0)).map_err(db_error)?;
