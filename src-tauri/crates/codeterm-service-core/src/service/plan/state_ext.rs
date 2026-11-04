@@ -5,7 +5,7 @@ use crate::plan::peer::resolve_planner_ref;
 use crate::plan::PlannerRef;
 use crate::service::plan::{build_plan_state_snapshot, PlanError, PlanStateSnapshot};
 use crate::service::ServiceContext;
-use codeterm_plan::service_plan::state::lane_rows;
+use codeterm_plan::service_plan::state::{lane_rows, window::StateWindowRequest};
 
 impl ServiceContext {
     pub fn build_plan_board_state(
@@ -40,6 +40,15 @@ impl ServiceContext {
         &self,
         plan_id: &str,
         now_ms: u64,
+    ) -> Result<PlanStateSnapshot, PlanError> {
+        self.build_plan_state_with_window(plan_id, now_ms, StateWindowRequest::default())
+    }
+
+    pub fn build_plan_state_with_window(
+        &self,
+        plan_id: &str,
+        now_ms: u64,
+        window: StateWindowRequest,
     ) -> Result<PlanStateSnapshot, PlanError> {
         let read = self.plan_store.status_projection(plan_id, now_ms)?;
         let plan = read.input();
@@ -89,6 +98,7 @@ impl ServiceContext {
             snapshot.control_loop.next_at = None;
         }
         snapshot.mission_control.spend = super::mission_control_ext::machine_spend(self);
+        snapshot.window_details(window);
         Ok(snapshot)
     }
 }

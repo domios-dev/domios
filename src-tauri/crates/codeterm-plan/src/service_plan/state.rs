@@ -19,6 +19,7 @@ use input::{StateSectionInput, StateSource, StateTaskSource};
 pub mod analytics;
 pub mod lane_rows;
 pub mod mission_control;
+pub mod window;
 
 const RECENT_STRIDE_LIMIT: usize = 10;
 
@@ -405,6 +406,8 @@ pub struct PlanStateSnapshot {
     // arrive not-recording; the service layer overlays ledger and usage rows.
     pub mission_control: mission_control::MissionControl,
     pub next_actions: Vec<NextAction>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<window::StateDetails>,
 }
 
 pub fn task_counts(plan: &impl StateSource) -> TaskCounts {
@@ -839,6 +842,7 @@ pub fn build_plan_state_snapshot(
         ),
         mission_control,
         next_actions: vec![],
+        details: None,
     };
     snapshot.next_actions = match plan.orphaned.as_ref() {
         Some(orphan) if plan.orphaned_active => {

@@ -87,6 +87,7 @@ fn empty() -> PlanStateSnapshot {
         review_gate: Default::default(),
         mission_control: Default::default(),
         next_actions: vec![],
+        details: None,
     }
 }
 
