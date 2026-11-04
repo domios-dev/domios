@@ -73,10 +73,14 @@ impl PlanDatabase {
         let connection = self.connection.lock();
         record_query();
         let mut statement=connection.prepare_cached(
-            "SELECT p.id,json_object('id',p.id,'owner_tab_id',json_extract(p.header_json,'$.owner.tab_id'),
+            "WITH watchdog_tasks AS MATERIALIZED (
+                SELECT plan_id,task_id,position,status,assigned_tab_id,json_extract(row_json,'$.peer') AS peer,
+                    coalesce(json_extract(row_json,'$.status_changed_at'),0) AS changed_at
+                FROM plan_tasks WHERE status='in_progress' AND plan_id IN (SELECT id FROM plans WHERE status='active')
+             ) SELECT p.id,json_object('id',p.id,'owner_tab_id',json_extract(p.header_json,'$.owner.tab_id'),
                 'tasks',json((SELECT json_group_array(json(task)) FROM (SELECT json_object(
-                    'id',t.task_id,'status',t.status,'assigned_tab_id',t.assigned_tab_id,'peer',json_extract(t.row_json,'$.peer'),
-                    'last_activity_ms',max(coalesce(json_extract(t.row_json,'$.status_changed_at'),0),
+                    'id',t.task_id,'status',t.status,'assigned_tab_id',t.assigned_tab_id,'peer',t.peer,
+                    'last_activity_ms',max(t.changed_at,
                         coalesce((SELECT max(json_extract(m.row_json,'$.ts')) FROM plan_task_milestones m WHERE m.plan_id=t.plan_id AND m.task_id=t.task_id),0),
                         coalesce((SELECT max(json_extract(a.row_json,'$.reported_at')) FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id),0)),
                     'expected_session',CASE WHEN length(trim(t.assigned_tab_id,?1))>0 AND (SELECT count(*) FROM plan_task_attempts a WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id
@@ -84,8 +88,8 @@ impl PlanDatabase {
                         THEN (SELECT nullif(trim(json_extract(a.row_json,'$.session_id'),?1),'') FROM plan_task_attempts a
                             WHERE a.plan_id=t.plan_id AND a.task_id=t.task_id AND json_extract(a.row_json,'$.closed_at') IS NULL
                                 AND a.executor_tab_id=trim(t.assigned_tab_id,?1)) END)
-                    AS task FROM plan_tasks t WHERE t.plan_id=p.id AND t.status='in_progress' ORDER BY t.position))))
-             FROM plans p WHERE p.status='active' AND EXISTS(SELECT 1 FROM plan_tasks t WHERE t.plan_id=p.id AND t.status='in_progress')
+                    AS task FROM watchdog_tasks t WHERE t.plan_id=p.id ORDER BY t.position))))
+             FROM plans p WHERE p.status='active' AND EXISTS(SELECT 1 FROM watchdog_tasks t WHERE t.plan_id=p.id)
              ORDER BY p.updated_at DESC,p.id"
         ).map_err(db_error)?;
         let rows = statement
