@@ -8,7 +8,7 @@ use crate::service_plan::{
 use rusqlite::{params, OptionalExtension};
 
 const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
-                SELECT p.id AS plan_id,t.task_id,t.row_json,p.updated_at,t.position,
+                SELECT p.id AS plan_id,t.task_id,t.row_json,t.assigned_tab_id,p.updated_at,t.position,
                     t.task_id=?1 AS exact,
                     sum(t.task_id=?1) OVER (PARTITION BY p.id) AS exact_count,
                     count(*) OVER (PARTITION BY p.id) AS matches
@@ -17,7 +17,7 @@ const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                     json_extract(t.row_json,'$.handle') COLLATE NOCASE=?1 OR
                     coalesce(json_extract(t.row_json,'$.key'),CASE WHEN substr(t.task_id,1,5)='task_' THEN substr(t.task_id,6) ELSE t.task_id END) COLLATE NOCASE=?1))))
              , selected_task AS (
-                SELECT plan_id,task_id,row_json FROM candidates
+                SELECT plan_id,task_id,row_json,assigned_tab_id FROM candidates
                 WHERE exact OR (exact_count=0 AND matches=1)
                 ORDER BY updated_at DESC,plan_id,position LIMIT 1
              )";
@@ -283,3 +283,6 @@ impl PlanDatabase {
 mod worker_transfer;
 
 mod startup;
+
+mod continuity;
+pub(super) use continuity::register_functions;

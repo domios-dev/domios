@@ -336,5 +336,6 @@ impl PlanStore {
 
 mod task_authority_projection;
 pub use task_authority_projection::{
-    PlanTaskAdmissionRead, TaskContextFilesRead, TaskOwnerEpochRead,
+    PlanTaskAdmissionRead, TaskContextFilesRead, TaskContinuityDigest, TaskContinuityRead,
+    TaskOwnerEpochRead,
 };
