@@ -6,6 +6,7 @@ module.exports = {
     return value.messages;
   },
   runtimePlan(ctx, op) {
+    if (op.kind === 'control' && op.action === 'refuse') return {action:{kind:'refused',reason:op.value},state:null};
     if (op.kind === 'answerQuestion') return {action:{kind:'questionAnswer',input:{text:op.answers.flatMap(answer=>answer.values).join('\n'),attachments:[]}},state:null};
     if (op.kind === 'answer') return {action:{kind:'reply',requestId:op.requestId,result:{kind:'success',value:op.answer}},state:null};
     if (op.kind === 'backgroundProcesses') return {action:{kind:'request',call:{method:op.kind,params:op,target:{threadId:op.threadId}}},state:null};

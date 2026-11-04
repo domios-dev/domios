@@ -26,6 +26,8 @@ struct OperationCase {
     context: Option<RuntimeContext>,
     reply: Option<RpcReply>,
     plan: RuntimePlan,
+    #[serde(rename = "planError")]
+    plan_error: Option<RuntimeFailure>,
     step: Option<RuntimeStep>,
 }
 #[derive(Deserialize)]
@@ -282,6 +284,33 @@ async fn runtime_native_quickjs_shared_fixture_parity() {
     }
     for case in &fixture.operations {
         let ctx = case.context.as_ref().unwrap_or(&fixture.context);
+        if let Some(expected) = &case.plan_error {
+            assert_eq!(
+                &native.runtime_plan(ctx, &case.operation).await.unwrap_err(),
+                expected
+            );
+            assert_eq!(
+                &js.runtime_plan(ctx, &case.operation).await.unwrap_err(),
+                expected
+            );
+            assert_eq!(
+                &validate_runtime_plan(&native.0, ctx, &case.operation, &case.plan).unwrap_err(),
+                expected
+            );
+            for reason in [String::new(), "x".repeat(4097), "invalid\0reason".into()] {
+                let invalid = RuntimePlan {
+                    action: RuntimeAction::Refused { reason },
+                    state: Value::Null,
+                };
+                assert_eq!(
+                    validate_runtime_plan(&native.0, ctx, &case.operation, &invalid)
+                        .unwrap_err()
+                        .code,
+                    RuntimeFailureCode::InvalidSchema
+                );
+            }
+            continue;
+        }
         let a = native.runtime_plan(ctx, &case.operation).await.unwrap();
         let b = js.runtime_plan(ctx, &case.operation).await.unwrap();
         assert_eq!(a, case.plan);

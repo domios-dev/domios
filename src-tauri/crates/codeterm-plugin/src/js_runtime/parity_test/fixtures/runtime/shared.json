@@ -925,6 +925,24 @@
           "nextCursor": "next-page"
         }
       }
+    },
+    {
+      "operation": {
+        "kind": "control",
+        "action": "refuse",
+        "value": "Opaque fixture refusal"
+      },
+      "plan": {
+        "action": {
+          "kind": "refused",
+          "reason": "Opaque fixture refusal"
+        },
+        "state": null
+      },
+      "planError": {
+        "code": "provider_refused",
+        "message": "Opaque fixture refusal"
+      }
     }
   ],
   "reductions": [

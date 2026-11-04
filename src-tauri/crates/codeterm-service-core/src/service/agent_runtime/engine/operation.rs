@@ -95,7 +95,13 @@ pub(in crate::service::agent_runtime) async fn plan(
     )
     .await
     .map_err(|_| RuntimeFailure::Deadline)?
-    .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))
+    .map_err(|reason| {
+        if reason.code == codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused {
+            RuntimeFailure::Refused(reason.message)
+        } else {
+            RuntimeFailure::HookFailed(reason.to_string())
+        }
+    })
 }
 
 pub async fn run(
@@ -199,6 +205,9 @@ async fn run_inner(
         validate_runtime_plan(&capability, &context, &operation, &next)
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
         let reply = match &next.action {
+            RuntimeAction::Refused { reason } => {
+                return Err(RuntimeFailure::Refused(reason.clone()))
+            }
             RuntimeAction::QuestionAnswer { .. } => {
                 return Err(RuntimeFailure::Refused(
                     "Question formatting must enter the durable user submit door".into(),

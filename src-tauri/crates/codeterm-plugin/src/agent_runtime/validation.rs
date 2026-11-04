@@ -285,6 +285,16 @@ pub fn validate_runtime_operation(
     Ok(())
 }
 
+fn plan_refusal(reason: &str) -> Result<(), RuntimeFailure> {
+    if !identifier(reason) {
+        return Err(invalid("invalid runtime plan refusal reason"));
+    }
+    Err(RuntimeFailure::new(
+        RuntimeFailureCode::ProviderRefused,
+        reason,
+    ))
+}
+
 pub fn validate_runtime_plan(
     cap: &AgentRuntimeCapability,
     ctx: &RuntimeContext,
@@ -303,6 +313,9 @@ pub fn validate_runtime_plan(
     }
     validate_runtime_size(plan, MAX_RUNTIME_VALUE_BYTES)?;
     validate_runtime_size(&plan.state, MAX_RUNTIME_STATE_BYTES)?;
+    if let RuntimeAction::Refused { reason } = &plan.action {
+        return plan_refusal(reason);
+    }
     if matches!(op, RuntimeOperation::ForkThread { .. })
         && !cap
             .thread_history
@@ -324,6 +337,7 @@ pub fn validate_runtime_plan(
         return Err(mismatch("question answer must be local formatting"));
     }
     match &plan.action {
+        RuntimeAction::Refused { reason } => plan_refusal(reason),
         RuntimeAction::QuestionAnswer { input } => {
             if !matches!(op, RuntimeOperation::AnswerQuestion { .. }) {
                 return Err(mismatch("question answer action outside answerQuestion"));

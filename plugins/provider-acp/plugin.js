@@ -60,10 +60,12 @@ function binding(ctx, op) {
 }
 function negotiated(ctx) {
   const state = epochs.get(ctx.tabId);
-  if (!state || state.epoch !== ctx.epoch || state.nonce !== ctx.bindingNonce)
-    fail("protocol_error", "ACP initialization is required for this runtime epoch");
+  if (!state || state.epoch !== ctx.epoch || state.nonce !== ctx.bindingNonce) return void 0;
   touch(ctx.tabId, state);
   return state;
+}
+function refusePlan(reason) {
+  return { action: { kind: "refused", reason }, state: null };
 }
 function touch(tabId, state) {
   epochs.delete(tabId);
@@ -95,20 +97,21 @@ function runtimePlan(ctx, op) {
     });
   }
   const state = negotiated(ctx);
+  if (!state) return refusePlan("ACP initialization is required for this runtime epoch");
   switch (op.kind) {
     case "openThread":
-      if (ctx.threadId || state.sessionId) fail("binding_mismatch", "ACP session is already bound");
+      if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
       return request(methods.newSession, { cwd: ctx.cwd, mcpServers: [] });
     case "resumeThread": {
       const capabilities = state.capabilities;
       const session = object(capabilities.sessionCapabilities);
       const method = record(session.resume) ? methods.resume : capabilities.loadSession === true ? methods.load : null;
-      if (!method) fail("provider_refused", "ACP agent did not advertise session/load or session/resume");
+      if (!method) return refusePlan("ACP agent did not advertise session/load or session/resume");
       return request(method, { sessionId: op.threadId, cwd: ctx.cwd, mcpServers: [] });
     }
     case "submitTurn": {
       const sessionId = ownSession(ctx, state);
-      if (op.input.attachments.length) fail("unsupported", "ACP lifecycle supports text prompts only");
+      if (op.input.attachments.length) return refusePlan("ACP lifecycle supports text prompts only");
       const prompt = [];
       if (state.instructions) prompt.push({ type: "text", text: state.instructions });
       prompt.push({ type: "text", text: op.input.text });
@@ -118,11 +121,11 @@ function runtimePlan(ctx, op) {
       const sessionId = ownSession(ctx, state);
       const turnId = op.activeTurnId ?? ctx.activeTurnId;
       if (!turnId || !ctx.activeTurns.some((turn) => turn.threadId === sessionId && turn.turnId === turnId))
-        fail("binding_mismatch", "ACP cancel requires this tab's exact active turn");
+        return refusePlan("ACP cancel requires this tab's exact active turn");
       return { action: { kind: "notification", notification: { method: methods.cancel, params: { sessionId }, target: { threadId: sessionId, turnId } } }, state: { method: methods.cancel } };
     }
     default:
-      fail("unsupported", `ACP operation is unavailable: ${op.kind}`);
+      return refusePlan(`ACP operation is unavailable: ${op.kind}`);
   }
 }
 function runtimeResponse(ctx, op, raw, reply) {
@@ -146,6 +149,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     return { kind: "complete", result: { kind: "initialized" } };
   }
   const state = negotiated(ctx);
+  if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
       const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object(state.capabilities.sessionCapabilities).resume);

@@ -83,7 +83,7 @@
     "planErrors": [
       {
         "operation": 1,
-        "code": "protocol_error"
+        "code": "provider_refused"
       }
     ]
   }
