@@ -4,8 +4,9 @@ use crate::service::test_fixture::ServiceFixture;
 
 #[test]
 fn failed_plan_read_defers_only_its_tab_and_keeps_other_restore_decisions() {
-    let (mut mux, shell) = MultiplexerState::new();
-    let workspace = mux.find_workspace_for_tab(&shell).unwrap();
+    let (mut mux, owner) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+    let shell = mux.create_tab(&workspace).unwrap();
     let failed = mux.create_tab(&workspace).unwrap();
     let continuing = mux.create_tab(&workspace).unwrap();
     for id in [&failed, &continuing] {

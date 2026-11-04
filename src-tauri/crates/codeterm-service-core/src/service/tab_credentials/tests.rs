@@ -77,9 +77,10 @@ fn plugin_children_use_the_pty_launch_credential_with_agent_rpc_authority() {
                     ? { bin: "powershell", args: ["-NoProfile", "-Command", "[Console]::Out.Write($env:CODETERM_API_TOKEN)"] }
                     : { bin: "sh", args: ["-c", "printf %s \"$CODETERM_API_TOKEN\""] };
                 opts.env = { CODETERM_API_TOKEN: "owner-secret" };
-                const out = JSON.parse(host.exec(JSON.stringify(opts)));
-                if (out.code !== 0) throw new Error(JSON.stringify(out));
-                return { sessionId: out.stdout };
+                return host.exec.async(opts, function (out) {
+                    if (out.code !== 0) throw new Error(JSON.stringify(out));
+                    return { sessionId: out.stdout };
+                });
             }
         };
     "#.into()).unwrap());
