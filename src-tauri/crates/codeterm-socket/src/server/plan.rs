@@ -228,8 +228,8 @@ pub(super) fn dispatch(
         }
         let plan = svc
             .plan_store
-            .lane_cleanup_projection(&id)
-            .map_err(plan_rpc_err)?;
+            .get(&id)
+            .ok_or_else(|| plan_rpc_err(PlanError::NotFound))?;
         let stream = p
             .and_then(|value| value.get("stream"))
             .and_then(Value::as_bool)
