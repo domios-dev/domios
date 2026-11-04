@@ -67,15 +67,19 @@ pub async fn usage_history(
     _headers: HeaderMap,
     Query(q): Query<UsageHistoryQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let limit = q.limit.clamp(1, 5000);
-    let rows = state
-        .svc
-        .usage_store
-        .get_history(&q.provider, q.since, limit, q.account_id.as_deref())
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage history failed"))?;
-    Ok(Json(
-        serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let limit = q.limit.clamp(1, 5000);
+        let rows = state
+            .svc
+            .usage_store
+            .get_history(&q.provider, q.since, limit, q.account_id.as_deref())
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage history failed"))?;
+        Ok(Json(
+            serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
+        ))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage history stopped"))?
 }
 
 pub async fn usage_daily_rollup(
@@ -83,14 +87,18 @@ pub async fn usage_daily_rollup(
     _headers: HeaderMap,
     Query(q): Query<UsageRollupQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let rows = state
-        .svc
-        .usage_store
-        .get_daily_rollup(&q.provider, q.since)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage rollup failed"))?;
-    Ok(Json(
-        serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let rows = state
+            .svc
+            .usage_store
+            .get_daily_rollup(&q.provider, q.since)
+            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage rollup failed"))?;
+        Ok(Json(
+            serde_json::to_value(rows).unwrap_or(serde_json::json!([])),
+        ))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage rollup stopped"))?
 }
 
 pub async fn usage_projection(
@@ -98,17 +106,26 @@ pub async fn usage_projection(
     _headers: HeaderMap,
     Query(q): Query<UsageQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, &'static str)> {
-    let now_ms = chrono::Utc::now().timestamp_millis();
-    let proj = codeterm_service_core::usage::projection::compute(
-        &state.svc.usage_store,
-        &q.provider,
-        q.account_id.as_deref(),
-        now_ms,
-    )
-    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage projection failed"))?;
-    Ok(Json(
-        serde_json::to_value(proj).unwrap_or(serde_json::json!(null)),
-    ))
+    tokio::task::spawn_blocking(move || {
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let proj = codeterm_service_core::usage::projection::compute(
+            &state.svc.usage_store,
+            &q.provider,
+            q.account_id.as_deref(),
+            now_ms,
+        )
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "usage projection failed"))?;
+        Ok(Json(
+            serde_json::to_value(proj).unwrap_or(serde_json::json!(null)),
+        ))
+    })
+    .await
+    .map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "usage projection stopped",
+        )
+    })?
 }
 
 pub async fn usage_ledger_rebuild(
