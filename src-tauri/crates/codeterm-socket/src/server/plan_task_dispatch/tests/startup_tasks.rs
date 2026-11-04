@@ -13,7 +13,7 @@ pub(super) struct StartupTasksGuard(Arc<StartupTasks>);
 impl StartupTasks {
     pub(super) fn install(service: &ServiceContext) -> StartupTasksGuard {
         let tasks = Arc::new(Self::default());
-        assert!(service.set_ext(tasks.clone()).is_ok());
+        assert!(service.register_host_extension(tasks.clone()).is_ok());
         StartupTasksGuard(tasks)
     }
 

@@ -20,9 +20,7 @@ pub(super) fn spawn_startup(
     ready: tokio::sync::oneshot::Receiver<Result<(), String>>,
 ) {
     #[cfg(test)]
-    if let Some(tasks) =
-        service.try_ext::<std::sync::Arc<super::tests::startup_tasks::StartupTasks>>()
-    {
+    if let Some(tasks) = service.host_extension::<super::tests::startup_tasks::StartupTasks>() {
         tasks.spawn(move || run_startup(startup, ready));
         return;
     }

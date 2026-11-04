@@ -99,13 +99,22 @@ pub async fn tabs(
     query: Query<crate::tab_routes::TabListQuery>,
 ) -> Result<axum::response::Response, (StatusCode, &'static str)> {
     let body = crate::tab_routes::list_tabs(AxumState(state), headers.clone(), query).await?;
-    let json = serde_json::to_vec(&body.0).map_err(|_| {
+    tokio::task::spawn_blocking(move || {
+        let json = serde_json::to_vec(&body.0).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Failed to serialize Tabs",
+            )
+        })?;
+        Ok(tabs_response(&headers, json))
+    })
+    .await
+    .map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to serialize Tabs",
+            "Tabs encoding worker failed",
         )
-    })?;
-    Ok(tabs_response(&headers, json))
+    })?
 }
 
 fn tabs_response(headers: &HeaderMap, json: Vec<u8>) -> axum::response::Response {
@@ -734,12 +743,12 @@ pub async fn chat_raw_start(
             queued.elapsed().as_micros(),
             result.is_ok()
         );
-        result
+        result.map(|result| serde_json::to_value(result).unwrap_or_default())
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    Ok(Json(result))
 }
 
 #[derive(serde::Deserialize)]
@@ -1075,11 +1084,12 @@ pub async fn chat_raw_backfill(
     let svc = state.svc.clone();
     let result = tokio::task::spawn_blocking(move || {
         commands::chat_backfill_core(&svc, tab_id, body.before_offset, body.offset_kind)
+            .map(|result| serde_json::to_value(result).unwrap_or_default())
     })
     .await
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
     .map_err(|e| (StatusCode::CONFLICT, e))?;
-    Ok(Json(serde_json::to_value(result).unwrap_or_default()))
+    Ok(Json(result))
 }
 
 pub async fn agent_runtime_retry(

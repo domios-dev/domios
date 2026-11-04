@@ -26,10 +26,15 @@ pub(crate) async fn provider_history(
     Path(tab): Path<String>,
     Query(query): Query<HistoryQuery>,
 ) -> Response {
-    match tokio::task::spawn_blocking(move || state.svc.provider_switch_history(&tab, &query.file))
-        .await
+    match crate::blocking_json::prepare((), move || {
+        state
+            .svc
+            .provider_switch_history(&tab, &query.file)
+            .map(Json)
+    })
+    .await
     {
-        Ok(Ok(messages)) => Json(messages).into_response(),
+        Ok(Ok(response)) => response,
         Ok(Err(error)) => (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({"error":error})),
