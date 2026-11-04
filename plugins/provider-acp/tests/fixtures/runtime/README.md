@@ -138,3 +138,7 @@ many-turns-tool-admission runs sequential completed tool turns beyond the identi
 admission budget. Each new tool remains running until its completion update;
 settled identities are reclaimed before admission while running identities remain
 protected. The fixture also participates in native/QuickJS shared replay.
+
+planErrors are judged after the whole rpc replay, trailing notifications included. In
+model-option-declared-selected the final config_option_update makes wire-one the
+authoritative model, so keep that trailing frame when editing the fixture.
