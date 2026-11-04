@@ -261,6 +261,7 @@ fn assert_runtime_task_dispatch(
             .unwrap()
             .last()
             .unwrap()
+            .attempt
             .launch_profile
             .as_deref(),
         Some("selected")

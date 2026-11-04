@@ -1028,6 +1028,7 @@ fn attempt_launch_profile_optional_round_trip_and_respawn_override() {
         .attempt_id
         .clone();
     let source_tab = store.list_task_attempts(&plan, &task).unwrap()[0]
+        .attempt
         .executor_tab_id
         .clone();
     store
