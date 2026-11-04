@@ -1,3 +1,4 @@
+import type { TransportOptions } from "./transportClient";
 import { DEV_BUILD } from "./devBuild";
 import { frontendBootDiagnostic } from "./frontendBootDiagnostic";
 
@@ -29,8 +30,8 @@ export function requestFailure(
 }
 
 export function instrumentFetch(
-  fetcher: typeof fetch, pageUrl: () => string, report: (failure: RequestFailure) => void,
-): typeof fetch {
+  fetcher: NonNullable<TransportOptions["fetch"]>, pageUrl: () => string, report: (failure: RequestFailure) => void,
+): NonNullable<TransportOptions["fetch"]> {
   return async (input, init) => {
     let response: Response;
     try {
@@ -48,6 +49,7 @@ export function instrumentFetch(
 
 export function installRequestDiagnostics(): void {
   if (!DEV_BUILD || typeof window === "undefined") return;
+  // biome-ignore lint/nursery/noJsRestrictedProperties: DEV instrumentation decorates carrier HTTP without originating requests.
   window.fetch = instrumentFetch(window.fetch.bind(window), () => window.location.href,
     (request) => frontendBootDiagnostic("request-failed", { request }));
 }

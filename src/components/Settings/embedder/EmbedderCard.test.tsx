@@ -1,6 +1,7 @@
+import { configureDaemonTransport } from "../../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppConfig } from "../../../lib/types";
 import { EmbedderCard } from "./EmbedderCard";
 import { listingFixture, statusFixture } from "./embedderFixtures";
@@ -17,6 +18,7 @@ function respond(body: unknown, status = 200) {
   return Promise.resolve(new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } }));
 }
 
+beforeEach(() => configureDaemonTransport({ origin: window.location.origin, token: "fixture-auth" }));
 afterEach(() => vi.unstubAllGlobals());
 
 describe("EmbedderCard", () => {

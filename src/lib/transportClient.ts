@@ -11,7 +11,7 @@ export type TokenSource = string | (() => string | null);
 export interface TransportOptions {
   origin: string;
   token: TokenSource;
-  fetch?: typeof fetch;
+  fetch?: typeof globalThis.fetch;
   relayPeerId?: string;
   headers?: HeadersInit;
   onGatewayState?: (available: boolean) => void;
@@ -170,7 +170,8 @@ export function createTransportClient(options: TransportOptions): TransportClien
   if (!["http:", "https:"].includes(url.protocol) || url.username || url.password
     || url.pathname !== "/" || url.search || url.hash) throw new Error("Explicit daemon HTTP origin required");
   const origin = url.origin;
-  const fetcher: typeof fetch = (input, init) => (options.fetch ?? globalThis.fetch)(input, init);
+  // biome-ignore lint/nursery/noJsRestrictedProperties: The injected carrier owns daemon traffic; its control requests need browser HTTP.
+  const fetcher: NonNullable<TransportOptions["fetch"]> = (input, init) => (options.fetch ?? globalThis.fetch)(input, init);
   const resolvePath = (path: string) => {
     if (!path.startsWith("/") || path.startsWith("//") || path.includes("\\")) {
       throw new Error("Daemon path must be origin-relative");

@@ -1,3 +1,4 @@
+import { configureDaemonTransport } from "../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -82,6 +83,7 @@ function stop() {
 const listeners = new Set<(event: { payload: unknown }) => void>();
 
 beforeEach(() => {
+  configureDaemonTransport({ origin: window.location.origin, token: "fixture-auth" });
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
