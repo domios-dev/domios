@@ -27,7 +27,7 @@ impl PlanStore {
 }
 
 impl PlanDatabase {
-    fn competition_lane_projection(
+    pub(in crate::service_plan) fn competition_lane_projection(
         &self,
         plan: &str,
         task: &str,

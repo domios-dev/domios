@@ -37,21 +37,24 @@ pub async fn task_respawn(
     .await?;
     let store = state.svc.plan_store.clone();
     let plan_id = id.clone();
-    let plan = crate::plan_routes::run_blocking(move || {
-        store
-            .get(&plan_id)
-            .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::NotFound))
-    })
-    .await?;
-    let original_task = codeterm_service_core::plan::task_key::find_task(&plan.tasks, &tid)
-        .cloned()
-        .ok_or_else(|| plan_err(codeterm_service_core::service::plan::PlanError::TaskNotFound))?;
-    if let Some(source) = original_task
-        .execution_attempts
-        .iter()
-        .find(|attempt| attempt.id == body.attempt_id && attempt.mesh_peer.is_some())
-        .cloned()
-    {
+    let task_id = tid.clone();
+    let source_id = body.attempt_id.clone();
+    let (original_task, remote_source, plan, owner_tab_id) =
+        crate::plan_routes::run_blocking(move || {
+            let task = store
+                .task_launch_projection(&plan_id, &task_id, Some(&source_id))
+                .map_err(plan_err)?;
+            let remote = store
+                .respawn_remote_source_projection(&plan_id, &task_id, &source_id)
+                .map_err(plan_err)?;
+            let plan = store.document_metadata(&plan_id).map_err(plan_err)?;
+            let owner = store
+                .plan_owner_tab_projection(&plan_id)
+                .map_err(plan_err)?;
+            Ok((task, remote, plan, owner))
+        })
+        .await?;
+    if let Some(source) = remote_source {
         let caller = crate::tab_routes::authenticated_plan_caller(&headers);
         let mut params = serde_json::to_value(&body)
             .map_err(|error| text_err(axum::http::StatusCode::BAD_REQUEST, error.to_string()))?;
@@ -86,25 +89,33 @@ pub async fn task_respawn(
         codeterm_service_core::plan::TaskStatus::Pending
             | codeterm_service_core::plan::TaskStatus::Blocked
     ) {
-        codeterm_service_core::service::plan::review_gate::validate_dispatch_review_capacity(
-            &plan,
-            &original_task,
-        )
-        .map_err(plan_err)?;
+        let store = state.svc.plan_store.clone();
+        let plan_id = id.clone();
+        let task_id = tid.clone();
+        crate::plan_routes::run_blocking(move || {
+            store
+                .dispatch_review_capacity_warning_projection(&plan_id, &task_id)
+                .map_err(plan_err)
+        })
+        .await?;
     }
     let store = state.svc.plan_store.clone();
     let plan_id = id.clone();
     let task_id = tid.clone();
-    let mut draft = crate::plan_routes::run_blocking(move || {
-        store
+    let (mut draft, acceptance_criteria) = crate::plan_routes::run_blocking(move || {
+        let draft = store
             .build_task_respawn_draft(&plan_id, &task_id, body)
-            .map_err(plan_err)
+            .map_err(plan_err)?;
+        let criteria = store
+            .task_respawn_acceptance_projection(&plan_id, &task_id)
+            .map_err(plan_err)?;
+        Ok((draft, criteria))
     })
     .await?;
     let parent_tab_id = draft
         .parent_tab_id
         .clone()
-        .or_else(|| plan.owner.tab_id.clone())
+        .or(owner_tab_id)
         .filter(|parent| !parent.trim().is_empty())
         .ok_or_else(|| {
             text_err(
@@ -120,7 +131,7 @@ pub async fn task_respawn(
         plan.canonical_project_path.clone()
     };
     let lane_protection = codeterm_service_core::service::LaneProtection::for_dispatch_intent(
-        &original_task.interruption.execution_intent,
+        &original_task.dispatch_intent,
     );
     let verify_draft = draft.clone();
     let verify_canonical_cwd = canonical_cwd.clone();
@@ -268,7 +279,7 @@ pub async fn task_respawn(
             &spawn.tab_id,
             &parent_tab_id,
             std::slice::from_ref(&draft.source_attempt.executor_tab_id),
-            &original_task.acceptance_criteria,
+            &acceptance_criteria,
         )
         .await
         .map_err(|error| {
