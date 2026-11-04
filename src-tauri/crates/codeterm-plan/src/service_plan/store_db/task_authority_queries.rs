@@ -1,18 +1,10 @@
-use super::read_projections::{column, record_query};
+use super::read_projections::{column, decode, record_query};
 use super::{db_error, PlanDatabase};
 use crate::plan::TaskExecutionAttempt;
-use crate::service_plan::{PlanError, TaskOwnerEpochRead};
+use crate::service_plan::{PlanError, TaskContextFilesRead, TaskOwnerEpochRead};
 use rusqlite::{params, OptionalExtension};
 
-impl PlanDatabase {
-    pub(in crate::service_plan) fn task_owner_epoch_projection(
-        &self,
-        reference: &str,
-    ) -> Result<TaskOwnerEpochRead, PlanError> {
-        let connection = self.connection.lock();
-        record_query();
-        connection.query_row(
-            "WITH candidates AS (
+const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                 SELECT p.id AS plan_id,t.task_id,t.row_json,p.updated_at,t.position,
                     t.task_id=?1 AS exact,
                     sum(t.task_id=?1) OVER (PARTITION BY p.id) AS exact_count,
@@ -21,18 +13,61 @@ impl PlanDatabase {
                 WHERE p.status='active' AND (t.task_id=?1 OR (?1<>'' AND (
                     json_extract(t.row_json,'$.handle') COLLATE NOCASE=?1 OR
                     coalesce(json_extract(t.row_json,'$.key'),CASE WHEN substr(t.task_id,1,5)='task_' THEN substr(t.task_id,6) ELSE t.task_id END) COLLATE NOCASE=?1))))
+             , selected_task AS (
+                SELECT plan_id,task_id,row_json FROM candidates
+                WHERE exact OR (exact_count=0 AND matches=1)
+                ORDER BY updated_at DESC,plan_id,position LIMIT 1
+             )";
+
+impl PlanDatabase {
+    pub(in crate::service_plan) fn task_owner_epoch_projection(
+        &self,
+        reference: &str,
+    ) -> Result<TaskOwnerEpochRead, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection
+            .query_row(
+                &format!(
+                    "{SELECTED_ACTIVE_TASK}
              SELECT plan_id,task_id,coalesce(json_extract(row_json,'$.interruption.owner_epoch'),0),
                 json_extract(row_json,'$.interruption.owner_tab_id'),
                 json_extract(row_json,'$.interruption.owner_session_id'),
                 coalesce(json_extract(row_json,'$.interruption.handoff_required'),0)
-             FROM candidates WHERE exact OR (exact_count=0 AND matches=1)
-             ORDER BY updated_at DESC,plan_id,position LIMIT 1",
-            [reference],
-            |row| Ok(TaskOwnerEpochRead {
-                plan_id: column(row,0)?, task_id: column(row,1)?, owner_epoch: column(row,2)?,
-                owner_tab_id: column(row,3)?, owner_session_id: column(row,4)?, handoff_required: column(row,5)?,
-            }),
-        ).optional().map_err(db_error)?.ok_or(PlanError::TaskNotFound)
+             FROM selected_task"
+                ),
+                [reference],
+                |row| {
+                    Ok(TaskOwnerEpochRead {
+                        plan_id: column(row, 0)?,
+                        task_id: column(row, 1)?,
+                        owner_epoch: column(row, 2)?,
+                        owner_tab_id: column(row, 3)?,
+                        owner_session_id: column(row, 4)?,
+                        handoff_required: column(row, 5)?,
+                    })
+                },
+            )
+            .optional()
+            .map_err(db_error)?
+            .ok_or(PlanError::TaskNotFound)
+    }
+
+    pub(in crate::service_plan) fn task_context_files_projection(
+        &self,
+        reference: &str,
+    ) -> Result<TaskContextFilesRead, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        let (plan_id, task_id, files): (String, String, String) = connection.query_row(
+            &format!("{SELECTED_ACTIVE_TASK} SELECT plan_id,task_id,coalesce(json_extract(row_json,'$.files'),'{{}}') FROM selected_task"),
+            [reference], |row| Ok((column(row,0)?,column(row,1)?,column(row,2)?)),
+        ).optional().map_err(db_error)?.ok_or(PlanError::TaskNotFound)?;
+        Ok(TaskContextFilesRead {
+            files: decode(&plan_id, &files)?,
+            plan_id,
+            task_id,
+        })
     }
 
     pub(in crate::service_plan) fn current_skill_attempt(

@@ -694,6 +694,7 @@ pub(super) fn dispatch(
 
         "plan.task.relink" => {
             let id = plan_refs::resolve_plan(store, params)?;
+            authorize_draft_mutation(svc, &id, p)?;
             let apply = p.and_then(|x| x.get("apply")).and_then(|v| v.as_bool()) == Some(true);
             let report = store
                 .relink_unlinked_tasks(&id, apply, now)
