@@ -316,25 +316,6 @@ pub fn lane_update(settlement: &Settlement) -> Option<TaskLaneUpdate> {
     })
 }
 
-fn apply_to_task(task: &mut Task, update: TaskLaneUpdate) {
-    let lane = &mut task.lane;
-    for (field, value) in [
-        (&mut lane.tab_id, update.tab_id),
-        (&mut lane.workspace_id, update.workspace_id),
-        (&mut lane.workspace_name, update.workspace_name),
-        (&mut lane.worktree_path, update.worktree_path),
-        (&mut lane.branch, update.branch),
-        (&mut lane.cleanup_status, update.cleanup_status),
-    ] {
-        if let Some(value) = value {
-            *field = value;
-        }
-    }
-    if let Some(hints) = update.cleanup_hints {
-        lane.cleanup_hints = hints;
-    }
-}
-
 fn offered(hints: Vec<String>) -> Settlement {
     Settlement::Record {
         status: CLEANUP_OFFERED,
@@ -605,17 +586,21 @@ impl ServiceContext {
             {
                 continue;
             }
-            let result = self.plan_store.with_plan(&plan_id, now, |plan| {
-                let canonical = canonical_path(plan).to_string();
-                let settlements =
-                    settle_history(&finished_records(plan), &canonical, &worktree_exists);
-                for (task_id, settlement) in &settlements {
-                    let task = plan.tasks.iter_mut().find(|task| task.id == *task_id);
-                    if let (Some(task), Some(update)) = (task, lane_update(settlement)) {
-                        apply_to_task(task, update);
+            let result = self.plan_store.settle_lane_history(&plan_id, now, |reads| {
+                let mut updates = Vec::new();
+                for read in reads {
+                    let settlements = settle_history(
+                        &[LaneRecord::from_read(read)],
+                        read.canonical_path(),
+                        &worktree_exists,
+                    );
+                    for (id, settlement) in settlements {
+                        if let Some(update) = lane_update(&settlement) {
+                            updates.push((id, update));
+                        }
                     }
                 }
-                Ok(settlements.len())
+                updates
             });
             match result {
                 Ok(count) => {
@@ -637,6 +622,7 @@ pub fn held_by_tab(plan: &Plan, tab_id: &str) -> Vec<String> {
         .collect()
 }
 
+#[cfg(test)]
 fn finished_records(plan: &Plan) -> Vec<LaneRecord> {
     plan.tasks
         .iter()

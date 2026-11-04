@@ -13,6 +13,7 @@ mod gate_rows;
 pub(in crate::service_plan) mod handoff;
 mod header_edits;
 mod ingest_rows;
+mod lane_history;
 pub(in crate::service_plan) mod lifecycle_rows;
 mod loop_rows;
 mod milestones;
