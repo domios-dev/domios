@@ -418,6 +418,8 @@ pub struct AccountMeshRecord {
     pub slots: BTreeMap<String, u64>,
     pub revoked_installations: BTreeSet<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub local_revocations: BTreeMap<String, BTreeSet<String>>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub revoked_generations: BTreeMap<String, u64>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub peer_keys: BTreeMap<String, KeyBinding>,

@@ -7,10 +7,7 @@ use crate::account_mesh::protocol::{
 use crate::account_mesh::transcript::{
     self, possession_digest, Party, Purpose, COMMIT_ROLE, INITIATOR_ROLE, RESPONDER_ROLE,
 };
-use crate::account_mesh::{
-    AccountMeshAuthority, AdmissionRefusal, LinkAuthorizationRequest, LinkPermitExpectation,
-    SignedMembership,
-};
+use crate::account_mesh::{AccountMeshAuthority, AdmissionRefusal, SignedMembership};
 use crate::types::{self, PairedPeer};
 
 pub(crate) const PENDING_TTL_SECS: u64 = 60;
@@ -24,16 +21,14 @@ pub struct PendingLink {
     pub(super) account_id: String,
     pub(super) account_epoch: u64,
     pub(super) created_at: u64,
-    /// Both permits are held; the pair is recorded only on the initiator's commit.
     confirmed: bool,
     confirming: bool,
 }
 
-/// What the responder must hold after verifying a confirm, before its own online permit.
+/// A reserved confirmation fenced against the account epoch.
 pub struct LinkConfirmation {
     pending: PendingLink,
-    pub request: LinkAuthorizationRequest,
-    pub authority: Arc<dyn AccountMeshAuthority>,
+    link_id: String,
 }
 
 /// Local authority captured once so every later step can be fenced against it.
@@ -64,6 +59,7 @@ impl MeshManager {
             .current_membership(self.now())
             .cloned()
             .ok_or(AdmissionRefusal::Unauthenticated)?;
+        self.check_registry_membership(&membership.verified)?;
         let private_key = self
             .ident
             .identity
@@ -137,10 +133,32 @@ impl MeshManager {
         {
             return Err(AdmissionRefusal::Revoked);
         }
+        self.check_registry_membership(&verified)?;
         Ok(SignedMembership {
             token: token.to_string(),
             verified,
         })
+    }
+
+    pub(crate) fn check_registry_membership(
+        &self,
+        membership: &crate::account_mesh::VerifiedMembership,
+    ) -> Result<(), AdmissionRefusal> {
+        let matches = self
+            .account
+            .registry_members
+            .as_ref()
+            .and_then(|members| members.get(&membership.installation_id))
+            .is_some_and(|(key, generation, slot)| {
+                key == &membership.key_id
+                    && *generation == membership.key_generation
+                    && *slot == membership.slot_revision
+            });
+        if matches {
+            Ok(())
+        } else {
+            Err(AdmissionRefusal::Revoked)
+        }
     }
 
     /// A new link may reuse an existing record only with the identical transport key.
@@ -217,6 +235,9 @@ impl MeshManager {
         &mut self,
         hello: LinkHello,
     ) -> Result<LinkHelloReply, AdmissionRefusal> {
+        if hello.protocol_version != crate::account_mesh::protocol::LINK_PROTOCOL_VERSION {
+            return Err(AdmissionRefusal::PeerNeedsUpdate);
+        }
         let context = self.admission_context()?;
         let initiator = &hello.initiator.party;
         self.check_link_identity(&initiator.instance_id, &initiator.mesh_public_key)?;
@@ -263,6 +284,8 @@ impl MeshManager {
             },
         );
         Ok(LinkHelloReply {
+            protocol_version: crate::account_mesh::protocol::LINK_PROTOCOL_VERSION,
+            signed_registry: self.signed_registry.clone(),
             link_id: hello.link_id,
             responder: self.local_descriptor(context.party),
             membership: context.membership.token,
@@ -272,7 +295,7 @@ impl MeshManager {
         })
     }
 
-    /// Responder, step 2a: reserve the pending entry and verify the initiator's proof and permit.
+    /// Reserves the pending entry and verifies the initiator's possession.
     pub fn begin_link_confirm(
         &mut self,
         confirm: &LinkConfirm,
@@ -311,6 +334,11 @@ impl MeshManager {
             return Err(AdmissionRefusal::Cancelled);
         }
         let initiator = &pending.initiator.party;
+        self.verify_peer_membership(
+            &context,
+            &pending.initiator_membership.token,
+            &initiator.installation_id,
+        )?;
         if !transcript::verify_mesh(
             &initiator.mesh_public_key,
             &pending.transcript,
@@ -328,43 +356,22 @@ impl MeshManager {
                 "initiator installation proof invalid",
             ));
         }
-        context.authority.verify_link_permit(
-            &confirm.permit,
-            &LinkPermitExpectation {
-                transcript: pending.transcript,
-                holder_installation_id: initiator.installation_id.clone(),
-                peer_installation_id: context.party.installation_id.clone(),
-                account_id: context.account_id.clone(),
-            },
-            self.now(),
-        )?;
-        let request = LinkAuthorizationRequest {
-            transcript: pending.transcript,
-            local_installation_id: context.party.installation_id.clone(),
-            peer_installation_id: initiator.installation_id.clone(),
-            account_id: context.account_id.clone(),
-            link_nonce: confirm.link_id.clone(),
-        };
         Ok(LinkConfirmation {
             pending,
-            request,
-            authority: context.authority,
+            link_id: confirm.link_id.clone(),
         })
     }
 
-    /// Responder, step 2b: both permits are held. Nothing is recorded or traffic-open until
-    /// the initiator commits; an uncommitted link expires with the pending window.
+    /// Confirmation remains pending until the initiator commits.
     pub fn finish_link_confirm(
         &mut self,
         confirmation: LinkConfirmation,
     ) -> Result<(), AdmissionRefusal> {
         let mut pending = confirmation.pending;
-        if !self
-            .pending_links
-            .contains_key(&confirmation.request.link_nonce)
+        if !self.pending_links.contains_key(&confirmation.link_id)
             || self.now().saturating_sub(pending.created_at) > PENDING_TTL_SECS
         {
-            self.fail_pending_connection(&confirmation.request.link_nonce);
+            self.fail_pending_connection(&confirmation.link_id);
             return Err(AdmissionRefusal::Cancelled);
         }
         if self.account.account_epoch != pending.account_epoch
@@ -379,11 +386,11 @@ impl MeshManager {
         pending.confirmed = true;
         pending.created_at = self.now();
         self.pending_links
-            .insert(confirmation.request.link_nonce.clone(), pending);
+            .insert(confirmation.link_id.clone(), pending);
         Ok(())
     }
 
-    /// Responder, step 3: the initiator proved it verified our permit; record the pair.
+    /// Records the pair after verifying the initiator's commit proof.
     pub fn commit_link(&mut self, commit: &LinkCommit) -> Result<(), AdmissionRefusal> {
         let result = self.commit_link_inner(commit);
         if result.is_err() {
@@ -454,12 +461,7 @@ impl MeshManager {
         let context = self.admission_context()?;
         let membership =
             self.verify_peer_membership(&context, &membership.token, &party.installation_id)?;
-        let mut addresses = types::sanitize_addresses(preferred_addresses);
-        for address in types::sanitize_addresses(&peer.addresses) {
-            if !addresses.iter().any(|known| known.ip == address.ip) {
-                addresses.push(address);
-            }
-        }
+        let addresses = types::sanitize_addresses(preferred_addresses);
         let superseded: Vec<String> = self
             .links
             .links

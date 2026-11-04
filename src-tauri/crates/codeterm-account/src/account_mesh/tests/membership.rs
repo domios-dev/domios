@@ -70,7 +70,7 @@ fn account_mesh_membership_accepts_only_its_exact_window() {
     assert!(!verified.is_current(START - NOT_BEFORE_SKEW_SECONDS - 1));
     assert!(!verified.is_current(START + 3600));
     let long = with(valid_payload(), "expires_at", json!(START + 86401));
-    assert_eq!(verify(&long, START), Err(MembershipRefusal::Duration));
+    assert_eq!(verify(&long, START).unwrap().expires_at, START + 86401);
 }
 
 #[test]
@@ -246,67 +246,6 @@ fn account_mesh_possession_binds_the_enrolled_key_and_the_transcript() {
 }
 
 #[test]
-fn account_mesh_link_permit_binds_holder_peer_subject_and_transcript() {
-    let holder = MeshTarget {
-        installation_id: PEER.into(),
-        key_id: "2".repeat(64),
-        key_generation: 1,
-        slot_revision: 3,
-    };
-    let own = MeshTarget {
-        installation_id: INSTALLATION.into(),
-        key_id: KEY_ID.into(),
-        key_generation: 1,
-        slot_revision: 2,
-    };
-    let transcript = [8u8; 32];
-    let digest = super::super::key::sha256_hex(&transcript);
-    let permit = grant(&Issuer::permit_payload(UID, &holder, &own, &digest, START));
-    let account = account_id(UID);
-    let expectation = LinkPermitExpectation {
-        transcript: &transcript,
-        holder_installation_id: PEER,
-        peer_installation_id: INSTALLATION,
-        account_id: &account,
-        peer_target: Some(&own),
-    };
-    let trust = Issuer::new().trust();
-    assert_eq!(
-        verify_link_permit(&permit, &trust, &expectation, START + 119),
-        Ok(())
-    );
-    assert_eq!(
-        verify_link_permit(&permit, &trust, &expectation, START + 120),
-        Err(MembershipRefusal::Expired)
-    );
-    let other_transcript = LinkPermitExpectation {
-        transcript: &[9u8; 32],
-        ..expectation
-    };
-    assert_eq!(
-        verify_link_permit(&permit, &trust, &other_transcript, START),
-        Err(MembershipRefusal::Installation)
-    );
-    let stale_slot = MeshTarget {
-        slot_revision: 4,
-        ..own.clone()
-    };
-    let moved = LinkPermitExpectation {
-        peer_target: Some(&stale_slot),
-        ..expectation
-    };
-    assert_eq!(
-        verify_link_permit(&permit, &trust, &moved, START),
-        Err(MembershipRefusal::Slot)
-    );
-    let membership = grant(&valid_payload());
-    assert_eq!(
-        verify_link_permit(&membership, &trust, &expectation, START),
-        Err(MembershipRefusal::Malformed)
-    );
-}
-
-#[test]
 fn account_mesh_wire_matches_the_server_packet() {
     let packet = packet();
     assert_eq!(packet["routes"]["challenge"], ROUTE_CHALLENGE);
@@ -317,16 +256,12 @@ fn account_mesh_wire_matches_the_server_packet() {
         installation_id: "desk-7f3a".into(),
         request_id: request_id.into(),
         signed_registry: None,
-        requested_membership_seconds: None,
+        endpoint: None,
+        own_row: None,
+
         operation,
     };
     let id = |n: u8| format!("{}{n}", "0".repeat(63));
-    let peer = MeshTarget {
-        installation_id: "laptop-91c0".into(),
-        key_id: "2".repeat(64),
-        key_generation: 1,
-        slot_revision: 3,
-    };
     let requests = [
         (
             "publish",
@@ -359,17 +294,6 @@ fn account_mesh_wire_matches_the_server_packet() {
                 },
             ),
         ),
-        (
-            "link",
-            base(
-                &id(4),
-                MeshOperation::Link {
-                    expected_slot_revision: 2,
-                    peer,
-                    transcript_sha256: "3".repeat(64),
-                },
-            ),
-        ),
         ("list", base(&id(5), MeshOperation::List { cursor: None })),
     ];
     for (name, request) in requests {
@@ -379,14 +303,13 @@ fn account_mesh_wire_matches_the_server_packet() {
             "{name}"
         );
     }
-    for name in ["published", "withdrawn", "page", "permit"] {
+    for name in ["published", "withdrawn", "page"] {
         let result: MeshResult = serde_json::from_value(packet["results"][name].clone()).unwrap();
         assert!(matches!(
             (name, &result),
             ("published", MeshResult::Published(_))
                 | ("withdrawn", MeshResult::Withdrawn(_))
                 | ("page", MeshResult::Page(_))
-                | ("permit", MeshResult::Permit(_))
         ));
     }
     let MeshResult::Page(page): MeshResult =

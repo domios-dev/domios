@@ -162,13 +162,26 @@ impl AccountMesh {
             installation_id: self.installation(),
             request_id: request_id(),
             signed_registry: Some(true),
-            requested_membership_seconds: matches!(
+            own_row: matches!(
                 operation,
                 MeshOperation::Enroll { .. }
                     | MeshOperation::Renew { .. }
                     | MeshOperation::Recover { .. }
             )
-            .then_some(super::membership::MAX_MEMBERSHIP_SECONDS),
+            .then_some(true),
+            endpoint: matches!(
+                operation,
+                MeshOperation::Enroll { .. }
+                    | MeshOperation::Renew { .. }
+                    | MeshOperation::Recover { .. }
+            )
+            .then(|| {
+                self.ports
+                    .endpoint
+                    .ready_endpoint()
+                    .map(|endpoint| endpoint.wire())
+            })
+            .flatten(),
             operation,
         };
         self.with(|inner| {
@@ -258,10 +271,11 @@ impl AccountMesh {
             });
         }
         if let Ok(result) = &result {
-            if let Some(snapshot) = result.signed_registry() {
-                self.accept_server_registry(snapshot, &signed.account, signed.epoch)
-                    .await?;
-            }
+            let snapshot = result
+                .signed_registry()
+                .ok_or(AccountMeshRefusal::Invalid)?;
+            self.accept_server_registry(snapshot, &signed.account, signed.epoch)
+                .await?;
         }
         result
     }
