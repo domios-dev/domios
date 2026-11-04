@@ -244,7 +244,7 @@ for (const priorTurn of [false,true]) {
   runtimeResponse(base,open,runtimePlan(base,open).state,{kind:"success",value:{sessionId:"session-fixture"}});
   const own={...base,threadId:"session-fixture"};
   const first:Operation={kind:"submitTurn",threadId:own.threadId,sendId:"one",input:{text:"one",attachments:[]},settings:{}};
-  runtimePlan(own,first);
+  const firstPlan=runtimePlan(own,first);
   let projected:JsonValue=null;
   if (priorTurn) projected=runtimeReduce({...own,claimedSends:[{sendId:"one",threadId:own.threadId,input:first.input}]},null,[frame("agent_message_chunk","prior")]).state;
   const current=priorTurn ? {...first,sendId:"two",input:{text:"two",attachments:[]}} : first;
@@ -278,6 +278,7 @@ for (const priorTurn of [false,true]) {
     assert.equal(continuation.offset,5);
     assert.equal(continuation.itemId,"session-fixture:turn:1:item:2","a concurrent previous-turn chunk stays in its original row");
   }
+  if (priorTurn) runtimeResponse(own,first,firstPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
   const next=runtimeReduce({...scoped,streamWindow:{...scoped.streamWindow,frameSequences:[11]}},previous.state,[frame("agent_message_chunk","new first chunk")]);
   assert.equal(next.events.filter(event=>event.kind === "sendEvidence").length,1,"the first postwrite chunk confirms without being dropped");
   assert.equal(next.events.find(event=>event.kind === "sendEvidence")?.turnId,`session-fixture:turn:${turn}`);
@@ -295,3 +296,71 @@ assert.equal(interruptedEcho.events.filter(event=>event.kind === "sendEvidence")
 const changedClaim=reduceStream({...context,claimedSends:[{...context.claimedSends[0],threadId:"foreign"}]},second.state,[frame("agent_message_chunk","answer")],cursor);
 assert.equal(changedClaim.events.some(event=>event.kind === "sendEvidence"),false);
 console.log("✓ ACP interleaved user echo keeps exact matching offsets and rechecks claim authority at closure");
+
+const followupFailures:string[]=[];
+for (const scenario of ["tool-identities","overlapping-prompts","overlapping-early-reply","restore-ordinal","astral-truncation"]) {
+  try {
+    if (scenario === "tool-identities") {
+      let state:JsonValue=null;
+      const rows=new Map<string,ChatMsg>();
+      for (let index=0;index<3;index++) {
+        const reduction=reduceStream(context,state,[updateFrame({sessionUpdate:"tool_call",toolCallId:`large-${index}`,title:`Title ${index}`,kind:"execute",status:"in_progress",rawInput:{command:"opaque"},rawOutput:"x".repeat(15900)})],cursor);
+        state=reduction.state;
+        for (const event of reduction.events) foldRow(rows,event);
+      }
+      const late=reduceStream(context,state,[updateFrame({sessionUpdate:"tool_call_update",toolCallId:"large-0",status:"completed"})],cursor);
+      for (const event of late.events) foldRow(rows,event);
+      assert.equal(rows.get("large-0")?.toolTitle,"Title 0");
+      assert.deepEqual(rows.get("large-0")?.toolInput,{command:"opaque"});
+      assert.equal(rows.get("large-0")?.toolResult,"x".repeat(15900));
+      assert.equal(rows.get("large-0")?.seq,1);
+      const cancelled=settleStream(context,state,"cancelled");
+      for (const event of cancelled.events) foldRow(rows,event);
+      assert.equal([...rows.values()].filter(row=>row.toolStatus === "interrupted").length,3);
+    } else if (scenario === "astral-truncation") {
+      const reduction=reduceStream(context,null,[frame("agent_message_chunk","🌍".repeat(8191)+"🌍"+"tail".repeat(10000))],cursor);
+      const row=reduction.events.find(event=>event.kind === "chatItem");
+      assert.ok(row?.kind === "chatItem");
+      assert.ok(row.item.content.startsWith("🌍".repeat(8192)));
+      assert.equal(JSON.parse(JSON.stringify(row.item)).content,row.item.content);
+    } else {
+      const base={...context,tabId:`followup-${scenario}`,activeTurnId:undefined,activeTurns:[],threadId:undefined,claimedSends:[],restoredRowOrdinal:scenario === "restore-ordinal" ? 4 : undefined};
+      const init:Operation={kind:"initialize"};
+      runtimeResponse(base,init,runtimePlan(base,init).state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{sessionCapabilities:{resume:{}}},authMethods:[]}});
+      const open:Operation=scenario === "restore-ordinal" ? {kind:"resumeThread",threadId:"session-fixture",instructions:"",settings:{}} : {kind:"openThread",instructions:"",settings:{}};
+      const own=scenario === "restore-ordinal" ? {...base,threadId:"session-fixture"} : base;
+      runtimeResponse(own,open,runtimePlan(own,open).state,{kind:"success",value:{sessionId:"session-fixture"}});
+      const bound={...base,threadId:"session-fixture"};
+      const submit:Operation={kind:"submitTurn",threadId:bound.threadId,sendId:"first",input:{text:"first",attachments:[]},settings:{}};
+      const firstPlan=runtimePlan(bound,submit);
+      if (scenario === "restore-ordinal") {
+        assert.ok(firstPlan.action.kind === "request");
+        assert.equal(firstPlan.action.call.target?.turnId,"session-fixture:turn:5");
+      } else {
+        const first=runtimeReduce(bound,null,[updateFrame({sessionUpdate:"tool_call",toolCallId:"self-send",title:"Send",status:"in_progress"})]);
+        const active={...bound,activeTurnId:"session-fixture:turn:1",activeTurns:[{threadId:bound.threadId,turnId:"session-fixture:turn:1"}]};
+        const next={...submit,activeTurnId:active.activeTurnId,sendId:"queued",input:{text:"queued",attachments:[]}};
+        const secondPlan=runtimePlan(active,next);
+        if (scenario === "overlapping-early-reply") {
+          const early=runtimeResponse(active,next,secondPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+          assert.ok(early.kind === "complete");
+          assert.equal(early.events?.length,0);
+        }
+        const settled=runtimeResponse(active,submit,firstPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+        assert.ok(settled.kind === "complete");
+        assert.deepEqual(settled.events?.filter(event=>event.kind === "turnState").map(event=>[event.turnId,event.state]),[["session-fixture:turn:1","idle"],["session-fixture:turn:2","working"],...(scenario === "overlapping-early-reply" ? [["session-fixture:turn:2","idle"]] : [])]);
+        assert.ok(settled.events?.some(event=>(event.kind === "chatItem" || event.kind === "chatItemPatch") && event.item.toolStatus === "interrupted"));
+        const secondActive={...active,activeTurnId:"session-fixture:turn:2",activeTurns:[{threadId:bound.threadId,turnId:"session-fixture:turn:2"}]};
+        runtimeReduce(secondActive,first.state,[frame("agent_message_chunk","second")]);
+        const end=runtimeResponse(secondActive,next,secondPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+        assert.ok(end.kind === "complete");
+        assert.deepEqual(end.events?.filter(event=>event.kind === "turnState").map(event=>[event.turnId,event.state]),scenario === "overlapping-early-reply" ? [] : [["session-fixture:turn:2","idle"]]);
+        const twice=runtimeResponse(secondActive,next,secondPlan.state,{kind:"success",value:{stopReason:"end_turn"}});
+        assert.ok(twice.kind === "complete");
+        assert.equal(twice.events?.length,0);
+      }
+    }
+    console.log(`✓ ACP follow-up ${scenario}`);
+  } catch (error) { followupFailures.push(`${scenario}: ${String(error)}`); }
+}
+assert.deepEqual(followupFailures,[]);

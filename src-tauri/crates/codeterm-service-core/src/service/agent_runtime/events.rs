@@ -6,7 +6,7 @@ use codeterm_plugin::agent_runtime::{
 };
 use codeterm_types::agent::chat_types::ChatMsg;
 use codeterm_types::pty::PendingPrompt;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub const LIVE_ITEM_CAP: usize = 1000;
 pub const LIVE_ITEM_BYTES: usize = 8 * 1024 * 1024;
@@ -89,6 +89,7 @@ pub enum RuntimeEvent {
 
 #[derive(Clone, Debug)]
 struct StoredItem {
+    turn_id: Option<String>,
     thread_id: String,
     item: ChatMsg,
     closed: bool,
@@ -100,6 +101,8 @@ pub struct RuntimeMaps {
     pub background_processes:
         HashMap<String, Vec<codeterm_plugin::agent_runtime::RuntimeBackgroundProcess>>,
     epoch: u64,
+    current_turns: HashMap<String, String>,
+    append_failures: HashSet<(String, String)>,
     items: Vec<StoredItem>,
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
@@ -120,6 +123,24 @@ impl RuntimeMaps {
             .then(|| self.children.get(thread).cloned())
             .flatten()
     }
+    pub fn sync_active_turn(&mut self, context: &RuntimeContext) {
+        self.ensure_epoch(context.epoch);
+        if let Some(thread) = &context.thread_id {
+            match &context.active_turn_id {
+                Some(turn) => {
+                    self.current_turns.insert(thread.clone(), turn.clone());
+                }
+                None => {
+                    self.current_turns.remove(thread);
+                }
+            }
+        }
+    }
+    pub fn ensure_epoch(&mut self, epoch: u64) {
+        if self.epoch != epoch {
+            self.reset(epoch);
+        }
+    }
     pub fn reset(&mut self, epoch: u64) {
         *self = Self {
             epoch,
@@ -132,7 +153,29 @@ impl RuntimeMaps {
     }
 }
 
-pub fn translate_with_items(event: &AgentRuntimeEvent, maps: &RuntimeMaps) -> RuntimeEvent {
+pub fn translate_with_items(
+    event: &AgentRuntimeEvent,
+    maps: &mut RuntimeMaps,
+    loading: bool,
+) -> Option<RuntimeEvent> {
+    if let AgentRuntimeEvent::ChatItemPatch { thread_id, item } = event {
+        if let Some(stored) = maps
+            .items
+            .iter()
+            .find(|stored| stored.thread_id == *thread_id && stored.item.id == item.id)
+        {
+            let mut merged = serde_json::to_value(&stored.item).ok()?;
+            let patch = serde_json::to_value(item).ok()?;
+            merged.as_object_mut()?.extend(patch.as_object()?.clone());
+            let mut next: ChatMsg = serde_json::from_value(merged).ok()?;
+            next.seq = stored.item.seq;
+            return Some(RuntimeEvent::ItemUpdated {
+                thread_id: thread_id.clone(),
+                item: next,
+            });
+        }
+        return row_notice(maps, thread_id, &item.id);
+    }
     if let AgentRuntimeEvent::ChatItemAppend {
         thread_id,
         item_id,
@@ -145,25 +188,37 @@ pub fn translate_with_items(event: &AgentRuntimeEvent, maps: &RuntimeMaps) -> Ru
             .iter()
             .find(|stored| stored.thread_id == *thread_id && stored.item.id == *item_id)
         {
-            if matches!(stored.item.kind.as_str(), "user" | "assistant" | "thinking")
+            let current = stored
+                .turn_id
+                .as_ref()
+                .is_some_and(|turn| maps.current_turns.get(thread_id) == Some(turn));
+            if (loading || current)
+                && matches!(stored.item.kind.as_str(), "user" | "assistant" | "thinking")
                 && stored.item.content.len() == *offset
             {
                 let mut next = stored.item.clone();
                 next.content.push_str(content);
-                return RuntimeEvent::ItemUpdated {
+                return Some(RuntimeEvent::ItemUpdated {
                     thread_id: thread_id.clone(),
                     item: next,
-                };
+                });
             }
         }
-        return RuntimeEvent::Notice {
-            thread_id: thread_id.clone(),
-            message:
-                "Streamed row could not be continued because its retained content is unavailable."
-                    .into(),
-        };
+        return row_notice(maps, thread_id, item_id);
     }
-    translate(event)
+    Some(translate(event))
+}
+
+fn row_notice(maps: &mut RuntimeMaps, thread: &str, item: &str) -> Option<RuntimeEvent> {
+    if maps.append_failures.len() >= LIVE_ITEM_CAP
+        || !maps.append_failures.insert((thread.into(), item.into()))
+    {
+        return None;
+    }
+    Some(RuntimeEvent::Notice {
+        thread_id:thread.into(),
+        message:"Streamed row could not be continued because its retained content or active turn is unavailable.".into(),
+    })
 }
 
 pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
@@ -225,7 +280,8 @@ pub fn translate(event: &AgentRuntimeEvent) -> RuntimeEvent {
             resets: resets.clone(),
             account_credits: account_credits.clone(),
         },
-        AgentRuntimeEvent::ChatItemAppend { thread_id, .. } => RuntimeEvent::Notice {
+        AgentRuntimeEvent::ChatItemAppend { thread_id, .. }
+        | AgentRuntimeEvent::ChatItemPatch { thread_id, .. } => RuntimeEvent::Notice {
             thread_id: thread_id.clone(),
             message: "Streamed row requires retained content.".into(),
         },
@@ -344,9 +400,23 @@ pub fn fold(maps: &mut RuntimeMaps, epoch: u64, event: &RuntimeEvent) {
         RuntimeEvent::TurnUpdated {
             thread_id,
             state: RuntimeTurnState::Idle,
+            turn_id,
             ..
         } => {
             maps.background_processes.remove(thread_id);
+            if turn_id
+                .as_ref()
+                .is_none_or(|turn| maps.current_turns.get(thread_id) == Some(turn))
+            {
+                maps.current_turns.remove(thread_id);
+            }
+        }
+        RuntimeEvent::TurnUpdated {
+            thread_id,
+            turn_id: Some(turn),
+            ..
+        } => {
+            maps.current_turns.insert(thread_id.clone(), turn.clone());
         }
         RuntimeEvent::TurnUpdated { .. } => {}
         RuntimeEvent::ItemUpdated { thread_id, item } => {
@@ -501,6 +571,7 @@ fn upsert_item(maps: &mut RuntimeMaps, thread_id: &str, item: ChatMsg) {
         stored.closed = closed;
     } else {
         maps.items.push(StoredItem {
+            turn_id: maps.current_turns.get(thread_id).cloned(),
             thread_id: thread_id.to_string(),
             item,
             closed,

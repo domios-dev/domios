@@ -555,7 +555,7 @@
         "requestId": "permission-fixture"
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemPatch",
         "threadId": "session-fixture",
         "item": {
           "id": "call-1",
@@ -564,13 +564,6 @@
           "content": "",
           "toolId": "call-1",
           "collapsed": true,
-          "toolTitle": "Edit file",
-          "toolName": "Edit file",
-          "toolKind": "edit",
-          "toolInput": {
-            "path": "/work/project/file.txt"
-          },
-          "toolArgs": "{\"path\":\"/work/project/file.txt\"}",
           "toolStatus": "failed",
           "toolError": true,
           "toolResult": "Denied"

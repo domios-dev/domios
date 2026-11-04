@@ -28,15 +28,25 @@ function initial(ctx:RuntimeContext, raw:JsonValue, cursor:StreamCursor):StreamS
   copy.prompt=cursor.prompt;copy.loading=cursor.loading;
   return copy;
 }
-function emit(state:StreamState, events:AgentEvent[], row:ChatMsg):void {
+function emit(state:StreamState, events:AgentEvent[], row:ChatMsg, patch=false):void {
   const previous=state.items[row.id];
   row.seq=previous?.seq ?? ++state.seq;
-  if (JSON.stringify(row).length > 16384) {
+  if (utf8Length(JSON.stringify(row)) > 32768) {
     row={id:row.id,seq:row.seq,type:row.type,content:"[ACP row truncated: update exceeded the display budget]",
       ...(row.toolStatus ? {toolStatus:row.toolStatus,toolId:row.toolId} : {})};
   }
-  state.items[row.id]=row.type === "assistant" || row.type === "thinking" || row.type === "user" ? {...row,content:""} : row;
-  if (JSON.stringify(previous) !== JSON.stringify(row)) events.push({kind:"chatItem",threadId:state.sessionId,item:row});
+  const retained:ChatMsg={...previous,id:row.id,seq:row.seq,type:row.type,content:"",
+    ...(row.toolId ? {toolId:row.toolId} : {}),
+    ...(row.toolTitle ? {toolTitle:Array.from(row.toolTitle).slice(0,256).join("")} : {}),
+    ...(row.toolName ? {toolName:Array.from(row.toolName).slice(0,256).join("")} : {}),
+    ...(row.toolKind ? {toolKind:row.toolKind} : {}),
+    ...(row.toolStatus ? {toolStatus:row.toolStatus} : {})};
+  if (row.toolStatus === "running" && !previous && utf8Length(JSON.stringify(state.items))+utf8Length(JSON.stringify(retained)) > 16384) {
+    events.push({kind:"chatItem",threadId:state.sessionId,item:{...row,toolStatus:"interrupted",toolInterrupted:true,content:"[ACP tool tracking capacity exhausted]"}});
+    return;
+  }
+  state.items[row.id]=retained;
+  if (!patch || JSON.stringify(previous) !== JSON.stringify(retained) || row.toolInput !== undefined || row.toolResult !== undefined || row.fileDiffs !== undefined || row.toolInterrupted) events.push({kind:patch ? "chatItemPatch" : "chatItem",threadId:state.sessionId,item:row});
 }
 function rememberControl(state:StreamState, kind:string, update:Record<string,JsonValue>):void {
   const encoded=JSON.stringify(update);
@@ -75,7 +85,7 @@ export function settleStream(ctx:RuntimeContext, raw:JsonValue, reason:string):R
   const events:AgentEvent[]=[];
   closeChunk(ctx,next,events);
   for (const row of Object.values(next.items)) if (row.toolStatus === "running")
-    emit(next,events,{...row,toolStatus:"interrupted",toolInterrupted:true});
+    emit(next,events,{id:row.id,seq:row.seq,type:row.type,content:"",toolId:row.toolId,toolStatus:"interrupted",toolInterrupted:true},true);
   events.push({kind:"turnState",threadId:ctx.threadId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"idle",...(reason === "cancelled" ? {detail:"interrupted" as const} : {})});
   boundState(next);
   return {state:json(next),events};
@@ -141,7 +151,7 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       }
       chunk.chars+=content.text.length;
       const type=kind === "user_message_chunk" ? "user" : kind === "agent_thought_chunk" ? "thinking" : "assistant";
-      const value=content.text.length > 16384 ? Array.from(content.text.slice(0,16384)).slice(0,8192).join("")+"\n[ACP row truncated: oversized text update]" : content.text;
+      const value=content.text.length > 16384 ? Array.from(content.text).slice(0,8192).join("")+"\n[ACP row truncated: oversized text update]" : content.text;
       const previous=state.items[chunk.id];
       const row:ChatMsg={id:chunk.id,seq:previous?.seq ?? ++state.seq,type,content:value,...(type === "thinking" ? {collapsed:true} : {})};
       events.push(chunk.offset ? {kind:"chatItemAppend",threadId:state.sessionId,itemId:row.id,content:value,offset:chunk.offset}
@@ -159,7 +169,13 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
       const previous=id ? state.items[id] : undefined;
       if (id && !state.seenItems.includes(id)) {state.ordinal++;state.seenItems.push(id);}
       const row=reduceTool(update,previous,state.seq+1);
-      if (row) emit(state,events,row);
+      if (row && (previous || kind === "tool_call")) {
+        if (kind === "tool_call_update") {
+          if (update.title === undefined) { delete row.toolTitle;delete row.toolName; }
+          if (update.kind === undefined) delete row.toolKind;
+        }
+        emit(state,events,row,kind === "tool_call_update");
+      }
     } else if (kind === "plan") {
       closeChunk(ctx,state,events);
       const id=`${ctx.threadId}:plan`;
@@ -202,15 +218,21 @@ function utf8Length(value:string):number {
   return bytes;
 }
 function boundState(state:StreamState):void {
-  for (const key of ["evidenced","compacted","seenItems"] as const) {
-    state[key]=state[key].slice(-32);
-    while (utf8Length(JSON.stringify(state)) > 48000 && state[key].length) state[key].shift();
-  }
+  for (const key of ["evidenced","compacted","seenItems"] as const) state[key]=state[key].slice(-32);
+  let bytes=utf8Length(JSON.stringify(state));
   for (const key of ["items","controls","warnings"] as const) {
-    while (utf8Length(JSON.stringify(state)) > 48000) {
-      const oldest=Object.keys(state[key]).find(id=>id !== state.chunk?.id);
-      if (!oldest) break;
-      delete state[key][oldest];
+    for (const id of Object.keys(state[key])) {
+      if (bytes <= 47000) break;
+      const value=state[key][id];
+      if (id === state.chunk?.id || key === "items" && object(value).toolStatus === "running") continue;
+      bytes-=utf8Length(JSON.stringify({[id]:value}))-1;
+      delete state[key][id];
+    }
+  }
+  for (const key of ["evidenced","compacted","seenItems"] as const) {
+    while (bytes > 47000 && state[key].length) {
+      const removed=state[key].shift()!;
+      bytes-=utf8Length(JSON.stringify(removed))+1;
     }
   }
 }

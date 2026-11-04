@@ -424,6 +424,7 @@ async fn ensure_with_fork(
                     reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
+                        restored_row_ordinal: None,
                         stream_window: None,
                         host_mcp: None,
                         client_bridges: None,
@@ -745,6 +746,7 @@ async fn ensure_locked(
     session
         .initialization
         .ensure(|| async {
+            super::transcript::restore(session).await?;
             let result = run(
                 svc,
                 provider,

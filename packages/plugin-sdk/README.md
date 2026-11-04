@@ -341,3 +341,17 @@ starts each row again with `chatItem` and the same deterministic ID, so it repla
 the previous projection before appending. Reducer state should retain offsets
 and bounded metadata instead of message bodies. This event adds no host I/O or
 filesystem, environment, network or session authority.
+
+Tool cards can use chatItemPatch to merge supplied fields into the exact retained
+thread/item while preserving its sequence and absent fields. Missing cards produce
+a bounded notice rather than a partial replacement. Append admission also requires
+the retained row's active turn, or history loading; a failed append emits at most
+one notice per row and epoch. The plugin has no append-failure feedback signal.
+
+Runtimes declaring neither readHistory nor storedHistory use a host transcript
+snapshot at turn settlement. The existing off-thread history writer retains only
+rows, within the existing row/window limits, and atomically replaces the previous
+snapshot. It restores row IDs/order before resume. RuntimeContext.restoredRowOrdinal
+is the next persisted source-row ordinal, a conservative lower bound for new
+turn ordinals across restart; it exposes no transcript bodies or new I/O authority.
+Providers declaring remote or stored history keep their existing history path.

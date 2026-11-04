@@ -357,7 +357,7 @@
         }
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemPatch",
         "threadId": "session-fixture",
         "item": {
           "id": "call-1",
@@ -366,13 +366,6 @@
           "content": "",
           "toolId": "call-1",
           "collapsed": true,
-          "toolTitle": "Edit file",
-          "toolName": "Edit file",
-          "toolKind": "edit",
-          "toolInput": {
-            "path": "a.txt"
-          },
-          "toolArgs": "{\"path\":\"a.txt\"}",
           "toolStatus": "completed",
           "toolError": false,
           "toolResult": "Edited",

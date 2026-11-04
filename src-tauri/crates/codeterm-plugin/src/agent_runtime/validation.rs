@@ -97,6 +97,9 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     validate_runtime_size(ctx, MAX_RUNTIME_VALUE_BYTES)?;
     if ctx.epoch == 0
         || ctx.epoch > 9_007_199_254_740_991
+        || ctx
+            .restored_row_ordinal
+            .is_some_and(|ordinal| ordinal > 9_007_199_254_740_991)
         || !identifier(&ctx.tab_id)
         || !identifier(&ctx.binding_nonce)
         || !identifier(&ctx.cwd)
@@ -945,7 +948,8 @@ pub fn validate_runtime_reduction(
                 }
                 thread_id
             }
-            AgentRuntimeEvent::ChatItem { thread_id, item } => {
+            AgentRuntimeEvent::ChatItem { thread_id, item }
+            | AgentRuntimeEvent::ChatItemPatch { thread_id, item } => {
                 if !identifier(&item.id) {
                     return Err(invalid("invalid chat item id"));
                 }

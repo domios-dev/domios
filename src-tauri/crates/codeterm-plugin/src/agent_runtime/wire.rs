@@ -223,6 +223,8 @@ pub struct PendingRuntimeRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub restored_row_ordinal: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stream_window: Option<super::RuntimeStreamWindow>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_mcp: Option<super::RuntimeHostMcp>,
@@ -577,6 +579,10 @@ pub enum AgentRuntimeEvent {
         account_credits: Option<RuntimeAccountCredits>,
     },
     ChatItem {
+        thread_id: String,
+        item: ChatMsg,
+    },
+    ChatItemPatch {
         thread_id: String,
         item: ChatMsg,
     },

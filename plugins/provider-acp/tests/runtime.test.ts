@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import vm from "node:vm";
+import {createTranscriptState,reduceTranscript,projectTranscript} from "../../../packages/chat-core/src/transcript";
 import { foldRow } from "./runtimeRows";
 import { assertRuntimeOperation } from "./runtimeAuthority";
 import type {AgentRuntime, AgentEvent, ChatMsg, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
@@ -89,7 +90,7 @@ for (const name of names) {
   assert.equal(plans.size,0);
   assert.deepEqual(results,fixture.expected.results,`${name} results`);
   assert.deepEqual(events,fixture.expected.events,`${name} events`);
-  if (name.startsWith("long-stream-") || name === "oversize-single-frame.json") {
+  if (name.startsWith("long-stream-") || name.startsWith("oversize-")) {
     const rows=new Map<string,ChatMsg>();
     for (const event of events) foldRow(rows,event);
     assert.equal(rows.size,1);
@@ -102,6 +103,31 @@ for (const name of names) {
     assert.ok(events.some(event=>event.kind === "turnState" && event.state === "idle"
       && (name !== "long-stream-cancel.json" || event.detail === "interrupted")));
     console.log(`✓ ACP ${name}: final row ${Buffer.byteLength(final)} bytes; max state ${maxStateBytes} bytes`);
+  }
+  if (name === "tool-output-retention.json") {
+    const rows=new Map<string,ChatMsg>();
+    for (const event of events) foldRow(rows,event);
+    assert.equal(rows.size,3);
+    assert.deepEqual([...rows.values()].map(row=>[row.seq,row.toolTitle,row.toolStatus,row.toolResult?.length]),
+      [[1,"Title 0","completed",15900],[2,"Title 1","interrupted",15900],[3,"Title 2","interrupted",15900]]);
+    assert.deepEqual(rows.get("large-0")?.toolInput,{command:"opaque"});
+  }
+  if (name === "two-turns-restart-third.json") {
+    const rows=new Map<string,ChatMsg>();
+    for (const event of events) foldRow(rows,event);
+    assert.deepEqual([...rows.values()].map(row=>row.content),["first","one","second","two","third","three"]);
+    const authority={sourceSessionId:"session-fixture",sessionBindingNonce:"restored-launch"};
+    const restored=reduceTranscript(createTranscriptState(),{kind:"delta",authority,range:null,
+      rows:[...rows.values()].map((row,seq)=>({id:row.id,type:row.type === "user" ? "user" as const : "assistant" as const,content:row.content,seq,sourceSessionId:"session-fixture"})),
+    }).state;
+    const sends=events.filter(event=>event.kind === "sendEvidence").map((event,index)=>({
+      id:event.sendId,content:["first","second","third"][index],sentAtMs:index+1,
+      matchedRow:{ordinal:1,source:{source_session_id:"session-fixture",record:{kind:"structured" as const,thread_id:"session-fixture",item_id:event.itemId!}}},
+    }));
+    const projected=projectTranscript(restored,sends);
+    assert.equal(projected.pending.length,0,"confirmed local sends stay reconciled after restore");
+    assert.equal(projected.rows.length,6,"one row per user send across restart");
+    assert.equal(projected.echoes.size,3);
   }
   console.log(`✓ ACP ${name}`);
 }

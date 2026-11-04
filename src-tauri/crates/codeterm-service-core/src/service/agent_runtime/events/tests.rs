@@ -216,6 +216,7 @@ fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
         "long-stream-complete",
         "long-stream-cancel",
         "oversize-single-frame",
+        "oversize-astral-cut",
     ] {
         let fixture: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(root.join(format!("{name}.json"))).unwrap(),
@@ -226,12 +227,12 @@ fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
         let mut maps = RuntimeMaps::default();
         for _ in 0..2 {
             for source in &events {
-                let event = translate_with_items(source, &maps);
+                let event = translate_with_items(source, &mut maps, false).unwrap();
                 fold(&mut maps, 1, &event);
             }
             assert_eq!(maps.items.len(), 1);
             let content = &maps.items[0].item.content;
-            if name == "oversize-single-frame" {
+            if name.starts_with("oversize-") {
                 assert!(content.contains("[ACP row truncated: oversized text update]"));
                 assert!(content.ends_with("healthy"));
             } else {
@@ -265,9 +266,81 @@ fn append_requires_the_exact_thread_row_and_byte_offset() {
             content: "suffix".into(),
             offset,
         };
-        let event = translate_with_items(&source, &maps);
+        let event = translate_with_items(&source, &mut maps, true).unwrap();
         assert!(matches!(event, RuntimeEvent::Notice { .. }));
         fold(&mut maps, 1, &event);
         assert_eq!(maps.items[0].item.content, "🌍");
     }
+}
+
+#[test]
+fn settled_turn_appends_are_refused_once_per_row() {
+    let mut maps = RuntimeMaps::default();
+    let turn = |id: &str, state| {
+        translate(&AgentRuntimeEvent::TurnState {
+            thread_id: "t".into(),
+            turn_id: Some(id.into()),
+            state,
+            detail: None,
+            status_line: None,
+            started_at: None,
+            completed_at: None,
+            parent_thread_id: None,
+        })
+    };
+    fold(&mut maps, 1, &turn("first", RuntimeTurnState::Working));
+    let mut row = item("row", false, "🌍");
+    row.kind = "assistant".into();
+    put(&mut maps, 1, row);
+    fold(&mut maps, 1, &turn("first", RuntimeTurnState::Idle));
+    fold(&mut maps, 1, &turn("next", RuntimeTurnState::Working));
+    let append = AgentRuntimeEvent::ChatItemAppend {
+        thread_id: "t".into(),
+        item_id: "row".into(),
+        content: "late".into(),
+        offset: 4,
+    };
+    assert!(matches!(
+        translate_with_items(&append, &mut maps, false),
+        Some(RuntimeEvent::Notice { .. })
+    ));
+    for _ in 0..100 {
+        assert!(translate_with_items(&append, &mut maps, false).is_none());
+    }
+    assert_eq!(maps.items[0].item.content, "🌍");
+    assert!(matches!(
+        translate_with_items(&append, &mut maps, true),
+        Some(RuntimeEvent::ItemUpdated { .. })
+    ));
+}
+
+#[test]
+fn tool_patch_preserves_full_retained_card_and_sequence() {
+    let mut maps = RuntimeMaps::default();
+    let mut original = item("tool", true, "");
+    original.tool_title = Some("Opaque tool".into());
+    original.tool_input = Some(serde_json::json!({"command":"opaque"}));
+    original.tool_result = Some("x".repeat(15900));
+    put(&mut maps, 1, original);
+    let patch = AgentRuntimeEvent::ChatItemPatch {
+        thread_id: "t".into(),
+        item: ChatMsg {
+            id: "tool".into(),
+            kind: "tool".into(),
+            seq: 99,
+            tool_status: Some("completed".into()),
+            ..Default::default()
+        },
+    };
+    let event = translate_with_items(&patch, &mut maps, false).unwrap();
+    fold(&mut maps, 1, &event);
+    let row = &maps.items[0].item;
+    assert_eq!(row.seq, 0);
+    assert_eq!(row.tool_title.as_deref(), Some("Opaque tool"));
+    assert_eq!(
+        row.tool_input,
+        Some(serde_json::json!({"command":"opaque"}))
+    );
+    assert_eq!(row.tool_result.as_ref().unwrap().len(), 15900);
+    assert_eq!(row.tool_status.as_deref(), Some("completed"));
 }

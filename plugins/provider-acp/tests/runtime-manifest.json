@@ -135,6 +135,10 @@
     "mcp-no-fallback-method-not-found.json",
     "long-stream-complete.json",
     "long-stream-cancel.json",
-    "oversize-single-frame.json"
+    "oversize-single-frame.json",
+    "two-turns-restart-third.json",
+    "self-send-overlapping-prompts.json",
+    "tool-output-retention.json",
+    "oversize-astral-cut.json"
   ]
 }

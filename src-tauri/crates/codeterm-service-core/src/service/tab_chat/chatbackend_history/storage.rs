@@ -49,6 +49,29 @@ impl HistoryLog {
             Operation::Upsert(messages) => self.upsert(messages),
             Operation::Remove(id) => self.remove(&id),
             Operation::Compact => self.compact().map(|()| true),
+            Operation::Snapshot(rows) => {
+                if self.path.is_file() {
+                    let previous = super::try_read_messages(&self.path)?;
+                    if previous.last().map(|row| row.seq) > rows.last().map(|row| row.seq) {
+                        return Ok(false);
+                    }
+                }
+                let mut bytes = Vec::new();
+                for row in rows {
+                    serde_json::to_writer(&mut bytes, &row).map_err(io::Error::other)?;
+                    bytes.push(b'\n');
+                }
+                if bytes.len() > super::TAIL_BYTES as usize {
+                    return Err(io::Error::other(
+                        "Runtime transcript exceeds history budget",
+                    ));
+                }
+                codeterm_util::atomic_write::write_atomic(&self.path, bytes)?;
+                self.indexed = false;
+                self.last = None;
+                self.ensure_indexed()?;
+                Ok(true)
+            }
         };
         if result.is_err() {
             self.indexed = false;

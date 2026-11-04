@@ -232,7 +232,7 @@
           },
           "events": [
             {
-              "kind": "chatItem",
+              "kind": "chatItemPatch",
               "threadId": "session-fixture",
               "item": {
                 "id": "call-cancel",
@@ -240,12 +240,7 @@
                 "type": "tool_call",
                 "content": "",
                 "toolId": "call-cancel",
-                "collapsed": true,
-                "toolTitle": "Command",
-                "toolName": "Command",
-                "toolKind": "command",
                 "toolStatus": "interrupted",
-                "toolError": false,
                 "toolInterrupted": true
               }
             },
@@ -286,7 +281,7 @@
         }
       },
       {
-        "kind": "chatItem",
+        "kind": "chatItemPatch",
         "threadId": "session-fixture",
         "item": {
           "id": "call-cancel",
@@ -294,12 +289,7 @@
           "type": "tool_call",
           "content": "",
           "toolId": "call-cancel",
-          "collapsed": true,
-          "toolTitle": "Command",
-          "toolName": "Command",
-          "toolKind": "command",
           "toolStatus": "interrupted",
-          "toolError": false,
           "toolInterrupted": true
         }
       },

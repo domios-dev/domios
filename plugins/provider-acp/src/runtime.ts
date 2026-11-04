@@ -1,6 +1,6 @@
 import type {
   JsonValue, Operation, RpcReply, RuntimeContext, RuntimeFailure,
-  RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep, TurnInput,
+  RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep, TokenUsage,
 } from "@codeterm/plugin-sdk";
 import {decodeAuthMethods, agentAuthMethod, type AuthMethod} from "./auth";
 import { methods, protocolVersion } from "./runtimeProtocol";
@@ -22,9 +22,10 @@ interface Negotiation {
   instructions?:string;
   cursor:StreamCursor;
   inFlight:boolean;
+  queued?:{prompt:number;sendId:string;completed?:{cancelled:boolean;usage?:TokenUsage}}[];
   mcpUnavailable?:string;
   projection?:JsonValue;
-  promptSend?:{sendId:string; input:TurnInput};
+  promptSend?:{sendId:string};
 }
 const epochs = new Map<string, Negotiation>();
 const object = (value:unknown):Record<string,JsonValue> =>
@@ -191,14 +192,19 @@ export function runtimePlan(ctx:RuntimeContext, op:Operation):RuntimePlan {
       const prompt:JsonValue[] = [];
       if (state.instructions) prompt.push({type:"text", text:state.instructions});
       prompt.push({type:"text", text:op.input.text});
-      state.cursor.prompt=Math.max(state.cursor.prompt,Number(object(state.projection).turn) || 0)+1;
-      state.cursor.loading=false;
-      state.inFlight=true;
-      state.promptSend={sendId:op.sendId,input:op.input};
+      const ordinal=Math.max(state.cursor.prompt,Number(object(state.projection).turn) || 0,ctx.restoredRowOrdinal ?? 0,...(state.queued ?? []).map(value=>value.prompt))+1;
+      if (state.inFlight) {
+        (state.queued ??= []).push({prompt:ordinal,sendId:op.sendId});
+      } else {
+        state.cursor.prompt=ordinal;
+        state.cursor.loading=false;
+        state.inFlight=true;
+        state.promptSend={sendId:op.sendId};
+      }
       const plan=request(methods.prompt, {sessionId, prompt});
       if (plan.action.kind === "request")
-        plan.action.call.target={threadId:sessionId,turnId:`${sessionId}:turn:${state.cursor.prompt}`};
-      plan.state={method:methods.prompt,prompt:state.cursor.prompt};
+        plan.action.call.target={threadId:sessionId,turnId:`${sessionId}:turn:${ordinal}`};
+      plan.state={method:methods.prompt,prompt:ordinal};
       return plan;
     }
     case "interrupt": {
@@ -260,7 +266,7 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
       capabilities:object(value.agentCapabilities), authMethods, authenticated, required:authenticated ? false : prior?.required,
       sessionId:prior?.sessionId, sessionActive:prior?.sessionActive, instructions:prior?.instructions,
       cursor:prior?.cursor ?? {replay:0,prompt:0,loading:false},inFlight:prior?.inFlight ?? false,
-      projection:prior?.projection, promptSend:prior?.promptSend, settings:prior?.settings});
+      projection:prior?.projection, promptSend:prior?.promptSend, queued:prior?.queued, settings:prior?.settings});
     return {kind:"complete",result:op.kind === "initialize" ? {kind:"initialized",...agentIdentity(value.agentInfo)} : {kind:"done"},
       events:[{kind:"authentication",authentication:authentication(authMethods,authenticated,authenticated ? false : prior?.required)}]};
   }
@@ -319,16 +325,34 @@ export function runtimeResponse(ctx:RuntimeContext, op:Operation, raw:JsonValue,
     const sessionId = ownSession(ctx, state);
     if (typeof value.stopReason !== "string") return refused("protocol_error", "ACP prompt response is missing stopReason");
     const turn=typeof object(raw).prompt === "number" ? object(raw).prompt : object(state.projection).turn;
-    if (turn !== state.cursor.prompt || !state.inFlight)
+    if (turn !== state.cursor.prompt || !state.inFlight) {
+      const queued=state.queued?.find(queued=>queued.prompt === turn);
+      if (queued && !queued.completed) queued.completed={cancelled:value.stopReason === "cancelled",usage:usage(value.usage)};
       return {kind:"complete",result:{kind:"turnAccepted",threadId:sessionId,sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events:[]};
+    }
     state.inFlight=false;
     state.instructions = undefined;
     const projected=reduceStream(ctx,state.projection ?? null,[],state.cursor).state;
     const settled=settleStream(ctx,projected,value.stopReason);
     state.projection=settled.state;
     const mapped=usage(value.usage);
-    return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${object(state.projection).turn}`},
-      events:[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events]};
+    const events:import("@codeterm/plugin-sdk").AgentEvent[]=[...(mapped ? [{kind:"usage" as const,threadId:sessionId,usage:mapped}] : []),...settled.events];
+    for (let queued=state.queued?.shift(); queued; queued=state.queued?.shift()) {
+      state.cursor.prompt=queued.prompt;
+      state.promptSend={sendId:queued.sendId};
+      state.inFlight=true;
+      const next=reduceStream(ctx,state.projection,[],state.cursor);
+      state.projection={...object(next.state),started:true};
+      events.push({kind:"turnState",threadId:sessionId,turnId:`${sessionId}:turn:${queued.prompt}`,state:"working"});
+      if (!queued.completed) break;
+      const settledQueued=settleStream(ctx,state.projection,queued.completed.cancelled ? "cancelled" : "end_turn");
+      state.projection=settledQueued.state;
+      state.inFlight=false;
+      if (queued.completed.usage) events.push({kind:"usage",threadId:sessionId,usage:queued.completed.usage});
+      events.push(...settledQueued.events);
+    }
+    return {kind:"complete", result:{kind:"turnAccepted", threadId:sessionId, sendId:op.sendId,turnId:`${sessionId}:turn:${turn}`},events};
+
   }
   return refused("unsupported", "ACP response is unavailable");
 }
@@ -360,7 +384,8 @@ export function runtimeReduce(ctx:RuntimeContext, raw:JsonValue, frames:readonly
     const frameContext=!window ? ctx : {...ctx,claimedSends:ctx.claimedSends.filter(claim=>
       window.turnRequests?.some(request=>request.sendId === claim.sendId && request.written === true
         && request.afterSequence !== undefined && sequence !== undefined && sequence > request.afterSequence))};
-    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable ? state.promptSend : undefined);
+    const claim=frameContext.claimedSends.find(claim=>claim.threadId === ctx.threadId && claim.sendId === state.promptSend?.sendId);
+    const reduced=reduceStream(frameContext,projection,[frame],cursor,state.inFlight && attributable && claim ? {sendId:claim.sendId,input:claim.input} : undefined);
     projection=reduced.state;events.push(...reduced.events);
   }
   const reduction={state:projection,events};
