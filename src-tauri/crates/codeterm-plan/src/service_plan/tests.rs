@@ -862,7 +862,7 @@ fn coverage_report_reports_gaps() {
     let sid = store
         .add_section(&id, "Backend", "", None, &[], None, None, 80)
         .unwrap();
-    let report = store.coverage_report(&id).unwrap();
+    let report = store.coverage_report(&id).unwrap().unwrap();
     assert!(report.gaps.contains(&"Backend".to_string()));
     assert!(report.sections.iter().any(|s| s.section_id == sid));
 }

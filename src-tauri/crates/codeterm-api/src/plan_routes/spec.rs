@@ -187,7 +187,11 @@ pub async fn list(
         if q.full == Some(true) {
             let specs = entries
                 .iter()
-                .filter_map(|e| state.svc.plan_store.spec_full(&e.spec_id))
+                .map(|e| state.svc.plan_store.spec_full(&e.spec_id))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(plan_err)?
+                .into_iter()
+                .flatten()
                 .collect::<Vec<_>>();
             return Ok(Json(serde_json::json!({ "specs": specs })));
         }
@@ -208,6 +212,7 @@ pub async fn get(
                 .svc
                 .plan_store
                 .spec_full(&id)
+                .map_err(plan_err)?
                 .map(Json)
                 .ok_or_else(|| plan_err(PlanError::NotFound));
         }
@@ -347,7 +352,7 @@ pub async fn link_list(
 ) -> RouteResult {
     crate::plan_routes::run_blocking(move || {
         Ok(Json(serde_json::json!({
-            "links": state.svc.plan_store.list_spec_links(&id)
+            "links": state.svc.plan_store.list_spec_links(&id).map_err(plan_err)?
         })))
     })
     .await
@@ -363,6 +368,7 @@ pub async fn effort_show(
             .svc
             .plan_store
             .effort_bundle(&id)
+            .map_err(plan_err)?
             .map(Json)
             .ok_or_else(|| plan_err(PlanError::NotFound))
     })

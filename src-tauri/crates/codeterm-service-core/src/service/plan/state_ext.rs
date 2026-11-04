@@ -39,7 +39,7 @@ impl ServiceContext {
         self.reconcile_curator_id(plan_id, now_ms)?;
         let read = self.plan_store.status_projection(plan_id, now_ms)?;
         let plan = read.plan();
-        let coverage = compute_coverage_report(&plan);
+        let coverage = compute_coverage_report(plan);
         let reconcile = self.reconcile_plan_record(&plan, false, None, now_ms)?;
         let drift = reconcile.drift;
         let cleanup_debt = reconcile.cleanup_debt;

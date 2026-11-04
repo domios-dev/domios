@@ -1,5 +1,6 @@
 use super::{PlanError, PlanStore};
 use crate::plan::PlanStatus;
+mod coverage;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct PlanDocumentMetadata {
