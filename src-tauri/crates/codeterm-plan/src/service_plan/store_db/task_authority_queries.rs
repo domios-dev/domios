@@ -322,3 +322,5 @@ mod remote;
 mod lane_admission;
 
 mod batch;
+
+mod shared_inspection;

@@ -138,3 +138,6 @@ pub use lane_admission::{TaskLaneAdmissionRead, TaskLaneOwnerRead};
 
 mod batch;
 pub use batch::{BatchTaskRefusalRead, TaskSelectorRead};
+
+mod shared_inspection;
+pub(super) use shared_inspection::{SharedDispatchRead, SharedReportRead};
