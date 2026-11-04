@@ -193,6 +193,7 @@ impl Model {
         channel.frames.push_back(Frame {
             bytes: end,
             kind: Kind::End,
+            credit: 0,
         });
         self.interactive.retain(|entry| entry != id);
         self.bulk.retain(|entry| entry != id);

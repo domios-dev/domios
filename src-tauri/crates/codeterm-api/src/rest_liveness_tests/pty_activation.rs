@@ -1,5 +1,5 @@
 use super::*;
-use codeterm_service_core::service::pty_ownership::OwnershipEvent;
+use codeterm_service_core::service::OwnershipEvent;
 
 #[test]
 fn held_activation_keeps_health_and_the_only_blocking_worker_available() {

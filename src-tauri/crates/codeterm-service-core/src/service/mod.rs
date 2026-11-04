@@ -170,6 +170,8 @@ pub(crate) mod pty_activation;
 pub mod pty_io;
 pub mod pty_lifecycle;
 pub(crate) mod pty_ownership;
+#[cfg(any(test, feature = "test-support"))]
+pub use pty_ownership::OwnershipEvent;
 pub mod push;
 mod reasoning_effort;
 pub mod receiver_target;

@@ -92,7 +92,8 @@ mod tests {
 
         let pty_id = fixture
             .service
-            .link_pty(&tab_id, "pty-frontend-first".into());
+            .link_pty(&tab_id, "pty-frontend-first".into())
+            .unwrap();
 
         let tab = fixture
             .service
