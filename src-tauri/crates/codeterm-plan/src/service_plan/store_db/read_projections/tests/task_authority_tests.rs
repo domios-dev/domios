@@ -634,3 +634,183 @@ fn task_name_projection_does_not_materialize_body_or_history() {
         ));
     }
 }
+
+#[test]
+fn startup_projection_preserves_status_and_exact_historical_owner_decisions() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut base = authority_plan(directory.path());
+    base.tasks[0].status = TaskStatus::Pending;
+    base.tasks[0].execution_attempts[0].executor_title = Some("Worker".into());
+    let mut variants = vec![base.clone()];
+    for status in [
+        TaskStatus::InProgress,
+        TaskStatus::Blocked,
+        TaskStatus::InReview,
+        TaskStatus::Paused,
+        TaskStatus::Done,
+        TaskStatus::Cancelled,
+    ] {
+        let mut plan = base.clone();
+        plan.tasks[0].status = status;
+        variants.push(plan);
+    }
+    type Change = fn(&mut crate::plan::Task);
+    let changes: &[Change] = &[
+        |task| task.assigned_tab_id = None,
+        |task| task.assigned_tab_id = Some("other".into()),
+        |task| task.execution_attempts.clear(),
+        |task| task.execution_attempts[0].executor_title = None,
+        |task| task.execution_attempts[0].acknowledged_at = Some(4),
+        |task| task.execution_attempts[0].reported_at = Some(4),
+        |task| task.execution_attempts[0].report = Some(Default::default()),
+        |task| task.execution_attempts[0].competition_group_id = Some("group".into()),
+        |task| task.execution_attempts[0].closed_at = Some(4),
+        |task| task.execution_attempts[0].retired_at = Some(4),
+    ];
+    for change in changes {
+        let mut plan = base.clone();
+        change(&mut plan.tasks[0]);
+        variants.push(plan);
+    }
+    for (group, session, retired, closed, executor) in [
+        (None, Some("session"), None, None, "worker"),
+        (Some("group"), Some("session"), None, None, "worker"),
+        (Some("group"), None, None, None, "worker"),
+        (Some("group"), Some("\u{2003}"), None, None, "worker"),
+        (Some("group"), Some("session"), Some(2), None, "worker"),
+        (Some("group"), Some("session"), None, Some(2), "worker"),
+        (Some("group"), Some("session"), None, None, "other"),
+    ] {
+        let mut plan = base.clone();
+        let mut prior = plan.tasks[0].execution_attempts[0].clone();
+        prior.competition_group_id = group.map(str::to_string);
+        prior.session_id = session.map(str::to_string);
+        prior.retired_at = retired;
+        prior.closed_at = closed;
+        prior.executor_tab_id = executor.into();
+        plan.tasks[0].execution_attempts.insert(0, prior);
+        variants.push(plan);
+    }
+    for group in [None, Some("newer-group")] {
+        let mut plan = base.clone();
+        let mut retired = plan.tasks[0].execution_attempts[0].clone();
+        retired.id = "newer-retired".into();
+        retired.retired_at = Some(2);
+        retired.competition_group_id = group.map(str::to_string);
+        plan.tasks[0].execution_attempts.push(retired);
+        variants.push(plan);
+    }
+    let database = fixtures::database(directory.path(), &base);
+    for (index, plan) in variants.iter().enumerate() {
+        database.persist_plan_rows(plan, None).unwrap();
+        let expected =
+            crate::service_plan::task_dispatch::current_dispatch_startup_owner(&plan.tasks[0]);
+        assert_eq!(
+            database
+                .dispatch_startup_owner_projection(&plan.id, "named")
+                .unwrap(),
+            expected,
+            "variant {index}"
+        );
+        assert_eq!(
+            database
+                .task_startup_status_projection(&plan.id, "named")
+                .unwrap(),
+            plan.tasks[0].status,
+            "variant {index}"
+        );
+    }
+    database.persist_plan_rows(&base, None).unwrap();
+    assert_eq!(
+        database
+            .dispatch_startup_owner_projection("missing", "named")
+            .unwrap(),
+        None
+    );
+    assert!(matches!(
+        database.task_startup_status_projection("missing", "named"),
+        Err(PlanError::NotFound)
+    ));
+    assert!(matches!(
+        database.task_startup_status_projection(&base.id, "missing"),
+        Err(PlanError::TaskNotFound)
+    ));
+    let mut collision = base.tasks[0].clone();
+    collision.id = "second".into();
+    base.tasks.push(collision);
+    database.persist_plan_rows(&base, None).unwrap();
+    assert_eq!(
+        database
+            .dispatch_startup_owner_projection(&base.id, "named")
+            .unwrap(),
+        None
+    );
+    assert!(matches!(
+        database.task_startup_status_projection(&base.id, "named"),
+        Err(PlanError::TaskNotFound)
+    ));
+    database.connection.lock().execute("UPDATE plan_task_attempts SET row_json=json_set(row_json,'$.acknowledged_at','invalid') WHERE task_id='task_exact'",[]).unwrap();
+    assert!(database
+        .dispatch_startup_owner_projection(&base.id, "task_exact")
+        .is_err());
+}
+
+#[test]
+fn startup_owner_and_status_queries_ignore_unselected_history_and_bodies() {
+    let mut prior = None;
+    for (strides, attempts, body, history) in [
+        (0, 1, 0, 0),
+        (2048, 1, 0, 0),
+        (0, 2048, 0, 0),
+        (0, 1, 32768, 0),
+        (0, 1, 0, 2048),
+    ] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        let task = &mut plan.tasks[0];
+        task.assigned_tab_id = Some("worker".into());
+        task.execution_attempts[0].executor_title = Some("Worker".into());
+        let source = task.execution_attempts[0].clone();
+        for index in 0..history {
+            let mut old = source.clone();
+            old.id = format!("closed-{index}");
+            old.closed_at = Some(2);
+            task.execution_attempts.push(old);
+        }
+        task.body.push_str(&"x".repeat(body));
+        plan.tasks[1].body.push_str(&"x".repeat(body));
+        let database = fixtures::database(directory.path(), &plan);
+        fixtures::audit(&database);
+        take_metrics();
+        super::super::super::super::store_sync::take_decoded_row_bytes();
+        super::super::super::super::store_rows::take_serialized_row_bytes();
+        let status = database
+            .task_startup_status_projection(&plan.id, "task_0000")
+            .unwrap();
+        let owner = database
+            .dispatch_startup_owner_projection(&plan.id, "task_0000")
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, TaskStatus::Pending);
+        assert_eq!(owner.attempt_id, "current");
+        assert_eq!(owner.tab_id, "worker");
+        let metrics = take_metrics();
+        let decoded = super::super::super::super::store_sync::take_decoded_row_bytes();
+        let serialized = super::super::super::super::store_rows::take_serialized_row_bytes();
+        let response = serde_json::to_vec(&(status, owner.attempt_id, owner.tab_id))
+            .unwrap()
+            .len();
+        assert_eq!(metrics.queries, 2);
+        assert!(metrics.materialized_bytes < 2048);
+        assert!(decoded < 2048);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=startup_owner tasks={} base_bytes={} old_strides={strides} unrelated_attempts={attempts} extra_body={body} unselected_target_history={history} queries={} materialized_text_bytes={} decoded_json_bytes={decoded} serialized_row_bytes={serialized} response_bytes={response} changed_rows=0",fixtures::SEED,fixtures::TASKS,fixtures::CONTENT_BYTES,metrics.queries,metrics.materialized_bytes);
+        let measured = (metrics, decoded, response);
+        if let Some(prior) = &prior {
+            assert_eq!(&measured, prior);
+        }
+        prior = Some(measured);
+    }
+}
+mod continuity;

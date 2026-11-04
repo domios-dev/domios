@@ -42,7 +42,9 @@ fn store_concurrent_dispatch_cleanup_releases_losing_lane_and_tab() {
         let plan_id = plan.id.clone();
         let task_id = task_id.clone();
         std::thread::spawn(move || {
-            let observed_owner = store.dispatch_startup_owner_candidate(&plan_id, &task_id);
+            let observed_owner = store
+                .dispatch_startup_owner_candidate(&plan_id, &task_id)
+                .unwrap();
             barrier.wait();
             let result = store.begin_task_dispatch_with_observation(
                 &plan_id,
