@@ -346,22 +346,6 @@ fn merge_values(target: &mut toml::Value, incoming: toml::Value) {
     }
 }
 
-fn insert_nested_value(tables: &mut toml::Table, keys: &[&str], value: toml::Value) {
-    let Some((key, rest)) = keys.split_first() else {
-        return;
-    };
-    if rest.is_empty() {
-        tables.insert((*key).to_string(), value);
-        return;
-    }
-    let table = tables
-        .entry((*key).to_string())
-        .or_insert_with(|| toml::Value::Table(toml::Table::new()));
-    if let toml::Value::Table(table) = table {
-        insert_nested_value(table, rest, value);
-    }
-}
-
 pub(super) fn salvaged_token(raw: &str) -> Option<String> {
     let mut section = String::new();
     let mut token = None;
