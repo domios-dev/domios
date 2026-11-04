@@ -339,7 +339,7 @@ impl PlanStore {
         plan_id: &str,
         request_id: &str,
         now_ms: u64,
-    ) -> Result<(), PlanError> {
+    ) -> Result<PlannerRequest, PlanError> {
         self.with_runtime_rows::<PlannerRows, _>(plan_id, now_ms, |plan| {
             let request = plan
                 .planner_requests
@@ -349,6 +349,7 @@ impl PlanStore {
             request.state = PlannerRequestState::Completed;
             request.completed_at = Some(now_ms);
             request.lease_expires_at = None;
+            let completed = request.clone();
             let inbox = plan
                 .planner_inbox
                 .iter_mut()
@@ -357,7 +358,7 @@ impl PlanStore {
             inbox.phase = PlannerDeliveryPhase::PlannerAcked;
             inbox.last_error = None;
             inbox.updated_at = now_ms;
-            Ok(())
+            Ok(completed)
         })
     }
 

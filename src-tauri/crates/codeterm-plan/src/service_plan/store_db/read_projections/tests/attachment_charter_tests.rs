@@ -47,7 +47,7 @@ fn expected_charter(plan: &Plan) -> String {
     let mut body = worker_charter::render_worker_charter(
         &task.id,
         identity.as_deref(),
-        Some(&plan.loops[1]),
+        Some(&worker_charter::LoopCharterRead::from(&plan.loops[1])),
         crate::service_plan::task_attempts::live_attempt_count(task),
         0,
     );
@@ -376,4 +376,64 @@ fn worker_charter_reads_task_identity_and_loop_stop_text_in_one_commit() {
         barrier.wait();
     }
     writer.join().unwrap();
+}
+
+#[test]
+fn unrelated_worker_charter_binding_is_indexed_and_materializes_no_task_rows() {
+    for (strides, attempts, extra) in [(0, 1, 0), (2048, 1, 0), (0, 2048, 0), (0, 1, 32768)] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut plan = fixtures::fixture(directory.path(), strides, attempts);
+        plan.tasks[0].body.push_str(&"x".repeat(extra));
+        let database = fixtures::database(directory.path(), &plan);
+        let details = {
+            let connection = database.connection.lock();
+            let mut statement = connection
+                .prepare(&format!(
+                    "EXPLAIN QUERY PLAN {}",
+                    crate::service_plan::store_db::charter_queries::WORKER_ASSIGNMENT_SQL
+                ))
+                .unwrap();
+            let rows = statement
+                .query_map(
+                    params![
+                        "unrelated-worker",
+                        crate::service_plan::store_db::status_queries::WHITESPACE
+                    ],
+                    |row| row.get::<_, String>(3),
+                )
+                .unwrap()
+                .collect::<Result<Vec<_>, _>>()
+                .unwrap();
+            rows
+        };
+        for index in [
+            "plan_tasks_assigned_tab_id",
+            "plan_tasks_lane_tab_id",
+            "plan_task_attempts_executor_tab_id",
+        ] {
+            assert!(
+                details
+                    .iter()
+                    .any(|detail| detail.contains("SEARCH") && detail.contains(index)),
+                "{index}: {details:?}"
+            );
+        }
+        fixtures::audit(&database);
+        take_metrics();
+        crate::service_plan::store_sync::take_decoded_row_bytes();
+        crate::service_plan::store_rows::take_serialized_row_bytes();
+        assert!(database
+            .worker_assignment_projection("unrelated-worker")
+            .unwrap()
+            .is_none());
+        let metrics = take_metrics();
+        let decoded = crate::service_plan::store_sync::take_decoded_row_bytes();
+        let serialized = crate::service_plan::store_rows::take_serialized_row_bytes();
+        assert_eq!(metrics.queries, 2);
+        assert_eq!(metrics.materialized_bytes, 0);
+        assert_eq!(decoded, 0);
+        assert_eq!(serialized, 0);
+        assert!(fixtures::audit_counts(&database).is_empty());
+        println!("fixture={} consumer=unrelated_worker_charter tasks={} old_strides={strides} unrelated_attempts={attempts} extra_body={extra} queries=2 materialized_text_bytes=0 decoded_json_bytes=0 serialized_row_bytes=0 response_bytes=0 changed_rows=0",fixtures::SEED,fixtures::TASKS);
+    }
 }
