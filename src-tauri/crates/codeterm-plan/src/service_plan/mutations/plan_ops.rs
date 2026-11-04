@@ -183,16 +183,14 @@ impl PlanStore {
             canvas: Default::default(),
             attachments: vec![],
         };
-        self.with_plan(plan_id, now_ms, |p| match parent {
-            None => {
-                p.sections.push(section);
-                Ok(())
-            }
-            Some(pid) => match push_subsection(&mut p.sections, pid, section) {
-                None => Ok(()),
-                Some(_) => Err(PlanError::NotFound),
+        self.commit_section_change(
+            plan_id,
+            crate::service_plan::store_db::hot_write::SectionChange::Add {
+                section,
+                parent: parent.map(str::to_string),
             },
-        })?;
+            now_ms,
+        )?;
         Ok(sid)
     }
 
@@ -718,14 +716,19 @@ impl PlanStore {
         if let Some(handle) = handle {
             crate::service_plan::text_bounds::validate_plan_label("section handle", handle)?;
         }
-        self.with_plan(plan_id, now_ms, |p| {
-            if update_section_fields(&mut p.sections, section_id, title, body) {
-                update_section_tags(&mut p.sections, section_id, tags, primary, handle);
-                Ok(())
-            } else {
-                Err(PlanError::NotFound)
-            }
-        })
+        self.commit_section_change(
+            plan_id,
+            crate::service_plan::store_db::hot_write::SectionChange::Update {
+                selector: section_id.into(),
+                title: title.map(str::to_string),
+                body: body.map(str::to_string),
+                tags: tags.to_vec(),
+                primary: primary.map(str::to_string),
+                handle: handle.map(str::to_string),
+            },
+            now_ms,
+        )
+        .map(|_| ())
     }
 
     pub fn rm_section(
@@ -734,14 +737,13 @@ impl PlanStore {
         section_id: &str,
         now_ms: u64,
     ) -> Result<(), PlanError> {
-        let removed = self.section_removal_ids_projection(plan_id, section_id)?;
-        self.with_plan(plan_id, now_ms, |p| {
-            if rm_section_tree(&mut p.sections, section_id) {
-                Ok(())
-            } else {
-                Err(PlanError::NotFound)
-            }
-        })?;
+        let removed = self.commit_section_change(
+            plan_id,
+            crate::service_plan::store_db::hot_write::SectionChange::Remove {
+                selector: section_id.into(),
+            },
+            now_ms,
+        )?;
         for section_id in removed {
             self.remove_section_attachment_dir(plan_id, &section_id)?;
         }

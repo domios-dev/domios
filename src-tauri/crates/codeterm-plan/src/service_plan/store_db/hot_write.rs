@@ -14,6 +14,7 @@ mod plan_audit;
 mod plan_fields;
 mod plan_state;
 mod review_rows;
+mod section_rows;
 mod task_fields;
 pub(in crate::service_plan) use gate_rows::{GateAsk, GateChange};
 pub(in crate::service_plan) use header_edits::HeaderChange;
@@ -21,6 +22,7 @@ pub(in crate::service_plan) use loop_rows::LoopChange;
 pub(in crate::service_plan) use plan_audit::PlanAudit;
 pub(in crate::service_plan) use plan_state::PlanEdit;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
+pub(in crate::service_plan) use section_rows::SectionChange;
 pub(in crate::service_plan) use task_fields::TaskFields;
 
 #[derive(Default)]
@@ -81,6 +83,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub milestones: usize,
     pub strides: usize,
     pub task_rows: usize,
+    pub section_rows: usize,
     pub header_rows: usize,
     pub decoded_bytes: usize,
     pub serialized_bytes: usize,
@@ -91,6 +94,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
     pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,
+    pub section_search: Vec<crate::service_plan::search_index::SectionIndexDelta>,
 }
 
 impl std::fmt::Debug for CommittedRows {
@@ -98,6 +102,7 @@ impl std::fmt::Debug for CommittedRows {
         formatter
             .debug_struct("CommittedRows")
             .field("task_rows", &self.task_rows)
+            .field("section_rows", &self.section_rows)
             .field("header_rows", &self.header_rows)
             .field("attempts", &self.attempts)
             .field("milestones", &self.milestones)
@@ -117,7 +122,7 @@ impl std::fmt::Debug for CommittedRows {
 
 #[cfg(test)]
 thread_local! {
-    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 9]>> = const { std::cell::RefCell::new(None) };
+    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 10]>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -133,12 +138,13 @@ pub(in crate::service_plan) fn record_work(receipt: &CommittedRows) {
             receipt.serialized_bytes,
             receipt.projected_text_bytes,
             receipt.hashed_bytes,
+            receipt.section_rows,
         ])
     });
 }
 
 #[cfg(test)]
-fn take_work() -> [usize; 9] {
+fn take_work() -> [usize; 10] {
     LAST_COMMITTED_WORK.with(|cell| cell.borrow_mut().take().expect("committed hot receipt"))
 }
 
@@ -308,6 +314,7 @@ impl PlanDatabase {
                 super::change_feed::next_revision(receipt.previous_revision, operation_id)?;
             change(&tx, &mut receipt)?;
             if receipt.header_rows
+                + receipt.section_rows
                 + receipt.task_rows
                 + receipt.milestones
                 + receipt.attempts
@@ -342,7 +349,7 @@ impl PlanDatabase {
                         receipt.revision,
                         receipt.previous_revision,
                         receipt.tasks.iter().cloned().collect(),
-                        false,
+                        receipt.section_rows > 0,
                         false,
                     ));
             }
