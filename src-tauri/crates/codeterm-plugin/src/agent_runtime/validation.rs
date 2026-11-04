@@ -338,6 +338,13 @@ pub fn validate_runtime_plan(
         return Err(mismatch("question answer must be local formatting"));
     }
     match &plan.action {
+        RuntimeAction::Local => {
+            if !matches!(op, RuntimeOperation::ResumeThread { thread_id, .. } if ctx.thread_id.as_ref() == Some(thread_id))
+            {
+                return Err(mismatch("local action requires the bound resume thread"));
+            }
+            Ok(())
+        }
         RuntimeAction::Refused { reason } => plan_refusal(reason),
         RuntimeAction::QuestionAnswer { input } => {
             if !matches!(op, RuntimeOperation::AnswerQuestion { .. }) {

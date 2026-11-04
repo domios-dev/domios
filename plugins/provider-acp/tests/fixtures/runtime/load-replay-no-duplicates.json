@@ -298,105 +298,7 @@
       "direction": "outbound",
       "operation": 3,
       "action": {
-        "kind": "request",
-        "call": {
-          "method": "session/load",
-          "params": {
-            "sessionId": "session-fixture",
-            "cwd": "/work/project",
-            "mcpServers": []
-          }
-        }
-      }
-    },
-    {
-      "direction": "inbound",
-      "frame": {
-        "kind": "notification",
-        "method": "session/update",
-        "params": {
-          "sessionId": "session-fixture",
-          "update": {
-            "sessionUpdate": "user_message_chunk",
-            "content": {
-              "type": "text",
-              "text": "Hello"
-            }
-          }
-        }
-      },
-      "context": {
-        "epoch": 1,
-        "cwd": "/work/project",
-        "hostVersion": "1.18.7",
-        "tabId": "load-replay-no-duplicates",
-        "bindingNonce": "nonce-fixture",
-        "settings": {},
-        "providerSettings": {},
-        "claimedSends": [],
-        "activeTurns": [],
-        "threadParents": [],
-        "threadId": "session-fixture"
-      }
-    },
-    {
-      "direction": "inbound",
-      "frame": {
-        "kind": "notification",
-        "method": "session/update",
-        "params": {
-          "sessionId": "session-fixture",
-          "update": {
-            "sessionUpdate": "agent_thought_chunk",
-            "content": {
-              "type": "text",
-              "text": "Thinking"
-            }
-          }
-        }
-      },
-      "context": {
-        "epoch": 1,
-        "cwd": "/work/project",
-        "hostVersion": "1.18.7",
-        "tabId": "load-replay-no-duplicates",
-        "bindingNonce": "nonce-fixture",
-        "settings": {},
-        "providerSettings": {},
-        "claimedSends": [],
-        "activeTurns": [],
-        "threadParents": [],
-        "threadId": "session-fixture"
-      }
-    },
-    {
-      "direction": "inbound",
-      "frame": {
-        "kind": "notification",
-        "method": "session/update",
-        "params": {
-          "sessionId": "session-fixture",
-          "update": {
-            "sessionUpdate": "agent_message_chunk",
-            "content": {
-              "type": "text",
-              "text": "Answer"
-            }
-          }
-        }
-      },
-      "context": {
-        "epoch": 1,
-        "cwd": "/work/project",
-        "hostVersion": "1.18.7",
-        "tabId": "load-replay-no-duplicates",
-        "bindingNonce": "nonce-fixture",
-        "settings": {},
-        "providerSettings": {},
-        "claimedSends": [],
-        "activeTurns": [],
-        "threadParents": [],
-        "threadId": "session-fixture"
+        "kind": "local"
       }
     },
     {
@@ -404,112 +306,14 @@
       "operation": 3,
       "reply": {
         "kind": "success",
-        "value": {}
+        "value": null
       }
     },
     {
       "direction": "outbound",
       "operation": 4,
       "action": {
-        "kind": "request",
-        "call": {
-          "method": "session/load",
-          "params": {
-            "sessionId": "session-fixture",
-            "cwd": "/work/project",
-            "mcpServers": []
-          }
-        }
-      }
-    },
-    {
-      "direction": "inbound",
-      "frame": {
-        "kind": "notification",
-        "method": "session/update",
-        "params": {
-          "sessionId": "session-fixture",
-          "update": {
-            "sessionUpdate": "user_message_chunk",
-            "content": {
-              "type": "text",
-              "text": "Hello"
-            }
-          }
-        }
-      },
-      "context": {
-        "epoch": 1,
-        "cwd": "/work/project",
-        "hostVersion": "1.18.7",
-        "tabId": "load-replay-no-duplicates",
-        "bindingNonce": "nonce-fixture",
-        "settings": {},
-        "providerSettings": {},
-        "claimedSends": [],
-        "activeTurns": [],
-        "threadParents": [],
-        "threadId": "session-fixture"
-      }
-    },
-    {
-      "direction": "inbound",
-      "frame": {
-        "kind": "notification",
-        "method": "session/update",
-        "params": {
-          "sessionId": "session-fixture",
-          "update": {
-            "sessionUpdate": "agent_thought_chunk",
-            "content": {
-              "type": "text",
-              "text": "Thinking"
-            }
-          }
-        }
-      },
-      "context": {
-        "epoch": 1,
-        "cwd": "/work/project",
-        "hostVersion": "1.18.7",
-        "tabId": "load-replay-no-duplicates",
-        "bindingNonce": "nonce-fixture",
-        "settings": {},
-        "providerSettings": {},
-        "claimedSends": [],
-        "activeTurns": [],
-        "threadParents": [],
-        "threadId": "session-fixture"
-      }
-    },
-    {
-      "direction": "inbound",
-      "frame": {
-        "kind": "notification",
-        "method": "session/update",
-        "params": {
-          "sessionId": "session-fixture",
-          "update": {
-            "sessionUpdate": "agent_message_chunk",
-            "content": {
-              "type": "text",
-              "text": "Answer"
-            }
-          }
-        }
-      },
-      "context": {
-        "epoch": 1,
-        "cwd": "/work/project",
-        "hostVersion": "1.18.7",
-        "tabId": "load-replay-no-duplicates",
-        "bindingNonce": "nonce-fixture",
-        "settings": {},
-        "providerSettings": {},
-        "claimedSends": [],
-        "activeTurns": [],
-        "threadParents": [],
-        "threadId": "session-fixture"
+        "kind": "local"
       }
     },
     {
@@ -517,7 +321,7 @@
       "operation": 4,
       "reply": {
         "kind": "success",
-        "value": {}
+        "value": null
       }
     }
   ],

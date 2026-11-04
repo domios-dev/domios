@@ -358,6 +358,7 @@ pub struct RpcCall {
     deny_unknown_fields
 )]
 pub enum RuntimeAction {
+    Local,
     Refused { reason: String },
     QuestionAnswer { input: TurnInput },
     Request { call: RpcCall },

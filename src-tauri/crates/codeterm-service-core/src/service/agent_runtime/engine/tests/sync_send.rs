@@ -43,19 +43,26 @@ pub(super) fn runtime_fixture_with_notifications(
     source: &str,
     notifications: &[&str],
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, notifications, false)
+    runtime_fixture_options(source, notifications, false, true)
 }
 
 pub(super) fn runtime_fixture_with_stored_history(
     source: &str,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
-    runtime_fixture_options(source, &[], true)
+    runtime_fixture_options(source, &[], true, true)
+}
+
+pub(super) fn runtime_fixture_without_remote_history(
+    source: &str,
+) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
+    runtime_fixture_options(source, &[], true, false)
 }
 
 fn runtime_fixture_options(
     source: &str,
     notifications: &[&str],
     stored_history: bool,
+    remote_history: bool,
 ) -> (ServiceFixture, String, tokio::io::DuplexStream, Cleanup) {
     const PROVIDER: &str = "sync-send-fixture";
     let (mut mux, tab_id) = MultiplexerState::new();
@@ -77,14 +84,21 @@ fn runtime_fixture_options(
     };
     let fixture = ServiceFixture::new(mux);
 
-    let manifest = PluginManifest::from_json_str(&json!({
+    let mut manifest = json!({
         "id":PROVIDER,"version":"1.0.0","displayName":"Fixture",
         "capabilities":{"agentProvider":true,"chatBackend":{"spawnable":true,"sessionConfig":true,"agentTasks":true},
             "agentRuntime":{"runtime":"stdio-jsonrpc","storedHistory":stored_history,"command":{"binary":"fixture-cli","args":[]},
                 "login":{"methods":["browser","device","apiKey"]},
                 "requestMethods":{"control":["fixture/control"],"initialize":["fixture/initialize"],"openThread":["fixture/open"],"resumeThread":["fixture/resume"],"readHistory":["fixture/history"],"submitTurn":["fixture/submit"]},"notificationMethods":notifications}},
         "permissions":{"subprocess":{"allow":["fixture-cli"]}}
-    }).to_string()).unwrap();
+    });
+    if !remote_history {
+        manifest["capabilities"]["agentRuntime"]["requestMethods"]
+            .as_object_mut()
+            .unwrap()
+            .remove("readHistory");
+    }
+    let manifest = PluginManifest::from_json_str(&manifest.to_string()).unwrap();
     fixture
         .service
         .agent_registry

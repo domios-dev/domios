@@ -11,6 +11,7 @@ import type { LockedView } from "../billing/freeLimitModel";
 import { LockedOverlay } from "../billing/LockBadge";
 import { openLockedPlans } from "../billing/freeLimitGate";
 import { useRestartTab } from "./useRestartTab";
+import { describeRuntimeConnectionError } from "../../lib/describeError";
 import { InlineErrorNotice } from "../shared/ErrorNotice";
 
 export { chatSetupView } from "./chatSetupModel";
@@ -56,7 +57,8 @@ export function ChatSetupState({
     return lock ? <LockedOverlay view={lock} onActivate={() => openLockedPlans(lock)} /> : null;
   }
   if (view.kind === "attach_failed") {
-    return <ChatStatusBanner title="Chat connection failed" reason={view.reason} testId="chat-recovery-error"
+    const failure = describeRuntimeConnectionError(view.reason);
+    return <ChatStatusBanner title="Chat connection failed" reason={failure.title} details={failure.raw} testId="chat-recovery-error"
       action={<button type="button" data-testid="chat-retry" onClick={onRetry}>Retry</button>} />;
   }
   if (view.kind === "launch_failed") {

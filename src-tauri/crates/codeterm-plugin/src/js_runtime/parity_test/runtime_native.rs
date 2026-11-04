@@ -71,6 +71,7 @@ impl AgentProvider for NativeRuntime {
     ) -> Result<RuntimePlan, RuntimeFailure> {
         validate_runtime_operation(ctx, op)?;
         let action = match op {
+            _ if ctx.provider_settings["localResume"] == true => RuntimeAction::Local,
             RuntimeOperation::Control { action, value, .. } if action == "refuse" => {
                 RuntimeAction::Refused {
                     reason: value.as_str().unwrap_or_default().into(),

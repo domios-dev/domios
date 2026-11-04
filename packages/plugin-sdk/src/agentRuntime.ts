@@ -88,6 +88,7 @@ export type Operation =
   | {kind:"control"; threadId?:string; action:string; value:JsonValue};
 export interface RpcCall { method:string; params:JsonValue; target?:{threadId:string;turnId?:string} }
 export type RuntimeAction =
+  | {kind:"local"}
   | {kind:"refused"; reason:string}
   | {kind:"request"; call:RpcCall}
   | {kind:"notification"; notification:RpcCall}

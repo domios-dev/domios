@@ -527,10 +527,14 @@ function runtimePlan(ctx, op) {
       if (ctx.threadId || state.sessionId) return refusePlan("ACP session is already bound");
       return request(methods.newSession, { cwd: ctx.cwd, mcpServers: [] });
     case "resumeThread": {
+      if (state.sessionId && state.sessionId !== op.threadId) return refusePlan("ACP session does not belong to this runtime");
+      if (state.sessionActive && state.sessionId === op.threadId)
+        return { action: { kind: "local" }, state: { method: "boundSession" } };
       const capabilities = state.capabilities;
       const session = object4(capabilities.sessionCapabilities);
       const method = record(session.resume) ? methods.resume : capabilities.loadSession === true ? methods.load : null;
       if (!method) return refusePlan("ACP agent did not advertise session/load or session/resume");
+      state.sessionActive = false;
       state.sessionId = op.threadId;
       state.cursor = { replay: state.cursor.replay + 1, prompt: 0, loading: true };
       return request(method, { sessionId: op.threadId, cwd: ctx.cwd, mcpServers: [] });
@@ -603,6 +607,7 @@ function runtimeResponse(ctx, op, raw, reply) {
       authenticated,
       required: authenticated ? false : prior?.required,
       sessionId: prior?.sessionId,
+      sessionActive: prior?.sessionActive,
       instructions: prior?.instructions,
       cursor: prior?.cursor ?? { replay: 0, prompt: 0, loading: false },
       inFlight: prior?.inFlight ?? false,
@@ -618,6 +623,10 @@ function runtimeResponse(ctx, op, raw, reply) {
   }
   const state = negotiated(ctx);
   if (!state) return refused("provider_refused", "ACP initialization is required for this runtime epoch");
+  if (op.kind === "resumeThread" && method === "boundSession") {
+    if (!state.sessionActive || state.sessionId !== op.threadId) return refused("binding_mismatch", "ACP session is not active in this runtime");
+    return { kind: "complete", result: { kind: "threadLoaded", threadId: ownSession(ctx, state), settings: { ...op.settings, ...state.settings } } };
+  }
   if (op.kind === "openThread" || op.kind === "resumeThread") {
     if (op.kind === "resumeThread") {
       const allowed = method === methods.load ? state.capabilities.loadSession === true : method === methods.resume && record(object4(state.capabilities.sessionCapabilities).resume);
@@ -627,6 +636,7 @@ function runtimeResponse(ctx, op, raw, reply) {
     if (typeof sessionId !== "string" || !sessionId || sessionId.length > 4096 || op.kind === "resumeThread" && value.sessionId !== void 0 && value.sessionId !== sessionId)
       return refused("binding_mismatch", "ACP session identity is invalid");
     state.sessionId = sessionId;
+    state.sessionActive = true;
     state.instructions = op.instructions;
     state.cursor.loading = false;
     state.settings = { commands: [], configOptions: [], modes: [], ...sessionSettings(value) };

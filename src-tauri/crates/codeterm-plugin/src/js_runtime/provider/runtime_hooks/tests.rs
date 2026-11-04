@@ -580,3 +580,49 @@ async fn declared_plan_refusal_preserves_cached_globals_for_other_tabs() {
     };
     assert_eq!(call.params["existing"], true);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn local_runtime_action_only_resumes_the_exact_bound_thread() {
+    let js = provider("module.exports={runtimePlan(){return {action:{kind:'local'},state:null}}}");
+    let mut ctx = context();
+    ctx.thread_id = Some("own-thread".into());
+    let resume = RuntimeOperation::ResumeThread {
+        thread_id: "own-thread".into(),
+        instructions: String::new(),
+        settings: Default::default(),
+    };
+    let plan = js.runtime_plan(&ctx, &resume).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(plan.action).unwrap(),
+        json!({"kind":"local"})
+    );
+    for operation in [
+        RuntimeOperation::Initialize,
+        RuntimeOperation::OpenThread {
+            instructions: String::new(),
+            settings: Default::default(),
+        },
+        RuntimeOperation::ReadHistory {
+            thread_id: "own-thread".into(),
+            cursor: None,
+            order: None,
+        },
+        RuntimeOperation::Control {
+            thread_id: Some("own-thread".into()),
+            action: "auth".into(),
+            value: Value::Null,
+        },
+    ] {
+        assert_eq!(
+            js.runtime_plan(&ctx, &operation).await.unwrap_err().code,
+            RuntimeFailureCode::BindingMismatch
+        );
+    }
+    ctx.thread_id = Some("foreign".into());
+    assert!(js.runtime_plan(&ctx, &resume).await.is_err());
+    ctx.thread_id = None;
+    assert!(js.runtime_plan(&ctx, &resume).await.is_err());
+    ctx.thread_id = Some("own-thread".into());
+    ctx.epoch = 0;
+    assert!(js.runtime_plan(&ctx, &resume).await.is_err());
+}
