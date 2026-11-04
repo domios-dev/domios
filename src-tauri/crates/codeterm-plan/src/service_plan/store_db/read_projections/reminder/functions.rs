@@ -34,6 +34,26 @@ pub(super) fn register(
     scrubber: fn(&str) -> String,
 ) -> std::result::Result<(), PlanError> {
     hashing::register(connection)?;
+    connection
+        .create_scalar_function(
+            "domios_reminder_active",
+            4,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            |context| {
+                let status: crate::plan::PlanStatus = enumeration(text(context, 0)?.unwrap_or(""))?;
+                let mode: crate::plan::PlanMode =
+                    enumeration(text(context, 1)?.unwrap_or("planning"))?;
+                let control: crate::plan::ControlLoopMode =
+                    enumeration(text(context, 2)?.unwrap_or("curator"))?;
+                Ok(super::active_execution(
+                    &status,
+                    &mode,
+                    control,
+                    context.get(3)?,
+                ))
+            },
+        )
+        .map_err(super::super::super::db_error)?;
     let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
     connection
         .create_scalar_function("domios_reminder_scrubbed", 1, flags, move |context| {
@@ -137,23 +157,35 @@ pub(super) fn state_key(
     connection: &Connection,
     read: &ReminderPlanRead,
 ) -> std::result::Result<String, PlanError> {
+    state_key_fields(connection, &read.id, &read.status, &read.mode)
+}
+
+pub(super) fn state_key_fields(
+    connection: &Connection,
+    id: &str,
+    status: &crate::plan::PlanStatus,
+    mode: &crate::plan::PlanMode,
+) -> std::result::Result<String, PlanError> {
     super::record_query();
-    let tasks = read
-        .tasks
-        .iter()
-        .map(|task| serde_json::json!({"id":task.id,"projection":task.projection}))
-        .collect::<Vec<_>>();
-    let tasks = serde_json::to_string(&tasks).map_err(|error| PlanError::Io(error.to_string()))?;
-    let prefix = format!(
-        "owner:{}:Orchestrator:{:?}:{:?}:",
-        read.id, read.status, read.mode
-    );
-    connection.query_row(
-        "SELECT domios_reminder_state_digest(?2,task_id,presentation,status_label,waits) FROM (
-            SELECT t.task_id, json_extract(j.value,'$.projection.presentation') AS presentation,json_extract(t.row_json,'$.status_label') AS status_label,
-                j.value->'$.projection.dependency_waits' AS waits,t.position
-            FROM plan_tasks t JOIN json_each(?3) j ON json_extract(j.value,'$.id')=t.task_id WHERE t.plan_id=?1
-            UNION ALL SELECT NULL,NULL,NULL,NULL,0 WHERE NOT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1)
-            ORDER BY position)", rusqlite::params![read.id,prefix,tasks], |row|super::column(row,0)
-    ).map_err(super::super::super::db_error)
+    let prefix = format!("owner:{}:Orchestrator:{:?}:{:?}:", id, status, mode);
+    let facts = super::super::super::curator_notice_queries::reminder_task_facts();
+    let sql=format!("{facts}, projected AS MATERIALIZED (
+        SELECT t.task_id,t.position,json_extract(t.row_json,'$.status_label') AS status_label,
+            domios_reminder_projection(t.status,coalesce(json_extract(t.row_json,'$.review_stage'),'review'),json_extract(t.row_json,'$.qa_state'),
+                (SELECT json_group_array(json_object('task_id',dep.value,'name','', 'status',target.status,'missing',json(CASE WHEN target.task_id IS NULL THEN 'true' ELSE 'false' END)))
+                 FROM json_each(coalesce(t.row_json->'$.depends_on','[]')) dep LEFT JOIN plan_tasks target ON target.plan_id=t.plan_id AND target.task_id=dep.value
+                 WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
+                coalesce(json_extract(t.row_json,'$.interruption.handoff_required'),0),
+                parent.parent_id IS NOT NULL,json_extract(f.decision,'$.parked')) AS projection
+        FROM plan_tasks t JOIN facts f ON f.task_id=t.task_id LEFT JOIN open_parents parent ON parent.parent_id=t.task_id WHERE t.plan_id=?1
+    ) SELECT domios_reminder_state_digest(?3,task_id,presentation,status_label,waits) FROM (
+        SELECT task_id,json_extract(projection,'$.presentation') AS presentation,status_label,projection->'$.dependency_waits' AS waits,position FROM projected
+        UNION ALL SELECT NULL,NULL,NULL,NULL,0 WHERE NOT EXISTS(SELECT 1 FROM plan_tasks WHERE plan_id=?1) ORDER BY position)");
+    connection
+        .query_row(
+            &sql,
+            rusqlite::params![id, super::super::super::status_queries::WHITESPACE, prefix],
+            |row| super::column(row, 0),
+        )
+        .map_err(super::super::super::db_error)
 }

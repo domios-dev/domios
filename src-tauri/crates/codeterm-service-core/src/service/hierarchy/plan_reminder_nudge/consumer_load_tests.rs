@@ -60,16 +60,18 @@ fn reconcile_time_reminder_eligibility_never_loads_unmatched_plans() {
 }
 
 #[test]
-fn live_host_with_plans_never_loads_unmatched_plans() {
+fn live_host_worker_bindings_never_loads_unmatched_plans() {
     let (fx, working, unmatched) = seeded();
     let host = LiveHost {
         svc: &fx.service,
         interval: 60,
     };
 
-    let ids = host
-        .with_plans(|plans| plans.iter().map(|plan| plan.id.clone()).collect::<Vec<_>>())
-        .unwrap();
+    let ids = match host.worker_bindings("worker-tab", None).unwrap() {
+        WorkerBindingRead::Bound { plan, .. } => vec![plan.id],
+        WorkerBindingRead::Missing => Vec::new(),
+        WorkerBindingRead::Ambiguous => panic!("one eligible binding"),
+    };
     assert_eq!(ids, vec![working]);
     assert_never_loaded(&fx.service.plan_store, &[&unmatched[0], &unmatched[1]]);
 }
