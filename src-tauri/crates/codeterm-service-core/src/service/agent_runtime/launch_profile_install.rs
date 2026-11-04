@@ -47,7 +47,7 @@ pub struct ProfileState {
 
 pub fn profile_root(provider: &str) -> Result<PathBuf, String> {
     valid_id(provider)?;
-    Ok(crate::paths::data_dir()
+    Ok(crate::paths::data_dir_path()
         .join("providers")
         .join(provider)
         .join("profiles"))
@@ -125,7 +125,9 @@ fn write_receipt(root: &Path, receipt: &InstallReceipt) -> Result<(), String> {
     let path = receipt_path(root, &receipt.profile_id)?;
     let bytes = serde_json::to_vec(receipt).map_err(|_| "Invalid receipt")?;
     codeterm_util::atomic_write::write_atomic(&path, bytes)
-        .map_err(|_| "Install receipt could not be saved".to_string())
+        .map_err(|_| "Install receipt could not be saved".to_string())?;
+    crate::provider::invalidate_profile_readiness(root);
+    Ok(())
 }
 fn validate_command(command: &AgentRuntimeCommand) -> Result<(), String> {
     let capability: codeterm_plugin::agent_runtime::AgentRuntimeCapability = serde_json::from_value(serde_json::json!({

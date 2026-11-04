@@ -369,7 +369,7 @@ for (const frame of [streamFrame("first"),{...streamFrame("thought"),params:{ses
   interleaved=reduction.state;
   for (const event of reduction.events) foldRow(interleavedRows,event);
 }
-assert.equal(interleavedRows.get("own:turn:1:message:long")?.content,"firstlast");
+assert.equal(interleavedRows.get("own:turn:1:message:agent_message_chunk:long")?.content,"firstlast");
 assert.equal(interleavedRows.size,2);
 console.log("✓ ACP UTF-8 offsets, explicit-id continuation, and remote load replay preserve row content and identity");
 
@@ -385,6 +385,6 @@ for (let index=0;index<512;index++) {
 }
 const continued=reduceStream(streamContext,many,[streamFrame("last")],{replay:0,prompt:1,loading:false});
 for (const event of continued.events) foldRow(manyRows,event);
-assert.equal(manyRows.get("own:turn:1:message:long")?.content,"partlast");
+assert.equal(manyRows.get("own:turn:1:message:agent_message_chunk:long")?.content,"partlast");
 assert.ok([...manyRows.values()].some(row=>row.content.includes("message identity budget exhausted")));
 console.log("✓ ACP bounded identity metadata degrades new rows visibly while retaining earlier continuation offsets");

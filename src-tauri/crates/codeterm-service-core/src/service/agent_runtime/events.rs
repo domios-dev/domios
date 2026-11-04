@@ -8,6 +8,8 @@ use codeterm_types::agent::chat_types::ChatMsg;
 use codeterm_types::pty::PendingPrompt;
 use std::collections::{HashMap, HashSet};
 
+mod routed;
+
 pub const LIVE_ITEM_CAP: usize = 1000;
 pub const LIVE_ITEM_BYTES: usize = 8 * 1024 * 1024;
 
@@ -129,6 +131,7 @@ pub struct RuntimeMaps {
     threads: HashMap<String, Option<String>>,
     requests: HashMap<String, bool>,
     evidence: HashMap<String, (String, String, Option<String>)>,
+    routed_inputs: HashMap<String, (String, ChatMsg)>,
     usage: HashMap<String, TokenUsage>,
     rate_limits: HashMap<String, Vec<RuntimeRateLimit>>,
     auth: Option<RuntimeAuthState>,
@@ -147,6 +150,12 @@ impl RuntimeMaps {
     }
     pub fn sync_active_turn(&mut self, context: &RuntimeContext) {
         self.ensure_epoch(context.epoch);
+        self.routed_inputs.retain(|send, (thread, _)| {
+            context
+                .claimed_sends
+                .iter()
+                .any(|claim| &claim.send_id == send && &claim.thread_id == thread)
+        });
         self.restore_binding = Some(RestoreBinding::from_context(context));
         if let Some(thread) = &context.thread_id {
             match &context.active_turn_id {

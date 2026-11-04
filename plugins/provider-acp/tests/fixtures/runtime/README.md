@@ -1,6 +1,6 @@
 # ACP v1 lifecycle fixtures
 
-These are derived, redacted protocol-example transcripts, not live-agent captures.
+Except for the raw-derived dsh scenario below, these are redacted protocol-example transcripts, not live-agent captures.
 The checkout had no recorded ACP agent session. No CLI version, receipt time,
 model identity or live behavior is claimed. Real agent capture remains required
 before claiming live interoperability.
@@ -142,3 +142,21 @@ protected. The fixture also participates in native/QuickJS shared replay.
 planErrors are judged after the whole rpc replay, trailing notifications included. In
 model-option-declared-selected the final config_option_update makes wire-one the
 authoritative model, so keep that trailing frame when editing the fixture.
+
+## Raw dsh shared message identity
+
+`dsh-shared-message-id.json` derives its two text updates from
+`../raw/dsh-reasoning-raw.jsonl`, captured on 2026-11-04 using the installed
+`@deepseek-ai/dsh@0.2.1-rc.5` profile and its default `deepseek-v4-flash` model.
+Both updates carry messageId `911f94b0-0314-4bb2-afed-a86ec097ae55`:
+the thought text and the assistant answer `391` must occupy separate rows.
+Only the session id is normalized in those updates. The surrounding lifecycle
+uses the existing fixture setup, so this is a derived regression, not a timed
+full-session recording. Both native and node shared replay consume it.
+
+Raw JSON-RPC lines are retained in the sibling raw receipts. Credentials were
+piped from the named QA instance into the child environment and scrubbed before
+writing. The reasoning capture recorded the thought, answer and usage updates;
+its reader reached the 90-second bound before recording completion. The smaller
+`dsh-raw.jsonl` capture includes an assistant answer and end_turn completion.
+Neither receipt by itself proves the repaired application UI.

@@ -22,6 +22,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
   const [busy, setBusy] = useState(false);
   const [launchError, setLaunchError] = useState<string | null>(null);
   const view = providerCliView(status, error);
+  const statusSubject = status?.launch_profiles ? "launch profiles" : "CLI";
   const canRecheck = view.canRecheck || probeFailed;
   const install = async () => {
     setBusy(true);
@@ -32,7 +33,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
   };
   if (view.state === "none") return null;
   const body = (
-    <div role="group" aria-label={`${providerId} CLI`} data-cli-state={view.state} className={compact ? "flex flex-col gap-1.5" : "flex flex-col gap-3"}>
+    <div role="group" aria-label={`${providerId} ${statusSubject}`} data-cli-state={view.state} className={compact ? "flex flex-col gap-1.5" : "flex flex-col gap-3"}>
       <div className="flex min-h-7 min-w-0 items-center gap-2">
         <span aria-hidden className="h-1.5 w-1.5 flex-none rounded-full" style={{ background: STATE_DOT[view.state] }} />
         <span
@@ -46,7 +47,7 @@ export function ProviderCliControls({ providerId, compact = false }: { providerI
         {(canRecheck || view.canInstall) && (
           <div className="ml-auto flex flex-none items-center gap-1.5">
             {canRecheck && (
-              <Button size="compact" variant="ghost" aria-label={`Re-check CLI for ${providerId}`} onClick={() => void refresh()}>
+              <Button size="compact" variant="ghost" aria-label={`Re-check ${statusSubject} for ${providerId}`} onClick={() => void refresh()}>
                 Re-check
               </Button>
             )}

@@ -14,11 +14,13 @@ pub(super) type CatalogueRevision = (
     Vec<crate::agent::model_catalog::ModelCatalogueChanged>,
     u64,
     u64,
+    Vec<(String, u64)>,
 );
 
 pub struct ProviderRegistry {
     agents: Arc<AgentRegistry>,
     chat_backends: ChatBackendRegistryHandle,
+    profile_readiness_cache: parking_lot::Mutex<super::profile_readiness::ProfileCache>,
     cli_status_cache: parking_lot::Mutex<
         RevisionCache<CliRevision, codeterm_plugin::provider_cli::ProviderCliStatus>,
     >,
@@ -31,6 +33,7 @@ impl ProviderRegistry {
         Self {
             agents,
             chat_backends,
+            profile_readiness_cache: Default::default(),
             cli_status_cache: Default::default(),
             catalogue_values_cache: Default::default(),
         }
@@ -49,19 +52,35 @@ impl ProviderRegistry {
     }
 
     fn describe(&self, metadata_only: bool) -> Vec<ProviderDescriptor> {
-        let mut out = if metadata_only {
-            self.agents
-                .all_provider_arcs()
-                .iter()
-                .map(|provider| {
-                    let mut descriptor = provider.describe();
-                    descriptor.availability = crate::agent::provider::ProviderAvailability::Unknown;
-                    descriptor
-                })
-                .collect()
-        } else {
-            self.agents.list_descriptors()
-        };
+        let mut out: Vec<_> = self
+            .agents
+            .all_provider_arcs()
+            .iter()
+            .map(|provider| {
+                let mut descriptor = provider.describe();
+                descriptor.availability = if metadata_only {
+                    crate::agent::provider::ProviderAvailability::Unknown
+                } else if let Some(status) =
+                    descriptor.agent_runtime.as_ref().and_then(|capability| {
+                        super::profile_readiness::observe(
+                            &descriptor.id,
+                            capability,
+                            &self.profile_readiness_cache,
+                        )
+                    })
+                {
+                    status.availability
+                } else {
+                    let binary = descriptor
+                        .agent_runtime
+                        .as_ref()
+                        .map(|runtime| runtime.command.binary.as_str())
+                        .unwrap_or_else(|| provider.binary_name());
+                    observe_launch_binary(Some(binary)).availability
+                };
+                descriptor
+            })
+            .collect();
         for descriptor in &mut out {
             if descriptor.remote_task.is_some() {
                 if let Some(remote) = self.chat_backends.descriptor(&descriptor.id) {
@@ -94,11 +113,41 @@ impl ProviderRegistry {
         out
     }
 
+    pub(super) fn profile_status(
+        &self,
+        id: &str,
+    ) -> Option<codeterm_plugin::provider_cli::ProviderCliStatus> {
+        let provider = self.agents.provider_arc(id)?;
+        let capability = provider.agent_runtime()?;
+        let mut status =
+            super::profile_readiness::observe(id, &capability, &self.profile_readiness_cache)?;
+        status.display_name = Some(provider.display_name().to_owned());
+        Some(status)
+    }
+
+    pub(crate) fn recheck_profiles(&self, id: &str) {
+        if self
+            .agents
+            .provider_arc(id)
+            .and_then(|provider| provider.agent_runtime())
+            .is_some_and(|runtime| runtime.launch_profiles.is_some())
+        {
+            if let Ok(root) =
+                crate::service::agent_runtime::launch_profile_install::profile_root(id)
+            {
+                super::profile_readiness::invalidate(&root);
+            }
+        }
+    }
+
     pub(crate) fn cli_status(
         &self,
         id: &str,
         platform: &str,
     ) -> Result<codeterm_plugin::provider_cli::ProviderCliStatus, String> {
+        if let Some(status) = self.profile_status(id) {
+            return Ok(status);
+        }
         let started = std::time::Instant::now();
         let revision = self.cli_revision(id);
         let key = format!("{id}:{platform}");
@@ -144,6 +193,7 @@ impl ProviderRegistry {
             crate::agent::model_catalog::version_snapshot(),
             codeterm_plugin::provider_version::revision(),
             crate::service::provider_update::revision(),
+            super::profile_readiness::provider_revisions(self.agents.provider_ids()),
         )
     }
 

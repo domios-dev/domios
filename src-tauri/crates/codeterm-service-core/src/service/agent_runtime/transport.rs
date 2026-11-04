@@ -255,6 +255,12 @@ pub(crate) async fn submit_loaded(
             RuntimeFailure::Refused("Runtime input or outstanding claim limit".into()),
         ));
     }
+    if let crate::service::messenger::AgentInput::Framed(frame) = &classified {
+        let mut maps = session.maps.lock();
+        maps.sync_active_turn(&context);
+        maps.remember_routed_input(&pending.send_id, &thread, frame)
+            .map_err(|reason| before_write(tab, RuntimeFailure::Refused(reason)))?;
+    }
     if !svc.chat_send_ledger.bind_rpc_send(
         &pending.send_id,
         SendLiveBinding {
