@@ -72,6 +72,8 @@ pub struct PluginManifest {
     /// they don't conform to (#16). First-party bundled plugins are exempt.
     #[serde(default)]
     pub host_api: Option<u32>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_io_jobs: bool,
 
     // relative markdown path the snapshot loads into a bounded field.
     #[serde(default)]

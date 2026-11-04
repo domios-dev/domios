@@ -24,6 +24,7 @@ pub(in crate::js_runtime) fn install(
         };
     }
 
+    super::io::install(&host, &sandbox, &provider_observation)?;
     let manifest_owned: Option<String> = manifest_json.map(|s| s.to_string());
     bind!(
         "commandTranscriptStdout",
@@ -366,14 +367,14 @@ pub(in crate::js_runtime) fn install(
     });
     let sb = sandbox.clone();
     bind!("execPoll", move |job_id: String| -> String {
-        crate::js_runtime::host_exec::poll(sb.plugin_id(), &job_id)
+        crate::js_runtime::host_exec::poll_owned(sb.plugin_id(), &job_id)
     });
     let sb = sandbox.clone();
     bind!("execClose", move |job_id: String| {
         if !codeterm_decision::physical::effects_allowed() {
             return;
         }
-        crate::js_runtime::host_exec::close(sb.plugin_id(), &job_id);
+        crate::js_runtime::host_exec::close_owned(sb.plugin_id(), &job_id);
     });
 
     let sb = sandbox.clone();
@@ -462,6 +463,18 @@ pub(in crate::js_runtime) fn install(
     // host compute base (host.worker/agent/workspace/mem) — lives in `host_compute` to keep this bind table flat.
     crate::js_runtime::host_transfer::install_handles(&host, &sandbox)?;
     crate::js_runtime::host_compute::install_handles(&host, &sandbox)?;
+
+    let jobs_only = manifest_json
+        .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+        .and_then(|manifest| {
+            manifest
+                .get("hostIoJobs")
+                .and_then(serde_json::Value::as_bool)
+        })
+        .unwrap_or(false);
+    if jobs_only {
+        super::io::enforce_jobs_only(&host)?;
+    }
 
     #[cfg(test)]
     crate::js_runtime::call_gate::install(&host, &sandbox)?;

@@ -114,10 +114,10 @@ impl AgentProvider for JsProvider {
     }
 
     fn auth_status_probe(&self) -> Option<provider::AuthStatusProbe> {
-        self.try_call("authStatusProbe", &[]).flatten()
+        self.static_capabilities.auth_status_probe.clone()
     }
     fn tracks_background_work(&self) -> bool {
-        self.try_call("tracksBackgroundWork", &[]).unwrap_or(false)
+        self.static_capabilities.tracks_background_work
     }
     fn capability_probe(&self) -> Option<provider::CapabilityProbe> {
         self.manifest.spawn.capability_probe
@@ -779,8 +779,8 @@ impl AgentProvider for JsProvider {
     }
 
     fn uses_structured_chat(&self) -> bool {
-        if self.has_js("usesStructuredChat") {
-            return self.try_call("usesStructuredChat", &[]).unwrap_or(false);
+        if let Some(structured_chat) = self.static_capabilities.structured_chat {
+            return structured_chat;
         }
         self.native()
             .map(|n| n.uses_structured_chat())
@@ -1120,7 +1120,7 @@ impl AgentProvider for JsProvider {
     }
 
     async fn discover_models(&self) -> Option<Vec<ModelInfo>> {
-        self.js_discover_models()
+        self.js_discover_models().await
     }
 
     fn default_model(&self) -> Option<String> {

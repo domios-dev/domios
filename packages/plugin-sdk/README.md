@@ -16,6 +16,49 @@ the former product directory has no special mapping. Filesystem grants still app
 The SDK package name and `CODETERM_*` host environment variables remain the
 public technical contract; they do not select a legacy data root.
 
+## Host I/O jobs
+
+A plugin declaring `hostIoJobs: true` requires Domios 1.19.0 or newer and uses
+`host.io(request, then)` for blocking host operations. The host releases the VM
+before running a job and resumes exactly that invocation's continuation once.
+`host.io.run(steps)` drives a generator; nested helpers use `yield*`:
+
+```ts
+import type { HostIoSteps } from "@codeterm/plugin-sdk";
+
+function* readOwnFile(path: string): HostIoSteps<string | null> {
+  return yield* host.io.fs.readFile(path);
+}
+
+function readSettings(path: string): string | null {
+  return host.io.run(readOwnFile(path));
+}
+```
+
+The job owner checks the original sandbox, canonical paths and captured host
+authority. Jobs grant no additional filesystem, environment, credential or
+service access. Each yielded request is admitted once. Capacity refusal has no
+synchronous fallback; cancellation never replays an effect. A started native
+operation can outlive cancellation, retains its bounded worker capacity and
+invocation-owned file locks until it exits, and produces an unconfirmed outcome
+when its effect cannot be observed. Late completion cannot resume a cancelled
+or replaced invocation. A call that starts an I/O job must await it.
+
+The jobs-only contract refuses legacy synchronous filesystem, SQLite, process,
+network, credential and service bindings. Pure path, string, JSON and manifest
+helpers remain synchronous. `host.io.fs` provides generator equivalents for
+filesystem operations; `host.io.exec` and `host.io.fetch` await their existing
+host-owned process/network jobs. Pure provider exports need no generator.
+Ordinary calls have bounded admission, an absolute operation deadline and
+cancellation; immutable capabilities remain outside VM execution.
+
+The synchronous host APIs remain a **legacy surface in 1.19** for external
+capability plugins pending their own migrations. Native synchronous callbacks
+are **not cancellable**. A stuck legacy callback holds that plugin's own VM;
+provider registry locks are released before callbacks, and other plugin VMs
+remain independent. A bytecode deadline does not stop a native callback.
+These legacy APIs are not a bounded substitute for `host.io`.
+
 `capabilities.localRecordingTrigger` declares a USB vendor/product and HID
 usage-page/usage tuple. It permits a host-owned `receiverTarget` tab-menu item
 without a webhook receiver. `local_recording` needs an explicit persisted user

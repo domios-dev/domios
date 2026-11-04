@@ -516,6 +516,8 @@ struct ExecJob {
     /// A retained job survives its waiters' timeouts and is removed by the poll
     /// that leaves no awaiting consumer, so a slow result is computed once.
     retained: bool,
+    observation_safe: bool,
+    invocation: Option<String>,
     consumers: usize,
     scope: Option<String>,
     deadline: Option<Instant>,
@@ -784,12 +786,67 @@ pub(super) fn wait_json(plugin_id: &str, job_id: &str) -> WaitResult {
     WaitResult::Completed(poll(&plugin_id, job_id))
 }
 
+pub(super) fn bind_invocation(plugin_id: &str, job_id: &str, invocation: String) {
+    let plugin_id = normalize_plugin_id(plugin_id);
+    if let Some(job) = EXEC_JOBS
+        .lock()
+        .get_mut(job_id)
+        .filter(|job| job.plugin_id == plugin_id)
+    {
+        job.invocation = Some(invocation);
+    }
+}
+
+fn invocation_owned(plugin_id: &str, job_id: &str) -> bool {
+    let plugin_id = normalize_plugin_id(plugin_id);
+    let invocation = crate::surface_invocation::root_identity();
+    EXEC_JOBS.lock().get(job_id).is_some_and(|job| {
+        job.plugin_id == plugin_id
+            && job
+                .invocation
+                .as_ref()
+                .is_none_or(|owner| owner == &invocation)
+    })
+}
+
+pub(super) fn poll_owned(plugin_id: &str, job_id: &str) -> String {
+    if !invocation_owned(plugin_id, job_id) {
+        return err("host job belongs to another invocation");
+    }
+    poll(plugin_id, job_id)
+}
+
+pub(super) fn close_owned(plugin_id: &str, job_id: &str) {
+    if invocation_owned(plugin_id, job_id) {
+        close(plugin_id, job_id);
+    }
+}
+
+pub(super) fn allow_observation(plugin_id: &str, job_id: &str) {
+    let plugin_id = normalize_plugin_id(plugin_id);
+    if let Some(job) = EXEC_JOBS
+        .lock()
+        .get_mut(job_id)
+        .filter(|job| job.plugin_id == plugin_id)
+    {
+        job.observation_safe = true;
+    }
+}
+
 fn observation_wait_allowed(plugin_id: &str, job_id: &str) -> bool {
-    codeterm_decision::physical::effects_allowed() || retained_job_live(plugin_id, job_id)
+    if codeterm_decision::physical::effects_allowed() {
+        return true;
+    }
+    let plugin_id = normalize_plugin_id(plugin_id);
+    EXEC_JOBS
+        .lock()
+        .get(job_id)
+        .is_some_and(|job| job.plugin_id == plugin_id && (job.retained || job.observation_safe))
 }
 
 pub(super) fn await_ticket_owned(plugin_id: &str, job_id: &str) -> bool {
-    observation_wait_allowed(plugin_id, job_id)
+    invocation_owned(plugin_id, job_id)
+        && observation_wait_allowed(plugin_id, job_id)
         && EXEC_JOBS
             .lock()
             .get(job_id)
@@ -886,11 +943,19 @@ fn spawn_json_worker<F>(job_id: String, work: F)
 where
     F: FnOnce() -> String + Send + 'static,
 {
-    std::thread::spawn(move || {
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
-            .unwrap_or_else(|_| serde_json::json!({ "error": "host job panicked" }).to_string());
-        finish_json_job(&job_id, &result);
-    });
+    let failed_job = job_id.clone();
+    let spawned = std::thread::Builder::new()
+        .name("plugin-host-job".into())
+        .spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                .unwrap_or_else(|_| {
+                    serde_json::json!({ "error": "host job panicked" }).to_string()
+                });
+            finish_json_job(&job_id, &result);
+        });
+    if spawned.is_err() {
+        finish_json_job(&failed_job, r#"{"error":"host job worker unavailable"}"#);
+    }
 }
 
 pub(super) fn start_json_job<F>(plugin_id: &str, work: F) -> Result<String, String>
