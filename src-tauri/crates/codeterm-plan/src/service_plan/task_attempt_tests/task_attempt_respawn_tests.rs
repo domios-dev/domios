@@ -1106,12 +1106,12 @@ fn attempt_launch_profile_optional_round_trip_and_respawn_override() {
             &task,
             task_attempts::TaskRespawnRequest {
                 attempt_id: source.clone(),
-                provider: Some("codex".into()),
+                provider: Some("target-provider".into()),
                 ..Default::default()
             },
         )
         .unwrap();
-    assert_eq!(changed.provider, "codex");
+    assert_eq!(changed.provider, "target-provider");
     assert!(changed.launch_profile.is_none());
     for (requested, expected) in [
         (None, "selected"),
