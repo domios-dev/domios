@@ -130,6 +130,7 @@ fn list_tasks_never_loads_unmatched_plans() {
     });
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].plan_id, here);
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&elsewhere]);
 }
 
@@ -670,6 +671,7 @@ fn with_verified_worker_transfer_binding_never_loads_unmatched_plans() {
         refused.is_err() && !committed,
         "a lane-less binding is not unique"
     );
+    assert!(store.plan_loads_for_test().is_empty());
     assert_never_loaded(&store, &[&other]);
 }
 
