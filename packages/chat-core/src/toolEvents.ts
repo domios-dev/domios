@@ -1,5 +1,6 @@
 import { agentActivityOf, buildAgentTree, isAgentActivityMessage, type AgentActivityTree, type AgentNode } from "./agentActivity";
 import { groupCommandBatches } from "./commandBatches";
+import { groupEditRuns } from "./editRuns";
 import { wellFormedFileDiffs } from "./fileDiffs";
 import { parseUnifiedDiff } from "./unifiedDiff";
 import { assignedCommand, toolCommand, unwrapShellLauncher } from "./shellComposition";
@@ -44,6 +45,8 @@ export interface ToolEvent {
   message: NormalizedChatMessage;
   stream?: ToolStream;
   commandBatch?: ToolEvent[];
+  /** Back-to-back file edits of one session, folded into one tree of files. */
+  editRun?: ToolEvent[];
   /** Sub-agent activity of one session and flow, folded into one card. */
   agents?: AgentActivityTree;
 }
@@ -555,5 +558,5 @@ export function reduceToolEvents(messages: NormalizedChatMessage[]): TimelineIte
       items[index] = { kind: "tool", event: { ...item.event, status: "unresolved" } };
     }
   }
-  return groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys));
+  return groupEditRuns(groupCommandBatches(groupToolStreams(items, openFlows, boundaryFlows, thoughtKeys)));
 }
