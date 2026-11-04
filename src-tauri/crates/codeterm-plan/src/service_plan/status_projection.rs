@@ -29,7 +29,14 @@ impl PlanNoticeRead {
 }
 
 pub struct CuratorScheduleRead {
-    plan: Plan,
+    pub(super) plan: Plan,
+    pub(super) connection: rusqlite::Connection,
+}
+
+#[derive(serde::Deserialize)]
+pub struct CuratorAuthorityRead {
+    pub owner: crate::plan::OrchestratorRef,
+    pub running: Option<crate::plan::CuratorRun>,
 }
 
 impl CuratorScheduleRead {
@@ -84,6 +91,13 @@ impl PlanStatusRead {
 }
 
 impl PlanStore {
+    pub fn curator_authority_projection(
+        &self,
+        plan_id: &str,
+    ) -> Result<CuratorAuthorityRead, PlanError> {
+        self.database.curator_authority_projection(plan_id)
+    }
+
     pub fn notice_projection(
         &self,
         plan_id: &str,
@@ -98,10 +112,10 @@ impl PlanStore {
         &self,
         plan_id: &str,
     ) -> Result<CuratorScheduleRead, PlanError> {
-        let plan = self.database.curator_schedule_projection(plan_id)?;
+        let read = self.database.curator_schedule_projection(plan_id)?;
         #[cfg(any(test, feature = "test-support"))]
         self.curator_schedule_reads.lock().push(plan_id.to_string());
-        Ok(CuratorScheduleRead { plan })
+        Ok(read)
     }
 
     #[cfg(any(test, feature = "test-support"))]

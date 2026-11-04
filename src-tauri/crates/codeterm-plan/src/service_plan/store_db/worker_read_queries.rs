@@ -3,7 +3,7 @@ use super::{db_error, PlanDatabase};
 use crate::plan::{Milestone, Task, TaskExecutionAttempt};
 use crate::service_plan::planner_replay::PlannerReplayCandidate;
 use crate::service_plan::PlanError;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::params;
 
 impl PlanDatabase {
     pub(in crate::service_plan) fn planner_replay_rows(

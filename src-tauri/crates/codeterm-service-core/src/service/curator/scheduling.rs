@@ -137,9 +137,10 @@ impl ServiceContext {
     pub(super) fn reconcile_curator_plan(
         &self,
         cron: &crate::CronState,
-        plan: &Plan,
+        read: &crate::service::plan::CuratorScheduleRead,
         now: u64,
     ) -> Result<(), String> {
+        let plan = read.plan();
         let suspended = self.curator_suspended_reason(plan);
         let eligible = curator::eligible(
             plan,
@@ -217,10 +218,9 @@ impl ServiceContext {
                 let applied = self
                     .plan_store
                     .with_plan(&plan.id, now, |p| {
-                        if p.control_loop != plan.control_loop {
+                        if !read.apply_control_loop(&mut p.control_loop, loop_state.clone())? {
                             return Ok(false);
                         }
-                        p.control_loop = loop_state.clone();
                         curator::append_round(p, round.clone());
                         Ok(true)
                     })
@@ -363,11 +363,10 @@ impl ServiceContext {
             let applied = self
                 .plan_store
                 .with_plan(&plan.id, now, |p| {
-                    if p.control_loop != plan.control_loop {
+                    let next = loop_state.next_at;
+                    if !read.apply_control_loop(&mut p.control_loop, loop_state)? {
                         return Ok(false);
                     }
-                    let next = loop_state.next_at;
-                    p.control_loop = loop_state;
                     if let Some(round) = &fallback {
                         curator::append_round(p, round.clone());
                         p.control_loop.next_at = next;
