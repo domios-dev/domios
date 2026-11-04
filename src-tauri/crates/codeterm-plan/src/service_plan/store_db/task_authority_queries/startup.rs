@@ -3,8 +3,8 @@ use crate::plan::TaskStatus;
 use crate::service_plan::task_authority_projection::startup::TaskStartupRead;
 use crate::service_plan::DispatchStartupOwner;
 
-const ATTEMPT: &str = "json_object('id',json_extract(a.row_json,'$.id'),'executor',a.executor_tab_id,
-    'title',json_extract(a.row_json,'$.executor_title'),'session',a.session_id,
+const ATTEMPT: &str = "json_object('id',json_extract(a.row_json,'$.id'),'executor',json_extract(a.row_json,'$.executor_tab_id'),
+    'title',json_extract(a.row_json,'$.executor_title'),'session',json_extract(a.row_json,'$.session_id'),
     'group',json_extract(a.row_json,'$.competition_group_id'),
     'acknowledged_at',json_extract(a.row_json,'$.acknowledged_at'),'reported_at',json_extract(a.row_json,'$.reported_at'),
     'has_report',json(CASE WHEN json_extract(a.row_json,'$.report') IS NOT NULL THEN 'true' ELSE 'false' END))";
@@ -46,7 +46,7 @@ impl PlanDatabase {
         ))
     }
 
-    pub(in crate::service_plan) fn task_startup_status_projection(
+    pub(in crate::service_plan) fn task_status_projection(
         &self,
         plan_id: &str,
         reference: &str,

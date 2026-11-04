@@ -2,8 +2,8 @@ use serde_json::json;
 
 use super::super::canonical_writer::{
     compose_dispatch_brief, dispatch_worker_placement,
-    refuse_lane_integration_while_canonical_held, verify_canonical_writer_checkout,
-    CANONICAL_WRITER_BRIEF, CANONICAL_WRITER_HOLDS_CHECKOUT_CODE,
+    refuse_lane_integration_while_canonical_held as refuse_projected_lane_integration,
+    verify_canonical_writer_checkout, CANONICAL_WRITER_BRIEF, CANONICAL_WRITER_HOLDS_CHECKOUT_CODE,
     REFUSAL_LANE_INTEGRATION_WHILE_CANONICAL_WRITER,
 };
 use super::super::lane_safety::{
@@ -18,6 +18,44 @@ use codeterm_service_core::service::{
     canonical_path_of, classify_mutating_lane, live_canonical_writer, LaneProtection,
     UnsafeMutatingLane, WorkerLaneProvenance,
 };
+
+fn refuse_lane_integration_while_canonical_held(
+    plan: &Plan,
+    task_id: &str,
+) -> Result<(), crate::server::JsonRpcError> {
+    use codeterm_service_core::service::plan::{CanonicalWriterHoldRead, LaneIntegrationRead};
+    let input = (|| {
+        let task = plan.tasks.iter().find(|task| task.id == task_id)?;
+        let lane = task
+            .lane
+            .worktree_path
+            .as_deref()
+            .filter(|path| !path.trim().is_empty())?;
+        let (holder_task_id, holder_attempt_id) = live_canonical_writer(plan)?;
+        if holder_task_id == task.id {
+            return None;
+        }
+        let attempt = plan
+            .tasks
+            .iter()
+            .find(|task| task.id == holder_task_id)?
+            .execution_attempts
+            .iter()
+            .find(|attempt| attempt.id == holder_attempt_id)?;
+        Some(LaneIntegrationRead {
+            plan_id: plan.id.clone(),
+            task_id: task.id.clone(),
+            worktree_path: lane.into(),
+            canonical_path: canonical_path_of(plan).into(),
+            holder: CanonicalWriterHoldRead {
+                task_id: holder_task_id.into(),
+                attempt_id: holder_attempt_id.into(),
+                placement: attempt.placement,
+            },
+        })
+    })();
+    refuse_projected_lane_integration(input.as_ref())
+}
 
 fn store_with_tasks(names: &[&str]) -> (tempfile::TempDir, PlanStore, String, Vec<String>) {
     let root = tempfile::tempdir().unwrap();

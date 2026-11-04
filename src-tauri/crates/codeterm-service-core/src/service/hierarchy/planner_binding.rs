@@ -4,25 +4,11 @@ pub(crate) fn clear_planner_bindings_for_lifecycle_exit(
     plan_store: &PlanStore,
     tab_id: &str,
     now_ms: u64,
-) -> usize {
-    let bindings: Vec<_> = plan_store
-        .plans_matching(&crate::service::plan::PlanMatch::Planner(
-            tab_id.to_string(),
-        ))
-        .into_iter()
-        .filter_map(|plan| {
-            let Some(crate::plan::PlannerRef::Tab {
-                tab_id: bound,
-                session_id: Some(_),
-                title,
-            }) = &plan.planner
-            else {
-                return None;
-            };
-            (bound == tab_id).then(|| (plan.id, title.clone()))
-        })
-        .collect();
-    bindings
+) -> Result<usize, String> {
+    let bindings = plan_store
+        .hierarchy_planner_bindings_projection(tab_id, true)
+        .map_err(|error| error.to_string())?;
+    Ok(bindings
         .into_iter()
         .filter(|(plan_id, title)| {
             plan_store
@@ -37,5 +23,5 @@ pub(crate) fn clear_planner_bindings_for_lifecycle_exit(
                 )
                 .is_ok()
         })
-        .count()
+        .count())
 }

@@ -151,6 +151,7 @@ fn stored_protocol_answer(
 
 fn empty_gossip_snapshot() -> codeterm_service_core::mesh::types::MeshSyncPayload {
     codeterm_service_core::mesh::types::MeshSyncPayload {
+        endpoints: Vec::new(),
         peers: Vec::new(),
         generation: 0,
     }

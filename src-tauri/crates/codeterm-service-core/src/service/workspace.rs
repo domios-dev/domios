@@ -216,15 +216,20 @@ impl ServiceContext {
     /// True when any top-level tab of `workspace_id` is a coordinator. Reads
     /// the tab tab ids under one lock, then probes each after releasing it so
     /// no nested tab lock is held across the coordinator resolution.
-    fn workspace_has_protected_tab(&self, workspace_id: &str) -> bool {
+    fn workspace_has_protected_tab(&self, workspace_id: &str) -> Result<bool, String> {
         let tab_ids: Vec<String> = {
             let mux = self.mux.read();
             match mux.get_workspace(workspace_id) {
                 Some(ws) => ws.tabs.clone(),
-                None => return false,
+                None => return Ok(false),
             }
         };
-        tab_ids.iter().any(|pid| self.is_self_close_protected(pid))
+        for id in tab_ids {
+            if self.is_self_close_protected(&id)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn workspace_agent_tab_titles(&self, workspace_id: &str) -> Vec<String> {
@@ -357,9 +362,9 @@ impl ServiceContext {
                 let caller_workspace = { self.mux.read().find_workspace_for_tab(caller) };
                 match caller_workspace {
                     Some(caller_workspace) => {
-                        caller_workspace == workspace_id && self.is_self_close_protected(caller)
+                        caller_workspace == workspace_id && self.is_self_close_protected(caller)?
                     }
-                    None => self.workspace_has_protected_tab(workspace_id),
+                    None => self.workspace_has_protected_tab(workspace_id)?,
                 }
             }
             WorkspaceCloseCaller::AuthenticatedMeshPeer(peer_id) => {

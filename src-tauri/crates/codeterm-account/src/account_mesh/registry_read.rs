@@ -33,32 +33,45 @@ impl Drop for Owner<'_> {
 impl AccountMesh {
     /// One bounded online read of the account registry; a stale observation for display only.
     pub(super) async fn read_registry(&self, signed: &Signed) -> Outcome {
-        let MeshResult::Page(_) = self
+        let MeshResult::Page(page) = self
             .admission(signed, MeshOperation::List { cursor: None })
             .await?
         else {
             return Err(AccountMeshRefusal::Invalid);
         };
-        if let Some(snapshot) = self.state().signed_registry.as_ref() {
-            if let Some(own) = snapshot
-                .rows
-                .iter()
-                .find(|row| row.installation_id == self.installation())
-            {
-                self.remember_metadata(
-                    signed.epoch,
-                    own.metadata_revision,
-                    own.display_name.clone(),
-                );
-            }
-            return Ok(RegistryObservation {
-                observed_at: self.now(),
-                registry_revision: snapshot.revision,
-                rows: snapshot.rows.clone(),
-                cursor: None,
-            });
+        let snapshot = if signed.epoch == 0 {
+            let grant = page.signed_registry.ok_or(AccountMeshRefusal::Invalid)?;
+            let trust = signed.trust.clone();
+            let account = signed.account.clone();
+            let now = self.now();
+            tokio::task::spawn_blocking(move || {
+                super::registry_snapshot::verify_registry(&grant, &trust, &account, now)
+            })
+            .await
+            .map_err(|_| AccountMeshRefusal::Invalid)??
+        } else {
+            self.state()
+                .signed_registry
+                .clone()
+                .ok_or(AccountMeshRefusal::Invalid)?
+        };
+        if let Some(own) = snapshot
+            .rows
+            .iter()
+            .find(|row| row.installation_id == self.installation())
+        {
+            self.remember_metadata(
+                signed.epoch,
+                own.metadata_revision,
+                own.display_name.clone(),
+            );
         }
-        Err(AccountMeshRefusal::Invalid)
+        Ok(RegistryObservation {
+            observed_at: self.now(),
+            registry_revision: snapshot.revision,
+            rows: snapshot.rows,
+            cursor: None,
+        })
     }
 
     pub async fn list(&self) -> Outcome {
@@ -70,10 +83,23 @@ impl AccountMesh {
     }
 
     async fn registry_list(&self, allow_cached: bool) -> Outcome {
+        let state = self.state();
+        if matches!(state.presence, super::state::Presence::SignedOut) {
+            return Err(AccountMeshRefusal::SignedOut);
+        }
+        if state.last_refusal == Some(AccountMeshRefusal::ReauthRequired) {
+            return Err(AccountMeshRefusal::ReauthRequired);
+        }
+        if self.with(|inner| inner.auth_parked.is_some()) {
+            return Err(AccountMeshRefusal::Unauthenticated);
+        }
         if allow_cached {
-            if let Some(registry) = self.state().signed_registry.as_ref() {
+            if let Some(registry) = state.signed_registry.as_ref() {
                 return Ok(RegistryObservation {
-                    observed_at: self.now(),
+                    observed_at: state
+                        .registry
+                        .as_ref()
+                        .map_or(registry.issued_at, |known| known.observed_at),
                     registry_revision: registry.revision,
                     rows: registry.rows.clone(),
                     cursor: None,

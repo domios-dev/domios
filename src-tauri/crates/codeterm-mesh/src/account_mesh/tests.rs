@@ -1,4 +1,5 @@
 mod connection_phases;
+mod endpoint_gossip;
 mod health;
 mod refusals;
 mod registry_gossip;
@@ -303,7 +304,7 @@ async fn account_mesh_six_installations_connect_without_saved_pairs() {
             .iter()
             .map(|machine| machine.authority.authorize_calls.load(Ordering::SeqCst))
             .sum::<usize>(),
-        30
+        0
     );
     for machine in &machines {
         let manager = machine.mesh.lock();
@@ -317,6 +318,6 @@ async fn account_mesh_six_installations_connect_without_saved_pairs() {
         assert!(connections.iter().all(|peer| peer.admission == "account"
             && peer.online
             && manager.traffic_open(&peer.instance_id)));
-        assert_eq!(machine.authority.authorize_calls.load(Ordering::SeqCst), 5);
+        assert_eq!(machine.authority.authorize_calls.load(Ordering::SeqCst), 0);
     }
 }

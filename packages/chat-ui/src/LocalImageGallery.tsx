@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Image as ImageIcon, RefreshCw, Maximize2, FolderOpen } from "lucide-react";
+import { Image as ImageIcon, ImageOff, RefreshCw, Maximize2, FolderOpen } from "lucide-react";
 import { attachmentPathName, type LocalArtifactDirective } from "@codeterm/chat-core";
 import { ImageFullscreen, revealLocalFile, REVEAL_UNAVAILABLE } from "./ImageFullscreen";
 import { localArtifactOpeningAvailable, type LocalPreviewFile } from "./localArtifactLoader";
@@ -7,6 +7,9 @@ import { useLocalImageGallery } from "./useLocalImageGallery";
 import { DeferredLoader } from "./DeferredLoader";
 import { ViewerButton } from "./ViewerButton";
 import { GALLERY_PATH_LIMIT } from "./galleryLoading";
+
+// Header actions sit in a dense card header: quiet icon buttons, not standalone viewer controls.
+const HEADER_ACTION = { minWidth: 26, minHeight: 26, padding: 0, borderColor: "transparent", background: "transparent", color: "var(--ct-muted-fg)" };
 
 export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = false, onLoaded, renderError }: {
   directive: LocalArtifactDirective;
@@ -25,19 +28,19 @@ export function LocalImageGallery({ directive, fullscreenRequest = 0, bare = fal
       <ImageIcon size={14} aria-hidden />
       <span className="font-medium" style={{ color: "var(--ct-fg)" }}>{single ? name : `${Math.min(directive.paths?.length ?? 1, GALLERY_PATH_LIMIT)} images`}</span>
       <span className="min-w-0 flex-1 truncate opacity-60" title={directive.path}>{directive.path}</span>
-      <ViewerButton aria-label={single ? `Fullscreen ${name}` : "Open image gallery"} disabled={!images.length} onClick={() => setOpen(0)} title="Fullscreen"><Maximize2 size={13} aria-hidden /></ViewerButton>
-      {single && <ViewerButton aria-label={`Reveal ${name}`} disabled={!reveal || Boolean(images[0]?.error)} onClick={() => revealLocalFile(directive.path)} title={reveal ? "Reveal in file manager" : REVEAL_UNAVAILABLE}><FolderOpen size={13} aria-hidden /></ViewerButton>}
-      <ViewerButton aria-label={single ? `Reload ${name}` : "Reload images"} disabled={loading} onClick={reload} title="Reload"><RefreshCw size={13} aria-hidden /></ViewerButton>
+      <ViewerButton aria-label={single ? `Fullscreen ${name}` : "Open image gallery"} disabled={!images.length} onClick={() => setOpen(0)} title="Fullscreen" style={HEADER_ACTION}><Maximize2 size={13} aria-hidden /></ViewerButton>
+      {single && <ViewerButton aria-label={`Reveal ${name}`} disabled={!reveal || Boolean(images[0]?.error)} onClick={() => revealLocalFile(directive.path)} title={reveal ? "Reveal in file manager" : REVEAL_UNAVAILABLE} style={HEADER_ACTION}><FolderOpen size={13} aria-hidden /></ViewerButton>}
+      <ViewerButton aria-label={single ? `Reload ${name}` : "Reload images"} disabled={loading} onClick={reload} title="Reload" style={HEADER_ACTION}><RefreshCw size={13} aria-hidden /></ViewerButton>
     </header>}
     {omitted > 0 && <p role="alert">Showing the first 32 images. {omitted} additional images were omitted.</p>}
     <div className="flex gap-2 overflow-x-auto p-2">
       {images.map((image, index) => <div key={index} className="shrink-0">
         <button type="button" aria-label={`Fullscreen ${image.name}`} onClick={() => setOpen(index)} className="rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--ct-accent)]" style={{ minWidth: 44, minHeight: 44 }}>
           {image.pending ? <DeferredLoader state="present" role="status" aria-label={`Loading ${image.name}`} className="inline-flex h-32 w-40 items-center justify-center">Loading…</DeferredLoader>
-            : image.error ? <span role="status" aria-label={`${image.name} not available`} className="inline-flex h-32 w-40 items-center justify-center rounded border p-2 text-sm">Image not available</span>
+            : image.error ? <span role="status" aria-label={`${image.name} not available`} className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs" style={{ color: "var(--ct-muted-fg)", background: "color-mix(in srgb, var(--ct-fg) 5%, transparent)" }}><ImageOff size={13} aria-hidden />Image not available</span>
               : <img src={image.src} alt={image.name} loading="lazy" style={{ maxHeight: single ? 480 : 160, maxWidth: "100%", objectFit: "contain" }} />}
         </button>
-        {image.error && (renderError ? renderError(image.error) : <p role="alert" className="max-w-64 whitespace-pre-wrap text-xs">{image.error}</p>)}
+        {image.error && (renderError ? renderError(image.error) : <p role="alert" className="mt-1 max-w-80 whitespace-pre-wrap text-[11px] leading-snug" style={{ color: "var(--ct-muted-fg)" }}>{image.error}</p>)}
       </div>)}
     </div>
     {open !== null && images[open] && <ImageFullscreen image={images[open]} images={images} anchorRef={anchor} onClose={() => setOpen(null)} />}

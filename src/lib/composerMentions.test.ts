@@ -36,6 +36,16 @@ test("source presentation metadata carries typed kind and provider identity", as
   const files = await fileMentionSource(async () => [{ name: "readme", path: "/project1/readme" }]).search("", ctx);
   assert.equal(files[0].kind, "file");
 });
+test("the mention menu inserts explicit task, plan and tab markers", async () => {
+  const tasks = await taskMentionSource(() => plans).search("COD-3", ctx);
+  assert.equal(tasks.find(row => row.label === "COD-3")?.insertText, '<domios type="task" id="task_COD-3" plan="pl_a" />');
+  const planRows = await planMentionSource(() => plans).search("pl_a", ctx);
+  assert.equal(planRows[0].insertText, '<domios type="plan" id="pl_a" />');
+  const tabs = await tabMentionSource(() => ({ tabs: { self: tab("self", "team1", "ws1", "Composer") }, workspaces })).search("", ctx);
+  assert.equal(tabs[0].insertText, '<domios type="tab" id="self" />');
+  assert.equal(applyComposerMention("hi @co later", activeMentionQuery("hi @co later", 6)!, tasks.find(row => row.label === "COD-3")!),
+    'hi <domios type="task" id="task_COD-3" plan="pl_a" />  later');
+});
 test("project identity preserves case-sensitive project boundaries", () => {
   assert.notEqual(projectIdentity("/project/A"), projectIdentity("/project/a"));
   assert.equal(projectIdentity("C:\\Project\\Repo\\"), projectIdentity("c:/project/repo"));

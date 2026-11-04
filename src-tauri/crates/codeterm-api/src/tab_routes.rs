@@ -540,7 +540,13 @@ pub async fn close_tab(
         .map_err(map_close_error)?;
         return Ok(Json(result.into_json()));
     }
-    let warnings = state.svc.busy_worker_close_warnings_for(&tab_id);
+    let service = state.svc.clone();
+    let warning_tab = tab_id.clone();
+    let warnings =
+        tokio::task::spawn_blocking(move || service.busy_worker_close_warnings_for(&warning_tab))
+            .await
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+            .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
     state
         .svc
         .close_tab_async(&tab_id)
@@ -837,14 +843,27 @@ pub async fn agent_run_log(
     ),
     (StatusCode, &'static str),
 > {
-    if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_tab_id) {
-        let text = state
-            .svc
-            .output_buf
-            .lock()
-            .get_full_text(&pty_id)
-            .unwrap_or_default();
-        if !text.is_empty() {
+    tokio::task::spawn_blocking(move || {
+        if let Ok(pty_id) = resolve_pty_id_with_fallback(&state, &raw_tab_id) {
+            let text = state
+                .svc
+                .output_buf
+                .lock()
+                .get_full_text(&pty_id)
+                .unwrap_or_default();
+            if !text.is_empty() {
+                return Ok((
+                    StatusCode::OK,
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/plain; charset=utf-8",
+                    )],
+                    text,
+                ));
+            }
+        }
+
+        if let Some(text) = read_log_from_disk_by_tab(&state, &raw_tab_id) {
             return Ok((
                 StatusCode::OK,
                 [(
@@ -854,20 +873,11 @@ pub async fn agent_run_log(
                 text,
             ));
         }
-    }
 
-    if let Some(text) = read_log_from_disk_by_tab(&state, &raw_tab_id) {
-        return Ok((
-            StatusCode::OK,
-            [(
-                axum::http::header::CONTENT_TYPE,
-                "text/plain; charset=utf-8",
-            )],
-            text,
-        ));
-    }
-
-    Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY"))
+        Err((StatusCode::NOT_FOUND, "Tab not found or has no PTY"))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Log read failed"))?
 }
 
 fn read_log_from_disk_by_tab(state: &AppState, raw_tab_id: &str) -> Option<String> {
@@ -1078,24 +1088,22 @@ pub async fn stop_capture(
     let reg = codeterm_service_core::pty::capture::CaptureRegistry::global();
     // stop() joins the writer thread (file IO) — keep it off the async runtime.
     let pty_for_stop = pty_id.clone();
-    let out = tokio::task::spawn_blocking(move || reg.stop(&pty_for_stop))
-        .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "capture stop join failed",
-            )
-        })?
-        .ok_or((StatusCode::NOT_FOUND, "no active capture for this Tab"))?;
-    let screen_path = out.with_extension("screen.txt");
-    if let Some(text) = screen {
-        let _ = std::fs::write(&screen_path, text);
-    }
-    Ok(Json(serde_json::json!({
-        "ok": true,
-        "cast": out.to_string_lossy(),
-        "screen": screen_path.to_string_lossy(),
-    })))
+    tokio::task::spawn_blocking(move || {
+        let out = reg
+            .stop(&pty_for_stop)
+            .ok_or((StatusCode::NOT_FOUND, "no active capture for this Tab"))?;
+        let screen_path = out.with_extension("screen.txt");
+        if let Some(text) = screen {
+            let _ = std::fs::write(&screen_path, text);
+        }
+        Ok(Json(serde_json::json!({
+            "ok": true,
+            "cast": out.to_string_lossy(),
+            "screen": screen_path.to_string_lossy(),
+        })))
+    })
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Capture stop failed"))?
 }
 
 #[derive(Deserialize)]

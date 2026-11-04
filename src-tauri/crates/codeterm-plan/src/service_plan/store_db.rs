@@ -96,6 +96,7 @@ impl PlanDatabase {
         .map_err(db_error)?;
         migrations::initialize(&mut connection, &path)?;
         status_queries::register_functions(&connection)?;
+        heartbeat_queries::register_functions(&connection)?;
         curator_notice_queries::register_functions(&connection)?;
         auxiliary_queries::register_functions(&connection)?;
         worker_read_queries::register_functions(&connection)?;
@@ -128,6 +129,12 @@ impl PlanDatabase {
 
     pub(super) fn path(&self) -> PathBuf {
         self.path.clone()
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(super) fn with_connection_held_for_test<T>(&self, work: impl FnOnce() -> T) -> T {
+        let _connection = self.connection.lock();
+        work()
     }
 
     #[cfg(test)]
@@ -585,6 +592,7 @@ mod curator_queries;
 mod curator_snapshot;
 mod export_queries;
 mod header_queries;
+mod heartbeat_queries;
 mod index_queries;
 mod notice_queries;
 mod qa_queries;
@@ -596,11 +604,12 @@ pub(super) use index_queries::PlanIndexRow;
 mod board_state_queries;
 mod list_window_queries;
 mod match_queries;
-mod read_projections;
+pub(super) mod read_projections;
 mod reference_queries;
 mod state_event_queries;
 mod status_queries;
 mod task_history_queries;
+mod task_list_queries;
 mod task_read_queries;
 mod ui_projections;
 pub use match_queries::{AttemptFieldRow, SectionRefRow, TaskFieldRow, TaskRefRow};

@@ -250,7 +250,7 @@ fn runtime_planner_spawn_config_carries_assignment_and_plan_identity() {
         task: Some(ASSIGNMENT.into()),
         ..Default::default()
     };
-    prepare_runtime_identity(&fixture.service, &mut params);
+    prepare_runtime_identity(&fixture.service, &mut params).unwrap();
     params.system_prompt = compose_runtime_system_prompt(&mut params);
     let registry =
         crate::service::spawn_capability::test_backend::registry_with_runtime("runtime-fixture");

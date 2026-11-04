@@ -197,11 +197,17 @@ impl ServiceContext {
         drop(mux);
         let resources: Resources =
             serde_json::from_value(record.resources.clone()).map_err(|error| error.to_string())?;
-        changed |= resources.plans.iter().any(|saved| {
-            self.plan_store
-                .get(&saved.id)
-                .is_none_or(|current| current.team_id != saved.team_id)
-        });
+        for saved in &resources.plans {
+            let plan_changed = match self.plan_store.plan_identity_projection(&saved.id) {
+                Ok(current) => current.team_id != saved.team_id,
+                Err(crate::service::plan::PlanError::NotFound) => true,
+                Err(error) => return Err(error.to_string()),
+            };
+            if plan_changed {
+                changed = true;
+                break;
+            }
+        }
         if let Some(cron) = self.extensions.try_get::<crate::CronState>() {
             changed |= resources
                 .crons
@@ -255,9 +261,13 @@ impl ServiceContext {
         self.validate_restore_automation(&resources)?;
         record.resources = serde_json::to_value(&resources).map_err(|error| error.to_string())?;
         for plan in &resources.plans {
-            if self.plan_store.get(&plan.id).is_none() {
-                self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
-                    .map_err(|error| error.to_string())?;
+            match self.plan_store.plan_identity_projection(&plan.id) {
+                Ok(_) => {}
+                Err(crate::service::plan::PlanError::NotFound) => {
+                    self.ensure_plan_project_loaded(std::path::Path::new(&plan.project_path))
+                        .map_err(|error| error.to_string())?;
+                }
+                Err(error) => return Err(error.to_string()),
             }
         }
         for item in &mut record.tabs {
@@ -268,16 +278,14 @@ impl ServiceContext {
                     if restore.session_cwd.is_none() {
                         restore.session_cwd = origin;
                     }
-                    let lane = binding
-                        .plan_id
-                        .as_deref()
-                        .and_then(|id| self.plan_store.get(id))
-                        .and_then(|plan| {
-                            plan.tasks
-                                .into_iter()
-                                .find(|task| Some(task.id.as_str()) == binding.task_id.as_deref())
-                        })
-                        .and_then(|task| task.lane.worktree_path);
+                    let lane = match (binding.plan_id.as_deref(), binding.task_id.as_deref()) {
+                        (Some(plan), Some(task)) => self
+                            .plan_store
+                            .task_lane_reference_projection(plan, task)
+                            .map_err(|error| error.to_string())?
+                            .and_then(|task| task.worktree_path),
+                        _ => None,
+                    };
                     if let Some(path) = lane.filter(|path| std::path::Path::new(path).is_dir()) {
                         item.tab.cwd = Some(path);
                     } else if item
@@ -309,8 +317,13 @@ impl ServiceContext {
         for saved in &resources.plans {
             let current = self
                 .plan_store
-                .get(&saved.id)
-                .ok_or_else(|| format!("Plan {} is unavailable", saved.id))?;
+                .plan_identity_projection(&saved.id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => {
+                        format!("Plan {} is unavailable", saved.id)
+                    }
+                    error => error.to_string(),
+                })?;
             if current.team_id.is_some() && current.team_id != saved.team_id {
                 return Err(format!("Plan {} belongs to another Team", saved.id));
             }

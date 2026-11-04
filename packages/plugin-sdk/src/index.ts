@@ -1,3 +1,4 @@
+export type { HostIo, HostIoFs, HostIoRequest, HostIoSteps } from "./io";
 // @codeterm/plugin-sdk — plugin contracts and pure recorded-diff mapping helpers.
 export type {ProviderAuthStatus, ProviderSessionObservations, RuntimeErrorSignal} from "./providerSignals";
 export type {

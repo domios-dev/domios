@@ -28,29 +28,53 @@ fn plan(path: &str) -> Plan {
     )
 }
 
+fn peer(plan: Plan) -> CheckoutPeerRead {
+    CheckoutPeerRead {
+        checkout: canonical(&plan),
+        id: plan.id,
+        tasks: plan
+            .tasks
+            .into_iter()
+            .map(|task| CheckoutTaskRead {
+                id: task.id,
+                files: task.files,
+                execution_attempts: task
+                    .execution_attempts
+                    .into_iter()
+                    .filter(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())
+                    .map(|attempt| CheckoutAttemptRead {
+                        id: attempt.id,
+                        placement: attempt.placement,
+                    })
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
 #[test]
 fn shared_placement_defaults_to_disjoint_files_and_reports_lane_reasons() {
     let mut plan = plan("/checkout");
     let mine = task("mine", &["src/a.rs"], false);
     plan.tasks.push(task("foreign", &["src/b.rs"], true));
     assert_eq!(
-        choose_placement(&[plan.clone()], &plan, &mine, None)
+        choose_placement(&[peer(plan.clone())], &plan, &mine, None)
             .unwrap()
             .0,
         WorkerPlacement::Shared
     );
     assert_eq!(
-        choose_placement(&[plan.clone()], &plan, &mine, Some("lane"))
+        choose_placement(&[peer(plan.clone())], &plan, &mine, Some("lane"))
             .unwrap()
             .0,
         WorkerPlacement::IsolatedLane
     );
     plan.tasks[0].files.edit = vec!["src".into()];
-    let decision = choose_placement(&[plan.clone()], &plan, &mine, None).unwrap();
+    let decision = choose_placement(&[peer(plan.clone())], &plan, &mine, None).unwrap();
     assert_eq!(decision.0, WorkerPlacement::IsolatedLane);
     assert!(decision.1.contains("foreign"));
     assert!(
-        choose_placement(&[plan.clone()], &plan, &mine, Some("shared"))
+        choose_placement(&[peer(plan.clone())], &plan, &mine, Some("shared"))
             .unwrap_err()
             .contains("foreign")
     );
@@ -93,15 +117,15 @@ fn shared_ownership_checks_prefix_boundaries_cross_plan_and_closed_attempts() {
     foreign.id = "other-plan".into();
     foreign.tasks.push(task("foreign", &["src/file.rs"], true));
     assert!(
-        validate_shared_files(&[foreign.clone()], &plan, &mine, &mine.files)
+        validate_shared_files(&[peer(foreign.clone())], &plan, &mine, &mine.files)
             .unwrap_err()
             .contains("other-plan")
     );
     foreign.tasks[0].files.edit = vec!["src-other/file.rs".into()];
-    assert!(validate_shared_files(&[foreign.clone()], &plan, &mine, &mine.files).is_ok());
+    assert!(validate_shared_files(&[peer(foreign.clone())], &plan, &mine, &mine.files).is_ok());
     foreign.tasks[0].files.edit = vec!["src/file.rs".into()];
     foreign.tasks[0].execution_attempts[0].closed_at = Some(4);
-    assert!(validate_shared_files(&[foreign], &plan, &mine, &mine.files).is_ok());
+    assert!(validate_shared_files(&[peer(foreign)], &plan, &mine, &mine.files).is_ok());
     for edit in ["../src", "/src", "C:/src", "src/../foreign", ".git/hooks"] {
         assert!(task("invalid", &[edit], false)
             .files

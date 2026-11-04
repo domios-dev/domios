@@ -283,5 +283,78 @@ pub(super) const PLUGIN_PREAMBLE: &str = r#"
     if (!j || typeof j.jobId !== "string") { return then({ error: (j && j.error) || "exec.start failed" }); }
     return host.awaitJob(j.jobId, then);
   };
+  function ioEnvelope(request, then) {
+    if (request && request.op === "awaitJob") {
+      return host.awaitJob(request.job, function (value) { return then({ value: value }); });
+    }
+    var started = parseJson(host.ioStart(JSON.stringify(request)));
+    if (!started || typeof started.jobId !== "string") return then({ error: (started && started.error) || "host I/O start failed" });
+    return host.awaitJob(started.jobId, then);
+  }
+  function ioError(result) { return result && result.kind === "range" ? new RangeError(result.error) : new Error(result && result.error || "host I/O failed"); }
+  host.io = function (request, then) {
+    if (typeof then !== "function") throw new Error("host.io requires a continuation");
+    return ioEnvelope(request, function (result) {
+      if (!result || typeof result.error === "string") throw ioError(result);
+      return then(result.value);
+    });
+  };
+  host.io.run = function (steps) {
+    function resume(value, failed) {
+      var next = failed ? steps.throw(value) : steps.next(value);
+      if (next.done) return next.value;
+      return ioEnvelope(next.value, function (result) {
+        return !result || typeof result.error === "string"
+          ? resume(ioError(result), true) : resume(result.value, false);
+      });
+    }
+    return resume(undefined, false);
+  };
+  function* ioRequest(request) { return yield request; }
+  host.io.fs = {};
+  ["readFile", "fileExists", "isSymlink", "canonicalPath", "lockFile", "removeFile", "makeDirs", "readDir", "listChildDirs"].forEach(function (op) {
+    host.io.fs[op] = function (path) { return ioRequest({ op: op, path: path }); };
+  });
+  ["readFileHead", "readFileTail"].forEach(function (op) {
+    host.io.fs[op] = function (path, maxBytes) { return ioRequest({ op: op, path: path, maxBytes: maxBytes }); };
+  });
+  ["writeFile", "writeFileAtomic"].forEach(function (op) {
+    host.io.fs[op] = function (path, contents) { return ioRequest({ op: op, path: path, contents: contents }); };
+  });
+  host.io.fs.unlockFile = function (id) { return ioRequest({ op: "unlockFile", id: id }); };
+  host.io.fs.writeTempFile = function (contents, suffix) { return ioRequest({ op: "writeTempFile", contents: contents, suffix: suffix || null }); };
+  host.io.fs.walkDir = function (path, maxDepth) { return ioRequest({ op: "walkDir", path: path, maxDepth: maxDepth === undefined ? 8 : maxDepth }); };
+  host.io.fs.sqliteQuery = function (db, sql, params) { return ioRequest({ op: "sqliteQuery", db: db, sql: sql, params: params || null }); };
+  host.io.fs.readJson = function* (path) { return parseJson(yield { op: "readFile", path: path }); };
+  host.io.fs.writeJson = function (path, value) { return ioRequest({ op: "writeFile", path: path, contents: JSON.stringify(value, null, 2) }); };
+  host.io.exec = function* (options) {
+    var started = yield { op: "execStart", options: options };
+    if (!started || typeof started.jobId !== "string") throw ioError(started);
+    return yield { op: "awaitJob", job: started.jobId };
+  };
+  host.io.fetch = function* (options) {
+    var started = yield { op: "fetchStart", options: options };
+    if (!started || typeof started.jobId !== "string") throw ioError(started);
+    return yield { op: "awaitJob", job: started.jobId };
+  };
+  var ioManifest = parseJson(host.manifestJson());
+  if (ioManifest && ioManifest.hostIoJobs === true) {
+    function startAndAwait(op, options, then) {
+      return ioEnvelope({ op: op, options: options }, function (reply) {
+        if (!reply || typeof reply.error === "string") return then({ error: (reply && reply.error) || "host I/O failed" });
+        var started = reply.value;
+        if (!started || typeof started.jobId !== "string") return then(started || { error: "host job unavailable" });
+        return host.awaitJob(started.jobId, then);
+      });
+    }
+    host.exec.async = function (options, then) {
+      if (typeof then !== "function") throw new Error("host.exec.async requires a continuation");
+      return startAndAwait("execStart", options, then);
+    };
+    host.fetch.async = function (options, then) {
+      if (typeof then !== "function") throw new Error("host.fetch.async requires a continuation");
+      return startAndAwait("fetchStart", options, then);
+    };
+  }
 })();
 "#;

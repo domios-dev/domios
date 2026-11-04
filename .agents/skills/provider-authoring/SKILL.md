@@ -5,6 +5,17 @@ description: "Author and validate JavaScript agent provider plugins for Domios."
 
 # Authoring an Agent Provider Plugin
 
+Shipped provider plugins declare `hostIoJobs: true` and `minCodeterm: "1.19.0"`.
+Use the [SDK host I/O contract](../../../packages/plugin-sdk/README.md#host-io-jobs):
+yield one typed job per effect, resume the same iterator through `host.awaitJob`,
+and delegate nested I/O helpers with `yield*`. Pure exports stay synchronous.
+Keep native/JS parity and the existing confinement and exact-session boundaries.
+Changed shipped plugins prepare versions through `scripts/release-plugin.mjs`;
+never edit generated bundles or downgrade a newer installed channel release.
+Legacy synchronous APIs remain explicitly non-cancellable for external plugins
+in 1.19; their separate migration precedes removal.
+
+
 `spawn.launchPermissions.scopedFilesystem` declares session-local tool preapproval:
 `noPromptArgs`, `readAllRules`, `readRootRule`, `writeRootRule`, and
 `additionalDirectoryArgs`. Rule templates take `{path}` in absolute gitignore

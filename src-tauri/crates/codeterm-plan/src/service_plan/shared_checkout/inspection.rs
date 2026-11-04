@@ -1,12 +1,5 @@
-use super::{Plan, PlanError, PlanStore, Task, TaskFiles, WorkerPlacement};
-
-fn checkout_path(plan: &Plan) -> &str {
-    if plan.canonical_project_path.trim().is_empty() {
-        &plan.project_path
-    } else {
-        &plan.canonical_project_path
-    }
-}
+use super::{PlanError, PlanStore, Task, TaskFiles, WorkerPlacement};
+use crate::service_plan::task_authority_projection::SharedReportRead as SharedReportSnapshot;
 
 pub(crate) struct SharedDispatchInspection {
     pub checkout: String,
@@ -15,23 +8,14 @@ pub(crate) struct SharedDispatchInspection {
 }
 
 impl SharedDispatchInspection {
-    pub fn recheck(&self, plan: &Plan, task: &Task) -> Result<(), PlanError> {
-        if self.checkout != checkout_path(plan) || self.files != task.files {
+    pub fn recheck(&self, checkout: &str, files: &TaskFiles) -> Result<(), PlanError> {
+        if self.checkout != checkout || self.files != *files {
             return Err(PlanError::InvalidPlanText(
                 "shared dispatch context changed during Git inspection; dispatch again".into(),
             ));
         }
         Ok(())
     }
-}
-
-#[derive(PartialEq, Eq)]
-struct SharedReportSnapshot {
-    attempt_id: String,
-    executor_tab_id: String,
-    checkout: Option<String>,
-    start_sha: Option<String>,
-    files: TaskFiles,
 }
 
 impl SharedReportSnapshot {
@@ -99,14 +83,13 @@ impl PlanStore {
         plan_id: &str,
         task_id: &str,
     ) -> Result<SharedDispatchInspection, PlanError> {
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = crate::plan::task_key::find_task(&plan.tasks, task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        task.files
+        let read = self.database.shared_dispatch_projection(plan_id, task_id)?;
+        read.files
             .shared_edit_paths()
             .map_err(PlanError::InvalidPlanText)?;
-        super::validate_edit_links(&plan, &task.files).map_err(PlanError::InvalidPlanText)?;
-        let checkout = checkout_path(&plan).to_string();
+        super::validate_edit_links_at(&super::canonical_path(&read.checkout), &read.files)
+            .map_err(PlanError::InvalidPlanText)?;
+        let checkout = read.checkout;
         let head = self
             .shared_git(&checkout, &["rev-parse", "--verify", "HEAD^{commit}"])
             .map_err(PlanError::InvalidPlanText)?
@@ -115,7 +98,7 @@ impl PlanStore {
         Ok(SharedDispatchInspection {
             checkout,
             head,
-            files: task.files.clone(),
+            files: read.files,
         })
     }
 
@@ -126,8 +109,10 @@ impl PlanStore {
         reporter: &str,
         sha: Option<&str>,
     ) -> Result<Option<SharedReportInspection>, PlanError> {
-        let task = self.database.read_task_rows(plan_id, task_id)?;
-        let Some(snapshot) = SharedReportSnapshot::capture(&task, reporter) else {
+        let Some(snapshot) = self
+            .database
+            .shared_report_projection(plan_id, task_id, reporter)?
+        else {
             return Ok(None);
         };
         let checkout = snapshot.checkout.as_deref().ok_or_else(|| {

@@ -6,15 +6,15 @@ use parking_lot::{Mutex, MutexGuard};
 use super::operation::Context;
 use super::VmError;
 
-pub(super) struct CallMutex<T> {
+pub(in crate::js_runtime) struct CallMutex<T> {
     inner: Mutex<T>,
     waiters: Mutex<Vec<Arc<Context>>>,
     #[cfg(test)]
-    pub(super) waiting: Mutex<Option<std::sync::mpsc::Sender<()>>>,
+    pub(in crate::js_runtime) waiting: Mutex<Option<std::sync::mpsc::Sender<()>>>,
 }
 
 impl<T> CallMutex<T> {
-    pub(super) fn new(value: T) -> Self {
+    pub(in crate::js_runtime) fn new(value: T) -> Self {
         Self {
             inner: Mutex::new(value),
             waiters: Mutex::new(Vec::new()),
@@ -23,28 +23,34 @@ impl<T> CallMutex<T> {
         }
     }
 
-    pub(super) fn lock(&self) -> Guard<'_, T> {
+    pub(in crate::js_runtime) fn lock(&self) -> Guard<'_, T> {
         Guard {
             inner: Some(self.inner.lock()),
             owner: self,
         }
     }
 
-    pub(super) fn try_lock(&self) -> Option<Guard<'_, T>> {
+    pub(in crate::js_runtime) fn try_lock(&self) -> Option<Guard<'_, T>> {
         self.inner.try_lock().map(|inner| Guard {
             inner: Some(inner),
             owner: self,
         })
     }
 
-    pub(super) fn try_lock_for(&self, timeout: std::time::Duration) -> Option<Guard<'_, T>> {
+    pub(in crate::js_runtime) fn try_lock_for(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Option<Guard<'_, T>> {
         self.inner.try_lock_for(timeout).map(|inner| Guard {
             inner: Some(inner),
             owner: self,
         })
     }
 
-    pub(super) fn enter(&self, context: &Arc<Context>) -> Result<Guard<'_, T>, VmError> {
+    pub(in crate::js_runtime) fn enter(
+        &self,
+        context: &Arc<Context>,
+    ) -> Result<Guard<'_, T>, VmError> {
         self.waiters.lock().push(context.clone());
         let _waiter = Waiter {
             owner: self,
@@ -85,7 +91,7 @@ impl<T> Drop for Waiter<'_, T> {
     }
 }
 
-pub(super) struct Guard<'a, T> {
+pub(in crate::js_runtime) struct Guard<'a, T> {
     // The guard exists until Drop unlocks it before waking waiters.
     inner: Option<MutexGuard<'a, T>>,
     owner: &'a CallMutex<T>,

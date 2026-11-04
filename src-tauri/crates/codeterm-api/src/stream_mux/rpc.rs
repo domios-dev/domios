@@ -135,6 +135,7 @@ fn spawn(dispatcher: Dispatcher, mut reservation: Reservation, request: Request)
         let response = dispatcher.call(request).await;
         reservation.keep_queue = pump(&reservation, response).await
             || reservation.entry.terminal_queued.load(Ordering::Acquire);
+        drop(reservation);
     });
     *entry.task.lock() = Some(task.abort_handle());
     if entry.detached.load(Ordering::Acquire) && entry.cancellable.load(Ordering::Acquire) {

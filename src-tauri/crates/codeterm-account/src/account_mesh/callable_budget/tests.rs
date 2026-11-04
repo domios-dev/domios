@@ -577,6 +577,7 @@ async fn signout_withdrawal_finishes_inside_deadline_while_account_probe_is_park
                 signed_registry: None,
                 endpoint: None,
                 own_row: None,
+                default_display_name: None,
 
                 operation: MeshOperation::Withdraw {
                     expected_metadata_revision: 2,

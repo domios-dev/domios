@@ -1,7 +1,10 @@
-use super::{AttemptMatch, AttemptState, PlanError, PlanMatch, PlanStore};
+use super::{PlanError, PlanStore};
 use crate::plan::{Plan, Task, TaskFiles, WorkerPlacement};
 mod inspection;
 mod report;
+pub use super::store_db::read_projections::checkout::{
+    CheckoutAttemptRead, CheckoutPeerRead, CheckoutTaskRead, TaskCheckoutRead,
+};
 pub(crate) use inspection::{SharedDispatchInspection, SharedReportInspection};
 pub use report::{shared_checkout_head, validate_shared_report};
 
@@ -14,7 +17,7 @@ fn canonical(plan: &Plan) -> String {
     canonical_path(path)
 }
 
-fn canonical_path(path: &str) -> String {
+pub(in crate::service_plan) fn canonical_path(path: &str) -> String {
     let resolved = std::fs::canonicalize(path).ok();
     codeterm_paths::normalize_cwd(
         resolved
@@ -34,23 +37,32 @@ pub fn live_shared(task: &Task) -> bool {
 }
 
 pub fn validate_exclusive_checkout(
-    plans: &[Plan],
+    plans: &[CheckoutPeerRead],
     plan: &Plan,
     task_id: &str,
 ) -> Result<(), String> {
+    validate_exclusive_checkout_at(plans, &plan.id, task_id, &canonical(plan))
+}
+
+pub(crate) fn validate_exclusive_checkout_at(
+    plans: &[CheckoutPeerRead],
+    plan_id: &str,
+    task_id: &str,
+    checkout: &str,
+) -> Result<(), String> {
     for owner_plan in plans
         .iter()
-        .filter(|other| canonical(other) == canonical(plan))
+        .filter(|other| canonical_path(&other.checkout) == canonical_path(checkout))
     {
         for owner in &owner_plan.tasks {
-            if owner_plan.id == plan.id && owner.id == task_id {
+            if owner_plan.id == plan_id && owner.id == task_id {
                 continue;
             }
-            if owner.execution_attempts.iter().any(|attempt| {
-                attempt.closed_at.is_none()
-                    && attempt.retired_at.is_none()
-                    && !attempt.placement.is_isolated_lane()
-            }) {
+            if owner
+                .execution_attempts
+                .iter()
+                .any(|attempt| !attempt.placement.is_isolated_lane())
+            {
                 return Err(format!(
                     "canonical checkout is held by task '{}' in plan '{}'",
                     owner.id, owner_plan.id
@@ -62,35 +74,52 @@ pub fn validate_exclusive_checkout(
 }
 
 pub fn validate_shared_files(
-    plans: &[Plan],
+    plans: &[CheckoutPeerRead],
     plan: &Plan,
     task: &Task,
     files: &TaskFiles,
 ) -> Result<(), String> {
     files.shared_edit_paths()?;
-    validate_edit_links(plan, files)?;
-    validate_shared_ownership(plans, plan, task, files)
+    validate_shared_files_at(plans, &plan.id, &task.id, &canonical(plan), files)
+}
+
+pub(crate) fn validate_shared_files_at(
+    plans: &[CheckoutPeerRead],
+    plan_id: &str,
+    task_id: &str,
+    checkout: &str,
+    files: &TaskFiles,
+) -> Result<(), String> {
+    files.shared_edit_paths()?;
+    validate_edit_links_at(checkout, files)?;
+    validate_shared_ownership_at(plans, plan_id, task_id, checkout, files)
 }
 
 pub(crate) fn validate_shared_ownership(
-    plans: &[Plan],
+    plans: &[CheckoutPeerRead],
     plan: &Plan,
     task: &Task,
     files: &TaskFiles,
 ) -> Result<(), String> {
+    validate_shared_ownership_at(plans, &plan.id, &task.id, &canonical(plan), files)
+}
+
+pub(crate) fn validate_shared_ownership_at(
+    plans: &[CheckoutPeerRead],
+    plan_id: &str,
+    task_id: &str,
+    checkout: &str,
+    files: &TaskFiles,
+) -> Result<(), String> {
     for owner_plan in plans
         .iter()
-        .filter(|other| canonical(other) == canonical(plan))
+        .filter(|other| canonical_path(&other.checkout) == canonical_path(checkout))
     {
         for owner in &owner_plan.tasks {
-            if owner_plan.id == plan.id && owner.id == task.id {
+            if owner_plan.id == plan_id && owner.id == task_id {
                 continue;
             }
-            for attempt in owner
-                .execution_attempts
-                .iter()
-                .filter(|attempt| attempt.closed_at.is_none() && attempt.retired_at.is_none())
-            {
+            for attempt in &owner.execution_attempts {
                 if attempt.placement == WorkerPlacement::CanonicalWriter {
                     return Err(format!(
                         "canonical checkout is held exclusively by task '{}' in plan '{}'",
@@ -114,7 +143,11 @@ pub(crate) fn validate_shared_ownership(
 }
 
 fn validate_edit_links(plan: &Plan, files: &TaskFiles) -> Result<(), String> {
-    let root = std::path::PathBuf::from(canonical(plan));
+    validate_edit_links_at(&canonical(plan), files)
+}
+
+fn validate_edit_links_at(checkout: &str, files: &TaskFiles) -> Result<(), String> {
+    let root = std::path::PathBuf::from(checkout);
     for edit in files.shared_edit_paths()? {
         let mut current = root.clone();
         for component in edit.split('/') {
@@ -147,7 +180,7 @@ fn validate_edit_links(plan: &Plan, files: &TaskFiles) -> Result<(), String> {
 }
 
 pub fn choose_placement(
-    plans: &[Plan],
+    plans: &[CheckoutPeerRead],
     plan: &Plan,
     task: &Task,
     requested: Option<&str>,
@@ -187,25 +220,8 @@ pub fn choose_placement(
 }
 
 impl PlanStore {
-    pub fn checkout_peer_plans(&self, plan: &Plan) -> Vec<Plan> {
-        let checkout = canonical(plan);
-        let ids = self
-            .plan_roots()
-            .into_iter()
-            .filter(|(_, root)| canonical_path(root) == checkout)
-            .map(|(id, _)| id)
-            .collect();
-        let placements = ["shared", "canonical_writer"]
-            .into_iter()
-            .map(|placement| {
-                PlanMatch::Attempt(AttemptMatch {
-                    state: AttemptState::Open,
-                    fields: vec![("$.placement", placement.to_string())],
-                    ..Default::default()
-                })
-            })
-            .collect();
-        self.plans_matching(&PlanMatch::Ids(ids).and(PlanMatch::Any(placements)))
+    pub fn checkout_peer_plans(&self, plan: &Plan) -> Result<Vec<CheckoutPeerRead>, PlanError> {
+        self.checkout_peer_facts(&canonical(plan))
     }
     pub fn extend_task_edit_files(
         &self,
@@ -215,13 +231,8 @@ impl PlanStore {
         now: u64,
     ) -> Result<(), PlanError> {
         let writer_turn = self.mutation_writer.enter();
-        let plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let task = plan
-            .tasks
-            .iter()
-            .find(|task| task.id == task_id)
-            .ok_or(PlanError::TaskNotFound)?;
-        if !live_shared(task) {
+        let task = self.task_checkout_projection(plan_id, task_id, true)?;
+        if !task.live_shared {
             return Err(PlanError::InvalidPlanText(
                 "only a live shared Worker can extend edit files".into(),
             ));
@@ -229,8 +240,14 @@ impl PlanStore {
         let mut files = task.files.clone();
         files.edit.extend(paths);
         let files = files.validated().map_err(PlanError::InvalidPlanText)?;
-        validate_shared_files(&self.checkout_peer_plans(&plan), &plan, task, &files)
-            .map_err(PlanError::InvalidPlanText)?;
+        validate_shared_files_at(
+            &self.checkout_peer_facts(&task.checkout)?,
+            plan_id,
+            &task.id,
+            &canonical_path(&task.checkout),
+            &files,
+        )
+        .map_err(PlanError::InvalidPlanText)?;
         self.with_plan_in_writer(&writer_turn, plan_id, now, |plan| {
             let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
                 .ok_or(PlanError::TaskNotFound)?;

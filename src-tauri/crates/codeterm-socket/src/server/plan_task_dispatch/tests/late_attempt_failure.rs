@@ -36,6 +36,7 @@ fn run_stale_startup(
     store: &PlanStore,
     plan_id: &str,
     original: &Task,
+    undo: &codeterm_service_core::service::plan::DispatchUndo,
     attempt_id: &str,
     lane: codeterm_service_core::service::ProvisionedWorkerLane,
     provenance: WorkerLaneProvenance,
@@ -69,9 +70,7 @@ fn run_stale_startup(
         || {
             roll_back_dispatch_attempt(
                 store,
-                plan_id,
-                original,
-                &PlanMode::Approved,
+                undo,
                 STALE_TAB,
                 attempt_id,
                 Some(lane),
@@ -98,8 +97,8 @@ fn late_attempt_failure_cannot_reset_a_task_owned_by_a_newer_attempt() {
     let worktree_path = provenance.worktree_path.clone();
     let lane_metadata =
         lane_metadata_for_dispatch(&original.lane, &provenance, project.to_str().unwrap());
-    let stale_attempt = store
-        .begin_task_dispatch(
+    let started = store
+        .begin_task_dispatch_with_undo(
             &plan_id,
             &original.id,
             STALE_TAB,
@@ -108,6 +107,8 @@ fn late_attempt_failure_cannot_reset_a_task_owned_by_a_newer_attempt() {
             4,
         )
         .unwrap();
+    let stale_attempt = started.attempt_id;
+    let undo = started.undo;
     store
         .retire_stale_task_owner(&plan_id, &original.id, None, |_| false, 5)
         .unwrap();
@@ -140,6 +141,7 @@ fn late_attempt_failure_cannot_reset_a_task_owned_by_a_newer_attempt() {
         &store,
         &plan_id,
         &original,
+        &undo,
         &stale_attempt,
         lane,
         provenance,
@@ -180,8 +182,8 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
     let lane = provision_lane_for_test(project.to_str().unwrap(), "current-attempt").unwrap();
     let provenance = lane.verify().unwrap();
     let worktree_path = provenance.worktree_path.clone();
-    let attempt = store
-        .begin_task_dispatch(
+    let started = store
+        .begin_task_dispatch_with_undo(
             &plan_id,
             &original.id,
             STALE_TAB,
@@ -190,12 +192,15 @@ fn late_attempt_failure_of_the_current_attempt_still_rolls_back() {
             4,
         )
         .unwrap();
+    let attempt = started.attempt_id;
+    let undo = started.undo;
     let closed = Cell::new(false);
 
     let failure = run_stale_startup(
         &store,
         &plan_id,
         &original,
+        &undo,
         &attempt,
         lane,
         provenance,

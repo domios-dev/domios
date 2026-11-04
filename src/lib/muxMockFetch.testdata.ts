@@ -6,13 +6,27 @@ type FetchPort = NonNullable<TransportOptions["fetch"]>;
 // Sessions outlive one fake, so a test can swap daemon fakes under an already open mux.
 const sessions = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
 
-export function muxMockFetch(domain: FetchPort): FetchPort {
+// Test fakes are loosely typed (string urls, Response-like results); the mux hands them plain hrefs.
+// biome-ignore lint/suspicious/noExplicitAny: test fake signature
+export type DaemonFake = (input: any, init?: any) => unknown;
+
+interface ResponseLike { status?: number; ok?: boolean; headers?: HeadersInit; text?: () => Promise<string>; json?: () => Promise<unknown> }
+
+async function asResponse(value: unknown): Promise<Response> {
+  if (value instanceof Response) return value;
+  const like = value as ResponseLike;
+  // Response-like fakes answer success through json() and failures through text().
+  const body = like.json && like.ok !== false ? JSON.stringify(await like.json()) : like.text ? await like.text() : JSON.stringify(await like.json?.());
+  return new Response(body, { status: like.status ?? (like.ok === false ? 500 : 200), headers: like.headers ?? { "Content-Type": "application/json" } });
+}
+
+export function muxMockFetch(domain: DaemonFake): FetchPort {
   const jobs = new Map<string, { aborter: AbortController; detached: boolean; cancellable: boolean }>();
   const encoder = new TextEncoder();
   function emit(session: string, frame: unknown) {
     try { sessions.get(session)?.enqueue(encoder.encode(`data: ${JSON.stringify(frame)}\n\n`)); } catch {}
   }
-  return async (input, init = {}) => {
+  const carrier: FetchPort = async (input, init = {}) => {
     const url = new URL(String(input));
     if (url.pathname === "/api/stream-mux") {
       const session = url.searchParams.get("session")!;
@@ -44,7 +58,7 @@ export function muxMockFetch(domain: FetchPort): FetchPort {
     jobs.set(id, job);
     void (async () => {
       try {
-        const response = await domain(new URL(path, url.origin).href, { ...init, method, headers, body: stream ? undefined : init.body, signal: job.aborter.signal });
+        const response = await asResponse(await domain(new URL(path, url.origin).href, { ...init, method, headers, body: stream ? undefined : init.body, signal: job.aborter.signal }));
         if (job.detached) return;
         emit(session, { channel: id, open: true, status: response.status, headers: [...response.headers.entries()] });
         const reader = response.body?.getReader();
@@ -65,5 +79,9 @@ export function muxMockFetch(domain: FetchPort): FetchPort {
     })();
     return Response.json({ accepted: true }, { status: 202 });
   };
+  // Tests that read the global fetch as their spy see the domain fake's mock state.
+  return new Proxy(carrier, {
+    get: (target, key) => (key in domain && !(key in Function.prototype) ? Reflect.get(domain, key) : Reflect.get(target, key)),
+    has: (target, key) => key in domain || key in target,
+  });
 }
-

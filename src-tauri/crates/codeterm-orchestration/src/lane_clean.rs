@@ -7,9 +7,11 @@ mod inventory;
 use inventory::Inventory;
 
 use crate::team::close::{self, TeamCloseLane};
-use codeterm_service_core::plan::{Plan, Task, TaskStatus};
+use codeterm_service_core::plan::TaskStatus;
 use codeterm_service_core::service::lane_removal::{find_lane_holder, LiveTabCwd};
-use codeterm_service_core::service::plan::TaskLaneUpdate;
+use codeterm_service_core::service::plan::{
+    LaneCleanupPlanRead, LaneCleanupTaskRead, PlanError, TaskLaneUpdate,
+};
 use codeterm_service_core::service::ServiceContext;
 
 #[derive(Debug, Clone, Serialize)]
@@ -21,11 +23,12 @@ pub struct LaneCleanRow {
     reason: String,
 }
 
-pub fn task_refusal(task: &Task, lane: &TeamCloseLane, live: &HashSet<String>) -> Option<String> {
-    let remote = task
-        .execution_attempts
-        .iter()
-        .any(|attempt| attempt.remote_worktree_path.is_some());
+pub fn task_refusal(
+    task: &LaneCleanupTaskRead,
+    lane: &TeamCloseLane,
+    live: &HashSet<String>,
+) -> Option<String> {
+    let remote = task.remote;
     let current = task.lane.worktree_path == lane.worktree_path && task.lane.branch == lane.branch;
     let assigned = current
         && task
@@ -161,16 +164,16 @@ pub fn run_lane_with(
     snapshot: impl Fn() -> (Vec<LiveTabCwd>, Option<String>),
 ) -> LaneCleanRow {
     let inventory = Inventory::load(&lane.project_path, confirm).unwrap();
-    run_lane_with_inventory(lane, confirm, &inventory, snapshot)
+    run_lane_with_inventory(lane, confirm, &inventory, || Ok(snapshot())).unwrap()
 }
 
 fn run_lane_with_inventory(
     lane: &TeamCloseLane,
     confirm: bool,
     inventory: &Inventory,
-    snapshot: impl Fn() -> (Vec<LiveTabCwd>, Option<String>),
-) -> LaneCleanRow {
-    let (tabs, refusal) = snapshot();
+    snapshot: impl Fn() -> Result<(Vec<LiveTabCwd>, Option<String>), String>,
+) -> Result<LaneCleanRow, String> {
+    let (tabs, refusal) = snapshot()?;
     let mut row = LaneCleanRow {
         task_id: lane.task_id.clone(),
         worktree: lane.worktree_path.clone(),
@@ -180,33 +183,33 @@ fn run_lane_with_inventory(
     };
     if let Some(reason) = refusal {
         row.reason = reason;
-        return row;
+        return Ok(row);
     }
     if inventory.absent(lane) {
         row.action = "absent";
         row.reason = "lane worktree and branches already removed".into();
-        return row;
+        return Ok(row);
     }
     if let Some(reason) = preflight_with_inventory(lane, &tabs, inventory) {
         row.reason = reason;
-        return row;
+        return Ok(row);
     }
     let tips = match inventory.remote_tips(lane) {
         Ok(tips) => tips,
         Err(reason) => {
             row.reason = reason;
-            return row;
+            return Ok(row);
         }
     };
     if !confirm {
         row.action = "remove";
         row.reason = "merged, clean, unoccupied; remote tips rechecked on confirm".into();
-        return row;
+        return Ok(row);
     }
-    let (tabs, refusal) = snapshot();
+    let (tabs, refusal) = snapshot()?;
     if let Some(reason) = refusal.or_else(|| preflight(lane, &tabs)) {
         row.reason = reason;
-        return row;
+        return Ok(row);
     }
     match close::cleanup_lane_with_tabs(lane, &tabs).and_then(|()| delete_remote_tips(lane, &tips))
     {
@@ -219,12 +222,48 @@ fn run_lane_with_inventory(
             row.reason = format!("cleanup incomplete: {reason}");
         }
     }
-    row
+    Ok(row)
 }
 
-pub fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
+pub fn cleanup_inventory(plan: &LaneCleanupPlanRead) -> Vec<TeamCloseLane> {
     let mut lanes: Vec<TeamCloseLane> = Vec::new();
-    for mut lane in close::plan_cleanup_lanes(plan) {
+    let mut recorded = Vec::new();
+    let project = if plan.canonical_project_path.trim().is_empty() {
+        &plan.project_path
+    } else {
+        &plan.canonical_project_path
+    };
+    for task in &plan.tasks {
+        close::push_lane(
+            &mut recorded,
+            &plan.id,
+            &task.id,
+            project,
+            task.lane.worktree_path.as_deref(),
+            task.lane.branch.as_deref(),
+            task.lane.base.as_deref(),
+            task.lane.destination.as_deref(),
+        );
+        for attempt in &task.execution_attempts {
+            close::push_lane(
+                &mut recorded,
+                &plan.id,
+                &task.id,
+                project,
+                attempt
+                    .worktree_path
+                    .as_deref()
+                    .or(task.lane.worktree_path.as_deref()),
+                attempt.branch.as_deref().or(task.lane.branch.as_deref()),
+                attempt.base.as_deref().or(task.lane.base.as_deref()),
+                attempt
+                    .destination
+                    .as_deref()
+                    .or(task.lane.destination.as_deref()),
+            );
+        }
+    }
+    for mut lane in recorded {
         if lane.destination.is_none() {
             lane.destination = Some("HEAD".into());
         }
@@ -245,7 +284,7 @@ pub fn cleanup_inventory(plan: &Plan) -> Vec<TeamCloseLane> {
 
 pub fn clean_plan_lanes(
     svc: &ServiceContext,
-    plan: &Plan,
+    plan: &LaneCleanupPlanRead,
     confirm: bool,
     fetch: bool,
 ) -> Result<Vec<LaneCleanRow>, String> {
@@ -254,7 +293,7 @@ pub fn clean_plan_lanes(
 
 pub fn clean_plan_lanes_with_progress(
     svc: &ServiceContext,
-    plan: &Plan,
+    plan: &LaneCleanupPlanRead,
     confirm: bool,
     fetch: bool,
     mut progress: impl FnMut(&LaneCleanRow, bool),
@@ -272,11 +311,7 @@ pub fn clean_plan_lanes_with_progress(
     let remote_tasks: HashSet<_> = plan
         .tasks
         .iter()
-        .filter(|task| {
-            task.execution_attempts
-                .iter()
-                .any(|attempt| attempt.remote_worktree_path.is_some())
-        })
+        .filter(|task| task.remote)
         .map(|task| task.id.as_str())
         .collect();
     let lanes = cleanup_inventory(plan);
@@ -315,15 +350,17 @@ pub fn clean_plan_lanes_with_progress(
             },
             false,
         );
-        let refreshed = if confirm {
-            Some(
-                svc.plan_store
-                    .get(&plan.id)
-                    .ok_or_else(|| "plan disappeared during cleanup".to_string())?,
-            )
-        } else {
-            None
-        };
+        let refreshed =
+            if confirm {
+                Some(svc.plan_store.lane_cleanup_projection(&plan.id).map_err(
+                    |error| match error {
+                        PlanError::NotFound => "plan disappeared during cleanup".to_string(),
+                        error => error.to_string(),
+                    },
+                )?)
+            } else {
+                None
+            };
         let current = refreshed.as_ref().unwrap_or(plan);
         let task = current
             .tasks
@@ -337,11 +374,21 @@ pub fn clean_plan_lanes_with_progress(
                 .all_tabs()
                 .map(|tab| tab.id.clone())
                 .collect();
-            let refreshed = confirm.then(|| svc.plan_store.get(&plan.id));
-            let current = match &refreshed {
-                Some(current) => current.as_ref(),
-                None => Some(plan),
+            let refreshed = if confirm {
+                match svc.plan_store.lane_cleanup_projection(&plan.id) {
+                    Ok(read) => Some(read),
+                    Err(PlanError::NotFound) => {
+                        return Ok((
+                            svc.live_tab_cwds(),
+                            Some("plan disappeared during cleanup".into()),
+                        ))
+                    }
+                    Err(error) => return Err(error.to_string()),
+                }
+            } else {
+                None
             };
+            let current = Some(refreshed.as_ref().unwrap_or(plan));
             let refusal = match current {
                 None => Some("plan disappeared during cleanup".into()),
                 Some(current) if !current.tasks.iter().any(|task| task.id == lane.task_id) => {
@@ -369,8 +416,8 @@ pub fn clean_plan_lanes_with_progress(
                     })
                     .find_map(|task| task_refusal(task, &lane, &live)),
             };
-            (svc.live_tab_cwds(), refusal)
-        });
+            Ok((svc.live_tab_cwds(), refusal))
+        })?;
         if row.action == "removed" {
             let finalized = if let Some(path) = lane.worktree_path.as_deref() {
                 codeterm_service_core::service::lane_removal::finalize_lane_removal(

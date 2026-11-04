@@ -36,7 +36,7 @@ pub fn collect_verified(
     })
 }
 
-fn collect_verified_with(
+pub(crate) fn collect_verified_with(
     tailscale_ip: Option<&str>,
     local_ip: Option<&str>,
     api_port: u16,
@@ -85,7 +85,7 @@ pub fn normalize(announcement: WebUiAnnouncement) -> Option<WebUiAnnouncement> {
         .into_iter()
         .filter(is_valid)
         .collect::<Vec<_>>();
-    endpoints.sort_by_key(rank);
+    endpoints.sort_by_cached_key(|endpoint| (rank(endpoint), endpoint_base_url(endpoint)));
     endpoints.dedup();
     (!endpoints.is_empty()).then_some(WebUiAnnouncement {
         protocol_version: announcement.protocol_version,
@@ -160,7 +160,7 @@ fn rank(endpoint: &WebUiEndpoint) -> u8 {
     }
 }
 
-fn endpoint_base_url(endpoint: &WebUiEndpoint) -> String {
+pub(crate) fn endpoint_base_url(endpoint: &WebUiEndpoint) -> String {
     match endpoint {
         WebUiEndpoint::TailscaleHttps { host, port } if *port == 443 => {
             format!("https://{host}")

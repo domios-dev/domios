@@ -483,7 +483,7 @@ fn commit_staged_team_close(
     ))
 }
 
-fn push_lane(
+pub(crate) fn push_lane(
     lanes: &mut Vec<TeamCloseLane>,
     plan_id: &str,
     task_id: &str,

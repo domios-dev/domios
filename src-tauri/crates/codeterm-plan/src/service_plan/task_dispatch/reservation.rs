@@ -36,11 +36,7 @@ impl PlanStore {
         attempt_id: &str,
     ) -> Result<TaskDispatchReservation, PlanError> {
         let _writer_turn = self.mutation_writer.enter();
-        let task = self
-            .get(plan_id)
-            .and_then(|plan| crate::plan::task_key::find_task(&plan.tasks, task_id).cloned())
-            .ok_or(PlanError::TaskNotFound)?;
-        super::super::task_attempts::ensure_respawn_source_current(&task, source_attempt_id)?;
+        self.verify_respawn_source_projection(plan_id, task_id, source_attempt_id)?;
 
         let key = (plan_id.to_string(), task_id.to_string());
         let mut reservations = self.dispatch_reservations.lock();

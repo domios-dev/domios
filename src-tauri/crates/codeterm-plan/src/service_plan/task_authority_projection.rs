@@ -53,6 +53,31 @@ pub(super) struct TabAttemptOwnerRead {
 }
 
 impl PlanStore {
+    pub fn task_status_projection(
+        &self,
+        plan: &str,
+        task: &str,
+    ) -> Result<crate::plan::TaskStatus, PlanError> {
+        self.database.task_status_projection(plan, task)
+    }
+
+    pub fn task_assignment_projection(
+        &self,
+        plan: &str,
+        task: &str,
+    ) -> Result<Option<String>, PlanError> {
+        self.database.task_assignment_projection(plan, task)
+    }
+
+    pub fn plan_skill_receipt_projection(
+        &self,
+        plan: &str,
+        team: Option<&str>,
+        tab: &str,
+    ) -> Result<bool, PlanError> {
+        self.database.plan_skill_receipt_projection(plan, team, tab)
+    }
+
     pub fn plan_work_facet_projection(&self, plan_id: &str) -> Result<bool, PlanError> {
         self.database.plan_work_facet_projection(plan_id)
     }
@@ -112,6 +137,8 @@ pub use checkpoint::TaskCheckpointAdoptionRead;
 mod restart;
 mod restoration;
 mod runtime_restore;
+mod runtime_session;
+mod split;
 pub use creation::{TaskCreationRead, TaskDescriptionRead};
 pub use restart::{
     CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
@@ -119,3 +146,39 @@ pub use restart::{
 };
 pub use restoration::{ReviewBindingRestoreRead, ReviewRestoreAttemptRead, TaskBindingRestoreRead};
 pub use runtime_restore::{RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead};
+pub use runtime_session::{RuntimeSessionAttemptRead, TaskRuntimeSessionRead};
+pub use split::TaskSplitDefaultsRead;
+
+mod provider_interruption;
+pub use provider_interruption::{ProviderRecoveryRead, TaskInterruptionRead};
+
+mod remote;
+pub use remote::{RemoteRecoveryAttemptRead, RemoteWorkerBindingRead};
+
+mod review;
+pub use review::{CanonicalWriterHoldRead, LaneIntegrationRead};
+
+mod lane_admission;
+pub use lane_admission::{TaskLaneAdmissionRead, TaskLaneOwnerRead};
+
+mod batch;
+pub use batch::{BatchTaskRefusalRead, TaskSelectorRead};
+
+mod shared_inspection;
+pub(super) use shared_inspection::{SharedDispatchRead, SharedReportRead};
+
+mod plan_metadata;
+
+mod respawn_source;
+pub(super) use respawn_source::{ensure_respawn_source_fields, TaskRespawnSourceRead};
+
+mod worker_loss;
+pub use worker_loss::{WorkerLossRead, WorkerLossRecoveryRead, WorkerLossReplacementRead};
+
+mod ack;
+pub(super) use ack::{acknowledging_binding_matches, TaskAckAuthorityRead};
+
+mod launch;
+pub use launch::{TaskDispatchSeedRead, TaskLaunchRead};
+
+mod deadline;

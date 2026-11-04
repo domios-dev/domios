@@ -2,7 +2,6 @@
 
 use super::ServiceContext;
 use crate::multiplexer::types::{AgentRole, TabCloseReason, TitleLevel};
-use crate::plan::peer::{resolve_planner_ref, PeerResolution};
 use crate::service::session_model::spawn_startup_model_refresh;
 use crate::service::session_persist::{self, SessionPersistUrgency};
 use crate::service::worker_loss::{busy_worker_close_warnings, BUSY_WORKER_CLOSE_REFUSAL_PREFIX};
@@ -207,7 +206,7 @@ impl ServiceContext {
     /// True when `tab_id` is a coordinator (Orchestrator role, plan owner, or
     /// bound Planner) and so must not close itself. Keys off caller identity in
     /// the mux + plan graph, never a display name.
-    pub(crate) fn is_self_close_protected(&self, tab_id: &str) -> bool {
+    pub(crate) fn is_self_close_protected(&self, tab_id: &str) -> Result<bool, String> {
         let (role, role_profile) = self
             .mux
             .read()
@@ -215,20 +214,12 @@ impl ServiceContext {
             .map(|tab| (tab.role, tab.role_profile.clone()))
             .unwrap_or_default();
         if is_coordinator(role, role_profile.as_deref(), false, false) {
-            return true;
+            return Ok(true);
         }
-        for plan in self.plan_store.plans_owned_or_planned_by(tab_id) {
-            let is_owner = plan.owner.tab_id.as_deref() == Some(tab_id);
-            let is_planner =
-                match resolve_planner_ref(&plan.planner, &plan.owner, |p| self.tab_probe(p)) {
-                    PeerResolution::Planner { tab_id: p } => p == tab_id,
-                    _ => false,
-                };
-            if is_coordinator(None, None, is_owner, is_planner) {
-                return true;
-            }
-        }
-        false
+        let probe = self.tab_probe(tab_id);
+        self.plan_store
+            .coordinator_binding_projection(tab_id, &probe)
+            .map_err(|error| error.to_string())
     }
 
     /// Close a tab on behalf of `caller_tab_id`. Refuses coordinator self-close,
@@ -249,7 +240,7 @@ impl ServiceContext {
             let caller = caller_tab_id.and_then(|c| mux.resolve_tab_id(c));
             (target, caller)
         };
-        if self.is_self_close_protected(&canon_target) {
+        if self.is_self_close_protected(&canon_target)? {
             match canon_caller.as_deref() {
                 Some(caller) if caller == canon_target => {
                     return Err(format!(
@@ -268,7 +259,9 @@ impl ServiceContext {
                 Some(_) => {}
             }
         }
-        let assignments = self.in_progress_assignments_for_tab(&canon_target);
+        let assignments = self
+            .in_progress_assignments_for_tab(&canon_target)
+            .map_err(|error| error.to_string())?;
         let agent_caller = caller_tab_id.is_some_and(|caller| !caller.trim().is_empty());
         if agent_caller && !force && !assignments.is_empty() {
             let lines: Vec<String> = assignments.iter().map(|loss| loss.refusal_line()).collect();
@@ -283,8 +276,14 @@ impl ServiceContext {
     }
 
     /// Warnings for a close that bypassed the caller guard (human surfaces).
-    pub fn busy_worker_close_warnings_for(&self, tab_id: &str) -> Vec<String> {
-        busy_worker_close_warnings(tab_id, &self.in_progress_assignments_for_tab(tab_id))
+    pub fn busy_worker_close_warnings_for(
+        &self,
+        tab_id: &str,
+    ) -> Result<Vec<String>, crate::service::plan::PlanError> {
+        Ok(busy_worker_close_warnings(
+            tab_id,
+            &self.in_progress_assignments_for_tab(tab_id)?,
+        ))
     }
 
     pub async fn close_tab_async(&self, tab_id: &str) -> Result<(), String> {
@@ -1116,54 +1115,7 @@ pub(crate) fn focus_tab_hot_path(
 mod self_close_tests;
 
 #[cfg(test)]
-mod launch_artifact_close_tests {
-    use crate::agent::provider::LaunchArtifactSweepRequest;
-    use crate::agent::test_provider::MockProvider;
-    use crate::multiplexer::state::MultiplexerState;
-    use crate::service::test_fixture::ServiceFixture;
-    use parking_lot::Mutex;
-    use std::sync::Arc;
-
-    #[test]
-    fn closing_a_codex_tab_releases_its_own_profile() {
-        let (mut mux, tab_id) = MultiplexerState::new();
-        mux.get_tab_mut(&tab_id).unwrap().agent_type = Some("codex".into());
-        let fixture = ServiceFixture::new(mux);
-        let releases = Arc::new(Mutex::new(Vec::new()));
-        fixture.service.agent_registry.register_provider(Box::new(
-            MockProvider::new("codex").with_launch_artifact_logs(
-                Arc::new(Mutex::new(Vec::<LaunchArtifactSweepRequest>::new())),
-                releases.clone(),
-            ),
-        ));
-
-        fixture.service.close_tab(&tab_id).unwrap();
-
-        let releases = releases.lock();
-        let owner = codeterm_plugin::global_writes::machine_global_write_allowed();
-        assert_eq!(releases.len(), usize::from(owner));
-        if owner {
-            assert_eq!(releases[0].0, tab_id);
-            assert!(!releases[0].1.is_empty());
-        }
-        assert!(fixture.service.mux.read().get_tab(&tab_id).is_none());
-    }
-}
+mod launch_artifact_close_tests;
 
 #[cfg(test)]
-mod tab_title_tests {
-    use super::{validate_tab_title, TAB_TITLE_ERROR};
-
-    #[test]
-    fn accepts_one_word_and_rejects_prose() {
-        assert!(validate_tab_title("Dalton").is_ok());
-        assert_eq!(
-            validate_tab_title("Warehouse party").unwrap_err(),
-            TAB_TITLE_ERROR
-        );
-        assert_eq!(
-            validate_tab_title("Review\u{00a0}queue").unwrap_err(),
-            TAB_TITLE_ERROR
-        );
-    }
-}
+mod tab_title_tests;

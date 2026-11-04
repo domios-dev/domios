@@ -1,10 +1,12 @@
 //! `PluginVm` — one QuickJS context per plugin.
 
 mod arguments;
+mod async_call;
+pub(super) use async_call::{call_json_async, with_blocking_operation};
 mod call_mutex;
 mod connection;
 mod objects;
-mod operation;
+pub(super) mod operation;
 #[cfg(test)]
 mod operation_tests;
 #[cfg(test)]
@@ -116,6 +118,8 @@ pub enum VmError {
     AsyncJobTimedOut,
     CallCancelled,
     AdmissionBusy,
+    IoUnconfirmed,
+    OffRuntimeRequired,
 }
 
 impl std::fmt::Display for VmError {
@@ -136,6 +140,8 @@ impl std::fmt::Display for VmError {
                 write!(f, "argument serialization failed for `{name}`: {err}")
             }
             VmError::AsyncJobTimedOut => write!(f, "{ASYNC_JOB_TIMEOUT_ERROR}"),
+            VmError::IoUnconfirmed => write!(f, "plugin I/O may have started; the operation must not be replayed"),
+            VmError::OffRuntimeRequired => write!(f, "synchronous plugin dispatch requires a blocking worker on a current-thread runtime"),
             VmError::CallCancelled => write!(f, "plugin call cancelled"),
             VmError::AdmissionBusy => write!(f, "plugin call admission is busy"),
         }
@@ -164,7 +170,7 @@ pub struct PluginVm {
     inner: call_mutex::CallMutex<Inner>,
     admission: std::sync::Arc<operation::Admission>,
     // Acquire before the VM lock, never while holding a VM or mux guard.
-    pub(super) catalogue_gate: Mutex<()>,
+    pub(super) catalogue_gate: call_mutex::CallMutex<()>,
     methods: parking_lot::RwLock<HashSet<String>>,
     holder: Mutex<Option<(String, std::time::Instant)>>,
     runtime_inner: Mutex<Option<Inner>>,
@@ -330,7 +336,7 @@ impl PluginVm {
         Ok(Self {
             connection: Mutex::new(connection::ConnectionSnapshot::default()),
             bundle_access: crate::bundle_access::BundleAccess::for_plugin(plugin_id),
-            catalogue_gate: Mutex::new(()),
+            catalogue_gate: call_mutex::CallMutex::new(()),
             methods: parking_lot::RwLock::new(methods),
             holder: Mutex::new(None),
             runtime_inner: Mutex::new(None),
@@ -577,6 +583,18 @@ fn call_json_mode_interruptible<R: serde::de::DeserializeOwned>(
     call_prepared(vm, method, &args, strict, operation.context.clone())
 }
 
+pub(super) fn call_in_operation<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &[serde_json::Value],
+    context: std::sync::Arc<operation::Context>,
+) -> Result<R, VmError> {
+    context.check()?;
+    let args = Arguments::prepare(method, args)
+        .map_err(|error| VmError::ArgSerialize(method.into(), error))?;
+    call_prepared(vm, method, &args, false, context)
+}
+
 pub(super) fn call_records<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
@@ -590,7 +608,36 @@ pub(super) fn call_records<R: serde::de::DeserializeOwned>(
     call_prepared(vm, method, &args, false, operation.context.clone())
 }
 
+fn blocking_dispatch<T>(work: impl FnOnce() -> Result<T, VmError>) -> Result<T, VmError> {
+    if tokio::runtime::Handle::try_current().is_err() {
+        return work();
+    }
+    // Blocking pool threads inherit handles; Tokio owns the blocking-entry check.
+    let entered = std::cell::Cell::new(false);
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        tokio::task::block_in_place(|| {
+            entered.set(true);
+            work()
+        })
+    }));
+    match result {
+        Ok(result) => result,
+        Err(_) if !entered.get() => Err(VmError::OffRuntimeRequired),
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
+
 fn call_prepared<R: serde::de::DeserializeOwned>(
+    vm: &PluginVm,
+    method: &str,
+    args: &Arguments<'_>,
+    strict: bool,
+    operation: std::sync::Arc<operation::Context>,
+) -> Result<R, VmError> {
+    blocking_dispatch(|| call_prepared_blocking(vm, method, args, strict, operation))
+}
+
+fn call_prepared_blocking<R: serde::de::DeserializeOwned>(
     vm: &PluginVm,
     method: &str,
     args: &Arguments<'_>,
@@ -600,6 +647,7 @@ fn call_prepared<R: serde::de::DeserializeOwned>(
     if !has_method(vm, method) {
         return Err(VmError::MissingFunction(method.to_owned()));
     }
+    let _operation_scope = operation::Scope::enter(operation.clone());
     let _file_lock_scope = super::host_api::FileLockCallScope::new();
     let registration = vm
         .sandbox
@@ -608,7 +656,7 @@ fn call_prepared<R: serde::de::DeserializeOwned>(
     let _surface_scope = crate::surface_invocation::RootScope::enter(&vm.plugin_id, registration);
     // bad drop-in can't unwind through the host and take the daemon down (#16).
     let run = std::panic::AssertUnwindSafe(|| {
-        call_json_inner_interruptible::<R>(vm, method, args, strict, operation)
+        call_json_inner_interruptible::<R>(vm, method, args, strict, operation.clone())
     });
     let result = match std::panic::catch_unwind(run) {
         Ok(res) => res,
@@ -617,6 +665,9 @@ fn call_prepared<R: serde::de::DeserializeOwned>(
         ))),
     };
     awaits::discard_root(vm);
+    if result.is_err() {
+        operation.finish_check()?;
+    }
     result
 }
 
@@ -647,6 +698,7 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
         // No guard is held here: the frame unwound to produce the marker, so the
         // context is idle and this wait costs no other caller.
         operation.check()?;
+        operation.await_job(&pending.job);
         let waited = super::host_exec::wait_json_until(
             vm.sandbox.plugin_id(),
             &pending.job,
@@ -679,8 +731,11 @@ fn call_json_inner_interruptible<R: serde::de::DeserializeOwned>(
     if let Some(timing) = timing.as_mut() {
         timing.enter("decode");
     }
-    serde_json::from_str(&result_json)
-        .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()))
+    operation.finish_check()?;
+    let decoded = serde_json::from_str(&result_json)
+        .map_err(|e| VmError::InvalidJson(method.to_string(), e.to_string()));
+    operation.finish_check()?;
+    decoded
 }
 
 /// One entry into the context, guard taken and released around it. Every entry
@@ -884,7 +939,7 @@ impl<'a> VmEntry<'a> {
     fn check(&self) -> Result<(), VmError> {
         self.operation.check()?;
         if std::time::Instant::now() >= self.deadline {
-            Err(VmError::AsyncJobTimedOut)
+            Err(self.operation.deadline_error())
         } else {
             Ok(())
         }

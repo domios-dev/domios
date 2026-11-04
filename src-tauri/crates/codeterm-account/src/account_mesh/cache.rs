@@ -126,7 +126,8 @@ impl AccountMesh {
                     .revoked_installations
                     .extend(local.iter().cloned());
             }
-            inner.launch_renewal_pending = false;
+            inner.launch_renewal_pending =
+                inner.rejoin_authorized || inner.state.signed_registry.is_none();
             inner.metadata_revision = Some(cache.own.metadata_revision);
             inner.registry_presence = cache.presence;
             inner.sync_pending = cache.sync_pending;

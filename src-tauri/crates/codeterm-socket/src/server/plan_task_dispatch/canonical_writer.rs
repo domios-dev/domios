@@ -4,7 +4,8 @@
 use serde_json::{json, Value};
 
 use codeterm_service_core::plan::{ExecutionIntent, Plan, Task, WorkerPlacement};
-use codeterm_service_core::service::{live_canonical_writer, verify_worker_lane, LaneProtection};
+use codeterm_service_core::service::plan::LaneIntegrationRead;
+use codeterm_service_core::service::{verify_worker_lane, LaneProtection};
 
 use super::super::JsonRpcError;
 use super::lane_resolution::{checkout_required, invalid_dispatch};
@@ -81,7 +82,7 @@ pub(super) fn resolve_placement(
     intent: &ExecutionIntent,
     task: &Task,
     plan: &Plan,
-    plans: &[Plan],
+    plans: &[codeterm_service_core::service::plan::shared_checkout::CheckoutPeerRead],
 ) -> Result<(WorkerPlacement, String), JsonRpcError> {
     let requested = p
         .and_then(|params| params.get("placement"))
@@ -140,46 +141,23 @@ pub(super) fn compose_dispatch_brief(brief: String, placement: WorkerPlacement) 
 /// Accepting a lane task authorizes merging it into canonical, which the live
 /// canonical writer holds exclusively until its own verdict.
 pub(crate) fn refuse_lane_integration_while_canonical_held(
-    plan: &Plan,
-    task_id: &str,
+    input: Option<&LaneIntegrationRead>,
 ) -> Result<(), JsonRpcError> {
-    let Some(task) = plan.tasks.iter().find(|task| task.id == task_id) else {
+    let Some(input) = input else {
         return Ok(());
     };
-    let records_lane = task
-        .lane
-        .worktree_path
-        .as_deref()
-        .is_some_and(|path| !path.trim().is_empty());
-    if !records_lane {
-        return Ok(());
-    }
-    let Some((holder_task_id, holder_attempt_id)) = live_canonical_writer(plan) else {
-        return Ok(());
-    };
-    if holder_task_id == task.id {
-        return Ok(());
-    }
-    let canonical = if plan.canonical_project_path.trim().is_empty() {
-        &plan.project_path
-    } else {
-        &plan.canonical_project_path
-    };
-    if task
-        .lane
-        .worktree_path
-        .as_deref()
-        .and_then(|lane| {
-            codeterm_service_core::service::worker_lane::git_value(
-                lane,
-                ["rev-parse", "--verify", "HEAD^{commit}"],
-            )
-            .ok()
-        })
-        .is_some_and(|tip| {
-            codeterm_service_core::service::worker_lane::is_ancestor(canonical, &tip, "HEAD")
-        })
-    {
+    let task_id = &input.task_id;
+    let holder_task_id = &input.holder.task_id;
+    let holder_attempt_id = &input.holder.attempt_id;
+    let canonical = &input.canonical_path;
+    if codeterm_service_core::service::worker_lane::git_value(
+        &input.worktree_path,
+        ["rev-parse", "--verify", "HEAD^{commit}"],
+    )
+    .ok()
+    .is_some_and(|tip| {
+        codeterm_service_core::service::worker_lane::is_ancestor(canonical, &tip, "HEAD")
+    }) {
         return Ok(());
     }
     let reason = format!(
@@ -190,7 +168,7 @@ pub(crate) fn refuse_lane_integration_while_canonical_held(
     let safe_alternative = format!(
         "record the canonical writer's verdict first (domios plan review accept|bounce {} \
          {holder_task_id} --note \"<evidence>\"), then accept this lane.",
-        plan.id
+        input.plan_id
     );
     Err(JsonRpcError {
         code: CANONICAL_WRITER_HOLDS_CHECKOUT_CODE,

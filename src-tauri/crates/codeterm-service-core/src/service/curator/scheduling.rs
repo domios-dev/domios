@@ -612,9 +612,11 @@ impl ServiceContext {
             .insert(tab_id.into(), plan_id.into());
         let prior_rounds = self
             .plan_store
-            .get(plan_id)
-            .map(|plan| curator::synthesis::real_rounds_started(&plan))
-            .ok_or("plan absent")?;
+            .curator_real_rounds_projection(plan_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
+                error => error.to_string(),
+            })?;
         let number = self
             .plan_store
             .with_plan(plan_id, now, |p| {
@@ -632,7 +634,13 @@ impl ServiceContext {
                 Ok(number)
             })
             .map_err(|e| e.to_string())?;
-        let plan = self.plan_store.get(plan_id).ok_or("plan absent")?;
+        let plan =
+            self.plan_store
+                .plan_identity_projection(plan_id)
+                .map_err(|error| match error {
+                    crate::service::plan::PlanError::NotFound => "plan absent".to_string(),
+                    error => error.to_string(),
+                })?;
         self.mux
             .write()
             .set_tab_description(tab_id, Some(format!("Round {number}")))?;

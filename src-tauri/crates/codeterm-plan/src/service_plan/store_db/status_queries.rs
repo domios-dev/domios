@@ -59,34 +59,6 @@ const REGRESSION: &str = "WITH records AS (
 pub(super) const WHITESPACE: &str = "\t\n\u{b}\u{c}\r \u{85}\u{a0}\u{1680}\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}\u{2006}\u{2007}\u{2008}\u{2009}\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}";
 
 impl PlanDatabase {
-    pub(in crate::service_plan) fn heartbeat_owner_candidates(
-        &self,
-        predicate: &crate::service_plan::PlanMatch,
-    ) -> Result<Vec<Plan>, PlanError> {
-        let (clause, params) = crate::service_plan::plan_match::compile(predicate);
-        let connection = self.connection.lock();
-        record_query();
-        let mut statement=connection.prepare_cached(&format!(
-            "SELECT p.id,json_object('id',p.id,'title',p.title,'status',p.status,
-                'project_path','','created_at',0,'updated_at',p.updated_at,
-                'owner',json_extract(p.header_json,'$.owner'),'mode',coalesce(json_extract(p.header_json,'$.mode'),'planning'),
-                'tasks',json(CASE WHEN EXISTS(SELECT 1 FROM plan_tasks t WHERE t.plan_id=p.id AND t.status IN ('pending','in_progress','in_review','blocked'))
-                    THEN '[{{\"id\":\"\",\"name\":\"\",\"type\":\"\",\"status\":\"pending\"}}]' ELSE '[]' END))
-             FROM plans p WHERE {clause} ORDER BY p.updated_at DESC,p.id"
-        )).map_err(db_error)?;
-        let rows = statement
-            .query_map(rusqlite::params_from_iter(params), |row| {
-                Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
-            })
-            .map_err(db_error)?;
-        let mut result = Vec::new();
-        for row in rows {
-            let (id, document) = row.map_err(db_error)?;
-            result.push(decode(&id, &document)?);
-        }
-        Ok(result)
-    }
-
     pub(in crate::service_plan) fn status_projection(
         &self,
         plan_id: &str,

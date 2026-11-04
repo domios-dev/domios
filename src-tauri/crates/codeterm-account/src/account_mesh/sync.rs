@@ -7,6 +7,7 @@ use super::state::{AccountMeshRefusal, Cleanup, Publication, RegistryObservation
 #[cfg(test)]
 use super::wire::{MeshOperation, MeshResult, PublicationState, RegistryPresence};
 
+#[cfg(test)]
 pub(super) fn publication_refresh_after(now: u64, expires_at: u64) -> u64 {
     expires_at.saturating_sub(120.min(expires_at.saturating_sub(now) / 2))
 }

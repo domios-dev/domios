@@ -10,13 +10,11 @@ pub(crate) fn ensure_respawn_source_current(
         .execution_attempts
         .last()
         .ok_or(PlanError::TaskNotFound)?;
-    if current.id == source_attempt_id
-        && (current.retired_at.is_none() || current.closed_at.is_some())
-    {
-        return Ok(());
-    }
-    Err(PlanError::RespawnAttemptNotCurrent {
-        current_attempt_id: current.id.clone(),
-        tab_id: current.executor_tab_id.clone(),
-    })
+    super::super::task_authority_projection::ensure_respawn_source_fields(
+        &current.id,
+        &current.executor_tab_id,
+        current.closed_at.is_some(),
+        current.retired_at.is_some(),
+        source_attempt_id,
+    )
 }

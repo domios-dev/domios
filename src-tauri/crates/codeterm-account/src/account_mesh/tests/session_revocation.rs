@@ -1,3 +1,4 @@
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::*;
 use std::collections::BTreeMap;
 use std::{sync::Arc, time::Duration};
@@ -46,7 +47,7 @@ impl CredentialStore for GatedStore {
     }
     async fn delete(&self, provider: &str) -> Result<()> {
         self.entered.notify_one();
-        self.release.notified().await;
+        wait_for_event(self.release.notified()).await;
         self.store.delete(provider).await?;
         self.deleted.notify_one();
         Ok(())
@@ -65,11 +66,11 @@ async fn session_revoked_cleanup_survives_the_detecting_request_being_cancelled(
     let expected = account.session().await.unwrap();
     let caller = account.clone();
     let detecting_request = tokio::spawn(async move { caller.session_revoked(&expected).await });
-    store.entered.notified().await;
+    wait_for_event(store.entered.notified()).await;
     detecting_request.abort();
     assert!(detecting_request.await.unwrap_err().is_cancelled());
     store.release.notify_one();
-    store.deleted.notified().await;
+    wait_for_event(store.deleted.notified()).await;
     assert!(account.session().await.is_none());
     assert!(account.status().await.session_revoked);
     assert!(store.load("local").await.unwrap().is_none());

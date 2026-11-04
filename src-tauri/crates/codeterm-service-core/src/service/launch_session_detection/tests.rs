@@ -2,6 +2,8 @@ use super::*;
 
 #[path = "tests/restored_hook.rs"]
 mod restored_hook;
+#[path = "tests/resumed_outbox.rs"]
+mod resumed_outbox;
 
 fn git(cwd: &std::path::Path, args: &[&str]) {
     let mut command = std::process::Command::new("git");

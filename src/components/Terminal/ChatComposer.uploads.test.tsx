@@ -1,3 +1,4 @@
+import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
 import { ComposerIssuesProvider } from "./ComposerIssuesContext";
 import { AgentRuntimeBanner } from "./AgentRuntimeBanner";
 import { beforeEach as beforeDaemonCase } from "vitest";
@@ -49,13 +50,18 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     expect(file.type).toBe(failure === "HEIC" ? "image/jpeg" : "image/png");
     expect(file.name).toBe(failure === "HEIC" ? "photo.jpg" : "photo.png");
     expect(file.size).toBe(failure.includes("400") ? 0 : 5);
-    if (failure === "NotReadableError" && ++reads === 1) throw new DOMException("unreadable", "NotReadableError");
     if (++requests === 1 && failure === "HTTP 503") return new Response("busy", { status: 503 });
     if (failure.startsWith("pending")) await new Promise<void>(resolve => { completeUpload = resolve; });
     if (failure.includes("400")) return Response.json({ error: { code: "empty_attachment", message: "Attachment is empty" } }, { status: 400 });
     return Response.json({ path, size: 5 });
   });
-  vi.stubGlobal("fetch", fetch);
+  const daemon = muxMockFetch(fetch);
+  // The browser reads an unreadable picked file while sending the envelope, before the daemon sees it.
+  vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+    const unreadable = failure === "NotReadableError" && new Headers(init?.headers).get("X-Domios-Mux-Path") === "/api/attachments/upload";
+    if (unreadable && ++reads === 1) return Promise.reject(new DOMException("unreadable", "NotReadableError"));
+    return daemon(input, init);
+  });
   __setInvokeForTest(async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "chat_send_text") {
       sent.push(String(args?.text));
@@ -103,7 +109,7 @@ it.each(["success", "HEIC", "pending", "HTTP 503", "NotReadableError", "HTTP 400
     const file = new File([failure.includes("400") ? "" : "image"], failure === "HEIC" ? "photo.heic" : "photo.png", { type: failure === "HEIC" ? "image/heic" : "image/png" });
     Object.defineProperty(input, "files", { value: [file] });
     await act(async () => input.dispatchEvent(new Event("change", { bubbles: true })));
-    expect(fetch.mock.calls.length, host.textContent ?? "").toBe(1);
+    expect(fetch.mock.calls.length, host.textContent ?? "").toBe(failure === "NotReadableError" ? 0 : 1);
     if (failure.startsWith("pending")) {
       expect(host.querySelector('[role="status"][aria-label="Uploading photo.png"]')).not.toBeNull();
       expect(host.querySelector('[aria-label="Remove attachment photo.png"]')).not.toBeNull();

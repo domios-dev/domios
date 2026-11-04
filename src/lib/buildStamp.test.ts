@@ -1,3 +1,4 @@
+import { muxMockFetch } from "./muxMockFetch.testdata";
 import { appVersion, buildHash } from "./buildStamp";
 import { __resetForTest, checkBuildMismatch } from "./buildMismatchGuard";
 import { frontendApiContract } from "./frontendApiContract";
@@ -30,7 +31,7 @@ function setStamps(hash: string | undefined, version: string | undefined) {
 }
 
 function stubHealth(body: { build?: string; version?: string; apiVersion?: number }) {
-  mutableGlobal.fetch = async () => Response.json(body);
+  mutableGlobal.fetch = muxMockFetch(async () => Response.json(body));
 }
 
 async function main() {

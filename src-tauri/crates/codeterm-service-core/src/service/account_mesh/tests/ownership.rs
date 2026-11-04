@@ -45,7 +45,10 @@ async fn initialized_account_mesh_graph_drops_and_sessions_refuse_a_missing_owne
     let service = Arc::new(fixture.service.clone());
     let owner = Arc::new(OnceCell::new());
     let changes = Arc::new(watch::channel(0).0);
-    let sessions = Arc::new(AccountSessions(Arc::downgrade(&owner), Arc::downgrade(&changes)));
+    let sessions = Arc::new(AccountSessions(
+        Arc::downgrade(&owner),
+        Arc::downgrade(&changes),
+    ));
     let mesh = account_mesh_with_sessions(
         &service,
         Arc::new(HeldSignOutStore::default()),

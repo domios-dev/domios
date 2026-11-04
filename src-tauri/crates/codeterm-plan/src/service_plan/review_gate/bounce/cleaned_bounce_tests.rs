@@ -6,6 +6,120 @@ use crate::service_plan::task_attempts::{BoundWorkerReport, TaskCompeteDraft};
 use crate::service_plan::{NewTask, TaskLaneUpdate};
 use codeterm_types::agent::ReportStatus;
 
+#[test]
+fn closed_review_sql_matches_the_original_continuation_rule() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut base = Plan::new(
+        "Review projection".into(),
+        directory.path().display().to_string(),
+        OrchestratorRef::default(),
+    );
+    let mut task =
+        crate::service_plan::load_audit::task("task_review", TaskStatus::InReview, Some("worker"));
+    task.peer = Some("task-peer".into());
+    task.review_round = 2;
+    let mut attempt = crate::service_plan::load_audit::attempt("reported", "worker");
+    attempt.session_id = Some("session".into());
+    attempt.acknowledged_at = Some(1);
+    attempt.reported_at = Some(2);
+    attempt.closed_at = Some(3);
+    attempt.continuation.epoch = 4;
+    task.execution_attempts = vec![attempt];
+    base.tasks = vec![task];
+    let mut variants = vec![base.clone()];
+    for field in [
+        "pending",
+        "replay_awaiting",
+        "replay_failed",
+        "replay_bounced",
+        "wrong_replay",
+        "unassigned",
+        "retired_unassigned",
+        "retired_wrong_label",
+        "unacknowledged",
+        "unreported",
+        "session_none",
+        "session_blank",
+        "session_unicode_blank",
+        "competition_winner",
+        "competition_loser",
+        "open_matching",
+        "open_foreign",
+        "two_closed",
+        "mesh_override",
+        "empty_state",
+    ] {
+        let mut plan = base.clone();
+        let task = &mut plan.tasks[0];
+        match field {
+            "pending" => task.status = TaskStatus::Pending,
+            "replay_awaiting" | "replay_failed" | "replay_bounced" | "wrong_replay" => {
+                task.status = TaskStatus::InProgress;
+                task.status_label = Some(
+                    match field {
+                        "replay_awaiting" => "awaiting_continuation",
+                        "replay_failed" => "bounce_continuation_failed",
+                        "replay_bounced" => "review bounced",
+                        _ => "foreign",
+                    }
+                    .into(),
+                );
+            }
+            "unassigned" => task.assigned_tab_id = None,
+            "retired_unassigned" | "retired_wrong_label" => {
+                task.assigned_tab_id = None;
+                task.execution_attempts[0].retired_at = Some(3);
+                task.status_label = Some(
+                    if field == "retired_unassigned" {
+                        crate::plan::reconcile::TAB_GONE_LABEL
+                    } else {
+                        "foreign"
+                    }
+                    .into(),
+                );
+            }
+            "unacknowledged" => task.execution_attempts[0].acknowledged_at = None,
+            "unreported" => task.execution_attempts[0].reported_at = None,
+            "session_none" => task.execution_attempts[0].session_id = None,
+            "session_blank" => task.execution_attempts[0].session_id = Some(" \t".into()),
+            "session_unicode_blank" => {
+                task.execution_attempts[0].session_id = Some("\u{2003}\u{85}".into())
+            }
+            "competition_winner" | "competition_loser" => {
+                task.assigned_tab_id = None;
+                task.execution_attempts[0].competition_group_id = Some("group".into());
+                task.execution_attempts[0].winner = field == "competition_winner";
+            }
+            "open_matching" | "open_foreign" | "two_closed" => {
+                let mut other = task.execution_attempts[0].clone();
+                other.id = "other".into();
+                if field != "two_closed" {
+                    other.closed_at = None;
+                }
+                if field == "open_foreign" {
+                    other.executor_tab_id = "foreign".into();
+                }
+                task.execution_attempts.push(other);
+            }
+            "mesh_override" => task.execution_attempts[0].mesh_peer = Some("attempt-peer".into()),
+            "empty_state" => task.execution_attempts[0].continuation.state = Some(String::new()),
+            _ => unreachable!(),
+        }
+        variants.push(plan);
+    }
+    let database =
+        crate::service_plan::store_db::PlanDatabase::open(directory.path().join("plans.db"))
+            .unwrap();
+    for (index, plan) in variants.iter().enumerate() {
+        database.persist_plan_rows(plan, None).unwrap();
+        let expected = closed_review_continuation_reference(&plan.tasks[0]);
+        let actual = database
+            .closed_review_continuation_projection(&plan.id, "task_review")
+            .unwrap();
+        assert_eq!(actual, expected, "variant {index}");
+    }
+}
+
 fn setup() -> (tempfile::TempDir, PlanStore, String, String) {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());

@@ -918,11 +918,13 @@ fn list_tasks_is_strictly_project_scoped() {
         )
         .unwrap();
 
-    let tasks = store.list_tasks(TaskListFilter {
-        project_path: Some(project_b.display().to_string()),
-        active_only: true,
-        ..Default::default()
-    });
+    let tasks = store
+        .list_tasks(TaskListFilter {
+            project_path: Some(project_b.display().to_string()),
+            active_only: true,
+            ..Default::default()
+        })
+        .unwrap();
 
     assert_eq!(tasks.len(), 1);
     assert_eq!(tasks[0].plan_id, plan_b.id);

@@ -227,6 +227,8 @@ pub struct GossipPeerInfo {
 /// Mesh sync payload — exchanged between paired peers.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MeshSyncPayload {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub endpoints: Vec<crate::endpoint_gossip::SignedEndpointRecord>,
     /// Known peers in the mesh (addresses only, no tokens).
     pub peers: Vec<GossipPeerInfo>,
     /// Monotonic generation of the sender's authoritative peer-claim snapshot.
