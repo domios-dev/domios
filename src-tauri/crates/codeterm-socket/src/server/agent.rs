@@ -109,6 +109,12 @@ pub(super) fn dispatch(
                 spawn_params.model.as_deref(),
             )
             .map_err(super::model_errors::invalid_model_rpc_error)?;
+            let default_provider = svc.configuration().general_agent.agent_provider;
+            svc.validate_launch_profile(
+                spawn_params.agent.as_deref().unwrap_or(&default_provider),
+                spawn_params.launch_profile.as_deref(),
+            )
+            .map_err(super::model_errors::launch_profile_rpc_error)?;
             let plan_task = spawn_params.plan_task.clone();
 
             let svc_ref = &**svc;

@@ -22,7 +22,7 @@ pub use role_mutations::{
 mod pair_headers;
 mod remote_authority;
 pub(crate) mod spawn_ownership;
-mod spawn_rejection;
+pub(crate) mod spawn_rejection;
 mod spawn_request;
 mod worker_transfer;
 
@@ -335,6 +335,12 @@ pub async fn spawn_agent(
         provider_id,
         params.model.as_deref(),
     )?;
+    spawn_rejection::validate_spawn_profile(
+        &state.svc,
+        provider_id,
+        params.launch_profile.as_deref(),
+    )
+    .await?;
     let plan_task = params.plan_task.clone();
     let (ready_tx, ready_rx) = if require_delivery_ack {
         let (tx, rx) = tokio::sync::oneshot::channel();

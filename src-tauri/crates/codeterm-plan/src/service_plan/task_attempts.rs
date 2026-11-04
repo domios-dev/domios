@@ -399,30 +399,6 @@ impl PlanStore {
             .recent_worker_titles(workspace_id, session_id, limit)
     }
 
-    pub fn update_attempt_launch_profile(
-        &self,
-        plan_id: &str,
-        task_id: &str,
-        tab_id: &str,
-        profile: Option<&str>,
-        now_ms: u64,
-    ) -> Result<(), PlanError> {
-        self.change_attempt(
-            plan_id,
-            task_id,
-            AttemptTarget {
-                tab: tab_id,
-                ..Default::default()
-            },
-            now_ms,
-            |attempt| {
-                attempt.ok_or(PlanError::TaskNotFound)?.launch_profile = profile.map(str::to_owned);
-                Ok(Some(()))
-            },
-        )?;
-        Ok(())
-    }
-
     pub fn update_attempt_executor_identity(
         &self,
         plan_id: &str,
@@ -431,6 +407,7 @@ impl PlanStore {
         title: Option<&str>,
         session_id: Option<&str>,
         session_binding_nonce: Option<&str>,
+        launch_profile: Option<&str>,
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let title = title.map(str::trim).filter(|value| !value.is_empty());
@@ -448,6 +425,9 @@ impl PlanStore {
             now_ms,
             |attempt| {
                 let attempt = attempt.ok_or(PlanError::TaskNotFound)?;
+                if let Some(profile) = launch_profile {
+                    attempt.launch_profile = Some(profile.to_owned());
+                }
                 attempt.executor_title = title.map(str::to_string);
                 attempt.session_id = session_id.map(str::to_string);
                 attempt.session_binding_nonce = session_binding_nonce.map(str::to_string);
@@ -810,7 +790,11 @@ impl PlanStore {
             source.authorized_gates.as_deref().unwrap_or(&[]),
         );
         Ok(TaskRespawnDraft {
-            launch_profile: request.launch_profile.or(source.launch_profile.clone()),
+            launch_profile: request.launch_profile.or_else(|| {
+                (source_provider.as_deref() == Some(provider.as_str()))
+                    .then(|| source.launch_profile.clone())
+                    .flatten()
+            }),
             plan_id: read.plan_id,
             task_id: task.id.clone(),
             execution_intent: task.execution_intent.clone(),

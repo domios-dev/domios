@@ -1,3 +1,5 @@
+mod profile_respawn;
+
 use super::*;
 use axum::http::HeaderMap;
 use codeterm_service_core::lock_hold::TimedRwLock;

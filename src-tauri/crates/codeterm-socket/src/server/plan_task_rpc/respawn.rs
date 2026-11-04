@@ -67,6 +67,8 @@ pub(super) fn respawn(
     let mut draft = store
         .build_task_respawn_draft(&id, &tid, request)
         .map_err(plan_rpc_err)?;
+    svc.validate_launch_profile(&draft.provider, draft.launch_profile.as_deref())
+        .map_err(super::super::model_errors::launch_profile_rpc_error)?;
     let seed = store
         .task_dispatch_seed_projection(&id, &tid, "")
         .map_err(plan_rpc_err)?;
@@ -114,8 +116,6 @@ pub(super) fn respawn(
             data: None,
         })?;
     draft.parent_tab_id = Some(parent_tab_id.clone());
-    svc.validate_launch_profile(&draft.provider, draft.launch_profile.as_deref())
-        .map_err(super::super::model_errors::launch_profile_rpc_error)?;
     let _respawn_reservation = store
         .reserve_task_respawn_startup(&id, &tid, &draft.source_attempt.id, &draft.attempt_id)
         .map_err(plan_rpc_err)?;

@@ -38,23 +38,56 @@ impl LaunchProfileRefusal {
             "message": self.message,
         })
     }
-
-    pub fn from_message(message: &str) -> Option<Self> {
-        let (code, body) = message.split_once(": ")?;
-        if !matches!(
-            code,
-            "unknown_launch_profile" | "launch_profile_required" | "launch_profile_not_installed"
-        ) {
-            return None;
-        }
-        let refusal: Self = serde_json::from_str(body).ok()?;
-        (refusal.code == code).then_some(refusal)
-    }
 }
 
 impl std::fmt::Display for LaunchProfileRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}: {}", self.code, self.data())
+        f.write_str(&self.message)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SpawnTargetRefusal {
+    LaunchProfile(LaunchProfileRefusal),
+    Other(String),
+}
+
+impl std::fmt::Display for SpawnTargetRefusal {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::LaunchProfile(error) => std::fmt::Display::fmt(error, f),
+            Self::Other(message) => f.write_str(message),
+        }
+    }
+}
+
+impl From<LaunchProfileRefusal> for SpawnTargetRefusal {
+    fn from(error: LaunchProfileRefusal) -> Self {
+        Self::LaunchProfile(error)
+    }
+}
+
+impl From<String> for SpawnTargetRefusal {
+    fn from(message: String) -> Self {
+        Self::Other(message)
+    }
+}
+
+impl From<&str> for SpawnTargetRefusal {
+    fn from(message: &str) -> Self {
+        Self::Other(message.into())
+    }
+}
+
+impl From<crate::service::CwdRefusal> for SpawnTargetRefusal {
+    fn from(error: crate::service::CwdRefusal) -> Self {
+        Self::Other(error.to_string())
+    }
+}
+
+impl From<SpawnTargetRefusal> for String {
+    fn from(error: SpawnTargetRefusal) -> Self {
+        error.to_string()
     }
 }
 

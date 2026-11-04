@@ -10,7 +10,7 @@ Creates a new tab in the parent's workspace, assigns its role and launches the p
 {"agent":"opencode","title":"Reviewer","cwd":"C:/project","role":"Worker","parent_tab_id":"a3f1b2c7","task":"Review the changes","preset":"demo"}
 ```
 
-Optional `launch_profile` selects an ACP launch profile declared by the provider (`domios agent spawn acp --profile <id>`). It is separate from `model` and `role_profile`. Providers declaring launch profiles require one. Before tab, Team-member or attempt creation, unknown, missing required and uninstalled profiles return HTTP 422 with `error.code` `unknown_launch_profile`, `launch_profile_required` or `launch_profile_not_installed`, plus `provider`, `requested_profile` (null when missing), and `declared_profile_ids`. The CLI prints the code and exits non-zero. Local task dispatch accepts the same `--profile`; respawn inherits the source attempt's profile unless overridden.
+Optional `launch_profile` selects an ACP launch profile declared by the provider (`domios agent spawn acp --profile <id>`). It is separate from `model` and `role_profile`. Providers declaring launch profiles require one. Before tab, Team-member or attempt creation, unknown, missing required and uninstalled profiles return HTTP 422 with `error.code` `unknown_launch_profile`, `launch_profile_required` or `launch_profile_not_installed`, plus `provider`, `requested_profile` (null when missing), and `declared_profile_ids`. The CLI prints the code and exits non-zero. Local task dispatch accepts the same `--profile`; respawn inherits the source attempt's profile unless overridden or the provider changes.
 
 The selected model's advertised reasoning levels constrain `reasoning_effort`; the provider's flat list applies when the model has none (`domios agent models <provider>` shows the sets). Provider listings may include `default_reasoning_effort` on the provider descriptor (fallback) and on each `available_models` entry (that model's live default). `domios agent models <provider>` marks the model-specific default beside its reasoning levels, falling back to the provider value only when the model has none.
 
@@ -31,4 +31,4 @@ An unknown id on an authoritative catalogue or a published free-form live list i
 
 `launch_state` is `ready` once the agent is ready, or `starting` with a `warning` when it waits on an owner prompt, holds a provisional boot stage, or is still launching at the bound; `starting` never claims readiness. A provider that exits before readiness fails the spawn: REST answers 500 with `error.code` `launch_failed`, socket `agent.spawn` returns the same fields as error `data`, and the CLI exits non-zero. Both carry `tab_id`, `reason`, `output_tail` (the provider's last printed lines), and `retry_hint`; the failed Tab stays in `spawn_failed` for inspection. `plan task dispatch` reports the same failure, output tail included, through its startup-failed event.
 
-<!-- revision: 6 -->
+<!-- revision: 7 -->

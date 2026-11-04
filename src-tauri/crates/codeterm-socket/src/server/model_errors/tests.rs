@@ -9,7 +9,7 @@ fn spawn_profile_error_keeps_typed_rpc_data() {
         declared_profile_ids: vec!["selected".into()],
         message: "unknown_launch_profile: fixture/nope; declared profile ids: [selected]".into(),
     };
-    let error = spawn_rpc_error(refusal.to_string());
+    let error = launch_profile_rpc_error(refusal);
     assert_eq!(error.code, -32602);
     let data = error.data.unwrap();
     assert_eq!(data["code"], "unknown_launch_profile");

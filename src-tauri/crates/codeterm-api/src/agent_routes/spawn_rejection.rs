@@ -31,16 +31,6 @@ pub(crate) const SPAWN_REFUSAL_CLASS_UNCLASSIFIED: &str = "unknown";
 
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
-        if let Some(refusal) =
-            codeterm_service_core::service::spawn_params::LaunchProfileRefusal::from_message(
-                &message,
-            )
-        {
-            return Self {
-                status: StatusCode::UNPROCESSABLE_ENTITY,
-                body: serde_json::json!({"ok": false, "error": refusal.data()}),
-            };
-        }
         if let Some((code, _)) = message.split_once(':') {
             if matches!(
                 code,
@@ -84,6 +74,29 @@ impl From<codeterm_service_core::service::spawn_launch_verdict::SpawnLaunchFailu
             body: serde_json::json!({ "ok": false, "error": error }),
         }
     }
+}
+
+impl From<codeterm_service_core::service::spawn_params::LaunchProfileRefusal> for SpawnRejection {
+    fn from(error: codeterm_service_core::service::spawn_params::LaunchProfileRefusal) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            body: serde_json::json!({"ok": false, "error": error.data()}),
+        }
+    }
+}
+
+pub(crate) async fn validate_spawn_profile(
+    svc: &codeterm_service_core::service::ServiceState,
+    provider: &str,
+    profile: Option<&str>,
+) -> Result<(), SpawnRejection> {
+    let svc = svc.clone();
+    let provider = provider.to_owned();
+    let profile = profile.map(str::to_owned);
+    tokio::task::spawn_blocking(move || svc.validate_launch_profile(&provider, profile.as_deref()))
+        .await
+        .map_err(|error| SpawnRejection::from(error.to_string()))?
+        .map_err(SpawnRejection::from)
 }
 
 /// Answer for the launch this spawn started, off the async runtime.

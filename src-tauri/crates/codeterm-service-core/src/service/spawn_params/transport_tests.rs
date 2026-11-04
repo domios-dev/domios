@@ -74,7 +74,8 @@ fn spawn_rejects_transport_mismatched_flags() {
         let error = fixture
             .service
             .classify_spawn_target_for_params(PROVIDER, &params)
-            .expect_err(flag);
+            .expect_err(flag)
+            .to_string();
         assert!(error.contains(flag), "{flag}: {error}");
     }
     assert!(chat_backend_only_fields(&pty_params()).is_empty());

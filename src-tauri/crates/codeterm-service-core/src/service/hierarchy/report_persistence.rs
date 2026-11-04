@@ -551,6 +551,7 @@ mod tests {
                 None,
                 Some("worker-session"),
                 Some("worker-nonce"),
+                None,
                 4,
             )
             .unwrap();
@@ -854,6 +855,7 @@ mod tests {
                 None,
                 Some("live-session"),
                 Some("live-nonce"),
+                None,
                 4,
             )
             .unwrap();
@@ -923,6 +925,7 @@ mod tests {
                 None,
                 Some("live-session"),
                 Some("live-nonce"),
+                None,
                 4,
             )
             .unwrap();

@@ -541,6 +541,7 @@ mod model_refresh_tests {
                 None,
                 Some("session-known"),
                 Some("nonce-known"),
+                None,
                 4,
             )
             .unwrap();
@@ -673,6 +674,7 @@ mod model_refresh_tests {
                     None,
                     Some(session),
                     Some(nonce),
+                    None,
                     now_ms + 2,
                 )
                 .unwrap();

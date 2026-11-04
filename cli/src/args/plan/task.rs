@@ -509,7 +509,7 @@ pub enum PlanTaskAction {
         #[arg(
             long = "profile",
             value_name = "ID",
-            help = "ACP launch profile; inherits the source attempt when omitted"
+            help = "ACP launch profile; inherits the source attempt when omitted and the provider stays the same"
         )]
         launch_profile: Option<String>,
         #[arg(long)]

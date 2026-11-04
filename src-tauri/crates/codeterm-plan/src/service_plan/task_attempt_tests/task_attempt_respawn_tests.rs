@@ -1032,8 +1032,62 @@ fn attempt_launch_profile_optional_round_trip_and_respawn_override() {
         .executor_tab_id
         .clone();
     store
-        .update_attempt_launch_profile(&plan, &task, &source_tab, Some("selected"), 4)
+        .update_attempt_executor_identity(
+            &plan,
+            &task,
+            &source_tab,
+            None,
+            None,
+            None,
+            Some("selected"),
+            4,
+        )
         .unwrap();
+    store
+        .update_attempt_executor_identity(
+            &plan,
+            &task,
+            &source_tab,
+            Some("Worker"),
+            Some("session"),
+            Some("nonce"),
+            None,
+            4,
+        )
+        .unwrap();
+    let identity = store
+        .list_task_attempts(&plan, &task)
+        .unwrap()
+        .remove(0)
+        .attempt;
+    assert_eq!(identity.launch_profile.as_deref(), Some("selected"));
+    assert_eq!(identity.session_id.as_deref(), Some("session"));
+    store
+        .with_plan(&plan, 4, |plan| {
+            plan.tasks
+                .iter_mut()
+                .find(|entry| entry.id == task)
+                .unwrap()
+                .execution_attempts
+                .last_mut()
+                .unwrap()
+                .provider = Some("source-provider".into());
+            Ok(())
+        })
+        .unwrap();
+    let changed = store
+        .build_task_respawn_draft(
+            &plan,
+            &task,
+            task_attempts::TaskRespawnRequest {
+                attempt_id: source.clone(),
+                provider: Some("codex".into()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    assert_eq!(changed.provider, "codex");
+    assert!(changed.launch_profile.is_none());
     for (requested, expected) in [
         (None, "selected"),
         (Some("replacement".into()), "replacement"),

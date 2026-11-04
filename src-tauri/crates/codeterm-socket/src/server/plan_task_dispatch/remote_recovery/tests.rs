@@ -62,3 +62,35 @@ fn remote_respawn_keeps_peer_gates_and_respects_model_override() {
     assert_eq!(rest_params["agent"], "provider");
     assert_eq!(rest_params["model"], "original-model");
 }
+
+#[test]
+fn mesh_profile_refusals_precede_plan_lookup_and_executor_recovery() {
+    use codeterm_service_core::multiplexer::state::MultiplexerState;
+    use codeterm_service_core::service::test_fixture::ServiceFixture;
+    use std::sync::Arc;
+    let (mux, _) = MultiplexerState::new();
+    let fixture = ServiceFixture::new(mux);
+    let svc = Arc::new(fixture.service.clone());
+    let before = svc.mux.read().snapshot().tabs.len();
+    let error =
+        super::super::remote::dispatch(&Some(json!({"launch_profile":"selected"})), &svc, 1)
+            .unwrap_err();
+    assert_eq!(error.code, -32602);
+    assert!(error
+        .message
+        .contains("launch_profile selection is local-only"));
+    for (params, profile) in [
+        (Some(json!({"launch_profile":"selected"})), None),
+        (Some(json!({})), Some("selected".to_owned())),
+    ] {
+        let attempt = TaskExecutionAttempt {
+            launch_profile: profile,
+            ..Default::default()
+        };
+        let error =
+            respawn_remote(&params, &svc, "absent-plan", "absent-task", &attempt, 1).unwrap_err();
+        assert_eq!(error.code, -32602);
+        assert!(error.message.contains("recorded profile cannot be dropped"));
+    }
+    assert_eq!(svc.mux.read().snapshot().tabs.len(), before);
+}

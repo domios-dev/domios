@@ -22,10 +22,10 @@ fn profile_refusals_preserve_codes_and_declared_ids() {
         assert_eq!(refusal.code, code);
         assert_eq!(refusal.requested_profile.as_deref(), requested);
         assert_eq!(refusal.declared_profile_ids, ["selected"]);
-        assert_eq!(
-            LaunchProfileRefusal::from_message(&refusal.to_string()),
-            Some(refusal)
-        );
+        assert_eq!(refusal.to_string(), refusal.message);
+        let native_message: String = SpawnTargetRefusal::from(refusal.clone()).into();
+        assert_eq!(native_message, refusal.message);
+        assert!(!refusal.to_string().contains('{'));
     }
     assert!(
         validate("fixture", Some(&capability()), Some("selected"), |_, _| {
@@ -56,9 +56,9 @@ fn non_runtime_profile_refuses_before_tab_creation() {
         .service
         .classify_spawn_target_for_params("plain-provider", &params)
         .unwrap_err();
-    assert_eq!(
-        LaunchProfileRefusal::from_message(&error).unwrap().code,
-        "unknown_launch_profile"
-    );
+    let SpawnTargetRefusal::LaunchProfile(refusal) = error else {
+        panic!("expected typed profile refusal")
+    };
+    assert_eq!(refusal.code, "unknown_launch_profile");
     assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
 }

@@ -973,10 +973,13 @@ where
     };
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
     let spawn = match store
-        .update_attempt_launch_profile(
+        .update_attempt_executor_identity(
             &plan_id,
             &task_id,
             &reserved_tab_id,
+            None,
+            None,
+            None,
             launch_profile.as_deref(),
             now,
         )

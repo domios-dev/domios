@@ -481,3 +481,87 @@ fn dispatch_launch_profile_refuses_before_tab_member_or_attempt_reservation() {
             .is_empty());
     }
 }
+
+#[test]
+fn socket_respawn_profile_refusal_leaves_no_reservation_attempt_or_tab() {
+    let (harness, owner, _) = fixture_with_profiles(Some(json!({
+        "selected": {"binary": "node", "args": [], "ownerConfigured": true}
+    })));
+    let svc = &harness.fixture.service;
+    let team = svc
+        .mux
+        .read()
+        .get_tab(&owner)
+        .unwrap()
+        .team_id
+        .clone()
+        .unwrap();
+    let plan = svc
+        .plan_store
+        .create_plan_for_team(
+            "respawn refusal".into(),
+            harness.fixture.temp.path().display().to_string(),
+            OrchestratorRef {
+                tab_id: Some(owner.clone()),
+                session_id: Some("owner-session".into()),
+                title: None,
+            },
+            team,
+            vec![],
+            1,
+        )
+        .unwrap();
+    let task = svc
+        .plan_store
+        .add_task(
+            &plan.id,
+            NewTask {
+                name: "Profile task".into(),
+                ..Default::default()
+            },
+            2,
+        )
+        .unwrap();
+    svc.plan_store
+        .assign_task(&plan.id, &task, "source-worker", None, 3)
+        .unwrap();
+    let mut approved = svc.plan_store.get(&plan.id).unwrap();
+    approved.mode = PlanMode::Approved;
+    approved.planning_state = codeterm_service_core::plan::PlanningState::Approved;
+    svc.plan_store.save(&mut approved, 4).unwrap();
+    let source = svc.plan_store.list_task_attempts(&plan.id, &task).unwrap()[0]
+        .attempt_id
+        .clone();
+    let before = serde_json::to_value(svc.plan_store.show_task(&task).unwrap().task).unwrap();
+    let tabs = svc.mux.read().snapshot().tabs.len();
+    for (profile, code) in [
+        ("unknown", "unknown_launch_profile"),
+        ("selected", "launch_profile_not_installed"),
+    ] {
+        let error = crate::server::plan_task_rpc::dispatch(
+            "plan.task.respawn",
+            &Some(json!({
+                "plan_id": plan.id, "task_id": task, "attempt_id": source, "provider": PROVIDER,
+                "launch_profile": profile, "caller_tab_id": owner,
+                "session_id": "owner-session", "session_binding_nonce": "owner-nonce"
+            })),
+            &Arc::new(svc.clone()),
+            5,
+        )
+        .unwrap_err();
+        assert_eq!(error.code, -32602);
+        let data = error.data.unwrap();
+        assert_eq!(data["code"], code);
+        assert_eq!(data["declared_profile_ids"], json!(["selected"]));
+        assert_eq!(
+            serde_json::to_value(svc.plan_store.show_task(&task).unwrap().task).unwrap(),
+            before
+        );
+        assert_eq!(svc.mux.read().snapshot().tabs.len(), tabs);
+        let reservation = svc
+            .plan_store
+            .reserve_task_respawn_startup(&plan.id, &task, &source, "probe-reservation")
+            .unwrap();
+        drop(reservation);
+    }
+}

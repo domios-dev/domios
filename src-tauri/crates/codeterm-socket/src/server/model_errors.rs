@@ -21,11 +21,6 @@ pub(super) fn launch_profile_rpc_error(
 }
 
 pub(super) fn spawn_rpc_error(message: String) -> JsonRpcError {
-    if let Some(error) =
-        codeterm_service_core::service::spawn_params::LaunchProfileRefusal::from_message(&message)
-    {
-        return launch_profile_rpc_error(error);
-    }
     JsonRpcError {
         code: -32603,
         message,

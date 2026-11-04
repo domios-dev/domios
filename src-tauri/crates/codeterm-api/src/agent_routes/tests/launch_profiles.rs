@@ -36,7 +36,10 @@ fn launch_profile_refusals_are_422_and_create_no_tab() {
             launch_profile: profile.map(str::to_owned),
             ..Default::default()
         };
-        let error = fixture.service.spawn_agent_sync(params).unwrap_err();
+        let error = fixture
+            .service
+            .validate_launch_profile(provider, params.launch_profile.as_deref())
+            .unwrap_err();
         let refusal = SpawnRejection::from(error);
         assert_eq!(refusal.status, StatusCode::UNPROCESSABLE_ENTITY);
         assert_eq!(refusal.body["error"]["code"], code);

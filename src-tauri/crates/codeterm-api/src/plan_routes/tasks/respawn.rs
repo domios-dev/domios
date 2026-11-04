@@ -112,6 +112,13 @@ pub async fn task_respawn(
         Ok((draft, criteria))
     })
     .await?;
+    crate::agent_routes::spawn_rejection::validate_spawn_profile(
+        &state.svc,
+        &draft.provider,
+        draft.launch_profile.as_deref(),
+    )
+    .await
+    .map_err(|error| (error.status, Json(error.body)))?;
     let parent_tab_id = draft
         .parent_tab_id
         .clone()
@@ -161,25 +168,6 @@ pub async fn task_respawn(
         text_err(
             axum::http::StatusCode::CONFLICT,
             format!("respawn lane verification failed: {error}"),
-        )
-    })?;
-    let profile_service = state.svc.clone();
-    let profile_provider = draft.provider.clone();
-    let profile = draft.launch_profile.clone();
-    tokio::task::spawn_blocking(move || {
-        profile_service.validate_launch_profile(&profile_provider, profile.as_deref())
-    })
-    .await
-    .map_err(|error| {
-        text_err(
-            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-            error.to_string(),
-        )
-    })?
-    .map_err(|error| {
-        text_err(
-            axum::http::StatusCode::UNPROCESSABLE_ENTITY,
-            error.to_string(),
         )
     })?;
     let (ready_tx, ready_rx) = tokio::sync::oneshot::channel();
