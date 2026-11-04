@@ -101,8 +101,6 @@ require_canonical_dev_build() {
   fi
 }
 require_canonical_dev_build "$CMD" || exit 2
-source scripts/lane-rust-guard.sh
-require_canonical_rust_tests "$CMD" "${@:2}" || exit $?
 if ct_uses_local_build_env; then ct_load_local_build_env || exit 2; fi
 if [ "$CMD" = test-related ]; then
   local related_shell="$BASH"

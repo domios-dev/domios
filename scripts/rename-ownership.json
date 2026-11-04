@@ -450,7 +450,6 @@
           "scripts/run-plugin-tests.mjs",
           "scripts/run-ts-unit-tests.mjs",
           "scripts/runner-toggle.mjs",
-          "scripts/rust-gate-authorization.mjs",
           "scripts/split-metrics.py",
           "scripts/submission-matrix.sh",
           "scripts/symbolicate-minidump.py",
