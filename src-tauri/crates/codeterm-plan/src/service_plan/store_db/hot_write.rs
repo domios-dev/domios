@@ -6,11 +6,13 @@ use crate::service_plan::{store_rows, text_bounds, PlanError};
 use rusqlite::{params, OptionalExtension, Transaction};
 use std::collections::BTreeSet;
 mod batch_rows;
+mod batch_sidecars;
 mod dispatch_rows;
 mod element_rows;
 mod gate_rows;
 pub(in crate::service_plan) mod handoff;
 mod header_edits;
+mod ingest_rows;
 mod loop_rows;
 mod milestones;
 mod plan_audit;
@@ -108,6 +110,9 @@ pub(in crate::service_plan) struct CommittedRows {
     pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,
     pub section_search: Vec<crate::service_plan::search_index::SectionIndexDelta>,
     pub specs: Vec<crate::plan::Spec>,
+    pub created_plans: Vec<CommittedRows>,
+    pub body_files: Vec<batch_sidecars::NewBodyFile>,
+    pub file_bytes: usize,
 }
 
 impl std::fmt::Debug for CommittedRows {
@@ -117,6 +122,7 @@ impl std::fmt::Debug for CommittedRows {
             .field("task_rows", &self.task_rows)
             .field("section_rows", &self.section_rows)
             .field("spec_rows", &self.spec_rows)
+            .field("file_bytes", &self.file_bytes)
             .field("header_rows", &self.header_rows)
             .field("attempts", &self.attempts)
             .field("milestones", &self.milestones)
@@ -136,7 +142,7 @@ impl std::fmt::Debug for CommittedRows {
 
 #[cfg(test)]
 thread_local! {
-    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 13]>> = const { std::cell::RefCell::new(None) };
+    static LAST_COMMITTED_WORK: std::cell::RefCell<Option<[usize; 14]>> = const { std::cell::RefCell::new(None) };
 }
 
 #[cfg(test)]
@@ -145,8 +151,8 @@ pub(in crate::service_plan) fn record_work(receipt: &CommittedRows) {
 }
 
 #[cfg(test)]
-pub(in crate::service_plan) fn work_values(receipt: &CommittedRows) -> [usize; 13] {
-    [
+pub(in crate::service_plan) fn work_values(receipt: &CommittedRows) -> [usize; 14] {
+    let mut values = [
         receipt.task_rows,
         receipt.header_rows,
         receipt.attempts,
@@ -160,16 +166,23 @@ pub(in crate::service_plan) fn work_values(receipt: &CommittedRows) -> [usize; 1
         receipt.element_rows,
         receipt.heartbeat_rows,
         receipt.spec_rows,
-    ]
+        receipt.file_bytes,
+    ];
+    for child in &receipt.created_plans {
+        for (sum, value) in values.iter_mut().zip(work_values(child)) {
+            *sum += value;
+        }
+    }
+    values
 }
 
 #[cfg(test)]
-pub(in crate::service_plan) fn record_work_values(values: [usize; 13]) {
+pub(in crate::service_plan) fn record_work_values(values: [usize; 14]) {
     LAST_COMMITTED_WORK.with(|cell| *cell.borrow_mut() = Some(values));
 }
 
 #[cfg(test)]
-fn take_work() -> [usize; 13] {
+fn take_work() -> [usize; 14] {
     LAST_COMMITTED_WORK.with(|cell| cell.borrow_mut().take().expect("committed hot receipt"))
 }
 
@@ -308,7 +321,7 @@ impl PlanDatabase {
         now_ms: u64,
         change: impl FnOnce(&Transaction<'_>, &mut CommittedRows) -> Result<(), PlanError>,
     ) -> Result<CommittedRows, PlanError> {
-        let receipt =
+        let mut receipt =
             self.commit_entity_rows(plan_id, "persist_plan", now_ms, |tx, operation_id| {
                 let exists: bool = tx
                     .query_row(
@@ -332,12 +345,19 @@ impl PlanDatabase {
                     + receipt.attempts
                     + receipt.strides
                     > 0
+                    || !receipt.created_plans.is_empty()
                 {
                     touch_header(tx, &mut receipt)?;
                 }
                 Ok(receipt)
             })?;
+        for file in &mut receipt.body_files {
+            file.keep();
+        }
         self.record_row_change(&receipt);
+        for created in &receipt.created_plans {
+            self.record_row_change(created);
+        }
         Ok(receipt)
     }
 

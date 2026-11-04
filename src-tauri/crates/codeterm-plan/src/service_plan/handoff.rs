@@ -312,7 +312,14 @@ impl PlanStore {
             .state_dir()
             .map_err(|e| PlanError::Io(e.to_string()))?;
         let path = super::body_files::handoff_path_in(&directory, &element.id);
-        let body = std::fs::read_to_string(path).unwrap_or_default();
+        let body = std::fs::read_to_string(path).unwrap_or_else(|_| {
+            element
+                .content
+                .get("body")
+                .and_then(Value::as_str)
+                .unwrap_or_default()
+                .to_string()
+        });
         Ok(HandoffDetail {
             id: element.id.clone(),
             seq: content_seq(&element.content),

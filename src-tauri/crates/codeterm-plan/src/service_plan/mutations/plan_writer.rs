@@ -32,9 +32,26 @@ impl PlanStore {
         request: super::super::batch::BatchRequest,
         now_ms: u64,
     ) -> Result<super::super::batch::BatchResult, PlanError> {
+        // Reserve outside the writer: the key port may acquire the mux lock.
+        let count = request
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                super::super::batch::BatchOp::UpsertTask { handle, .. } => Some(handle.as_str()),
+                _ => None,
+            })
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+        let keys = self.issue_task_keys(plan_id, count)?;
         let turn = self.mutation_writer.enter();
-        let (result, receipt) = self.database.commit_hot_batch(plan_id, request, now_ms)?;
+        let (result, receipt) = self
+            .database
+            .commit_hot_batch(plan_id, request, keys, now_ms)?;
+        #[cfg(test)]
+        let metrics = super::super::store_db::hot_write::work_values(&receipt);
         self.publish_hot_receipt(&turn, receipt);
+        #[cfg(test)]
+        super::super::store_db::hot_write::record_work_values(metrics);
         Ok(result)
     }
     pub(in crate::service_plan) fn with_task_rows<T>(
@@ -185,6 +202,9 @@ impl PlanStore {
         }
         for delta in receipt.section_search {
             super::super::search_index::enqueue_section_index(turn, delta);
+        }
+        for created in receipt.created_plans {
+            self.publish_hot_receipt(turn, created);
         }
         log::debug!("[plan.store] hot commit tasks={} attempts={} milestones={} strides={} decoded_bytes={} serialized_bytes={} projected_text_bytes={} hashed_bytes={}", receipt.task_rows, receipt.attempts, receipt.milestones, receipt.strides, receipt.decoded_bytes, receipt.serialized_bytes, receipt.projected_text_bytes, receipt.hashed_bytes);
     }

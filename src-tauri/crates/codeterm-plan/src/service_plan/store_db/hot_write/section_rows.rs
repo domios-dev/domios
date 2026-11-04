@@ -19,6 +19,10 @@ pub(in crate::service_plan) enum SectionChange {
     Remove {
         selector: String,
     },
+    ReplaceRoot {
+        section: Section,
+        existing: bool,
+    },
     Canvas {
         selector: String,
         x: Option<f64>,
@@ -52,11 +56,12 @@ pub(super) fn apply(
     let mut removed = Vec::new();
     let selector = match &change {
         SectionChange::Add { parent, .. } => parent.as_deref(),
+        SectionChange::ReplaceRoot { .. } => None,
         SectionChange::Update { selector, .. }
         | SectionChange::Remove { selector }
         | SectionChange::Canvas { selector, .. } => Some(selector.as_str()),
     };
-    let (mut roots, existing) = if let Some(selector) = selector {
+    let (mut roots, mut existing) = if let Some(selector) = selector {
         let (id, document): (String, String) = tx.query_row("SELECT section_id,row_json FROM plan_sections s WHERE plan_id=?1 AND EXISTS(SELECT 1 FROM json_tree(s.row_json) j WHERE j.type='object' AND (j.fullkey='$' OR j.path LIKE '%.subsections') AND (json_extract(j.value,'$.id')=?2 OR json_extract(j.value,'$.handle')=?2)) ORDER BY position LIMIT 1", params![plan_id, selector], |row| Ok((row.get(0)?, row.get(1)?))).optional().map_err(db_error)?.ok_or(PlanError::NotFound)?;
         receipt.decoded_bytes += document.len();
         (
@@ -67,6 +72,15 @@ pub(super) fn apply(
         (Vec::new(), None)
     };
     match change {
+        SectionChange::ReplaceRoot {
+            section,
+            existing: persisted,
+        } => {
+            if persisted {
+                existing = Some(section.id.clone());
+            }
+            roots.push(section);
+        }
         SectionChange::Add { section, parent } => {
             if let Some(parent) = parent {
                 if mutations::push_subsection(&mut roots, &parent, section).is_some() {

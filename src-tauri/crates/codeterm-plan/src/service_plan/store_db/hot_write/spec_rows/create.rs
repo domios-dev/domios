@@ -92,7 +92,7 @@ impl PlanDatabase {
     }
 }
 
-pub(super) fn insert_plan(
+pub(in crate::service_plan::store_db::hot_write) fn insert_plan(
     tx: &Transaction<'_>,
     plan: &Plan,
     operation_id: i64,
