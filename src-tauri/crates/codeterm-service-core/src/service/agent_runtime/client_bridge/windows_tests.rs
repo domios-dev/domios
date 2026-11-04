@@ -13,12 +13,170 @@ fn windows_denies_unc_drive_relative_ads_and_device_aliases() {
         "C:/workspace/a.",
         "C:/workspace/../file",
         "C:/workspace-other/file",
+        "C:/workspace/ENV~1",
+        "C:/workspace/SSH~1/id_rsa",
     ] {
         assert!(fs::relative(root, path).is_err(), "{path}");
     }
     assert_eq!(
         fs::relative(root, "C:/workspace/file").unwrap(),
         Path::new("file")
+    );
+}
+
+#[test]
+fn windows_resolved_secret_policy_refuses_alias_classification_changes() {
+    assert!(fs::windows::same_policy(Path::new("plain"), Path::new(".env")).is_err());
+    assert!(fs::windows::same_policy(Path::new("alias/id_rsa"), Path::new(".ssh/id_rsa")).is_err());
+    assert!(fs::windows::same_policy(Path::new(".env"), Path::new(".env")).is_ok());
+}
+
+#[test]
+fn windows_short_names_never_bypass_sensitive_file_approval_or_machine_denial() {
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+    use windows_sys::Win32::Storage::FileSystem::GetShortPathNameW;
+    fn short_leaf(path: &Path) -> std::ffi::OsString {
+        let input: Vec<_> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        let mut output = vec![0u16; 32768];
+        let length =
+            unsafe { GetShortPathNameW(input.as_ptr(), output.as_mut_ptr(), output.len() as u32) };
+        assert!(length > 0 && (length as usize) < output.len());
+        PathBuf::from(std::ffi::OsString::from_wide(&output[..length as usize]))
+            .file_name()
+            .unwrap()
+            .to_owned()
+    }
+    let (_temp, root) = tests::root();
+    std::fs::write(root.join(".env"), "protected").unwrap();
+    std::fs::create_dir(root.join(".ssh")).unwrap();
+    std::fs::write(root.join(".ssh/id_rsa"), "machine-protected").unwrap();
+    let env_alias = short_leaf(&root.join(".env"));
+    let ssh_alias = short_leaf(&root.join(".ssh"));
+    assert_ne!(
+        env_alias, ".env",
+        "Windows peer must generate 8.3 aliases for this denial proof"
+    );
+    assert_ne!(
+        ssh_alias, ".ssh",
+        "Windows peer must generate 8.3 aliases for this denial proof"
+    );
+    let (fixture, tab, _peer, _cleanup) = engine::test_support::runtime_fixture();
+    let session = engine::for_tab(&tab).unwrap();
+    {
+        let mut context = session.context.lock();
+        context.cwd = root.to_string_lossy().into_owned();
+        context.active_turn_id = Some("alias-proof-turn".into());
+    }
+    let context = session.context.lock().clone();
+    install(&context, Some(tests::capabilities())).unwrap();
+    let installed = bridge(&context).unwrap();
+    let root_handle = fs::windows::open_root(&root).unwrap();
+    for path in [root.join(env_alias), root.join(ssh_alias).join("id_rsa")] {
+        let relative = path.strip_prefix(&root).unwrap();
+        assert!(fs::read(&root, &root_handle, relative, None, None).is_err());
+        assert!(fs::write(&root, &root_handle, relative, "changed", |apply| apply()).is_err());
+        for request in [
+            Request::Read {
+                session_id: context.thread_id.clone().unwrap(),
+                path: path.to_string_lossy().into_owned(),
+                line: None,
+                limit: None,
+            },
+            Request::Write {
+                session_id: context.thread_id.clone().unwrap(),
+                path: path.to_string_lossy().into_owned(),
+                content: "changed".into(),
+            },
+        ] {
+            assert!(prepare(&fixture.service, &session, &context, &installed, &request).is_err());
+        }
+    }
+    let request = Request::Read {
+        session_id: context.thread_id.clone().unwrap(),
+        path: root.join(".env").to_string_lossy().into_owned(),
+        line: None,
+        limit: None,
+    };
+    assert!(
+        prepare(&fixture.service, &session, &context, &installed, &request)
+            .unwrap()
+            .0
+            .is_some()
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join(".env")).unwrap(),
+        "protected"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join(".ssh/id_rsa")).unwrap(),
+        "machine-protected"
+    );
+    BRIDGES.lock().remove(&context.tab_id);
+}
+
+#[test]
+fn windows_component_containment_ignores_case_without_accepting_siblings() {
+    assert!(fs::relative(Path::new("C:/Work"), "c:/WORK-other/file").is_err());
+    assert_eq!(
+        fs::relative(Path::new("C:/Work"), "c:/WORK/file").unwrap(),
+        Path::new("file")
+    );
+}
+
+#[test]
+fn windows_installed_bridge_allows_external_atomic_saves() {
+    let (_temp, root) = tests::root();
+    let context = tests::context(&root);
+    install(&context, Some(tests::capabilities())).unwrap();
+    assert!(std::fs::rename(&root, root.with_extension("moved")).is_err());
+    std::fs::write(root.join("file"), "old").unwrap();
+    std::fs::write(root.join("third-party-temporary"), "new").unwrap();
+    std::fs::rename(root.join("third-party-temporary"), root.join("file")).unwrap();
+    assert_eq!(std::fs::read_to_string(root.join("file")).unwrap(), "new");
+    let installed = bridge(&context).unwrap();
+    let cwd = fs::windows::cwd(&installed.root_handle).unwrap();
+    assert!(
+        matches!(cwd.components().next(), Some(std::path::Component::Prefix(prefix)) if matches!(prefix.kind(), std::path::Prefix::Disk(_)))
+    );
+    assert!(
+        fs::windows::relative_directory(&cwd, root.to_str().unwrap())
+            .unwrap()
+            .as_os_str()
+            .is_empty()
+    );
+    BRIDGES.lock().remove(&context.tab_id);
+}
+
+#[test]
+fn windows_program_resolution_refuses_shells_relative_search_and_cwd_impostors() {
+    let (_temp, root) = tests::root();
+    let tools = root.join("tools");
+    std::fs::create_dir(&tools).unwrap();
+    std::fs::write(root.join("where.exe"), "cwd-impostor").unwrap();
+    std::fs::write(tools.join("where.exe"), "host-path-executable").unwrap();
+    std::fs::write(tools.join("batch.cmd"), "shell").unwrap();
+    let env = BTreeMap::from([
+        ("PATH".into(), format!(";.;relative;{}", tools.display())),
+        ("PATHEXT".into(), ".CMD;.BAT".into()),
+    ]);
+    for command in ["batch", "batch.cmd", "script.BAT", "./where.exe"] {
+        assert!(terminal::windows::program(command, &env).is_err());
+    }
+    assert_eq!(
+        terminal::windows::program("where", &env).unwrap(),
+        tools.join("where.exe")
+    );
+    std::fs::write(tools.join("utility.com"), "native-com").unwrap();
+    assert_eq!(
+        terminal::windows::program("utility", &env).unwrap(),
+        tools.join("utility.com")
+    );
+    let system = std::env::var_os("SystemRoot").unwrap();
+    let system = PathBuf::from(system).join("System32");
+    let env = BTreeMap::from([("PATH".into(), system.to_string_lossy().into_owned())]);
+    assert_eq!(
+        terminal::windows::program("cmd", &env).unwrap(),
+        system.join("cmd.exe")
     );
 }
 
@@ -128,7 +286,7 @@ fn windows_atomic_commit_pins_parent_and_rechecks_leaf() {
 #[test]
 fn windows_terminal_refuses_batch_shell_dispatch() {
     let (_temp, root) = tests::root();
-    for command in ["script.cmd", "script.BAT", "relative.exe"] {
+    for command in ["script.cmd", "script.BAT", "./relative.exe"] {
         let spec = terminal::Command {
             command: command.into(),
             args: vec!["& unexpected".into()],

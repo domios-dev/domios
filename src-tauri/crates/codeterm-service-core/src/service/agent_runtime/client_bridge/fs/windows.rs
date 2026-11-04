@@ -63,6 +63,23 @@ unsafe extern "system" {
     fn RtlNtStatusToDosError(status: i32) -> u32;
 }
 
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CompareStringOrdinal(
+        a: *const u16,
+        a_length: i32,
+        b: *const u16,
+        b_length: i32,
+        ignore_case: i32,
+    ) -> i32;
+}
+
+fn equal_component(a: &OsStr, b: &OsStr) -> bool {
+    let a: Vec<_> = a.encode_wide().collect();
+    let b: Vec<_> = b.encode_wide().collect();
+    unsafe { CompareStringOrdinal(a.as_ptr(), a.len() as i32, b.as_ptr(), b.len() as i32, 1) == 2 }
+}
+
 fn error() -> String {
     std::io::Error::last_os_error().to_string()
 }
@@ -81,10 +98,14 @@ pub(in super::super) fn relative_directory(root: &Path, raw: &str) -> Result<Pat
     }
     let path = disk_path(Path::new(raw))?;
     let root = disk_path(root)?;
-    Ok(path
-        .strip_prefix(root)
-        .map_err(|_| "Path outside workspace")?
-        .to_path_buf())
+    let mut parts = path.components();
+    for expected in root.components() {
+        let actual = parts.next().ok_or("Path outside workspace")?;
+        if !equal_component(expected.as_os_str(), actual.as_os_str()) {
+            return Err("Path outside workspace".into());
+        }
+    }
+    Ok(parts.as_path().to_path_buf())
 }
 
 fn valid_name(name: &OsStr) -> Result<(), String> {
@@ -94,6 +115,10 @@ fn valid_name(name: &OsStr) -> Result<(), String> {
         || name.chars().any(char::is_control)
         || name.contains([':', '/', '\\'])
         || name.ends_with(['.', ' '])
+        || name
+            .as_bytes()
+            .windows(2)
+            .any(|pair| pair[0] == b'~' && pair[1].is_ascii_digit())
         || ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"].contains(&stem.as_str())
         || ["COM", "LPT"].iter().any(|prefix| {
             stem.strip_prefix(prefix).is_some_and(|suffix| {
@@ -109,7 +134,7 @@ fn valid_name(name: &OsStr) -> Result<(), String> {
     Ok(())
 }
 
-fn disk_path(path: &Path) -> Result<PathBuf, String> {
+pub(in super::super) fn disk_path(path: &Path) -> Result<PathBuf, String> {
     use std::path::Prefix;
     let raw = path.to_str().ok_or("Invalid UTF-8 path")?;
     let mut parts = path.components();
@@ -154,6 +179,16 @@ fn validate(file: &File, directory: bool) -> Result<(), String> {
 }
 
 fn open_at(parent: &File, name: &OsStr, directory: bool, create: bool) -> Result<File, String> {
+    optional_open_at(parent, name, directory, create)?.ok_or("File component does not exist".into())
+}
+
+fn optional_open_at(
+    parent: &File,
+    name: &OsStr,
+    directory: bool,
+    create: bool,
+) -> Result<Option<File>, String> {
+    validate(parent, true)?;
     valid_name(name)?;
     let mut name: Vec<_> = name.encode_wide().collect();
     let length = u16::try_from(name.len() * 2).map_err(|_| "Path component too long")?;
@@ -189,8 +224,10 @@ fn open_at(parent: &File, name: &OsStr, directory: bool, create: bool) -> Result
             std::ptr::null(),
             0,
             FILE_SHARE_READ
-                | if directory || create {
+                | if create {
                     0
+                } else if directory {
+                    FILE_SHARE_WRITE
                 } else {
                     FILE_SHARE_WRITE | FILE_SHARE_DELETE
                 },
@@ -200,6 +237,9 @@ fn open_at(parent: &File, name: &OsStr, directory: bool, create: bool) -> Result
             0,
         )
     };
+    if !create && matches!(result as u32, 0xc000_0034 | 0xc000_003a) {
+        return Ok(None);
+    }
     if result < 0 {
         return Err(std::io::Error::from_raw_os_error(
             unsafe { RtlNtStatusToDosError(result) } as i32
@@ -208,7 +248,7 @@ fn open_at(parent: &File, name: &OsStr, directory: bool, create: bool) -> Result
     }
     let file = unsafe { File::from_raw_handle(handle) };
     validate(&file, directory)?;
-    Ok(file)
+    Ok(Some(file))
 }
 
 pub(in super::super) fn pinned(path: &Path) -> Result<Vec<File>, String> {
@@ -220,7 +260,7 @@ pub(in super::super) fn pinned(path: &Path) -> Result<Vec<File>, String> {
     let _ = parts.next();
     let root = std::fs::OpenOptions::new()
         .read(true)
-        .share_mode(FILE_SHARE_READ)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
         .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
         .open(drive)
         .map_err(|error| error.to_string())?;
@@ -276,18 +316,40 @@ pub(in super::super) fn final_path(file: &File) -> Result<PathBuf, String> {
     )))
 }
 
+pub(in super::super) fn cwd(file: &File) -> Result<PathBuf, String> {
+    disk_path(&final_path(file)?)
+}
+
+pub(in super::super) fn same_policy(requested: &Path, resolved: &Path) -> Result<(), String> {
+    if super::machine_secret(resolved) {
+        return Err("Machine credential store denied".into());
+    }
+    if super::machine_secret(requested) != super::machine_secret(resolved)
+        || super::secret(requested) != super::secret(resolved)
+    {
+        return Err("Resolved file policy differs from requested path".into());
+    }
+    Ok(())
+}
+
+fn resolved_policy(root: &File, requested: &Path, file: &File) -> Result<(), String> {
+    let root = final_path(root)?;
+    let actual = final_path(file)?;
+    let resolved = relative_directory(&root, actual.to_str().ok_or("Invalid UTF-8 path")?)?;
+    same_policy(requested, &resolved)
+}
+
 fn directory_chain(root: &File, relative: &Path) -> Result<Vec<File>, String> {
     let mut handles = vec![root.try_clone().map_err(|error| error.to_string())?];
+    let mut requested = PathBuf::new();
     for part in relative.components() {
         let Component::Normal(name) = part else {
             return Err("Invalid directory component".into());
         };
-        handles.push(open_at(
-            handles.last().ok_or("Missing parent")?,
-            name,
-            true,
-            false,
-        )?);
+        requested.push(name);
+        let opened = open_at(handles.last().ok_or("Missing parent")?, name, true, false)?;
+        resolved_policy(root, &requested, &opened)?;
+        handles.push(opened);
     }
     Ok(handles)
 }
@@ -300,12 +362,14 @@ pub(in super::super) fn directory(root: &File, relative: &Path) -> Result<File, 
 
 pub(in super::super) fn read(root: &File, relative: &Path) -> Result<File, String> {
     let handles = directory_chain(root, relative.parent().ok_or("Missing parent")?)?;
-    open_at(
+    let file = open_at(
         handles.last().ok_or("Missing parent")?,
         relative.file_name().ok_or("Missing filename")?,
         false,
         false,
-    )
+    )?;
+    resolved_policy(root, relative, &file)?;
+    Ok(file)
 }
 
 pub(in super::super) fn root_matches(root: &Path, held: &File) -> Result<(), String> {
@@ -354,7 +418,31 @@ fn rename(file: &File, parent: &File, name: &OsStr) -> Result<(), String> {
         )
         .to_string());
     }
-    file.sync_all().map_err(|error| error.to_string())
+    Ok(())
+}
+
+fn delete_on_close(file: &File, delete: bool) -> Result<(), String> {
+    let information = u8::from(delete);
+    let mut status = IoStatus {
+        status: 0,
+        information: 0,
+    };
+    let result = unsafe {
+        NtSetInformationFile(
+            file.as_raw_handle(),
+            &mut status,
+            (&information as *const u8).cast(),
+            1,
+            13,
+        )
+    };
+    if result < 0 {
+        return Err(std::io::Error::from_raw_os_error(
+            unsafe { RtlNtStatusToDosError(result) } as i32
+        )
+        .to_string());
+    }
+    Ok(())
 }
 
 pub(in super::super) fn write(
@@ -370,26 +458,24 @@ pub(in super::super) fn write(
     let mut handles = pinned(root)?;
     same(handles.last().ok_or("Missing root")?, root_handle)?;
     let parent = relative.parent().ok_or("Missing parent")?;
+    let mut requested_parent = PathBuf::new();
     for part in parent.components() {
         let Component::Normal(name) = part else {
             return Err("Invalid directory component".into());
         };
-        handles.push(open_at(
-            handles.last().ok_or("Missing parent")?,
-            name,
-            true,
-            false,
-        )?);
+        requested_parent.push(name);
+        let opened = open_at(handles.last().ok_or("Missing parent")?, name, true, false)?;
+        resolved_policy(root_handle, &requested_parent, &opened)?;
+        handles.push(opened);
     }
     let held = handles.last().ok_or("Missing parent")?;
     let name = relative.file_name().ok_or("Missing filename")?;
     valid_name(name)?;
     check(root, relative, true)?;
     let temporary = OsString::from(format!(".domios-bridge-{}", uuid::Uuid::new_v4()));
-    let parent_path = final_path(held)?;
     let mut file = open_at(held, &temporary, false, true)?;
-    let temporary_path = parent_path.join(&temporary);
-    let result = (|| {
+    delete_on_close(&file, true)?;
+    (|| {
         file.write_all(content.as_bytes())
             .map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
@@ -397,15 +483,15 @@ pub(in super::super) fn write(
             root_matches(root, root_handle)?;
             same(&directory(root_handle, parent)?, held)?;
             check(root, relative, true)?;
-            rename(&file, held, name)
+            delete_on_close(&file, false)?;
+            if let Err(error) = rename(&file, held, name) {
+                delete_on_close(&file, true)?;
+                return Err(error);
+            }
+            Ok(())
         };
         commit(&mut apply)
-    })();
-    drop(file);
-    if result.is_err() {
-        let _ = std::fs::remove_file(temporary_path);
-    }
-    result
+    })()
 }
 
 pub(in super::super) fn check(
@@ -419,13 +505,9 @@ pub(in super::super) fn check(
     let parent = parents.last().ok_or("Missing parent")?;
     let name = relative.file_name().ok_or("Missing filename")?;
     valid_name(name)?;
-    match std::fs::symlink_metadata(final_path(parent)?.join(name)) {
-        Ok(metadata) if metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 => {
-            Err("Reparse traversal denied".into())
-        }
-        Ok(metadata) if !metadata.is_file() => Err("Non-regular file denied".into()),
-        Ok(_) => Ok(()),
-        Err(error) if missing_leaf && error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(error) => Err(error.to_string()),
+    match optional_open_at(parent, name, false, false)? {
+        Some(leaf) => resolved_policy(held, relative, &leaf),
+        None if missing_leaf => Ok(()),
+        None => Err("Workspace file does not exist".into()),
     }
 }

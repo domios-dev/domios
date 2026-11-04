@@ -1,3 +1,6 @@
+#[cfg(windows)]
+pub(super) mod windows;
+
 use super::fs::MAX_BYTES;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -93,14 +96,10 @@ impl Terminal {
         env: &BTreeMap<String, String>,
     ) -> Result<Arc<Self>, String> {
         #[cfg(windows)]
-        if !Path::new(&spec.command).is_absolute()
-            || !Path::new(&spec.command)
-                .extension()
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("exe"))
-        {
-            return Err("Windows terminals require an absolute .exe path".into());
-        }
-        let mut command = tokio::process::Command::new(&spec.command);
+        let program = windows::program(&spec.command, env)?;
+        #[cfg(not(windows))]
+        let program = &spec.command;
+        let mut command = tokio::process::Command::new(program);
         command
             .args(&spec.args)
             .current_dir("/")
@@ -115,7 +114,7 @@ impl Terminal {
         #[cfg(windows)]
         super::fs::windows::same(pinned_cwd.last().ok_or("Missing terminal cwd")?, &directory)?;
         #[cfg(windows)]
-        command.current_dir(super::fs::windows::final_path(&directory)?);
+        command.current_dir(super::fs::windows::cwd(&directory)?);
         #[cfg(windows)]
         crate::process_util::no_window_tokio_suspended(&mut command);
         #[cfg(unix)]
