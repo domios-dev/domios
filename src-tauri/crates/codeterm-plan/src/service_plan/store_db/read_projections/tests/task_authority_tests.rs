@@ -876,3 +876,7 @@ mod plan_metadata;
 mod respawn_source;
 
 mod worker_loss;
+
+mod ack;
+
+mod lifecycle;

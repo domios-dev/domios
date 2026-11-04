@@ -1,6 +1,6 @@
 use super::{dispatch_failed, emit_plan_changed, roll_back_dispatch_attempt, JsonRpcError};
 use codeterm_service_core::multiplexer::types::AgentRole;
-use codeterm_service_core::plan::{PlanMode, Task, TaskExecutionAttempt};
+use codeterm_service_core::plan::{Task, TaskExecutionAttempt};
 use codeterm_service_core::service::plan::PlanStore;
 use codeterm_service_core::service::{ProvisionedWorkerLane, ServiceState};
 
@@ -13,7 +13,7 @@ pub(crate) struct DispatchSeed<'a> {
     pub tab_id: &'a str,
     pub attempt_id: &'a str,
     pub original_task: &'a Task,
-    pub original_plan_mode: &'a PlanMode,
+    pub rollback: &'a codeterm_service_core::service::plan::DispatchUndo,
     pub provisioned_lane: Option<ProvisionedWorkerLane>,
     pub now: u64,
 }
@@ -30,7 +30,7 @@ pub(crate) fn seed_acceptance_or_rollback(
         tab_id,
         attempt_id,
         original_task,
-        original_plan_mode,
+        rollback,
         provisioned_lane,
         now,
     } = seed;
@@ -54,9 +54,7 @@ pub(crate) fn seed_acceptance_or_rollback(
     if let Err(error) = seeded {
         let cleanup = roll_back_dispatch_attempt(
             store,
-            plan_id,
-            original_task,
-            original_plan_mode,
+            rollback,
             tab_id,
             attempt_id,
             provisioned_lane,

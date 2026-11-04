@@ -33,29 +33,54 @@ pub(in crate::service_plan) struct CompetitionGroupRead {
     pub group: String,
 }
 
+pub(in crate::service_plan) struct StartupSubject<'a> {
+    pub id: &'a str,
+    pub executor: &'a str,
+    pub session: Option<&'a str>,
+    pub group: Option<&'a str>,
+}
+
+pub(in crate::service_plan) fn startup_subject_current(
+    tab: &str,
+    assigned_tab: Option<&str>,
+    first: StartupSubject<'_>,
+    latest_unclosed: Option<&str>,
+    latest_group: Option<&str>,
+) -> bool {
+    if first.executor != tab {
+        return false;
+    }
+    match first.group {
+        Some(group) => {
+            first
+                .session
+                .is_some_and(|session| !session.trim().is_empty())
+                && latest_group == Some(group)
+        }
+        None => assigned_tab == Some(tab) && latest_unclosed == Some(first.id),
+    }
+}
+
 impl TaskStartupRead {
     fn current_first(&self, tab: &str) -> Option<&StartupAttemptRead> {
         let first = self.first_matching.as_ref()?;
-        if first.executor != tab {
-            return None;
-        }
-        let valid = if let Some(group) = first.group.as_deref() {
-            first
-                .session
-                .as_deref()
-                .is_some_and(|session| !session.trim().is_empty())
-                && self
-                    .latest_group
-                    .as_ref()
-                    .is_some_and(|current| current.group == group)
-        } else {
-            self.assigned_tab.as_deref() == Some(tab)
-                && self
-                    .latest_unclosed
-                    .as_ref()
-                    .is_some_and(|current| current.id == first.id)
-        };
-        valid.then_some(first)
+        startup_subject_current(
+            tab,
+            self.assigned_tab.as_deref(),
+            StartupSubject {
+                id: &first.id,
+                executor: &first.executor,
+                session: first.session.as_deref(),
+                group: first.group.as_deref(),
+            },
+            self.latest_unclosed
+                .as_ref()
+                .map(|latest| latest.id.as_str()),
+            self.latest_group
+                .as_ref()
+                .map(|latest| latest.group.as_str()),
+        )
+        .then_some(first)
     }
 
     pub fn owns(&self, tab: &str, session: Option<&str>, clear_report: bool) -> bool {

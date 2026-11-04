@@ -92,9 +92,7 @@ pub(crate) fn run_startup(
         || {
             roll_back_dispatch_attempt(
                 &this.svc.plan_store,
-                &this.plan_id,
-                &this.original_task,
-                &this.original_plan_mode,
+                &this.rollback,
                 &this.tab_id,
                 &this.attempt_id,
                 provisioned_lane,
