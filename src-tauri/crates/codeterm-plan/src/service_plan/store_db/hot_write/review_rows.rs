@@ -2,6 +2,8 @@ use super::*;
 
 pub(in crate::service_plan) enum TaskHistory {
     Core,
+    Attempt(String),
+    LiveAndTarget(String),
     LiveAndReported,
     Attempts,
     Review,
@@ -84,7 +86,7 @@ impl PlanDatabase {
             let mut edit = TaskRowEdit { task, owner_tab, review_credit: 0, terminal_check: false, close_all_live: false, created_tasks: Vec::new() };
             result = Some(change(&mut edit)?);
             if edit.terminal_check { task_fields::reject_open_subtasks(tx, plan_id, &edit.task.id)?; }
-            if edit.task.execution_attempts.len() != attempts.len() || edit.task.milestones.len() < milestone_count {
+            if edit.task.execution_attempts.len() < attempts.len() || edit.task.milestones.len() < milestone_count {
                 return Err(PlanError::Io("task row edit changed an immutable history prefix".into()));
             }
             for ((position, previous), next) in attempts.iter().zip(&edit.task.execution_attempts) {
@@ -94,6 +96,12 @@ impl PlanDatabase {
                     receipt.attempts += 1;
                     receipt.tasks.insert(edit.task.id.clone());
                 }
+            }
+            for attempt in &edit.task.execution_attempts[attempts.len()..] {
+                let json = encode(attempt, receipt)?;
+                tx.execute("INSERT INTO plan_task_attempts(plan_id, task_id, attempt_id, position, content_hash, row_json) VALUES (?1, ?2, ?3, (SELECT coalesce(max(position)+1,0) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2), ?4, ?5)", params![plan_id, edit.task.id, attempt.id, store_rows::row_hash(&json), json]).map_err(db_error)?;
+                receipt.attempts += 1;
+                receipt.tasks.insert(edit.task.id.clone());
             }
             let appended = edit.task.milestones.split_off(milestone_count);
             edit.task.milestones.clear();
@@ -127,14 +135,15 @@ fn read_attempts(
     if matches!(history, TaskHistory::Core) {
         return Ok(Vec::new());
     }
-    let sql = if matches!(history, TaskHistory::Review | TaskHistory::Attempts) {
-        "SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 ORDER BY position"
-    } else {
-        "SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (json_extract(row_json,'$.closed_at') IS NULL OR position=(SELECT max(position) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND json_extract(row_json,'$.mesh_peer') IS NOT NULL AND json_extract(row_json,'$.remote_dispatch_state')='reported')) ORDER BY position"
+    let (sql, target) = match history {
+        TaskHistory::Attempt(id) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND attempt_id=?3 ORDER BY position", Some(id)),
+        TaskHistory::LiveAndTarget(id) => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (attempt_id=?3 OR json_extract(row_json,'$.closed_at') IS NULL) ORDER BY position", Some(id)),
+        TaskHistory::Review | TaskHistory::Attempts => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (?3 IS NULL) ORDER BY position", None),
+        _ => ("SELECT position, row_json FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND (?3 IS NULL) AND (json_extract(row_json,'$.closed_at') IS NULL OR position=(SELECT max(position) FROM plan_task_attempts WHERE plan_id=?1 AND task_id=?2 AND json_extract(row_json,'$.mesh_peer') IS NOT NULL AND json_extract(row_json,'$.remote_dispatch_state')='reported')) ORDER BY position", None),
     };
     let mut statement = tx.prepare_cached(sql).map_err(db_error)?;
     let attempts = statement
-        .query_map(params![plan_id, task_id], |row| {
+        .query_map(params![plan_id, task_id, target], |row| {
             Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
         })
         .map_err(db_error)?
