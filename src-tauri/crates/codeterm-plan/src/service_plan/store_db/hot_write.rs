@@ -11,6 +11,7 @@ mod milestones;
 mod review_rows;
 pub(in crate::service_plan) mod runtime;
 mod task_fields;
+mod task_structure;
 pub(in crate::service_plan) use review_rows::{TaskHistory, TaskRowEdit};
 pub(in crate::service_plan) use task_fields::TaskFields;
 
@@ -82,6 +83,7 @@ pub(in crate::service_plan) struct CommittedRows {
     pub index_root: Option<std::path::PathBuf>,
     pub reset_tabs: Vec<String>,
     pub search: Vec<crate::service_plan::search_index::MilestoneIndexDelta>,
+    pub removed_tasks: Vec<(String, Vec<String>)>,
     pub task_search: Vec<crate::service_plan::search_index::TaskIndexDelta>,
 }
 

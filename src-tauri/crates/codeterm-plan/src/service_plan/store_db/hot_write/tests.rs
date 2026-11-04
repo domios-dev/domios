@@ -733,3 +733,15 @@ fn successful_hot_commit_preserves_canonical_path_normalization() {
     let stored = database.load_plan(&plan.id).unwrap().unwrap();
     assert_eq!(stored.canonical_project_path, plan.project_path);
 }
+
+mod task_metadata;
+
+mod remote_attempts;
+
+mod task_structure;
+
+mod qa_reconcile;
+
+mod binding_rows;
+
+mod task_authority;

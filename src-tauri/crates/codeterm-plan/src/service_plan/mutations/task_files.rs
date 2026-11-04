@@ -34,13 +34,19 @@ impl PlanStore {
             .map_err(PlanError::InvalidPlanText)?;
         }
         let task_id = task.id;
-        self.with_plan_in_writer(&writer_turn, plan_id, now, |plan| {
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, &task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            task.files = files;
-            task.updated_at = now;
-            Ok(())
-        })
+        self.with_task_rows_in_writer(
+            &writer_turn,
+            plan_id,
+            &task_id,
+            super::super::store_db::hot_write::TaskHistory::Core,
+            now,
+            |edit| {
+                let task = &mut edit.task;
+                task.files = files;
+                task.updated_at = now;
+                Ok(())
+            },
+        )
     }
 }
 

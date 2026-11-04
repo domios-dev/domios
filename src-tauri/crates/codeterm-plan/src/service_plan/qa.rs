@@ -1,8 +1,6 @@
 use serde::Serialize;
 
-use super::mutations::{
-    clear_task_assignment, plan_contains_id, reject_terminal_with_open_subtasks,
-};
+use super::mutations::clear_task_assignment;
 use super::{PlanError, PlanStore};
 use crate::plan::{
     AgentRef, Milestone, QaState, ReviewEvidence, ReviewStage, ReviewVerdict, Task, TaskStatus,
@@ -91,17 +89,6 @@ fn qa_milestone(id: String, from: AgentRef, note: &str, now_ms: u64) -> Mileston
         iteration: None,
         canvas: Default::default(),
     }
-}
-
-fn running_count(tasks: &[Task]) -> usize {
-    tasks
-        .iter()
-        .filter(|task| {
-            task.status == TaskStatus::InReview
-                && task.review_stage == ReviewStage::Qa
-                && task.qa_state == Some(QaState::Running)
-        })
-        .count()
 }
 
 fn effective_qa_plan(task: &Task) -> Option<String> {
@@ -235,40 +222,41 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<QaTransitionResult, PlanError> {
         let note = require_note(note)?;
-        let mut result = None;
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if p.tasks[idx].status != TaskStatus::InReview {
-                return Err(PlanError::TransitionDenied {
-                    from: p.tasks[idx].status.clone(),
-                    to: TaskStatus::InReview,
-                });
-            }
-            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            let task = &mut p.tasks[idx];
-            task.review_stage = ReviewStage::Qa;
-            task.qa_state = Some(QaState::Queued);
-            task.status_changed_at = now_ms;
-            task.updated_at = now_ms;
-            task.milestones.push(qa_milestone(
-                mid.clone(),
-                from,
-                &format!("enqueue: {note}"),
-                now_ms,
-            ));
-            result = Some(QaTransitionResult {
-                plan_id: p.id.clone(),
-                task_id: task.id.clone(),
-                milestone_id: mid,
-                task_name: task.name.clone(),
-                test_plan: effective_qa_plan(task),
-                nudged_tab_id: None,
-                strategy_warning: None,
-            });
-            Ok(())
-        })?;
-        result.ok_or(PlanError::TaskNotFound)
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempts,
+            now_ms,
+            |edit| {
+                if edit.task.status != TaskStatus::InReview {
+                    return Err(PlanError::TransitionDenied {
+                        from: edit.task.status.clone(),
+                        to: TaskStatus::InReview,
+                    });
+                }
+                let mid = crate::plan::ids::short_id("ms");
+                let task = &mut edit.task;
+                task.review_stage = ReviewStage::Qa;
+                task.qa_state = Some(QaState::Queued);
+                task.status_changed_at = now_ms;
+                task.updated_at = now_ms;
+                task.milestones.push(qa_milestone(
+                    mid.clone(),
+                    from,
+                    &format!("enqueue: {note}"),
+                    now_ms,
+                ));
+                Ok(QaTransitionResult {
+                    plan_id: plan_id.into(),
+                    task_id: task.id.clone(),
+                    milestone_id: mid,
+                    task_name: task.name.clone(),
+                    test_plan: effective_qa_plan(task),
+                    nudged_tab_id: None,
+                    strategy_warning: None,
+                })
+            },
+        )
     }
 
     pub fn claim_next_qa(
@@ -280,43 +268,38 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<Option<QaTransitionResult>, PlanError> {
         let note = require_note(note)?;
-        let mut result = None;
-        self.with_plan(plan_id, now_ms, |p| {
-            if running_count(&p.tasks) >= max_running_qa_per_plan() {
-                return Ok(());
-            }
-            let Some(idx) = p.tasks.iter().position(|task| {
-                task.status == TaskStatus::InReview
-                    && task.review_stage == ReviewStage::Qa
-                    && task.qa_state == Some(QaState::Queued)
-            }) else {
-                return Ok(());
-            };
-            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            let attempt_index = claimable_attempt_index(&p.tasks[idx])?;
-            let task = &mut p.tasks[idx];
-            task.execution_attempts[attempt_index].reviewed_at = Some(now_ms);
-            task.qa_state = Some(QaState::Running);
-            task.status_changed_at = now_ms;
-            task.assigned_tab_id = qa_tab_id.map(str::to_string);
-            task.updated_at = now_ms;
-            task.milestones.push(qa_milestone(
-                mid.clone(),
-                from,
-                &format!("claim: {note}"),
-                now_ms,
-            ));
-            result = Some(QaTransitionResult {
-                plan_id: p.id.clone(),
-                task_id: task.id.clone(),
-                milestone_id: mid,
-                task_name: task.name.clone(),
-                test_plan: effective_qa_plan(task),
-                nudged_tab_id: None,
-                strategy_warning: None,
-            });
-            Ok(())
-        })?;
+        let turn = self.mutation_writer.enter();
+        let (result, receipt) = self.database.claim_next_qa_rows(
+            plan_id,
+            max_running_qa_per_plan(),
+            now_ms,
+            |edit| {
+                let mid = crate::plan::ids::short_id("ms");
+                let attempt_index = claimable_attempt_index(&edit.task)?;
+                let task = &mut edit.task;
+                task.execution_attempts[attempt_index].reviewed_at = Some(now_ms);
+                task.qa_state = Some(QaState::Running);
+                task.status_changed_at = now_ms;
+                task.assigned_tab_id = qa_tab_id.map(str::to_string);
+                task.updated_at = now_ms;
+                task.milestones.push(qa_milestone(
+                    mid.clone(),
+                    from,
+                    &format!("claim: {note}"),
+                    now_ms,
+                ));
+                Ok(QaTransitionResult {
+                    plan_id: plan_id.into(),
+                    task_id: task.id.clone(),
+                    milestone_id: mid,
+                    task_name: task.name.clone(),
+                    test_plan: effective_qa_plan(task),
+                    nudged_tab_id: None,
+                    strategy_warning: None,
+                })
+            },
+        )?;
+        self.publish_hot_receipt(&turn, receipt);
         Ok(result)
     }
 
@@ -329,55 +312,56 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<QaTransitionResult, PlanError> {
         let note = require_note(note)?;
-        let mut result = None;
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            require_running_qa(&p.tasks[idx])?;
-            let attempt_index = claimed_attempt_index(&p.tasks[idx])?;
-            require_current_claimed_attempt(&p.tasks[idx], attempt_index)?;
-            reject_terminal_with_open_subtasks(p, &p.tasks[idx].id)?;
-            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            let task = &mut p.tasks[idx];
-            super::task_attempts::accept_exact_attempt(
-                &mut task.execution_attempts[attempt_index],
-                note,
-                now_ms,
-            );
-            task.status = TaskStatus::Done;
-            task.review_stage = ReviewStage::Review;
-            task.qa_state = None;
-            task.status_changed_at = now_ms;
-            clear_task_assignment(task);
-            task.updated_at = now_ms;
-            task.review_evidence.push(ReviewEvidence {
-                id: crate::plan::ids::short_id("rev"),
-                from: from.clone(),
-                verdict: ReviewVerdict::Accept,
-                note: note.into(),
-                at: now_ms,
-                changed_executable_surfaces: false,
-                distinct_oracle: false,
-            });
-            task.milestones.push(qa_milestone(
-                mid.clone(),
-                from,
-                &format!("pass: {note}"),
-                now_ms,
-            ));
-            super::review_gate::earn_review_credit(&mut p.review_policy);
-            result = Some(QaTransitionResult {
-                plan_id: p.id.clone(),
-                task_id: task.id.clone(),
-                milestone_id: mid,
-                task_name: task.name.clone(),
-                test_plan: effective_qa_plan(task),
-                nudged_tab_id: None,
-                strategy_warning: None,
-            });
-            Ok(())
-        })?;
-        result.ok_or(PlanError::TaskNotFound)
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempts,
+            now_ms,
+            |edit| {
+                require_running_qa(&edit.task)?;
+                let attempt_index = claimed_attempt_index(&edit.task)?;
+                require_current_claimed_attempt(&edit.task, attempt_index)?;
+                edit.terminal_check = true;
+                let mid = crate::plan::ids::short_id("ms");
+                let task = &mut edit.task;
+                super::task_attempts::accept_exact_attempt(
+                    &mut task.execution_attempts[attempt_index],
+                    note,
+                    now_ms,
+                );
+                task.status = TaskStatus::Done;
+                task.review_stage = ReviewStage::Review;
+                task.qa_state = None;
+                task.status_changed_at = now_ms;
+                clear_task_assignment(task);
+                task.updated_at = now_ms;
+                task.review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Accept,
+                    note: note.into(),
+                    at: now_ms,
+                    changed_executable_surfaces: false,
+                    distinct_oracle: false,
+                });
+                task.milestones.push(qa_milestone(
+                    mid.clone(),
+                    from,
+                    &format!("pass: {note}"),
+                    now_ms,
+                ));
+                edit.review_credit = 1;
+                Ok(QaTransitionResult {
+                    plan_id: plan_id.into(),
+                    task_id: task.id.clone(),
+                    milestone_id: mid,
+                    task_name: task.name.clone(),
+                    test_plan: effective_qa_plan(task),
+                    nudged_tab_id: None,
+                    strategy_warning: None,
+                })
+            },
+        )
     }
 
     pub fn fail_qa(
@@ -391,60 +375,63 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<QaTransitionResult, PlanError> {
         let note = require_note(note)?;
-        let mut result = None;
-        self.with_plan(plan_id, now_ms, |p| {
-            let idx = crate::plan::task_key::find_task_index(&p.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            require_running_qa(&p.tasks[idx])?;
-            let mid = crate::plan::ids::mint_id("ms", |c| plan_contains_id(p, c));
-            let implementer = p.tasks[idx]
-                .execution_attempts
-                .iter()
-                .rev()
-                .find_map(|attempt| {
-                    (attempt.report.as_ref().and_then(|r| r.status.as_deref()) == Some("in_review"))
+        self.with_task_rows(
+            plan_id,
+            task_id,
+            super::store_db::hot_write::TaskHistory::Attempts,
+            now_ms,
+            |edit| {
+                require_running_qa(&edit.task)?;
+                let mid = crate::plan::ids::short_id("ms");
+                let implementer = edit
+                    .task
+                    .execution_attempts
+                    .iter()
+                    .rev()
+                    .find_map(|attempt| {
+                        (attempt.report.as_ref().and_then(|r| r.status.as_deref())
+                            == Some("in_review"))
                         .then(|| attempt.executor_tab_id.clone())
+                    })
+                    .or_else(|| edit.task.lane.tab_id.clone())
+                    .or_else(|| edit.task.assigned_tab_id.clone());
+                let task = &mut edit.task;
+                task.status = TaskStatus::InProgress;
+                task.review_stage = ReviewStage::Review;
+                task.qa_state = None;
+                task.status_label = Some("QA failed".into());
+                task.status_changed_at = now_ms;
+                task.assigned_tab_id = implementer.clone();
+                task.lane.tab_id = implementer.clone();
+                task.updated_at = now_ms;
+                task.review_round += 1;
+                task.review_evidence.push(ReviewEvidence {
+                    id: crate::plan::ids::short_id("rev"),
+                    from: from.clone(),
+                    verdict: ReviewVerdict::Bounce,
+                    note: note.into(),
+                    at: now_ms,
+                    changed_executable_surfaces,
+                    distinct_oracle,
+                });
+                task.milestones.push(qa_milestone(
+                    mid.clone(),
+                    from,
+                    &format!("fail: {note}"),
+                    now_ms,
+                ));
+                edit.review_credit = 1;
+                Ok(QaTransitionResult {
+                    plan_id: plan_id.into(),
+                    task_id: task.id.clone(),
+                    milestone_id: mid,
+                    task_name: task.name.clone(),
+                    test_plan: effective_qa_plan(task),
+                    nudged_tab_id: implementer,
+                    strategy_warning: super::review_gate::strategy_warning(task),
                 })
-                .or_else(|| p.tasks[idx].lane.tab_id.clone())
-                .or_else(|| p.tasks[idx].assigned_tab_id.clone());
-            let task = &mut p.tasks[idx];
-            task.status = TaskStatus::InProgress;
-            task.review_stage = ReviewStage::Review;
-            task.qa_state = None;
-            task.status_label = Some("QA failed".into());
-            task.status_changed_at = now_ms;
-            task.assigned_tab_id = implementer.clone();
-            task.lane.tab_id = implementer.clone();
-            task.updated_at = now_ms;
-            task.review_round += 1;
-            task.review_evidence.push(ReviewEvidence {
-                id: crate::plan::ids::short_id("rev"),
-                from: from.clone(),
-                verdict: ReviewVerdict::Bounce,
-                note: note.into(),
-                at: now_ms,
-                changed_executable_surfaces,
-                distinct_oracle,
-            });
-            task.milestones.push(qa_milestone(
-                mid.clone(),
-                from,
-                &format!("fail: {note}"),
-                now_ms,
-            ));
-            super::review_gate::earn_review_credit(&mut p.review_policy);
-            result = Some(QaTransitionResult {
-                plan_id: p.id.clone(),
-                task_id: task.id.clone(),
-                milestone_id: mid,
-                task_name: task.name.clone(),
-                test_plan: effective_qa_plan(task),
-                nudged_tab_id: implementer,
-                strategy_warning: super::review_gate::strategy_warning(task),
-            });
-            Ok(())
-        })?;
-        result.ok_or(PlanError::TaskNotFound)
+            },
+        )
     }
 }
 
