@@ -754,10 +754,11 @@ mod consumer_loads {
         let (store, holder, other) = seeded(dir.path(), &removed);
 
         assert_eq!(
-            project_for_recorded_lane(&store, &removed),
+            project_for_recorded_lane(&store, &removed).unwrap(),
             Some(dir.path().display().to_string())
         );
-        assert_eq!(store.plan_loads_for_test(), vec![holder]);
+        assert!(store.plan_loads_for_test().is_empty());
+        assert_never_loaded(&store, &[&holder]);
         assert_never_loaded(&store, &[&other]);
     }
 

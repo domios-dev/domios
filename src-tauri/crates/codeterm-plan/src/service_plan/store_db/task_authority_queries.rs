@@ -7,7 +7,7 @@ use crate::service_plan::{
 };
 use rusqlite::{params, OptionalExtension};
 
-const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
+pub(super) const SELECTED_ACTIVE_TASK: &str = "WITH candidates AS (
                 SELECT p.id AS plan_id,t.task_id,t.row_json,t.assigned_tab_id,p.updated_at,t.position,
                     t.task_id=?1 AS exact,
                     sum(t.task_id=?1) OVER (PARTITION BY p.id) AS exact_count,
@@ -303,7 +303,10 @@ mod worker_transfer;
 mod startup;
 
 mod continuity;
-pub(super) use continuity::register_functions;
+pub(super) fn register_functions(connection: &rusqlite::Connection) -> Result<(), PlanError> {
+    continuity::register_functions(connection)?;
+    ack::register(connection)
+}
 
 mod checkpoint;
 mod creation;
@@ -332,3 +335,11 @@ mod plan_metadata;
 mod respawn_source;
 
 mod worker_loss;
+
+mod ack;
+
+mod lifecycle;
+
+mod launch;
+
+mod deadline;

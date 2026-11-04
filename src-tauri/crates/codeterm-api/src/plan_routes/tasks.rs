@@ -163,7 +163,10 @@ fn record_respawn_attempt_and_persist_identity(
     title: &str,
     now_ms: u64,
 ) -> Result<
-    codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+    (
+        codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+        codeterm_service_core::service::plan::DispatchUndo,
+    ),
     codeterm_service_core::service::plan::PlanError,
 > {
     let created = record_respawn_attempt_and_persist_identity_for(
@@ -192,10 +195,13 @@ fn record_respawn_attempt_and_persist_identity_for(
     title: &str,
     now_ms: u64,
 ) -> Result<
-    codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+    (
+        codeterm_service_core::service::plan::task_attempts::TaskAttemptCreated,
+        codeterm_service_core::service::plan::DispatchUndo,
+    ),
     codeterm_service_core::service::plan::PlanError,
 > {
-    let created = store.record_task_respawn_attempt(
+    let created = store.record_task_respawn_attempt_with_undo(
         plan_id,
         task_id,
         tab_id,

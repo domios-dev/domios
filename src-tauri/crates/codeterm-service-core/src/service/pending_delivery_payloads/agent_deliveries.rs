@@ -6,7 +6,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 
+mod held;
 mod status;
+pub(crate) use status::parse_send_id as parse_agent_delivery_send_id;
 pub(crate) use status::send_id as agent_delivery_send_id;
 
 use super::user_sends::{
@@ -40,6 +42,10 @@ pub(crate) struct AgentDeliveryRecord {
     pub(crate) durable_delivery: Option<super::super::durable_delivery::DurableDelivery>,
     #[serde(default)]
     pub(crate) terminal_detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) ready_deadline_ms: Option<u64>,
     // Retained terminal records must re-emit after a crash, even after an emit claim.
     #[serde(skip)]
     settlement_notified: bool,
@@ -166,6 +172,9 @@ impl AgentDeliveryStore {
             return Err("agent delivery capacity: 32 unsettled / 4 MiB per tab".into());
         }
         let id = uuid::Uuid::new_v4().to_string();
+        let durable_delivery = serde_json::from_str::<DeliveryMetadata>(payload)
+            .ok()
+            .and_then(|metadata| metadata.durable_delivery);
         let record = AgentDeliveryRecord {
             id: id.clone(),
             sequence: index.next_sequence,
@@ -173,10 +182,12 @@ impl AgentDeliveryStore {
             idempotency_key,
             saved_launch: None,
             terminal_failure: None,
-            durable_delivery: serde_json::from_str::<DeliveryMetadata>(payload)
-                .ok()
-                .and_then(|metadata| metadata.durable_delivery),
+            ready_deadline_ms: durable_delivery.is_none().then(|| {
+                crate::cron::clock::system_clock().now_ms().saturating_add(held::READINESS_HOLD_MS)
+            }),
+            durable_delivery,
             terminal_detail: None,
+            pending_reason: Some("Waiting for initial readiness of the exact recipient launch and earlier queued sends; exact own-session binding releases this send in admission order.".into()),
             settlement_notified: false,
             settlement_emitted: false,
             owner_epoch: self.epoch.clone(),
@@ -509,7 +520,7 @@ impl AgentDeliveryStore {
         }
         let mut next = index.clone();
         if let Some(record) = index.records.iter().find(|record| record.id == record_id) {
-            self.retain_inspection(&tab, record, require_claimed);
+            self.retain_inspection(&tab, record, require_claimed)?;
         }
         next.records.retain(|record| record.id != record_id);
         if let Err(error) = self.persist(&tab, &next) {

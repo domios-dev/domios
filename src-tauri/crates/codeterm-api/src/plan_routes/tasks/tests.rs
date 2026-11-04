@@ -566,7 +566,7 @@ fn lifecycle_reassignment_rest_respawn_defers_unverified_identity() {
         .task
         .execution_attempts
         .iter()
-        .find(|attempt| attempt.id == persisted.attempt.id)
+        .find(|attempt| attempt.id == persisted.0.attempt.id)
         .unwrap();
     assert_eq!(attempt.executor_title.as_deref(), Some("Exact User Title"));
     assert_eq!(attempt.provider.as_deref(), Some("codex"));

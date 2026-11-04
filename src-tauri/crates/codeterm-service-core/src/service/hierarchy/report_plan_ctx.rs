@@ -9,7 +9,7 @@
 use crate::agent::reports::ReportDetails;
 use crate::multiplexer::state::MultiplexerState;
 use crate::multiplexer::types::{AgentRole, Tab};
-use crate::plan::{PlanEvidenceClass, PlannerRef, Task};
+use crate::plan::{PlanEvidenceClass, PlannerRef};
 use crate::service::plan::{PlanError, PlanStore};
 
 /// Marks the refusal class so a wrong-task report stays distinguishable from the
@@ -48,22 +48,6 @@ pub(crate) fn nowhere_to_deliver_refusal(tab_id: &str, refused_task_write: Optio
         ));
     }
     message
-}
-
-/// The plan record still names this tab as the task's assignee, or the tab runs
-/// an open competition attempt on it — competition is the one shape where
-/// several tabs legitimately hold one task at once. A lingering non-competitive
-/// attempt does not count: it survives a rebind and would launder a stale hint.
-///
-/// The batch-write boundary asks the same question, so both ask it here.
-pub(crate) fn tab_holds(task: &Task, tab_id: &str) -> bool {
-    task.assigned_tab_id.as_deref() == Some(tab_id)
-        || task.execution_attempts.iter().any(|attempt| {
-            attempt.executor_tab_id == tab_id
-                && attempt.closed_at.is_none()
-                && attempt.retired_at.is_none()
-                && attempt.competition_group_id.is_some()
-        })
 }
 
 fn tab_holds_task(

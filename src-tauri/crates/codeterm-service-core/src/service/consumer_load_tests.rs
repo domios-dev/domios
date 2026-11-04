@@ -203,8 +203,9 @@ fn restore_lane_watches_never_loads_unmatched_plans() {
     );
     start(store);
 
-    fx.service.restore_lane_watches();
-    assert_eq!(store.plan_loads_for_test(), vec![laned]);
+    fx.service.restore_lane_watches().unwrap();
+    assert!(store.plan_loads_for_test().is_empty());
+    assert_never_loaded(store, &[&laned]);
     assert_never_loaded(store, &[&settled, &laneless]);
 }
 
@@ -228,7 +229,11 @@ fn find_lane_attempt_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(crate::service::lane_stats::find_lane_attempt(store, "worker-a").is_some());
+    assert!(
+        crate::service::lane_stats::find_lane_attempt(store, "worker-a")
+            .unwrap()
+            .is_some()
+    );
     assert_never_loaded(store, &[&other]);
 }
 
@@ -260,7 +265,13 @@ fn settle_lanes_held_by_closed_tab_never_loads_unmatched_plans() {
     start(store);
 
     fx.service.settle_lanes_held_by_closed_tab("closed-tab");
-    assert!(store.plan_loads_for_test().contains(&held));
+    assert_eq!(
+        store
+            .lane_settlement_projection(Some(&held), None)
+            .unwrap()
+            .len(),
+        1
+    );
     assert_never_loaded(store, &[&running, &elsewhere]);
 }
 
@@ -487,7 +498,11 @@ fn run_lane_watchdog_never_loads_unmatched_plans() {
     start(store);
 
     fx.service.run_lane_watchdog();
-    assert!(store.plan_loads_for_test().contains(&running));
+    assert!(store
+        .lane_watchdog_projection()
+        .unwrap()
+        .iter()
+        .any(|plan| plan.id == running));
     assert_never_loaded(store, &[&queued, &archived]);
 }
 

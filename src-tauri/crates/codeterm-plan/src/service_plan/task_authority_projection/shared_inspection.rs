@@ -2,6 +2,7 @@ use crate::plan::TaskFiles;
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(in crate::service_plan) struct SharedDispatchRead {
+    pub task_id: String,
     pub checkout: String,
     pub files: TaskFiles,
 }

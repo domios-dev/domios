@@ -1,4 +1,4 @@
-import { muxMockFetch } from "../../../lib/muxMockFetch.testdata";
+import { type DaemonFake, muxMockFetch } from "../../../lib/muxMockFetch.testdata";
 import { configureDaemonTransport } from "../../../lib/daemonBootstrap";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -7,7 +7,7 @@ import type { AppConfig } from "../../../lib/types";
 import { EmbedderCard } from "./EmbedderCard";
 import { listingFixture, statusFixture } from "./embedderFixtures";
 
-function daemonFake<T extends Parameters<typeof muxMockFetch>[0]>(domain: T): T {
+function daemonFake<T extends DaemonFake>(domain: T): T {
   vi.stubGlobal("fetch", muxMockFetch(domain));
   return domain;
 }

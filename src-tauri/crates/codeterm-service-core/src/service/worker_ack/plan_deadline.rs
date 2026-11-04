@@ -315,22 +315,18 @@ impl ServiceContext {
                 }
             }
         }
-        let owner_epoch = supervisor.task_identity.as_ref().and_then(|identity| {
-            let detail = self.plan_store.show_task(&identity.task_id)?;
-            let task = &detail.task;
-            let attempt = task.execution_attempts.iter().find(|attempt| {
-                attempt.id == identity.attempt_id
-                    && attempt.executor_tab_id == agent_tab_id
-                    && attempt.closed_at.is_none()
-                    && attempt.retired_at.is_none()
-            })?;
-            (detail.plan_id == identity.plan_id
-                && task.assigned_tab_id.as_deref() == Some(agent_tab_id)
-                && task.interruption.owner_tab_id.as_deref() == Some(agent_tab_id)
-                && task.interruption.owner_epoch > 0
-                && task.interruption.owner_epoch == attempt.interruption.owner_epoch)
-                .then_some(task.interruption.owner_epoch)
-        });
+        let owner_epoch = match supervisor.task_identity.as_ref() {
+            Some(identity) => self
+                .plan_store
+                .startup_owner_epoch_projection(
+                    &identity.plan_id,
+                    &identity.task_id,
+                    &identity.attempt_id,
+                    agent_tab_id,
+                )
+                .map_err(|error| error.to_string())?,
+            None => None,
+        };
         self.arm_agent_startup_deadline(
             StartupAuthority::new(&supervisor.supervisor_tab_id, agent_tab_id, attempt_id)
                 .in_team(supervisor.team_id.clone())
@@ -828,14 +824,20 @@ impl ServiceContext {
                 .get_tab(worker_tab_id)
                 .and_then(|tab| tab.agent_type.clone())
         };
-        let provider = tab_provider.or_else(|| {
-            let plan = self.plan_store.get(plan_id)?;
-            let task = crate::plan::task_key::find_task(&plan.tasks, task_id)?;
-            task.execution_attempts
-                .iter()
-                .find(|attempt| attempt_id.is_some_and(|id| attempt.id == id))
-                .and_then(|attempt| attempt.agent_type.clone().or(attempt.provider.clone()))
-        });
+        let provider = match (tab_provider, attempt_id) {
+            (Some(provider), _) => Some(provider),
+            (None, Some(attempt)) => match self
+                .plan_store
+                .lifecycle_provider_projection(plan_id, task_id, attempt)
+            {
+                Ok(provider) => provider,
+                Err(error) => {
+                    log::warn!("[worker-lifecycle] provider read failed plan={plan_id} task={task_id} attempt={attempt}: {error}");
+                    return;
+                }
+            },
+            (None, None) => None,
+        };
         let provider_output =
             if payload.get("kind").and_then(Value::as_str) == Some("worker_ack_startup_failed") {
                 payload

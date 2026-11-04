@@ -171,6 +171,7 @@ async fn session_revoked_from_every_mesh_callable_notifies_the_session_owner() {
                         signed_registry: None,
                         endpoint: None,
                         own_row: None,
+                        default_display_name: None,
 
                         operation: MeshOperation::SessionRevoke {
                             target: SessionTarget {
@@ -245,6 +246,7 @@ async fn account_mesh_callable_sends_the_packet_envelope_and_reads_the_result() 
         signed_registry: None,
         endpoint: None,
         own_row: None,
+        default_display_name: None,
 
         operation: MeshOperation::Publish {
             expected_metadata_revision: 0,

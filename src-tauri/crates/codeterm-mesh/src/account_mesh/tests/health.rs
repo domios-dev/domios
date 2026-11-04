@@ -6,6 +6,7 @@ use crate::types::{MeshSyncPayload, PeerAddress};
 
 fn payload() -> MeshSyncPayload {
     MeshSyncPayload {
+        endpoints: Vec::new(),
         peers: Vec::new(),
         generation: 0,
     }

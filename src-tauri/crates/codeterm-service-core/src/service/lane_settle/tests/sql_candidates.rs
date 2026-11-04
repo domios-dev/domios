@@ -138,6 +138,14 @@ fn startup_perf_unsettled_lane_candidates_match_the_rust_rule() {
     for (plan_id, label) in &labels {
         assert_eq!(stored_shape(&connection, plan_id), (None, 1), "{label}");
         let plan = reopened.get(plan_id).unwrap();
+        let projected: Vec<_> = reopened
+            .lane_settlement_projection(Some(plan_id), None)
+            .unwrap()
+            .iter()
+            .map(super::super::LaneRecord::from_read)
+            .filter(super::super::LaneRecord::needs_settlement)
+            .collect();
+        assert_eq!(projected, finished_records(&plan), "{label}");
         let rust = !finished_records(&plan).is_empty();
         if rust != candidates.contains(plan_id) {
             mismatches.push(format!("{label}: rust={rust}"));

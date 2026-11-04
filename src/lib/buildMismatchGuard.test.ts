@@ -1,4 +1,4 @@
-import { muxMockFetch } from "./muxMockFetch.testdata";
+import { type DaemonFake, muxMockFetch } from "./muxMockFetch.testdata";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { frontendApiCompatible, frontendApiContract } from "./frontendApiContract";
 import { configureDaemonTransport } from "./daemonBootstrap";
@@ -10,7 +10,7 @@ import {
 import { BUILD_DRIFT_RECORD_KEY, WEB_BOOT_CHANGED_EVENT, WEB_EVENTS_READY_EVENT } from "./buildDriftReload";
 import { FRONTEND_BOOT_KEY } from "./daemonBootstrap";
 
-function daemonFake<T extends Parameters<typeof muxMockFetch>[0]>(domain: T): T {
+function daemonFake<T extends DaemonFake>(domain: T): T {
   vi.stubGlobal("fetch", muxMockFetch(domain));
   return domain;
 }

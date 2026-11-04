@@ -14,6 +14,7 @@
 import { apiHost, relayTarget } from "./webApi";
 import { type TransportClient } from "./transportClient";
 import { baseDaemonTransport } from "./daemonBootstrap";
+import { wakeStreamMuxes } from "./streamMux";
 import { fireResync } from "./resync";
 import { replayCursorForTarget } from "./resyncModel";
 import { createSeqGapTracker } from "./eventSeqGaps";
@@ -69,6 +70,7 @@ export function webReconnectEnabled(): boolean {
 }
 
 export function wakeWebEvents(): void {
+  wakeStreamMuxes();
   if (wakeReconnectWait) {
     wakeReconnectWait();
   } else if (reconnectState === "connected" && Date.now() - lastFrameAt > RECEIVE_TIMEOUT_MS) {

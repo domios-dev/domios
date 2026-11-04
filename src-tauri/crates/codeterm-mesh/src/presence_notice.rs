@@ -6,6 +6,9 @@ pub const PATH: &str = "/api/mesh/account-presence";
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, untagged)]
 pub enum PresenceNotice {
+    Endpoint {
+        endpoint_record: crate::endpoint_gossip::SignedEndpointRecord,
+    },
     Snapshot {
         signed_registry: codeterm_entitlements::DetachedGrant,
     },
@@ -29,6 +32,13 @@ pub async fn broadcast_registry_snapshot(
 
 pub async fn broadcast_presence_notice(mesh: &MeshState, metadata_revision: u64) {
     broadcast(mesh, PresenceNotice::Presence { metadata_revision }).await;
+}
+
+pub async fn broadcast_endpoint_record(
+    mesh: &MeshState,
+    endpoint_record: crate::endpoint_gossip::SignedEndpointRecord,
+) {
+    broadcast(mesh, PresenceNotice::Endpoint { endpoint_record }).await;
 }
 
 async fn broadcast(mesh: &MeshState, notice: PresenceNotice) {

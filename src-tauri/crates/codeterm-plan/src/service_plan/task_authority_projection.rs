@@ -174,3 +174,11 @@ pub(super) use respawn_source::{ensure_respawn_source_fields, TaskRespawnSourceR
 
 mod worker_loss;
 pub use worker_loss::{WorkerLossRead, WorkerLossRecoveryRead, WorkerLossReplacementRead};
+
+mod ack;
+pub(super) use ack::{acknowledging_binding_matches, TaskAckAuthorityRead};
+
+mod launch;
+pub use launch::{TaskDispatchSeedRead, TaskLaunchRead};
+
+mod deadline;

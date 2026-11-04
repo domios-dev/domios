@@ -838,6 +838,18 @@ fn provider_owns_resume_session(
         && resume_session_binding_allowed(provider.session_exists(cwd, session_id))
 }
 
+fn detected_resume_matches(
+    detected: &DetectedLaunchSession,
+    provider: &str,
+    nonce: &str,
+    session: &str,
+) -> bool {
+    detected.provider_id == provider
+        && detected.binding_nonce == nonce
+        && detected.detection.session_id == session
+        && detected.detection.source == LaunchSessionSource::PidRegistry
+}
+
 impl ServiceContext {
     /// One detection per tab at a time. A live current-PTY provider record can
     /// re-authenticate a restored session after its launch nonce has rotated.
@@ -954,6 +966,17 @@ impl ServiceContext {
         if !self.resumed_provider_is_live(tab_id, &pty_id) {
             return None;
         }
+        if let Some(detected) = self.probe_process_launch_session(tab_id) {
+            if detected.detection.source == LaunchSessionSource::PidRegistry {
+                return detected_resume_matches(
+                    &detected,
+                    &provider_id,
+                    &binding_nonce,
+                    &session_id,
+                )
+                .then_some(detected);
+            }
+        }
         let owns_session = self
             .agent_registry
             .with_provider(&provider_id, |provider| {
@@ -975,6 +998,10 @@ impl ServiceContext {
         if self.launch_has_resume_target(tab_id) {
             return self.probe_resumed_launch_session(tab_id);
         }
+        self.probe_process_launch_session(tab_id)
+    }
+
+    fn probe_process_launch_session(&self, tab_id: &str) -> Option<DetectedLaunchSession> {
         let (provider_id, pty_id, binding_nonce, cwd, launched_at_ms) = {
             let mux = self.mux.read();
             let tab = mux.get_tab(tab_id)?;

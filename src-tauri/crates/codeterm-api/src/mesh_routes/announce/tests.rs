@@ -120,6 +120,24 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         web_ui: None,
         relay_protocol_version: RELAY_PROTOCOL_VERSION,
     };
+    let (health_started, pending_health) = tokio::sync::oneshot::channel();
+    let (finish_health, held_response) = tokio::sync::oneshot::channel();
+    let health = {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let response = crate::health_routes::health(AxumState(state)).await;
+            health_started.send(()).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(5), held_response)
+                .await
+                .unwrap()
+                .unwrap();
+            response
+        })
+    };
+    tokio::time::timeout(std::time::Duration::from_secs(5), pending_health)
+        .await
+        .unwrap()
+        .unwrap();
     let response = tokio::time::timeout(
         std::time::Duration::from_secs(1),
         mesh_announce_inbound(
@@ -132,6 +150,12 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
     .expect("announce completes without backend access")
     .unwrap()
     .into_response();
+    finish_health.send(()).unwrap();
+    let Json(health) = tokio::time::timeout(std::time::Duration::from_secs(5), health)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(health["startup"]["state"], "ready");
     assert_eq!(response.status(), StatusCode::OK);
     {
         let mesh = state.mesh.lock();
@@ -145,7 +169,7 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
                 .expires_at,
             500
         );
-        assert_eq!(mesh.paired_peers[PEER].addresses[0].ip, "192.0.2.9");
+        assert!(mesh.paired_peers[PEER].addresses.is_empty());
         assert!(mesh.traffic_open(PEER));
     }
     let mut replay = announce.clone();
@@ -154,10 +178,7 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
         .await
         .unwrap_err();
     assert_eq!(retry.0, StatusCode::UNAUTHORIZED);
-    assert_eq!(
-        state.mesh.lock().paired_peers[PEER].addresses[0].ip,
-        "192.0.2.9"
-    );
+    assert!(state.mesh.lock().paired_peers[PEER].addresses.is_empty());
 
     let events_before = fixture
         .ui
@@ -305,8 +326,5 @@ async fn announce_offline_routes_and_refreshes_membership_but_rejects_replay() {
             .0,
         StatusCode::FORBIDDEN
     );
-    assert_eq!(
-        state.mesh.lock().paired_peers[PEER].addresses[0].ip,
-        "192.0.2.9"
-    );
+    assert!(state.mesh.lock().paired_peers[PEER].addresses.is_empty());
 }

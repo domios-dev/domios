@@ -3,6 +3,21 @@ use super::*;
 use crate::service_plan::task_authority_projection::{SharedDispatchRead, SharedReportRead};
 
 impl PlanDatabase {
+    pub(in crate::service_plan) fn dispatch_checkout_projection(
+        &self,
+        plan: &str,
+    ) -> Result<String, PlanError> {
+        let connection = self.connection.lock();
+        record_query();
+        connection.query_row(
+            "SELECT CASE WHEN trim(coalesce(json_extract(header_json,'$.canonical_project_path'),''),?2)=''
+                THEN json_extract(header_json,'$.project_path') ELSE json_extract(header_json,'$.canonical_project_path') END
+             FROM plans WHERE id=?1",
+            params![plan,super::super::status_queries::WHITESPACE],
+            |row| column(row,0),
+        ).optional().map_err(db_error)?.ok_or(PlanError::NotFound)
+    }
+
     pub(in crate::service_plan) fn shared_dispatch_projection(
         &self,
         plan: &str,
@@ -12,7 +27,7 @@ impl PlanDatabase {
         record_query();
         let (exists,raw): (bool,Option<String>) = connection.query_row(
             &format!("{SELECTED_TASK_IN_PLAN} SELECT EXISTS(SELECT 1 FROM plans WHERE id=?1),
-                (SELECT json_object('checkout',CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?3)=''
+                (SELECT json_object('task_id',t.task_id,'checkout',CASE WHEN trim(coalesce(json_extract(p.header_json,'$.canonical_project_path'),''),?3)=''
                     THEN json_extract(p.header_json,'$.project_path') ELSE json_extract(p.header_json,'$.canonical_project_path') END,
                     'files',json(coalesce(json_extract(t.row_json,'$.files'),'{{}}')))
                  FROM selected_task t JOIN plans p ON p.id=t.plan_id)"),

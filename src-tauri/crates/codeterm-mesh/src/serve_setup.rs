@@ -132,6 +132,14 @@ pub fn probe_serve_status_for_build(api_port: u16, expected_build: Option<String
     }
 }
 
+pub(crate) fn configured_https_url(api_port: u16) -> Option<String> {
+    let routes = collect_routes(&serve_status_json()?, api_port);
+    let owned = routes
+        .iter()
+        .find(|route| route.ownership == ServeRouteOwnership::Owned)?;
+    Some(format_serve_url(owned.host.as_ref()?, owned.https_port))
+}
+
 pub fn reconcile_web_serve(
     api_port: u16,
     desired_https_port: Option<u16>,

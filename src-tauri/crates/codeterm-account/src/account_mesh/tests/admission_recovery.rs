@@ -1,4 +1,5 @@
 use super::support::*;
+use crate::account_mesh::tests::support::wait_for_event;
 use crate::account_mesh::wire::{MeshOperation, RegistryRefusal};
 use crate::account_mesh::*;
 use std::sync::atomic::Ordering;
@@ -12,7 +13,7 @@ async fn expired() -> Harness {
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    harness.registry.entered.notified().await;
+    wait_for_event(harness.registry.entered.notified()).await;
     harness.clock.set(START + 3600);
     harness.log.lock().unwrap().clear();
     harness
@@ -134,7 +135,7 @@ async fn account_mesh_short_successful_leases_never_renew_immediately() {
         harness.registry.script.lock().unwrap().membership_seconds = Some(seconds);
         harness.sign_in("owner").await;
         assert_eq!(harness.mesh.refresh(EnrollTrigger::Automatic).await, Ok(()));
-        harness.registry.entered.notified().await;
+        wait_for_event(harness.registry.entered.notified()).await;
         assert!(
             tokio::time::timeout(Duration::ZERO, harness.registry.entered.notified())
                 .await
@@ -181,7 +182,7 @@ async fn account_mesh_refresh_during_rejected_retry_cannot_lose_credential_rearm
     }
     let refresh = harness.mesh.refresh(EnrollTrigger::Lease);
     let rotate = async {
-        harness.registry.entered.notified().await;
+        wait_for_event(harness.registry.entered.notified()).await;
         let mut session = harness.sessions.0.lock().unwrap().clone().unwrap();
         session.id_token = crate::Secret::new("concurrent-credential");
         *harness.sessions.0.lock().unwrap() = Some(session.clone());

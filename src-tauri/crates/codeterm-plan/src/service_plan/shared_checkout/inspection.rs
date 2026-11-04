@@ -1,13 +1,5 @@
-use super::{Plan, PlanError, PlanStore, Task, TaskFiles, WorkerPlacement};
+use super::{PlanError, PlanStore, Task, TaskFiles, WorkerPlacement};
 use crate::service_plan::task_authority_projection::SharedReportRead as SharedReportSnapshot;
-
-fn checkout_path(plan: &Plan) -> &str {
-    if plan.canonical_project_path.trim().is_empty() {
-        &plan.project_path
-    } else {
-        &plan.canonical_project_path
-    }
-}
 
 pub(crate) struct SharedDispatchInspection {
     pub checkout: String,
@@ -16,8 +8,8 @@ pub(crate) struct SharedDispatchInspection {
 }
 
 impl SharedDispatchInspection {
-    pub fn recheck(&self, plan: &Plan, task: &Task) -> Result<(), PlanError> {
-        if self.checkout != checkout_path(plan) || self.files != task.files {
+    pub fn recheck(&self, checkout: &str, files: &TaskFiles) -> Result<(), PlanError> {
+        if self.checkout != checkout || self.files != *files {
             return Err(PlanError::InvalidPlanText(
                 "shared dispatch context changed during Git inspection; dispatch again".into(),
             ));

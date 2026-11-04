@@ -111,6 +111,7 @@ pub(super) fn dispatch(
                 "tab.close",
                 "tab.send_text",
                 "tab.send_status",
+                "tab.send_cancel",
                 "tab.get_output",
                 "tab.rename",
                 "tab.resize",
