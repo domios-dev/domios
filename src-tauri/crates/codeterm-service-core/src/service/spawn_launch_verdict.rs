@@ -109,13 +109,27 @@ impl SpawnLaunchFailure {
 
 /// The verdict a tab already carries for its launch, or `None` while it is
 /// still on its way to one.
-pub(crate) fn classify_spawn_launch(tab: Option<&Tab>) -> Option<SpawnLaunchVerdict> {
+pub(crate) fn classify_spawn_launch(
+    tab: Option<&Tab>,
+    runtime_declared: bool,
+) -> Option<SpawnLaunchVerdict> {
     let Some(tab) = tab else {
         return Some(SpawnLaunchVerdict::Failed {
             reason: "the Tab was closed before its agent reached readiness".into(),
         });
     };
-    if let crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. } = &tab.backing {
+    if let (crate::multiplexer::types::TabBacking::ChatBackend { session_id, .. }, true) =
+        (&tab.backing, runtime_declared)
+    {
+        let runtime = tab.agent_runtime_state.as_ref();
+        let state = runtime.and_then(|runtime| runtime["state"].as_str());
+        if matches!(state, Some("degraded" | "unloaded")) {
+            let code =
+                runtime.and_then(|value| serde_json::from_value(value["failureCode"].clone()).ok());
+            if super::agent_runtime::model::runtime_failure_pending(code) {
+                return Some(SpawnLaunchVerdict::Pending);
+            }
+        }
         if tab.boot_stage == Some(BootStage::SpawnFailed) {
             return Some(SpawnLaunchVerdict::Failed {
                 reason: tab
@@ -124,8 +138,6 @@ pub(crate) fn classify_spawn_launch(tab: Option<&Tab>) -> Option<SpawnLaunchVerd
                     .unwrap_or_else(|| "Agent runtime launch failed".into()),
             });
         }
-        let runtime = tab.agent_runtime_state.as_ref();
-        let state = runtime.and_then(|runtime| runtime["state"].as_str());
         if matches!(state, Some("degraded" | "unloaded")) {
             if let Some(reason) = runtime.and_then(|runtime| runtime["reason"].as_str()) {
                 return Some(SpawnLaunchVerdict::Failed {
@@ -191,9 +203,10 @@ impl ServiceContext {
         tab_id: &str,
         deadline: Duration,
     ) -> Result<SpawnLaunchVerdict, SpawnLaunchFailure> {
+        let runtime_declared = super::agent_runtime::requested_for_tab(self, tab_id);
         let mut verdict = None;
         super::boot_wait::wait_until(Instant::now() + deadline, || {
-            verdict = classify_spawn_launch(self.mux.read().get_tab(tab_id));
+            verdict = classify_spawn_launch(self.mux.read().get_tab(tab_id), runtime_declared);
             verdict.is_some()
         });
         match verdict {
@@ -203,11 +216,7 @@ impl ServiceContext {
                     tab_id: tab_id.to_string(),
                     reason,
                     output_tail: self.launch_output_tail(tab_id),
-                    runtime: self
-                        .mux
-                        .read()
-                        .get_tab(tab_id)
-                        .is_some_and(Tab::is_chat_backend),
+                    runtime: runtime_declared,
                 })
             }
             Some(verdict) => Ok(verdict),

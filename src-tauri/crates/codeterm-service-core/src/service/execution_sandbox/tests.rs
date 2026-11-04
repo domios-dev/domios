@@ -590,10 +590,15 @@ fn unconfinable_provider_sandbox_refusal_has_a_stable_code_and_original_message(
             runtime,
         )
         .unwrap_err();
-        let message = unsupported_message(&error).unwrap();
-        assert!(error.starts_with("execution_sandbox_unsupported: "));
-        assert!(message
+        assert!(
+            matches!(&error, SpawnTargetRefusal::ExecutionSandbox { provider, .. } if provider == "opaque-runtime")
+        );
+        assert_eq!(
+            error.data().unwrap()["code"],
+            "execution_sandbox_unsupported"
+        );
+        assert!(error
+            .to_string()
             .starts_with("Provider opaque-runtime: Cannot enforce ReadOnly execution sandbox"));
-        assert_eq!(unsupported_message(message), None);
     }
 }

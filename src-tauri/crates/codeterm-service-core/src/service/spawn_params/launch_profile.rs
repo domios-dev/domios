@@ -49,14 +49,28 @@ impl std::fmt::Display for LaunchProfileRefusal {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SpawnTargetRefusal {
     LaunchProfile(LaunchProfileRefusal),
+    ExecutionSandbox { provider: String, message: String },
     Other(String),
+}
+
+impl SpawnTargetRefusal {
+    pub fn data(&self) -> Option<serde_json::Value> {
+        match self {
+            Self::LaunchProfile(error) => Some(error.data()),
+            Self::ExecutionSandbox { provider, message } => Some(serde_json::json!({
+                "type":"execution_sandbox_unsupported", "code":"execution_sandbox_unsupported",
+                "provider":provider, "message":message,
+            })),
+            Self::Other(_) => None,
+        }
+    }
 }
 
 impl std::fmt::Display for SpawnTargetRefusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::LaunchProfile(error) => std::fmt::Display::fmt(error, f),
-            Self::Other(message) => f.write_str(message),
+            Self::ExecutionSandbox { message, .. } | Self::Other(message) => f.write_str(message),
         }
     }
 }
@@ -126,6 +140,20 @@ fn validate(
 }
 
 impl ServiceContext {
+    pub fn validate_spawn_options(
+        &self,
+        provider: &str,
+        params: &crate::service::SpawnAgentParams,
+    ) -> Result<(), SpawnTargetRefusal> {
+        self.validate_launch_profile(provider, params.launch_profile.as_deref())?;
+        crate::service::execution_sandbox::preflight(
+            &self.agent_registry,
+            provider,
+            params,
+            crate::service::agent_runtime::engine::requested(self, provider),
+        )
+    }
+
     pub fn validate_launch_profile(
         &self,
         provider: &str,

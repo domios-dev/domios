@@ -21,7 +21,12 @@ fn spawn_profile_error_keeps_typed_rpc_data() {
 
 #[test]
 fn sandbox_spawn_refusal_preserves_typed_rpc_code_and_human_message() {
-    let error = spawn_rpc_error("execution_sandbox_unsupported: opaque confinement refusal".into());
+    let error = spawn_target_rpc_error(
+        codeterm_service_core::service::spawn_params::SpawnTargetRefusal::ExecutionSandbox {
+            provider: "opaque-runtime".into(),
+            message: "opaque confinement refusal".into(),
+        },
+    );
     assert_eq!(error.code, -32602);
     assert_eq!(error.message, "opaque confinement refusal");
     assert_eq!(error.data.unwrap()["code"], "execution_sandbox_unsupported");

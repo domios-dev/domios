@@ -6,6 +6,7 @@ use axum::{
 
 /// JSON error surface for `/api/agents/spawn`, so the mesh relay can parse it
 /// instead of collapsing a bare `(StatusCode, String)` body to "HTTP 500".
+#[derive(Debug)]
 pub struct SpawnRejection {
     pub(crate) status: StatusCode,
     pub(crate) body: serde_json::Value,
@@ -31,15 +32,6 @@ pub(crate) const SPAWN_REFUSAL_CLASS_UNCLASSIFIED: &str = "unknown";
 
 impl From<String> for SpawnRejection {
     fn from(message: String) -> Self {
-        if let Some(detail) =
-            codeterm_service_core::service::execution_sandbox::unsupported_message(&message)
-        {
-            return Self::new(
-                StatusCode::UNPROCESSABLE_ENTITY,
-                codeterm_service_core::service::execution_sandbox::EXECUTION_SANDBOX_UNSUPPORTED,
-                detail.to_string(),
-            );
-        }
         if let Some((code, _)) = message.split_once(':') {
             if matches!(
                 code,
@@ -85,6 +77,18 @@ impl From<codeterm_service_core::service::spawn_launch_verdict::SpawnLaunchFailu
     }
 }
 
+impl From<codeterm_service_core::service::spawn_params::SpawnTargetRefusal> for SpawnRejection {
+    fn from(error: codeterm_service_core::service::spawn_params::SpawnTargetRefusal) -> Self {
+        match error.data() {
+            Some(data) => Self {
+                status: StatusCode::UNPROCESSABLE_ENTITY,
+                body: serde_json::json!({"ok":false,"error":data}),
+            },
+            None => Self::from(error.to_string()),
+        }
+    }
+}
+
 impl From<codeterm_service_core::service::spawn_params::LaunchProfileRefusal> for SpawnRejection {
     fn from(error: codeterm_service_core::service::spawn_params::LaunchProfileRefusal) -> Self {
         Self {
@@ -94,15 +98,15 @@ impl From<codeterm_service_core::service::spawn_params::LaunchProfileRefusal> fo
     }
 }
 
-pub(crate) async fn validate_spawn_profile(
+pub(crate) async fn validate_spawn_options(
     svc: &codeterm_service_core::service::ServiceState,
     provider: &str,
-    profile: Option<&str>,
+    params: &codeterm_service_core::service::SpawnAgentParams,
 ) -> Result<(), SpawnRejection> {
     let svc = svc.clone();
     let provider = provider.to_owned();
-    let profile = profile.map(str::to_owned);
-    tokio::task::spawn_blocking(move || svc.validate_launch_profile(&provider, profile.as_deref()))
+    let params = params.clone();
+    tokio::task::spawn_blocking(move || svc.validate_spawn_options(&provider, &params))
         .await
         .map_err(|error| SpawnRejection::from(error.to_string()))?
         .map_err(SpawnRejection::from)

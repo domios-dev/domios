@@ -16,6 +16,7 @@ export interface AgentRuntimeState {
   state: "loading" | "loginPending" | "loaded" | "unloaded" | "degraded";
   epoch: number;
   reason?: string | null;
+  failureCode?: import("@codeterm/plugin-sdk").RuntimeFailureCode;
   active_turn_started_at_ms?: number | null;
   last_turn_duration_ms?: number | null;
   history?: RuntimeHistoryState;
@@ -30,6 +31,9 @@ export function runtimeResponseDeadlinePending(
   bootFailureReason?: string | null,
 ): boolean {
   if (state?.state === "loaded" && state.history !== "failed") return false;
+  if (state?.failureCode !== undefined && (state.state === "degraded" || state.state === "unloaded" || state.state === "loading")) {
+    return state.failureCode === "deadline";
+  }
   return isPendingRuntimeDeadline(bootFailureReason)
     || ((state?.state === "degraded" || state?.state === "loading") && isPendingRuntimeDeadline(state.reason))
     || (state?.state === "loaded" && state.history === "failed" && isPendingRuntimeDeadline(state.historyError));

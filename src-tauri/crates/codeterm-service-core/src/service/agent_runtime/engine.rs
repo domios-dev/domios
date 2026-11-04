@@ -311,9 +311,13 @@ async fn stop_session(
         .map_err(|error| error.to_string())
         .and_then(|result| result);
     super::login::forget(&session);
-    session.state.lock().phase = RuntimePhase::Unloaded {
-        reason: Some("Runtime stopped".into()),
-    };
+    {
+        let mut state = session.state.lock();
+        state.failure_code = None;
+        state.phase = RuntimePhase::Unloaded {
+            reason: Some("Runtime stopped".into()),
+        };
+    }
     session.control_changes.send_replace(());
     session.process.close();
     cli_cleanup

@@ -114,6 +114,12 @@ pub enum RuntimePhase {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct RuntimeState {
+    #[serde(
+        default,
+        rename = "failureCode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub failure_code: Option<codeterm_plugin::agent_runtime::RuntimeFailureCode>,
     pub epoch: u64,
     #[serde(
         default,
@@ -135,6 +141,12 @@ pub struct RuntimeState {
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RuntimeSnapshot {
+    #[serde(
+        default,
+        rename = "failureCode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub failure_code: Option<codeterm_plugin::agent_runtime::RuntimeFailureCode>,
     pub state: String,
     pub epoch: u64,
     #[serde(
@@ -161,6 +173,32 @@ pub struct RuntimeSnapshot {
     pub history_error: Option<String>,
 }
 
+pub fn runtime_failure_pending(
+    code: Option<codeterm_plugin::agent_runtime::RuntimeFailureCode>,
+) -> bool {
+    code == Some(codeterm_plugin::agent_runtime::RuntimeFailureCode::Deadline)
+}
+
+impl RuntimeFailure {
+    fn code(&self) -> Option<codeterm_plugin::agent_runtime::RuntimeFailureCode> {
+        use codeterm_plugin::agent_runtime::RuntimeFailureCode as Code;
+        Some(match self {
+            Self::Deadline => Code::Deadline,
+            Self::SpawnFailed { .. }
+            | Self::ProcessExited { .. }
+            | Self::PipeEof
+            | Self::PipeFailure { .. }
+            | Self::WrittenAwaitingEvidence => Code::ProcessUnavailable,
+            Self::InvalidFrame(_) | Self::ProtocolError { .. } => Code::ProtocolError,
+            Self::HookFailed(_) => Code::HookFailed,
+            Self::Refused(_) | Self::PrewriteRefused(_) => Code::ProviderRefused,
+            Self::SignInRequired => Code::AuthenticationRequired,
+            Self::ConversationMissing => Code::ThreadNotFound,
+            Self::Superseded => Code::BindingMismatch,
+        })
+    }
+}
+
 impl RuntimeState {
     pub fn snapshot(&self) -> RuntimeSnapshot {
         let (state, reason) = match &self.phase {
@@ -171,6 +209,14 @@ impl RuntimeState {
             RuntimePhase::Degraded { reason } => ("degraded", Some(reason.clone())),
         };
         RuntimeSnapshot {
+            failure_code: if matches!(
+                self.phase,
+                RuntimePhase::Degraded { .. } | RuntimePhase::Unloaded { .. }
+            ) {
+                self.failure_code
+            } else {
+                None
+            },
             binary_version: self.binary_version.clone(),
             agent_name: self.agent_name.clone(),
             notice: self.notice.clone(),
@@ -187,6 +233,7 @@ impl RuntimeState {
 
     pub fn unloaded(thread_id: Option<String>) -> Self {
         Self {
+            failure_code: None,
             epoch: 0,
             binary_version: None,
             agent_name: None,
@@ -239,6 +286,7 @@ impl RuntimeState {
     }
     pub fn begin(&mut self) -> u64 {
         self.epoch = self.epoch.wrapping_add(1);
+        self.failure_code = None;
         self.phase = RuntimePhase::Loading;
         self.notice = None;
         self.pending_load_notice = None;
@@ -254,6 +302,7 @@ impl RuntimeState {
             return false;
         }
         self.thread_id = Some(thread.into());
+        self.failure_code = None;
         self.phase = RuntimePhase::Ready;
         true
     }
@@ -261,6 +310,7 @@ impl RuntimeState {
         if self.epoch != epoch || matches!(self.phase, RuntimePhase::Unloaded { .. }) {
             return false;
         }
+        self.failure_code = reason.code();
         self.phase = RuntimePhase::Unloaded {
             reason: Some(reason.to_string()),
         };
@@ -270,6 +320,7 @@ impl RuntimeState {
         if self.epoch != epoch {
             return false;
         }
+        self.failure_code = reason.code();
         self.phase = match reason {
             RuntimeFailure::SignInRequired => RuntimePhase::LoginPending,
             _ => RuntimePhase::Degraded {

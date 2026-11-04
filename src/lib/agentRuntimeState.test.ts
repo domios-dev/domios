@@ -188,3 +188,11 @@ it("retries a failed history page while the conversation remains loaded", () => 
   expect(runtimeRetryFailed(loading,"fixture-retry-error")).toMatchObject({state:"loaded",history:"failed",historyError:"fixture-retry-error"});
   expect(runtimeStateFromEvent(loading,authority,{tab_id:"owned",session_binding_nonce:"binding",state:{state:"loaded",epoch:3,history:"complete",historyPages:12}})).toMatchObject({state:"loaded",history:"complete",historyPages:12});
 });
+
+it("uses the typed deadline code for degraded and unloaded response-pending states", () => {
+  for (const state of ["degraded", "unloaded"] as const) {
+    expect(runtimeResponseDeadlinePending({state, epoch:1, failureCode:"deadline", reason:"opaque message"})).toBe(true);
+    expect(runtimeResponseDeadlinePending({state, epoch:1, failureCode:"protocol_error", reason:"deadline in provider text"})).toBe(false);
+  }
+  expect(runtimeResponseDeadlinePending({state:"loaded",epoch:2,failureCode:"deadline"})).toBe(false);
+});

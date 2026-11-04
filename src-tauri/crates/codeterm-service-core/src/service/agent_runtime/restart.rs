@@ -125,6 +125,7 @@ async fn restart_inner(
         super::declared_controls::reset(session, epoch);
         {
             let mut state = session.state.lock();
+            state.failure_code = None;
             state.phase = RuntimePhase::Unloaded { reason: None };
             if fresh {
                 state.thread_id = None;

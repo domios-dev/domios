@@ -62,3 +62,25 @@ fn non_runtime_profile_refuses_before_tab_creation() {
     assert_eq!(refusal.code, "unknown_launch_profile");
     assert_eq!(fixture.service.mux.read().snapshot().tabs.len(), before);
 }
+
+#[test]
+fn sandbox_refusal_stays_typed_through_spawn_target_validation() {
+    let (mux, _) = crate::multiplexer::state::MultiplexerState::new();
+    let fixture = crate::service::test_fixture::ServiceFixture::new(mux);
+    let params = crate::service::SpawnAgentParams {
+        sandbox: Some("read-only".into()),
+        ..Default::default()
+    };
+    let error = fixture
+        .service
+        .validate_spawn_options("plain-provider", &params)
+        .unwrap_err();
+    assert!(matches!(error, SpawnTargetRefusal::ExecutionSandbox { .. }));
+    assert_eq!(
+        error.data().unwrap()["code"],
+        "execution_sandbox_unsupported"
+    );
+    assert!(!error
+        .to_string()
+        .starts_with("execution_sandbox_unsupported:"));
+}
