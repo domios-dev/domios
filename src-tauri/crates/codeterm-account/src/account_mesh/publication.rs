@@ -46,6 +46,21 @@ impl AccountMesh {
         &self,
         signed: &Signed,
     ) -> Result<(), AccountMeshRefusal> {
+        let result = self.reconcile_publication_once(signed).await;
+        if let Err(refusal) = result {
+            self.with(|inner| {
+                if inner.is_current(signed.epoch) {
+                    inner.update(&self.watch, |state| {
+                        state.publication_failure = Some(refusal)
+                    });
+                }
+            });
+            self.push().await;
+        }
+        result
+    }
+
+    async fn reconcile_publication_once(&self, signed: &Signed) -> Result<(), AccountMeshRefusal> {
         let ready = self.ports.endpoint.ready_endpoint();
         let membership = self
             .state()

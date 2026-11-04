@@ -464,5 +464,17 @@ async fn signedout_presence_blocks_immediately_and_newer_present_revision_restor
         .receive_registry_snapshot(&Issuer::new().sign(&signed_out))
         .await
         .unwrap();
+    assert!(harness.state().unavailable_installations.contains(PEER));
+    signed_out["revision"] = json!(82);
+    for row in signed_out["members"].as_array_mut().unwrap() {
+        if row["installation_id"] == PEER {
+            row["metadata_revision"] = json!(81);
+        }
+    }
+    assert!(harness
+        .mesh
+        .receive_registry_snapshot(&Issuer::new().sign(&signed_out))
+        .await
+        .unwrap());
     assert!(!harness.state().unavailable_installations.contains(PEER));
 }

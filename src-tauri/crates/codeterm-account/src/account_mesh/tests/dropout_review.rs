@@ -2,7 +2,7 @@ use super::support::*;
 use crate::account_mesh::{wire::RegistryRefusal, *};
 
 #[tokio::test]
-async fn account_mesh_forbidden_cached_recover_falls_back_to_one_rotation_and_enrollment() {
+async fn account_mesh_changed_local_key_recovers_revoked_slot_without_registry_read() {
     let mut harness = Harness::new().await;
     harness.sign_in("owner").await;
     harness
@@ -21,7 +21,7 @@ async fn account_mesh_forbidden_cached_recover_falls_back_to_one_rotation_and_en
         .refresh(EnrollTrigger::Automatic)
         .await
         .unwrap();
-    assert_eq!(harness.calls("list"), 1);
+    assert_eq!(harness.calls("list"), 0);
     assert_eq!(harness.calls("recover"), 1);
     assert_eq!(harness.calls("recover_key"), 1);
     assert_eq!(harness.calls("enroll"), 1);
@@ -113,6 +113,7 @@ async fn account_mesh_manual_network_and_signin_rearm_escape_four_hour_permanent
             14400
         );
         let calls = harness.calls("publish");
+        let renewals = harness.calls("renew");
         harness.registry.script.lock().unwrap().publication = None;
         for deferred in [EnrollTrigger::Lease, EnrollTrigger::Automatic] {
             assert_eq!(
@@ -125,7 +126,10 @@ async fn account_mesh_manual_network_and_signin_rearm_escape_four_hour_permanent
             harness.mesh.enrollment_signed_in();
         }
         harness.mesh.refresh(trigger).await.unwrap();
-        assert_eq!(harness.calls("publish"), calls + 1);
+        let renewed = trigger == EnrollTrigger::Automatic;
+        assert_eq!(harness.calls("publish"), calls + usize::from(!renewed));
+        assert_eq!(harness.calls("renew"), renewals + usize::from(renewed));
+        assert!(harness.registry.endpoint("owner").is_some());
         assert_eq!(harness.state().publication, Publication::Published);
         assert_eq!(harness.state().retry_at, None);
     }

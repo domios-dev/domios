@@ -448,7 +448,7 @@ async fn account_mesh_rejoin_lost_committed_reply_replays_or_reconciles_without_
         harness.mesh.refresh(EnrollTrigger::Lease).await.unwrap();
         assert_eq!(harness.calls("recover_key"), 1);
         assert_eq!(harness.calls("recover"), 2);
-        assert_eq!(harness.calls("list"), lists + 1);
+        assert_eq!(harness.calls("list"), lists + usize::from(expired));
         assert_eq!(harness.calls("renew"), if expired { 2 } else { 1 });
         assert_eq!(
             harness.store.record.lock().unwrap().keys[&account_id("owner")],
