@@ -106,7 +106,12 @@ impl StartupEvents {
                     match snapshot["state"].as_str() {
                         Some("ready") => true,
                         Some("starting") => snapshot["desktop_ready"].as_bool() == Some(true),
-                        Some("failed") => return Err("Server initialization failed".into()),
+                        Some("failed") => {
+                            return Err(snapshot["error"]
+                                .as_str()
+                                .unwrap_or("Server initialization failed")
+                                .into())
+                        }
                         _ => return Err("Server startup event has no valid state".into()),
                     }
                 } else {
