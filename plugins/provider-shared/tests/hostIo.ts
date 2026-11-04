@@ -154,7 +154,9 @@ export function ioTestExport<T>(source: T): TestResult<T> {
       },
     });
     if (!value || typeof value !== "object" || Array.isArray(value) || value instanceof Map || value instanceof Set) return value;
-    return new Proxy(value, { get(object, key) { const property: unknown = Reflect.get(object, key); return typeof property === "function" ? (wrap(property, capturedHost) as Fn).bind(object) : key === "default" ? wrap(property, capturedHost) : property; } });
+    // Object.prototype builtins stay unwrapped: deep equality compares them by identity.
+    const builtin = (key: PropertyKey, property: unknown) => (Object.prototype as unknown as Record<PropertyKey, unknown>)[key] === property;
+    return new Proxy(value, { get(object, key) { const property: unknown = Reflect.get(object, key); return typeof property === "function" && !builtin(key, property) ? (wrap(property, capturedHost) as Fn).bind(object) : key === "default" ? wrap(property, capturedHost) : property; } });
   };
   return wrap(source) as TestResult<T>;
 }

@@ -89,4 +89,4 @@ pub use manifest::{
     RESUME_TEMPLATE_PLACEHOLDERS,
 };
 use vm::call_json_strict;
-pub use vm::{call_json, has_method, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};
+pub use vm::{call_json, has_method, spawn_blocking, PluginVm, VmError, ASYNC_JOB_TIMEOUT_ERROR};

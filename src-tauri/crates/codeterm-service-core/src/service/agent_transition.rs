@@ -246,7 +246,7 @@ impl ServiceContext {
         &self,
         request: AgentTransitionRequest,
         failure: TransitionFailurePoint,
-        precondition: impl FnOnce(&MultiplexerState) -> Result<(), String>,
+        precondition: impl Fn(&MultiplexerState) -> Result<(), String>,
     ) -> Result<Vec<String>, String> {
         let (changed_plan_ids, changed_bindings) = self.transition_agent_prepared_at(
             epoch_ms(),
@@ -254,7 +254,7 @@ impl ServiceContext {
                 precondition(mux)?;
                 self.remote_teams
                     .ensure_tab_lifecycle_available(&request.tab_id)?;
-                Ok(request)
+                Ok(request.clone())
             },
             failure,
         )?;

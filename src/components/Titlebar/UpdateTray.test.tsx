@@ -261,7 +261,8 @@ for (const actionName of ["Update Interface", "Update all"]) {
     const root = createRoot(host);
     try {
       await act(async () => root.render(<UpdatePanelProvider><UpdateTrayWithActions /></UpdatePanelProvider>));
-      expect(fake.check).toHaveBeenCalledWith();
+      // Opening the tray is a passive check: the cached snapshot with a background refresh, never a forced one.
+      expect(fake.check).toHaveBeenCalledWith(false);
       await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Update"]')!.click());
       const panel = document.querySelector('[role="dialog"][aria-label="Updates"]')!;
       expect(panel.querySelector('section[aria-label="Interface updates"]')).not.toBeNull();

@@ -207,12 +207,19 @@ impl JsProvider {
         }
     }
 
-    fn extend_parsed_session_chunk(&self, out: &mut Vec<SessionMessage>, chunk: &str) {
-        if let Some(parsed) =
-            self.try_call::<Vec<SerdeSessionMessage>>("parseSessionMessages", &[json!(chunk)])
-        {
-            out.extend(parsed.into_iter().map(SessionMessage::from));
-        }
+    fn extend_parsed_session_chunk(
+        &self,
+        out: &mut Vec<SessionMessage>,
+        chunk: &str,
+    ) -> Result<(), String> {
+        let parsed = call_json::<Vec<SerdeSessionMessage>>(
+            &self.vm,
+            "parseSessionMessages",
+            &[json!(chunk)],
+        )
+        .map_err(|error| format!("parseSessionMessages failed: {error}"))?;
+        out.extend(parsed.into_iter().map(SessionMessage::from));
+        Ok(())
     }
 
     /// Call a plugin method expected to return `{ok: bool, error?: string}`.

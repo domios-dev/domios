@@ -112,9 +112,10 @@ impl Reconciliation {
         self.fallback_at.remove(installation);
     }
 
+    /// Pending fallback deadlines survive: re-arming them on every event starves the
+    /// non-preferred side, which is the only one that knows a newly enrolled peer.
     fn network_changed(&mut self) {
         self.retries.retain(|_, retry| !retry.transport_failure);
-        self.fallback_at.clear();
     }
 
     fn deadline(&self, now: u64, peers_ready: bool) -> Option<u64> {

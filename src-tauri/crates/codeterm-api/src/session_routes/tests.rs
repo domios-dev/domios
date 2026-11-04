@@ -41,11 +41,12 @@ async fn sessions_resume_refuses_a_degraded_bound_tab_with_a_recovery_command() 
             manifest,
             Arc::new(PluginVm::from_source("resume-fixture", source).unwrap()),
         )));
-    let metadata = fixture
-        .service
-        .agent_registry
-        .find_session("owned-session")
-        .expect("fixture session must resolve before testing resume refusal");
+    let registry = fixture.service.agent_registry.clone();
+    let metadata =
+        codeterm_plugin::js_runtime::spawn_blocking(move || registry.find_session("owned-session"))
+            .await
+            .unwrap()
+            .expect("fixture session must resolve before testing resume refusal");
     assert_eq!(metadata.session_id, "owned-session");
     assert_eq!(metadata.provider, "resume-fixture");
     assert_eq!(
