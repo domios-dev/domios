@@ -96,7 +96,10 @@ pub(in crate::service::agent_runtime) async fn plan(
     .await
     .map_err(|_| RuntimeFailure::Deadline)?
     .map_err(|reason| {
-        if reason.code == codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused {
+        if reason.code == codeterm_plugin::agent_runtime::RuntimeFailureCode::Deadline {
+            RuntimeFailure::Deadline
+        } else if reason.code == codeterm_plugin::agent_runtime::RuntimeFailureCode::ProviderRefused
+        {
             RuntimeFailure::Refused(reason.message)
         } else {
             RuntimeFailure::HookFailed(reason.to_string())
@@ -348,7 +351,13 @@ async fn run_inner(
         )
         .await
         .map_err(|_| RuntimeFailure::Deadline)?
-        .map_err(|reason| RuntimeFailure::HookFailed(reason.to_string()))?;
+        .map_err(|reason| {
+            if reason.code == RuntimeFailureCode::Deadline {
+                RuntimeFailure::Deadline
+            } else {
+                RuntimeFailure::HookFailed(reason.to_string())
+            }
+        })?;
         validate_runtime_step(&capability, &context, &operation, &reply, &step)
             .map_err(|reason| RuntimeFailure::Refused(reason.to_string()))?;
         validate_binding(svc, session)?;

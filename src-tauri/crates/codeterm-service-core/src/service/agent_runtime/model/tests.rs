@@ -667,3 +667,21 @@ fn cached_backfill_completes_without_discarding_history_or_live_rows() {
     assert_eq!(cache.backfill(), HistoryBackfill::Complete);
     assert_eq!(cache.history_pages(), 0);
 }
+
+#[test]
+fn deadline_failure_code_survives_snapshot_and_clears_on_new_attempt() {
+    let mut state = RuntimeState::unloaded(None);
+    let epoch = state.begin();
+    state.degrade(epoch, &RuntimeFailure::Deadline);
+    let snapshot = state.snapshot();
+    assert!(runtime_failure_pending(snapshot.failure_code));
+    assert_eq!(
+        serde_json::to_value(snapshot).unwrap()["failureCode"],
+        "deadline"
+    );
+    state.begin();
+    assert!(!runtime_failure_pending(state.snapshot().failure_code));
+    assert!(!runtime_failure_pending(Some(
+        codeterm_plugin::agent_runtime::RuntimeFailureCode::ProtocolError
+    )));
+}

@@ -24,6 +24,7 @@ pub fn test_shell_binary() -> &'static str {
 }
 
 pub struct MockProvider {
+    runtime: Option<codeterm_plugin::agent_runtime::AgentRuntimeCapability>,
     id: String,
     auto_approve_flags: Vec<String>,
     launch_binary: Option<String>,
@@ -75,6 +76,14 @@ pub struct MockProvider {
 }
 
 impl MockProvider {
+    pub fn with_agent_runtime(
+        mut self,
+        runtime: codeterm_plugin::agent_runtime::AgentRuntimeCapability,
+    ) -> Self {
+        self.runtime = Some(runtime);
+        self
+    }
+
     pub fn with_auto_approve_flags(mut self, flags: Vec<String>) -> Self {
         self.auto_approve_flags = flags;
         self
@@ -94,6 +103,7 @@ impl MockProvider {
 
     pub fn new(id: &str) -> Self {
         Self {
+            runtime: None,
             execution_sandbox: None,
             id: id.to_string(),
             auto_approve_flags: Vec::new(),
@@ -452,6 +462,10 @@ impl MockProvider {
 }
 
 impl AgentProvider for MockProvider {
+    fn agent_runtime(&self) -> Option<codeterm_plugin::agent_runtime::AgentRuntimeCapability> {
+        self.runtime.clone()
+    }
+
     fn auto_approve_flags(&self) -> Vec<String> {
         self.auto_approve_flags.clone()
     }

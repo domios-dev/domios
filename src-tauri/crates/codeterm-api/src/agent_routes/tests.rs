@@ -664,3 +664,22 @@ async fn agent_routes_host_mcp_cannot_send_or_report_as_foreign_tab() {
         );
     }
 }
+
+#[test]
+fn sandbox_spawn_refusal_preserves_typed_rest_code_and_human_message() {
+    let rejection = SpawnRejection::from(
+        codeterm_service_core::service::spawn_params::SpawnTargetRefusal::ExecutionSandbox {
+            provider: "opaque-runtime".into(),
+            message: "opaque confinement refusal".into(),
+        },
+    );
+    assert_eq!(rejection.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        rejection.body["error"]["code"],
+        "execution_sandbox_unsupported"
+    );
+    assert_eq!(
+        rejection.body["error"]["message"],
+        "opaque confinement refusal"
+    );
+}
