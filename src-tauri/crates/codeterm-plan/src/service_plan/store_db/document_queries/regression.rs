@@ -73,7 +73,7 @@ impl PlanDatabase {
 }
 
 // Padded decimal tokens preserve unsigned ordering above SQLite's signed integer range.
-fn unsigned_timestamp(document: &str, field: &str, default_zero: bool) -> String {
+pub(super) fn unsigned_timestamp(document: &str, field: &str, default_zero: bool) -> String {
     let token = format!("{document}->'$.{field}'");
     let absent = if default_zero {
         "'0'"

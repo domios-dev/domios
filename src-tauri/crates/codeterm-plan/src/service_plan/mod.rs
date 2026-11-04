@@ -342,3 +342,5 @@ impl PlanStore {
 
 mod task_authority_projection;
 pub use task_authority_projection::{TaskContextFilesRead, TaskOwnerEpochRead};
+
+pub use document_projection::team::{TeamEventCursor, TeamPlanMetadataRead, TeamPlanRead};
