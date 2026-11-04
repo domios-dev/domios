@@ -1,4 +1,4 @@
-import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
+import { muxMockFetch, settleDaemon } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Canvas/PlansProvider.test.tsx
 
 import { act, useEffect, type ComponentProps, type ReactElement } from "react";
@@ -134,9 +134,9 @@ function SidebarProbe() {
   return <output data-testid="sidebar-plan-count">{plans.length}</output>;
 }
 
-// Carrier responses arrive as mux frames on later event-loop turns, not on microtasks.
+// Carrier responses arrive as mux frames; settle on the carrier's own idle acknowledgement.
 async function flushAsyncWork() {
-  for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => setImmediate(resolve));
+  await settleDaemon();
 }
 
 async function renderTree(ui: ReactElement): Promise<{ host: HTMLDivElement; root: Root }> {

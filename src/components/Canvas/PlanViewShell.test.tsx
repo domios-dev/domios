@@ -1,4 +1,4 @@
-import { muxMockFetch } from "../../lib/muxMockFetch.testdata";
+import { muxMockFetch, settleDaemon } from "../../lib/muxMockFetch.testdata";
 // Run: npx tsx src/components/Canvas/PlanViewShell.test.tsx
 
 import { act, type ReactElement } from "react";
@@ -271,8 +271,7 @@ test("Tasks mode requests one compact page without subscribing to full plans", a
   document.body.appendChild(host);
   const root = createRoot(host);
   await act(async () => root.render(ui));
-  // Carrier responses arrive on later event-loop turns.
-  await act(async () => { for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => setImmediate(resolve)); });
+  await act(async () => { await settleDaemon(); });
   const selectedMode = host.querySelector('[data-testid="plan-view-shell"]')?.getAttribute("data-plan-view-mode");
   assert(selectedMode === "tasks", `Tasks mode selected (got ${selectedMode ?? "none"})`);
   assert(pageCalls === 1, `one bounded task page requested (got ${pageCalls}; requests: ${requestPaths.join(", ")}; board=${Boolean(host.querySelector('[data-testid="plan-board-view"]'))}, single=${Boolean(host.querySelector('[data-testid="plan-board-single"]'))}, empty=${Boolean(host.querySelector('[data-testid="plan-board-empty"]'))}, loader=${Boolean(host.querySelector('[data-testid="plan-board-loading"]'))}, error=${Boolean(host.querySelector('[data-testid="plan-board-error"]'))})`);
@@ -360,7 +359,7 @@ test("task segment opens from the scoped detail endpoint without a full plan rea
       workspaceTarget={{ planId: FIXTURE_PLAN.id, jump: { view: "task", taskId } }}
     />,
   );
-  await act(async () => { for (let turn = 0; turn < 10; turn++) await new Promise((resolve) => setImmediate(resolve)); });
+  await act(async () => { await settleDaemon(); });
   assert(detailCalls === 1, `one exact detail request (got ${detailCalls}; ${paths.join(", ")})`);
   assert(fullPlanCalls === 0, `no full plan by id for a task segment (got ${fullPlanCalls})`);
   assert(fullCollectionCalls === 0, `no full plan collection read (got ${fullCollectionCalls})`);

@@ -1,5 +1,6 @@
 import type { TransportOptions } from "./transportClient";
 import { muxRequestPolicy } from "./streamMuxRequestModel";
+import { __streamMuxesBusyForTest, __streamMuxesIdleForTest } from "./streamMux";
 
 type FetchPort = NonNullable<TransportOptions["fetch"]>;
 
@@ -85,4 +86,16 @@ export function muxMockFetch(domain: DaemonFake): FetchPort {
     get: (target, key) => (key in domain && !(key in Function.prototype) ? Reflect.get(domain, key) : Reflect.get(target, key)),
     has: (target, key) => key in domain || key in target,
   });
+}
+
+/**
+ * Settles the UI against the fake daemon: waits until the carrier has no request in flight, then lets the
+ * callers' promise continuations run (setImmediate follows the microtask queue), and repeats while they
+ * issued follow-up requests. Every wait is a carrier acknowledgement, never a guessed number of turns.
+ */
+export async function settleDaemon(): Promise<void> {
+  do {
+    await __streamMuxesIdleForTest();
+    await new Promise(resolve => setImmediate(resolve));
+  } while (__streamMuxesBusyForTest());
 }
