@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { reduceToolEvents, type FileDiff, type NormalizedChatMessage, type TimelineItem, type ToolEvent } from "@codeterm/chat-core";
 import { DEFAULT_THEME, themeToCSS } from "../../../../src/lib/themeCss";
+import { installTestIo } from "../../../../plugins/provider-shared/tests/hostIo";
 import { ToolCallBubble } from "../ToolCallBubble";
 import { FileDiffCards } from "./FileDiffCards";
 import { ChatBlockHostProvider } from "../blocks/ChatBlockHost";
@@ -74,7 +75,7 @@ function timeline(provider: Provider): TimelineItem[] {
 }
 
 function toolEvents(items: TimelineItem[]): ToolEvent[] {
-  return items.flatMap((item) => item.kind === "tool" ? [item.event] : []);
+  return items.flatMap((item) => item.kind === "tool" ? item.event.editRun ?? [item.event] : []);
 }
 
 function diffsOf(provider: Provider): FileDiff[] {
@@ -126,7 +127,7 @@ async function expandAll(host: HTMLElement) {
 }
 
 beforeAll(async () => {
-  (globalThis as { host?: unknown }).host ??= { manifestJson: () => "null", log: () => undefined };
+  (globalThis as { host?: unknown }).host = installTestIo({ manifestJson: () => "null", log: () => undefined });
   const [claude, codex] = await Promise.all([
     import("../../../../plugins/provider-claude/src/plugin"),
     import("../../../../plugins/provider-codex/src/plugin"),
