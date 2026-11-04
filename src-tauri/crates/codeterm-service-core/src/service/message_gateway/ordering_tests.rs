@@ -363,7 +363,10 @@ fn post_submit_sql_failure_keeps_accepted_delivery_and_report_obligation() {
         delivered.is_ok(),
         "SQL failure cannot downgrade an accepted send: {delivered:?}"
     );
-    bw._worker_deliveries.wait_for_flush();
+    assert!(
+        delivered.unwrap().0.is_written(),
+        "the ready recipient is written synchronously"
+    );
     assert_eq!(*bw._worker_deliveries.texts.lock(), vec![expected]);
     assert!(service.gateway.worker_report_required(&bw.worker));
 }

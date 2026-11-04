@@ -512,8 +512,9 @@ fn isolated_named_verification_child_environment_keeps_socket_port_and_tab_ident
 fn plan_read_failure_keeps_a_recovery_shell_but_refuses_agent_and_bound_launches() {
     use crate::multiplexer::types::TaskBinding;
     use crate::service::test_fixture::ServiceFixture;
-    let (mut mux, shell) = MultiplexerState::new();
-    let workspace = mux.find_workspace_for_tab(&shell).unwrap();
+    let (mut mux, owner) = MultiplexerState::new();
+    let workspace = mux.find_workspace_for_tab(&owner).unwrap();
+    let shell = mux.create_tab(&workspace).unwrap();
     let agent = mux.create_tab(&workspace).unwrap();
     mux.get_tab_mut(&agent).unwrap().agent_type = Some("opaque".into());
     let bound = mux.create_tab(&workspace).unwrap();
