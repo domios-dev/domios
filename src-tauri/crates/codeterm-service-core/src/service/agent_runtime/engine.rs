@@ -424,6 +424,7 @@ async fn ensure_with_fork(
                     reverted_thread: Mutex::new(None),
                     completions: Mutex::new(Default::default()),
                     context: Mutex::new(RuntimeContext {
+                        stream_window: None,
                         host_mcp: None,
                         client_bridges: None,
                         restricted_cli: None,

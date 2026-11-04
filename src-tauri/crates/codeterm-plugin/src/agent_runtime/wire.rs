@@ -223,6 +223,8 @@ pub struct PendingRuntimeRequest {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RuntimeContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stream_window: Option<super::RuntimeStreamWindow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_mcp: Option<super::RuntimeHostMcp>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_bridges: Option<super::RuntimeClientBridges>,

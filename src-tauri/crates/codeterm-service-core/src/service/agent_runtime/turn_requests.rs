@@ -6,9 +6,8 @@ use super::{
 };
 use crate::service::ServiceContext;
 use codeterm_plugin::agent_runtime::*;
-use serde_json::Value;
 use std::sync::{
-    atomic::{AtomicBool, AtomicU64, Ordering},
+    atomic::{AtomicBool, Ordering},
     Arc,
 };
 use tokio::sync::watch;
@@ -18,25 +17,56 @@ pub(super) struct PendingTurn {
     send_id: String,
     settled: AtomicBool,
     turn: String,
-    generation: Arc<AtomicU64>,
+    witness: Arc<rpc::WriteWitness>,
     outcome: watch::Sender<Option<Result<RuntimeResult, RuntimeFailure>>>,
     cancelled: watch::Sender<bool>,
 }
 
-pub(super) fn before_write(session: &Session, generation: u64, frame: &RuntimeFrame) -> bool {
-    let RuntimeFrame::Notification { params, .. } = frame else {
-        return false;
-    };
-    let requests = session.turn_requests.lock();
-    requests.values().any(|pending| {
-        if pending.outcome.borrow().is_some()
-            || params.get("sessionId").and_then(Value::as_str)
-                != pending.context.thread_id.as_deref()
+pub(super) async fn stream_window(session: &Session, sequences: Vec<u64>) -> RuntimeStreamWindow {
+    let context = session.context.lock().clone();
+    let pending = session
+        .turn_requests
+        .lock()
+        .values()
+        .filter(|request| {
+            request.context.epoch == context.epoch
+                && request.context.binding_nonce == context.binding_nonce
+                && request.context.thread_id == context.thread_id
+                && !request.settled.load(Ordering::Acquire)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let through = sequences.last().copied().unwrap_or_default();
+    for request in &pending {
+        if request
+            .witness
+            .after_sequence()
+            .is_some_and(|boundary| through > boundary)
         {
-            return false;
+            let _ = request.witness.wait().await;
         }
-        let written = pending.generation.load(Ordering::Acquire);
-        written == 0 || generation < written
+    }
+    RuntimeStreamWindow {
+        frame_sequences: sequences,
+        turn_requests: pending
+            .iter()
+            .map(|request| RuntimeTurnRequestWitness {
+                send_id: request.send_id.clone(),
+                turn_id: request.turn.clone(),
+                after_sequence: request.witness.after_sequence(),
+                written: request.witness.written(),
+            })
+            .collect(),
+    }
+}
+
+pub(super) fn written_pending(session: &Session, context: &RuntimeContext) -> bool {
+    session.turn_requests.lock().values().any(|pending| {
+        pending.context.epoch == context.epoch
+            && pending.context.binding_nonce == context.binding_nonce
+            && pending.context.thread_id == context.thread_id
+            && pending.witness.written()
+            && !pending.settled.load(Ordering::Acquire)
     })
 }
 
@@ -51,7 +81,7 @@ pub(super) fn evidence(session: &Session, send: &str, thread: &str, turn: &str) 
         || current.epoch != pending.context.epoch
         || current.binding_nonce != pending.context.binding_nonce
         || pending.settled.load(Ordering::Acquire)
-        || pending.generation.load(Ordering::Acquire) == 0
+        || !pending.witness.written()
     {
         return false;
     }
@@ -94,7 +124,7 @@ pub(super) async fn run(
         send_id: send_id.clone(),
         settled: AtomicBool::new(false),
         turn,
-        generation: Arc::new(AtomicU64::new(0)),
+        witness: Arc::new(rpc::WriteWitness::default()),
         outcome: watch::channel(None).0,
         cancelled: watch::channel(false).0,
     });
@@ -108,6 +138,7 @@ pub(super) async fn run(
         requests.insert(send_id.clone(), pending.clone());
     }
     let mut outcome = pending.outcome.subscribe();
+    let witness = pending.witness.clone();
     let owner = svc.clone();
     let runtime = session.clone();
     let process = process.clone();
@@ -139,10 +170,14 @@ pub(super) async fn run(
         if let Some(result) = outcome.borrow_and_update().clone() {
             return result;
         }
-        outcome
-            .changed()
-            .await
-            .map_err(|_| RuntimeFailure::PipeEof)?;
+        tokio::select! {
+            changed = outcome.changed() => { changed.map_err(|_| RuntimeFailure::PipeEof)?; },
+            written = witness.wait() => {
+                written?;
+                if let Some(result) = outcome.borrow().clone() { return result; }
+                return Err(RuntimeFailure::WrittenAwaitingEvidence);
+            }
+        }
     }
 }
 
@@ -163,7 +198,7 @@ async fn await_reply(
     let mut cancelled = pending.cancelled.subscribe();
     let reply = process
         .client
-        .request_turn(call, guard, pending.generation.clone());
+        .request_turn(call, guard, pending.witness.clone());
     tokio::pin!(reply);
     let reply = loop {
         if *cancelled.borrow_and_update() {
@@ -280,6 +315,9 @@ async fn settle_failure(
     detail: RuntimeTurnDetail,
     message: String,
 ) -> Result<(), RuntimeFailure> {
+    if pending.witness.after_sequence().is_none() {
+        return Ok(());
+    }
     validate(svc, session, &pending.context)?;
     if pending.settled.swap(true, Ordering::AcqRel) {
         return Ok(());

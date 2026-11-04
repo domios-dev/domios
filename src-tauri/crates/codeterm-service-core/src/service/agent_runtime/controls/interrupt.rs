@@ -330,18 +330,19 @@ fn before_first_turn(
         .is_some_and(|interrupt| interrupt.before_first_turn);
     declared
         && context.active_turn_id.is_none()
-        && context.claimed_sends.iter().any(|claim| {
-            Some(&claim.thread_id) == context.thread_id.as_ref()
-                && svc.chat_send_ledger.has_rpc_handoff(&claim.send_id)
-                && svc
-                    .chat_send_ledger
-                    .status(&claim.send_id)
-                    .is_some_and(|status| {
-                        status.tab_id == context.tab_id
-                            && status.state
-                                == crate::service::chat_send_transaction::ChatSendState::Pending
-                    })
-        })
+        && (super::super::turn_requests::written_pending(session, context)
+            || context.claimed_sends.iter().any(|claim| {
+                Some(&claim.thread_id) == context.thread_id.as_ref()
+                    && svc.chat_send_ledger.has_rpc_handoff(&claim.send_id)
+                    && svc
+                        .chat_send_ledger
+                        .status(&claim.send_id)
+                        .is_some_and(|status| {
+                            status.tab_id == context.tab_id
+                                && status.state
+                                    == crate::service::chat_send_transaction::ChatSendState::Pending
+                        })
+            }))
 }
 
 pub(crate) fn before_first_turn_pending(svc: &ServiceContext, tab: &str) -> bool {

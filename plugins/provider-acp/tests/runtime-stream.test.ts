@@ -216,3 +216,46 @@ for (const scenario of ["no-echo-delivery", "cancel-race", "two-turn-retention",
 assert.deepEqual(failures,[]);
 
 assert.deepEqual(sessionSettings({modes:{availableModes:[{id:"safe",name:"Safe"},{id:"safe",name:"Duplicate"}],currentModeId:"safe"}}),{modes:[{id:"safe",name:"Safe"}],mode:"safe"});
+
+for (const priorTurn of [false,true]) {
+  const base={...context,tabId:`window-${priorTurn}`,threadId:undefined,activeTurnId:undefined,activeTurns:[],claimedSends:[]};
+  const initialize:Operation={kind:"initialize"};
+  runtimeResponse(base,initialize,runtimePlan(base,initialize).state,{kind:"success",value:{protocolVersion:1,agentCapabilities:{},authMethods:[]}});
+  const open:Operation={kind:"openThread",instructions:"",settings:{}};
+  runtimeResponse(base,open,runtimePlan(base,open).state,{kind:"success",value:{sessionId:"session-fixture"}});
+  const own={...base,threadId:"session-fixture"};
+  const first:Operation={kind:"submitTurn",threadId:own.threadId,sendId:"one",input:{text:"one",attachments:[]},settings:{}};
+  runtimePlan(own,first);
+  let projected:JsonValue=null;
+  if (priorTurn) projected=runtimeReduce({...own,claimedSends:[{sendId:"one",threadId:own.threadId,input:first.input}]},null,[frame("agent_message_chunk","prior")]).state;
+  const current=priorTurn ? {...first,sendId:"two",input:{text:"two",attachments:[]}} : first;
+  if (priorTurn) runtimePlan(own,current);
+  const turn=priorTurn ? 2 : 1;
+  const scoped={...own,claimedSends:[{sendId:current.sendId,threadId:own.threadId,input:current.input}],streamWindow:{
+    frameSequences:[10],turnRequests:[{sendId:current.sendId,turnId:`session-fixture:turn:${turn}`,afterSequence:10,written:true}],
+  }};
+  const controls=[
+    updateFrame({sessionUpdate:"available_commands_update",availableCommands:[{name:"inspect",description:"Inspect"}]}),
+    updateFrame({sessionUpdate:"current_mode_update",currentModeId:"safe"}),
+    updateFrame({sessionUpdate:"config_option_update",configOptions:[{id:"model",name:"Model",category:"model",type:"select",currentValue:"opaque",options:[{value:"opaque",name:"Opaque"}]}]}),
+    updateFrame({sessionUpdate:"usage_update",inputTokens:2,outputTokens:1}),
+  ];
+  const control=runtimeReduce({...scoped,streamWindow:{...scoped.streamWindow,frameSequences:[7,8,9,10]}},projected,controls);
+  assert.equal(control.events.filter(event=>event.kind === "controlsConfirmed").length,3,"prewrite commands, mode and config declarations are retained");
+  assert.equal(control.events.filter(event=>event.kind === "usage").length,1,"prewrite usage is retained");
+  assert.equal(control.events.some(event=>event.kind === "sendEvidence"),false,"a prewrite control cannot confirm the pending prompt");
+  let before=control.state;
+  if (!priorTurn) {
+    const echo=runtimeReduce({...scoped,streamWindow:{...scoped.streamWindow,frameSequences:[9,10]}},before,[frame("user_message_chunk",current.input.text),frame("agent_thought_chunk","old thought")]);
+    assert.equal(echo.events.some(event=>event.kind === "sendEvidence"),false,"a prewrite matching echo cannot mint evidence through chunk closure");
+    before=echo.state;
+  }
+  const previous=runtimeReduce(scoped,before,[frame("agent_message_chunk"," tail")]);
+  assert.equal(previous.events.some(event=>event.kind === "sendEvidence"),false);
+  if (priorTurn) assert.equal(previous.events.filter(event=>event.kind === "chatItem").at(-1)?.item.content,"prior tail","a concurrent previous-turn chunk stays in its original row");
+  const next=runtimeReduce({...scoped,streamWindow:{...scoped.streamWindow,frameSequences:[11]}},previous.state,[frame("agent_message_chunk","new first chunk")]);
+  assert.equal(next.events.filter(event=>event.kind === "sendEvidence").length,1,"the first postwrite chunk confirms without being dropped");
+  assert.equal(next.events.find(event=>event.kind === "sendEvidence")?.turnId,`session-fixture:turn:${turn}`);
+  assert.equal(next.events.filter(event=>event.kind === "chatItem").at(-1)?.item.content,"new first chunk");
+}
+console.log("✓ ACP stream window: prewrite controls, usage and prior chunks retained; only postwrite updates confirm");

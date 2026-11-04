@@ -380,7 +380,10 @@ async fn declared_cancel_without_reply_settles_interrupted_after_one_grace() {
     let (accepted, receipt) = tokio::sync::oneshot::channel();
     let submit = async {
         let (result, _) = engine::run_submit(&fixture.service, &session, &process, operation).await;
-        assert!(result.is_ok());
+        assert!(matches!(
+            result,
+            Ok(RuntimeResult::TurnAccepted { .. }) | Err(RuntimeFailure::WrittenAwaitingEvidence)
+        ));
         accepted.send(()).unwrap();
     };
     let server = async {

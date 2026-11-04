@@ -101,6 +101,7 @@ fn runtime_fixture_options(
     });
     if turn_scoped {
         manifest["capabilities"]["agentRuntime"]["turnScopedRequests"] = json!(["submitTurn"]);
+        manifest["capabilities"]["agentRuntime"]["interrupt"] = json!({"beforeFirstTurn":true});
         manifest["capabilities"]["agentRuntime"]["requestMethods"]["interrupt"] =
             json!(["fixture/cancel"]);
     }

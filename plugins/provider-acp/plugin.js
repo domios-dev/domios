@@ -627,7 +627,6 @@ function runtimePlan(ctx, op) {
       state.cursor.loading = false;
       state.inFlight = true;
       state.promptSend = { sendId: op.sendId, input: op.input };
-      state.projection = reduceStream(ctx, state.projection ?? null, [], state.cursor).state;
       const plan = request(methods.prompt, { sessionId, prompt });
       if (plan.action.kind === "request")
         plan.action.call.target = { threadId: sessionId, turnId: `${sessionId}:turn:${state.cursor.prompt}` };
@@ -764,7 +763,8 @@ function runtimeResponse(ctx, op, raw, reply) {
       return { kind: "complete", result: { kind: "turnAccepted", threadId: sessionId, sendId: op.sendId, turnId: `${sessionId}:turn:${turn}` }, events: [] };
     state.inFlight = false;
     state.instructions = void 0;
-    const settled = settleStream(ctx, state.projection ?? null, value.stopReason);
+    const projected = reduceStream(ctx, state.projection ?? null, [], state.cursor).state;
+    const settled = settleStream(ctx, projected, value.stopReason);
     state.projection = settled.state;
     const mapped = usage(value.usage);
     return {
@@ -779,15 +779,30 @@ function runtimeReduce(ctx, raw, frames) {
   binding(ctx);
   const state = negotiated(ctx);
   if (!ctx.threadId || !state || state.sessionId !== ctx.threadId) return { state: raw, events: [] };
-  const own = frames.filter((frame) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)));
+  const own = frames.flatMap((frame, index) => object4(frame.params).sessionId === ctx.threadId && (frame.kind === "notification" && frame.method === methods.update || frame.kind === "request" && clientRequest(frame.method)) ? [{ frame, index }] : []);
   const prompts = frames.flatMap((frame) => {
     if (frame.kind !== "request") return [];
     const prompt = runtimePrompt(ctx, frame.method, frame.params);
     return prompt ? [{ kind: "prompt", threadId: ctx.threadId, requestId: frame.requestId, prompt }] : [];
   });
   if (!own.length) return { state: raw, events: prompts };
-  const reduction = reduceStream(ctx, state.projection ?? raw, own, state.cursor, state.inFlight ? state.promptSend : void 0);
-  state.projection = reduction.state;
+  let projection = state.projection ?? raw;
+  const events = [];
+  for (const { frame, index } of own) {
+    const window = ctx.streamWindow;
+    const witness = window?.turnRequests?.find((request2) => request2.sendId === state.promptSend?.sendId);
+    const sequence = window?.frameSequences?.[index];
+    const attributable = !window || witness?.written === true && witness.afterSequence !== void 0 && sequence !== void 0 && sequence > witness.afterSequence;
+    const cursor = attributable ? state.cursor : { ...state.cursor, prompt: Number(object4(projection).prompt) || 0 };
+    if (!attributable && projection === null)
+      projection = { ...object4(reduceStream(ctx, null, [], cursor).state), turn: 0 };
+    const frameContext = !window ? ctx : { ...ctx, claimedSends: ctx.claimedSends.filter((claim) => window.turnRequests?.some((request2) => request2.sendId === claim.sendId && request2.written === true && request2.afterSequence !== void 0 && sequence !== void 0 && sequence > request2.afterSequence)) };
+    const reduced = reduceStream(frameContext, projection, [frame], cursor, state.inFlight && attributable ? state.promptSend : void 0);
+    projection = reduced.state;
+    events.push(...reduced.events);
+  }
+  const reduction = { state: projection, events };
+  state.projection = projection;
   for (const event of reduction.events) if (event.kind === "controlsConfirmed") {
     state.settings = { ...state.settings, ...event.settings };
     if (event.settings.configOptions) {

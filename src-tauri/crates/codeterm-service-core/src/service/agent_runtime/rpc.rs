@@ -26,19 +26,72 @@ pub(super) struct TurnReply {
     pub through: u64,
 }
 
+pub(super) struct WriteWitness {
+    boundary: AtomicU64,
+    completion: watch::Sender<Option<Result<(), RuntimeFailure>>>,
+}
+impl Default for WriteWitness {
+    fn default() -> Self {
+        Self {
+            boundary: AtomicU64::new(0),
+            completion: watch::channel(None).0,
+        }
+    }
+}
+impl WriteWitness {
+    pub(super) fn after_sequence(&self) -> Option<u64> {
+        self.boundary.load(Ordering::Acquire).checked_sub(1)
+    }
+    pub(super) fn written(&self) -> bool {
+        matches!(&*self.completion.borrow(), Some(Ok(())))
+    }
+    fn begin(&self, sequence: u64) {
+        self.boundary.store(sequence + 1, Ordering::Release);
+    }
+    fn finish(&self, result: Result<(), RuntimeFailure>) {
+        self.completion.send_if_modified(|current| {
+            if matches!(current, Some(Ok(()))) || current.is_some() && result.is_err() {
+                return false;
+            }
+            *current = Some(result);
+            true
+        });
+    }
+    pub(super) async fn wait(&self) -> Result<(), RuntimeFailure> {
+        let mut completion = self.completion.subscribe();
+        loop {
+            if let Some(result) = completion.borrow_and_update().clone() {
+                return result;
+            }
+            completion
+                .changed()
+                .await
+                .map_err(|_| RuntimeFailure::PipeEof)?;
+        }
+    }
+}
+
+struct WriteAttempt(Option<Arc<WriteWitness>>);
+impl Drop for WriteAttempt {
+    fn drop(&mut self) {
+        if let Some(witness) = &self.0 {
+            witness.finish(Err(RuntimeFailure::PipeEof));
+        }
+    }
+}
+
 pub(crate) type PrewriteGuard = Arc<dyn Fn() -> Result<(), RuntimeFailure> + Send + Sync>;
 
 struct Write {
     text: String,
     guard: Option<PrewriteGuard>,
     written: oneshot::Sender<Result<(), RuntimeFailure>>,
-    turn_write: Option<Arc<AtomicU64>>,
+    turn_write: Option<Arc<WriteWitness>>,
 }
 
 #[derive(Clone)]
 pub(super) struct Ingress {
     pub frame: RuntimeFrame,
-    pub write_generation: u64,
     pub sequence: u64,
 }
 
@@ -58,7 +111,6 @@ struct Inner {
     next_id: AtomicI64,
     outgoing: mpsc::Sender<Write>,
     events: broadcast::Sender<Ingress>,
-    write_generation: AtomicU64,
     event_sequence: AtomicU64,
     initial_events: Mutex<Option<broadcast::Receiver<Ingress>>>,
     ended: watch::Sender<Option<RuntimeFailure>>,
@@ -98,7 +150,6 @@ impl Client {
             }),
             next_id: AtomicI64::new(1),
             outgoing,
-            write_generation: AtomicU64::new(0),
             event_sequence: AtomicU64::new(0),
             events,
             initial_events: Mutex::new(Some(initial_events)),
@@ -112,11 +163,17 @@ impl Client {
                     _ = ended.changed() => break,
                     text = messages.recv() => match text {Some(text)=>text,None=>break},
                 };
+                let _attempt = WriteAttempt(text.turn_write.clone());
                 if let Some(reason) = text.guard.as_ref().and_then(|guard| guard().err()) {
-                    let _ = text
-                        .written
-                        .send(Err(RuntimeFailure::PrewriteRefused(reason.to_string())));
+                    let reason = RuntimeFailure::PrewriteRefused(reason.to_string());
+                    if let Some(witness) = &text.turn_write {
+                        witness.finish(Err(reason.clone()));
+                    }
+                    let _ = text.written.send(Err(reason));
                     continue;
+                }
+                if let Some(witness) = &text.turn_write {
+                    witness.begin(sender.0.event_sequence.load(Ordering::Acquire));
                 }
                 let sent = tokio::select! {
                     _ = ended.changed() => break,
@@ -128,21 +185,26 @@ impl Client {
                 };
                 match sent {
                     Ok(Ok(())) => {
-                        if let Some(anchor) = text.turn_write {
-                            let generation =
-                                sender.0.write_generation.fetch_add(1, Ordering::AcqRel) + 1;
-                            anchor.store(generation, Ordering::Release);
+                        if let Some(witness) = &text.turn_write {
+                            witness.finish(Ok(()));
                         }
                         let _ = text.written.send(Ok(()));
                     }
                     Ok(Err(error)) => {
-                        sender.close(RuntimeFailure::PipeFailure {
+                        let reason = RuntimeFailure::PipeFailure {
                             stream: "stdin".into(),
                             reason: error.to_string(),
-                        });
+                        };
+                        if let Some(witness) = &text.turn_write {
+                            witness.finish(Err(reason.clone()));
+                        }
+                        sender.close(reason);
                         break;
                     }
                     Err(_) => {
+                        if let Some(witness) = &text.turn_write {
+                            witness.finish(Err(RuntimeFailure::Deadline));
+                        }
                         sender.close(RuntimeFailure::Deadline);
                         break;
                     }
@@ -179,7 +241,6 @@ impl Client {
                     let _ = receiver.0.events.send(Ingress {
                         frame,
                         sequence: receiver.0.event_sequence.fetch_add(1, Ordering::AcqRel) + 1,
-                        write_generation: receiver.0.write_generation.load(Ordering::Acquire),
                     });
                 }
             }
@@ -240,9 +301,16 @@ impl Client {
         &self,
         call: &RpcCall,
         guard: Option<PrewriteGuard>,
-        anchor: Arc<AtomicU64>,
+        anchor: Arc<WriteWitness>,
     ) -> Result<TurnReply, RuntimeFailure> {
-        let (pending, received) = self.start_request(call, guard, Some(anchor)).await?;
+        let (pending, received) = match self.start_request(call, guard, Some(anchor.clone())).await
+        {
+            Ok(pending) => pending,
+            Err(reason) => {
+                anchor.finish(Err(reason.clone()));
+                return Err(reason);
+            }
+        };
         let result = received.await.map_err(|_| RuntimeFailure::PipeEof)?;
         drop(pending);
         result
@@ -252,7 +320,7 @@ impl Client {
         &self,
         call: &RpcCall,
         guard: Option<PrewriteGuard>,
-        turn_write: Option<Arc<AtomicU64>>,
+        turn_write: Option<Arc<WriteWitness>>,
     ) -> Result<(PendingRequest, PendingResponse), RuntimeFailure> {
         let id = RpcId::Number(self.0.next_id.fetch_add(1, Ordering::Relaxed));
         let (reply, received) = oneshot::channel();
@@ -301,7 +369,7 @@ impl Client {
         &self,
         mut frame: Value,
         guard: Option<PrewriteGuard>,
-        turn_write: Option<Arc<AtomicU64>>,
+        turn_write: Option<Arc<WriteWitness>>,
     ) -> Result<(), RuntimeFailure> {
         if let Some(reason) = self.0.state.lock().closed.clone() {
             return Err(reason);

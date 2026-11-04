@@ -110,6 +110,7 @@ pub fn validate_runtime_context(ctx: &RuntimeContext) -> Result<(), RuntimeFailu
     {
         return Err(invalid("invalid runtime authority"));
     }
+    super::stream_window::validate(ctx.stream_window.as_ref(), identifier)?;
     validate_runtime_settings(&ctx.settings)?;
     if let Some(policy) = &ctx.restricted_cli {
         let hash = |value: &str| {

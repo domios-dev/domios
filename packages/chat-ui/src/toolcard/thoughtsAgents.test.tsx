@@ -148,9 +148,9 @@ describe("concise thoughts", () => {
     expect(view.textContent).toBe("");
   });
 
-  it("keeps reasoning hidden by default and expands it on demand", async () => {
+  it.each(["claude", "codex", "acp"])("keeps %s long reasoning in the collapsed three-line preview", async (provider) => {
     const full = `Plan the edit carefully\n${"then apply it ".repeat(40).trim()}`;
-    const view = await render([thought("claude-think", full, { provider: "claude", sourceSessionId: CLAUDE })]);
+    const view = await render([thought(`${provider}-think`, full, { provider, sourceSessionId: `${provider}-session` })]);
     const [line] = all(view, "chat-thought");
     const toggle = line.querySelector('button[aria-expanded="false"]');
     expect(toggle?.textContent).toBe("Thinking");
@@ -158,22 +158,19 @@ describe("concise thoughts", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(line.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(full);
     expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
-    expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(true);
+    expect(line.querySelector('[role="region"]')?.hasAttribute("hidden")).toBe(false);
+    expect((line.querySelector('[role="region"]') as HTMLElement).style.overflow).toBe("hidden");
 
     await click(toggle);
     expect(toggle?.getAttribute("aria-expanded")).toBe("true");
+    expect((line.querySelector('[role="region"]') as HTMLElement).style.overflowY).toBe("auto");
     expect(line.querySelector('[data-testid="chat-thought-text"]')?.textContent).toBe(full);
   });
 
-  it("keeps a single-line reasoning row collapsed until expanded", async () => {
-    const summary = `Available summary… ${"complete text ".repeat(60)}`;
-    const view = await render([thought("summary", summary)]);
-    const toggle = view.querySelector('button[aria-expanded="false"]');
-    expect(toggle?.textContent).toBe("Thinking");
-    expect(view.querySelector('[role="region"][aria-label="Thinking"]')?.hasAttribute("hidden")).toBe(true);
-    await click(toggle);
+  it("shows one-line reasoning without a disclosure toggle", async () => {
+    const view = await render([thought("summary", "One-line thought")]);
+    expect(view.querySelector('button[aria-expanded]')).toBeNull();
     expect(view.querySelector('[role="region"][aria-label="Thinking"]')?.hasAttribute("hidden")).toBe(false);
-    expect(view.querySelector('[data-testid="chat-thought-line"]')?.textContent).toBe(summary);
   });
 
   it("renders equivalent normalized Claude and Codex thoughts identically", async () => {

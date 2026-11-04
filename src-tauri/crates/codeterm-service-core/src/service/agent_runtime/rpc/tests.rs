@@ -422,3 +422,85 @@ async fn undeclared_request_keeps_its_thirty_second_deadline() {
     assert_eq!(reply, Err(RuntimeFailure::Deadline));
     assert!(client.0.state.lock().pending.is_empty());
 }
+
+#[tokio::test]
+async fn first_ingress_during_write_keeps_the_prewrite_sequence_boundary() {
+    use std::{
+        io,
+        pin::Pin,
+        task::{Context, Poll},
+    };
+    struct FlushGate<W> {
+        writer: W,
+        release: oneshot::Receiver<()>,
+    }
+    impl<W: AsyncWrite + Unpin> AsyncWrite for FlushGate<W> {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            bytes: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            Pin::new(&mut self.writer).poll_write(cx, bytes)
+        }
+        fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            match Pin::new(&mut self.release).poll(cx) {
+                Poll::Pending => Poll::Pending,
+                Poll::Ready(_) => Pin::new(&mut self.writer).poll_flush(cx),
+            }
+        }
+        fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Pin::new(&mut self.writer).poll_shutdown(cx)
+        }
+    }
+    use std::future::Future;
+    let (host, peer) = tokio::io::duplex(4096);
+    let (read, write) = tokio::io::split(host);
+    let (release, flushing) = oneshot::channel();
+    let client = Client::attach(
+        read,
+        FlushGate {
+            writer: write,
+            release: flushing,
+        },
+    );
+    let mut events = client.subscribe();
+    let witness = Arc::new(WriteWitness::default());
+    let call = RpcCall {
+        target: None,
+        method: "fixture/submit".into(),
+        params: json!({}),
+    };
+    let request = client.request_turn(&call, None, witness.clone());
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        peer.get_mut()
+            .write_all(b"{\"method\":\"fixture/first\",\"params\":{\"text\":\"first chunk\"}}\n")
+            .await
+            .unwrap();
+        let first = events.recv().await.unwrap();
+        assert_eq!(first.sequence, 1);
+        assert_eq!(witness.after_sequence(), Some(0));
+        assert!(!witness.written());
+        assert!(
+            matches!(first.frame,RuntimeFrame::Notification{params,..} if params["text"]=="first chunk")
+        );
+        release.send(()).unwrap();
+        witness.wait().await.unwrap();
+        witness.finish(Err(RuntimeFailure::Deadline));
+        assert!(
+            witness.written(),
+            "a late failure cannot erase the write receipt"
+        );
+        let reply = json!({"id":request["id"],"result":{}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    };
+    let (result, _peer) = tokio::join!(request, server);
+    assert!(result.is_ok());
+}

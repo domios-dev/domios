@@ -1,7 +1,7 @@
 use super::super::engine::test_support::runtime_fixture_turn_scoped;
 use super::*;
 use codeterm_types::agent::chat_types::ChatMsg;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
@@ -13,7 +13,7 @@ module.exports = {
   },
   runtimeResponse(ctx, op, state, reply) {
     if (op.kind === 'interrupt') return {kind:'complete',result:{kind:'done'}};
-    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'},events:[{kind:'turnState',threadId:op.threadId,turnId:'turn',state:'idle'}]};
+    return {kind:'complete',result:{kind:'turnAccepted',threadId:op.threadId,sendId:op.sendId,turnId:'turn'},events:[{kind:'turnState',threadId:op.threadId,turnId:'turn',state:'idle',detail:reply.value.stopReason === 'cancelled' ? 'interrupted' : undefined}]};
   },
   runtimeReduce(ctx, state, frames) { return {state,events:[]}; }
 };
@@ -110,7 +110,7 @@ async fn declared_long_turn_accepts_evidence_and_settles_from_late_reply() {
             Ok(RuntimeResult::TurnAccepted {
                 turn_id: Some(_),
                 ..
-            })
+            }) | Err(RuntimeFailure::WrittenAwaitingEvidence)
         ));
         accepted.send(()).unwrap();
     };
@@ -153,7 +153,10 @@ async fn process_exit_with_a_pending_turn_reply_settles_failed_visibly() {
     let (accepted, receipt) = tokio::sync::oneshot::channel();
     let submit = async {
         let (result, _) = engine::run_submit(&fixture.service, &session, &process, op).await;
-        assert!(result.is_ok());
+        assert!(matches!(
+            result,
+            Ok(RuntimeResult::TurnAccepted { .. }) | Err(RuntimeFailure::WrittenAwaitingEvidence)
+        ));
         accepted.send(()).unwrap();
     };
     let server = async {
@@ -175,27 +178,51 @@ async fn process_exit_with_a_pending_turn_reply_settles_failed_visibly() {
     tokio::join!(submit, server);
 }
 
-#[test]
-fn prewrite_ingress_cannot_confirm_a_new_turn() {
-    let (_fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+#[tokio::test]
+async fn stream_window_reports_prewrite_boundary_and_successful_receipt() {
+    let (_fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
     let session = engine::for_tab(&tab).unwrap();
     let context = session.context.lock().clone();
+    let witness = Arc::new(rpc::WriteWitness::default());
     let pending = Arc::new(PendingTurn {
-        context: context.clone(),
+        context,
         send_id: "send".into(),
         settled: AtomicBool::new(false),
         turn: "turn".into(),
-        generation: Arc::new(AtomicU64::new(2)),
+        witness: witness.clone(),
         outcome: watch::channel(None).0,
         cancelled: watch::channel(false).0,
     });
     session.turn_requests.lock().insert("send".into(), pending);
-    let frame = RuntimeFrame::Notification {
-        method: "session/update".into(),
-        params: json!({"sessionId":context.thread_id,"update":{"sessionUpdate":"agent_message_chunk"}}),
+    let before = stream_window(&session, vec![1]).await;
+    assert_eq!(before.turn_requests[0].after_sequence, None);
+    assert!(!before.turn_requests[0].written);
+    let process = session.process.lock().clone().unwrap();
+    let call = RpcCall {
+        target: None,
+        method: "fixture/submit".into(),
+        params: json!({}),
     };
-    assert!(before_write(&session, 1, &frame));
-    assert!(!before_write(&session, 2, &frame));
+    let request = process.client.request_turn(&call, None, witness.clone());
+    let server = async {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        witness.wait().await.unwrap();
+        let after = stream_window(&session, vec![1]).await;
+        assert_eq!(after.frame_sequences, vec![1]);
+        assert_eq!(after.turn_requests[0].after_sequence, Some(0));
+        assert!(after.turn_requests[0].written);
+        let request: Value = serde_json::from_str(&line).unwrap();
+        let response = json!({"id":request["id"],"result":{}});
+        peer.get_mut()
+            .write_all(format!("{response}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    };
+    let (result, _peer) = tokio::join!(request, server);
+    assert!(result.is_ok());
 }
 
 #[tokio::test]
@@ -208,7 +235,7 @@ async fn completion_waits_for_prior_ingress_projection() {
         send_id: "send".into(),
         settled: AtomicBool::new(false),
         turn: "turn".into(),
-        generation: Arc::new(AtomicU64::new(1)),
+        witness: Arc::new(rpc::WriteWitness::default()),
         outcome: watch::channel(None).0,
         cancelled: watch::channel(false).0,
     };
@@ -236,4 +263,183 @@ async fn completion_waits_for_prior_ingress_projection() {
         session.stream_progress.send_replace(7);
     };
     tokio::join!(biased;completing,projecting);
+}
+
+#[test]
+fn silent_written_submit_releases_transport_gate_and_interrupts() {
+    use crate::service::{
+        delivery_error::DeliveryError,
+        messenger::{AgentInput, HumanInput},
+    };
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let pending = fixture
+        .service
+        .chat_send_ledger
+        .try_start(&tab, "opaque prompt", None)
+        .unwrap();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let prompt: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(prompt["method"], "fixture/submit");
+        line.clear();
+        peer.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["method"],
+            "fixture/cancel"
+        );
+        peer.get_mut()
+            .write_all(
+                format!(
+                    "{{\"id\":{},\"result\":{{\"stopReason\":\"cancelled\"}}}}\n",
+                    prompt["id"]
+                )
+                .as_bytes(),
+            )
+            .await
+            .unwrap();
+        peer
+    });
+    let sent = super::super::transport::send(
+        &fixture.service,
+        &tab,
+        &AgentInput::Human(HumanInput::composer("opaque prompt")),
+        Some(&pending.send_id),
+    );
+    assert!(matches!(sent, Err(DeliveryError::SubmitUnconfirmed { .. })));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&pending.send_id)
+            .unwrap()
+            .state,
+        crate::service::chat_send_transaction::ChatSendState::Unknown
+    );
+    assert!(super::super::controls::interrupt(&fixture.service, &tab).unwrap());
+    assert!(session.context.lock().active_turn_id.is_none());
+    assert!(session.completions.lock().contains("own-thread", "turn"));
+    assert_eq!(
+        session.context.lock().thread_id.as_deref(),
+        Some("own-thread")
+    );
+    let _peer = crate::async_runtime::block_on(server).unwrap();
+}
+
+#[tokio::test]
+async fn refused_before_write_never_publishes_a_turn_failure() {
+    let (fixture, tab, _peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let process = session.process.lock().clone().unwrap();
+    let context = session.context.lock().clone();
+    let operation = operation(&context);
+    let plan:RuntimePlan=serde_json::from_value(json!({"action":{"kind":"request","call":{"method":"fixture/submit","params":{},"target":{"threadId":"own-thread","turnId":"turn"}}},"state":null})).unwrap();
+    let guard: rpc::PrewriteGuard =
+        Arc::new(|| Err(RuntimeFailure::Refused("prewrite guard".into())));
+    let result = run(
+        &fixture.service,
+        &session,
+        &process,
+        context,
+        operation,
+        plan,
+        Some(guard),
+    )
+    .await;
+    assert!(matches!(result, Err(RuntimeFailure::PrewriteRefused(_))));
+    let mut changes = session.control_changes.subscribe();
+    loop {
+        changes.borrow_and_update();
+        if session.turn_requests.lock().is_empty() {
+            break;
+        }
+        changes.changed().await.unwrap();
+    }
+    assert!(session.cache.lock().snapshot().is_empty());
+    assert_eq!(session.completions.lock().sequence(), 0);
+}
+
+#[test]
+fn written_uncertain_send_is_confirmed_by_late_own_evidence_without_replay() {
+    use crate::service::{
+        chat_send_transaction::ChatSendState,
+        delivery_error::DeliveryError,
+        messenger::{AgentInput, HumanInput},
+    };
+    let (fixture, tab, peer, _cleanup) = runtime_fixture_turn_scoped(SOURCE);
+    let session = engine::for_tab(&tab).unwrap();
+    let pending = fixture
+        .service
+        .chat_send_ledger
+        .try_start(&tab, "opaque prompt", None)
+        .unwrap();
+    let (release, confirmed) = tokio::sync::oneshot::channel();
+    let server = crate::async_runtime::spawn(async move {
+        let mut peer = BufReader::new(peer);
+        let mut line = String::new();
+        peer.read_line(&mut line).await.unwrap();
+        let request: Value = serde_json::from_str(&line).unwrap();
+        confirmed.await.unwrap();
+        let reply = json!({"id":request["id"],"result":{"stopReason":"end_turn"}});
+        peer.get_mut()
+            .write_all(format!("{reply}\n").as_bytes())
+            .await
+            .unwrap();
+        peer
+    });
+    let sent = super::super::transport::send(
+        &fixture.service,
+        &tab,
+        &AgentInput::Human(HumanInput::composer("opaque prompt")),
+        Some(&pending.send_id),
+    );
+    assert!(matches!(sent, Err(DeliveryError::SubmitUnconfirmed { .. })));
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&pending.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Unknown
+    );
+    let context = session.context.lock().clone();
+    crate::async_runtime::block_on(subscriber::publish_events(
+        &fixture.service,
+        &session,
+        context.epoch,
+        vec![
+            AgentRuntimeEvent::ChatItem {
+                thread_id: "own-thread".into(),
+                item: ChatMsg {
+                    id: "late-user".into(),
+                    kind: "user".into(),
+                    content: "opaque prompt".into(),
+                    ..Default::default()
+                },
+            },
+            AgentRuntimeEvent::SendEvidence {
+                thread_id: "own-thread".into(),
+                send_id: pending.send_id.clone(),
+                turn_id: "turn".into(),
+                item_id: Some("late-user".into()),
+            },
+        ],
+        1,
+    ))
+    .unwrap();
+    assert_eq!(
+        fixture
+            .service
+            .chat_send_ledger
+            .status(&pending.send_id)
+            .unwrap()
+            .state,
+        ChatSendState::Sent
+    );
+    release.send(()).unwrap();
+    crate::async_runtime::block_on(completed(&session));
+    let _peer = crate::async_runtime::block_on(server).unwrap();
 }

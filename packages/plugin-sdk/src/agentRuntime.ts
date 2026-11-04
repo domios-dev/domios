@@ -47,7 +47,12 @@ export type RuntimeFailureCode =
 export interface RuntimeFailure { code:RuntimeFailureCode; message:string }
 export interface RuntimeClientBridges {fsRead:boolean; fsWrite:boolean; terminal:boolean}
 export interface RuntimeHostMcp {name:string; command:string; args:readonly string[]}
+export interface RuntimeStreamWindow {
+  frameSequences?:readonly number[];
+  turnRequests?:readonly {sendId:string;turnId:string;afterSequence?:number;written?:boolean}[];
+}
 export interface RuntimeContext {
+  streamWindow?:RuntimeStreamWindow;
   hostMcp?:RuntimeHostMcp;
   clientBridges?:RuntimeClientBridges;
   restrictedCli?:RestrictedCliPolicy;
