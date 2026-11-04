@@ -144,6 +144,8 @@
     "dsh-shared-message-id.json",
     "large-single-update.json",
     "large-multi-update.json",
-    "batch-text-1024.json"
+    "batch-text-1024.json",
+    "batch-byte-limit.json",
+    "batch-event-limit.json"
   ]
 }

@@ -2,7 +2,6 @@ import type { AgentEvent, ChatMsg, JsonValue, RuntimeContext, RuntimeFrame, Runt
 import { object, text, reduceTool } from "./runtimeReduceTools";
 import { planRow, usage } from "./runtimeReducePlan";
 import { commands, sessionSettings } from "./runtimeControls";
-import { fitTextReduction } from "./runtimeReduceBudget";
 
 export interface StreamCursor { replay:number; prompt:number; loading:boolean }
 interface TextCursor { offset:number; chars:number; echo?:string }
@@ -111,7 +110,7 @@ function startTurn(ctx:RuntimeContext, state:StreamState, events:AgentEvent[]):v
     events.push({kind:"turnState",threadId:state.sessionId,turnId:`${state.sessionId}:turn:${state.turn}`,state:"working"});
   }
 }
-export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}):RuntimeReduction {
+export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly RuntimeFrame[], cursor:StreamCursor, submitted?:{sendId:string;input:TurnInput}, deferBounds=false):RuntimeReduction {
   if (!ctx.threadId) return {state:raw,events:[]};
   const state=initial(ctx,raw,cursor);
   const events:AgentEvent[]=[];
@@ -218,8 +217,13 @@ export function reduceStream(ctx:RuntimeContext, raw:JsonValue, frames:readonly 
     }
     else warn(state,events,kind);
   }
-  boundState(state);
-  return fitTextReduction(json(state),events);
+  if (!deferBounds) boundState(state);
+  return {state:json(state),events};
+}
+
+export function boundStreamState(raw:JsonValue):JsonValue {
+  boundState(raw as unknown as StreamState);
+  return raw;
 }
 
 function utf8Length(value:string):number {

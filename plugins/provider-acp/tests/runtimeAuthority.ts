@@ -93,6 +93,6 @@ export function assertRuntimePlan(ctx:RuntimeContext, op:Operation, plan:Runtime
 
 export function assertRuntimeReduction(reduction:RuntimeReduction):void {
   assert.ok(reduction.events.length <= 1024,"runtime reduction exceeds 1024 events");
-  assert.ok(Buffer.byteLength(JSON.stringify(reduction)) <= 4*1024*1024,"runtime reduction exceeds 4 MiB");
+  assert.ok(Buffer.byteLength(JSON.stringify(reduction)) <= 4*1024*1024-1024,"runtime reduction exceeds 4 MiB minus serialization margin");
   assert.ok(Buffer.byteLength(JSON.stringify(reduction.state)) <= 256*1024,"runtime state exceeds 256 KiB");
 }

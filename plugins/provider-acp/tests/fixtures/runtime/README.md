@@ -121,7 +121,14 @@ retains a 500,000-character frame and its subsequent chunk in full.
 delivers multiple large updates ending in a sentinel. Each text update emits one
 row event, including the astral boundary case in `oversize-astral-cut`.
 `batch-text-1024` restores a mixed drain of small and 8–16 KiB text updates.
-Native replay validates the entire reduction against the host event and byte limits.
+`batch-byte-limit` crosses the aggregate serialized-value budget while its input
+fits; `batch-event-limit` crosses the event count because a written turn adds
+Working activity. Both deliver a subsequent healthy update with the adjusted offset.
+Native replay validates each whole reduction under QuickJS and serde. The byte budget
+reserves 1 KiB below the host limit for serialization differences. Budgeting and
+state compaction run once per aggregate. The Node VM spy limits internal stringify
+and UTF-8 sizing work for `batch-text-1024` to four output-length passes plus fixed headroom; this
+checks the cost class without claiming a QuickJS timing result.
 Text is retained in full within those limits; byte-limit degradation uses a visible
 marker and preserves subsequent append offsets. Reducer state retains only identity
 and offsets. These synthetic stress fixtures share the capture

@@ -393,6 +393,8 @@ for (const [name,values] of [
   ["single",['"'.repeat(2*1024*1024-150)]],
   ["aggregate",["x".repeat(3*1024*1024),"y".repeat(1024*1024-600)]],
   ["event-count",Array.from({length:1024},()=>"z")],
+  ["control",["\u0001".repeat(Math.floor((4*1024*1024-300)/6))]],
+  ["astral",["🌍".repeat(Math.floor((4*1024*1024-300)/4))]],
 ] as const) {
   const base={...context,tabId:`byte-limit-${name}`,threadId:undefined,activeTurnId:undefined,activeTurns:[],claimedSends:[]};
   const init:Operation={kind:"initialize"};
@@ -409,6 +411,7 @@ for (const [name,values] of [
   for (const event of reduction.events) foldRow(rows,event);
   if (name === "event-count") assert.ok(reduction.events.some(event=>event.kind === "notice" && event.message.includes("runtime reduction event limit")));
   else assert.ok([...rows.values()][0].content.includes("[ACP row truncated: runtime reduction byte limit]"));
+  assert.equal([...rows.values()][0].content.isWellFormed(),true);
   const next=runtimeReduce(own,reduction.state,[frame("agent_message_chunk","healthy","budget")]);
   for (const event of next.events) foldRow(rows,event);
   assert.ok([...rows.values()][0].content.endsWith("healthy"),"continuation offset follows the visible prefix and marker");

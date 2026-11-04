@@ -219,6 +219,8 @@ fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
         "oversize-astral-cut",
         "large-single-update",
         "large-multi-update",
+        "batch-byte-limit",
+        "batch-event-limit",
     ] {
         let fixture: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(root.join(format!("{name}.json"))).unwrap(),
@@ -234,6 +236,16 @@ fn shared_long_stream_fixtures_fold_append_content_and_survive_replay() {
             }
             assert_eq!(maps.items.len(), 1);
             let content = &maps.items[0].item.content;
+            if name.starts_with("batch-") {
+                assert!(content.ends_with("healthy"));
+                if name == "batch-byte-limit" {
+                    assert!(content.contains("[ACP row truncated: runtime reduction byte limit]"));
+                    assert!(content.len() > 3 * 1024 * 1024);
+                } else {
+                    assert_eq!(*content, format!("{}healthy", "z".repeat(1022)));
+                }
+                continue;
+            }
             let delivered: String = fixture["rpc"]
                 .as_array()
                 .unwrap()

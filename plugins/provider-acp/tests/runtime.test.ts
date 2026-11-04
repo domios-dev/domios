@@ -5,7 +5,7 @@ import {createTranscriptState,reduceTranscript,projectTranscript} from "../../..
 import { runtimeJson } from "./runtimeJson";
 import { foldRow } from "./runtimeRows";
 import { assertRuntimeOperation, assertRuntimePlan, assertRuntimeReduction } from "./runtimeAuthority";
-import type {AgentRuntime, AgentEvent, ChatMsg, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
+import type {AgentRuntime, AgentEvent, ChatMsg, JsonValue, Operation, RpcReply, RuntimeAction, RuntimeContext, RuntimeFrame, RuntimePlan, RuntimeReduction, RuntimeStep, StdioAgentRuntimeCapability} from "@codeterm/plugin-sdk";
 
 interface Fixture {
   schemaVersion:1;
@@ -21,11 +21,41 @@ function loadHooks():AgentRuntime {
   const sandbox = vm.createContext({module:{exports:{}}, exports:{}, host:new Proxy({}, {get:()=>{throw new Error("Runtime accessed host");}})});
   sandbox.exports = sandbox.module.exports;
   vm.runInContext(fs.readFileSync(new URL("../plugin.js", import.meta.url), "utf8"), sandbox);
+  const metrics={characters:0,scanned:0,watch:false};
+  sandbox.__serializationMetrics__=metrics;
+  vm.runInContext(`{
+    const stringify=JSON.stringify;
+    const codePointAt=String.prototype.codePointAt;
+    String.prototype.codePointAt=function(...args) {
+      if (__serializationMetrics__.watch) __serializationMetrics__.scanned++;
+      return Reflect.apply(codePointAt,this,args);
+    };
+    JSON.stringify=function(...args) {
+      const result=Reflect.apply(stringify,JSON,args);
+      __serializationMetrics__.characters+=typeof result === "string" ? result.length : 0;
+      return result;
+    };
+  }`,sandbox);
   const hooks=sandbox.module.exports.default as AgentRuntime;
   return {...hooks,
     runtimePlan(ctx,op) { assertRuntimeOperation(ctx,op);const plan=runtimeJson(hooks.runtimePlan(ctx,op),"runtimePlan");assertRuntimePlan(ctx,op,plan);return plan; },
     runtimeResponse(ctx,op,state,reply) { assertRuntimeOperation(ctx,op);const step=runtimeJson(hooks.runtimeResponse(ctx,op,state,reply),"runtimeResponse");if (step.kind === "continue") assertRuntimePlan(ctx,op,step.plan);return step; },
-    runtimeReduce(ctx,state,frames) { const reduction=runtimeJson(hooks.runtimeReduce(ctx,state,frames),"runtimeReduce");assertRuntimeReduction(reduction);return reduction; },
+    runtimeReduce(ctx,state,frames) {
+      const before={characters:metrics.characters,scanned:metrics.scanned};
+      const track=ctx.tabId === "batch-text-1024" && frames.length === 1024;
+      metrics.watch=track;
+      let reduction:RuntimeReduction;
+      try { reduction=runtimeJson(hooks.runtimeReduce(ctx,state,frames),"runtimeReduce"); }
+      finally { metrics.watch=false; }
+      assertRuntimeReduction(reduction);
+      if (track) {
+        const serialized=metrics.characters-before.characters, scanned=metrics.scanned-before.scanned;
+        const allowed=4*JSON.stringify(reduction).length+65536;
+        assert.ok(serialized+scanned<=allowed,`1024-frame drain serialized ${serialized} characters and scanned ${scanned} code points; four output passes allow ${allowed}`);
+        console.log(`✓ ACP batch work: ${serialized} serialized + ${scanned} scanned; cap ${allowed}`);
+      }
+      return reduction;
+    },
   };
 }
 for (const invalid of [undefined,()=>null,Symbol("opaque"),1n,NaN,Infinity,-Infinity])
@@ -55,7 +85,7 @@ function replayFixture(name:string):void {
   const results:{operation:number; step:RuntimeStep}[] = [];
   const events:AgentEvent[] = [];
   let state:JsonValue = null;
-  let maxStateBytes=0;
+  let maxStateBytes=0, maxReductionBytes=0, maxReductionEvents=0;
   for (const record of fixture.rpc) {
     if (record.direction === "outbound") {
       const entry = fixture.operations[record.operation];
@@ -80,6 +110,8 @@ function replayFixture(name:string):void {
       }
     } else {
       const reduction = plain(hooks.runtimeReduce(record.context ?? fixture.context,state,"frames" in record ? record.frames : [record.frame]));
+      maxReductionBytes=Math.max(maxReductionBytes,Buffer.byteLength(JSON.stringify(reduction)));
+      maxReductionEvents=Math.max(maxReductionEvents,reduction.events.length);
       state = reduction.state;
       maxStateBytes=Math.max(maxStateBytes,Buffer.byteLength(JSON.stringify(state)));
       assert.ok(maxStateBytes<65536,`${name}: reducer state below 64 KiB`);
@@ -95,6 +127,22 @@ function replayFixture(name:string):void {
   assert.equal(plans.size,0);
   assert.deepEqual(results,fixture.expected.results,`${name} results`);
   assert.deepEqual(events,fixture.expected.events,`${name} events`);
+  if (name === "batch-byte-limit.json" || name === "batch-event-limit.json") {
+    const rows=new Map<string,ChatMsg>();
+    for (const event of events) foldRow(rows,event);
+    assert.equal(rows.size,1);
+    const content=[...rows.values()][0].content;
+    assert.ok(content.endsWith("healthy"),"post-limit continuation has the visible row offset");
+    if (name === "batch-byte-limit.json") {
+      assert.ok(content.includes("[ACP row truncated: runtime reduction byte limit]"));
+      assert.ok(maxReductionBytes>4*1024*1024-4096,"fixture reaches the serialization boundary");
+      assert.ok(maxReductionBytes<=4*1024*1024-1024,"fixed margin remains for native serialization");
+    } else {
+      assert.equal(maxReductionEvents,1024);
+      assert.equal(content,"z".repeat(1022)+"healthy");
+      assert.ok(events.some(event=>event.kind === "notice" && event.message.includes("runtime reduction event limit")));
+    }
+  }
   if (name.startsWith("long-stream-") || (name.startsWith("oversize-") || name.startsWith("large-"))) {
     const rows=new Map<string,ChatMsg>();
     for (const event of events) foldRow(rows,event);
