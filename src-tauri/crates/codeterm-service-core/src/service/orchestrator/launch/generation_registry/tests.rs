@@ -91,7 +91,7 @@ fn restart_owns_one_linked_pty_in_either_worker_order() {
 
     for restored_worker_first in [false, true] {
         let ownership = PtyOwnership::default();
-        let claim = ownership.acquire("ordered-restart");
+        let claim = ownership.acquire("ordered-restart").unwrap();
         let live = RefCell::new(HashSet::<String>::new());
         let linked = RefCell::new(None::<String>);
         let reaped = RefCell::new(Vec::<String>::new());

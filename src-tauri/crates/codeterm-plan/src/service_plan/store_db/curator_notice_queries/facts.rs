@@ -125,6 +125,7 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
         let waits=if waiting {vec![DependencyWait {task_id:String::new(),name:String::new(),status:if missing {None} else {Some(TaskStatus::Pending)},missing}]} else {Vec::new()};
         let projection=project_task_facts(&status,waits,&stage,&qa,context.get(5)?,context.get(6)?,context.get(7)?);
         let held:bool=context.get(8)?;
+        let reminder_worker=projection.presentation.worker_reminder_eligible(&status);
         let aged_eligible=projection.can_age() && !held;
         let category=if held || !projection.needs_orchestrator_action() {-1} else {
             match projection.presentation {
@@ -154,7 +155,7 @@ pub(super) fn register(connection: &Connection) -> Result<(), PlanError> {
             }).unwrap_or(if projection.presentation==TaskPresentation::HandoffRequired {601} else {0})
         };
         let blocked=crate::service_plan::state::outstanding_blocked_facts(&status,parked,!projection.dependency_waits.is_empty());
-        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{},\"blocked\":{},\"aged_eligible\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held),i32::from(blocked),i32::from(aged_eligible)))
+        Ok(format!("{{\"category\":{category},\"action\":{action},\"parked\":{},\"pending\":{},\"handoff\":{},\"held\":{},\"blocked\":{},\"aged_eligible\":{},\"reminder_worker\":{}}}",i32::from(parked),i32::from(pending),i32::from(handoff),i32::from(held),i32::from(blocked),i32::from(aged_eligible),i32::from(reminder_worker)))
     }).map_err(db_error)
 }
 
@@ -228,12 +229,21 @@ const TASK_FACTS:&str="WITH declared AS (
                         ELSE json('invalid review hold note') END,?2))>0
                 ELSE 0 END ELSE 0 END
         ) AS decision
-    FROM plan_tasks t LEFT JOIN open_parents parent ON parent.parent_id=t.task_id WHERE t.plan_id=?1
+    FROM plan_tasks t LEFT JOIN open_parents parent ON parent.parent_id=t.task_id WHERE t.plan_id=?1 NOTICE_TASK_SCOPE
 )";
 
 pub(super) fn task_facts() -> String {
+    scoped_task_facts("")
+}
+
+pub(super) fn worker_task_facts() -> String {
+    scoped_task_facts("AND t.assigned_tab_id IS NOT NULL AND t.status IN ('pending','in_progress','blocked') AND (?3 IS NULL OR trim(t.assigned_tab_id,?2)=?3)")
+}
+
+fn scoped_task_facts(scope: &str) -> String {
     use super::super::document_queries::regression::unsigned_timestamp;
     TASK_FACTS
+        .replace("NOTICE_TASK_SCOPE", scope)
         .replace(
             "NOTICE_REVIEW_AT",
             &unsigned_timestamp("t.row_json", "review_evidence[#-1].at", false),

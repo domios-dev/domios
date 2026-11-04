@@ -7,6 +7,7 @@ pub struct TabActivationPermit {
     _admission: Admission,
 }
 
+#[cfg(any(test, not(feature = "test-support")))]
 pub fn acquire(tab_id: &str) -> Result<TabActivationPermit, String> {
     futures_executor::block_on(Admission::new(tab_id)?.acquire(|| {}))
 }
@@ -19,6 +20,7 @@ pub fn acquire_with_wait_hook(
     futures_executor::block_on(Admission::new(tab_id)?.acquire(waiting))
 }
 
+#[cfg(any(test, not(feature = "test-support")))]
 pub async fn acquire_async(tab_id: String) -> Result<TabActivationPermit, String> {
     Admission::new(&tab_id)?.acquire(|| {}).await
 }

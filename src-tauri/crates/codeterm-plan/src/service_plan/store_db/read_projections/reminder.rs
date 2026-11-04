@@ -7,8 +7,17 @@ use std::collections::BTreeMap;
 use std::rc::Rc;
 
 mod blockers;
+mod candidates;
+mod composition;
+pub use candidates::{
+    reminder_targets, ReminderCandidateRead, ReminderTargetRead, ReminderWorkerBindingRead,
+};
+pub use composition::ReminderCompositionRead;
+mod admission;
 mod functions;
 mod gate;
+mod gate_rows;
+pub use admission::{ReminderAdmissionRead, ReminderAdmissionTaskRead, ReminderOwnerRowRead};
 
 #[derive(Clone, serde::Deserialize, serde::Serialize)]
 pub struct ReminderPlanRead {
@@ -61,6 +70,19 @@ pub struct ReminderControlRead {
 }
 
 impl ReminderControlRead {
+    pub fn active_execution(&self, status: &PlanStatus, mode: &PlanMode, complete: bool) -> bool {
+        active_execution(status, mode, self.mode, complete)
+    }
+    pub fn owner_eligible(
+        &self,
+        status: &PlanStatus,
+        mode: &PlanMode,
+        complete: bool,
+        open_work: bool,
+    ) -> bool {
+        self.active_execution(status, mode, complete) && self.owner_heartbeat() && open_work
+    }
+
     pub fn owner_heartbeat(&self) -> bool {
         self.mode != ControlLoopMode::Off
             && (self.mode == ControlLoopMode::Heartbeat || self.has_fallback)
@@ -149,16 +171,28 @@ pub struct ReminderGateRead {
 }
 
 impl ReminderPlanRead {
+    pub fn composition(&self) -> Result<ReminderCompositionRead, PlanError> {
+        Ok(ReminderCompositionRead {
+            id: self.id.clone(),
+            mode: self.mode.clone(),
+            planning_state: self.planning_state,
+            owner_tab_id: self.owner_tab_id.clone(),
+            team_id: self.team_id.clone(),
+            connection: self
+                .connection
+                .clone()
+                .ok_or_else(|| PlanError::Validation("reminder snapshot is closed".into()))?,
+        })
+    }
     pub fn digest_input(
         &self,
         now: u64,
         targets: &crate::service_plan::NoticeInventoryTargets,
     ) -> Result<crate::service_plan::NoticeDigestInput, PlanError> {
-        super::reminder_digests::notice_digest_input(self.connection()?, &self.id, now, targets)
+        self.composition()?.digest_input(now, targets)
     }
     pub fn compose_worker(&self, tab: &str, text: &str) -> Result<String, PlanError> {
-        let read = super::super::charter_queries::worker_assignment(self.connection()?, tab)?;
-        crate::service_plan::worker_charter::prepend_assignment(read, text)
+        self.composition()?.compose_worker(tab, text)
     }
     pub fn compose_owner(
         &self,
@@ -168,32 +202,14 @@ impl ReminderPlanRead {
         plain: bool,
         now: u64,
     ) -> Result<String, PlanError> {
-        super::super::curator_notice_queries::bounded_reminder(
-            self.connection()?,
-            &self.id,
-            now,
-            selection,
-            digests,
-            directive,
-            plain,
-        )
-        .map(|read| read.body)
+        self.composition()?
+            .compose_owner(directive, digests, selection, plain, now)
     }
-
     pub fn planner_resolution(
         &self,
         probe: impl Fn(&str) -> crate::plan::reconcile::TabProbe,
     ) -> Result<crate::plan::peer::PeerResolution, PlanError> {
-        record_query();
-        let raw:String=self.connection()?.query_row(
-            "SELECT json_quote(CASE json_extract(header_json,'$.planner.kind') WHEN 'tab' THEN json_object('kind','tab','tab_id',json_extract(header_json,'$.planner.tab_id'),'session_id',json_extract(header_json,'$.planner.session_id')) WHEN 'waived' THEN CASE WHEN json_type(header_json,'$.planner.note')='text' THEN json_object('kind','waived','note','') ELSE json('invalid planner waiver') END ELSE CASE WHEN json_type(header_json,'$.planner') IS NULL OR json_type(header_json,'$.planner')='null' THEN NULL ELSE json('invalid planner kind') END END) FROM plans WHERE id=?1",
-            [&self.id],|row|column(row,0)).map_err(super::super::db_error)?;
-        let planner: Option<crate::plan::PlannerRef> = decode(&self.id, &raw)?;
-        Ok(crate::plan::peer::resolve_planner_ref(
-            &planner,
-            &crate::plan::OrchestratorRef::default(),
-            probe,
-        ))
+        self.composition()?.planner_resolution(probe)
     }
     pub fn release_snapshot(&mut self) {
         self.connection = None;
@@ -328,6 +344,23 @@ impl super::PlanDatabase {
 }
 
 impl ReminderReadSnapshot {
+    pub fn composition(&self, id: &str) -> Result<Option<ReminderCompositionRead>, PlanError> {
+        composition::read(self.connection.clone(), id)
+    }
+    pub fn candidate_targets(
+        &self,
+        tab: Option<&str>,
+    ) -> Result<Vec<ReminderCandidateRead>, PlanError> {
+        candidates::read(&self.connection, tab)
+    }
+    pub fn worker_bindings(
+        &self,
+        tab: &str,
+        known_plan: Option<&str>,
+    ) -> Result<Vec<ReminderWorkerBindingRead>, PlanError> {
+        candidates::worker_bindings(&self.connection, tab, known_plan)
+    }
+
     pub fn plan(&self, id: &str) -> Result<Option<ReminderPlanRead>, PlanError> {
         let Some(mut read) = plan(&self.connection, id)? else {
             return Ok(None);
@@ -336,7 +369,11 @@ impl ReminderReadSnapshot {
         Ok(Some(read))
     }
 
-    pub fn candidates(&self, tab: Option<&str>) -> Result<Vec<ReminderPlanRead>, PlanError> {
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn candidate_reference(
+        &self,
+        tab: Option<&str>,
+    ) -> Result<Vec<ReminderPlanRead>, PlanError> {
         if tab.is_some_and(|tab| tab.trim().is_empty()) {
             return Ok(Vec::new());
         }
@@ -386,7 +423,7 @@ fn plan(connection: &Connection, id: &str) -> Result<Option<ReminderPlanRead>, P
              FROM json_each(coalesce(t.row_json->'$.depends_on','[]')) dep LEFT JOIN plan_tasks target ON target.plan_id=t.plan_id AND target.task_id=dep.value
              WHERE target.task_id IS NULL OR target.status NOT IN ('done','cancelled')),
             coalesce(json_extract(t.row_json,'$.interruption.handoff_required'),0),
-            EXISTS(SELECT 1 FROM plan_tasks child WHERE child.plan_id=t.plan_id AND json_extract(child.row_json,'$.parent_task_id')=t.task_id AND child.status NOT IN ('done','cancelled')),
+            EXISTS(SELECT 1 FROM open_parents parent WHERE parent.parent_id=t.task_id),
             json_extract(f.decision,'$.parked'))),
         'held',json(CASE WHEN json_extract(f.decision,'$.held') THEN 'true' ELSE 'false' END))
         FROM plan_tasks t JOIN facts f ON f.task_id=t.task_id WHERE t.plan_id=?1 ORDER BY t.position");
@@ -410,4 +447,16 @@ pub struct ReminderBlockerRead {
     pub identity: String,
     pub summary: String,
     pub task_ids: std::collections::BTreeSet<String>,
+}
+
+fn active_execution(
+    status: &PlanStatus,
+    mode: &PlanMode,
+    control: ControlLoopMode,
+    complete: bool,
+) -> bool {
+    *status == PlanStatus::Active
+        && *mode == PlanMode::Execution
+        && control != ControlLoopMode::Off
+        && !complete
 }

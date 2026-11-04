@@ -75,6 +75,7 @@ async fn held_stream_mux_scheduler_does_not_block_rest_worker_and_frame_is_conse
         "held",
         Bytes::from_static(b"opaque-frame"),
         scheduler::Kind::Data,
+        0,
     ));
     assert!(sending.as_mut().now_or_never().is_none());
     crate::rest_liveness_tests::assert_health_list_send_respond(state).await;
@@ -123,6 +124,7 @@ async fn cancelled_contended_receive_conserves_the_queued_frame() {
             "conserved",
             Bytes::from_static(b"conserved-frame"),
             scheduler::Kind::Data,
+            0,
         )
         .await
         .unwrap();

@@ -121,6 +121,18 @@ pub struct TaskProjection {
     pub dependency_waits: Vec<DependencyWait>,
 }
 
+impl TaskPresentation {
+    pub fn worker_reminder_eligible(&self, status: &TaskStatus) -> bool {
+        matches!(
+            status,
+            TaskStatus::Pending | TaskStatus::InProgress | TaskStatus::Blocked
+        ) && !matches!(
+            self,
+            Self::WaitingOnDependencies | Self::ParkedForLaterGroup
+        )
+    }
+}
+
 pub(crate) fn task_presentation(
     status: &TaskStatus,
     dependency_waits: &[DependencyWait],

@@ -38,7 +38,7 @@ fn sql_failure_after_digest_facts_leaves_rate_rule_available_for_the_next_round(
         .plan_store
         .reminder_read_snapshot(crate::service::hierarchy::heartbeat_gate::scrubbed)
         .unwrap();
-    let read = snapshot.plan(&id).unwrap().unwrap();
+    let read = snapshot.composition(&id).unwrap().unwrap();
     let inventory = snapshot_notice_inventory(svc, &id, None, Some(&owner));
     let now = now_epoch_ms();
     let input = read.digest_input(now, &inventory.targets()).unwrap();
@@ -63,7 +63,7 @@ fn sql_failure_after_digest_facts_leaves_rate_rule_available_for_the_next_round(
         .plan_store
         .reminder_read_snapshot(crate::service::hierarchy::heartbeat_gate::scrubbed)
         .unwrap();
-    let read = snapshot.plan(&id).unwrap().unwrap();
+    let read = snapshot.composition(&id).unwrap().unwrap();
     let input = read.digest_input(now, &inventory.targets()).unwrap();
     let retry = prepare_digest_lines_for_input(svc, &input, &inventory, Some(&owner));
     assert_eq!(retry.rate_marks.len(), 1);

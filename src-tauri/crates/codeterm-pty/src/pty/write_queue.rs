@@ -68,7 +68,7 @@ impl GuardedInputGate {
         let _ = self
             .state
             .epoch
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
                 (epoch & 1 == 0).then(|| epoch.wrapping_add(1))
             });
     }
@@ -82,7 +82,7 @@ impl GuardedInputGate {
             let _ = self
                 .state
                 .epoch
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
+                .try_update(Ordering::AcqRel, Ordering::Acquire, |epoch| {
                     Some(epoch.wrapping_add(if epoch & 1 == 0 { 2 } else { 1 }))
                 });
         }

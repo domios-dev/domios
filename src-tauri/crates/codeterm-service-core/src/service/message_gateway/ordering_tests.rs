@@ -352,7 +352,7 @@ fn post_submit_sql_failure_keeps_accepted_delivery_and_report_obligation() {
     connection.execute_batch("DROP TABLE plan_tasks").unwrap();
     let envelope = MessageEnvelope::tab("Orchestrator", bw.orch.clone());
     let body = "opaque post-submit payload";
-    let expected = crate::service::messenger::Messenger::from(envelope.clone()).wrap(body);
+    let expected = body.to_string();
     let delivered = service.gateway_deliver_with_pad_file(
         &bw.worker,
         envelope,

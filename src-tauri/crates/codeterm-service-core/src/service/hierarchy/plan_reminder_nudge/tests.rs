@@ -2,7 +2,9 @@ use super::*;
 use crate::multiplexer::state::MultiplexerState;
 use crate::plan::{ElementCanvas, OrchestratorRef, Plan, Task, TaskLaneMetadata, TaskPriority};
 use codeterm_plan::service_plan::heartbeat::is_plan_complete;
-use codeterm_plan::service_plan::state::{orchestrator_actionable_task_ids, task_projection};
+use codeterm_plan::service_plan::state::{
+    orchestrator_actionable_task_ids, task_projection, TaskPresentation,
+};
 use codeterm_types::pty::BootStage;
 use std::cell::RefCell;
 
@@ -858,7 +860,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     let ticks = [owner_tick, other_plan_tick, worker_tick];
 
     let owners = super::projection::project_for_tab(
-        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[owner_plan.clone()]),
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan.clone()],
+            "owner-tab",
+        ),
         "owner-tab",
         60,
         100,
@@ -881,7 +886,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert_eq!(owners[0].ticks[0].spinal_reason, "delivered");
 
     let workers = super::projection::project_for_tab(
-        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[owner_plan.clone()]),
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan.clone()],
+            "worker-tab",
+        ),
         "worker-tab",
         60,
         100,
@@ -902,7 +910,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     assert_eq!(workers[0].ticks[0].spinal_reason, "not_due");
 
     assert!(super::projection::project_for_tab(
-        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[owner_plan.clone()]),
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan.clone()],
+            "owner-tab"
+        ),
         "owner-tab",
         60,
         100,
@@ -912,7 +923,10 @@ fn project_for_tab_reads_the_scheduler_targets() {
     )
     .is_empty());
     assert!(super::projection::project_for_tab(
-        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[owner_plan]),
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(
+            &[owner_plan],
+            "owner-tab"
+        ),
         "owner-tab",
         0,
         100,
@@ -922,7 +936,7 @@ fn project_for_tab_reads_the_scheduler_targets() {
     )
     .is_empty());
     assert!(super::projection::project_for_tab(
-        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&[]),
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(&[], ""),
         "",
         60,
         100,
@@ -1074,7 +1088,7 @@ fn heartbeat_owner_interval_drives_delivery_and_delayed_projection() {
     assert!(!counter.time_nudge_due("owner-tab", 999, interval));
     assert!(counter.time_nudge_due("owner-tab", 1000, interval));
     let projected = project_for_tab(
-        &crate::service::hierarchy::plan_reminder_nudge::tests::reads(&plans),
+        &crate::service::hierarchy::plan_reminder_nudge::tests::popup_reads(&plans, "owner-tab"),
         "owner-tab",
         2700,
         500,
@@ -1117,12 +1131,27 @@ fn owner_off_removes_team_owner_and_worker_system_reminders() {
     .is_empty());
 }
 
-pub(crate) fn read(plan: &crate::plan::Plan) -> codeterm_plan::service_plan::ReminderPlanRead {
-    codeterm_plan::service_plan::ReminderPlanRead::for_test(plan, heartbeat_gate::scrubbed)
+pub(crate) fn read(plan: &crate::plan::Plan) -> codeterm_plan::service_plan::ReminderAdmissionRead {
+    codeterm_plan::service_plan::ReminderAdmissionRead::for_test(plan, heartbeat_gate::scrubbed)
 }
 
 pub(crate) fn reads(
     plans: &[crate::plan::Plan],
-) -> Vec<codeterm_plan::service_plan::ReminderPlanRead> {
-    plans.iter().map(read).collect()
+) -> Vec<codeterm_plan::service_plan::ReminderCandidateRead> {
+    codeterm_plan::service_plan::ReminderCandidateRead::for_test(
+        plans,
+        None,
+        heartbeat_gate::scrubbed,
+    )
+}
+
+pub(crate) fn popup_reads(
+    plans: &[crate::plan::Plan],
+    tab: &str,
+) -> Vec<codeterm_plan::service_plan::ReminderCandidateRead> {
+    codeterm_plan::service_plan::ReminderCandidateRead::for_test(
+        plans,
+        Some(tab),
+        heartbeat_gate::scrubbed,
+    )
 }
