@@ -422,7 +422,7 @@ fn dispatch_refuses_statuses_that_cannot_reach_startup() {
         TaskStatus::InReview,
     ] {
         store
-            .with_plan(&plan_id, 4, |plan| {
+            .edit_plan_fixture(&plan_id, 4, |plan| {
                 let task = plan
                     .tasks
                     .iter_mut()
@@ -557,7 +557,7 @@ fn respawn_of_blocked_task_yields_an_acknowledgeable_attempt() {
         .unwrap();
     let block_reason = "waiting for a dependency";
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

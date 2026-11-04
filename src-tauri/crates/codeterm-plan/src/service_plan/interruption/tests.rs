@@ -316,7 +316,7 @@ fn dispatch_persists_resolved_provider_on_exact_attempt() {
 fn continued_review_attempt_is_interruptible_but_undelivered_epoch_is_not() {
     let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -350,7 +350,7 @@ fn continued_review_attempt_is_interruptible_but_undelivered_epoch_is_not() {
 
     let (_dir, store, plan_id, task_id, attempt_id) = bound_store();
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -412,7 +412,7 @@ fn orchestrator_can_close_and_assign_after_worker_epoch_adoption() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 4, |plan| {
+        .edit_plan_fixture(&plan.id, 4, |plan| {
             for task in &mut plan.tasks {
                 task.interruption.owner_epoch = 2;
                 task.interruption.owner_tab_id = Some("worker".into());
@@ -479,7 +479,7 @@ fn takeover_between_verification_and_write_is_rejected_atomically() {
         owner_epoch: 1,
     };
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -545,7 +545,7 @@ fn checkpoint_adoption_undo_preserves_unrelated_edits_and_refuses_new_authority(
             )
             .unwrap();
         store
-            .with_plan(&plan_id, 7, |plan| {
+            .edit_plan_fixture(&plan_id, 7, |plan| {
                 let task = plan
                     .tasks
                     .iter_mut()

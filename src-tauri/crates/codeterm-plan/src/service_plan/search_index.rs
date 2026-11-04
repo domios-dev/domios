@@ -16,14 +16,14 @@ pub use super::search_related::{RelatedGroup, RelatedUnit};
 mod changes;
 use changes::{unit_changes, UnitChanges};
 mod embedding;
-mod incremental;
+mod location;
 mod narrow;
+pub(super) use location::enqueue_plan_move;
 mod sections;
 pub(in crate::service_plan) use sections::{enqueue_section_index, SectionIndexDelta};
 mod recovery;
 mod snapshot;
 mod unit_inputs;
-pub(super) use incremental::PlanIndexScope;
 pub(super) use narrow::{
     enqueue_milestone_index, enqueue_plan_metadata, enqueue_plan_time, enqueue_task_index,
     enqueue_task_removal, MilestoneIndexDelta, TaskIndexDelta,
@@ -106,16 +106,19 @@ struct Unit {
 
 enum IndexJob {
     PlanMetadata(PathBuf, super::store_db::PlanIndexRow),
+    MovePlan {
+        id: String,
+        old: PathBuf,
+        new: PathBuf,
+    },
     PlanTime(PathBuf, String, u64),
     DeleteUnit(PathBuf, String),
     Status(PathBuf, narrow::StatusDelta),
     Unit(PathBuf, Unit),
-    Plan(Plan, PlanIndexScope),
     PlanSnapshot(PlanSearchSnapshot),
     Prune(PathBuf, HashSet<String>),
     Embed(PathBuf, Unit),
-    DeletePlan(Plan),
-    PurgePlan(Plan, Vec<Spec>),
+    PurgePlan(PlanIndexRemoval, Vec<(String, PathBuf)>),
     Spec(Spec),
     DeleteSpec(Spec),
 }
@@ -123,6 +126,7 @@ enum IndexJob {
 impl IndexJob {
     fn key(&self) -> String {
         match self {
+            Self::MovePlan { id, .. } => format!("{}:move:{id}", self.project_key()),
             Self::PlanMetadata(_, row) => {
                 format!("{}:plan-metadata:{}", self.project_key(), row.id)
             }
@@ -132,9 +136,6 @@ impl IndexJob {
             Self::Unit(_, unit) => format!("{}:unit:{}", self.project_key(), unit.id),
             Self::Embed(_, unit) => format!("{}:embed:{}", self.project_key(), unit.id),
             Self::Prune(_, _) => format!("{}:prune", self.project_key()),
-            Self::Plan(plan, _) | Self::DeletePlan(plan) => {
-                format!("{}:plan:{}", self.project_key(), plan.id)
-            }
             Self::PlanSnapshot(snapshot) => format!("{}:plan:{}", self.project_key(), snapshot.id),
             Self::Spec(spec) | Self::DeleteSpec(spec) => {
                 format!("{}:spec:{}", self.project_key(), spec.id)
@@ -146,35 +147,23 @@ impl IndexJob {
     fn project_key(&self) -> String {
         match self {
             Self::PlanMetadata(root, _) => project_scope(root),
+            Self::MovePlan { new, .. } => project_scope(new),
             Self::PlanTime(root, _, _) => project_scope(root),
             Self::Status(root, _) | Self::Unit(root, _) | Self::DeleteUnit(root, _) => {
                 project_scope(root)
             }
             Self::Prune(root, _) | Self::Embed(root, _) => project_scope(root),
-            Self::Plan(plan, _) | Self::DeletePlan(plan) | Self::PurgePlan(plan, _) => {
-                project_scope(plan_project_root(plan))
-            }
+            Self::PurgePlan(plan, _) => project_scope(&plan.root),
             Self::Spec(spec) | Self::DeleteSpec(spec) => project_scope(spec_project_root(spec)),
             Self::PlanSnapshot(snapshot) => project_scope(&snapshot.root),
         }
     }
 
-    /// A newer snapshot replaces a queued one but must still re-index the tasks the queued one changed.
-    fn absorb(self, queued: IndexJob) -> IndexJob {
-        match (self, queued) {
-            (Self::Plan(plan, scope), Self::Plan(_, queued_scope)) => {
-                Self::Plan(plan, scope.union(queued_scope))
-            }
-            (Self::Plan(plan, _), Self::PlanSnapshot(_)) => Self::Plan(plan, PlanIndexScope::Full),
-            (job, _) => job,
-        }
+    fn absorb(self, _queued: IndexJob) -> IndexJob {
+        self
     }
-
     fn full(self) -> IndexJob {
-        match self {
-            Self::Plan(plan, _) => Self::Plan(plan, PlanIndexScope::Full),
-            job => job,
-        }
+        self
     }
 }
 
@@ -305,6 +294,7 @@ fn index_queue() -> Arc<IndexQueue> {
 
 fn run_job(job: &IndexJob) -> Result<(), String> {
     match job {
+        IndexJob::MovePlan { id, old, new } => location::move_plan_units(id, old, new),
         IndexJob::PlanMetadata(root, row) => narrow::mirror_plan_metadata(root, row),
         IndexJob::PlanTime(root, id, at) => narrow::mirror_plan_time(root, id, *at),
         IndexJob::DeleteUnit(root, id) => narrow::delete_unit(root, id),
@@ -314,10 +304,6 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
         }
         IndexJob::Embed(root, unit) => embedding::embed_current(root, unit),
         IndexJob::Prune(root, ids) => recovery::prune_project(root, ids),
-        IndexJob::Plan(plan, scope) => embedding::queue_changed(
-            plan_project_root(plan),
-            incremental::mirror_plan_scope(plan, scope, false),
-        ),
         IndexJob::PlanSnapshot(snapshot) => embedding::queue_changed(
             &snapshot.root,
             replace_units_once(
@@ -327,7 +313,6 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
                 false,
             ),
         ),
-        IndexJob::DeletePlan(plan) => delete_plan_units(plan),
         IndexJob::PurgePlan(plan, specs) => recovery::purge_plan_indexes(plan, specs),
         IndexJob::Spec(spec) => {
             embedding::queue_changed(spec_project_root(spec), mirror_spec(spec, false))
@@ -338,12 +323,24 @@ fn run_job(job: &IndexJob) -> Result<(), String> {
     }
 }
 
-pub(super) fn enqueue_plan_index(
-    _turn: &MutationWriterTurn<'_>,
-    plan: Plan,
-    scope: PlanIndexScope,
-) {
-    index_queue().enqueue(IndexJob::Plan(plan, scope));
+pub(super) fn enqueue_plan_import(_turn: &MutationWriterTurn<'_>, plan: &Plan) {
+    index_queue().enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(plan)));
+}
+
+#[derive(Clone)]
+pub(super) struct PlanIndexRemoval {
+    pub id: String,
+    pub root: PathBuf,
+}
+
+#[cfg(test)]
+impl From<Plan> for PlanIndexRemoval {
+    fn from(plan: Plan) -> Self {
+        Self {
+            root: plan_project_root(&plan).into(),
+            id: plan.id,
+        }
+    }
 }
 
 pub(super) fn enqueue_spec_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
@@ -352,15 +349,11 @@ pub(super) fn enqueue_spec_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
 
 pub(super) fn remove_plan_from_index(
     _turn: &MutationWriterTurn<'_>,
-    plan: Plan,
-    specs: &[Spec],
+    plan: PlanIndexRemoval,
+    specs: &[(String, PathBuf)],
 ) -> Result<(), String> {
     index_queue().enqueue(IndexJob::PurgePlan(plan, specs.to_vec()));
     Ok(())
-}
-
-pub(super) fn enqueue_plan_removal(_turn: &MutationWriterTurn<'_>, plan: Plan) {
-    index_queue().enqueue(IndexJob::DeletePlan(plan));
 }
 
 pub(super) fn remove_spec_from_index(_turn: &MutationWriterTurn<'_>, spec: Spec) {
@@ -473,6 +466,7 @@ pub fn project_scope(project_root: &Path) -> String {
     )
 }
 
+#[cfg(test)]
 fn mirror_plan(plan: &Plan, sync_embed: bool) -> Result<Vec<Unit>, String> {
     let root = plan_project_root(plan);
     let units = plan_units(plan, &project_scope(root));
@@ -485,8 +479,9 @@ fn mirror_spec(spec: &Spec, sync_embed: bool) -> Result<Vec<Unit>, String> {
     replace_units(root, &format!("planunit_{}_%", spec.id), units, sync_embed)
 }
 
-fn delete_plan_units(plan: &Plan) -> Result<(), String> {
-    delete_units(plan_project_root(plan), &format!("planunit_{}_%", plan.id))
+#[cfg(test)]
+fn delete_plan_units(plan: &PlanIndexRemoval) -> Result<(), String> {
+    delete_units(&plan.root, &format!("planunit_{}_%", plan.id))
 }
 
 // `journal_mode=WAL` in init_schema ignores busy_timeout and BUSY-fails under contention; run it once per path.

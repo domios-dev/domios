@@ -225,7 +225,7 @@ fn task_qa_plan_updates_and_clears_independently() {
 }
 
 #[test]
-fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
+fn reload_from_disk_preserves_prior_read_and_publishes_imported_state() {
     let dir = tempfile::tempdir().unwrap();
     let store = PlanStore::new_for_test(dir.path());
     let mut p = Plan::new(
@@ -234,7 +234,7 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
         OrchestratorRef::from_tab("abc"),
     );
     store.save(&mut p, 1000).unwrap();
-    let held = store.plan_arc_for_test(&p.id);
+    let held = store.get(&p.id).unwrap();
 
     let path = plan_path(dir.path(), &p);
     let mut edited: Plan = serde_yaml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -244,9 +244,9 @@ fn reload_from_disk_preserves_plan_arc_for_concurrent_holders() {
 
     store.reload_from_disk(&p.id).unwrap();
 
-    let current = store.plan_arc_for_test(&p.id);
-    assert!(std::sync::Arc::ptr_eq(&held, &current));
-    assert_eq!(held.lock().title, "Edited");
+    let current = store.get(&p.id).unwrap();
+    assert_eq!(held.title, "Original");
+    assert_eq!(current.title, "Edited");
 }
 
 #[test]
@@ -265,7 +265,7 @@ fn reload_from_disk_does_not_overwrite_newer_in_flight_plan_mutation() {
     let mutation_store = store.clone();
     let plan_id = p.id.clone();
     let mutation = std::thread::spawn(move || {
-        mutation_store.with_plan(&plan_id, 3000, |plan| {
+        mutation_store.edit_plan_fixture(&plan_id, 3000, |plan| {
             entered_tx.send(()).unwrap();
             release_rx.recv().unwrap();
             plan.title = "Newer in-flight mutation".into();

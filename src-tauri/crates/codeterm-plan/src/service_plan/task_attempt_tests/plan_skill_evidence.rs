@@ -173,7 +173,7 @@ fn plan_skill_load_refuses_unannounced_or_modified_digest() {
 fn plan_skill_load_refuses_ambiguous_open_assignment_even_with_explicit_attempt() {
     let (_dir, store, plan_id, task_id, attempt_id) = prepared_store();
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -223,7 +223,7 @@ fn plan_skill_load_refuses_foreign_or_retired_current_binding() {
         assert_eq!(store.get(&plan_id).unwrap(), before);
     }
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             plan.tasks
                 .iter_mut()
                 .find(|task| task.id == task_id)

@@ -48,7 +48,7 @@ fn assignment_attempt_retains_planned_provider_and_model() {
     let mut worker_binding = binding("worker-session");
     worker_binding.reasoning_effort = Some("xhigh".into());
     store
-        .with_plan(&plan, 3, |plan| {
+        .edit_plan_fixture(&plan, 3, |plan| {
             plan.tasks[0].model = Some("codex/gpt-6-luna".into());
             Ok(())
         })

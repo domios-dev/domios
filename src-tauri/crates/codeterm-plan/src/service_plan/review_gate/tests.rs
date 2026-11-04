@@ -84,7 +84,7 @@ fn dispatch(
 ) -> Result<(), PlanError> {
     store.assign_task(plan_id, task_id, tab, None, now)?;
     set_status(store, plan_id, task_id, "in_progress", now)?;
-    store.with_plan(plan_id, now, |plan| {
+    store.edit_plan_fixture(plan_id, now, |plan| {
         let task = plan
             .tasks
             .iter_mut()
@@ -192,7 +192,7 @@ fn accepted_reconcile_fix_repays_review_credit_exactly_once() {
 fn wip_threshold_warns_without_blocking_and_review_closure_clears_warning() {
     let (_dir, store, plan_id) = setup();
     store
-        .with_plan(&plan_id, 1, |p| {
+        .edit_plan_fixture(&plan_id, 1, |p| {
             p.review_policy.wip_limit = 2;
             Ok(())
         })
@@ -248,7 +248,7 @@ fn stranded_debt_is_advisory_without_capacity_grants() {
     let review = add_ready_task(&store, &plan_id, "review", 2);
     let implementation = add_ready_task(&store, &plan_id, "implementation", 2);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
             let task = plan
                 .tasks
@@ -285,7 +285,7 @@ fn actual_review_saturation_does_not_block_dispatch() {
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             for task_id in &active_reviews {
                 plan.tasks
                     .iter_mut()
@@ -311,7 +311,7 @@ fn assignment_status_transition_uses_the_same_capacity_classification() {
     let review = add_ready_task(&store, &plan_id, "review", 2);
     let implementation = add_ready_task(&store, &plan_id, "implementation", 2);
     store
-        .with_plan(&plan_id, 3, |plan| {
+        .edit_plan_fixture(&plan_id, 3, |plan| {
             plan.review_policy.credit = -(plan.review_policy.wip_limit as i64);
             Ok(())
         })
@@ -403,7 +403,7 @@ fn generic_status_mutation_cannot_exit_review_or_leak_credit() {
 fn explicit_credit_reconcile_repairs_debt_and_records_a_stride() {
     let (_dir, store, plan_id) = setup();
     store
-        .with_plan(&plan_id, 2, |plan| {
+        .edit_plan_fixture(&plan_id, 2, |plan| {
             plan.review_policy.credit = -5;
             Ok(())
         })
@@ -446,7 +446,7 @@ fn credit_reconcile_preserves_active_review_floor_and_is_idempotent() {
     dispatch(&store, &plan_id, &task_id, "worker", 3).unwrap();
     set_status(&store, &plan_id, &task_id, "in_review", 4).unwrap();
     store
-        .with_plan(&plan_id, 5, |plan| {
+        .edit_plan_fixture(&plan_id, 5, |plan| {
             plan.review_policy.credit = -5;
             Ok(())
         })
@@ -765,7 +765,7 @@ fn oracle_scope_expansion_rejected_without_override() {
 
     // Expand scope: add a new acceptance criterion after the oracle was fixed.
     store
-        .with_plan(&plan_id, 6, |p| {
+        .edit_plan_fixture(&plan_id, 6, |p| {
             let task = p.tasks.iter_mut().find(|t| t.id == task_id).unwrap();
             task.acceptance_criteria
                 .push("also handles edge case Y".into());
@@ -816,7 +816,7 @@ fn authorized_correction_rebuilds_oracle_without_rewriting_history() {
     deliver_bounce(&store, &plan_id, &task_id, &bounce, 6);
 
     store
-        .with_plan(&plan_id, 8, |plan| {
+        .edit_plan_fixture(&plan_id, 8, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

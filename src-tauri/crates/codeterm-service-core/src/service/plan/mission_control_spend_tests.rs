@@ -418,7 +418,7 @@ fn mission_control_spend_charges_the_owner_of_a_fully_paused_plan() {
     fixture
         .service
         .plan_store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

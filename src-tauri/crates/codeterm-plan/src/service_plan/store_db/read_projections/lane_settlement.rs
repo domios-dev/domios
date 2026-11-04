@@ -43,8 +43,19 @@ impl PlanDatabase {
         tab: Option<&str>,
     ) -> Result<Vec<LaneSettlementRead>, PlanError> {
         let connection = self.connection.lock();
-        record_query();
-        let mut statement = connection.prepare_cached(
+        lane_settlement_rows(&connection, plan, task, tab, |_| {})
+    }
+}
+
+pub(in crate::service_plan::store_db) fn lane_settlement_rows(
+    connection: &rusqlite::Connection,
+    plan: Option<&str>,
+    task: Option<&str>,
+    tab: Option<&str>,
+    mut observe: impl FnMut(&str),
+) -> Result<Vec<LaneSettlementRead>, PlanError> {
+    record_query();
+    let mut statement = connection.prepare_cached(
             "WITH eligible AS MATERIALIZED (
                 SELECT DISTINCT h.plan_id FROM plan_tasks h
                 WHERE ?3 IS NOT NULL AND (?1 IS NULL OR h.plan_id=?1)
@@ -73,17 +84,17 @@ impl PlanDatabase {
                 AND (json_extract(t.row_json,'$.lane.worktree_path') IS NOT NULL OR json_extract(t.row_json,'$.lane.branch') IS NOT NULL)
              ORDER BY p.updated_at DESC,p.id,t.position"
         ).map_err(db_error)?;
-        let rows = statement
-            .query_map(params![plan, task, tab], |row| {
-                Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
-            })
-            .map_err(db_error)?;
-        rows.map(|row| {
-            let (id, raw) = row.map_err(db_error)?;
-            decode(&id, &raw)
+    let rows = statement
+        .query_map(params![plan, task, tab], |row| {
+            Ok((column::<String>(row, 0)?, column::<String>(row, 1)?))
         })
-        .collect()
-    }
+        .map_err(db_error)?;
+    rows.map(|row| {
+        let (id, raw) = row.map_err(db_error)?;
+        observe(&raw);
+        decode(&id, &raw)
+    })
+    .collect()
 }
 
 impl PlanStore {

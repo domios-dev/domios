@@ -504,6 +504,12 @@ impl PlanStore {
         now_ms: u64,
     ) -> Result<(), PlanError> {
         let turn = self.mutation_writer.enter();
+        #[cfg(test)]
+        if let (Some(hook), Some(title)) =
+            (self.persistence_hook.read().clone(), edit.title.as_deref())
+        {
+            hook(title);
+        }
         let receipt = self.database.edit_plan_state(plan_id, edit, now_ms)?;
         self.publish_hot_receipt(&turn, receipt);
         Ok(())

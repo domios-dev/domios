@@ -54,9 +54,8 @@ fn partial_restore(warm: bool) {
     let transaction = store.apply_agent_lifecycle_change(change(), 2).unwrap();
     assert_eq!(transaction.changed_plan_ids(), ["pl_a", "pl_b"]);
     let retained = if warm {
-        Some(store.plan_arc_for_test("pl_a"))
+        Some(store.get("pl_a").unwrap())
     } else {
-        store.clear_plan_cache_for_test();
         None
     };
     let connection = Connection::open(store.database_path_for_test()).unwrap();
@@ -74,10 +73,10 @@ fn partial_restore(warm: bool) {
     connection
         .execute_batch("DROP TRIGGER refuse_restore")
         .unwrap();
-    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Active);
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
     assert_eq!(store.get("pl_b").unwrap().status, PlanStatus::Archived);
     if let Some(handle) = retained {
-        assert_eq!(handle.lock().status, PlanStatus::Active);
+        assert_eq!(handle.status, PlanStatus::Archived);
     }
     assert_matches_sql(&store);
 }
@@ -94,9 +93,7 @@ fn partial_restore_refreshes_every_evicted_plan_and_index() {
 
 fn forward_restore_failure(warm: bool) {
     let (_directory, store) = fixture();
-    if !warm {
-        store.clear_plan_cache_for_test();
-    }
+    if !warm {}
     let connection = Connection::open(store.database_path_for_test()).unwrap();
     connection
         .execute_batch(
@@ -107,11 +104,14 @@ fn forward_restore_failure(warm: bool) {
         )
         .unwrap();
     let error = store.apply_agent_lifecycle_change(change(), 2).unwrap_err();
-    assert!(error.to_string().contains("restore pl_a"), "{error}");
+    assert!(
+        error.to_string().contains("injected batch failure"),
+        "{error}"
+    );
     connection
         .execute_batch("DROP TRIGGER refuse_forward_or_restore")
         .unwrap();
-    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Active);
     assert_eq!(store.get("pl_b").unwrap().status, PlanStatus::Active);
     assert_matches_sql(&store);
 }

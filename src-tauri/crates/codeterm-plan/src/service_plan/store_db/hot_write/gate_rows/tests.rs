@@ -12,9 +12,10 @@ fn gate_family_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
         let mut plan = fixtures::fixture(root.path(), strides, attempts);
         plan.tasks[1].body.push_str(&"u".repeat(body_bytes));
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let (gate, request) = store
             .ask_gate_with_planner_request(
@@ -65,6 +66,9 @@ fn gate_family_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
             assert_eq!(prior, measured);
         }
         prior = Some(measured);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -125,6 +129,7 @@ fn gate_request_failure_rolls_back_all_tasks_gate_request_and_inbox() {
         .unwrap_err();
     assert!(error.to_string().contains("injected gate commit failure"));
     assert!(store.take_committed_change(&plan.id).is_none());
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);

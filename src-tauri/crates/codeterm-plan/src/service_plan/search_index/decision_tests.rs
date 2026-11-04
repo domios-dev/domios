@@ -135,7 +135,7 @@ fn canonical_root_scopes_linked_worktree_units() {
     plan.canonical_project_path = "/main-project".into();
     assert_eq!(plan_project_root(&plan), Path::new("/main-project"));
     assert_eq!(
-        IndexJob::Plan(plan.clone(), PlanIndexScope::Full).project_key(),
+        IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(&plan)).project_key(),
         project_scope(Path::new("/main-project"))
     );
     plan.canonical_project_path.clear();
@@ -154,12 +154,18 @@ fn mirror_round_trip_indexes_plan_sections_and_tasks() {
         state: Mutex::new(IndexQueueState::default()),
         ready: Condvar::new(),
     };
-    queue.enqueue(IndexJob::Plan(plan.clone(), PlanIndexScope::Full));
+    queue.enqueue(IndexJob::PlanSnapshot(PlanSearchSnapshot::from_plan(&plan)));
     let (key, project, job) = queue.take();
-    let IndexJob::Plan(snapshot, _) = job else {
+    let IndexJob::PlanSnapshot(snapshot) = job else {
         panic!("plan job")
     };
-    mirror_plan(&snapshot, false).unwrap();
+    replace_units_once(
+        &snapshot.root,
+        &format!("planunit_{}_%", snapshot.id),
+        &snapshot.units,
+        false,
+    )
+    .unwrap();
     queue.complete(key, project, false);
     let conn = open_index(root.path()).unwrap();
     let indexed = indexed_units_like(&conn, "planunit_%").unwrap();

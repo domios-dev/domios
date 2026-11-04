@@ -71,7 +71,6 @@ fn bundle_exports_preserve_documents_coverage_reference_order_and_loud_errors() 
     assert!(store.spec_full("missing").unwrap().is_none());
     assert!(store.effort_bundle("missing").unwrap().is_none());
     assert!(store.plan_loads_for_test().is_empty());
-    assert!(store.cached_plan_ids_for_test().is_empty());
     assert!(fixtures::audit_counts(&database).is_empty());
     database
         .connection

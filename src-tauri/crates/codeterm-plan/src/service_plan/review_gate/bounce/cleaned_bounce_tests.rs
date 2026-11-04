@@ -738,7 +738,7 @@ fn review_bounce_cleaned_refuses_replay_conflict() {
 
     let (_dir, store, plan_id, task_id, _) = one_reported_cleaned_generation();
     store
-        .with_plan(&plan_id, 16, |plan| {
+        .edit_plan_fixture(&plan_id, 16, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

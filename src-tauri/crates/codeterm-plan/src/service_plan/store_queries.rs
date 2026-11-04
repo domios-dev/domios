@@ -18,7 +18,7 @@ impl PlanStore {
         })
     }
 
-    /// `None` when the plan is unknown or quarantined (the quarantine is logged).
+    #[cfg(any(test, feature = "test-support"))]
     pub fn get(&self, id: &str) -> Option<Plan> {
         match self.try_get(id) {
             Ok(plan) => Some(plan),
@@ -64,19 +64,6 @@ impl PlanStore {
 
     pub fn bind_turn_counter(&self, counter: Arc<reminders::TurnCounter>) {
         *self.turn_counter.write() = Some(counter);
-    }
-
-    pub(super) fn reset_bound_tabs(&self, plan: &Plan) {
-        let Some(counter) = self.turn_counter.read().clone() else {
-            return;
-        };
-        for tab_id in plan
-            .tasks
-            .iter()
-            .filter_map(|t| t.assigned_tab_id.as_deref())
-        {
-            counter.reset(tab_id);
-        }
     }
 
     pub fn open_attempt_task_for_tab(
@@ -162,19 +149,6 @@ impl PlanStore {
         self.database.curator_bootstrap_plan_ids()
     }
 
-    pub(super) fn plans_for_update_in_writer(
-        &self,
-        turn: &MutationWriterTurn<'_>,
-        predicate: &PlanMatch,
-    ) -> Result<Vec<Plan>, PlanError> {
-        turn.assert_store(self);
-        self.database
-            .plan_ids_matching(predicate)?
-            .into_iter()
-            .map(|id| self.try_get(&id))
-            .collect()
-    }
-
     /// Every plan id the index knows; no plan is loaded.
     pub fn plan_ids(&self) -> Vec<String> {
         let mut ids: Vec<String> = self.index.read().keys().cloned().collect();
@@ -230,39 +204,43 @@ impl PlanStore {
     }
 
     pub fn delete(&self, id: &str) -> std::io::Result<()> {
-        let writer_turn = self.mutation_writer.enter();
-        self.delete_in_writer(&writer_turn, id, self.get(id))
+        let turn = self.mutation_writer.enter();
+        self.delete_in_writer(&turn, id, None).map(drop)
     }
 
     pub(super) fn delete_in_writer(
         &self,
         turn: &MutationWriterTurn<'_>,
         id: &str,
-        indexed_plan: Option<Plan>,
-    ) -> std::io::Result<()> {
+        cutoff: Option<u64>,
+    ) -> std::io::Result<Option<store_db::hot_write::DeletedPlanRows>> {
         turn.assert_store(self);
-        if let Some(plan) = indexed_plan {
-            let specs = self
-                .list_specs_full()
-                .into_iter()
-                .filter(|spec| spec.plan_id.as_deref() == Some(id))
-                .collect::<Vec<_>>();
-            super::search_index::remove_plan_from_index(turn, plan, &specs)
-                .map_err(std::io::Error::other)?;
+        let removed = self
+            .database
+            .delete_plan_rows(id, cutoff, unix_time_millis())
+            .map_err(|error| std::io::Error::other(error.to_string()))?;
+        if removed.is_some() || cutoff.is_none() {
+            self.forget_plan(id);
         }
-        self.database
-            .delete_plan(id, unix_time_millis())
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
-        self.forget_plan(id);
-        super::attachments::remove_dir_if_exists(self.plan_data_dir(id))
-            .map_err(|error| std::io::Error::other(error.to_string()))?;
-        Ok(())
+        if let Some(removed) = &removed {
+            super::search_index::remove_plan_from_index(
+                turn,
+                super::search_index::PlanIndexRemoval {
+                    id: id.into(),
+                    root: removed.root.clone(),
+                },
+                &removed.specs,
+            )
+            .map_err(std::io::Error::other)?;
+            super::attachments::remove_dir_if_exists(self.plan_data_dir(id))
+                .map_err(|error| std::io::Error::other(error.to_string()))?;
+        }
+        Ok(removed)
     }
 
     /// Drop a plan from the in-memory index + search units without touching disk.
     /// The plan's owned spec (1:1, co-located) lives and dies with it.
     pub(super) fn forget_plan(&self, id: &str) {
-        self.plan_cache.evict(id);
         self.index.write().remove(id);
         self.forget_owned_spec(id);
     }

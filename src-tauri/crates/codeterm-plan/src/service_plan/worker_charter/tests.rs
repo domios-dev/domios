@@ -94,7 +94,7 @@ fn charter_appends_worker_line_when_plan_has_skills() {
 fn prepends_loop_context_for_loop_targeted_assignment() {
     let (_dir, store, task_id) = store_with_assigned_task();
     store
-        .with_plan("pl_charter", 3, |plan| {
+        .edit_plan_fixture("pl_charter", 3, |plan| {
             plan.loops.push(LoopSpec {
                 id: "loop_focus".into(),
                 target: task_id.clone(),
@@ -145,7 +145,7 @@ fn no_stride_block_when_task_has_no_relevant_strides() {
 fn prepends_pinned_decision_stride_for_assigned_tab() {
     let (_dir, store, task_id) = store_with_assigned_task();
     store
-        .with_plan("pl_charter", 3, |plan| {
+        .edit_plan_fixture("pl_charter", 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

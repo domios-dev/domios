@@ -2,6 +2,7 @@ use super::header_edits::{append_field, set_field};
 use super::*;
 use crate::plan::{Spec, SpecLink};
 mod create;
+pub(super) use create::insert_plan;
 pub(in crate::service_plan) use create::SpecPlanCreate;
 
 pub(in crate::service_plan) enum SpecLinkChange {

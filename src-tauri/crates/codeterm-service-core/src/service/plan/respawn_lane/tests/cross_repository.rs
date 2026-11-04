@@ -69,7 +69,7 @@ fn respawn_cross_repository_lane_resolves_own_base_and_persists_replacement() {
         ExecutionIntent::Mutating,
     );
     store
-        .with_plan(&plan_id, 6, |plan| {
+        .edit_plan_fixture(&plan_id, 6, |plan| {
             let task = &mut plan.tasks[0];
             task.lane.worktree_path = Some(lane_path.into());
             task.lane.branch = Some(branch.into());

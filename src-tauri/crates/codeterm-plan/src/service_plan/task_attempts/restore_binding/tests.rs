@@ -321,7 +321,7 @@ fn attempt_binding_restore_close_race_serializes_without_resurrecting_a_closed_a
     let close_barrier = barrier.clone();
     let close = std::thread::spawn(move || {
         close_barrier.wait();
-        close_store.with_plan(&plan_id, 8, |plan| {
+        close_store.edit_plan_fixture(&plan_id, 8, |plan| {
             plan.tasks[0].execution_attempts[0].closed_at = Some(8);
             Ok(())
         })
@@ -412,7 +412,7 @@ fn reported_attempt_restart_restoration_bounce_ack_preserves_identity_and_report
         .unwrap();
     fixture
         .store
-        .with_plan(&fixture.plan_id, 7, |plan| {
+        .edit_plan_fixture(&fixture.plan_id, 7, |plan| {
             plan.tasks[0].status = TaskStatus::InReview;
             Ok(())
         })
@@ -538,7 +538,7 @@ fn restoration_undo_preserves_metadata_and_refuses_a_newer_nonce_or_owner() {
             .restore_current_attempt_binding(request.clone(), 10)
             .unwrap();
         f.store
-            .with_plan(&f.plan_id, 11, |plan| {
+            .edit_plan_fixture(&f.plan_id, 11, |plan| {
                 plan.title = "unrelated edit".into();
                 if conflict {
                     let task = plan
@@ -608,7 +608,7 @@ fn executor_identity_undo_preserves_other_attempt_fields_and_rejects_newer_ident
             )
             .unwrap();
         f.store
-            .with_plan(&f.plan_id, 11, |plan| {
+            .edit_plan_fixture(&f.plan_id, 11, |plan| {
                 let attempt = plan
                     .tasks
                     .iter_mut()

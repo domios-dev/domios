@@ -13,9 +13,10 @@ fn plan_audit_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
         plan.tasks[0].group = Some("group".into());
         plan.tasks[1].body.push_str(&"u".repeat(body_bytes));
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         store
             .close_group(&plan.id, "group", "closed", AgentRef::from_tab("owner"), 20)
@@ -45,6 +46,9 @@ fn plan_audit_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
             assert_eq!(prior, measured);
         }
         prior = Some(measured);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -81,6 +85,7 @@ fn group_close_failure_rolls_back_declaration_and_stride() {
         .to_string()
         .contains("injected audit commit failure"));
     assert!(store.take_committed_change(&plan.id).is_none());
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);

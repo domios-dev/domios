@@ -270,7 +270,7 @@ fn dispatch_rollback_preserves_concurrent_task_edits_and_integration_metadata() 
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -332,7 +332,7 @@ fn dispatch_rollback_refuses_a_changed_owner_epoch_without_reverting_edits() {
         )
         .unwrap();
     store
-        .with_plan(&plan_id, 4, |plan| {
+        .edit_plan_fixture(&plan_id, 4, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()
@@ -362,7 +362,7 @@ fn dispatch_rollback_reverts_only_the_destination_written_by_startup() {
     ] {
         let (_dir, store, plan_id, original) = pending_task();
         store
-            .with_plan(&plan_id, 3, |plan| {
+            .edit_plan_fixture(&plan_id, 3, |plan| {
                 plan.tasks
                     .iter_mut()
                     .find(|task| task.id == original.id)
@@ -391,7 +391,7 @@ fn dispatch_rollback_reverts_only_the_destination_written_by_startup() {
         );
         if let Some(destination) = concurrent {
             store
-                .with_plan(&plan_id, 5, |plan| {
+                .edit_plan_fixture(&plan_id, 5, |plan| {
                     plan.tasks
                         .iter_mut()
                         .find(|task| task.id == original.id)

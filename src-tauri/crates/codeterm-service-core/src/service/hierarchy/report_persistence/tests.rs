@@ -201,7 +201,7 @@ fn blocked_explicit_report_persists_as_proposal_without_task_transition() {
     let task_id = add_task(&store, &plan.id, "blocked task", 2);
     let reason = "explicit worker report reason";
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             plan.tasks[0].status = TaskStatus::InProgress;
             Ok(())
         })
@@ -244,7 +244,7 @@ fn blocked_explicit_report_on_in_review_task_is_kept_as_a_milestone() {
     store.save(&mut plan, 1).unwrap();
     let task_id = add_task(&store, &plan.id, "reviewed task", 2);
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

@@ -9,7 +9,7 @@ pub struct PlanProjectUpdate {
     pub changed: bool,
 }
 
-fn project_path_update(
+pub(super) fn project_path_update(
     plan_id: &str,
     old_project: &str,
     old_canonical: &str,
@@ -32,21 +32,15 @@ impl PlanStore {
         canonical: &str,
         now_ms: u64,
     ) -> Result<PlanProjectUpdate, PlanError> {
-        let writer_turn = self.mutation_writer.enter();
-        let mut plan = self.get(plan_id).ok_or(PlanError::NotFound)?;
-        let update = project_path_update(
-            &plan.id,
-            &plan.project_path,
-            &plan.canonical_project_path,
-            project,
-            canonical,
-        );
+        let turn = self.mutation_writer.enter();
+        let (update, receipt, old) = self
+            .database
+            .set_project_path_rows(plan_id, project, canonical, now_ms)?;
         if update.changed {
-            plan.project_path = update.project_path.clone();
-            plan.canonical_project_path = update.canonical_project_path.clone();
-            let now_ms = now_ms.max(plan.updated_at);
-            self.save_in_writer(&writer_turn, &mut plan, now_ms)
-                .map_err(|error| PlanError::Io(error.to_string()))?;
+            if let Some(new) = &receipt.index_root {
+                super::search_index::enqueue_plan_move(&turn, plan_id, old, new.clone());
+            }
+            self.publish_hot_receipt(&turn, receipt);
         }
         Ok(update)
     }

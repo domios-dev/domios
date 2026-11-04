@@ -165,6 +165,7 @@ fn start(
     let observation = observation.clone();
     let observer = codeterm_decision::physical::current();
     let host_env = host_exec::current_host_env();
+    let artifacts = codeterm_util::task_files::current_capture();
     let plugin = sandbox.plugin_id().to_string();
     let root = crate::surface_invocation::root_identity();
     let surface = crate::surface_invocation::current(&plugin);
@@ -187,14 +188,16 @@ fn start(
                 let _files = FileLockCallScope::attach(resources);
                 let _operation = operation::Scope::enter(operation.clone());
                 let work = || {
-                    operation
-                        .check()
-                        .map_err(|error| Failure::from(error.to_string()))
-                        .and_then(|_| {
-                            with_surface(surface, || {
-                                execute(request, &sandbox, &observation, &operation)
+                    codeterm_util::task_files::with_capture(artifacts, || {
+                        operation
+                            .check()
+                            .map_err(|error| Failure::from(error.to_string()))
+                            .and_then(|_| {
+                                with_surface(surface, || {
+                                    execute(request, &sandbox, &observation, &operation)
+                                })
                             })
-                        })
+                    })
                 };
                 let result = match view {
                     Some(context) => crate::view_host::with_view_call_context(

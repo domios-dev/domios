@@ -217,7 +217,7 @@ fn reopened_task_redispatches_onto_its_lane() {
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

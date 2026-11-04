@@ -143,7 +143,7 @@ fn implicit_lane_update_still_fills_only_empty() {
 fn lane_metadata_update_never_changes_assignment_or_closes_attempts() {
     let (_dir, store, plan, task) = setup();
     store
-        .with_plan(&plan, 3, |plan| {
+        .edit_plan_fixture(&plan, 3, |plan| {
             let task_ref = plan
                 .tasks
                 .iter_mut()
@@ -599,7 +599,7 @@ fn blocked_requires_label_invariant() {
         crate::service_plan::PlanError::BlockedRequiresLabel
     ));
     store
-        .with_plan(&plan, 5, |plan| {
+        .edit_plan_fixture(&plan, 5, |plan| {
             plan.tasks[0].status_label = Some("stale label".into());
             Ok(())
         })

@@ -354,7 +354,7 @@ fn completed_current_session_receipt_refuses_stale_identity_generation_history_a
             fixture
                 .service
                 .plan_store
-                .with_plan(&original.plan_id, 6, |plan| {
+                .edit_plan_fixture(&original.plan_id, 6, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()
@@ -511,7 +511,7 @@ fn completed_resume_target_carry_fails_closed_on_history_or_generation_races() {
             fixture
                 .service
                 .plan_store
-                .with_plan(&detail.plan_id, 6, |plan| {
+                .edit_plan_fixture(&detail.plan_id, 6, |plan| {
                     plan.tasks
                         .iter_mut()
                         .find(|task| task.id == task_id)
@@ -628,7 +628,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
         fixture
             .service
             .plan_store
-            .with_plan(&detail.plan_id, 5, |plan| {
+            .edit_plan_fixture(&detail.plan_id, 5, |plan| {
                 *plan
                     .tasks
                     .iter_mut()
@@ -665,7 +665,7 @@ fn completed_worker_switch_refuses_invalid_identity_before_teardown_or_mutation(
             _ => fixture
                 .service
                 .plan_store
-                .with_plan(&detail.plan_id, 6, |plan| {
+                .edit_plan_fixture(&detail.plan_id, 6, |plan| {
                     let task = plan
                         .tasks
                         .iter_mut()
@@ -792,7 +792,7 @@ fn completed_switch_revalidates_history_before_source_retirement() {
     fixture
         .service
         .plan_store
-        .with_plan(&detail.plan_id, 6, |plan| {
+        .edit_plan_fixture(&detail.plan_id, 6, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

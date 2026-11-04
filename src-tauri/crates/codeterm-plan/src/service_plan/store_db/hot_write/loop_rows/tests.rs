@@ -27,9 +27,10 @@ fn loop_family_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
         plan.tasks[1].body.push_str(&"u".repeat(body_bytes));
         let actual_bytes = serde_json::to_vec(&plan).unwrap().len();
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let id = store.create_loop(&plan.id, "target", 2, None, 20).unwrap();
         let create = super::super::take_work();
@@ -61,6 +62,9 @@ fn loop_family_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
             assert_eq!(prior, measured);
         }
         prior = Some(measured);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -119,6 +123,7 @@ fn loop_record_failure_rolls_back_loop_task_and_milestone() {
         .unwrap_err();
     assert!(error.to_string().contains("injected loop commit failure"));
     assert!(database.pending_changes.lock().take(&plan.id).is_none());
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);

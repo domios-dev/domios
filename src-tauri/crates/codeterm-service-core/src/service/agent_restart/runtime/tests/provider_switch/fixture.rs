@@ -64,7 +64,7 @@ pub(super) fn prepared_switch_worker_fixture(storage: bool) -> (RuntimeFixture, 
         )
         .unwrap();
     store
-        .with_plan(&plan.id, 3, |plan| {
+        .edit_plan_fixture(&plan.id, 3, |plan| {
             let task = plan
                 .tasks
                 .iter_mut()

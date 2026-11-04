@@ -236,7 +236,7 @@ impl PlanStore {
         let work = receipts
             .iter()
             .map(super::store_db::hot_write::work_values)
-            .fold([0; 13], |mut sum, values| {
+            .fold([0; 14], |mut sum, values| {
                 for (total, value) in sum.iter_mut().zip(values) {
                     *total += value;
                 }

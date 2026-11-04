@@ -2,7 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::Path;
 
-use super::readback::pending_after_verified;
 use super::state::{DependencyWait, TaskPresentation};
 use super::{PlanError, PlanStore};
 use crate::plan::{OrchestratorRef, PlanMode, Task, TaskStatus};
@@ -158,56 +157,43 @@ impl PlanStore {
         let target = self.task_authority_target_projection(task_id)?;
         let plan_id = target.plan_id;
         let canonical_task_id = target.task_id;
-        let write = self.with_plan(&plan_id, now_ms, |p| {
-            let task_index = p
-                .tasks
-                .iter()
-                .position(|task| task.id == canonical_task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            if let Some(tab) = tab_id.filter(|_| p.tasks[task_index].status == TaskStatus::Pending)
-            {
-                let lane = super::TaskLaneUpdate {
-                    tab_id: Some(Some(tab.to_string())),
-                    ..Default::default()
-                };
-                super::mutations::validate_task_status_transition_with_lane(
-                    p,
-                    &canonical_task_id,
-                    &TaskStatus::Pending,
-                    &TaskStatus::InProgress,
-                    None,
-                    Some(&lane),
-                )?;
-            }
-            let task = &mut p.tasks[task_index];
-            task.assigned_tab_id = tab_id.map(str::to_string);
-            task.taken_by_role = taken_by_role.map(str::to_string);
-            if let Some(tab) = tab_id {
-                let attempt = super::task_attempts::new_assignment_attempt(
-                    task,
-                    tab,
-                    None,
-                    taken_by_role,
-                    now_ms,
-                );
-                task.execution_attempts.push(attempt);
-            }
-            // Binding an executor tab IS the in_progress precondition — taking or dispatching a task starts it, so a live worker never leaves the board stuck at pending while it codes.
-            if tab_id.is_some() && task.status == TaskStatus::Pending {
-                task.status = TaskStatus::InProgress;
-                task.status_changed_at = now_ms;
-                p.mode = PlanMode::Execution;
-            }
-            if tab_id.is_none() {
-                task.peer = None;
-            }
-            task.updated_at = now_ms;
-            Ok(())
-        });
-        pending_after_verified(
-            write,
-            self.verify_task_assignment(&plan_id, &canonical_task_id, tab_id, taken_by_role),
-            Some(canonical_task_id),
+        self.with_task_rows(
+            &plan_id,
+            &canonical_task_id,
+            super::store_db::hot_write::TaskHistory::Core,
+            now_ms,
+            |edit| {
+                if tab_id.is_some() && edit.task.status == TaskStatus::Pending {
+                    edit.progression = Some((
+                        TaskStatus::Pending,
+                        tab_id.is_some_and(|tab| !tab.trim().is_empty()),
+                    ));
+                }
+                let task = &mut edit.task;
+                task.assigned_tab_id = tab_id.map(str::to_string);
+                task.taken_by_role = taken_by_role.map(str::to_string);
+                if let Some(tab) = tab_id {
+                    let attempt = super::task_attempts::new_assignment_attempt(
+                        task,
+                        tab,
+                        None,
+                        taken_by_role,
+                        now_ms,
+                    );
+                    task.execution_attempts.push(attempt);
+                }
+                // Binding an executor tab IS the in_progress precondition — taking or dispatching a task starts it, so a live worker never leaves the board stuck at pending while it codes.
+                if tab_id.is_some() && task.status == TaskStatus::Pending {
+                    task.status = TaskStatus::InProgress;
+                    task.status_changed_at = now_ms;
+                    edit.mode = PlanMode::Execution;
+                }
+                if tab_id.is_none() {
+                    task.peer = None;
+                }
+                task.updated_at = now_ms;
+                Ok(())
+            },
         )?;
         Ok(plan_id)
     }
