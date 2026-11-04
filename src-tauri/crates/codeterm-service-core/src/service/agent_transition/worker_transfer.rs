@@ -28,15 +28,15 @@ impl ServiceContext {
         &self,
         worker_tab_id: &str,
         destination_manager_tab_id: &str,
-    ) -> bool {
+    ) -> Result<bool, String> {
         let mux = self.mux.read();
         let Some(worker) = mux.get_tab(worker_tab_id) else {
-            return false;
+            return Ok(false);
         };
         if worker.role != Some(AgentRole::Worker)
             || worker.parent_tab_id.as_deref() == Some(destination_manager_tab_id)
         {
-            return false;
+            return Ok(false);
         }
         super::worker_is_task_bound(&self.plan_store, worker_tab_id)
     }
@@ -165,7 +165,7 @@ impl ServiceContext {
             .as_deref()
             .filter(|value| !value.trim().is_empty())
             .ok_or_else(|| "worker transfer refused: live provider is missing".to_string())?;
-        let task_bindings = worker_task_bindings(&self.plan_store, worker_tab_id);
+        let task_bindings = worker_task_bindings(&self.plan_store, worker_tab_id)?;
         if task_bindings.len() != 1
             || task_bindings[0] != (plan_id.to_string(), task_id.to_string())
             || task.lane.tab_id.as_deref() != Some(worker_tab_id)
@@ -299,20 +299,8 @@ fn unique_team_anchor(mux: &MultiplexerState, team_id: &str, manager_tab_id: &st
 pub(crate) fn worker_task_bindings(
     plan_store: &crate::service::plan::PlanStore,
     worker_tab_id: &str,
-) -> Vec<(String, String)> {
-    let candidates = crate::service::plan::TaskMatch::assigned(
-        worker_tab_id,
-        &crate::service::plan::plan_match::NON_TERMINAL_TASK_STATUSES,
-    );
+) -> Result<Vec<(String, String)>, String> {
     plan_store
-        .stored_plans_matching(&candidates)
-        .iter()
-        .flat_map(|candidate| {
-            candidate.tasks.iter().filter_map(|task| {
-                (!task.status.is_terminal()
-                    && task.assigned_tab_id.as_deref() == Some(worker_tab_id))
-                .then(|| (candidate.id.clone(), task.id.clone()))
-            })
-        })
-        .collect()
+        .transition_worker_task_bindings_projection(worker_tab_id)
+        .map_err(|error| error.to_string())
 }

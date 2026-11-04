@@ -413,7 +413,8 @@ fn worker_transfer_transfer_rechecks_source_authority_and_accepts_current_destin
     assert!(fixture
         .fixture
         .service
-        .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination));
+        .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination)
+        .unwrap());
     {
         let mut mux = fixture.fixture.service.mux.write();
         let source = mux.get_tab_mut(&fixture.source).unwrap();
@@ -430,7 +431,8 @@ fn worker_transfer_transfer_rechecks_source_authority_and_accepts_current_destin
     assert!(fixture
         .fixture
         .service
-        .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination));
+        .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination)
+        .unwrap());
     let before_plan = fixture
         .fixture
         .service
@@ -476,7 +478,8 @@ fn worker_transfer_transfer_rechecks_source_authority_and_accepts_current_destin
     assert!(fixture
         .fixture
         .service
-        .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination));
+        .task_bound_worker_transfer_candidate(&fixture.worker, &fixture.destination)
+        .unwrap());
     {
         let mut mux = fixture.fixture.service.mux.write();
         mux.get_tab_mut(&fixture.destination)

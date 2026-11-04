@@ -140,12 +140,8 @@ fn worker_is_task_bound_never_loads_unmatched_plans() {
     );
     start(store);
 
-    assert!(crate::service::agent_transition::worker_is_task_bound(
-        store, "worker-a"
-    ));
-    assert!(!crate::service::agent_transition::worker_is_task_bound(
-        store, "worker-c"
-    ));
+    assert!(crate::service::agent_transition::worker_is_task_bound(store, "worker-a").unwrap());
+    assert!(!crate::service::agent_transition::worker_is_task_bound(store, "worker-c").unwrap());
     assert_never_loaded(store, &[&other]);
 }
 
@@ -174,7 +170,7 @@ fn worker_task_bindings_never_loads_unmatched_plans() {
     start(store);
 
     assert_eq!(
-        crate::service::agent_transition::worker_task_bindings(store, "worker-a"),
+        crate::service::agent_transition::worker_task_bindings(store, "worker-a").unwrap(),
         vec![(mine, "task_m".to_string())]
     );
     assert_never_loaded(store, &[&finished]);

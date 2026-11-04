@@ -281,12 +281,15 @@ impl ServiceContext {
             });
         }
 
-        let plan = self
+        let prior_planner = self
             .plan_store
-            .get(plan_id)
-            .ok_or_else(|| format!("Plan {plan_id} not found"))?;
+            .hierarchy_planner_projection(plan_id)
+            .map_err(|error| match error {
+                crate::service::plan::PlanError::NotFound => format!("Plan {plan_id} not found"),
+                error => error.to_string(),
+            })?;
         if planner.is_none() {
-            if let Some(PlannerRef::Tab { tab_id, .. }) = plan.planner {
+            if let Some(PlannerRef::Tab { tab_id, .. }) = prior_planner {
                 if self.mux.read().get_tab(&tab_id).is_some() {
                     return self.transition_agent(AgentTransitionRequest {
                         tab_id,
@@ -326,25 +329,10 @@ impl ServiceContext {
 pub(crate) fn worker_is_task_bound(
     plan_store: &crate::service::plan::PlanStore,
     tab_id: &str,
-) -> bool {
-    use crate::service::plan::{AttemptMatch, AttemptState, PlanMatch, TaskMatch};
-    let candidates = PlanMatch::Any(vec![
-        TaskMatch::bound_to(tab_id),
-        AttemptMatch::executor(tab_id, AttemptState::Unclosed).into_match(),
-    ]);
+) -> Result<bool, String> {
     plan_store
-        .stored_plans_matching(&candidates)
-        .iter()
-        .any(|plan| {
-            plan.tasks.iter().any(|task| {
-                (!task.status.is_terminal()
-                    && (task.assigned_tab_id.as_deref() == Some(tab_id)
-                        || task.lane.tab_id.as_deref() == Some(tab_id)))
-                    || task.execution_attempts.iter().any(|attempt| {
-                        attempt.executor_tab_id == tab_id && attempt.closed_at.is_none()
-                    })
-            })
-        })
+        .transition_worker_is_task_bound_projection(tab_id)
+        .map_err(|error| error.to_string())
 }
 
 fn refuse_unverified_task_bound_worker_transfer(
@@ -363,7 +351,7 @@ fn refuse_unverified_task_bound_worker_transfer(
     {
         return Ok(());
     }
-    if worker_is_task_bound(plan_store, &request.tab_id) {
+    if worker_is_task_bound(plan_store, &request.tab_id)? {
         return Err(
             "task-bound Worker transfer requires an authenticated source-manager transfer".into(),
         );
@@ -574,7 +562,7 @@ fn prepare_transition(
                 Some(PlannerRef::Tab { tab_id, .. }) => Some(tab_id.as_str()),
                 _ => None,
             }),
-    );
+    )?;
     if let Some(incumbent_id) = incumbent.as_deref() {
         if staged.get_tab(incumbent_id).is_some() {
             for affected_id in clear_lifecycle(staged, incumbent_id, None)? {
@@ -802,8 +790,12 @@ fn plan_owner(
     plan_id: &str,
 ) -> Result<String, String> {
     plan_store
-        .get(plan_id)
-        .and_then(|plan| plan.owner.tab_id)
+        .plan_identity_projection(plan_id)
+        .map(|plan| plan.owner.tab_id)
+        .or_else(|error| match error {
+            crate::service::plan::PlanError::NotFound => Ok(None),
+            error => Err(error.to_string()),
+        })?
         .filter(|tab_id| !tab_id.trim().is_empty())
         .ok_or_else(|| format!("Plan {plan_id} has no live Orchestrator owner"))
 }
@@ -1014,19 +1006,26 @@ fn planner_incumbent(
     plan_rebind: Option<&AgentLifecyclePlanRebind>,
     target_tab_id: &str,
     replacement_tab_id: Option<&str>,
-) -> Option<String> {
+) -> Result<Option<String>, String> {
     let plan_id = match plan_binding {
         Some(plan_id) if destination.is_planner() => plan_id,
         _ if destination.anchors_team() => {
-            let rebind = plan_rebind.filter(|rebind| rebind.clear_planner)?;
+            let Some(rebind) = plan_rebind.filter(|rebind| rebind.clear_planner) else {
+                return Ok(None);
+            };
             &rebind.plan_id
         }
-        _ => return None,
+        _ => return Ok(None),
     };
-    let Some(PlannerRef::Tab { tab_id, .. }) = plan_store.get(plan_id)?.planner else {
-        return None;
+    let planner = match plan_store.hierarchy_planner_projection(plan_id) {
+        Ok(planner) => planner,
+        Err(crate::service::plan::PlanError::NotFound) => return Ok(None),
+        Err(error) => return Err(error.to_string()),
     };
-    (tab_id != target_tab_id && Some(tab_id.as_str()) != replacement_tab_id).then_some(tab_id)
+    let Some(PlannerRef::Tab { tab_id, .. }) = planner else {
+        return Ok(None);
+    };
+    Ok((tab_id != target_tab_id && Some(tab_id.as_str()) != replacement_tab_id).then_some(tab_id))
 }
 
 fn verify_destination(

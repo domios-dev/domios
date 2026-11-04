@@ -1,3 +1,4 @@
+mod agent_transition;
 pub(in crate::service_plan) mod hierarchy;
 use super::{db_error, PlanDatabase};
 use crate::plan::Section;
