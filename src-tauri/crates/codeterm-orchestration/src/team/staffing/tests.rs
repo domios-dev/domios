@@ -532,7 +532,7 @@ fn the_new_orchestrator_takes_the_plan_over_and_the_heartbeat_follows() {
     let snapshot = store
         .reminder_read_snapshot(|text| text.chars().take(512).collect())
         .unwrap();
-    let plans = [snapshot.plan(&plan_id).unwrap().unwrap()];
+    let plans = snapshot.candidate_targets(None).unwrap();
     let reminder_targets = timed_plan_reminder_targets(&plans);
     let owner_targets: Vec<&str> = reminder_targets
         .iter()
