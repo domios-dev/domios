@@ -467,10 +467,12 @@ impl ServiceContext {
         log::info!(
             "[agent-lifecycle] cleared Tab identity: tab={tab_id} cause={cause} verdict_source={source} tree_evidence={tree_evidence}"
         );
-        self.signal_worker_interruption(
+        if let Err(error) = self.signal_worker_interruption(
             tab_id,
             crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
-        );
+        ) {
+            log::error!("[worker-interruption] signal failed: {error}");
+        }
         self.clear_dead_planner_binding(tab_id);
         self.prompt_detector.lock().clear(tab_id);
         crate::service::structured_prompt::clear_tab(tab_id);

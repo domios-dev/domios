@@ -112,6 +112,8 @@ pub use checkpoint::TaskCheckpointAdoptionRead;
 mod restart;
 mod restoration;
 mod runtime_restore;
+mod runtime_session;
+mod split;
 pub use creation::{TaskCreationRead, TaskDescriptionRead};
 pub use restart::{
     CompletedTaskRestartRead, RestartAttemptRead, TaskAttemptBindingRead, TaskRestartAuthorityRead,
@@ -119,3 +121,8 @@ pub use restart::{
 };
 pub use restoration::{ReviewBindingRestoreRead, ReviewRestoreAttemptRead, TaskBindingRestoreRead};
 pub use runtime_restore::{RuntimeAttemptRestoreQuery, RuntimeAttemptRestoreRead};
+pub use runtime_session::{RuntimeSessionAttemptRead, TaskRuntimeSessionRead};
+pub use split::TaskSplitDefaultsRead;
+
+mod provider_interruption;
+pub use provider_interruption::{ProviderRecoveryRead, TaskInterruptionRead};

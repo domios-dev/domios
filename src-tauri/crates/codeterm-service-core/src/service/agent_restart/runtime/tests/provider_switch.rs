@@ -247,10 +247,13 @@ fn assert_completed_session_has_no_task_authority(fixture: &RuntimeFixture, task
         )
         .unwrap();
     assert!(!report);
-    assert!(!fixture.service.signal_worker_interruption(
-        &fixture.tab,
-        crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
-    ));
+    assert!(!fixture
+        .service
+        .signal_worker_interruption(
+            &fixture.tab,
+            crate::service::worker_interruption::WorkerInterruptionEvent::ProcessExited,
+        )
+        .unwrap());
     assert_eq!(
         fixture.service.plan_store.show_task(task_id).unwrap().task,
         detail.task

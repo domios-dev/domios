@@ -33,7 +33,7 @@ fn assert_blocked(harness: &Harness, token: &str, blocked: bool) {
     assert_eq!(revoked || unavailable, blocked);
     assert_eq!(
         harness.mesh.verify_peer_membership(token, START).is_err(),
-        revoked
+        blocked
     );
     let transport = harness.transport.last.lock().unwrap();
     let applied = transport.as_ref().unwrap();
@@ -48,26 +48,26 @@ fn assert_blocked(harness: &Harness, token: &str, blocked: bool) {
 async fn account_mesh_registry_revocation_blocks_on_list_and_requires_higher_generation() {
     let key = InstallationKey::generate();
     let mut harness = enrolled_with_peer(Some(&key)).await;
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     let token = peer_membership(&key, 1);
     assert_blocked(&harness, &token, false);
     harness.registry.script.lock().unwrap().peer_active = Some(false);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &token, true);
     harness.registry.script.lock().unwrap().peer_active = Some(true);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &token, true);
     harness.restart().await;
     harness.sign_in("owner").await;
     assert_blocked(&harness, &token, true);
     let next_key = InstallationKey::generate();
     harness.registry.script.lock().unwrap().peer_key = Some((next_key.key_id(), 2));
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &peer_membership(&next_key, 2), false);
     assert!(harness.mesh.verify_peer_membership(&token, START).is_err());
     harness.registry.script.lock().unwrap().peer_key = Some((key.key_id(), 1));
     harness.registry.script.lock().unwrap().peer_active = Some(false);
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &peer_membership(&next_key, 2), false);
 }
 
@@ -75,7 +75,7 @@ async fn account_mesh_registry_revocation_blocks_on_list_and_requires_higher_gen
 async fn account_mesh_registry_signed_out_blocks_on_sync_and_fences_stale_presence() {
     let key = InstallationKey::generate();
     let mut harness = enrolled_with_peer(Some(&key)).await;
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     let token = peer_membership(&key, 1);
     assert_blocked(&harness, &token, false);
     {
@@ -101,7 +101,7 @@ async fn account_mesh_registry_signed_out_blocks_on_sync_and_fences_stale_presen
         script.peer_presence = RegistryPresence::Present;
         script.peer_metadata_revision = 1;
     }
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &token, true);
     harness
         .registry
@@ -109,7 +109,7 @@ async fn account_mesh_registry_signed_out_blocks_on_sync_and_fences_stale_presen
         .lock()
         .unwrap()
         .peer_metadata_revision = 2;
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &token, true);
     harness
         .registry
@@ -117,14 +117,14 @@ async fn account_mesh_registry_signed_out_blocks_on_sync_and_fences_stale_presen
         .lock()
         .unwrap()
         .peer_metadata_revision = 3;
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &token, false);
     {
         let mut script = harness.registry.script.lock().unwrap();
         script.peer_presence = RegistryPresence::SignedOut;
         script.peer_metadata_revision = 2;
     }
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &token, false);
 }
 
@@ -139,7 +139,7 @@ async fn account_mesh_registry_presence_notice_readmits_without_waiting_for_leas
         script.peer_presence = RegistryPresence::SignedOut;
         script.peer_metadata_revision = 2;
     }
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     assert_blocked(&harness, &token, true);
     let membership = harness.state().membership.clone().unwrap();
     let before = harness.calls("list");
@@ -291,7 +291,7 @@ async fn account_mesh_partial_sync_preserves_last_complete_security_view() {
     let signed = harness.mesh.signed(None).await.unwrap();
     harness.mesh.sync_registry(&signed).await.unwrap();
     assert_eq!(harness.state().registry_security.as_ref(), Some(&previous));
-    harness.mesh.list().await.unwrap();
+    harness.mesh.list_fresh().await.unwrap();
     let state = harness.state();
     let current = state.registry_security.as_ref().unwrap();
     assert_eq!(current.revision, 10);
@@ -313,7 +313,7 @@ async fn account_mesh_own_signed_out_row_cannot_clear_fresh_membership_before_si
             harness.registry.presence("owner"),
             RegistryPresence::SignedOut
         );
-        harness.mesh.list().await.unwrap();
+        harness.mesh.list_fresh().await.unwrap();
         assert_eq!(harness.state().membership.as_ref(), Some(&fresh));
         assert!(!harness.state().revoked_installations.contains(INSTALLATION));
         assert!(!harness
