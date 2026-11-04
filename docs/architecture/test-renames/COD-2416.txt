@@ -1,0 +1,2 @@
+service::pty_io::tests::windows_spawn_dispatch_prepends_sacrificial_space_without_glued_enter -> service::pty_io::tests::windows_spawn_dispatch_has_exact_payload_without_unnegotiated_paste
+service::pty_io::submit_transaction::paste_encoding_tests::prompt_line_launch_brief_forces_one_frame_when_live_mode_is_disabled -> service::pty_io::submit_transaction::paste_encoding_tests::prompt_line_launch_brief_cannot_force_a_disabled_live_mode

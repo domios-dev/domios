@@ -513,7 +513,10 @@ pub fn write_pty_string_core(
             .get_session(&pty_id)
             .ok_or_else(|| format!("PTY not found: {}", pty_id))?
     };
-    let bytes = data;
+    let bytes = svc.screen_state.filter_terminal_reports(&pty_id, &data);
+    if bytes.is_empty() {
+        return Ok(());
+    }
     parse_pty_input(svc, &svc.mux, &pty_id, &bytes);
     mark_user_activity(svc, &svc.mux, &pty_id);
     codeterm_service_core::pty::capture::CaptureRegistry::global().tap_input(

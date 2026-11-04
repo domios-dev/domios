@@ -34,13 +34,10 @@ impl PasteEncodingCapability {
         }
     }
 
-    fn bracketed(self, text: &str, live_mode: Option<bool>) -> bool {
+    fn bracketed(self, _text: &str, live_mode: Option<bool>) -> bool {
         match self {
             Self::Unsupported | Self::TaggedBlock => false,
-            Self::LiveModeOnly => live_mode == Some(true),
-            Self::MultilineTui => {
-                live_mode == Some(true) || text.contains('\r') || text.contains('\n')
-            }
+            Self::LiveModeOnly | Self::MultilineTui => live_mode == Some(true),
         }
     }
 }
@@ -67,7 +64,7 @@ pub(crate) fn live_command_input(text: &str, live_mode: Option<bool>) -> Vec<u8>
 
 pub(super) fn encode_paste_payload(
     text: &str,
-    force_bracketed_paste: bool,
+    _force_bracketed_paste: bool,
     paste_marker: Option<&str>,
     live_mode: Option<bool>,
     capability: PasteEncodingCapability,
@@ -85,7 +82,6 @@ pub(super) fn encode_paste_payload(
         }
         return normalized.into_bytes();
     }
-    let live_mode = force_bracketed_paste.then_some(true).or(live_mode);
     if let Some(marker) = paste_marker.filter(|_| capability.bracketed(text, live_mode)) {
         // Separate paste events can commit out of order when a TUI expands a large paste.
         return xterm_paste(&format!("{text}{marker}"), live_mode, capability).into_bytes();
