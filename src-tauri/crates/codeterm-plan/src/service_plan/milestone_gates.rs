@@ -3,7 +3,7 @@ use serde::Serialize;
 
 use super::prompts_plan::REGRESSION_MILESTONE_KIND;
 use super::reflection::GROUP_CLOSE_MILESTONE_KIND;
-use crate::plan::{AgentRef, Milestone, Plan, RegressionGateOverride};
+use crate::plan::{AgentRef, Plan, RegressionGateOverride};
 
 use super::{PlanError, PlanStore};
 
@@ -220,33 +220,12 @@ impl PlanStore {
         if note.is_empty() {
             return Err(PlanError::QaNoteRequired);
         }
-        let mid = self.mint_id("ms")?;
-        let mut gate = None;
-        self.with_plan(plan_id, now_ms, |p| {
-            let group = p
-                .task_groups
-                .iter()
-                .find(|g| g.key == group_key)
-                .ok_or(PlanError::GroupNotFound)?;
-            gate = Some(RegressionGate {
-                key: group.key.clone(),
-                label: group.label.clone(),
-            });
-            p.strides.push(Milestone {
-                id: mid.clone(),
-                from,
-                kind: REGRESSION_MILESTONE_KIND.into(),
-                text: note.into(),
-                ts: now_ms,
-                links: vec![regression_link(group_key)],
-                loop_id: None,
-                iteration: None,
-                canvas: Default::default(),
-                attachments: vec![],
-            });
-            Ok(())
-        })?;
-        gate.ok_or(PlanError::GroupNotFound)
+        let turn = self.mutation_writer.enter();
+        let (gate, receipt) = self
+            .database
+            .record_group_regression_rows(plan_id, group_key, note, from, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(gate)
     }
 
     /// Record an authorized Orchestrator waiver of pending regression gates.
@@ -265,33 +244,12 @@ impl PlanStore {
         if reason.is_empty() {
             return Err(PlanError::OverrideReasonRequired);
         }
-        let mut record = None;
-        self.with_plan(plan_id, now_ms, |p| {
-            if let Some(owner) = p.owner.tab_id.as_deref() {
-                let authorized = actor.tab_id.as_deref() == Some(owner);
-                if !authorized {
-                    return Err(PlanError::OverrideNotAuthorized);
-                }
-            }
-            let gate_keys = if gates.is_empty() {
-                blocking_regression_gates(&*p)
-                    .into_iter()
-                    .map(|g| g.key)
-                    .collect::<Vec<_>>()
-            } else {
-                gates.clone()
-            };
-            let entry = RegressionGateOverride {
-                actor: actor.clone(),
-                reason: reason.to_string(),
-                gates: gate_keys,
-                ts: now_ms,
-            };
-            p.regression_gate_overrides.push(entry.clone());
-            record = Some(entry);
-            Ok(())
-        })?;
-        record.ok_or(PlanError::NotFound)
+        let turn = self.mutation_writer.enter();
+        let (record, receipt) = self
+            .database
+            .record_regression_override_rows(plan_id, gates, reason, actor, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
+        Ok(record)
     }
 }
 

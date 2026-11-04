@@ -404,7 +404,7 @@ pub fn transition_plan_to_orchestrator_core(
     activate: bool,
     planner: Option<PlannerRef>,
     now_ms: u64,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     transition_plan_owner(
         mux,
         plan_store,
@@ -429,7 +429,7 @@ pub fn recover_plan_ownership_for_new_orchestrator(
     team_id: &str,
     reason: &str,
     now_ms: u64,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     transition_plan_owner(
         mux, plan_store, plan_id, owner, team_id, reason, true, false, None, now_ms,
     )
@@ -447,7 +447,7 @@ fn transition_plan_owner(
     clear_planner: bool,
     planner_replacement: Option<(String, Option<PlannerRef>)>,
     now_ms: u64,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     let tab_id = owner
         .tab_id
         .as_deref()
@@ -1131,10 +1131,15 @@ fn verify_leaf(
 fn verify_persisted_plan_rebind(
     plan_store: &crate::service::plan::PlanStore,
     rebind: &AgentLifecyclePlanRebind,
-) -> Result<crate::plan::Plan, String> {
+) -> Result<crate::service::plan::TeamPlanMutationRead, String> {
     let plan = plan_store
-        .get(&rebind.plan_id)
-        .ok_or_else(|| format!("Plan {} not found after lifecycle rebind", rebind.plan_id))?;
+        .team_plan_mutation_projection(&rebind.plan_id)
+        .map_err(|error| {
+            format!(
+                "Plan {} lifecycle rebind verification failed: {error}",
+                rebind.plan_id
+            )
+        })?;
     if plan.owner != rebind.owner || plan.team_id.as_deref() != Some(rebind.team_id.as_str()) {
         return Err(format!(
             "plan lifecycle rebind post-condition failed for {}",

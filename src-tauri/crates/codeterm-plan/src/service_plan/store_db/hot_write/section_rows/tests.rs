@@ -38,9 +38,10 @@ fn section_family_rows_and_bytes_ignore_unrelated_history_and_other_root_bodies(
             .body
             .push_str(&"s".repeat(section_body_bytes));
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let id = store
             .add_section(
@@ -92,6 +93,9 @@ fn section_family_rows_and_bytes_ignore_unrelated_history_and_other_root_bodies(
             assert_eq!(prior, measured);
         }
         prior = Some(measured);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -129,6 +133,7 @@ fn section_removal_failure_preserves_subtree_and_committed_revision() {
         .to_string()
         .contains("injected section commit failure"));
     assert!(store.take_committed_change(&plan.id).is_none());
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);

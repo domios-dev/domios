@@ -92,7 +92,9 @@ pub mod spec_render;
 pub mod spec_store;
 pub mod state;
 mod status_projection;
-pub use curator_projection::CuratorDigestRead;
+pub use curator_projection::{
+    CuratorDigestRead, CuratorDigestScope, CuratorRoundCursorRead, CuratorRuntimeNotice,
+};
 mod store_convert_118;
 mod store_db;
 pub use status_projection::{
@@ -107,6 +109,7 @@ pub use store_db::read_projections::lane_stats::{LaneAttemptRead, LaneWatchRead}
 pub use store_db::read_projections::lane_watchdog::{LaneWatchdogRead, LaneWatchdogTaskRead};
 pub use store_db::read_projections::lifecycle::PlanLifecycleRead;
 pub use store_db::read_projections::team_close::{TeamClosePlanRead, TeamCloseTaskRead};
+pub use store_db::read_projections::team_mutation::{TeamCloseFlagRead, TeamPlanMutationRead};
 pub use store_db::read_projections::team_readers::TeamExecutionRead;
 pub mod board_state;
 mod document_projection;

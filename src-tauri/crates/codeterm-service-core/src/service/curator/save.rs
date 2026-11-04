@@ -5,10 +5,10 @@ use std::collections::BTreeSet;
 impl ServiceContext {
     pub fn curator_save_candidates(
         &self,
-        plan: &crate::plan::Plan,
+        plan_id: &str,
+        team_id: &Option<String>,
         now: u64,
     ) -> Result<std::collections::BTreeMap<String, BTreeSet<String>>, String> {
-        let plan_id = &plan.id;
         let ports = self
             .try_ext::<crate::ports::sentinel::SentinelPorts>()
             .ok_or("Blueprints unavailable")?;
@@ -16,7 +16,7 @@ impl ServiceContext {
             .store
             .records()
             .into_iter()
-            .filter(|record| record.team_id == plan.team_id)
+            .filter(|record| &record.team_id == team_id)
             .map(|record| record.id)
             .collect::<BTreeSet<_>>();
         let observed = ports.store.save_candidates();

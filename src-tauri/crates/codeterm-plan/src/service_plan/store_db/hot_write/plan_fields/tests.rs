@@ -23,9 +23,10 @@ fn goal_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
         plan.tasks[1].body.push_str(&"u".repeat(body_bytes));
         let actual_bytes = serde_json::to_vec(&plan).unwrap().len();
         let database = fixtures::database(root.path(), &plan);
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let updated = store
             .patch_goal(
@@ -52,6 +53,9 @@ fn goal_rows_and_bytes_ignore_unrelated_history_and_body_growth() {
             assert_eq!(prior, measured);
         }
         prior = Some(measured);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -116,6 +120,7 @@ fn goal_failure_rolls_back_payload_revision_and_commit_receipt() {
         )
         .unwrap();
     assert_eq!(state, "failed");
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);

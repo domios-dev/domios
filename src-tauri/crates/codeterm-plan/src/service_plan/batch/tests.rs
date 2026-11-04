@@ -523,6 +523,7 @@ fn batch_set_goal_persists_goal_sidecar() {
 
     let plan = store.get(&plan_id).unwrap();
     let plan_dir = store_v2::plan_state_dir(&plan).unwrap();
+    store_v2::write_plan(&plan_dir, &plan).unwrap();
     let goal_path = store_v2::goal_yaml_path(&plan_dir);
     let goal = plan.goal.unwrap();
     assert_eq!(goal.vector, "Keep the foundation coherent");

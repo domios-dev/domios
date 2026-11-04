@@ -215,20 +215,11 @@ impl PlanStore {
         selectors: &[String],
         now_ms: u64,
     ) -> Result<Vec<String>, PlanError> {
-        let mut linked = vec![];
-        self.with_plan(plan_id, now_ms, |plan| {
-            let resolved = resolve_selectors(plan, selectors);
-            let task = crate::plan::task_key::find_task_mut(&mut plan.tasks, task_id)
-                .ok_or(PlanError::TaskNotFound)?;
-            for section_id in resolved {
-                if !task.section_ids.iter().any(|id| id == &section_id) {
-                    task.section_ids.push(section_id.clone());
-                }
-                linked.push(section_id);
-            }
-            task.updated_at = now_ms;
-            Ok(())
-        })?;
+        let turn = self.mutation_writer.enter();
+        let (linked, receipt) = self
+            .database
+            .link_task_section_rows(plan_id, task_id, selectors, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
         Ok(linked)
     }
 
@@ -243,44 +234,9 @@ impl PlanStore {
             return Ok(section_link_preview(&plan));
         }
 
-        let mut report = SectionRelinkReport {
-            applied: vec![],
-            suggestions: vec![],
-            unlinked_count: 0,
-        };
-        self.with_plan(plan_id, now_ms, |plan| {
-            let sections = section_candidates(plan);
-            for task in plan
-                .tasks
-                .iter_mut()
-                .filter(|task| task.section_ids.is_empty())
-            {
-                report.unlinked_count += 1;
-                let Some((section, reason)) = suggest_for_task(
-                    &sections,
-                    &task.name,
-                    task.handle.as_deref(),
-                    task.group.as_deref(),
-                ) else {
-                    continue;
-                };
-                let suggestion = SectionLinkSuggestion {
-                    task_id: task.id.clone(),
-                    task_name: task.name.clone(),
-                    section_id: section.id.clone(),
-                    section_title: section.title.clone(),
-                    reason,
-                };
-                if apply {
-                    task.section_ids.push(section.id.clone());
-                    task.updated_at = now_ms;
-                    report.applied.push(suggestion);
-                } else {
-                    report.suggestions.push(suggestion);
-                }
-            }
-            Ok(())
-        })?;
+        let turn = self.mutation_writer.enter();
+        let (report, receipt) = self.database.relink_task_section_rows(plan_id, now_ms)?;
+        self.publish_hot_receipt(&turn, receipt);
         Ok(report)
     }
 }

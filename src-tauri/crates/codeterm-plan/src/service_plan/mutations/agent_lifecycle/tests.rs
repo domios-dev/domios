@@ -74,10 +74,10 @@ fn partial_restore(warm: bool) {
     connection
         .execute_batch("DROP TRIGGER refuse_restore")
         .unwrap();
-    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Active);
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
     assert_eq!(store.get("pl_b").unwrap().status, PlanStatus::Archived);
     if let Some(handle) = retained {
-        assert_eq!(handle.lock().status, PlanStatus::Active);
+        assert_eq!(handle.lock().status, PlanStatus::Archived);
     }
     assert_matches_sql(&store);
 }
@@ -107,11 +107,14 @@ fn forward_restore_failure(warm: bool) {
         )
         .unwrap();
     let error = store.apply_agent_lifecycle_change(change(), 2).unwrap_err();
-    assert!(error.to_string().contains("restore pl_a"), "{error}");
+    assert!(
+        error.to_string().contains("injected batch failure"),
+        "{error}"
+    );
     connection
         .execute_batch("DROP TRIGGER refuse_forward_or_restore")
         .unwrap();
-    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Archived);
+    assert_eq!(store.get("pl_a").unwrap().status, PlanStatus::Active);
     assert_eq!(store.get("pl_b").unwrap().status, PlanStatus::Active);
     assert_matches_sql(&store);
 }

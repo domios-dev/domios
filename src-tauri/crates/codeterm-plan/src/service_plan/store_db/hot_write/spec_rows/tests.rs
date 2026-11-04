@@ -37,9 +37,10 @@ fn spec_family_rows_and_bytes_ignore_unrelated_plan_history_and_body_growth() {
         let database = fixtures::database(root.path(), &plan);
         let selected = spec(root.path());
         database.persist_spec(&selected).unwrap();
-        fixtures::audit(&database);
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
         drop(database);
         let store = PlanStore::open(root.path().join("plans.db")).unwrap();
+        fixtures::audit(&store.database);
         load_audit::start(&store);
         let mut work = Vec::new();
         store
@@ -101,6 +102,9 @@ fn spec_family_rows_and_bytes_ignore_unrelated_plan_history_and_body_growth() {
             Some(created.id.as_str())
         );
         println!("operation=create_spec_plan receipt={creation:?} response_bytes={response_bytes}");
+        crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(
+            &store.database,
+        );
         drop(store);
         let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
         let stored = reopened.load_plan(&plan.id).unwrap().unwrap();
@@ -142,6 +146,7 @@ fn failed_spec_link_rolls_back_ownership_and_every_plan_reference() {
     let database = fixtures::database(root.path(), &plan);
     let selected = spec(root.path());
     database.persist_spec(&selected).unwrap();
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let store = PlanStore::open(root.path().join("plans.db")).unwrap();
     store.database.pending_changes.lock().take(&plan.id);
@@ -153,6 +158,7 @@ fn failed_spec_link_rolls_back_ownership_and_every_plan_reference() {
         .contains("injected spec link failure"));
     assert!(store.take_committed_change(&plan.id).is_none());
     assert_eq!(store.get_spec(&selected.id).unwrap(), selected);
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&plan.id).unwrap().unwrap(), plan);
@@ -185,6 +191,7 @@ fn failed_spec_delete_rolls_back_all_referencing_plans_and_the_spec() {
     second.id = "second".into();
     second.title = "second".into();
     database.persist_plan_rows(&second, None).unwrap();
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let store = PlanStore::open(root.path().join("plans.db")).unwrap();
     store.database.pending_changes.lock().take(&first.id);
@@ -199,6 +206,7 @@ fn failed_spec_delete_rolls_back_all_referencing_plans_and_the_spec() {
         store.take_committed_change(&first.id).is_none()
             && store.take_committed_change(&second.id).is_none()
     );
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_plan(&first.id).unwrap().unwrap(), first);
@@ -225,6 +233,7 @@ fn concurrent_spec_plan_creation_commits_one_claim_without_an_orphan() {
     let database = fixtures::database(root.path(), &plan);
     let selected = spec(root.path());
     database.persist_spec(&selected).unwrap();
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let store = Arc::new(PlanStore::open(root.path().join("plans.db")).unwrap());
     let barrier = Arc::new(Barrier::new(3));
@@ -276,6 +285,7 @@ fn failed_spec_plan_claim_rolls_back_new_plan_sections_and_owner() {
     let database = fixtures::database(root.path(), &plan);
     let selected = spec(root.path());
     database.persist_spec(&selected).unwrap();
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&database);
     drop(database);
     let store = PlanStore::open(root.path().join("plans.db")).unwrap();
     store.database.connection.lock().execute_batch("CREATE TRIGGER reject_spec_claim BEFORE UPDATE ON specs WHEN NEW.id='selected-spec' AND NEW.plan_id IS NOT OLD.plan_id BEGIN SELECT RAISE(ABORT,'injected spec claim failure'); END;").unwrap();
@@ -292,6 +302,7 @@ fn failed_spec_plan_claim_rolls_back_new_plan_sections_and_owner() {
         .to_string()
         .contains("injected spec claim failure"));
     assert_eq!(store.list_index().unwrap().len(), 1);
+    crate::service_plan::store_db::hot_write::tests::fixtures::remove_observers(&store.database);
     drop(store);
     let reopened = PlanDatabase::open(root.path().join("plans.db")).unwrap();
     assert_eq!(reopened.load_index_rows().unwrap().len(), 1);

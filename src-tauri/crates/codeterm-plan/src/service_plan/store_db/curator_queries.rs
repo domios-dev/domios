@@ -75,34 +75,7 @@ impl PlanDatabase {
                 }
             }
         }
-        record_query();
-        let group_close: Option<String> = connection
-            .query_row(
-                "WITH declared AS MATERIALIZED (
-                SELECT domios_schedule_group_key(g.value->'$.key') AS group_key
-                FROM plans p,json_each(p.header_json,'$.task_groups') g WHERE p.id=?1
-             ), task_groups AS MATERIALIZED (
-                SELECT status,domios_schedule_task_group(row_json->'$.group') AS group_key,
-                    coalesce(row_json->'$.status_changed_at','0') AS changed
-                FROM plan_tasks WHERE plan_id=?1
-             ), completed_groups AS (
-                SELECT max(domios_schedule_timestamp(changed)) AS ts
-                FROM task_groups WHERE group_key IN (SELECT group_key FROM declared)
-                GROUP BY group_key
-                HAVING sum(status NOT IN ('done','cancelled'))=0 AND sum(status='done')>0
-             ), closes AS (
-                SELECT ts FROM completed_groups UNION ALL
-                SELECT domios_schedule_timestamp(row_json->'$.ts') FROM plan_strides
-                    WHERE plan_id=?1 AND json_extract(row_json,'$.kind')='group_close')
-             SELECT max(ts) FROM closes",
-                [plan_id],
-                |row| column(row, 0),
-            )
-            .map_err(db_error)?;
-        let group_close = group_close
-            .map(|value| value.parse::<u64>())
-            .transpose()
-            .map_err(|error| PlanError::Io(error.to_string()))?;
+        let group_close = schedule_group_close(&connection, plan_id)?;
         Ok(CuratorScheduleRead {
             metadata,
             connection,
@@ -179,7 +152,7 @@ impl Drop for WithoutRounds<'_> {
     }
 }
 
-fn register_timestamp(connection: &Connection) -> Result<(), PlanError> {
+pub(super) fn register_timestamp(connection: &Connection) -> Result<(), PlanError> {
     use rusqlite::functions::FunctionFlags;
     connection
         .create_scalar_function(
@@ -230,4 +203,39 @@ fn register_timestamp(connection: &Connection) -> Result<(), PlanError> {
             },
         )
         .map_err(db_error)
+}
+
+pub(super) fn schedule_group_close(
+    connection: &Connection,
+    plan_id: &str,
+) -> Result<Option<u64>, PlanError> {
+    record_query();
+    let group_close: Option<String> = connection
+        .query_row(
+            "WITH declared AS MATERIALIZED (
+                SELECT domios_schedule_group_key(g.value->'$.key') AS group_key
+                FROM plans p,json_each(p.header_json,'$.task_groups') g WHERE p.id=?1
+             ), task_groups AS MATERIALIZED (
+                SELECT status,domios_schedule_task_group(row_json->'$.group') AS group_key,
+                    coalesce(row_json->'$.status_changed_at','0') AS changed
+                FROM plan_tasks WHERE plan_id=?1
+             ), completed_groups AS (
+                SELECT max(domios_schedule_timestamp(changed)) AS ts
+                FROM task_groups WHERE group_key IN (SELECT group_key FROM declared)
+                GROUP BY group_key
+                HAVING sum(status NOT IN ('done','cancelled'))=0 AND sum(status='done')>0
+             ), closes AS (
+                SELECT ts FROM completed_groups UNION ALL
+                SELECT domios_schedule_timestamp(row_json->'$.ts') FROM plan_strides
+                    WHERE plan_id=?1 AND json_extract(row_json,'$.kind')='group_close')
+             SELECT max(ts) FROM closes",
+            [plan_id],
+            |row| column(row, 0),
+        )
+        .map_err(db_error)?;
+    let group_close = group_close
+        .map(|value| value.parse::<u64>())
+        .transpose()
+        .map_err(|error| PlanError::Io(error.to_string()))?;
+    Ok(group_close)
 }
