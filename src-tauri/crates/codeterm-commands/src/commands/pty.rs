@@ -137,7 +137,7 @@ pub async fn spawn_pty_core(
         env_svc.frontend_pty_env(env_tab_id.as_deref())
     })
     .await
-    .map_err(|error| format!("spawn_pty env join error: {error}"))?;
+    .map_err(|error| format!("spawn_pty env join error: {error}"))??;
 
     let owner = svc.clone();
     let requested_tab = tab_id.clone();

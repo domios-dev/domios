@@ -101,7 +101,7 @@ impl ServiceContext {
         };
         let pad = self.ensure_agent_pad(tab_id)?;
         let project =
-            launch_session_detection::canonical_project_for_launch(self, tab_id, params, &cwd);
+            launch_session_detection::canonical_project_for_launch(self, tab_id, params, &cwd)?;
         let roots = if let Some(policy) = &policy {
             policy.writable_roots.iter().map(PathBuf::from).collect()
         } else if self

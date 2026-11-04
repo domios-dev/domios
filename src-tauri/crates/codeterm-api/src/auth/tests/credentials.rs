@@ -19,6 +19,7 @@ fn fixture() -> (ServiceFixture, AppState, String, String, String) {
     let token = state
         .svc
         .frontend_pty_env(Some(&first))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     (fixture, state, first, second, token)
@@ -114,6 +115,7 @@ async fn rest_refuses_revoked_launch_and_closed_tab_tokens() {
     let current = state
         .svc
         .frontend_pty_env(Some(&tab))
+        .unwrap()
         .remove("CODETERM_API_TOKEN")
         .unwrap();
     assert_eq!(
